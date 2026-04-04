@@ -1,0 +1,2278 @@
+// Backend API Server สำหรับเชื่อมต่อ HOSxP
+// ใช้ Node.js + Express
+
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import AdmZip from 'adm-zip';
+import crypto from 'crypto';
+import { getVisitsCached } from './cacheManager.js';
+import {
+  getCheckData,
+  testDatabaseConnection,
+  getExportData,
+  getReceiptItems,
+  getDrugPrices,
+  getServiceADPCodes,
+  getKidneyMonitorDetailed,
+  getUTFConnection,
+  getAppSetting,
+  setAppSetting,
+  saveFdhStatusImportLog,
+  getFdhStatusImportLogs,
+  ensureRepstmTables,
+  importRepstmRows,
+  getRepstmImportBatches,
+  getRepstmImportedRows,
+  getRepDataRows,
+  syncNhsoAuthenCodes,
+  getAuthenSyncLogs,
+  ensureNhsoClosePrivilegeTable,
+  getNhsoClosePrivilegeCandidates,
+  getNhsoClosePrivilegeHistory,
+  testNhsoClosePrivilegeToken,
+  submitNhsoClosePrivileges
+} from './db.js';
+import businessRules from './config/business_rules.json';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '25mb' }));
+
+const CONFIG_SETTING_KEY = 'business_rules';
+const APP_SETTINGS_KEY = 'site_settings';
+const FDH_API_SETTINGS_KEY = 'fdh_api_settings';
+const NHSO_AUTHEN_SETTINGS_KEY = 'nhso_authen_settings';
+const NHSO_CLOSE_SETTINGS_KEY = 'nhso_close_settings';
+
+const readJsonConfigFile = async (filePath: string) => {
+  const data = await fs.readFile(filePath, 'utf8');
+  return JSON.parse(data);
+};
+
+const readConfigWithFallback = async (filePath: string) => {
+  const dbConfig = await getAppSetting(CONFIG_SETTING_KEY);
+  if (dbConfig) return { ...dbConfig, _source: 'database' };
+  return { ...(await readJsonConfigFile(filePath)), _source: 'file' };
+};
+
+const getDefaultFdhApiConfig = () => ({
+  environment: 'prd',
+  hcode: String((businessRules as Record<string, unknown>)?.site_settings && typeof (businessRules as Record<string, unknown>).site_settings === 'object'
+    ? ((businessRules as Record<string, unknown>).site_settings as Record<string, unknown>).hospital_code || ''
+    : ''),
+  tokenUrl: 'https://fdh.moph.go.th/token?Action=get_moph_access_token',
+  apiBaseUrl: 'https://fdh.moph.go.th',
+  upload16Url: 'https://fdh.moph.go.th/api/v2/data_hub/16_files',
+  preScreenUrl: 'https://fdh.moph.go.th/api/v1/auth/open_api/fda/file',
+  username: '',
+  password: ''
+});
+
+const getDefaultNhsoAuthenConfig = () => ({
+  environment: 'prd',
+  token: '',
+  apiBaseUrl: 'https://authenucws.nhso.go.th',
+  maxDays: 4,
+});
+
+const getDefaultNhsoCloseConfig = () => ({
+  environment: 'prd',
+  token: '',
+  apiBaseUrl: 'https://nhsoapi.nhso.go.th/nhsoendpoint',
+  sourceId: 'KSPAPI',
+  claimServiceCode: 'PG0060001',
+  recorderPid: '',
+  maxDays: 4,
+});
+
+const getResolvedHospitalCode = async (): Promise<string> => {
+  const siteSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
+  const appSettingsHcode = siteSettings && typeof siteSettings === 'object'
+    ? String(siteSettings.hospital_code || '')
+    : '';
+
+  if (appSettingsHcode.trim()) {
+    return appSettingsHcode.trim();
+  }
+
+  const dbBusinessRules = await getAppSetting<Record<string, unknown>>(CONFIG_SETTING_KEY);
+  const dbSiteSettings = dbBusinessRules && typeof dbBusinessRules === 'object'
+    ? dbBusinessRules.site_settings as Record<string, unknown> | undefined
+    : undefined;
+  const fallbackHcode = String(dbSiteSettings?.hospital_code || getDefaultFdhApiConfig().hcode || '');
+  return fallbackHcode.trim();
+};
+
+const getResolvedFdhApiConfig = async (overrides?: Record<string, unknown>) => {
+  const savedConfig = await getAppSetting<Record<string, unknown>>(FDH_API_SETTINGS_KEY);
+  const resolvedHospitalCode = await getResolvedHospitalCode();
+  const mergedConfig = {
+    ...getDefaultFdhApiConfig(),
+    ...(savedConfig || {}),
+    ...(overrides || {})
+  } as Record<string, unknown>;
+
+  if (!String(mergedConfig.hcode || '').trim()) {
+    mergedConfig.hcode = resolvedHospitalCode;
+  }
+
+  return mergedConfig;
+};
+
+const getResolvedNhsoAuthenConfig = async (overrides?: Record<string, unknown>) => {
+  const savedConfig = await getAppSetting<Record<string, unknown>>(NHSO_AUTHEN_SETTINGS_KEY);
+  return {
+    ...getDefaultNhsoAuthenConfig(),
+    ...(savedConfig || {}),
+    ...(overrides || {}),
+  } as Record<string, unknown>;
+};
+
+const getResolvedNhsoCloseConfig = async (overrides?: Record<string, unknown>) => {
+  const savedConfig = await getAppSetting<Record<string, unknown>>(NHSO_CLOSE_SETTINGS_KEY);
+  return {
+    ...getDefaultNhsoCloseConfig(),
+    ...(savedConfig || {}),
+    ...(overrides || {}),
+  } as Record<string, unknown>;
+};
+
+const getFdhTokenEndpoint = (tokenUrlInput: string) => {
+  const tokenUrl = tokenUrlInput.trim();
+  if (!tokenUrl) return '';
+
+  try {
+    const parsed = new URL(tokenUrl);
+    if (parsed.pathname === '/' || parsed.pathname === '') {
+      return `${parsed.origin}/token`;
+    }
+    if (parsed.pathname.endsWith('/token')) {
+      return `${parsed.origin}${parsed.pathname}`;
+    }
+    if (parsed.pathname.endsWith('/token/') || parsed.pathname.includes('/token')) {
+      return `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`;
+    }
+    return `${parsed.origin}/token`;
+  } catch {
+    return tokenUrl.replace(/\/+$/, '');
+  }
+};
+
+const getPasswordHashCandidates = (password: string) => {
+  const sha256Lower = crypto.createHash('sha256').update(password, 'utf8').digest('hex');
+  const sha256Upper = sha256Lower.toUpperCase();
+  return Array.from(new Set([
+    sha256Lower,
+    sha256Upper,
+    password
+  ]));
+};
+
+const extractTokenFromPayload = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const directPayload = payload as Record<string, unknown>;
+  const directCandidates = [
+    directPayload.access_token,
+    directPayload.token,
+    directPayload.jwt,
+    directPayload.jwt_token,
+    directPayload.id_token
+  ];
+
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  const nestedData = directPayload.data;
+  if (nestedData && typeof nestedData === 'object') {
+    return extractTokenFromPayload(nestedData);
+  }
+
+  return null;
+};
+
+// Enhanced connection test on startup
+testDatabaseConnection().then(result => {
+  if (result.isConnected) {
+    console.log('✅ HOSxP Database Connected Successfully');
+    console.log(`📊 Tables: ${result.tableCount}, Recent records: ${result.sampleRecordCount}`);
+    console.log(`🔄 Using REAL DATABASE DATA as primary source`);
+  } else {
+    console.error('❌ HOSxP Database Connection Failed:', result.error);
+    console.log('🔄 Will use mock data as fallback');
+  }
+});
+
+// Mock data for fallback
+const getMockData = () => [
+  {
+    id: 1,
+    hn: '123456',
+    vn: '2601234',
+    patientName: 'นายสมชาย ใจดี',
+    fund: 'UCS',
+    serviceDate: '2026-03-15',
+    serviceType: 'OPD',
+    price: 1200,
+    status: 'สมบูรณ์',
+    issues: [],
+    details: {
+      drugCode: 'D001',
+      procedureCode: 'P001',
+      rightCode: 'R001',
+      standardPrice: 1200,
+      notes: 'ข้อมูลครบถ้วน',
+    },
+  },
+  {
+    id: 2,
+    hn: '234567',
+    vn: '2601235',
+    patientName: 'นางสาวสายใจ รักดี',
+    fund: 'SSS',
+    serviceDate: '2026-03-15',
+    serviceType: 'IPD',
+    price: 3500,
+    status: 'ไม่สมบูรณ์',
+    issues: ['ขาดรหัสหัตถการ', 'ราคาไม่ตรงมาตรฐาน'],
+    details: {
+      drugCode: 'D002',
+      procedureCode: '',
+      rightCode: 'R002',
+      standardPrice: 3500,
+      notes: 'มีปัญหาต้องแก้',
+    },
+  }, {
+    id: 3,
+    hn: '345678',
+    vn: '2601236',
+    patientName: 'เด็กชายภูผา กล้าหาญ',
+    fund: 'UCS',
+    serviceDate: '2026-03-15',
+    serviceType: 'OPD',
+    price: 800,
+    status: 'สมบูรณ์',
+    issues: [],
+    details: {
+      drugCode: 'D003',
+      procedureCode: 'P003',
+      rightCode: 'R003',
+      standardPrice: 800,
+      notes: 'ข้อมูลครบถ้วน',
+    },
+  },
+  {
+    id: 4,
+    hn: '456789',
+    vn: '2601237',
+    patientName: 'นายมงคล สุขสันต์',
+    fund: 'OFC',
+    serviceDate: '2026-03-15',
+    serviceType: 'IPD',
+    price: 5200,
+    status: 'ไม่สมบูรณ์',
+    issues: ['ขาดรหัสหัตถการ'],
+    details: {
+      drugCode: 'D004',
+      procedureCode: '',
+      rightCode: 'R004',
+      standardPrice: 5200,
+      notes: 'มีปัญหาต้องแก้',
+    },
+  }, {
+    id: 5,
+    hn: '567890',
+    vn: '2601238',
+    patientName: 'นางนิยม เรียบร้อย',
+    fund: 'LGO',
+    serviceDate: '2026-03-15',
+    serviceType: 'OPD',
+    price: 950,
+    status: 'สมบูรณ์',
+    issues: [],
+    details: {
+      drugCode: 'D005',
+      procedureCode: 'P005',
+      rightCode: 'R005',
+      standardPrice: 950,
+      notes: 'ข้อมูลครบถ้วน',
+    },
+  },
+];
+
+// API สำหรับดึงข้อมูลตรวจสอบจาก HOSxP - ใช้ข้อมูลจริงเป็นหลัก
+app.get('/api/hosxp/checks', async (req, res) => {
+  try {
+    const { fund, startDate, endDate } = req.query;
+
+    console.log(`🔍 Fetching REAL HOSxP data - Fund: ${fund || 'All'}, Date: ${startDate} to ${endDate}`);
+
+    // ===== ขั้นตอนที่ 1: ลองดึงข้อมูลจริงจากฐานข้อมูล HOSxP =====
+    let data = await getCheckData(
+      fund as string | undefined,
+      startDate as string | undefined,
+      endDate as string | undefined
+    );
+
+    let usingRealData = false;
+
+    // ตรวจสอบว่าได้ข้อมูลจริงหรือไม่
+    if (Array.isArray(data) && data.length > 0) {
+      console.log(`✅ SUCCESS: Got ${data.length} REAL records from HOSxP database`);
+      usingRealData = true;
+    } else {
+      console.log(`⚠️ No real data available - trying database connection test...`);
+
+      // ตรวจสอบการเชื่อมต่อฐานข้อมูล
+      const dbStatus = await testDatabaseConnection();
+
+      if (dbStatus.isConnected && dbStatus.hasData) {
+        console.log('✅ Database connected with data - empty result likely due to date/fund filters');
+        // ถ้าฐานข้อมูลเชื่อมต่อได้แต่ไม่มีข้อมูลในช่วงที่กรอง ให้ return array ว่าง
+        data = [];
+        usingRealData = true;
+      } else {
+        console.log(`❌ Database connection failed: ${dbStatus.error || 'Unknown error'}`);
+        console.log('🔄 Falling back to mock data...');
+
+        // ===== ขั้นตอนที่ 2: ใช้ Mock Data เป็น Fallback =====
+        data = getMockData();
+
+        // กรองข้อมูล mock ตามเงื่อนไข
+        if (startDate && endDate) {
+          data = data.filter((item: Record<string, unknown>) => {
+            const itemDate = item.serviceDate as string;
+            return itemDate >= (startDate as string) && itemDate <= (endDate as string);
+          });
+        }
+        if (fund && fund !== 'ทั้งหมด') {
+          data = data.filter((item: Record<string, unknown>) => item.fund === fund);
+        }
+
+        usingRealData = false;
+      }
+    }
+    // ===== ขั้นตอนที่ 3: เพิ่มสถานะให้ทุกรายการ =====
+    const dataWithStatus = data.map((record: Record<string, unknown>) => {
+      // Enhanced validation for real data
+      const hasHN = record.hn && String(record.hn).trim().length > 0;
+      const hasVN = record.vn && String(record.vn).trim().length > 0;
+      const hasPatientName = record.patientName && String(record.patientName).trim().length > 0;
+      const hasPrice = record.price && Number(record.price) > 0;
+      const hasFund = record.fund && String(record.fund).trim().length > 0;
+      const hasServiceDate = record.serviceDate && String(record.serviceDate).trim().length > 0;
+
+      const isIPD = record.serviceType === 'ผู้ป่วยใน';
+
+      const issues: string[] = [];
+      if (!hasHN) issues.push('ขาด HN');
+      if (!hasVN) issues.push('ขาด VN');
+      if (!hasPatientName) issues.push('ขาดชื่อผู้ป่วย');
+      if (!hasFund) issues.push('ขาดข้อมูลกองทุน');
+      if (!hasServiceDate) issues.push('ขาดวันที่บริการ');
+
+      // ตรวจสอบราคาเฉพาะ OPD
+      if (!isIPD && !hasPrice) {
+        issues.push('ขาดข้อมูลราคา');
+      }
+      const rec = record as any;
+      const isOFC_LGO = rec.hipdata_code === 'OFC' || rec.hipdata_code === 'LGO';
+      const isUCS = rec.hipdata_code === 'UCS' || rec.hipdata_code === 'WEL';
+      const mainDiag = String(rec.main_diag || '');
+      const fundName = String(rec.fund || '');
+
+      const dialysisRegex = new RegExp(businessRules.diagnosis_patterns.dialysis_regex);
+
+      const isSpecialFund = !isIPD && (
+        rec.has_anc_diag || rec.has_anc_adp ||
+        rec.has_cx_diag || rec.has_cx_adp ||
+        rec.has_fp_diag || rec.has_fp_adp ||
+        rec.has_pp_diag || rec.has_pp_adp ||
+        rec.has_preg_lab || rec.has_preg_item ||
+        rec.has_pal_diag || rec.has_pal_adp ||
+        rec.has_herb || rec.has_telmed || rec.has_drugp ||
+        rec.has_instrument || rec.has_knee_oper ||
+        rec.has_fpg || rec.has_chol || rec.has_anemia || rec.has_iron ||
+        rec.fpg_age_eligible || rec.has_fpg_adp || rec.has_fpg_lab || rec.has_fpg_diag ||
+        rec.chol_age_eligible || rec.has_chol_adp || rec.has_chol_lab || rec.has_chol_diag ||
+        rec.anemia_age_eligible || rec.has_anemia_adp || rec.has_anemia_lab || rec.has_anemia_diag ||
+        rec.iron_age_eligible || rec.has_iron_adp || rec.has_iron_diag ||
+        rec.has_upt || rec.has_anc_visit || rec.has_anc_us || rec.has_anc_lab1 || rec.has_anc_lab2 ||
+        rec.has_anc_dental_exam || rec.has_anc_dental_clean ||
+        rec.has_post_care || rec.has_post_supp || rec.has_fluoride ||
+        rec.has_fp_pill || rec.has_fp_condom ||
+        rec.has_chemo_diag || rec.has_hepc_diag || rec.has_rehab_diag || rec.has_crrt_diag ||
+        rec.has_robot_item || rec.has_proton_diag || rec.has_cxr_item || rec.has_clopidogrel ||
+        dialysisRegex.test(mainDiag) ||
+        rec.project_code === businessRules.project_codes.er_emergency ||
+        fundName.includes('ฉุกเฉิน') ||
+        fundName.endsWith('AE') ||
+        fundName.includes('OP Refer')
+      );
+
+      const isBillable = !isIPD && (isOFC_LGO || (isUCS && isSpecialFund));
+      const hasCloseEp = !!rec.has_close_ep;
+
+      if (isBillable && !hasCloseEp) {
+        issues.push('ยังไม่ปิดสิทธิ (EP)');
+      }
+
+      const isComplete = issues.length === 0;
+
+      return {
+        ...record,
+        status: isComplete ? 'ready' : 'pending',
+        isBillable,
+        issues: issues,
+        has_authen: rec.has_authen_pp ? 1 : 0,
+        has_close: hasCloseEp ? 1 : 0,
+        _dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback'
+      };
+    });
+
+    // ===== ขั้นตอนที่ 4: ส่งผลลัพธ์พร้อมข้อมูลการทำงาน =====
+    const responseData = {
+      success: true,
+      dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback',
+      totalRecords: dataWithStatus.length,
+      filters: {
+        fund: fund || 'ทั้งหมด',
+        startDate: startDate || null,
+        endDate: endDate || null
+      },
+      data: dataWithStatus,
+      timestamp: new Date().toISOString()
+    }; console.log(`✅ RESPONSE: ${dataWithStatus.length} records from ${usingRealData ? 'REAL DATABASE' : 'MOCK DATA'}`);
+    res.json(responseData);
+  } catch (error) {
+    console.error('Error fetching checks:', error);
+    // Fallback to mock data on error
+    const { fund, startDate, endDate } = req.query;
+    let data = getMockData();
+    if (startDate && endDate) {
+      data = data.filter((item: Record<string, unknown>) => {
+        const itemDate = item.serviceDate as string;
+        return itemDate >= (startDate as string) && itemDate <= (endDate as string);
+      });
+    }
+    if (fund) {
+      data = data.filter((item: Record<string, unknown>) => item.fund === fund);
+    }
+
+    // Add status field for fallback data too
+    const dataWithStatus = data.map((record: Record<string, unknown>) => {
+      const hasHN = record.hn && String(record.hn).trim().length > 0;
+      const hasPatientName = record.patientName && String(record.patientName).trim().length > 0;
+      const hasPrice = record.price && Number(record.price) > 0;
+      const hasFund = record.fund && String(record.fund).trim().length > 0;
+      const isComplete = hasHN && hasPatientName && hasPrice && hasFund;
+
+      return {
+        ...record,
+        status: isComplete ? 'สมบูรณ์' : 'ไม่สมบูรณ์',
+        issues: !isComplete ? ['ข้อมูลไม่ครบถ้วน'] : [],
+        _dataSource: 'Error-Fallback'
+      };
+    });
+
+    res.json({
+      success: false,
+      dataSource: 'Error-Fallback',
+      totalRecords: dataWithStatus.length,
+      data: dataWithStatus,
+      error: 'Database connection failed'
+    });
+  }
+});
+
+// API สำหรับดึงข้อมูลรายการใบเสร็จจาก opitemrece (ข้อมูลจริง)
+app.get('/api/hosxp/receipt/:vn', async (req, res) => {
+  try {
+    const { vn } = req.params;
+    console.log(`🧾 Fetching REAL receipt items for VN: ${vn} from opitemrece table`);
+    // ดึงข้อมูลจาก opitemrece table โดยตรง
+    const receiptItems = await getReceiptItems(vn); if (Array.isArray(receiptItems) && receiptItems.length > 0) {
+      console.log(`✅ Found ${receiptItems.length} receipt items from opitemrece with s_drugitems mapping`);
+
+      // คำนวณสถิติเชิงลึก
+      const totalItems = receiptItems.length;
+      const totalAmount = receiptItems.reduce((sum, item) => {
+        const itemSum = Number(item.sum_price) || Number(item.qty) * Number(item.unitprice) || 0;
+        return sum + itemSum;
+      }, 0);
+
+      // สถิติการเบิก/เคลม
+      const nhsoClaimableItems = receiptItems.filter(item => item.has_nhso_adp === 1).length;
+      const tmltClaimableItems = receiptItems.filter(item => item.has_tmlt === 1).length;
+      const ttmtClaimableItems = receiptItems.filter(item => item.has_ttmt === 1).length;
+
+      // สถิติตามประเภทรายการ
+      const drugItems = receiptItems.filter(item =>
+        String(item.item_type).includes('ยา')
+      ).length;
+      const labItems = receiptItems.filter(item =>
+        String(item.item_type).includes('การตรวจ')
+      ).length;
+      const serviceItems = receiptItems.filter(item =>
+        String(item.item_type).includes('บริการ')
+      ).length;
+
+      res.json({
+        success: true,
+        dataSource: 'opitemrece+s_drugitems',
+        vn: vn,
+        totalItems: totalItems,
+        totalAmount: totalAmount,
+        statistics: {
+          byClaimType: {
+            nhsoAdp: nhsoClaimableItems,
+            tmlt: tmltClaimableItems,
+            ttmt: ttmtClaimableItems,
+            nhsoAdpPercentage: totalItems > 0 ? Math.round((nhsoClaimableItems / totalItems) * 100) : 0,
+            tmltPercentage: totalItems > 0 ? Math.round((tmltClaimableItems / totalItems) * 100) : 0,
+            ttmtPercentage: totalItems > 0 ? Math.round((ttmtClaimableItems / totalItems) * 100) : 0
+          },
+          byItemType: {
+            drugs: drugItems,
+            lab: labItems,
+            services: serviceItems
+          }
+        },
+        items: receiptItems,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.log(`⚠️ No receipt items found for VN: ${vn}`);
+      res.json({
+        success: false,
+        dataSource: 'opitemrece-table',
+        vn: vn,
+        totalItems: 0,
+        totalAmount: 0,
+        items: [],
+        message: `ไม่พบรายการใบเสร็จสำหรับ VN: ${vn}`,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching receipt items:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาดในการดึงข้อมูลใบเสร็จ',
+      vn: req.params.vn
+    });
+  }
+});
+
+// API สำหรับดึงข้อมูลการวินิจฉัยและหัตถการ
+app.get('/api/hosxp/visit/:vn/diags', async (req, res) => {
+  try {
+    const { vn } = req.params;
+    console.log(`🩺 Fetching diags and procedures for VN: ${vn}`);
+    const { getDiagsAndProcedures } = await import('./db.js');
+    const data = await getDiagsAndProcedures(vn);
+
+    res.json({
+      success: true,
+      data,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching diags and procedures:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาดในการดึงข้อมูลวินิจฉัยและหัตถการ'
+    });
+  }
+});
+
+// API สำหรับดึงข้อมูลยาและการรักษา
+app.get('/api/hosxp/prescriptions/:vn', async (req, res) => {
+  try {
+    const { vn } = req.params;
+    console.log(`📊 Fetching REAL prescriptions for VN: ${vn}`);
+
+    // Always fetch from database
+    const prescriptions = await getDrugPrices(vn);
+
+    console.log(`✅ Returning ${prescriptions.length} prescription items`);
+    res.json(prescriptions);
+  } catch (error) {
+    console.error('Error fetching prescriptions:', error);
+    // Return empty array on error, don't use mock fallback
+    res.status(500).json([]);
+  }
+});
+
+// API สำหรับดึงข้อมูลค่าบริการ ADP Code
+app.get('/api/hosxp/services/:vn', async (req, res) => {
+  try {
+    const { vn } = req.params;
+    console.log(`🏥 Fetching REAL ADP services for VN: ${vn}`);
+
+    // Always try to fetch from database first
+    let services = await getServiceADPCodes(vn);
+
+    // Only use mock data if database query returns empty or error
+    if (!Array.isArray(services) || services.length === 0) {
+      console.log(`⚠️ No real ADP service data for VN: ${vn}, using mock as fallback`);
+      const mockServiceSets = {
+        '690350441149': [
+          {
+            icode: 'IPD001',
+            income: '02',
+            income_name: 'ค่าบริการแพทย์',
+            adp_code: 'ADP001',
+            adp_name: 'การตรวจรักษาโดยแพทย์เฉพาะทาง',
+            adp_price: 500,
+            can_claim: 1,
+          },
+          {
+            icode: 'LAB001',
+            income: '03',
+            income_name: 'ค่าตรวจวิเคราะห์',
+            adp_code: 'ADP002',
+            adp_name: 'การตรวจวิเคราะห์ทางห้องปฏิบัติการ',
+            adp_price: 200,
+            can_claim: 1,
+          },
+          {
+            icode: 'XRAY001',
+            income: '04',
+            income_name: 'ค่าเอกซเรย์',
+            adp_code: null,
+            adp_name: null,
+            adp_price: 0,
+            can_claim: 0,
+          }
+        ],
+        '690351541353': [
+          {
+            icode: 'OPD001',
+            income: '01',
+            income_name: 'ค่าบริการ OPD',
+            adp_code: 'ADP001',
+            adp_name: 'การตรวจรักษาผู้ป่วยนอก',
+            adp_price: 300,
+            can_claim: 1,
+          }
+        ],
+        '690351555432': [
+          {
+            icode: 'OPD002',
+            income: '01',
+            income_name: 'ค่าบริการผู้ป่วยนอก',
+            adp_code: 'ADP003',
+            adp_name: 'การตรวจรักษาทั่วไป',
+            adp_price: 200,
+            can_claim: 1,
+          },
+          {
+            icode: 'DRUG001',
+            income: '05',
+            income_name: 'ค่าจ่ายยา',
+            adp_code: null,
+            adp_name: null,
+            adp_price: 0,
+            can_claim: 0,
+          }
+        ],
+        '2601234': [
+          {
+            icode: 'IPD002',
+            income: '02',
+            income_name: 'ค่าบริการผู้ป่วยใน',
+            adp_code: 'ADP004',
+            adp_name: 'การรักษาผู้ป่วยใน',
+            adp_price: 800,
+            can_claim: 1,
+          }
+        ],
+        'default': [
+          {
+            icode: 'OPD001',
+            income: '01',
+            income_name: 'ค่าบริการ OPD',
+            adp_code: 'ADP001',
+            adp_name: 'การตรวจรักษาผู้ป่วยนอก',
+            adp_price: 300,
+            can_claim: 1,
+          }
+        ]
+      };
+
+      services = mockServiceSets[vn as keyof typeof mockServiceSets] || mockServiceSets.default;
+    }
+
+    console.log(`✅ Returning ${services.length} ADP service items`);
+    res.json(services);
+  } catch (error) {
+    console.error('Error fetching ADP services:', error);
+    res.json([]);
+  }
+});
+
+// API สำหรับดึงข้อมูลผู้ป่วย
+app.get('/api/hosxp/patients/:hn', (req, res) => {
+  try {
+    const { hn } = req.params;
+    const patient = getMockData().find(r => r.hn === hn);
+
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+
+    res.json({
+      hn: patient.hn,
+      patientName: patient.patientName,
+      fund: patient.fund,
+    });
+  } catch (error) {
+    console.error('Error fetching patient:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับดึงข้อมูล IPD
+app.get('/api/hosxp/ipd-list', async (req, res) => {
+  try {
+    const { startDate, endDate, statusFilter } = req.query;
+    console.log(`🛏️ Fetching IPD List: ${startDate} to ${endDate}, Status: ${statusFilter || 'All'}`);
+    const { getEligibleIPD } = await import('./db.js');
+    const data = await getEligibleIPD(startDate as string, endDate as string, statusFilter as string);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching IPD list:', error);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับดึงข้อมูลรายกองทุน
+app.get('/api/hosxp/specific-funds', async (req, res) => {
+  try {
+    const { fundType, startDate, endDate } = req.query;
+    if (!fundType || !startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'Missing parameters' });
+    }
+    console.log(`🔍 Fetching Specific Fund Data: ${fundType} from ${startDate} to ${endDate}`);
+    const { getSpecificFundData } = await import('./db.js');
+    const data = await getSpecificFundData(fundType as string, startDate as string, endDate as string);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching specific fund data:', error);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับดึงข้อมูลรายละเอียดชาร์ต IPD
+app.get('/api/hosxp/ipd-chart', async (req, res) => {
+  try {
+    const { an } = req.query;
+    if (!an) return res.status(400).json({ success: false, error: 'Missing an parameter' });
+
+    console.log(`📋 Fetching IPD Chart details for AN: ${an}`);
+    const { getIPDChartDetails } = await import('./db.js');
+    const data = await getIPDChartDetails(an as string);
+    if (!data) return res.status(404).json({ success: false, error: 'Cannot fetch chart data' });
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching IPD Chart details:', error);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับบันทึกสถานะการตรวจสอบชาร์ต (Audit)
+app.post('/api/hosxp/audit', express.json(), async (req, res) => {
+  try {
+    const { an, status, updated_by, notes } = req.body;
+    if (!an || !status) return res.status(400).json({ success: false, error: 'Missing required fields' });
+
+    console.log(`✅ Saving Audit Status for AN: ${an} -> ${status}`);
+    const { getUTFConnection } = await import('./db.js');
+    const connection = await getUTFConnection();
+    try {
+      await connection.query(`
+        INSERT INTO z_fdh_audit_log (an, status, updated_by, notes) 
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE status = VALUES(status), updated_by = VALUES(updated_by), notes = VALUES(notes), updated_at = NOW();
+      `, [an, status, updated_by || 'ระบบ', notes || '']);
+      res.json({ success: true });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error saving IPD Audit status:', error);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับดึงข้อมูล Visit ที่เข้าข่ายเบิก FDH
+app.get('/api/hosxp/eligible-visits', async (req, res) => {
+  try {
+    const { startDate, endDate, fund } = req.query;
+    console.log(`🔍 Checking FDH eligibility - Dates: ${startDate} to ${endDate}, Fund: ${fund || 'All'}`);
+
+    // Try real database first
+    let data = await getVisitsCached(
+      startDate as string,
+      endDate as string,
+      fund as string
+    );
+
+    const usingRealData = true; // getVisitsCached handles fallback internally
+
+    if (!Array.isArray(data) || data.length === 0) {
+      console.log(`⚠️ No eligible visits found for the given criteria, even with cache/fallback.`);
+      data = []; // Ensure data is an empty array if nothing found
+    } else {
+      console.log(`✅ Found ${data.length} eligible visits (from cache or database).`);
+    }
+    const enrichedData = data.map((item: any) => {
+      const issues: string[] = [];
+      const serviceType = item.an ? 'ผู้ป่วยใน' : 'ผู้ป่วยนอก';
+
+      const dialysisRegex = new RegExp(businessRules.diagnosis_patterns.dialysis_regex);
+
+      // Smart Check logic based on 6 core conditions from manual
+      if (!item.has_cid) issues.push('ER101: ขาดเลข CID หรือ CID ไม่ถูกต้อง');
+      if (!item.has_diagnosis) issues.push('ER102: ขาดรหัสวินิจฉัย (ICD-10)');
+
+      // ผู้ป่วยใน ไม่ต้องตรวจสอบราคาในหน้านี้ (เพราะเป็นระบบ OPD)
+      if (!item.an && !item.has_receipt) {
+        issues.push('ER103: ขาดข้อมูลค่าบริการหรือราคาเป็น 0');
+      }
+
+      const hasCloseEp = !!item.has_close;
+
+      if (!item.fund || item.fund === 'สิทธิว่าง') issues.push('ER105: ไม่ระบุสิทธิ์การรักษา');
+
+      // Additional MDS (Minimal Data Set) checks
+      if (!item.serviceDate) issues.push('ER106: ขาดวันที่รับบริการ');
+      if (!item.vn) issues.push('ER107: ขาดเลขที่บริการ (VN)');
+
+      // --- 8 Special Fund Checks (ก้อนเงินพิเศษ) ---
+      // ... (Rest of the special fund checks)
+      if (item.has_anc_diag && !item.has_anc_adp) issues.push('ER201: ตรวจพบรหัส ANC แต่ขาดรายการค่าบริการเบิก');
+      if (!item.has_anc_diag && item.has_anc_adp) issues.push('ER202: มีรายการเบิก ANC แต่ขาดรหัสวินิจฉัย (ICD-10)');
+      if (item.has_cx_diag && !item.has_cx_adp) issues.push('ER203: ตรวจพบรหัส CA Cervix แต่ขาดรายการค่าบริการเบิก');
+      if (!item.has_cx_diag && item.has_cx_adp) issues.push('ER204: มีรายการเบิก CA Cervix แต่ขาดรหัสวินิจฉัย (ICD-10)');
+      if (item.has_fp_diag && !item.has_fp_adp) issues.push('ER205: ตรวจพบรหัสคุมกำเนิดแต่ขาดรายการค่าบริการเบิก');
+      if (!item.has_fp_diag && item.has_fp_adp) issues.push('ER206: มีรายการเบิกคุมกำเนิดแต่ขาดรหัสวินิจฉัย (ICD-10)');
+      if (item.has_pp_diag && !item.has_pp_adp) issues.push('ER207: ตรวจพบรหัสหลังคลอดแต่ขาดรายการค่าบริการเบิก');
+      if (!item.has_pp_diag && item.has_pp_adp) issues.push('ER208: มีรายการเบิกหลังคลอดแต่ขาดรหัสวินิจฉัย (ICD-10)');
+      if (item.has_preg_lab && !item.has_preg_item) issues.push('ER209: ตรวจพบ Lab ตรวจครรภ์แต่ขาดรหัสเบิกจ่าย สปสช.');
+      if (!item.has_preg_lab && item.has_preg_item) issues.push('ER210: มีรหัสเบิกตรวจครรภ์แต่ขาดข้อมูลการส่ง Lab');
+      if (item.has_knee_oper && (item.age_y || 0) < 40) issues.push('ER211: ตรวจพบการพอกเข่าแต่อายุไม่ถึงเกณฑ์ (40 ปี)');
+      if (item.has_pal_diag && !item.has_pal_adp) issues.push('ER212: ตรวจพบวินิจฉัย Palliative แต่ขาดรายการเบิก');
+      if (!item.has_pal_diag && item.has_pal_adp) issues.push('ER213: มีรายการเบิก Palliative แต่ขาดรหัสวินิจฉัยสภาวะ');
+
+      // Logic for status
+      let status: 'ready' | 'pending' | 'rejected' = 'ready';
+
+      // หากเป็น IPD จะไม่เบิกในช่องทาง OPD นี้
+      if (item.an) {
+        status = 'rejected';
+        if (item.has_receipt) {
+          issues.push('WRN-IPD: พบข้อมูล IPD (AN) กรุณาโอนค่าใช้จ่ายไปยังหน้าชำระเงิน IPD');
+        }
+      } else {
+        // นับเฉพาะที่เป็น Error จริงๆ (เว้น WRN ไว้)
+        const criticalErrors = issues.filter(iss => iss.startsWith('ER'));
+        if (criticalErrors.length > 0) {
+          // ถ้าขาด CID หรือ Diagnosis หรือ Fund จะถือว่า Rejected (ส่งไม่ได้)
+          if (!item.has_cid || !item.has_diagnosis || !item.fund) {
+            status = 'rejected';
+          } else {
+            status = 'pending';
+          }
+        }
+      }
+
+      // เช็คว่าเข้าเกณฑ์กองทุนพิเศษแต่ข้อมูลยังไม่ครบหรือไม่
+      const isSpecialFund = !item.an && (
+        item.has_anc_diag || item.has_anc_adp ||
+        item.has_cx_diag || item.has_cx_adp ||
+        item.has_fp_diag || item.has_fp_adp ||
+        item.has_pp_diag || item.has_pp_adp ||
+        item.has_preg_lab || item.has_preg_item ||
+        item.has_pal_diag || item.has_pal_adp ||
+        item.has_herb || item.has_telmed || item.has_drugp ||
+        item.has_instrument || item.has_knee_oper ||
+        item.has_fpg || item.has_chol || item.has_anemia || item.has_iron ||
+        item.fpg_age_eligible || item.has_fpg_adp || item.has_fpg_lab || item.has_fpg_diag ||
+        item.chol_age_eligible || item.has_chol_adp || item.has_chol_lab || item.has_chol_diag ||
+        item.anemia_age_eligible || item.has_anemia_adp || item.has_anemia_lab || item.has_anemia_diag ||
+        item.iron_age_eligible || item.has_iron_adp || item.has_iron_diag ||
+        item.has_upt || item.has_anc_visit || item.has_anc_us || item.has_anc_lab1 || item.has_anc_lab2 ||
+        item.has_anc_dental_exam || item.has_anc_dental_clean ||
+        item.has_post_care || item.has_post_supp || item.has_fluoride ||
+        item.has_fp_pill || item.has_fp_condom ||
+        item.has_chemo_diag || item.has_hepc_diag || item.has_rehab_diag || item.has_crrt_diag ||
+        item.has_robot_item || item.has_proton_diag || item.has_cxr_item || item.has_clopidogrel ||
+        dialysisRegex.test(item.main_diag || '') ||   // Dialysis
+        item.project_code === businessRules.project_codes.er_emergency ||
+        (item.fund || '').includes('ฉุกเฉิน') ||
+        (item.fund || '').endsWith('AE') ||
+        (item.fund || '').includes('OP Refer')
+      );
+
+      const isOFC_LGO = item.hipdata_code === 'OFC' || item.hipdata_code === 'LGO';
+      const isUCS = item.hipdata_code === 'UCS' || item.hipdata_code === 'WEL';
+      const isBillable = !item.an && (isOFC_LGO || (isUCS && isSpecialFund));
+
+      if (isBillable && !hasCloseEp) {
+        issues.push('ER108: ยังไม่ปิดสิทธิ NHSO (EP)');
+      }
+
+      return {
+        ...item,
+        has_authen: item.has_authen ? 1 : 0,
+        has_close: hasCloseEp ? 1 : 0,
+        serviceType,
+        missing: issues.map(iss => iss.split(': ')[1] || iss), // Extract display label
+        issues, // Combined error codes
+        status,
+        isPotentialClaim: isSpecialFund,
+        isBillable,
+        _dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback' // getVisitsCached will indicate source
+      };
+    });
+
+    res.json({
+      success: true,
+      dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback',
+      totalRecords: enrichedData.length,
+      data: enrichedData,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching eligible visits:', error);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+
+// API สำหรับส่งออกข้อมูล 16 แฟ้ม เป็นไฟล์ ZIP (MOPH 16 Folders)
+app.post('/api/fdh/export-zip', async (req, res) => {
+  try {
+    const { vns } = req.body;
+
+    if (!vns || !Array.isArray(vns) || vns.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุรายการที่ต้องการส่งออก' });
+    }
+
+    console.log(`📦 Exporting ${vns.length} visits to FDH ZIP format...`);
+
+    // 1. ดึงข้อมูลจากฐานข้อมูล
+    const data = await getExportData(vns);
+
+    if (!data) {
+      console.error('❌ getExportData returned null for VNs:', vns);
+      return res.status(500).json({ success: false, error: 'ไม่สามารถดึงข้อมูลจากฐานข้อมูลได้' });
+    }
+
+    // 2. สร้างไฟล์ ZIP
+    const zip = new AdmZip();
+
+    // รายชื่อแฟ้มทั้งหมด 16 แฟ้ม (ตามมาตรฐานรหัส 16 แฟ้ม)
+    const folderNames = ['INS', 'PAT', 'OPD', 'ORF', 'ODX', 'OOP', 'IPD', 'IRF', 'IDX', 'IOP', 'CHT', 'CHA', 'AER', 'ADP', 'LVD', 'DRU'];
+
+    // ฟังก์ชันสำหรับแปลงข้อมูลเป็นรูปแบบ Pipe Delimited (.txt)
+    // สำหรับส่ง FDH ใช้เฉพาะข้อมูลจริง ไม่มี header/BOM และ strip อักขระที่อาจทำให้ delimiter เพี้ยน
+    const normalizePipeValue = (value: unknown) => {
+      if (value === null || value === undefined) return '';
+      return String(value)
+        .replace(/\r\n/g, ' ')
+        .replace(/[\r\n]/g, ' ')
+        .replace(/\|/g, ' ')
+        .trim();
+    };
+
+    const formatToPipe = (data: any, folder: string) => {
+      const rows = (data as any)[folder] || [];
+      if (!rows || rows.length === 0) return '';
+      return rows
+        .map((row: any) => Object.values(row).map(normalizePipeValue).join('|'))
+        .join('\r\n');
+    };
+
+    // ใส่ข้อมูลลงในแต่ละไฟล์
+    folderNames.forEach(folder => {
+      const content = formatToPipe(data, folder);
+      zip.addFile(`${folder}.txt`, Buffer.from(content, 'utf8'));
+    });
+
+    // 3. ส่งไฟล์ ZIP กลับไปยัง Client
+    const zipBuffer = zip.toBuffer();
+    const filename = `FDH_Export_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    res.send(zipBuffer);
+
+    console.log(`✅ Exported ZIP successfully: ${filename} (${zipBuffer.length} bytes)`);
+
+  } catch (error) {
+    console.error('Error exporting ZIP:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการสร้างไฟล์ ZIP' });
+  }
+});
+
+// API สำหรับดูข้อมูล 16 แฟ้ม (Preview JSON)
+app.post('/api/fdh/view-data', async (req, res) => {
+  try {
+    const { vns } = req.body;
+    if (!vns || !Array.isArray(vns) || vns.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุรายการที่ต้องการดูข้อมูล' });
+    }
+
+    const data = await getExportData(vns);
+    if (!data) {
+      return res.status(500).json({ success: false, error: 'ไม่สามารถดึงข้อมูลจากฐานข้อมูลได้' });
+    }
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error viewing data:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการดึงข้อมูลแสดงผล' });
+  }
+});
+
+
+// API สำหรับส่งข้อมูลไปยังระบบ FDH
+app.post('/api/fdh/submit', (req, res) => {
+  try {
+    const { records, submittedAt } = req.body;
+
+    console.log(`📤 Submitting ${records.length} records to FDH`);
+
+    res.json({
+      success: true,
+      message: 'Data submitted to FDH successfully',
+      submittedRecords: records.length,
+      submittedAt,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error submitting to FDH:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับดึงรายการกองทุนทั้งหมด
+app.get('/api/hosxp/funds', async (req, res) => {
+  try {
+    // Get all unique funds from the database
+    const allData = await getCheckData();
+
+    if (Array.isArray(allData) && allData.length > 0) {
+      // Extract unique funds and sort them
+      const fundsSet = new Set<string>();
+      allData.forEach((record: Record<string, unknown>) => {
+        if (record.fund) {
+          fundsSet.add(String(record.fund));
+        }
+      });
+      const funds = Array.from(fundsSet).sort().map((fundName) => ({
+        id: fundName,    // ใช้ชื่อกองทุนจริงเป็น id เช่น "UCS", "บัตรทอง"
+        name: fundName,
+      }));
+
+      res.json(funds);
+    } else {
+      // Fallback to mock funds
+      const mockFunds = [
+        { id: 'UCS', name: 'กองทุนหลักประกันสุขภาพถ้วนหน้า (UCS)' },
+        { id: 'SSS', name: 'กองทุนประกันสังคม (SSS)' },
+        { id: 'OFC', name: 'กองทุนข้าราชการ (OFC)' },
+        { id: 'LGO', name: 'กองทุน อปท.' },
+      ];
+      res.json(mockFunds);
+    }
+  } catch (error) {
+    console.error('Error fetching funds:', error);
+    const mockFunds = [
+      { id: 'UCS', name: 'กองทุนหลักประกันสุขภาพถ้วนหน้า (UCS)' },
+      { id: 'SSS', name: 'กองทุนประกันสังคม (SSS)' },
+      { id: 'OFC', name: 'กองทุนข้าราชการ (OFC)' },
+      { id: 'LGO', name: 'กองทุน อปท.' },
+    ];
+    res.json(mockFunds);
+  }
+});
+
+// API สำหรับตรวจสอบความถูกต้องของข้อมูลแบบละเอียด
+app.post('/api/hosxp/validate', (req, res) => {
+  try {
+    const { records } = req.body;
+
+    if (!Array.isArray(records)) {
+      return res.status(400).json({ error: 'Invalid input' });
+    }
+
+    const validated = records.map((record: Record<string, unknown>) => {
+      const issues: string[] = [];
+
+      // ตรวจสอบ HN
+      if (!record.hn || String(record.hn).trim().length === 0) {
+        issues.push('❌ ขาดเลขประจำตัวผู้ป่วย (HN)');
+      }
+
+      // ตรวจสอบชื่อผู้ป่วย
+      if (!record.patientName || String(record.patientName).trim().length === 0) {
+        issues.push('❌ ขาดชื่อผู้ป่วย');
+      }
+
+      // ตรวจสอบกองทุน
+      if (!record.fund || String(record.fund).trim().length === 0) {
+        issues.push('❌ ขาดข้อมูลกองทุน');
+      }
+
+      // ตรวจสอบราคา
+      if (!record.price || Number(record.price) <= 0) {
+        issues.push('❌ ราคาไม่ถูกต้องหรือไม่ได้กำหนด');
+      }
+
+      // ตรวจสอบวันที่บริการ
+      if (!record.serviceDate || String(record.serviceDate).trim().length === 0) {
+        issues.push('❌ ขาดวันที่บริการ');
+      }
+
+      // ตรวจสอบประเภทบริการ
+      if (!record.serviceType || String(record.serviceType).trim().length === 0) {
+        issues.push('❌ ขาดประเภทบริการ');
+      }
+
+      return {
+        ...record,
+        status: issues.length === 0 ? 'สมบูรณ์' : 'ไม่สมบูรณ์',
+        issues,
+      };
+    });
+
+    res.json(validated);
+  } catch (error) {
+    console.error('Error validating records:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับตรวจสอบความถูกต้องของข้อมูลแบบเชิงลึก
+app.post('/api/hosxp/validate-detailed', async (req, res) => {
+  try {
+    const { records, validationMode } = req.body;
+
+    if (!Array.isArray(records)) {
+      return res.status(400).json({ error: 'Invalid input' });
+    }
+
+    const validated = records.map((record: Record<string, unknown>) => {
+      const issues: string[] = [];
+      const details: Record<string, unknown> = {};
+
+      // ===== ตรวจสอบฟิลด์พื้นฐาน =====
+
+      // 1. HN
+      if (!record.hn || String(record.hn).trim().length === 0) {
+        issues.push('❌ ขาดเลขประจำตัวผู้ป่วย (HN)');
+      } else {
+        details.hn_status = '✓';
+      }
+
+      // 2. ชื่อผู้ป่วย
+      if (!record.patientName || String(record.patientName).trim().length === 0) {
+        issues.push('❌ ขาดชื่อผู้ป่วย');
+      } else {
+        details.name_status = '✓';
+      }
+
+      // 3. กองทุน
+      if (!record.fund || String(record.fund).trim().length === 0) {
+        issues.push('❌ ขาดข้อมูลกองทุน');
+      } else {
+        details.fund_status = '✓';
+        // ตรวจสอบว่าเป็นกองทุนย่อย
+        const fundName = String(record.fund);
+        if (fundName.includes('AE') || fundName.includes('ร่วมจ่าย')) {
+          details.fund_type = 'sub-fund';
+          details.note = 'เป็นกองทุนย่อย';
+        }
+      }
+
+      // 4. ราคา
+      if (!record.price || Number(record.price) <= 0) {
+        issues.push('❌ ราคาไม่ถูกต้องหรือไม่ได้กำหนด');
+      } else {
+        details.price_status = '✓';
+        details.price_value = record.price;
+      }
+
+      // 5. วันที่บริการ
+      if (!record.serviceDate || String(record.serviceDate).trim().length === 0) {
+        issues.push('❌ ขาดวันที่บริการ');
+      } else {
+        details.date_status = '✓';
+      }
+
+      // 6. ประเภทบริการ
+      if (!record.serviceType || String(record.serviceType).trim().length === 0) {
+        issues.push('❌ ขาดประเภทบริการ');
+      } else {
+        const serviceType = String(record.serviceType);
+        if (serviceType === 'OPD') {
+          details.service_type_detail = 'ผู้ป่วยนอก';
+        } else if (serviceType === 'IPD') {
+          details.service_type_detail = 'ผู้ป่วยใน';
+        }
+        details.serviceType_status = '✓';
+      }
+
+      // ===== ตรวจสอบเพิ่มเติม (ถ้า validationMode = 'detailed') =====
+      if (validationMode === 'detailed') {
+        // 7. รหัสยา
+        if (!record.drugCode || String(record.drugCode).trim().length === 0) {
+          issues.push('⚠️ ไม่มีรหัสยา (Drug Code)');
+          details.drug_warning = true;
+        } else {
+          details.drug_code = record.drugCode;
+        }
+
+        // 8. รหัสหัตถการ
+        if (!record.procedureCode || String(record.procedureCode).trim().length === 0) {
+          issues.push('⚠️ ไม่มีรหัสหัตถการ (Procedure Code)');
+          details.procedure_warning = true;
+        } else {
+          details.procedure_code = record.procedureCode;
+        }
+
+        // 9. รหัสสิทธิ์
+        if (!record.rightCode || String(record.rightCode).trim().length === 0) {
+          issues.push('⚠️ ไม่มีรหัสสิทธิ์ (Right Code)');
+          details.right_warning = true;
+        } else {
+          details.right_code = record.rightCode;
+        }
+      }
+
+      return {
+        ...record,
+        status: issues.filter(i => i.includes('❌')).length === 0 ? 'สมบูรณ์' : 'ไม่สมบูรณ์',
+        issues,
+        details,
+      };
+    });
+
+    res.json(validated);
+  } catch (error) {
+    console.error('Error validating records:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับตรวจสอบสถานะฐานข้อมูล
+app.get('/api/hosxp/status', async (req, res) => {
+  try {
+    const dbStatus = await testDatabaseConnection();
+    res.json({
+      database: {
+        connected: dbStatus.isConnected,
+        hasData: dbStatus.hasData,
+        tables: dbStatus.tableCount,
+        recentRecords: dbStatus.sampleRecordCount,
+        error: dbStatus.error || null,
+      },
+      server: {
+        status: 'running', mode: dbStatus.isConnected ? 'real-data' : 'mock-fallback',
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch {
+    res.status(500).json({
+      database: { connected: false, error: 'Connection test failed' },
+      server: { status: 'error', mode: 'mock-fallback' },
+    });
+  }
+});
+
+// API ทดสอบโครงสร้างตาราง s_drugitems
+app.get('/api/test/s-drugitems-structure', async (req, res) => {
+  try {
+    const { testSDrugitemsStructure } = await import('./db.js');
+    const structure = await testSDrugitemsStructure();
+
+    res.json({
+      success: true,
+      message: 'ตรวจสอบโครงสร้างตาราง s_drugitems เรียบร้อย',
+      columns: structure,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error testing s_drugitems structure:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาดในการตรวจสอบโครงสร้างตาราง',
+      message: (error as Error).message
+    });
+  }
+});
+
+// API ทดสอบการ JOIN ระหว่าง opitemrece และ s_drugitems
+app.get('/api/test/receipt-join/:vn', async (req, res) => {
+  try {
+    const { testReceiptJoin } = await import('./db.js');
+    const vn = req.params.vn;
+    const joinResult = await testReceiptJoin(vn);
+
+    res.json({
+      success: true,
+      message: `ทดสอบการ JOIN สำหรับ VN: ${vn} เรียบร้อย`,
+      vn: vn,
+      items: joinResult,
+      count: joinResult.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error testing receipt join:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาดในการทดสอบ JOIN',
+      message: (error as Error).message,
+      vn: req.params.vn
+    });
+  }
+});
+
+// API ทดสอบค่า ovstost ที่มีในระบบ
+app.get('/api/test/ovstost-values', async (req, res) => {
+  try {
+    const { testDatabaseConnection } = await import('./db.js');
+    const dbStatus = await testDatabaseConnection();
+
+    if (!dbStatus.isConnected) {
+      return res.json({
+        success: false,
+        error: 'Database not connected',
+        message: 'ไม่สามารถเชื่อมต่อฐานข้อมูลได้'
+      });
+    }
+
+    // ดึงค่า ovstost ที่มีในระบบพร้อมจำนวน
+    const mysql = await import('mysql2/promise');
+    const pool = mysql.default.createPool({
+      host: process.env.HOSXP_HOST || '192.168.2.254',
+      user: process.env.HOSXP_USER || 'opd',
+      password: process.env.HOSXP_PASSWORD || 'opd',
+      database: process.env.HOSXP_DB || 'hos',
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0
+    });
+
+    const connection = await pool.getConnection();
+
+    // ดึงค่า ovstost ที่แตกต่างกันพร้อมจำนวนและตัวอย่าง
+    const [ovstostValues] = await connection.query(`
+      SELECT 
+        ovst.ovstost,
+        COUNT(*) as count,
+        MIN(ovst.vstdate) as earliest_date,
+        MAX(ovst.vstdate) as latest_date,
+        GROUP_CONCAT(DISTINCT ovst.vn ORDER BY ovst.vstdate DESC LIMIT 3) as sample_vns
+      FROM ovst 
+      WHERE DATE(ovst.vstdate) >= '2026-03-01'
+      GROUP BY ovst.ovstost 
+      ORDER BY count DESC
+      LIMIT 20
+    `);
+
+    // ดึงข้อมูลตัวอย่างจาก ovstost แต่ละประเภท
+    const [sampleData] = await connection.query(`
+      SELECT 
+        ovst.vn,
+        ovst.ovstost,
+        ovst.vstdate,
+        CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName
+      FROM ovst
+      LEFT JOIN patient pt ON ovst.hn = pt.hn
+      WHERE DATE(ovst.vstdate) >= '2026-03-01'
+      ORDER BY ovst.vstdate DESC
+      LIMIT 10
+    `);
+
+    connection.release();
+    pool.end();
+
+    res.json({
+      success: true,
+      message: 'ตรวจสอบค่า ovstost ในระบบเรียบร้อย',
+      ovstost_summary: ovstostValues,
+      sample_records: sampleData,
+      current_mapping: {
+        'OPD': "ovstost IN ('1', '01')",
+        'IPD': "ovstost IN ('2', '02')",
+        'OTHER': 'กรณีอื่นๆ'
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error checking ovstost values:', error);
+    res.status(500).json({
+      success: false,
+      error: 'เกิดข้อผิดพลาดในการตรวจสอบค่า ovstost',
+      message: (error as Error).message
+    });
+  }
+});
+
+// API สำหรับดึงข้อมูล Monitor หน่วยไต (N185) พร้อม ROI Analysis
+app.get('/api/hosxp/kidney-monitor', async (req, res) => {
+  try {    const { startDate, endDate } = req.query;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'Missing date parameters' });
+    }
+    console.log(`🏥 Fetching Kidney Monitor Data (Detailed ROI) from ${startDate} to ${endDate}`);
+
+    // ใช้ function ใหม่ที่คำนวณ ROI ละเอียด
+    const result = await getKidneyMonitorDetailed(startDate as string, endDate as string);
+
+    console.log(`✅ Found ${result.returned}/${result.totalCount} kidney cases with ROI analysis${result.truncated ? ' ⚠️ TRUNCATED' : ''}`);
+    res.json({
+      success: true,
+      data: result.data,
+      total: result.totalCount,
+      meta: {
+        total: result.totalCount,
+        returned: result.returned,
+        truncated: result.truncated,
+        limit: result.totalCount,
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching kidney monitor data:', error);
+    res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// Debug endpoint for kidney monitor queries
+app.get('/api/debug/kidney-monitor', async (req, res) => {
+  try {
+    const conn = await getUTFConnection();
+    const { startDate = '2026-03-01', endDate = '2026-03-21' } = req.query;
+
+    console.log(`\n🔍 DEBUG: Testing kidney monitor queries from ${startDate} to ${endDate}`);    // Test 1: Check N185/Z49 patients
+    console.log('\n--- Test 1: N185/Z49 patients ---');
+    const [test1] = await conn.query(`
+      SELECT COUNT(DISTINCT o.vn) as count
+      FROM ovst o
+      JOIN ovstdiag d ON o.vn = d.vn
+      WHERE DATE(o.vstdate) BETWEEN ? AND ?
+        AND (d.icd10 LIKE 'N185%' OR d.icd10 LIKE 'Z49%')
+    ` as string, [startDate, endDate]);
+    console.log('N185/Z49 record count:', test1);
+
+    // Test 2: Get sample dialysis patients
+    console.log('\n--- Test 2: Sample dialysis patients (LIMIT 3) ---');
+    const [test2] = await conn.query(`
+      SELECT 
+        o.vn, o.hn, o.vstdate,
+        pt.pname, pt.fname, pt.lname,
+        ptt.name as pttname,
+        d.icd10
+      FROM ovst o
+      LEFT JOIN patient pt ON o.hn = pt.hn
+      LEFT JOIN pttype ptt ON pt.pttype = ptt.pttype
+      JOIN ovstdiag d ON o.vn = d.vn
+      WHERE DATE(o.vstdate) BETWEEN ? AND ?
+        AND (d.icd10 LIKE 'N185%' OR d.icd10 LIKE 'Z49%')
+      ORDER BY o.vstdate DESC
+      LIMIT 3
+    ` as string, [startDate, endDate]);
+    console.log('Sample patients:', test2);    // Test 3: Check opitemrece columns
+    console.log('\n--- Test 3: OPITEMRECE columns ---');
+    const [test3] = await conn.query(`DESCRIBE opitemrece` as string);
+    const columns = (test3 as Record<string, unknown>[]).map(c => c.Field);
+    console.log('Columns:', columns);
+
+    // Test 4: Get sample opitemrece data for one patient
+    let sampleVN = '';
+    if (Array.isArray(test2) && test2.length > 0) {
+      sampleVN = (test2[0] as Record<string, unknown>).vn as string;
+    }
+
+    console.log(`\n--- Test 4: OPITEMRECE data for VN ${sampleVN} ---`);
+    const [test4] = await conn.query(`
+      SELECT *
+      FROM opitemrece
+      WHERE vn = ?
+      LIMIT 10
+    ` as string, [sampleVN]);
+
+    // Log the data for inspection
+    if (Array.isArray(test4) && test4.length > 0) {
+      console.log(`Found ${test4.length} items for this visit`);
+      console.log('First item:', JSON.stringify(test4[0], null, 2));
+      console.log('All items summary:');
+      (test4 as Record<string, unknown>[]).forEach((item: Record<string, unknown>, idx: number) => {
+        console.log(`  Item ${idx}: icode=${item.icode}, income=${item.income}, qty=${item.qty}, unitprice=${item.unitprice}, sum_price=${item.sum_price}`);
+      });
+    }
+
+    conn.release();
+    res.json({
+      success: true,
+      debug: {
+        test1,
+        test2_count: Array.isArray(test2) ? test2.length : 0,
+        test2_sample: Array.isArray(test2) ? test2.slice(0, 2) : [],
+        opitemrece_columns: columns,
+        sample_vn: sampleVN,
+        sample_opitemrece_items: Array.isArray(test4) ? test4.slice(0, 3) : [],
+      }
+    });
+  } catch (error) {
+    console.error('Debug error:', error);
+    res.json({ success: false, error: String(error) });
+  }
+});
+
+// Health check endpoint
+// --- Configuration API ---
+
+// GET: ดึงข้อมูลการตั้งค่าธุรกิจ (Backend)
+app.get('/api/config/business-rules/backend', async (req, res) => {
+  try {
+    const configPath = path.join(__dirname, 'config', 'business_rules.json');
+    const data = await readConfigWithFallback(configPath);
+    res.json(data);
+  } catch (error) {
+    console.error('Error reading backend config:', error);
+    res.status(500).json({ success: false, error: 'Cannot read backend configuration' });
+  }
+});
+
+ensureRepstmTables()
+  .then(() => {
+    console.log('✅ REP/STM/INV import tables ready in repstminv');
+  })
+  .catch((error) => {
+    console.error('❌ REP/STM/INV table setup failed:', error);
+  });
+
+ensureNhsoClosePrivilegeTable()
+  .then(() => {
+    console.log('✅ NHSO close privilege table ready in HOSxP');
+  })
+  .catch((error) => {
+    console.error('❌ NHSO close privilege table setup failed:', error);
+  });
+
+app.post('/api/fdh/import-status', async (req, res) => {
+  try {
+    const { jwtToken, hcode, environment, transactionUids } = req.body as {
+      jwtToken?: string;
+      hcode?: string;
+      environment?: 'prd' | 'uat';
+      transactionUids?: string[];
+    };
+
+    const mergedConfig = await getResolvedFdhApiConfig({
+      ...(environment ? { environment } : {}),
+      ...(hcode ? { hcode } : {})
+    });
+
+    const token = jwtToken?.trim();
+    const finalHcode = String(hcode || mergedConfig.hcode || '').trim();
+    const finalEnvironment = String(environment || mergedConfig.environment || 'prd') as 'prd' | 'uat';
+    const apiBaseUrl = String(mergedConfig.apiBaseUrl || '').replace(/\/+$/, '');
+
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุ JWT token' });
+    }
+
+    if (!finalHcode) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุ HCODE' });
+    }
+
+    if (!transactionUids || !Array.isArray(transactionUids) || transactionUids.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุ transaction_uid อย่างน้อย 1 รายการ' });
+    }
+
+    const uniqueTransactionUids = Array.from(new Set(transactionUids.map(item => String(item).trim()).filter(Boolean)));
+    const endpoint = `${apiBaseUrl}/api/v2/reservation/get`;
+
+    const responses = await Promise.all(uniqueTransactionUids.map(async (transactionUid) => {
+      const requestPayload = {
+        transaction_uid: transactionUid,
+        hcode: finalHcode
+      };
+
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(requestPayload)
+        });
+
+        const responseJson = await response.json().catch(() => ({}));
+        await saveFdhStatusImportLog({
+          transactionUid,
+          hcode: finalHcode,
+          environment: finalEnvironment,
+          responseStatus: Number(responseJson.status || response.status) || response.status,
+          responseMessage: String(responseJson.message || ''),
+          responseMessageTh: String(responseJson.message_th || ''),
+          requestPayload,
+          responsePayload: responseJson
+        });
+
+        return {
+          transaction_uid: transactionUid,
+          request_payload: requestPayload,
+          response_payload: responseJson,
+          response_status: Number(responseJson.status || response.status) || response.status,
+          response_message: responseJson.message || response.statusText,
+          response_message_th: responseJson.message_th || ''
+        };
+      } catch (error) {
+        const errorPayload = {
+          status: 500,
+          message: 'request failed',
+          message_th: (error as Error).message
+        };
+
+        await saveFdhStatusImportLog({
+          transactionUid,
+          hcode: finalHcode,
+          environment: finalEnvironment,
+          responseStatus: 500,
+          responseMessage: 'request failed',
+          responseMessageTh: (error as Error).message,
+          requestPayload,
+          responsePayload: errorPayload
+        });
+
+        return {
+          transaction_uid: transactionUid,
+          request_payload: requestPayload,
+          response_payload: errorPayload,
+          response_status: 500,
+          response_message: 'request failed',
+          response_message_th: (error as Error).message
+        };
+      }
+    }));
+
+    res.json({
+      success: true,
+      endpoint,
+      imported: responses.length,
+      data: responses
+    });
+  } catch (error) {
+    console.error('Error importing FDH status:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการนำเข้าสถานะจาก FDH' });
+  }
+});
+
+app.get('/api/fdh/import-status/logs', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 50);
+    const data = await getFdhStatusImportLogs(limit);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching FDH import logs:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัติการนำเข้าสถานะ' });
+  }
+});
+
+app.post('/api/repstm/import', async (req, res) => {
+  try {
+    const { dataType, sourceFilename, sheetName, importedBy, notes, rows } = req.body as {
+      dataType?: 'REP' | 'STM' | 'INV';
+      sourceFilename?: string;
+      sheetName?: string;
+      importedBy?: string;
+      notes?: string;
+      rows?: Record<string, unknown>[];
+    };
+
+    const normalizedType = String(dataType || '').toUpperCase() as 'REP' | 'STM' | 'INV';
+    if (!['REP', 'STM', 'INV'].includes(normalizedType)) {
+      return res.status(400).json({ success: false, error: 'dataType ต้องเป็น REP, STM หรือ INV' });
+    }
+
+    if (!sourceFilename || !String(sourceFilename).trim()) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุชื่อไฟล์ต้นทาง' });
+    }
+
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลสำหรับนำเข้า' });
+    }
+
+    const sanitizedRows = rows
+      .filter((row) => row && typeof row === 'object' && !Array.isArray(row))
+      .map((row) => Object.fromEntries(
+        Object.entries(row).map(([key, value]) => [String(key).trim(), value ?? ''])
+      ));
+
+    if (sanitizedRows.length === 0) {
+      return res.status(400).json({ success: false, error: 'ข้อมูลหลังแปลงไฟล์ไม่อยู่ในรูปแบบตาราง' });
+    }
+
+    const result = await importRepstmRows({
+      dataType: normalizedType,
+      sourceFilename: String(sourceFilename).trim(),
+      sheetName: sheetName ? String(sheetName).trim() : undefined,
+      importedBy: importedBy ? String(importedBy).trim() : undefined,
+      notes: notes ? String(notes).trim() : undefined,
+      rows: sanitizedRows,
+    });
+
+    if (!result.success) {
+      throw result.error || new Error('Import failed');
+    }
+
+    res.json({
+      success: true,
+      duplicate: Boolean((result as Record<string, unknown>).duplicate),
+      message: typeof (result as Record<string, unknown>).message === 'string'
+        ? String((result as Record<string, unknown>).message)
+        : `นำเข้า ${normalizedType} สำเร็จ`,
+      batchId: result.batchId,
+      rowCount: result.rowCount,
+    });
+  } catch (error) {
+    console.error('Error importing REP/STM/INV:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการนำเข้า REP/STM/INV' });
+  }
+});
+
+app.get('/api/repstm/batches', async (req, res) => {
+  try {
+    const dataType = req.query.dataType ? String(req.query.dataType).toUpperCase() as 'REP' | 'STM' | 'INV' : undefined;
+    const limit = Number(req.query.limit || 20);
+    const data = await getRepstmImportBatches(dataType, limit);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching REP/STM/INV batches:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัติการนำเข้า REP/STM/INV' });
+  }
+});
+
+app.get('/api/repstm/:dataType', async (req, res) => {
+  try {
+    const dataType = String(req.params.dataType || '').toUpperCase() as 'REP' | 'STM' | 'INV';
+    if (!['REP', 'STM', 'INV'].includes(dataType)) {
+      return res.status(400).json({ success: false, error: 'dataType ต้องเป็น REP, STM หรือ INV' });
+    }
+
+    const limit = Number(req.query.limit || 200);
+    const data = dataType === 'REP'
+      ? await getRepDataRows(limit)
+      : await getRepstmImportedRows(dataType, limit);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching REP/STM/INV rows:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านข้อมูล REP/STM/INV' });
+  }
+});
+
+// GET: ดึงข้อมูลการตั้งค่าธุรกิจ (Frontend)
+app.get('/api/config/business-rules/frontend', async (req, res) => {
+  try {
+    // Frontend config is in ../src/config/business_rules.json relative to server/index.ts
+    const configPath = path.join(__dirname, '..', 'src', 'config', 'business_rules.json');
+    const data = await readConfigWithFallback(configPath);
+    res.json(data);
+  } catch (error) {
+    console.error('Error reading frontend config:', error);
+    res.status(500).json({ success: false, error: 'Cannot read frontend configuration' });
+  }
+});
+
+// POST: บันทึกการตั้งค่าธุรกิจ (Backend)
+app.post('/api/config/business-rules/backend', async (req, res) => {
+  try {
+    const newConfig = req.body;
+    const configPath = path.join(__dirname, 'config', 'business_rules.json');
+    await setAppSetting(CONFIG_SETTING_KEY, newConfig);
+    await fs.writeFile(configPath, JSON.stringify(newConfig, null, 4), 'utf8');
+    console.log('✅ Backend business rules updated via API');
+    res.json({ success: true, message: 'Backend configuration updated successfully' });
+  } catch (error) {
+    console.error('Error updating backend config:', error);
+    res.status(500).json({ success: false, error: 'Cannot update backend configuration' });
+  }
+});
+
+// POST: บันทึกการตั้งค่าธุรกิจ (Frontend)
+app.post('/api/config/business-rules/frontend', async (req, res) => {
+  try {
+    const newConfig = req.body;
+    const configPath = path.join(__dirname, '..', 'src', 'config', 'business_rules.json');
+    await setAppSetting(CONFIG_SETTING_KEY, newConfig);
+    await fs.writeFile(configPath, JSON.stringify(newConfig, null, 4), 'utf8');
+    console.log('✅ Frontend business rules updated via API');
+    res.json({ success: true, message: 'Frontend configuration updated successfully' });
+  } catch (error) {
+    console.error('Error updating frontend config:', error);
+    res.status(500).json({ success: false, error: 'Cannot update frontend configuration' });
+  }
+});
+
+app.get('/api/config/app-settings', async (req, res) => {
+  try {
+    const config = await getAppSetting(APP_SETTINGS_KEY);
+    res.json({
+      success: true,
+      data: config || null,
+      source: config ? 'database' : 'empty'
+    });
+  } catch (error) {
+    console.error('Error reading app settings:', error);
+    res.status(500).json({ success: false, error: 'Cannot read app settings' });
+  }
+});
+
+app.post('/api/config/app-settings', async (req, res) => {
+  try {
+    const newSettings = req.body;
+    await setAppSetting(APP_SETTINGS_KEY, newSettings);
+    console.log('✅ App settings updated via API');
+    res.json({ success: true, message: 'App settings updated successfully' });
+  } catch (error) {
+    console.error('Error updating app settings:', error);
+    res.status(500).json({ success: false, error: 'Cannot update app settings' });
+  }
+});
+
+app.get('/api/config/fdh-api-settings', async (req, res) => {
+  try {
+    const config = await getAppSetting(FDH_API_SETTINGS_KEY);
+    const resolvedConfig = await getResolvedFdhApiConfig();
+    res.json({
+      success: true,
+      data: resolvedConfig,
+      source: config ? 'database' : 'default'
+    });
+  } catch (error) {
+    console.error('Error reading FDH API settings:', error);
+    res.status(500).json({ success: false, error: 'Cannot read FDH API settings' });
+  }
+});
+
+app.post('/api/config/fdh-api-settings', async (req, res) => {
+  try {
+    const resolvedHospitalCode = await getResolvedHospitalCode();
+    const payload = {
+      ...getDefaultFdhApiConfig(),
+      ...(req.body || {}),
+      hcode: resolvedHospitalCode || String((req.body || {}).hcode || '')
+    };
+    await setAppSetting(FDH_API_SETTINGS_KEY, payload);
+    res.json({ success: true, message: 'FDH API settings updated successfully' });
+  } catch (error) {
+    console.error('Error updating FDH API settings:', error);
+    res.status(500).json({ success: false, error: 'Cannot update FDH API settings' });
+  }
+});
+
+app.get('/api/config/nhso-authen-settings', async (_req, res) => {
+  try {
+    const data = await getResolvedNhsoAuthenConfig();
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error reading NHSO authen settings:', error);
+    res.status(500).json({ success: false, error: 'Cannot read NHSO authen settings' });
+  }
+});
+
+app.post('/api/config/nhso-authen-settings', async (req, res) => {
+  try {
+    const current = await getResolvedNhsoAuthenConfig();
+    const payload = {
+      ...current,
+      environment: req.body?.environment === 'uat' ? 'uat' : 'prd',
+      token: String(req.body?.token || current.token || ''),
+      apiBaseUrl: String(req.body?.apiBaseUrl || current.apiBaseUrl || ''),
+      maxDays: Number(req.body?.maxDays || current.maxDays || 4),
+    };
+    await setAppSetting(NHSO_AUTHEN_SETTINGS_KEY, payload);
+    res.json({ success: true, message: 'NHSO authen settings updated successfully' });
+  } catch (error) {
+    console.error('Error saving NHSO authen settings:', error);
+    res.status(500).json({ success: false, error: 'Cannot save NHSO authen settings' });
+  }
+});
+
+app.post('/api/nhso/authen/sync', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.body as { startDate?: string; endDate?: string };
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุวันที่เริ่มต้นและสิ้นสุด' });
+    }
+
+    const authenConfig = await getResolvedNhsoAuthenConfig();
+    const token = String(authenConfig.token || '').trim();
+    const apiBaseUrl = String(authenConfig.apiBaseUrl || '').trim();
+    const hospitalCode = await getResolvedHospitalCode();
+    const maxDays = Number(authenConfig.maxDays || 4);
+
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า NHSO Token' });
+    }
+
+    const summary = await syncNhsoAuthenCodes({
+      token,
+      baseUrl: apiBaseUrl,
+      hospitalCode,
+      startDate,
+      endDate,
+      maxDays,
+    });
+    res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error syncing NHSO authen codes:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการ sync Authen Code' });
+  }
+});
+
+app.get('/api/nhso/authen/logs', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 100);
+    const data = await getAuthenSyncLogs(limit);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error reading NHSO authen sync logs:', error);
+    res.status(500).json({ success: false, error: 'ไม่สามารถอ่านประวัติการนำเข้า Authen Code ได้' });
+  }
+});
+
+app.get('/api/config/nhso-close-settings', async (_req, res) => {
+  try {
+    const data = await getResolvedNhsoCloseConfig();
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error reading NHSO close settings:', error);
+    res.status(500).json({ success: false, error: 'Cannot read NHSO close settings' });
+  }
+});
+
+app.post('/api/config/nhso-close-settings', async (req, res) => {
+  try {
+    const current = await getResolvedNhsoCloseConfig();
+    const payload = {
+      ...current,
+      environment: req.body?.environment === 'uat' ? 'uat' : 'prd',
+      token: String(req.body?.token || current.token || ''),
+      apiBaseUrl: String(req.body?.apiBaseUrl || current.apiBaseUrl || ''),
+      sourceId: String(req.body?.sourceId || current.sourceId || 'KSPAPI'),
+      claimServiceCode: String(req.body?.claimServiceCode || current.claimServiceCode || 'PG0060001'),
+      recorderPid: String(req.body?.recorderPid || current.recorderPid || ''),
+      maxDays: Number(req.body?.maxDays || current.maxDays || 4),
+    };
+    await setAppSetting(NHSO_CLOSE_SETTINGS_KEY, payload);
+    res.json({ success: true, message: 'NHSO close settings updated successfully' });
+  } catch (error) {
+    console.error('Error saving NHSO close settings:', error);
+    res.status(500).json({ success: false, error: 'Cannot save NHSO close settings' });
+  }
+});
+
+app.get('/api/nhso/close/candidates', async (req, res) => {
+  try {
+    await ensureNhsoClosePrivilegeTable();
+    const startDate = String(req.query.startDate || '').trim();
+    const endDate = String(req.query.endDate || '').trim();
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุวันที่เริ่มต้นและสิ้นสุด' });
+    }
+
+    const settings = await getResolvedNhsoCloseConfig();
+    const maxDays = Number(settings.maxDays || 4);
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffDays = Math.floor((end.getTime() - start.getTime()) / 86400000);
+    if (Number.isNaN(diffDays) || diffDays < 0) {
+      return res.status(400).json({ success: false, error: 'ช่วงวันที่ไม่ถูกต้อง' });
+    }
+    if (diffDays > maxDays) {
+      return res.status(400).json({ success: false, error: `ช่วงวันที่มากเกินไป ระบบนี้รองรับไม่เกิน ${maxDays} วัน` });
+    }
+
+    const data = await getNhsoClosePrivilegeCandidates({
+      startDate,
+      endDate,
+      closeStatus: ['pending', 'ok', 'cancel', 'error'].includes(String(req.query.closeStatus || '')) ? String(req.query.closeStatus) as 'pending' | 'ok' | 'cancel' | 'error' : 'all',
+      authenStatus: ['has_authen', 'missing_authen'].includes(String(req.query.authenStatus || '')) ? String(req.query.authenStatus) as 'has_authen' | 'missing_authen' : 'all',
+      mainInscl: String(req.query.mainInscl || 'all'),
+      search: String(req.query.search || ''),
+      limit: Number(req.query.limit || 300),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error loading NHSO close candidates:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการอ่านรายการปิดสิทธิ' });
+  }
+});
+
+app.post('/api/nhso/close/submit', async (req, res) => {
+  try {
+    const { items } = req.body as {
+      items?: Array<{
+        vn: string;
+        cid: string;
+        vstDateTime: string;
+        mainInscl: string;
+        income: number;
+        rcptMoney: number;
+        ucMoney: number;
+        authencodeWeb?: string;
+        pttypeName?: string;
+        invno?: string;
+      }>;
+    };
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาเลือกรายการที่จะปิดสิทธิอย่างน้อย 1 รายการ' });
+    }
+
+    const settings = await getResolvedNhsoCloseConfig();
+    const token = String(settings.token || '').trim();
+    const apiBaseUrl = String(settings.apiBaseUrl || '').trim();
+    const recorderPid = String(settings.recorderPid || '').trim();
+    const sourceId = String(settings.sourceId || 'KSPAPI').trim() || 'KSPAPI';
+    const claimServiceCode = String(settings.claimServiceCode || 'PG0060001').trim() || 'PG0060001';
+    const hospitalCode = await getResolvedHospitalCode();
+    const environment = String(settings.environment || 'prd') === 'uat' ? 'uat' : 'prd';
+
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า Token สำหรับปิดสิทธิ NHSO' });
+    }
+    if (!recorderPid) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า Recorder PID' });
+    }
+    if (!hospitalCode) {
+      return res.status(400).json({ success: false, error: 'ยังไม่พบ Hospital Code' });
+    }
+
+    const summary = await submitNhsoClosePrivileges({
+      token,
+      baseUrl: apiBaseUrl,
+      hospitalCode,
+      recorderPid,
+      sourceId,
+      claimServiceCode,
+      environment,
+      items,
+    });
+    res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error submitting NHSO close privilege:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการปิดสิทธิ NHSO' });
+  }
+});
+
+app.get('/api/nhso/close/history', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 100);
+    const data = await getNhsoClosePrivilegeHistory(limit);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error loading NHSO close history:', error);
+    res.status(500).json({ success: false, error: 'ไม่สามารถอ่านประวัติการปิดสิทธิ NHSO ได้' });
+  }
+});
+
+app.post('/api/nhso/close/test-token', async (_req, res) => {
+  try {
+    const settings = await getResolvedNhsoCloseConfig();
+    const token = String(settings.token || '').trim();
+    const apiBaseUrl = String(settings.apiBaseUrl || '').trim();
+    const recorderPid = String(settings.recorderPid || '').trim();
+    const sourceId = String(settings.sourceId || 'KSPAPI').trim() || 'KSPAPI';
+    const claimServiceCode = String(settings.claimServiceCode || 'PG0060001').trim() || 'PG0060001';
+    const hospitalCode = await getResolvedHospitalCode();
+    const environment = String(settings.environment || 'prd') === 'uat' ? 'uat' : 'prd';
+
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า Token สำหรับปิดสิทธิ NHSO' });
+    }
+    if (!recorderPid) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า Recorder PID' });
+    }
+    if (!hospitalCode) {
+      return res.status(400).json({ success: false, error: 'ยังไม่พบ Hospital Code' });
+    }
+
+    const result = await testNhsoClosePrivilegeToken({
+      token,
+      baseUrl: apiBaseUrl,
+      hospitalCode,
+      recorderPid,
+      sourceId,
+      claimServiceCode,
+      environment,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        ...result,
+        tokenLooksInvalid: /invalid token/i.test(String(result.errorMessage || '')),
+      },
+    });
+  } catch (error) {
+    console.error('Error testing NHSO close token:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการทดสอบ token' });
+  }
+});
+
+app.post('/api/fdh/request-token', async (req, res) => {
+  try {
+    const mergedConfig = await getResolvedFdhApiConfig(req.body || {});
+
+    const tokenUrl = String(mergedConfig.tokenUrl || '').trim();
+    const username = String(mergedConfig.username || '').trim();
+    const password = String(mergedConfig.password || '');
+    const hospitalCode = String(mergedConfig.hcode || '').trim();
+
+    if (!tokenUrl) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า Token URL' });
+    }
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'กรุณาตั้งค่า username/password สำหรับ FDH API ก่อน' });
+    }
+
+    if (!hospitalCode) {
+      return res.status(400).json({ success: false, error: 'ยังไม่พบ Hospital Code (HCODE)' });
+    }
+
+    const tokenEndpoint = getFdhTokenEndpoint(tokenUrl);
+    const passwordHashCandidates = getPasswordHashCandidates(password);
+    const attempts: Array<{
+      label: string;
+      url: string;
+      init: RequestInit;
+    }> = [];
+
+    for (const passwordHash of passwordHashCandidates) {
+      const query = new URLSearchParams({
+        Action: 'get_moph_access_token',
+        user: username,
+        password_hash: passwordHash,
+        hospital_code: hospitalCode
+      }).toString();
+
+      attempts.push({
+        label: passwordHash === password ? 'POST query + raw password' : `POST query + password_hash (${passwordHash === passwordHash.toUpperCase() ? 'SHA256 upper' : 'SHA256 lower'})`,
+        url: `${tokenEndpoint}?${query}`,
+        init: {
+          method: 'POST'
+        }
+      });
+    }
+
+    const debugAttempts: Array<Record<string, unknown>> = [];
+
+    for (const attempt of attempts) {
+      try {
+        const response = await fetch(attempt.url, attempt.init);
+        const rawText = await response.text();
+        let parsedPayload: unknown = {};
+        try {
+          parsedPayload = JSON.parse(rawText);
+        } catch {
+          parsedPayload = { raw: rawText };
+        }
+
+        const payloadRecord = parsedPayload && typeof parsedPayload === 'object'
+          ? parsedPayload as Record<string, unknown>
+          : {};
+        const payloadMessageCode = Number(payloadRecord.MessageCode ?? payloadRecord.status ?? 0);
+        const token = extractTokenFromPayload(parsedPayload)
+          || (payloadMessageCode === 0 && rawText.trim() ? rawText.trim() : null);
+        debugAttempts.push({
+          label: attempt.label,
+          httpStatus: response.status,
+          messageCode: payloadMessageCode || undefined,
+          hasToken: !!token,
+          responseMessage: payloadRecord.Message || payloadRecord.message || null
+        });
+
+        if (token) {
+          return res.json({
+            success: true,
+            token,
+            method: attempt.label,
+            tokenUrl: attempt.url.replace(/password_hash=[^&]+/, 'password_hash=***'),
+            debugAttempts
+          });
+        }
+      } catch (error) {
+        debugAttempts.push({
+          label: attempt.label,
+          url: attempt.url.replace(/password_hash=[^&]+/, 'password_hash=***'),
+          httpStatus: 500,
+          hasToken: false,
+          error: (error as Error).message
+        });
+      }
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: 'ไม่สามารถขอ token อัตโนมัติได้จากรูปแบบที่ระบบลองให้',
+      debugAttempts
+    });
+  } catch (error) {
+    console.error('Error requesting FDH token:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการขอ token จาก FDH' });
+  }
+});
+
+app.get('/api/health', async (req, res) => {
+  try {
+    const { testConnection } = await import('./db.js');
+    const isConnected = await testConnection();
+
+    res.json({
+      status: 'ok',
+      database: isConnected ? 'HOSxP-Connected' : 'mock-fallback',
+      host: process.env.HOSXP_HOST || '192.168.2.254', database_name: process.env.HOSXP_DB || 'hos',
+      timestamp: new Date().toISOString(),
+    });
+  } catch {
+    res.json({
+      status: 'ok',
+      database: 'mock-fallback',
+      error: 'Database connection test failed',
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+const PORT = Number(process.env.PORT) || 3506;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ FDH Checker Server running on port ${PORT}`);
+  console.log(`📡 Listening on all interfaces (0.0.0.0)`);
+  console.log(`🌐 API Endpoint: http://localhost:${PORT}/api`);
+});

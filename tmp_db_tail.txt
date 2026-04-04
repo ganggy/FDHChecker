@@ -1,0 +1,260 @@
+};
+
+export const getAllTables = async () => {
+  const connection = await pool.getConnection();
+  try {
+    const [tables] = await connection.query(
+      `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?`,
+      [process.env.HOSXP_DB || 'hos']
+    );
+    return tables || [];
+  } catch (error) {
+    console.error('Error getting all tables:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+
+// ฟังก์ชันทดสอบโครงสร้างตาราง s_drugitems
+export const testSDrugitemsStructure = async (): Promise<Record<string, unknown>[]> => {
+  const connection = await pool.getConnection();
+  try {
+    console.log('🔍 Testing s_drugitems table structure...');
+
+    // ตรวจสอบว่าตาราง s_drugitems มีอยู่หรือไม่
+    const [tableCheck] = await connection.query(
+      "SHOW TABLES LIKE 's_drugitems'"
+    );
+
+    if (Array.isArray(tableCheck) && tableCheck.length === 0) {
+      console.log('❌ Table s_drugitems does not exist');
+      return [];
+    }
+
+    console.log('✅ Table s_drugitems exists');
+
+    // ตรวจสอบโครงสร้างคอลัมน์
+    const [columns] = await connection.query(
+      "DESCRIBE s_drugitems"
+    );
+
+    console.log('📋 s_drugitems columns:', columns);
+
+    // ตรวจสอบข้อมูลตัวอย่าง 5 รายการแรก
+    const [sampleData] = await connection.query(
+      "SELECT * FROM s_drugitems LIMIT 5"
+    );
+
+    console.log('📊 Sample data from s_drugitems:', sampleData);
+
+    return (Array.isArray(columns) ? columns : []) as Record<string, unknown>[];
+  } catch (error) {
+    console.error('❌ Error testing s_drugitems structure:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+
+// ฟังก์ชันทดสอบการเชื่อมต่อ opitemrece กับ s_drugitems
+export const testReceiptJoin = async (vn: string): Promise<Record<string, unknown>[]> => {
+  const connection = await pool.getConnection();
+  try {
+    console.log(`🔍 Testing receipt join for VN: ${vn}`);
+
+    // ตรวจสอบข้อมูลใน opitemrece ก่อน
+    const [opitemreceData] = await connection.query(
+      "SELECT * FROM opitemrece WHERE vn = ? LIMIT 5",
+      [vn]
+    );
+
+    console.log('📊 opitemrece data:', opitemreceData);
+
+    if (Array.isArray(opitemreceData) && opitemreceData.length === 0) {
+      console.log('❌ No data found in opitemrece for VN:', vn);
+      return [];
+    }
+
+    // ทดสอบ JOIN แบบเบื้องต้น (ไม่ใช้คอลัมน์ที่มีปัญหา)
+    const [basicJoin] = await connection.query(
+      `SELECT 
+        opitemrece.vn,
+        opitemrece.icode,
+        opitemrece.qty,
+        opitemrece.sum_price,
+        s_drugitems.icode as s_icode,
+        s_drugitems.name as s_name
+      FROM opitemrece
+      LEFT JOIN s_drugitems ON opitemrece.icode = s_drugitems.icode
+      WHERE opitemrece.vn = ?
+      LIMIT 10`,
+      [vn]
+    );
+
+    console.log('📊 Basic join result:', basicJoin);
+
+    return (Array.isArray(basicJoin) ? basicJoin : []) as Record<string, unknown>[];
+  } catch (error) {
+    console.error('❌ Error testing receipt join:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+// ฟังก์ชันดึงข้อมูล Visit ที่เข้าข่ายส่งเบิก FDH
+export const getEligibleVisits = async (
+  startDate?: string,
+  endDate?: string,
+  fund?: string,
+  applyLimit: boolean = true
+): Promise<Record<string, unknown>[]> => {
+  const connection = await getUTFConnection();
+  try {
+    let query = `
+      SELECT 
+        ovst.vn,
+        ovst.hn,
+        ovst.an,
+        DATE_FORMAT(ovst.vstdate, '%Y-%m-%d') as serviceDate,
+        CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
+        pt.cid,
+        pttype.name as fund,
+        pttype.hipdata_code,
+        ovst.vsttime,
+        
+        -- กองทุนพิเศษ Subqueries
+        -- บริการจัดการ Tag พื้นฐาน
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '${businessRules.adp_codes.telmed}' LIMIT 1) as has_telmed,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '${businessRules.adp_codes.drugp}' LIMIT 1) as has_drugp,
+        (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND di.sks_product_category_id IN (3,4) AND di.ttmt_code IS NOT NULL LIMIT 1) as has_herb,
+        (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_type_id = 2 LIMIT 1) as has_instrument,
+        (SELECT 1 FROM health_med_service s JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id WHERE s.vn = ovst.vn AND i.icd10tm REGEXP '${businessRules.procedure_patterns.knee}' LIMIT 1) as has_knee_oper,
+        
+        -- คัดกรองความเสี่ยง
+        CASE
+          WHEN v.age_y BETWEEN 35 AND 59
+            AND EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12003' LIMIT 1)
+            AND ${buildFpgLabExistsSql('ovst')}
+            THEN 1
+          ELSE 0
+        END as has_fpg,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1) as has_chol,
+        CASE
+          WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '13001' LIMIT 1)
+            THEN 1
+          WHEN pt.sex = '2' AND v.age_y BETWEEN 13 AND 24 AND ${buildAnemiaFallbackSql('ovst')}
+            THEN 1
+          ELSE 0
+        END as has_anemia,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '14001' LIMIT 1) as has_iron,
+        
+        -- แม่และเด็ก/ANC
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30014' LIMIT 1) as has_upt,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30011' LIMIT 1) as has_anc_visit,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30010' LIMIT 1) as has_anc_us,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30012' LIMIT 1) as has_anc_lab1,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30013' LIMIT 1) as has_anc_lab2,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30015' LIMIT 1) as has_post_care,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30016' LIMIT 1) as has_post_supp,
+        
+        -- ป้องกันและคุมกำเนิด
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '15001' LIMIT 1) as has_fluoride,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('FP003_1','FP003_2') LIMIT 1) as has_fp_pill,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = 'FP003_4' LIMIT 1) as has_fp_condom,
+        
+        -- ตรวจมะเร็งปากมดลูก (เดิม)
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.cx}' LIMIT 1) as has_cx_diag,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.cx_regex}' LIMIT 1) as has_cx_adp,
+        
+        -- Palliative/Other Specialized
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) LIMIT 1) as has_pal_diag,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')}) LIMIT 1) as has_pal_adp,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z511|^Z512' LIMIT 1) as has_chemo_diag,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^B182' LIMIT 1) as has_hepc_diag,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z50' LIMIT 1) as has_rehab_diag,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z49' LIMIT 1) as has_crrt_diag,
+        (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.name LIKE '%robot%' LIMIT 1) as has_robot_item,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z510' LIMIT 1) as has_proton_diag,
+        (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.name LIKE '%chest x-ray%' LIMIT 1) as has_cxr_item,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND (d.name LIKE '%Clopidogrel%' OR d.name LIKE '%Clopidogre%' OR d.nhso_adp_code = '3799977101') LIMIT 1) as has_clopidogrel,
+
+        
+        -- ตรวจสอบเงื่อนไข 6 ข้อ
+        CASE WHEN pt.cid IS NOT NULL AND pt.cid != '' AND LENGTH(pt.cid) = 13 THEN 1 ELSE 0 END as has_cid,
+        
+        -- ตรวจสอบการลงวินิจฉัย (ICD-10)
+        CASE WHEN (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) IS NOT NULL THEN 1 ELSE 0 END as has_diagnosis,
+        (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) as main_diag,
+        
+        -- ตรวจสอบใบเสร็จและราคา
+        CASE WHEN (SELECT SUM(sum_price) FROM opitemrece WHERE vn = ovst.vn) > 0 THEN 1 ELSE 0 END as has_receipt,
+        COALESCE((SELECT SUM(sum_price) FROM opitemrece WHERE vn = ovst.vn), 0) as total_price,
+        
+        -- วิเคราะห์ Project Code (อ้างอิง FDH Ver 3.0)
+        CASE 
+          WHEN (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) REGEXP '${businessRules.diagnosis_patterns.cancer}' THEN 'CANCER' -- มะเร็งไปรับบริการที่ไหนก็ได้
+          WHEN (pttype.name LIKE '%อุบัติเหตุ%' OR ovst.pt_subtype = '7') THEN 'OP AE' -- อุบัติเหตุ/ฉุกเฉิน
+          WHEN (pttype.name LIKE '%สุขภาพ%' OR pttype.name LIKE '%บัตรทอง%' OR pttype.name = 'UCS') AND ovst.hospmain != '${process.env.HOSXP_HCODE || businessRules.hospital.hcode}' THEN 'OPANY'
+          ELSE ''
+        END as project_code,
+        
+        -- PP = Authen, EP = ปิดสิทธิ
+        CASE
+          WHEN COALESCE(
+            (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND claim_code REGEXP '^PP' LIMIT 1),
+            (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^PP' LIMIT 1)
+          ) IS NOT NULL THEN 1 ELSE 0
+        END as has_authen,
+        COALESCE(
+          (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND claim_code REGEXP '^PP' LIMIT 1),
+          (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^PP' LIMIT 1),
+          ''
+        ) as authen_code,
+        CASE
+          WHEN COALESCE(
+            (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ovst.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
+            (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND claim_code REGEXP '^EP' LIMIT 1),
+            (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^EP' LIMIT 1)
+          ) IS NOT NULL THEN 1 ELSE 0
+        END as has_close,
+        COALESCE(
+          (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ovst.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
+          (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND claim_code REGEXP '^EP' LIMIT 1),
+          (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^EP' LIMIT 1),
+          ''
+        ) as close_code,
+        COALESCE(
+          (SELECT nhso_status FROM nhso_confirm_privilege WHERE vn = ovst.vn LIMIT 1),
+          ''
+        ) as close_status
+
+      FROM ovst
+      LEFT JOIN patient pt ON ovst.hn = pt.hn
+      LEFT JOIN pttype ON ovst.pttype = pttype.pttype
+      LEFT JOIN vn_stat v ON v.vn = ovst.vn
+      WHERE 1=1
+    `;
+
+    const params: (string | number)[] = [];
+
+    if (startDate) {
+      query += ` AND ovst.vstdate >= ?`;
+      params.push(startDate);
+    }
+
+    if (endDate) {
+      query += ` AND ovst.vstdate <= ?`;
+      params.push(endDate);
+    }
+
+    if (fund && fund !== 'ทั้งหมด' && fund !== '') {
+      query += ` AND pttype.name = ?`;
+      params.push(fund);
+    }
+
+    query += ` ORDER BY ovst.vstdate DESC, ovst.vsttime DESC`;
+    if (applyLimit) {
+      query += ` LIMIT ${businessRules.query_limits.default_limit}`;
+    }
+

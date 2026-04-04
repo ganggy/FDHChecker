@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kidney Monitor Data Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-box { background: #f0f0f0; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #4CAF50; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🩺 Kidney Monitor Data Verification</h1>
+    
+    <div class="test-box">
+        <h2>1. API Data Test</h2>
+        <div id="apiTest">Loading...</div>
+    </div>
+
+    <div class="test-box">
+        <h2>2. Frontend Data Test</h2>
+        <div id="frontendTest">Open browser console on http://localhost:3508/#/special-monitor to see debug logs</div>
+    </div>
+
+    <div class="test-box">
+        <h2>3. Summary Verification</h2>
+        <table id="summaryTable">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Total Records</td>
+                    <td id="totalRecords">-</td>
+                    <td id="totalRecordsStatus">-</td>
+                </tr>
+                <tr>
+                    <td>UCS+SSS Count</td>
+                    <td id="ucsCount">-</td>
+                    <td id="ucsCountStatus">-</td>
+                </tr>
+                <tr>
+                    <td>OFC+LGO Count</td>
+                    <td id="ofcCount">-</td>
+                    <td id="ofcCountStatus">-</td>
+                </tr>
+                <tr>
+                    <td>UC-EPO Count</td>
+                    <td id="ucCount">-</td>
+                    <td id="ucCountStatus">-</td>
+                </tr>
+                <tr>
+                    <td>Total Profit</td>
+                    <td id="totalProfit">-</td>
+                    <td id="totalProfitStatus">-</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="test-box">
+        <h2>4. Sample Records</h2>
+        <table id="recordsTable">
+            <thead>
+                <tr>
+                    <th>Patient Name</th>
+                    <th>Insurance Group</th>
+                    <th>Profit</th>
+                    <th>Revenue</th>
+                </tr>
+            </thead>
+            <tbody id="recordsBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        fetch('/api/hosxp/kidney-monitor?startDate=2026-03-20&endDate=2026-03-21')
+            .then(res => res.json())
+            .then(json => {
+                const data = json.data || [];
+                
+                // Calculate stats
+                const totalRecords = data.length;
+                const ucsCount = data.filter(r => r.insuranceGroup === 'UCS+SSS').length;
+                const ofcCount = data.filter(r => r.insuranceGroup === 'OFC+LGO').length;
+                const ucCount = data.filter(r => r.insuranceGroup === 'UC-EPO').length;
+                const totalProfit = data.reduce((sum, r) => sum + (r.profit || 0), 0);
+
+                // Update summary table
+                document.getElementById('totalRecords').textContent = totalRecords;
+                document.getElementById('totalRecordsStatus').textContent = totalRecords === 82 ? '✓' : '✗';
+                document.getElementById('totalRecordsStatus').className = totalRecords === 82 ? 'success' : 'error';
+
+                document.getElementById('ucsCount').textContent = ucsCount;
+                document.getElementById('ucsCountStatus').textContent = ucsCount === 45 ? '✓' : '✗';
+                document.getElementById('ucsCountStatus').className = ucsCount === 45 ? 'success' : 'error';
+
+                document.getElementById('ofcCount').textContent = ofcCount;
+                document.getElementById('ofcCountStatus').textContent = ofcCount === 24 ? '✓' : '✗';
+                document.getElementById('ofcCountStatus').className = ofcCount === 24 ? 'success' : 'error';
+
+                document.getElementById('ucCount').textContent = ucCount;
+                document.getElementById('ucCountStatus').textContent = ucCount === 0 ? '✓' : '✗';
+                document.getElementById('ucCountStatus').className = ucCount === 0 ? 'success' : 'error';
+
+                document.getElementById('totalProfit').textContent = '฿' + totalProfit.toLocaleString('th-TH', {minimumFractionDigits: 2});
+                const profitExpected = 618826.40;
+                const profitDiff = Math.abs(totalProfit - profitExpected);
+                document.getElementById('totalProfitStatus').textContent = profitDiff < 100 ? '✓' : '✗';
+                document.getElementById('totalProfitStatus').className = profitDiff < 100 ? 'success' : 'error';
+
+                // Add sample records
+                const tbody = document.getElementById('recordsBody');
+                data.slice(0, 5).forEach(record => {
+                    const row = tbody.insertRow();
+                    row.insertCell(0).textContent = record.patientName;
+                    row.insertCell(1).textContent = record.insuranceGroup;
+                    row.insertCell(2).textContent = '฿' + (record.profit || 0).toLocaleString('th-TH', {minimumFractionDigits: 2});
+                    row.insertCell(3).textContent = '฿' + (record.revenue || 0).toLocaleString('th-TH', {minimumFractionDigits: 2});
+                });
+
+                document.getElementById('apiTest').innerHTML = '<span class="success">✓ API is working correctly! ' + totalRecords + ' records loaded</span>';
+            })
+            .catch(err => {
+                document.getElementById('apiTest').innerHTML = '<span class="error">✗ API Error: ' + err.message + '</span>';
+            });
+    </script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+// filepath: d:\fdh_rect\src\pages\SpecificFundPage.tsx
+// BACKUP COPY - created before automated JSX fix
+import React, { useState, useEffect } from 'react';
+import { DetailModal } from '../components/DetailModal';
+import type { CheckRecord } from '../mockData';
+import businessRules from '../config/business_rules.json';
+
+export const SpecificFundPage: React.FC = () => {    const [activeFund, setActiveFund] = useState('palliative');
+    const todayStr = new Date().toISOString().split('T')[0];
+    const [startDate, setStartDate] = useState(todayStr);
+    const [endDate, setEndDate] = useState(todayStr);
+    const [data, setData] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
+    const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
+
+    const fetchFundData = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/hosxp/specific-funds?fundType=${activeFund}&startDate=${startDate}&endDate=${endDate}`);
+            const json = await res.json();
+            if (json.success) setData(json.data);
+            else setError('ไม่สามารถดึงข้อมูลได้');
+        } catch (e) {
+            setError('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchFundData();
+    }, [activeFund, startDate, endDate]);
+
+    const funds = businessRules.fund_definitions;
+
+    // Helper function to get gradient colors based on subfund
+    const getSubfundColor = (subfund: string) => {
+        const colors: Record<string, { bg: string; shadow: string }> = {
+            'palliative': { bg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', shadow: 'rgba(102, 126, 234, 0.2)' },
+            'telemedicine': { bg: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', shadow: 'rgba(245, 87, 108, 0.2)' },
+            'drugp': { bg: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', shadow: 'rgba(79, 172, 254, 0.2)' },
+            'herb': { bg: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)', shadow: 'rgba(67, 233, 123, 0.2)' },
+            'knee': { bg: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', shadow: 'rgba(250, 112, 154, 0.2)' },
+            'instrument': { bg: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', shadow: 'rgba(48, 207, 208, 0.2)' },
+            'preg_test': { bg: 'linear-gradient(135deg, #ff6b9d 0%, #c06c84 100%)', shadow: 'rgba(255, 107, 157, 0.2)' },
+            'anc': { bg: 'linear-gradient(135deg, #ffa751 0%, #ffe259 100%)', shadow: 'rgba(255, 167, 81, 0.2)' },
+            'cacervix': { bg: 'linear-gradient(135deg, #ff9a56 0%, #ff6a88 100%)', shadow: 'rgba(255, 154, 86, 0.2)' },
+            'fp': { bg: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', shadow: 'rgba(168, 237, 234, 0.2)' },
+            'postpartum': { bg: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)', shadow: 'rgba(255, 154, 158, 0.2)' },
+            'caoral': { bg: 'linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)', shadow: 'rgba(255, 236, 210, 0.2)' },
+            'er_emergency': { bg: 'linear-gradient(135deg, #ff6e7f 0%, #bfe9ff 100%)', shadow: 'rgba(255, 110, 127, 0.2)' },
+            'chemo': { bg: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)', shadow: 'rgba(161, 196, 253, 0.2)' },
+            'hepc': { bg: 'linear-gradient(135deg, #d299c2 0%, #fef9d7 100%)', shadow: 'rgba(210, 153, 194, 0.2)' },
+            'rehab': { bg: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', shadow: 'rgba(250, 112, 154, 0.2)' },
+            'crrt': { bg: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', shadow: 'rgba(48, 207, 208, 0.2)' },
+            'robot': { bg: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', shadow: 'rgba(168, 237, 234, 0.2)' },
+            'proton': { bg: 'linear-gradient(135deg, #ff9a56 0%, #ff6a88 100%)', shadow: 'rgba(255, 154, 86, 0.2)' },
+            'cxr': { bg: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', shadow: 'rgba(79, 172, 254, 0.2)' },
+            'clopidogrel': { bg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', shadow: 'rgba(102, 126, 234, 0.2)' },
+            'fpg_screening': { bg: 'linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)', shadow: 'rgba(255, 75, 43, 0.2)' },
+            'cholesterol_screening': { bg: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)', shadow: 'rgba(247, 151, 30, 0.2)' },
+            'anemia_screening': { bg: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)', shadow: 'rgba(238, 156, 167, 0.2)' },
+            'iron_supplement': { bg: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', shadow: 'rgba(135, 0, 0, 0.2)' },
+            'anc_ultrasound': { bg: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', shadow: 'rgba(33, 147, 176, 0.2)' },
+            'anc_visit': { bg: 'linear-gradient(135deg, #00b4db 0%, #0083b0 100%)', shadow: 'rgba(0, 180, 219, 0.2)' },
+            'anc_lab_1': { bg: 'linear-gradient(135deg, #3a1c71 0%, #d76d77 50%, #ffaf7b 100%)', shadow: 'rgba(58, 28, 113, 0.2)' },
+            'anc_lab_2': { bg: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', shadow: 'rgba(30, 60, 114, 0.2)' },
+            'pregnancy_test': { bg: 'linear-gradient(135deg, #f857a6 0%, #ff5858 100%)', shadow: 'rgba(248, 87, 166, 0.2)' },
+            'postnatal_care': { bg: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', shadow: 'rgba(17, 153, 142, 0.2)' },
+            'postnatal_supplements': { bg: 'linear-gradient(135deg, #1d976c 0%, #93f9b9 100%)', shadow: 'rgba(29, 151, 108, 0.2)' },
+            'fluoride': { bg: 'linear-gradient(135deg, #4ca1af 0%, #c4e0e5 100%)', shadow: 'rgba(76, 161, 175, 0.2)' },
+            'contraceptive_pill': { bg: 'linear-gradient(135deg, #6a11cb 0%, #2575fc 100%)', shadow: 'rgba(106, 17, 203, 0.2)' },
+            'condom': { bg: 'linear-gradient(135deg, #232526 0%, #414345 100%)', shadow: 'rgba(35, 37, 38, 0.2)' },
+        };
+        
+        // Try to match subfund name to find the right color
+        for (const [key, value] of Object.entries(colors)) {
+            if (subfund.toLowerCase().includes(key) || activeFund === key) {
+                return value;
+            }
+        }
+        // Default
+        return { bg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', shadow: 'rgba(102, 126, 234, 0.2)' };
+    };
+
+    const getStatus = (item: any) => {
+        const isUCS = item.hipdata_code === 'UCS';
+        const subfunds: string[] = [];
+
+        if (activeFund === 'palliative') {
+            const hasZ515 = item.z515_code !== null && item.z515_code !== '';
+            const hasZ718 = item.z718_code !== null && item.z718_code !== '';
+            const hasAdp = item.has_30001 === 'Y' || item.has_cons01 === 'Y' || item.has_eva001 === 'Y';
+
+            if (!isUCS) return { status: `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})`, class: 'badge-danger', icon: '❌', subfunds };
+            if (!hasZ515 && !hasZ718) return { status: 'ขาด Diag Palliative', class: 'badge-danger', icon: '❌', subfunds };
+            if (!hasAdp) return { status: 'ขาด ADP (Palliative)', class: 'badge-danger', icon: '❌', subfunds };
+
+            subfunds.push('🕊️ Palliative Care');
+            return { status: 'สมบูรณ์', class: 'badge-success', icon: '✅', subfunds };
+        }
+
+        // ... truncated for backup ...
+        return { status: 'ไม่ทราบ/ข้อมูลไม่พอ', class: 'badge-warning', icon: '❓', subfunds };
+    };
+    const handleRowClick = (item: any) => {
+        const mockRecord: CheckRecord = {
+            id: 0,
+            vn: item.vn,
+            hn: item.hn,
+            patientName: item.patientName,
+            fund: item.pttypename,
+            serviceDate: item.serviceDate,
+            serviceType: 'OPD',
+            status: getStatus(item).status === 'สมบูรณ์' ? 'ready' : 'pending',
+            issues: [],
+            price: item.total_price || 0
+        };
+        setSelectedRecord(mockRecord);
+    };
+
+    // Filter data based on status if showIncompleteOnly is true
+    const filteredData = showIncompleteOnly 
+        ? data.filter(item => getStatus(item).status !== 'สมบูรณ์')
+        : data;
+
+    return (
+        <div className="page-container" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+            {/* backup copy truncated - see live file for full content */}
+        </div>
+    );
+};

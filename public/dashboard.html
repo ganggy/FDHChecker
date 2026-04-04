@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - HOSxP Fund Check</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { color: #1976d2; margin-bottom: 10px; font-size: 28px; }
+        .subtitle { color: #666; margin-bottom: 30px; }
+        
+        .controls { margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 4px; }
+        input[type="date"] { padding: 8px 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        .date-info { margin-top: 10px; color: #666; font-size: 14px; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 30px 0; }
+        .stat-card { background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; }
+        .stat-card h3 { font-size: 14px; margin-bottom: 10px; opacity: 0.9; }
+        .stat-card .value { font-size: 32px; font-weight: bold; }
+        
+        .loading { text-align: center; padding: 40px; color: #666; font-size: 18px; }
+        .error { background: #ffebee; color: #c62828; padding: 15px; border-radius: 4px; margin: 20px 0; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        table th { background: #f5f5f5; padding: 12px; text-align: left; font-weight: bold; border-bottom: 2px solid #ddd; }
+        table td { padding: 12px; border-bottom: 1px solid #eee; }
+        table tr:hover { background: #f9f9f9; }
+        .complete { color: #2e7d32; font-weight: bold; }
+        .incomplete { color: #c62828; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Admin Dashboard</h1>
+        <p class="subtitle">Real-time HOSxP Fund Check System</p>
+        
+        <div class="controls">
+            <label>📅 เลือกวันที่:</label><br>
+            <input type="date" id="dateInput" value="2026-03-15">
+            <p class="date-info" id="dateDisplay"></p>
+        </div>
+        
+        <div id="content">
+            <div class="loading">⏳ กำลังโหลดข้อมูล...</div>
+        </div>
+    </div>
+
+    <script>
+        const dateInput = document.getElementById('dateInput');
+        const dateDisplay = document.getElementById('dateDisplay');
+        const content = document.getElementById('content');
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr + 'T00:00:00');
+            return date.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+        }
+
+        async function loadData(date) {
+            content.innerHTML = '<div class="loading">⏳ กำลังโหลดข้อมูล...</div>';
+            dateDisplay.textContent = `กำลังแสดงข้อมูลวันที่: ${formatDate(date)}`;
+
+            try {
+                console.log(`Fetching data for ${date}`);
+                const response = await fetch(`/api/hosxp/checks?startDate=${date}&endDate=${date}`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                console.log('Data received:', data.length, 'records');
+
+                if (!data || data.length === 0) {
+                    content.innerHTML = '<div class="error">❌ ไม่มีข้อมูลในวันนี้</div>';
+                    return;
+                }
+
+                // Calculate stats
+                const total = data.length;
+                const complete = data.filter(r => r.status === 'สมบูรณ์').length;
+                const incomplete = total - complete;
+                const totalValue = data.reduce((sum, r) => sum + (r.price || 0), 0);
+
+                // Build HTML
+                let html = `
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>📊 จำนวนทั้งหมด</h3>
+                            <div class="value">${total}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>✓ สมบูรณ์</h3>
+                            <div class="value">${complete}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>⚠️ ไม่สมบูรณ์</h3>
+                            <div class="value">${incomplete}</div>
+                        </div>
+                        <div class="stat-card">
+                            <h3>💰 มูลค่ารวม</h3>
+                            <div class="value">${totalValue.toLocaleString()}</div>
+                        </div>
+                    </div>
+                    
+                    <h2 style="margin-top: 30px; color: #333;">รายการข้อมูล</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>HN</th>
+                                <th>ชื่อผู้ป่วย</th>
+                                <th>กองทุน</th>
+                                <th>ประเภท</th>
+                                <th>ราคา</th>
+                                <th>สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                data.slice(0, 20).forEach(row => {
+                    const statusClass = row.status === 'สมบูรณ์' ? 'complete' : 'incomplete';
+                    html += `
+                        <tr>
+                            <td>${row.hn}</td>
+                            <td>${row.patientName}</td>
+                            <td>${row.fund}</td>
+                            <td>${row.serviceType}</td>
+                            <td>${(row.price || 0).toLocaleString()}</td>
+                            <td class="${statusClass}">${row.status}</td>
+                        </tr>
+                    `;
+                });
+
+                html += `</tbody></table>`;
+                content.innerHTML = html;
+            } catch (error) {
+                console.error('Error:', error);
+                content.innerHTML = `<div class="error">❌ เกิดข้อผิดพลาด: ${error.message}</div>`;
+            }
+        }
+
+        dateInput.addEventListener('change', (e) => loadData(e.target.value));
+        loadData(dateInput.value);
+    </script>
+</body>
+</html>

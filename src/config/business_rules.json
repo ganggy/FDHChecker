@@ -1,0 +1,206 @@
+{
+    "hospital": {
+        "hcode": "11101"
+    },
+    "query_limits": {
+        "default_limit": 1000,
+        "kidney_limit": 5000,
+        "ipd_limit": 500,
+        "lab_limit": 20,
+        "drug_limit": 10
+    },
+    "diagnosis_patterns": {
+        "cancer": "C%|D0%",
+        "anc": "^Z34|^Z35",
+        "cx": "^Z124|^Z014",
+        "fp": "^Z30",
+        "pp": "^Z39",
+        "palliative": [
+            "Z515",
+            "Z718"
+        ],
+        "chemo": "^Z511|^Z512",
+        "hepc": "^B182",
+        "rehab": "^Z50",
+        "crrt": "^Z49",
+        "proton": "^Z510",
+        "caoral": "^Z128",
+        "kidney_dialysis": [
+            "N185%",
+            "Z49%"
+        ],
+        "ncd_regex": "^(E1[0-4]|I1[0-5])",
+        "dialysis_regex": "^(N185|Z49)"
+    },
+    "adp_codes": {
+        "telmed": "TELMED",
+        "drugp": "DRUGP",
+        "anc": [
+            "30011",
+            "30012",
+            "30013",
+            "30010",
+            "30008",
+            "30009"
+        ],
+        "cx_regex": "^1B004|^1B005",
+        "fp_regex": "^FP",
+        "pp_regex": "^Z39",
+        "pp_adp": "30015",
+        "preg_lab": "31101",
+        "preg_item": "30014",
+        "palliative": [
+            "30001",
+            "Cons01",
+            "Eva001"
+        ],
+        "caoral": "90004"
+    },
+    "procedure_patterns": {
+        "knee": "87[2-4]7811|8737835"
+    },
+    "lab_patterns": {
+        "preg_upt": "preg|UPT"
+    },
+    "costs": {
+        "dialysis_fixed": 1380,
+        "fallback_margin": 0.4,
+        "dialysis_ucs_sss": 1380,
+        "dialysis_ofc_lgo": 1380,
+        "epo_real_base": 180,
+        "dialysis_ucs_sss_total": 1500,
+        "dialysis_ofc_lgo_total": 2000,
+        "epo_detail": {
+            "drug": 60,
+            "lab": 50,
+            "service": 70
+        }
+    },
+    "insurance_mapping": {
+        "OFC_LGO": {
+            "hipdata_codes": [
+                "LGO",
+                "OFC",
+                "A1"
+            ],
+            "keywords": [
+                "OFC",
+                "ข้าราชการ",
+                "อปท",
+                "ส่วนราชการ",
+                "เบิกหน่วยงาน",
+                "CSCD"
+            ]
+        },
+        "UCS_SSS": {
+            "hipdata_codes": [
+                "UCS",
+                "SSS",
+                "UNK"
+            ],
+            "keywords": [
+                "UCS",
+                "สุขภาพ",
+                "ประกันสังคม",
+                "บัตรประกัน",
+                "บัตรทอง",
+                "ไม่ระบุ",
+                "ผู้สูงอายุ",
+                "ผู้พิการ",
+                "ผู้มีรายได้น้อย",
+                "ทหารผ่านศึก",
+                "อสม"
+            ]
+        },
+        "UC_EPO": {
+            "hipdata_codes": [
+                "UC",
+                "WEL"
+            ],
+            "keywords": [
+                "UC",
+                "ประกันตัวเอง",
+                "Walk in"
+            ]
+        }
+    },
+    "project_codes": {
+        "er_emergency": "OP AE"
+    },
+    "site_settings": {
+        "hospital_name": "โรงพยาบาลโคกศรีสุพรรณ",
+        "hospital_code": "11101",
+        "lab_costs": {
+            "default": {
+                "enabled": true,
+                "source": "config",
+                "cost_field": "service_cost",
+                "sale_field": "service_pprice"
+            },
+            "rules": [
+                {
+                    "key": "preg_lab",
+                    "label": "Lab ตรวจครรภ์",
+                    "adp_codes": [
+                        "31101",
+                        "30014"
+                    ],
+                    "cost": 0
+                },
+                {
+                    "key": "anc_lab_1",
+                    "label": "ANC Lab 1",
+                    "adp_codes": [
+                        "30012"
+                    ],
+                    "cost": 0
+                },
+                {
+                    "key": "anc_lab_2",
+                    "label": "ANC Lab 2",
+                    "adp_codes": [
+                        "30013"
+                    ],
+                    "cost": 0
+                },
+                {
+                    "key": "fpg_screening",
+                    "label": "คัดกรองเบาหวาน",
+                    "adp_codes": [
+                        "12003"
+                    ],
+                    "cost": 0
+                },
+                {
+                    "key": "cholesterol_screening",
+                    "label": "คัดกรองไขมัน",
+                    "adp_codes": [
+                        "12004"
+                    ],
+                    "cost": 0
+                },
+                {
+                    "key": "anemia_screening",
+                    "label": "คัดกรองโลหิตจาง",
+                    "adp_codes": [
+                        "13001"
+                    ],
+                    "cost": 0
+                },
+                {
+                    "key": "iron_supplement",
+                    "label": "ยาเสริมธาตุเหล็ก",
+                    "adp_codes": [
+                        "14001"
+                    ],
+                    "cost": 0
+                }
+            ],
+            "service_cost_overrides": {
+                "dialysis_fixed": 1380,
+                "epo_real_base": 180
+            }
+        }
+    },
+    "_source": "database"
+}

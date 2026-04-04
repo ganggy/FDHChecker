@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VN Data Comparison Test</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 20px; 
+            background: #f5f5f5; 
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .test-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
+            gap: 20px; 
+        }
+        .vn-card { 
+            background: white; 
+            border-radius: 12px; 
+            padding: 20px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border: 2px solid #e0e0e0;
+        }
+        .vn-card.loading { border-color: #ffc107; }
+        .vn-card.success { border-color: #4caf50; }
+        .vn-card.error { border-color: #f44336; }
+        .vn-title { 
+            font-size: 18px; 
+            font-weight: bold; 
+            color: #1976d2; 
+            margin-bottom: 15px; 
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 8px;
+        }
+        .section { margin: 15px 0; }
+        .section-title { 
+            font-weight: bold; 
+            color: #333; 
+            margin-bottom: 8px; 
+        }
+        .data-list { 
+            background: #f9f9f9; 
+            border-radius: 6px; 
+            padding: 10px; 
+            margin: 5px 0; 
+        }
+        .data-item { 
+            padding: 4px 8px; 
+            margin: 2px 0; 
+            border-radius: 4px; 
+            background: white;
+            font-size: 13px;
+        }
+        .adp-item.can-claim { background: #e8f5e9; }
+        .adp-item.cannot-claim { background: #ffebee; }
+        .test-button { 
+            background: #1976d2; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-size: 16px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+        .test-button:hover { background: #1565c0; }
+        .status { 
+            text-align: center; 
+            padding: 8px; 
+            border-radius: 6px; 
+            font-weight: bold; 
+            margin-bottom: 15px;
+        }
+        .status.loading { background: #fff3cd; color: #856404; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧪 VN Data Comparison Test</h1>
+            <p>ทดสอบข้อมูลยาและค่าบริการ ADP ที่แตกต่างกันตาม VN</p>
+            <button class="test-button" onclick="testAllVNs()">🚀 ทดสอบทุก VN</button>
+        </div>
+
+        <div id="overall-status" class="status loading">
+            กดปุ่มเพื่อเริ่มทดสอบ
+        </div>
+
+        <div class="test-grid" id="test-grid">
+            <!-- VN Cards จะถูกสร้างที่นี่ -->
+        </div>
+    </div>
+
+    <script>
+        const vnList = [
+            '690351541353',
+            '690351555432', 
+            '690350441149',
+            '2601234'
+        ];
+
+        async function testAllVNs() {
+            const statusDiv = document.getElementById('overall-status');
+            const gridDiv = document.getElementById('test-grid');
+            
+            statusDiv.className = 'status loading';
+            statusDiv.textContent = '🔄 กำลังทดสอบ...';
+            
+            gridDiv.innerHTML = '';
+            
+            // สร้าง cards สำหรับแต่ละ VN
+            vnList.forEach(vn => {
+                const card = createVNCard(vn);
+                gridDiv.appendChild(card);
+            });
+            
+            // ทดสอบแต่ละ VN
+            let successCount = 0;
+            let errorCount = 0;
+            
+            for (const vn of vnList) {
+                try {
+                    await testSingleVN(vn);
+                    successCount++;
+                } catch (error) {
+                    errorCount++;
+                    console.error(`Error testing VN ${vn}:`, error);
+                }
+            }
+            
+            // แสดงผลรวม
+            if (errorCount === 0) {
+                statusDiv.className = 'status success';
+                statusDiv.textContent = `✅ ทดสอบสำเร็จทั้งหมด! (${successCount}/${vnList.length} VN)`;
+            } else {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = `⚠️ ทดสอบเสร็จสิ้น: สำเร็จ ${successCount}, ผิดพลาด ${errorCount}`;
+            }
+        }
+
+        function createVNCard(vn) {
+            const card = document.createElement('div');
+            card.className = 'vn-card loading';
+            card.id = `card-${vn}`;
+            
+            card.innerHTML = `
+                <div class="vn-title">VN: ${vn}</div>
+                <div class="status loading">กำลังโหลด...</div>
+                <div class="section">
+                    <div class="section-title">📋 ข้อมูลยา</div>
+                    <div id="drugs-${vn}" class="data-list">กำลังโหลด...</div>
+                </div>
+                <div class="section">
+                    <div class="section-title">🏥 ค่าบริการ ADP</div>
+                    <div id="services-${vn}" class="data-list">กำลังโหลด...</div>
+                </div>
+            `;
+            
+            return card;
+        }
+
+        async function testSingleVN(vn) {
+            const card = document.getElementById(`card-${vn}`);
+            const statusDiv = card.querySelector('.status');
+            
+            statusDiv.className = 'status loading';
+            statusDiv.textContent = 'กำลังทดสอบ...';
+            
+            try {
+                // ทดสอบข้อมูลยา
+                const drugsResponse = await fetch(`http://localhost:3001/api/hosxp/prescriptions/${vn}`);
+                const drugs = await drugsResponse.json();
+                
+                // ทดสอบข้อมูลค่าบริการ
+                const servicesResponse = await fetch(`http://localhost:3001/api/hosxp/services/${vn}`);
+                const services = await servicesResponse.json();
+                
+                // แสดงผลข้อมูลยา
+                const drugsDiv = document.getElementById(`drugs-${vn}`);
+                if (Array.isArray(drugs) && drugs.length > 0) {
+                    drugsDiv.innerHTML = drugs.map(drug => 
+                        `<div class="data-item">
+                            <strong>${drug.drugName || 'ไม่ระบุ'}</strong><br>
+                            จำนวน: ${drug.qty} | ราคา: ${drug.price?.toLocaleString() || '0'}฿
+                        </div>`
+                    ).join('');
+                } else {
+                    drugsDiv.innerHTML = '<div class="data-item">ไม่มีข้อมูลยา</div>';
+                }
+                
+                // แสดงผลข้อมูลค่าบริการ
+                const servicesDiv = document.getElementById(`services-${vn}`);
+                if (Array.isArray(services) && services.length > 0) {
+                    servicesDiv.innerHTML = services.map(service => {
+                        const canClaim = service.can_claim === 1;
+                        return `<div class="data-item adp-item ${canClaim ? 'can-claim' : 'cannot-claim'}">
+                            <strong>${service.income_name || 'ไม่ระบุ'}</strong><br>
+                            ADP: ${service.adp_code || 'ไม่มี'} | 
+                            ราคา: ${service.adp_price?.toLocaleString() || '0'}฿ |
+                            ${canClaim ? '✅ เบิกได้' : '❌ ไม่เบิก'}
+                        </div>`;
+                    }).join('');
+                } else {
+                    servicesDiv.innerHTML = '<div class="data-item">ไม่มีข้อมูลค่าบริการ</div>';
+                }
+                
+                // อัปเดตสถานะ
+                card.className = 'vn-card success';
+                statusDiv.className = 'status success';
+                statusDiv.textContent = `✅ สำเร็จ | ยา: ${drugs.length} รายการ | บริการ: ${services.length} รายการ`;
+                
+            } catch (error) {
+                card.className = 'vn-card error';
+                statusDiv.className = 'status error';
+                statusDiv.textContent = `❌ ผิดพลาด: ${error.message}`;
+                throw error;
+            }
+        }
+    </script>
+</body>
+</html>

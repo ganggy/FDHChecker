@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prescription API Test</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .result { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .success { background: #e8f5e9; color: #2e7d32; }
+        .error { background: #ffebee; color: #c62828; }
+        button { background: #1976d2; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #1565c0; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border: 1px solid #ddd; }
+        th { background-color: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Prescription API Test</h1>
+        <p>ทดสอบการเรียกข้อมูลยาจาก API และการแสดงผลในระบบ FDH</p>
+
+        <div class="test-section">
+            <h2>1. ทดสอบ API Endpoint</h2>
+            <button onclick="testPrescriptionAPI()">Test Prescription API</button>
+            <div id="api-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>2. แสดงข้อมูลยาแบบตาราง</h2>
+            <button onclick="displayPrescriptionTable()">Show Prescription Table</button>
+            <div id="table-result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>3. ทดสอบ Frontend Integration</h2>
+            <button onclick="window.open('/staff', '_blank')">Open Staff Page</button>
+            <p>คลิกที่แถวในตารางเพื่อดูข้อมูลยาใน DetailModal</p>
+        </div>
+    </div>
+
+    <script>
+        async function testPrescriptionAPI() {
+            const resultDiv = document.getElementById('api-result');
+            resultDiv.innerHTML = 'กำลังทดสอบ...';
+
+            try {
+                const response = await fetch('http://localhost:3001/api/hosxp/prescriptions/2601234');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="success">
+                        <strong>✅ API ทำงานสำเร็จ!</strong><br>
+                        จำนวนรายการยา: ${data.length} รายการ<br>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <strong>❌ เกิดข้อผิดพลาด:</strong><br>
+                        ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        async function displayPrescriptionTable() {
+            const resultDiv = document.getElementById('table-result');
+            
+            try {
+                const response = await fetch('http://localhost:3001/api/hosxp/prescriptions/2601234');
+                const prescriptions = await response.json();
+                
+                if (!Array.isArray(prescriptions) || prescriptions.length === 0) {
+                    resultDiv.innerHTML = '<p>ไม่พบข้อมูลยา</p>';
+                    return;
+                }
+
+                const total = prescriptions.reduce((sum, item) => sum + (item.price || 0), 0);
+                  const table = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>รหัสยา</th>
+                                <th>ชื่อยา</th>
+                                <th>จำนวน</th>
+                                <th>ราคา/หน่วย</th>
+                                <th>ราคารวม</th>
+                                <th>ADP Code</th>
+                                <th>สถานะเบิก</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${prescriptions.map(item => {
+                                const hasAdp = item.has_adp_mapping === 1 || item.adp_code;
+                                const rowStyle = hasAdp ? 'background-color: #e8f5e9;' : 'background-color: #ffebee;';
+                                const statusBadge = hasAdp 
+                                    ? '<span style="background: #4caf50; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">✓ เบิกได้</span>'
+                                    : '<span style="background: #f44336; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px;">⚠ ไม่เบิก</span>';
+                                return `
+                                <tr style="${rowStyle}">
+                                    <td><strong>${item.icode}</strong></td>
+                                    <td>${item.drugName || '-'}</td>
+                                    <td>${item.qty}</td>
+                                    <td>${item.unitPrice?.toLocaleString() || '0'} ฿</td>
+                                    <td>${item.price?.toLocaleString() || '0'} ฿</td>
+                                    <td>${item.adp_code || item.nhso_code || '-'}</td>
+                                    <td>${statusBadge}</td>
+                                </tr>
+                            `}).join('')}
+                        </tbody>
+                        <tfoot>
+                            <tr style="background-color: #f0f0f0; font-weight: bold;">
+                                <td colspan="4" style="text-align: right;">รวมทั้งหมด:</td>
+                                <td>${total.toLocaleString()} ฿</td>
+                                <td colspan="2">เบิกได้: ${prescriptions.filter(p => p.has_adp_mapping === 1 || p.adp_code).length}/${prescriptions.length}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <div style="margin-top: 12px; font-size: 12px;">
+                        <span style="background: #e8f5e9; padding: 2px 6px; margin-right: 8px;">🟢 มี ADP Code (เบิกได้)</span>
+                        <span style="background: #ffebee; padding: 2px 6px;">🔴 ไม่มี ADP Code (ไม่สามารถเบิกได้)</span>
+                    </div>
+                `;
+                
+                resultDiv.innerHTML = table;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        เกิดข้อผิดพลาด: ${error.message}
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

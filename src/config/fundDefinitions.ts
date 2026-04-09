@@ -48,7 +48,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         id: 'preg_test',
         name: 'ตรวจครรภ์ (UPT)',
         description: 'คัดกรองการตั้งครรภ์',
-        conditions: ['ADP 30014', 'ถ้าเข้าข่ายแลบประกอบให้มีรายการ 31101 ตามหน่วยบริการ']
+        conditions: ['ADP 30014', 'Diagnosis Z320 หรือ Z321', 'มีรายการ 31101 / Lab UPT']
     },
     {
         id: 'anc',
@@ -90,7 +90,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         id: 'postnatal_care',
         name: 'ดูแลหลังคลอด',
         description: 'ติดตาม/ตรวจหลังคลอด',
-        conditions: ['Diagnosis Z39', 'ADP 30015']
+        conditions: ['Diagnosis Z390 หรือ Z391 หรือ Z392', 'ADP 30015']
     },
     {
         id: 'postnatal_supplements',
@@ -113,14 +113,14 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
     {
         id: 'contraceptive_pill',
         name: 'ยาคุมกำเนิด',
-        description: 'ยาคุมชนิดเม็ด',
-        conditions: ['ADP FP003_1 หรือ FP003_2', 'มีบริการคุมกำเนิดตามเกณฑ์']
+        description: 'ยาคุมชนิดเม็ด (Anna / Lynestrenol)',
+        conditions: ['Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)', 'ADP FP003_1 (ยา Anna 40.-) หรือ FP003_2 (ยา Lynestrenol 80.-)']
     },
     {
         id: 'condom',
         name: 'ถุงยางอนามัย',
         description: 'บริการถุงยางอนามัย',
-        conditions: ['ADP FP003_4']
+        conditions: ['Diagnosis Z304 (คุมกำเนิดด้วยยา) หรือ Z30x', 'ADP FP003_4']
     },
     {
         id: 'cacervix',
@@ -144,13 +144,13 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         id: 'cholesterol_screening',
         name: 'คัดกรองไขมัน',
         description: 'คัดกรองไขมันในเลือด',
-        conditions: ['อายุ 45-70 ปี', 'Lab Cholesterol หรือ HDL', 'Diagnosis Z136', 'ADP 12004']
+        conditions: ['อายุ 45-59 ปี', 'Lab Cholesterol หรือ HDL', 'Diagnosis Z136', 'ADP 12004']
     },
     {
         id: 'anemia_screening',
         name: 'คัดกรองโลหิตจาง',
         description: 'คัดกรองหญิงวัยรุ่นและวัยเจริญพันธุ์',
-        conditions: ['หญิงอายุ 13-24 ปี', 'ADP 13001 หรือ CBC + Z138']
+        conditions: ['หญิงอายุ 13-24 ปี', 'Lab CBC', 'Diagnosis Z130', 'ADP 13001']
     },
     {
         id: 'iron_supplement',

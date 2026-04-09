@@ -1,0 +1,65 @@
+วิธีอัปขึ้น GitHub และอัปเดตโปรแกรม
+
+1) อัปขึ้น GitHub
+
+เปิด PowerShell ในโฟลเดอร์โปรเจกต์ เช่น D:\fdh_rect แล้วรัน:
+
+git status
+git add .
+git commit -m "Update project"
+git push
+
+ถ้ายังไม่เคยตั้ง remote ไว้ ให้เช็กก่อน:
+
+git remote -v
+
+ถ้ายังไม่มี origin ให้เพิ่ม:
+
+git remote add origin https://github.com/<user>/<repo>.git
+git push -u origin main
+
+ถ้าชื่อ branch ไม่ใช่ main ให้เช็กด้วย:
+
+git branch
+
+แล้ว push ตาม branch ที่ใช้อยู่ เช่น master หรือ develop
+
+2) อัปเดตโปรแกรมบนเครื่องนี้
+
+ถ้าเป็นโปรแกรมฝั่งหน้าเว็บ:
+
+npm install
+npm run dev
+
+ถ้าต้องการ build ใช้งานจริง:
+
+npm run build
+npm run preview
+
+ถ้ามี server แยก:
+
+cd server
+npm install
+npm run build
+npm start
+
+3) ดึงโค้ดล่าสุดจาก GitHub ลงเครื่องนี้
+
+git pull
+npm install
+npm run build
+
+ถ้ามี server แยก:
+
+cd server
+npm install
+npm run build
+
+4) สรุปสั้น
+
+- แก้โค้ด
+- git add .
+- git commit -m "..."
+- git push
+- ถ้าจะอัปเดตเครื่องนี้: git pull แล้ว build ใหม่
+

@@ -79,7 +79,7 @@ const buildAnemiaFallbackSql = (alias: string) => `
     SELECT 1
     FROM ovstdiag dx
     WHERE dx.vn = ${alias}.vn
-      AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z138'
+      AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z130'
   )
   AND ${buildAnemiaCbcExistsSql(alias)}
 `;
@@ -167,11 +167,14 @@ const buildPostIronMedExistsSql = (alias: string) => `
   )
 `;
 
+const UPT_DX_CODES = ['Z320', 'Z321'];
 const FPG_DX_CODES = ['Z131', 'Z133', 'Z136'];
 const CHOL_DX_CODES = ['Z136'];
-const ANEMIA_DX_CODES = ['Z138'];
+const ANEMIA_DX_CODES = ['Z130'];
 const IRON_DX_CODES = ['Z130'];
+const POSTNATAL_CARE_DX_CODES = ['Z390', 'Z391', 'Z392'];
 const POSTNATAL_SUPPLEMENT_DX_CODES = ['Z391', 'Z392'];
+const PILL_DX_CODES = ['Z304'];
 
 const ANC_LAB_1_REGEX = {
   cbc: 'CBC|COMPLETE BLOOD COUNT',
@@ -810,6 +813,9 @@ export const getNhsoClosePrivilegeCandidates = async (options: {
          o.hn,
          IFNULL(o.an, '') AS an,
          pt.cid,
+        COALESCE(v.sex, pt.sex) as sex,
+        v.age_y as age,
+        v.age_y as age_y,
          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
          COALESCE(v.sex, pt.sex) as sex,
          DATE_FORMAT(pt.birthday, '%Y-%m-%d') AS birthday,
@@ -2004,6 +2010,9 @@ export const getCheckData = async (
         ovst.hn,
         ovst.vn,
         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
+        COALESCE(v.sex, pt.sex) as sex,
+        v.age_y as age,
+        v.age_y as age_y,
         COALESCE(pttype.name, 'ไม่ระบุสิทธิ') as fund,
         pttype.hipdata_code,
         DATE_FORMAT(ovst.vstdate, '%Y-%m-%d') as serviceDate,
@@ -2034,12 +2043,12 @@ export const getCheckData = async (
             THEN 1
           ELSE 0
         END as has_fpg,
-        CASE WHEN v.age_y BETWEEN 45 AND 70 THEN 1 ELSE 0 END as chol_age_eligible,
+        CASE WHEN v.age_y BETWEEN 45 AND 59 THEN 1 ELSE 0 END as chol_age_eligible,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1) THEN 1 ELSE 0 END as has_chol_adp,
         CASE WHEN ${buildCholLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_chol_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', CHOL_DX_CODES)} THEN 1 ELSE 0 END as has_chol_diag,
         CASE
-          WHEN v.age_y BETWEEN 45 AND 70
+          WHEN v.age_y BETWEEN 45 AND 59
             AND EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1)
             AND ${buildCholLabExistsSql('ovst')}
             AND ${buildDiagnosisMatchSql('ovst', 'v', CHOL_DX_CODES)}
@@ -2061,22 +2070,31 @@ export const getCheckData = async (
           WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '13001' LIMIT 1)
             THEN 'ADP13001'
           WHEN COALESCE(v.sex, pt.sex) = '2' AND v.age_y BETWEEN 13 AND 24 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
-            THEN 'CBC+Z138'
+            THEN 'CBC+Z130'
           ELSE NULL
         END as anemia_match_source,
         CASE WHEN COALESCE(v.sex, pt.sex) = '2' AND v.age_y BETWEEN 13 AND 45 THEN 1 ELSE 0 END as iron_age_eligible,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '14001' LIMIT 1) THEN 1 ELSE 0 END as has_iron_adp,
+        CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND (d.name LIKE '%FERROUS%' OR d.name LIKE '%F-TAB%') LIMIT 1) THEN 1 ELSE 0 END as has_iron_med,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)} THEN 1 ELSE 0 END as has_iron_diag,
         CASE
           WHEN COALESCE(v.sex, pt.sex) = '2' AND v.age_y BETWEEN 13 AND 45
-            AND EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '14001' LIMIT 1)
+            AND (
+              EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '14001' LIMIT 1)
+              OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND (d.name LIKE '%FERROUS%' OR d.name LIKE '%F-TAB%') LIMIT 1)
+            )
             AND ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)}
             THEN 1
           ELSE 0
         END as has_iron,
         CASE WHEN ${buildPregLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_preg_lab,
+        CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', UPT_DX_CODES)} THEN 1 ELSE 0 END as has_preg_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30014' LIMIT 1) THEN 1 ELSE 0 END as has_preg_item,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30014' LIMIT 1) as has_upt,
+        (SELECT GROUP_CONCAT(DISTINCT REPLACE(UPPER(dx.icd10), '.', '') ORDER BY dx.icd10 SEPARATOR ', ')
+          FROM ovstdiag dx
+          WHERE dx.vn = ovst.vn
+            AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z320', 'Z321')) as preg_diags,
         CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.anc}' LIMIT 1) THEN 1 ELSE 0 END as has_anc_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN (${(businessRules.adp_codes.anc as string[]).map(code => `'${code}'`).join(',')}) LIMIT 1) THEN 1 ELSE 0 END as has_anc_adp,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30011' LIMIT 1) as has_anc_visit,
@@ -2097,15 +2115,21 @@ export const getCheckData = async (
         CASE WHEN ${buildServiceOrLabNameExistsSql('ovst', ANC_LAB_2_REGEX.cbc)} THEN 1 ELSE 0 END as anc_lab2_cbc,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30008' LIMIT 1) as has_anc_dental_exam,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30009' LIMIT 1) as has_anc_dental_clean,
-        CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.pp}' LIMIT 1) THEN 1 ELSE 0 END as has_pp_diag,
+        CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_CARE_DX_CODES)} THEN 1 ELSE 0 END as has_pp_diag,
+        CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_SUPPLEMENT_DX_CODES)} THEN 1 ELSE 0 END as has_pp_specific_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 1 ELSE 0 END as has_pp_adp,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30015' LIMIT 1) as has_post_care,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30016' LIMIT 1) as has_post_supp,
+        (SELECT GROUP_CONCAT(DISTINCT d.nhso_adp_code ORDER BY d.nhso_adp_code SEPARATOR ', ')
+          FROM opitemrece oo
+          JOIN s_drugitems d ON d.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015', '30016')) as pp_adp_codes,
         CASE WHEN ${buildPostIronMedExistsSql('ovst')} THEN 1 ELSE 0 END as has_post_iron_med,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '15001' LIMIT 1) as has_fluoride,
         CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.fp}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_diag,
+        CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', PILL_DX_CODES)} THEN 1 ELSE 0 END as has_z304_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_adp,
-        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('FP003_1','FP003_2') LIMIT 1) as has_fp_pill,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND (d.nhso_adp_code IN ('FP003_1','FP003_2') OR d.name LIKE '%ANNA%' OR d.name LIKE '%LYNESTRENOL%') LIMIT 1) as has_fp_pill,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = 'FP003_4' LIMIT 1) as has_fp_condom,
         
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z124|^Z014' LIMIT 1) as has_cx_diag,
@@ -2667,6 +2691,8 @@ export const getEligibleVisits = async (
         ovst.an,
         DATE_FORMAT(ovst.vstdate, '%Y-%m-%d') as serviceDate,
         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
+        COALESCE(v.sex, pt.sex) as sex,
+        v.age_y as age,
         pt.cid,
         pttype.name as fund,
         pttype.hipdata_code,
@@ -2693,12 +2719,12 @@ export const getEligibleVisits = async (
             THEN 1
           ELSE 0
         END as has_fpg,
-        CASE WHEN v.age_y BETWEEN 45 AND 70 THEN 1 ELSE 0 END as chol_age_eligible,
+        CASE WHEN v.age_y BETWEEN 45 AND 59 THEN 1 ELSE 0 END as chol_age_eligible,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1) THEN 1 ELSE 0 END as has_chol_adp,
         CASE WHEN ${buildCholLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_chol_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', CHOL_DX_CODES)} THEN 1 ELSE 0 END as has_chol_diag,
         CASE
-          WHEN v.age_y BETWEEN 45 AND 70
+          WHEN v.age_y BETWEEN 45 AND 59
             AND EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1)
             AND ${buildCholLabExistsSql('ovst')}
             AND ${buildDiagnosisMatchSql('ovst', 'v', CHOL_DX_CODES)}
@@ -2729,8 +2755,13 @@ export const getEligibleVisits = async (
         
         -- แม่และเด็ก/ANC
         CASE WHEN ${buildPregLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_preg_lab,
+        CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', UPT_DX_CODES)} THEN 1 ELSE 0 END as has_preg_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30014' LIMIT 1) THEN 1 ELSE 0 END as has_preg_item,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30014' LIMIT 1) as has_upt,
+        (SELECT GROUP_CONCAT(DISTINCT REPLACE(UPPER(dx.icd10), '.', '') ORDER BY dx.icd10 SEPARATOR ', ')
+          FROM ovstdiag dx
+          WHERE dx.vn = ovst.vn
+            AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z320', 'Z321')) as preg_diags,
         CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.anc}' LIMIT 1) THEN 1 ELSE 0 END as has_anc_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN (${(businessRules.adp_codes.anc as string[]).map(code => `'${code}'`).join(',')}) LIMIT 1) THEN 1 ELSE 0 END as has_anc_adp,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30011' LIMIT 1) as has_anc_visit,
@@ -2751,10 +2782,14 @@ export const getEligibleVisits = async (
         CASE WHEN ${buildServiceOrLabNameExistsSql('ovst', ANC_LAB_2_REGEX.cbc)} THEN 1 ELSE 0 END as anc_lab2_cbc,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30008' LIMIT 1) as has_anc_dental_exam,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30009' LIMIT 1) as has_anc_dental_clean,
-        CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.pp}' LIMIT 1) THEN 1 ELSE 0 END as has_pp_diag,
+        CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_CARE_DX_CODES)} THEN 1 ELSE 0 END as has_pp_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 1 ELSE 0 END as has_pp_adp,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30015' LIMIT 1) as has_post_care,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30016' LIMIT 1) as has_post_supp,
+        (SELECT GROUP_CONCAT(DISTINCT d.nhso_adp_code ORDER BY d.nhso_adp_code SEPARATOR ', ')
+          FROM opitemrece oo
+          JOIN s_drugitems d ON d.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015', '30016')) as pp_adp_codes,
         CASE WHEN ${buildPostIronMedExistsSql('ovst')} THEN 1 ELSE 0 END as has_post_iron_med,
         
         -- ป้องกันและคุมกำเนิด
@@ -3662,7 +3697,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           ptt.name as pttypename, ptt.hipdata_code,
           v.age_y as age,
           v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
-          CASE WHEN v.age_y BETWEEN 45 AND 70 THEN 'Y' ELSE 'N' END as age_eligible,
+          CASE WHEN v.age_y BETWEEN 45 AND 59 THEN 'Y' ELSE 'N' END as age_eligible,
           CASE WHEN ${buildDiagnosisMatchSql('o', 'v', CHOL_DX_CODES)} THEN 'Y' ELSE 'N' END as has_chol_diag,
           CASE WHEN ${buildCholLabExistsSql('o')} THEN 'Y' ELSE 'N' END as has_chol_lab,
           CASE WHEN EXISTS (
@@ -3679,7 +3714,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         WHERE o.vstdate BETWEEN ? AND ?
           AND (
             (
-              v.age_y BETWEEN 45 AND 70
+              v.age_y BETWEEN 45 AND 59
               AND ${buildDiagnosisMatchSql('o', 'v', CHOL_DX_CODES)}
               AND ${buildCholLabExistsSql('o')}
             )
@@ -3723,22 +3758,22 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           (SELECT GROUP_CONCAT(DISTINCT REPLACE(UPPER(dx.icd10), '.', '') SEPARATOR ', ')
              FROM ovstdiag dx
             WHERE dx.vn = o.vn
-              AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z138'
-          ) as z138_diags,
+              AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z130'
+          ) as z130_diags,
           CASE
             WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '13001' LIMIT 1)
               THEN 'ADP13001'
             WHEN COALESCE(v.sex, pt.sex) = '2' AND v.age_y BETWEEN 13 AND 24 AND (
               ${buildAnemiaFallbackSql('o')}
-              OR REPLACE(UPPER(COALESCE(v.pdx, '')), '.', '') = 'Z138'
-              OR REPLACE(UPPER(COALESCE(v.dx0, '')), '.', '') = 'Z138'
-              OR REPLACE(UPPER(COALESCE(v.dx1, '')), '.', '') = 'Z138'
-              OR REPLACE(UPPER(COALESCE(v.dx2, '')), '.', '') = 'Z138'
-              OR REPLACE(UPPER(COALESCE(v.dx3, '')), '.', '') = 'Z138'
-              OR REPLACE(UPPER(COALESCE(v.dx4, '')), '.', '') = 'Z138'
-              OR REPLACE(UPPER(COALESCE(v.dx5, '')), '.', '') = 'Z138'
+              OR REPLACE(UPPER(COALESCE(v.pdx, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx0, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx1, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx2, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx3, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx4, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx5, '')), '.', '') = 'Z130'
             )
-              THEN 'CBC+Z138'
+              THEN 'CBC+Z130'
             ELSE NULL
           END as anemia_match_source,
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
@@ -3796,7 +3831,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
              SELECT 1 FROM opitemrece oo 
              LEFT JOIN drugitems d ON d.icode = oo.icode 
              WHERE oo.vn = o.vn 
-               AND d.did IN (${ironDidStr})
+               AND (d.did IN (${ironDidStr}) OR d.name LIKE '%FERROUS%' OR d.name LIKE '%F-TAB%')
           ) THEN 'Y' ELSE 'N' END as has_iron_med,
           CASE WHEN EXISTS (
              SELECT 1 FROM opitemrece oo 
@@ -3819,7 +3854,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
                  SELECT 1 FROM opitemrece oo 
                  LEFT JOIN drugitems d ON d.icode = oo.icode 
                  WHERE oo.vn = o.vn 
-                   AND d.did IN (${ironDidStr})
+                   AND (d.did IN (${ironDidStr}) OR d.name LIKE '%FERROUS%' OR d.name LIKE '%F-TAB%')
               )
             )
             OR EXISTS (
@@ -3938,15 +3973,22 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
               pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
               ptt.name as pttypename, ptt.hipdata_code,
               v.age_y as age,
+              COALESCE(v.sex, pt.sex) as sex,
               v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
               CASE WHEN ${buildPregLabExistsSql('o')} THEN 'Y' ELSE 'N' END as has_preg_lab,
+              CASE WHEN ${buildDiagnosisMatchSql('o', 'v', UPT_DX_CODES)} THEN 'Y' ELSE 'N' END as has_preg_diag,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30014' LIMIT 1) THEN 'Y' ELSE 'N' END as has_preg_item,
+              (SELECT GROUP_CONCAT(DISTINCT REPLACE(UPPER(dx.icd10), '.', '') ORDER BY dx.icd10 SEPARATOR ', ')
+               FROM ovstdiag dx
+               WHERE dx.vn = o.vn
+                 AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z320', 'Z321')) as preg_diags,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30015' LIMIT 1) THEN 'Y' ELSE 'N' END as has_post_care,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30016' LIMIT 1) THEN 'Y' ELSE 'N' END as has_post_supp,
-              CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.pp}' LIMIT 1) THEN 'Y' ELSE 'N' END as has_pp_diag,
+              CASE WHEN ${buildDiagnosisMatchSql('o', 'v', POSTNATAL_CARE_DX_CODES)} THEN 'Y' ELSE 'N' END as has_pp_diag,
               (SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.icd10 SEPARATOR ', ')
                FROM ovstdiag dx
-               WHERE dx.vn = o.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.pp}') as pp_diags,
+               WHERE dx.vn = o.vn
+                 AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z390', 'Z391', 'Z392')) as pp_diags,
               CASE WHEN ${buildDiagnosisMatchSql('o', 'v', POSTNATAL_SUPPLEMENT_DX_CODES)} THEN 'Y' ELSE 'N' END as has_post_supp_diag,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 'Y' ELSE 'N' END as has_pp_adp,
               (SELECT GROUP_CONCAT(DISTINCT d.nhso_adp_code ORDER BY d.nhso_adp_code SEPARATOR ', ')
@@ -3965,8 +4007,8 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
             LEFT JOIN vn_stat v ON v.vn = o.vn
             WHERE o.vstdate BETWEEN ? AND ?
               AND (
-                (${fundType === 'preg_test' || fundType === 'pregnancy_test' ? `(${buildPregLabExistsSql('o')} OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30014'))` : '0'})
-                OR (${fundType === 'postnatal_care' ? `(EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.pp}') OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30015'))` : '0'})
+                (${fundType === 'preg_test' || fundType === 'pregnancy_test' ? `((${buildPregLabExistsSql('o')} AND ${buildDiagnosisMatchSql('o', 'v', UPT_DX_CODES)}) OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30014'))` : '0'})
+                OR (${fundType === 'postnatal_care' ? `(${buildDiagnosisMatchSql('o', 'v', POSTNATAL_CARE_DX_CODES)} OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30015'))` : '0'})
                 OR (${fundType === 'postnatal_supplements' ? `(${buildDiagnosisMatchSql('o', 'v', POSTNATAL_SUPPLEMENT_DX_CODES)} AND (EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30016') OR ${buildPostIronMedExistsSql('o')}))` : '0'})
                 OR (${fundType === 'contraceptive_pill' || fundType === 'condom' ? `(EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.fp}') OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}'))` : '0'})
                 OR (${fundType === 'postnatal_supplements'

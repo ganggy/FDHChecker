@@ -51,7 +51,14 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                   <td style={{ textAlign: 'center', opacity: 0.5, fontSize: 12 }}>{index + 1}</td>
                   <td className="table-cell-nowrap" style={{ fontSize: 13, color: '#64748b' }}>{item.vn}</td>
                   <td style={{ fontWeight: 600 }}>{item.hn}</td>
-                  <td style={{ fontWeight: 500 }}>{item.patientName}</td>
+                  <td style={{ fontWeight: 500 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span>{item.patientName}</span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)', fontWeight: 400 }}>
+                        {item.sex === '2' ? 'หญิง' : item.sex === '1' ? 'ชาย' : ''} {item.age || item.age_y || '-'} ปี
+                      </span>
+                    </div>
+                  </td>
                   <td>
                     <span className="badge badge-info" style={{
                       background: item.hipdata_code === 'UCS' ? '#dbeafe' : item.hipdata_code === 'WEL' ? '#f0f9ff' : '#f1f5f9',

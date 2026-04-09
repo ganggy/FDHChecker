@@ -97,7 +97,7 @@ const getNearFundMissingParts = (
     adpMet: boolean,
     adpLabel: string,
     requirements: Array<{ met: boolean; label: string }>,
-    _hasServiceEvidence?: boolean
+    _shouldShowMissing?: boolean
 ) => {
     const missingRequirementLabels = requirements.filter((requirement) => !requirement.met).map((requirement) => requirement.label);
     const allRequirementsMet = missingRequirementLabels.length === 0;
@@ -106,7 +106,13 @@ const getNearFundMissingParts = (
         return allRequirementsMet ? [] : missingRequirementLabels;
     }
 
-    return allRequirementsMet ? [adpLabel] : [];
+    // Only show "Missing ADP" warning IF they meet clinical criteria (Evidence) 
+    // This matches SpecificFundPage logic
+    if (allRequirementsMet || _shouldShowMissing) {
+        return allRequirementsMet ? [adpLabel] : [...missingRequirementLabels, adpLabel];
+    }
+
+    return [];
 };
 
 export const evaluateBillingLogic = (item: any) => {
@@ -189,7 +195,7 @@ export const evaluateBillingLogic = (item: any) => {
         const hasCholLab = toBool(item?.has_chol_lab);
         const hasCholDiag = toBool(item?.has_chol_diag);
         const cholNearMissing = getNearFundMissingParts(hasCholAdp, ' ADP 12004', [
-            { met: hasCholAge, label: ' อายุ 45-70 ปี' },
+            { met: hasCholAge, label: ' อายุ 45-59 ปี' },
             { met: hasCholLab, label: ' Lab Cholesterol/HDL' },
             { met: hasCholDiag, label: ' DX Z136' },
         ], hasCholLab || hasCholDiag);
@@ -206,7 +212,7 @@ export const evaluateBillingLogic = (item: any) => {
         const anemiaNearMissing = getNearFundMissingParts(hasAnemiaAdp, ' ADP 13001', [
             { met: hasAnemiaAge, label: ' หญิงอายุ 13-24 ปี' },
             { met: hasAnemiaLab, label: ' Lab CBC' },
-            { met: hasAnemiaDiag, label: ' DX Z138' },
+            { met: hasAnemiaDiag, label: ' DX Z130' },
         ], hasAnemiaLab || hasAnemiaDiag);
         if (hasAnemiaAge && hasAnemiaAdp && hasAnemiaLab && hasAnemiaDiag) {
             fundNotes.push({ label: '🩸 คัดกรองโลหิตจาง (13001)', kind: 'matched', group: 'other' });
@@ -217,7 +223,7 @@ export const evaluateBillingLogic = (item: any) => {
         const hasIronAge = toBool(item?.iron_age_eligible);
         const hasIronAdp = toBool(item?.has_iron_adp);
         const hasIronDiag = toBool(item?.has_iron_diag);
-        const hasIronMed = toBool(item?.has_iron);
+        const hasIronMed = toBool(item?.has_iron_med) || toBool(item?.has_iron);
         const ironNearMissing = getNearFundMissingParts(hasIronAdp, ' ADP 14001', [
             { met: hasIronAge, label: ' หญิงอายุ 13-45 ปี' },
             { met: hasIronDiag, label: ' DX Z130' },
@@ -230,11 +236,13 @@ export const evaluateBillingLogic = (item: any) => {
         }
 
         const hasPregLab = toBool(item?.has_preg_lab);
+        const hasPregDiag = toBool(item?.has_preg_diag) || hasDiagCode(item, ['Z320', 'Z321']);
         const hasPregItem = toBool(item?.has_preg_item) || toBool(item?.has_upt);
         const uptNearMissing = getNearFundMissingParts(hasPregItem, ' ADP 30014', [
-            { met: hasPregLab, label: ' Lab/หลักฐานการตรวจ' },
-        ], hasPregLab);
-        if (hasPregLab && hasPregItem) {
+            { met: hasPregDiag, label: ' DX Z320/Z321' },
+            { met: hasPregLab, label: ' 31101/Lab UPT' },
+        ], hasPregDiag && hasPregLab);
+        if (hasPregLab && hasPregDiag && hasPregItem) {
             fundNotes.push({ label: '🧪 ตรวจครรภ์ (UPT)', kind: 'matched', group: 'other' });
         } else {
             addWarningFundNote(fundNotes, 'ตรวจครรภ์ (UPT)', uptNearMissing);
@@ -252,7 +260,7 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '⚠️ ANC Visit: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
         } else if (hasAncVisitAdp && isFemale && hasAncDiag) {
             fundNotes.push({ label: '🤰 ANC Visit', kind: 'matched', group: 'other' });
-        } else {
+        } else if (ancVisitNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC Visit', ancVisitNearMissing);
         }
         const hasAncUsAdp = toBool(item?.has_anc_us) || hasAnyCodeValue(item?.anc_adp_codes, ['30010']);
@@ -263,12 +271,12 @@ export const evaluateBillingLogic = (item: any) => {
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
             { met: hasAncUsProc, label: ' Ultrasound ANC' },
-        ], isFemale && hasAncDiag);
+        ], isFemale && hasAncDiag && hasAncUsProc);
         if (ancUsEvidence && !isFemale) {
             fundNotes.push({ label: '⚠️ ANC Ultrasound: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
         } else if (hasAncUsComplete && isFemale && hasAncDiag) {
             fundNotes.push({ label: '📽️ ANC Ultrasound', kind: 'matched', group: 'other' });
-        } else {
+        } else if (ancUsNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC Ultrasound', ancUsNearMissing);
         }
         const ancLab1Requirements = getAncLab1Requirements(item, hasAncDiag);
@@ -278,7 +286,7 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '⚠️ ANC Lab 1: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
         } else if (ancLab1Adp && ancLab1Requirements.every((requirement) => requirement.met)) {
             fundNotes.push({ label: '🧬 ANC Lab 1', kind: 'matched', group: 'other' });
-        } else {
+        } else if (ancLab1NearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC Lab 1', ancLab1NearMissing);
         }
         const ancLab2Requirements = getAncLab2Requirements(item, hasAncDiag);
@@ -288,7 +296,7 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '⚠️ ANC Lab 2: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
         } else if (ancLab2Adp && ancLab2Requirements.every((requirement) => requirement.met)) {
             fundNotes.push({ label: '🧪 ANC Lab 2', kind: 'matched', group: 'other' });
-        } else {
+        } else if (ancLab2NearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC Lab 2', ancLab2NearMissing);
         }
         const hasAncDentalExamAdp = toBool(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
@@ -300,7 +308,7 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '⚠️ ANC ตรวจฟัน: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
         } else if (hasAncDentalExamAdp && isFemale && hasAncDiag) {
             fundNotes.push({ label: '🦷 ANC ตรวจฟัน', kind: 'matched', group: 'other' });
-        } else {
+        } else if (ancDentalExamNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ตรวจฟัน', ancDentalExamNearMissing);
         }
         const hasAncDentalCleanAdp = toBool(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
@@ -312,30 +320,30 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '⚠️ ANC ขัดทำความสะอาดฟัน: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
         } else if (hasAncDentalCleanAdp && isFemale && hasAncDiag) {
             fundNotes.push({ label: '🪥 ANC ขัดทำความสะอาดฟัน', kind: 'matched', group: 'other' });
-        } else {
+        } else if (ancDentalCleanNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ขัดทำความสะอาดฟัน', ancDentalCleanNearMissing);
         }
 
-        const hasPpDiag = toBool(item?.has_pp_diag);
-        const hasPpSpecificDiag = hasDiagCode(item, ['Z391', 'Z392']);
+        const hasPpDiag = toBool(item?.has_pp_diag) || hasDiagCode(item, ['Z390', 'Z391', 'Z392']);
+        const hasPpSpecificDiag = toBool(item?.has_pp_specific_diag) || hasDiagCode(item, ['Z391', 'Z392']);
         const hasPostIronMed = toBool(item?.has_post_iron_med);
-        const hasPostCareAdp = toBool(item?.has_post_care) || toBool(item?.has_specific_adp) || !!item?.pp_adp_codes;
+        const hasPostCareAdp = toBool(item?.has_post_care) || hasAnyCodeValue(item?.pp_adp_codes, ['30015']);
         const postCareNearMissing = getNearFundMissingParts(hasPostCareAdp, ' ADP 30015', [
-            { met: hasPpDiag, label: ' Diagnosis Z39x' },
+            { met: hasPpDiag, label: ' Diagnosis Z390/Z391/Z392' },
         ], hasPpDiag);
         if (hasPostCareAdp && hasPpDiag) {
             fundNotes.push({ label: '🤱 ตรวจหลังคลอด', kind: 'matched', group: 'other' });
-        } else {
+        } else if (postCareNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ตรวจหลังคลอด', postCareNearMissing);
         }
-        const hasPostSuppAdp = toBool(item?.has_post_supp) || toBool(item?.has_specific_adp);
+        const hasPostSuppAdp = toBool(item?.has_post_supp) || hasAnyCodeValue(item?.pp_adp_codes, ['30016']);
         const postSuppNearMissing = getNearFundMissingParts(hasPostSuppAdp, ' ADP 30016', [
             { met: hasPpSpecificDiag, label: ' Diagnosis Z391/Z392' },
             { met: hasPostIronMed, label: ' ยาเสริมธาตุเหล็ก' },
         ], hasPpSpecificDiag || hasPostIronMed);
         if (hasPostSuppAdp && hasPpSpecificDiag && hasPostIronMed) {
             fundNotes.push({ label: '💊 เสริมธาตุเหล็กหลังคลอด', kind: 'matched', group: 'drug' });
-        } else {
+        } else if (postSuppNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'เสริมธาตุเหล็กหลังคลอด', postSuppNearMissing, 'drug');
         }
 
@@ -344,11 +352,12 @@ export const evaluateBillingLogic = (item: any) => {
         }
 
         const hasFpDiag = toBool(item?.has_fp_diag);
+        const hasZ304Diag = toBool(item?.has_z304_diag);
         const hasFpAnyAdp = toBool(item?.has_fp_adp);
         const fpPillNearMissing = getNearFundMissingParts(toBool(item?.has_fp_pill), ' ADP FP003_1/FP003_2', [
-            { met: hasFpDiag, label: ' Diagnosis Z30x' },
-        ], hasFpDiag);
-        if (toBool(item?.has_fp_pill) && hasFpDiag) {
+            { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)' },
+        ], hasZ304Diag);
+        if (toBool(item?.has_fp_pill) && hasZ304Diag) {
             fundNotes.push({ label: '💊 ยาคุมกำเนิด', kind: 'matched', group: 'drug' });
         } else {
             addWarningFundNote(fundNotes, 'ยาคุมกำเนิด', fpPillNearMissing, 'drug');

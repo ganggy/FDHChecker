@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { DetailModal } from '../components/DetailModal';
 import type { CheckRecord } from '../mockData';
 import businessRules from '../config/business_rules.json';
@@ -29,7 +30,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
-    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: '13001 / CBC + Z138' },
+    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: '13001 / CBC + Z130' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
     { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'Hep C / HCV' },
@@ -53,6 +54,7 @@ export const SpecificFundPage: React.FC = () => {
     const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [fundVisibility, setFundVisibility] = useState<Record<string, boolean>>({});
+    const [exportingFundId, setExportingFundId] = useState<string | null>(null);
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
     const siteSettings = rules.site_settings as {
@@ -75,20 +77,27 @@ export const SpecificFundPage: React.FC = () => {
         [fundVisibility, funds]
     );
 
+    const fetchFundDataByType = useCallback(async (fundId: string) => {
+        const res = await fetch(`/api/hosxp/specific-funds?fundType=${fundId}&startDate=${startDate}&endDate=${endDate}`);
+        const json = await res.json();
+        if (!json.success) {
+            throw new Error('ไม่สามารถดึงข้อมูลได้');
+        }
+        return json.data as any[];
+    }, [startDate, endDate]);
+
     const fetchFundData = useCallback(async () => {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(`/api/hosxp/specific-funds?fundType=${activeFund}&startDate=${startDate}&endDate=${endDate}`);
-            const json = await res.json();
-            if (json.success) setData(json.data);
-            else setError('ไม่สามารถดึงข้อมูลได้');
+            const rows = await fetchFundDataByType(activeFund);
+            setData(rows);
         } catch (e) {
-            setError('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+            setError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ');
         } finally {
             setLoading(false);
         }
-    }, [activeFund, startDate, endDate]);
+    }, [activeFund, fetchFundDataByType]);
 
     useEffect(() => {
         const incoming = consumeDashboardNavigation('specific');
@@ -285,7 +294,7 @@ export const SpecificFundPage: React.FC = () => {
         return allRequirementsMet ? [adpLabel] : [];
     };
 
-    const getStatus = (item: any) => {
+    const getStatusForFund = (item: any, fundId: string = activeFund) => {
         const subfunds: string[] = [];
         const age = Number(item?.age_y ?? item?.age ?? 0);
         const hipdataText = `${item?.hipdata_code || ''} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.toUpperCase();
@@ -294,11 +303,11 @@ export const SpecificFundPage: React.FC = () => {
         const hasPalliativeAdp = toFlag(item?.has_pal_adp) || toFlag(item?.has_30001) || toFlag(item?.has_cons01) || toFlag(item?.has_eva001);
         const hasAncDiag = toFlag(item?.has_anc_diag) || hasDiagRegex(item, /^Z3[45]/) || hasValue(item?.anc_diags);
         const isFemale = String(item?.sex ?? '').trim() === '2';
-        const hasPostpartumDiag = toFlag(item?.has_pp_diag) || hasDiagRegex(item, /^Z39/);
+        const hasPostpartumDiag = toFlag(item?.has_pp_diag) || hasDiagCodes(item, ['Z390', 'Z391', 'Z392']);
         const hasPostpartumSpecificDiag = hasDiagCodes(item, ['Z391', 'Z392']);
         const hasFpDiag = toFlag(item?.has_fp_diag) || hasDiagRegex(item, /^Z30/);
 
-        if (activeFund === 'palliative') {
+        if (fundId === 'palliative') {
             const isMatched = hasPalliativeDiag && hasPalliativeAdp;
             if (hasPalliativeDiag || hasPalliativeAdp) subfunds.push('🕊️ Palliative Care');
             return buildStatusResult(
@@ -314,25 +323,25 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'telemedicine') {
+        if (fundId === 'telemedicine') {
             const hasTelmed = toFlag(item?.has_telmed) || item?.ovstist_export_code === rules.project_codes?.ovstist_tele;
             if (hasTelmed) subfunds.push(`📱 ${telmedCode}`);
             return buildStatusResult(subfunds, [hasTelmed ? '' : ` ADP/Export ${telmedCode}`].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
         }
 
-        if (activeFund === 'drugp') {
+        if (fundId === 'drugp') {
             const hasDrugp = toFlag(item?.has_drugp);
             if (hasDrugp) subfunds.push('📦 EMS ส่งยา');
             return buildStatusResult(subfunds, [hasDrugp ? '' : ' ADP DRUGP'].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
         }
 
-        if (activeFund === 'herb') {
+        if (fundId === 'herb') {
             const hasHerb = Number(item?.herb_total_price || 0) > 0 || toFlag(item?.has_herb);
             if (hasHerb) subfunds.push('🌿 สมุนไพร');
             return buildStatusResult(subfunds, [hasHerb ? '' : ' รายการสมุนไพร/ยอดราคา'].filter(Boolean), !(isUcsLike || hipdataText.includes('WEL')) ? 'ไม่ใช่สิทธิ์ UCS/WEL' : undefined);
         }
 
-        if (activeFund === 'knee') {
+        if (fundId === 'knee') {
             const hasKneeService = toFlag(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
             if (hasKneeService) subfunds.push('🦵 พอกเข่า');
             return buildStatusResult(subfunds, [
@@ -341,30 +350,33 @@ export const SpecificFundPage: React.FC = () => {
             ].filter(Boolean));
         }
 
-        if (activeFund === 'preg_test') {
-            const hasPregLab = toFlag(item?.has_preg_lab);
-            const hasPregAdp = toFlag(item?.has_preg_item) || toFlag(item?.has_upt) || toFlag(item?.has_specific_adp);
-            const isMatched = hasPregLab && hasPregAdp;
-            if (hasPregLab || hasPregAdp) subfunds.push(`🧪 ตรวจครรภ์ (UPT ${pregnancyCode})`);
+        if (fundId === 'preg_test') {
+            const hasPregLab = toFlag(item?.has_preg_lab) || hasValue(item?.preg_lab_name) || hasValue(item?.preg_result);
+            const hasPregDiag = toFlag(item?.has_preg_diag) || hasDiagCodes(item, ['Z320', 'Z321']) || hasValue(item?.preg_diags);
+            const hasPregAdp = toFlag(item?.has_preg_item) || toFlag(item?.has_upt) || hasValue(item?.preg_item_name);
+            const pregEvidence = hasPregLab || hasPregDiag || hasPregAdp;
+            const isMatched = hasPregLab && hasPregDiag && hasPregAdp;
+            if (pregEvidence) subfunds.push(`🧪 ตรวจครรภ์ (UPT ${pregnancyCode})`);
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasPregAdp, ' ADP 30014', [
+                    { met: hasPregDiag, label: ' Diagnosis Z320/Z321' },
                     { met: hasPregLab, label: ' Lab UPT/31101' },
-                ], hasPregLab),
+                ], hasPregLab && hasPregDiag),
                 undefined,
                 isMatched
             );
         }
 
-        if (activeFund === 'instrument') {
+        if (fundId === 'instrument') {
             const hasInstrument = Number(item?.instrument_price || 0) > 0 || toFlag(item?.has_instrument);
             if (hasInstrument) subfunds.push('🦾 อวัยวะเทียม');
             return buildStatusResult(subfunds, [hasInstrument ? '' : ' อุปกรณ์/ยอดอวัยวะเทียม'].filter(Boolean));
         }
 
-        if (activeFund === 'cacervix') {
+        if (fundId === 'cacervix') {
             const hasCxDiag = toFlag(item?.has_cx_diag);
-            const hasCxAdp = toFlag(item?.has_cx_adp) || toFlag(item?.has_specific_adp);
+            const hasCxAdp = toFlag(item?.has_cx_adp) || hasValue(item?.ca_adp_codes);
             const isMatched = hasCxDiag && hasCxAdp;
             if (hasCxDiag || hasCxAdp) subfunds.push('🎀 คัดกรองมะเร็งปากมดลูก');
             return buildStatusResult(
@@ -377,17 +389,17 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'er_emergency') {
+        if (fundId === 'er_emergency') {
             const hasEr = toFlag(item?.has_er) || hasText(item?.project_code, /OP AE/) || hasText(item?.fund, /ฉุกเฉิน|นอกเขต|REFER|AE/);
             if (hasEr) subfunds.push('🚨 ฉุกเฉิน (ER)');
             return buildStatusResult(subfunds, [hasEr ? '' : ' สิทธินอกเขต/ฉุกเฉินที่เข้าเกณฑ์'].filter(Boolean));
         }
 
-        if (activeFund === 'fpg_screening') {
-            const hasAge = toFlag(item?.fpg_age_eligible);
+        if (fundId === 'fpg_screening') {
+            const hasAge = toFlag(item?.age_eligible);
             const hasLab = toFlag(item?.has_fpg_lab);
             const hasDiag = toFlag(item?.has_fpg_diag) || hasDiagCodes(item, ['Z131', 'Z133', 'Z136']);
-            const hasAdp = toFlag(item?.has_fpg_adp) || toFlag(item?.has_specific_adp);
+            const hasAdp = toFlag(item?.has_fpg_adp) || hasAnyCodeValue(item?.adp_names, ['12003']) || hasAnyCodeValue(item?.anc_adp_codes, ['12003']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
             if (hasLab || hasDiag || hasAdp) subfunds.push('🩸 คัดกรองเบาหวาน');
             return buildStatusResult(
@@ -402,17 +414,17 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'cholesterol_screening') {
-            const hasAge = toFlag(item?.chol_age_eligible);
+        if (fundId === 'cholesterol_screening') {
+            const hasAge = toFlag(item?.age_eligible);
             const hasLab = toFlag(item?.has_chol_lab);
             const hasDiag = toFlag(item?.has_chol_diag) || hasDiagCodes(item, ['Z136']);
-            const hasAdp = toFlag(item?.has_chol_adp) || toFlag(item?.has_specific_adp);
+            const hasAdp = toFlag(item?.has_chol_adp) || hasAnyCodeValue(item?.adp_names, ['12004']) || hasAnyCodeValue(item?.anc_adp_codes, ['12004']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
             if (hasLab || hasDiag || hasAdp) subfunds.push('🧪 คัดกรองไขมัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 12004', [
-                    { met: hasAge, label: ' อายุ 45-70 ปี' },
+                    { met: hasAge, label: ' อายุ 45-59 ปี' },
                     { met: hasLab, label: ' Lab Cholesterol/HDL' },
                     { met: hasDiag, label: ' Diagnosis Z136' },
                 ], hasLab || hasDiag),
@@ -421,15 +433,15 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'anemia_screening') {
-            const hasAge = toFlag(item?.anemia_age_eligible);
+        if (fundId === 'anemia_screening') {
+            const hasAge = toFlag(item?.age_eligible);
             const hasLab = toFlag(item?.has_anemia_lab);
-            const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z138']);
-            const hasAdp = toFlag(item?.has_anemia_adp) || toFlag(item?.has_specific_adp);
+            const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z130']);
+            const hasAdp = toFlag(item?.has_anemia_adp) || hasAnyCodeValue(item?.adp_names, ['13001']) || hasAnyCodeValue(item?.anc_adp_codes, ['13001']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
             if (isMatched || hasLab || hasDiag || hasAdp) {
-                subfunds.push(item?.anemia_match_source === 'CBC+Z138' || (!hasAdp && hasAge && hasLab && hasDiag)
-                    ? '🧪 คัดกรองโลหิตจาง (CBC+Z138)'
+                subfunds.push(item?.anemia_match_source === 'CBC+Z130' || (!hasAdp && hasAge && hasLab && hasDiag)
+                    ? '🧪 คัดกรองโลหิตจาง (CBC+Z130)'
                     : '🩸 คัดกรองโลหิตจาง (13001)');
             }
             return buildStatusResult(
@@ -437,18 +449,18 @@ export const SpecificFundPage: React.FC = () => {
                 getNearStatusMissing(hasAdp, ' ADP 13001', [
                     { met: hasAge, label: ' หญิงอายุ 13-24 ปี' },
                     { met: hasLab, label: ' Lab CBC' },
-                    { met: hasDiag, label: ' Diagnosis Z138' },
+                    { met: hasDiag, label: ' Diagnosis Z130' },
                 ], hasLab || hasDiag),
                 undefined,
                 isMatched
             );
         }
 
-        if (activeFund === 'iron_supplement') {
-            const hasAge = toFlag(item?.iron_age_eligible);
+        if (fundId === 'iron_supplement') {
+            const hasAge = toFlag(item?.age_eligible) || (item?.sex === '2' && item?.age >= 13 && item?.age <= 45);
             const hasDiag = toFlag(item?.has_iron_diag) || hasDiagCodes(item, ['Z130']);
-            const hasAdp = toFlag(item?.has_iron_adp) || toFlag(item?.has_specific_adp);
-            const hasIronMed = toFlag(item?.has_iron);
+            const hasAdp = toFlag(item?.has_iron_adp) || hasAnyCodeValue(item?.adp_names, ['14001']) || hasAnyCodeValue(item?.anc_adp_codes, ['14001']);
+            const hasIronMed = toFlag(item?.has_iron_med);
             const isMatched = hasAge && hasDiag && hasAdp && hasIronMed;
             if (hasIronMed || hasDiag || hasAdp) subfunds.push('💊 เสริมธาตุเหล็ก');
             return buildStatusResult(
@@ -463,7 +475,7 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'anc') {
+        if (fundId === 'anc') {
             const hasVisitAdp = toFlag(item?.has_anc_visit) || hasAnyCodeValue(item?.anc_adp_codes, ['30011']);
             const ancVisitEvidence = hasVisitAdp || hasAncDiag;
             const isMatched = isFemale && hasAncDiag && hasVisitAdp;
@@ -479,27 +491,27 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'anc_ultrasound') {
+        if (fundId === 'anc_ultrasound') {
             const hasAncUs = toFlag(item?.has_anc_us) || hasAnyCodeValue(item?.anc_adp_codes, ['30010']);
             const hasAncUsProc = toFlag(item?.has_anc_us_proc);
             // ANC Ultrasound ต้องมีทั้ง ADP 30010 และหลักฐาน Ultrasound ANC
             const hasUltrasoundEvidence = hasAncUs && hasAncUsProc;
-            const ancUsEvidence = hasAncUs || hasAncUsProc || hasAncDiag;
+            const ancUsEvidence = hasAncUs || hasAncUsProc;
             const isMatched = isFemale && hasAncDiag && hasUltrasoundEvidence;
-            if (hasAncUs || hasAncUsProc) subfunds.push('📽️ ANC Ultrasound');
+            if (ancUsEvidence) subfunds.push('📽️ ANC Ultrasound');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAncUs, ' ADP 30010', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
                     { met: hasAncUsProc, label: ' Ultrasound ANC' },
-                ], isFemale && hasAncDiag && hasAncUs && hasAncUsProc),
+                ], isFemale && hasAncDiag && hasAncUsProc),
                 ancUsEvidence && !isFemale ? 'เพศชาย ไม่สามารถรับบริการ ANC Ultrasound' : undefined,
                 isMatched
             );
         }
 
-        if (activeFund === 'anc_lab_1') {
+        if (fundId === 'anc_lab_1') {
             const hasAncLab1Adp = toFlag(item?.has_anc_lab1) || hasAnyCodeValue(item?.anc_adp_codes, ['30012']);
             const ancLab1Requirements = getAncLab1Requirements(item, hasAncDiag);
             const ancLab1ServiceEvidence = toFlag(item?.anc_lab1_complete);
@@ -513,7 +525,7 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'anc_lab_2') {
+        if (fundId === 'anc_lab_2') {
             const hasAncLab2Adp = toFlag(item?.has_anc_lab2) || hasAnyCodeValue(item?.anc_adp_codes, ['30013']);
             const ancLab2Requirements = getAncLab2Requirements(item, hasAncDiag);
             const ancLab2ServiceEvidence = toFlag(item?.anc_lab2_hiv) && toFlag(item?.anc_lab2_syphilis);
@@ -527,7 +539,7 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'anc_dental_exam') {
+        if (fundId === 'anc_dental_exam') {
             const hasExam = toFlag(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
             const ancDentalExamEvidence = hasExam || hasAncDiag;
             const isMatched = isFemale && hasAncDiag && hasExam;
@@ -543,7 +555,7 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'anc_dental_clean') {
+        if (fundId === 'anc_dental_clean') {
             const hasClean = toFlag(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
             const ancDentalCleanEvidence = hasClean || hasAncDiag;
             const isMatched = isFemale && hasAncDiag && hasClean;
@@ -559,22 +571,22 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'postnatal_care') {
-            const hasPpCare = toFlag(item?.has_post_care) || toFlag(item?.has_specific_adp) || !!item?.pp_adp_codes;
+        if (fundId === 'postnatal_care') {
+            const hasPpCare = toFlag(item?.has_post_care) || hasAnyCodeValue(item?.pp_adp_codes, ['30015']);
             const isMatched = hasPostpartumDiag && hasPpCare;
             if (hasPostpartumDiag || hasPpCare) subfunds.push('🤱 ตรวจหลังคลอด');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasPpCare, ' ADP 30015', [
-                    { met: hasPostpartumDiag, label: ' Diagnosis Z39x' },
+                    { met: hasPostpartumDiag, label: ' Diagnosis Z390/Z391/Z392' },
                 ], hasPostpartumDiag),
                 undefined,
                 isMatched
             );
         }
 
-        if (activeFund === 'postnatal_supplements') {
-            const hasPpSupp = toFlag(item?.has_post_supp) || toFlag(item?.has_specific_adp);
+        if (fundId === 'postnatal_supplements') {
+            const hasPpSupp = toFlag(item?.has_post_supp) || hasAnyCodeValue(item?.pp_adp_codes, ['30016']);
             const hasPostIronMed = toFlag(item?.has_post_iron_med);
             const isMatched = hasPostpartumSpecificDiag && hasPpSupp && hasPostIronMed;
             if (hasPostpartumSpecificDiag || hasPpSupp || hasPostIronMed) subfunds.push('💊 เสริมธาตุเหล็กหลังคลอด');
@@ -589,28 +601,36 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'fluoride') {
-            const hasFluoride = toFlag(item?.has_fluoride) || toFlag(item?.has_specific_adp);
+        if (fundId === 'fluoride') {
+            const hasFluoride = toFlag(item?.has_fluoride) || toFlag(item?.has_specific_adp) || hasAnyCodeValue(item?.anc_adp_codes, ['15001']);
             if (hasFluoride) subfunds.push('🦷 เคลือบฟลูออไรด์');
             return buildStatusResult(subfunds, [hasFluoride ? '' : ' ADP 15001'].filter(Boolean));
         }
 
-        if (activeFund === 'contraceptive_pill') {
-            const hasFpPill = toFlag(item?.has_fp_pill) || toFlag(item?.has_specific_adp);
-            const isMatched = hasFpDiag && hasFpPill;
-            if (hasFpDiag || hasFpPill) subfunds.push('💊 ยาคุมกำเนิด');
+        if (fundId === 'contraceptive_pill') {
+            const hasZ304Diag = hasDiagCodes(item, ['Z304']);
+            const adpNames = String(item?.adp_names || '').toUpperCase();
+            const hasAnna = hasAnyCodeValue(item?.fp_adp_codes, ['FP003_1']) || adpNames.includes('ANNA');
+            const hasLynestrenol = hasAnyCodeValue(item?.fp_adp_codes, ['FP003_2']) || adpNames.includes('LYNESTRENOL');
+            const hasFpPill = toFlag(item?.has_fp_pill) || toFlag(item?.has_specific_adp) || hasAnna || hasLynestrenol;
+            
+            // Only count as matched if they have the specific Z304 diagnosis as requested
+            const isMatched = hasZ304Diag && hasFpPill;
+            
+            if (hasZ304Diag || hasFpPill || hasFpDiag) subfunds.push('💊 ยาคุมกำเนิด');
+            
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasFpPill, ' ADP FP003_1/FP003_2', [
-                    { met: hasFpDiag, label: ' Diagnosis Z30x' },
-                ], hasFpDiag),
+                getNearStatusMissing(hasFpPill, ' ADP FP003_1 (Anna) หรือ FP003_2 (Lynestrenol)', [
+                    { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)' },
+                ], hasZ304Diag),
                 undefined,
                 isMatched
             );
         }
 
-        if (activeFund === 'condom') {
-            const hasCondom = toFlag(item?.has_fp_condom) || toFlag(item?.has_specific_adp);
+        if (fundId === 'condom') {
+            const hasCondom = toFlag(item?.has_fp_condom) || toFlag(item?.has_specific_adp) || hasAnyCodeValue(item?.fp_adp_codes, ['FP003_4']);
             const isMatched = hasFpDiag && hasCondom;
             if (hasFpDiag || hasCondom) subfunds.push('🛡️ ถุงยางอนามัย');
             return buildStatusResult(
@@ -623,8 +643,8 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'fp') {
-            const hasFpAdp = toFlag(item?.has_fp_adp) || toFlag(item?.has_specific_adp) || !!item?.fp_adp_codes;
+        if (fundId === 'fp') {
+            const hasFpAdp = toFlag(item?.has_fp_adp) || hasValue(item?.fp_adp_codes);
             const isMatched = hasFpDiag && hasFpAdp;
             if (hasFpDiag || hasFpAdp) subfunds.push('💊 วางแผนครอบครัว');
             return buildStatusResult(
@@ -637,49 +657,49 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
-        if (activeFund === 'clopidogrel') {
+        if (fundId === 'clopidogrel') {
             const hasDrug = toFlag(item?.has_clopidogrel) || toFlag(item?.has_clopidogrel_drug);
             if (hasDrug) subfunds.push(`💊 ${clopidogrelLabel}`);
             return buildStatusResult(subfunds, [hasDrug ? '' : ` รายการยา ${clopidogrelLabel}`].filter(Boolean));
         }
 
-        if (activeFund === 'chemo') {
+        if (fundId === 'chemo') {
             const hasChemo = toFlag(item?.has_chemo_diag) || hasDiagRegex(item, /^Z51[12]/);
             if (hasChemo) subfunds.push('⚗️ เคมีบำบัด');
             return buildStatusResult(subfunds, [hasChemo ? '' : ' Diagnosis Z511/Z512'].filter(Boolean));
         }
 
-        if (activeFund === 'hepc') {
+        if (fundId === 'hepc') {
             const hasHepc = toFlag(item?.has_hepc_diag) || hasDiagCodes(item, ['B182']);
             if (hasHepc) subfunds.push('🩹 ไวรัสตับอักเสบซี');
             return buildStatusResult(subfunds, [hasHepc ? '' : ' Diagnosis B182'].filter(Boolean));
         }
 
-        if (activeFund === 'rehab') {
+        if (fundId === 'rehab') {
             const hasRehab = toFlag(item?.has_rehab_diag) || hasDiagRegex(item, /^Z50/);
             if (hasRehab) subfunds.push('♿ ฟื้นฟูสมรรถภาพ');
             return buildStatusResult(subfunds, [hasRehab ? '' : ' Diagnosis Z50'].filter(Boolean));
         }
 
-        if (activeFund === 'crrt') {
+        if (fundId === 'crrt') {
             const hasCrrt = toFlag(item?.has_crrt_diag) || hasDiagRegex(item, /^Z49|^N185/);
             if (hasCrrt) subfunds.push('🏥 ฟอกเลือด (CRRT)');
             return buildStatusResult(subfunds, [hasCrrt ? '' : ' Diagnosis Z49/N185'].filter(Boolean));
         }
 
-        if (activeFund === 'robot') {
+        if (fundId === 'robot') {
             const hasRobot = toFlag(item?.has_robot_item) || hasText(item?.proc_name, /ROBOT/) || hasText(item?.service_name, /ROBOT/);
             if (hasRobot) subfunds.push('🤖 ผ่าตัดหุ่นยนต์');
             return buildStatusResult(subfunds, [hasRobot ? '' : ' หัตถการ Robot'].filter(Boolean));
         }
 
-        if (activeFund === 'proton') {
+        if (fundId === 'proton') {
             const hasProton = toFlag(item?.has_proton_diag) || hasDiagCodes(item, ['Z510']);
             if (hasProton) subfunds.push('⚛️ รังสีรักษา (Proton)');
             return buildStatusResult(subfunds, [hasProton ? '' : ' Diagnosis Z510'].filter(Boolean));
         }
 
-        if (activeFund === 'cxr') {
+        if (fundId === 'cxr') {
             const hasCxr = toFlag(item?.has_cxr_item) || hasText(item?.service_name, /CXR|CHEST X-?RAY/) || hasText(item?.proc_name, /CXR|CHEST X-?RAY/);
             if (hasCxr) subfunds.push('🩻 อ่านฟิล์ม CXR');
             return buildStatusResult(subfunds, [hasCxr ? '' : ' รายการ CXR'].filter(Boolean));
@@ -691,6 +711,11 @@ export const SpecificFundPage: React.FC = () => {
 
         return { status: 'ยังไม่เข้าเงื่อนไข', class: 'badge-warning', icon: '❓', subfunds };
     };
+
+    const getStatus = (item: any) => getStatusForFund(item, activeFund);
+    const getStatusForFundRef = useRef(getStatusForFund);
+    getStatusForFundRef.current = getStatusForFund;
+
     const handleRowClick = (item: any) => {
         const mockRecord: CheckRecord = {
             id: 0,
@@ -712,6 +737,105 @@ export const SpecificFundPage: React.FC = () => {
     const filteredData = showIncompleteOnly
         ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
         : actionableData;
+
+    const buildExportRows = useCallback((items: any[], fundId: string): Array<Record<string, string | number>> => {
+        const evaluateStatus = getStatusForFundRef.current;
+        return items.map((item, index) => {
+            const status = evaluateStatus(item, fundId);
+            const baseRow: Record<string, string | number> = {
+                '##': index + 1,
+                'VN': item.vn || '',
+                'HN': item.hn || '',
+                'ชื่อผู้ป่วย': item.patientName || '',
+                'CID': item.cid || '',
+                'สิทธิ์': item.pttypename || '',
+                'วันที่รับบริการ': item.serviceDate || '',
+                'สถานะ': status.status,
+                'บริการ': status.subfunds.join(' | ') || '',
+            };
+
+            if (fundId === 'palliative') {
+                return {
+                    ...baseRow,
+                    'Diag Z515': item.z515_code || '',
+                    'Diag Z718': item.z718_code || '',
+                    'ADP Code': item.adp_code || '',
+                };
+            }
+            if (fundId === 'telemedicine') {
+                return {
+                    ...baseRow,
+                    'Ovstist Code': item.ovstist_export_code || '',
+                    'ADP Code': item.has_telmed ? 'TELMED' : '',
+                };
+            }
+            if (fundId === 'herb') {
+                return {
+                    ...baseRow,
+                    'Diag หลัก': item.pdx || '',
+                    'รายการสมุนไพร': item.herb_items || '',
+                    'ยอดรวม': item.herb_total_price || '',
+                };
+            }
+            if (fundId === 'fp') {
+                return {
+                    ...baseRow,
+                    'Z308': item.pdx === 'Z308' || item.fp_diags?.includes('Z308') ? 'Z308' : '',
+                    'ICD9 Code': item.icd9_code || '',
+                    'ADP Codes': item.fp_adp_codes || '',
+                };
+            }
+
+            return baseRow;
+        });
+    }, []);
+
+    const writeExportFile = useCallback((fundId: string, items: any[]) => {
+        if (items.length === 0) {
+            alert('ไม่มีข้อมูลให้ส่งออก');
+            return;
+        }
+
+        const fundName = funds.find((f) => f.id === fundId)?.name || fundId;
+        const now = new Date();
+        const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const fileName = `${fundName}_${startDate}_${endDate}_${dateStr}.xlsx`;
+        const exportRows = buildExportRows(items, fundId);
+        const ws = XLSX.utils.json_to_sheet(exportRows);
+        const headers = Object.keys(exportRows[0] || {});
+        ws['!cols'] = headers.map((header) => {
+            const width = Math.max(
+                header.length + 2,
+                ...exportRows.map((row) => String((row as Record<string, string | number>)[header] ?? '').length + 2)
+            );
+            return { wch: Math.min(Math.max(width, 10), 40) };
+        });
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, fundName);
+        XLSX.writeFile(wb, fileName);
+    }, [buildExportRows, endDate, funds, startDate]);
+
+    const exportFundToExcel = useCallback(async (fundId: string) => {
+        setExportingFundId(fundId);
+        try {
+            const rows = await fetchFundDataByType(fundId);
+            const evaluateStatus = getStatusForFundRef.current;
+            const actionableRows = rows.filter((item) => evaluateStatus(item, fundId).status !== 'ยังไม่เข้าเงื่อนไข');
+            const exportRows = showIncompleteOnly
+                ? actionableRows.filter((item) => evaluateStatus(item, fundId).status !== 'สมบูรณ์')
+                : actionableRows;
+            writeExportFile(fundId, exportRows);
+        } catch (err) {
+            alert(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการส่งออก');
+        } finally {
+            setExportingFundId(null);
+        }
+    }, [fetchFundDataByType, showIncompleteOnly, writeExportFile]);
+
+    const exportToExcel = useCallback(() => {
+        writeExportFile(activeFund, filteredData);
+    }, [activeFund, filteredData, writeExportFile]);
+
     const activeFundDefinition = funds.find((fund) => fund.id === activeFund);
 
     return (
@@ -817,8 +941,9 @@ export const SpecificFundPage: React.FC = () => {
                                     overflow: 'visible',
                                     display: 'flex',
                                     flexDirection: 'row',
+                                    justifyContent: 'space-between',
                                     alignItems: 'center',
-                                    gap: '8px',
+                                    gap: '10px',
                                 }}
                                 onMouseEnter={(e) => {
                                     const el = e.currentTarget as HTMLElement;
@@ -838,11 +963,18 @@ export const SpecificFundPage: React.FC = () => {
                                 }}
                             >
                                 <div style={{
-                                    fontSize: '16px',
-                                    flexShrink: 0,
-                                    lineHeight: '1',
-                                    transition: 'transform 0.3s ease'
-                                }}>{(() => {
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    minWidth: 0,
+                                    flex: 1,
+                                }}>
+                                    <div style={{
+                                        fontSize: '16px',
+                                        flexShrink: 0,
+                                        lineHeight: '1',
+                                        transition: 'transform 0.3s ease'
+                                    }}>{(() => {
                                         const iconMap: Record<string, string> = {
                                             'palliative': '🕊️',
                                             'telemedicine': '📱',
@@ -878,18 +1010,47 @@ export const SpecificFundPage: React.FC = () => {
                                         };
                                         return iconMap[f.id] || '📋';
                                     })()}
-                                </div>                                <div style={{
-                                    fontSize: '11px',
-                                    fontWeight: 700,
-                                    color: isActive ? '#ffffff' : '#1a1a1a',
-                                    transition: 'color 0.3s ease',
-                                    lineHeight: '1.3',
-                                    wordBreak: 'break-word',
-                                    whiteSpace: 'normal',
-                                    flex: 1,
-                                }}>
-                                    {f.name}
+                                    </div>
+                                    <div style={{
+                                        fontSize: '11px',
+                                        fontWeight: 700,
+                                        color: isActive ? '#ffffff' : '#1a1a1a',
+                                        transition: 'color 0.3s ease',
+                                        lineHeight: '1.3',
+                                        wordBreak: 'break-word',
+                                        whiteSpace: 'normal',
+                                        minWidth: 0,
+                                        flex: 1,
+                                    }}>
+                                        {f.name}
+                                    </div>
                                 </div>
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        void exportFundToExcel(f.id);
+                                    }}
+                                    disabled={exportingFundId === f.id}
+                                    title={`ส่งออก Excel ของ ${f.name}`}
+                                    style={{
+                                        flexShrink: 0,
+                                        border: isActive ? '1px solid rgba(255,255,255,0.28)' : `1px solid ${colors.accent}`,
+                                        background: isActive ? 'rgba(255,255,255,0.16)' : '#fff',
+                                        color: isActive ? '#fff' : colors.accent,
+                                        borderRadius: '999px',
+                                        padding: '6px 10px',
+                                        fontSize: '11px',
+                                        fontWeight: 700,
+                                        lineHeight: '1',
+                                        boxShadow: isActive ? 'none' : '0 1px 2px rgba(0,0,0,0.08)',
+                                        cursor: exportingFundId === f.id ? 'wait' : 'pointer',
+                                        opacity: exportingFundId === f.id ? 0.7 : 1,
+                                        transition: 'all 0.2s ease',
+                                    }}
+                                >
+                                    {exportingFundId === f.id ? '⏳' : '📥 Excel'}
+                                </button>
                             </div>
                         );
                     })}
@@ -1088,7 +1249,16 @@ export const SpecificFundPage: React.FC = () => {
                                     }}
                                     onClick={() => setShowIncompleteOnly(!showIncompleteOnly)}
                                 >
-                                    {showIncompleteOnly ? '✓ เฉพาะไม่สมบูรณ์' : '○ ทั้งหมด'}                                </button>
+                                    {showIncompleteOnly ? '✓ เฉพาะไม่สมบูรณ์' : '○ ทั้งหมด'}
+                                </button>
+                                <button 
+                                    className="btn btn-success" 
+                                    style={{ padding: '6px 12px', fontSize: '12px', marginLeft: 'auto' }}
+                                    onClick={exportToExcel}
+                                    disabled={filteredData.length === 0}
+                                >
+                                    📥 ส่งออก Excel
+                                </button>
                             </div>
                         </div>
                         {loading && <div className="loading-container"><div className="spinner" /><span>กำลังโหลดข้อมูล...</span></div>}
@@ -1367,12 +1537,12 @@ export const SpecificFundPage: React.FC = () => {
                                                 {activeFund === 'preg_test' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {toFlag(item?.has_preg_lab) || item.preg_lab_name
+                                                            {(toFlag(item?.has_preg_lab) || item.preg_lab_name || item.preg_result)
                                                                 ? <span className="badge badge-primary" style={{ maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-block' }} title={item.preg_lab_name || 'Lab UPT/31101'}>{item.preg_lab_name || 'มี 31101'}</span>
                                                                 : <span className="badge badge-danger">✗ ขาด 31101</span>}
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {toFlag(item?.has_preg_item) || toFlag(item?.has_upt) || item.preg_item_name
+                                                            {(toFlag(item?.has_preg_item) || toFlag(item?.has_upt) || item.preg_item_name)
                                                                 ? <span className="badge badge-primary" style={{ maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-block' }} title={item.preg_item_name || 'ADP 30014'}>{item.preg_item_name || 'มี 30014'}</span>
                                                                 : <span className="badge badge-danger">✗ ขาด 30014</span>}
                                                         </td>
@@ -1438,10 +1608,10 @@ export const SpecificFundPage: React.FC = () => {
                                                 {activeFund === 'postnatal_care' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {(item.pp_diags || toFlag(item?.has_pp_diag)) ? <span className="badge badge-primary">{item.pp_diags || 'Z39x'}</span> : <span className="badge badge-danger">✗ ขาด Z39</span>}
+                                                            {(item.pp_diags || toFlag(item?.has_pp_diag)) ? <span className="badge badge-primary">{item.pp_diags || 'Z390/Z391/Z392'}</span> : <span className="badge badge-danger">✗ ขาด Z390/Z391/Z392</span>}
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {(item.pp_adp_codes || toFlag(item?.has_post_care) || toFlag(item?.has_specific_adp)) ? <span className="badge badge-primary">{item.pp_adp_codes || '30015'}</span> : <span className="badge badge-danger">✗ ขาด 30015</span>}
+                                                            {(hasAnyCodeValue(item?.pp_adp_codes, ['30015']) || toFlag(item?.has_post_care)) ? <span className="badge badge-primary">{item.pp_adp_codes || '30015'}</span> : <span className="badge badge-danger">✗ ขาด 30015</span>}
                                                         </td>
                                                     </>
                                                 )}

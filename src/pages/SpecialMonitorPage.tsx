@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { DetailModal } from '../components/DetailModal';
 import { DetailKidneyModal } from '../components/DetailKidneyModal';
 import type { CheckRecord } from '../mockData';
@@ -37,8 +38,22 @@ interface MonitorCategory {
     description: string;
 }
 
+const RIGHT_LABEL_MAP: Record<string, string> = {
+    all: 'ทั้งหมด',
+    ucs: 'UCS + SSS',
+    ofc_lgo: 'OFC + LGO',
+    uc: 'UC - EPO จริง',
+};
+
+const CATEGORY_LABEL_MAP: Record<string, string> = {
+    all: 'ทั้งหมด',
+    service: 'หน่วยไต (ค่าบริการ)',
+    drug: 'ยา + แลป + บริการ',
+};
+
 export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, setActiveMonitor] = useState('kidney');
     const [filterRight, setFilterRight] = useState('all');
+    const [filterPatientRight, setFilterPatientRight] = useState('all');
     const [filterCategory, setFilterCategory] = useState('all');
     const [startDate, setStartDate] = useState(() => formatLocalDateInput());
     const [endDate, setEndDate] = useState(() => formatLocalDateInput());
@@ -229,10 +244,103 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
     
             if (filterCategory === 'service' && analysis.category !== 'dialysis') return false;
             if (filterCategory === 'drug' && analysis.category !== 'epo_real') return false;
-    
+
+            if (filterPatientRight !== 'all') {
+                const patientRight = 'insuranceType' in item
+                    ? String((item as unknown as KidneyMonitorRecord).insuranceType || '').trim()
+                    : String(item.hipdata_code || '').trim();
+                if (patientRight !== filterPatientRight) return false;
+            }
+
             return true; // Keep item if it passes all filters
         });
-    }, [allKidneyData, activeMonitor, filterRight, filterCategory, getAnalysis]);
+    }, [allKidneyData, activeMonitor, filterRight, filterCategory, filterPatientRight, getAnalysis]);
+
+    const patientRightOptions = useMemo(() => {
+        const set = new Set<string>();
+        (Array.isArray(allKidneyData) ? allKidneyData : []).forEach((item) => {
+            const right = 'insuranceType' in item
+                ? String((item as unknown as KidneyMonitorRecord).insuranceType || '').trim()
+                : String(item.hipdata_code || '').trim();
+            if (right) set.add(right);
+        });
+        return Array.from(set).sort((a, b) => a.localeCompare(b, 'th'));
+    }, [allKidneyData]);
+
+    const handleExportExcel = useCallback(() => {
+        if (!filteredData.length) return;
+
+        const workbook = XLSX.utils.book_new();
+        const rows = filteredData.map((item, index) => {
+            const analysis = getAnalysis(item);
+            const isKidneyRecord = 'insuranceType' in item && 'dialysisFee' in item;
+            const kidneyRecord = isKidneyRecord ? (item as unknown as KidneyMonitorRecord) : null;
+            const dateValue = isKidneyRecord && kidneyRecord ? kidneyRecord.serviceDate : item.serviceDate;
+            const rightValue = isKidneyRecord && kidneyRecord
+                ? kidneyRecord.insuranceType
+                : analysis.right || item.hipdata_code || '-';
+            const groupValue = isKidneyRecord && kidneyRecord
+                ? kidneyRecord.insuranceGroup
+                : analysis.category || '-';
+
+            return {
+                ลำดับ: index + 1,
+                VN: item.vn || kidneyRecord?.vn || '-',
+                HN: item.hn || kidneyRecord?.hn || '-',
+                ชื่อผู้ป่วย: item.ptname || kidneyRecord?.patientName || '-',
+                สิทธิการรักษา: rightValue,
+                กลุ่มสิทธิ: groupValue,
+                วันที่รับบริการ: dateValue || '-',
+                รายรับ: Number(
+                    isKidneyRecord && kidneyRecord
+                        ? kidneyRecord.revenue
+                        : item.revenue ?? analysis.totalCost ?? analysis.totalAmount ?? 0
+                ),
+                ต้นทุน: Number(
+                    isKidneyRecord && kidneyRecord
+                        ? kidneyRecord.costTotal
+                        : item.costTotal ?? analysis.epoPayment ?? analysis.totalAmount ?? 0
+                ),
+                กำไร: Number(
+                    isKidneyRecord && kidneyRecord
+                        ? kidneyRecord.profit
+                        : item.profit ?? analysis.profit ?? 0
+                ),
+                สถานะ: analysis.error ? analysis.error : (analysis.category || 'ปกติ'),
+                หมายเหตุ: analysis.epoDetail || '',
+            };
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        worksheet['!cols'] = [
+            { wch: 8 },
+            { wch: 16 },
+            { wch: 12 },
+            { wch: 28 },
+            { wch: 18 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 24 },
+            { wch: 34 },
+        ];
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'SpecialMonitor');
+
+        const safeRight = RIGHT_LABEL_MAP[filterRight] || filterRight;
+        const safeCategory = CATEGORY_LABEL_MAP[filterCategory] || filterCategory;
+        const filename = [
+            'special-monitor',
+            activeMonitor,
+            safeRight.replace(/\s+/g, '_'),
+            (filterPatientRight === 'all' ? 'all_patient_rights' : filterPatientRight.replace(/\s+/g, '_')),
+            safeCategory.replace(/\s+/g, '_'),
+            startDate,
+            endDate,
+        ].join('_');
+
+        XLSX.writeFile(workbook, `${filename}.xlsx`);
+    }, [activeMonitor, endDate, filterCategory, filterRight, filterPatientRight, filteredData, getAnalysis, startDate]);
 
     // Calculate category summary by insurance type
     const calculateCategorySummary = (insuranceType: 'UCS+SSS' | 'OFC+LGO' | 'UC-EPO') => {
@@ -766,7 +874,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 <div
                     style={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
                         gap: '15px',
                         marginBottom: '20px',
                         padding: '15px',
@@ -795,7 +903,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                     </div>
 
                     <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>🏷️ สิทธิ์:</label>
+                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>🏷️ กลุ่มสิทธิ์ (เดิม):</label>
                         <select
                             value={filterRight}
                             onChange={(e) => setFilterRight(e.target.value)}
@@ -805,6 +913,20 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                             <option value="ucs">UCS + SSS (1,500)</option>
                             <option value="ofc_lgo">OFC + LGO (2,000)</option>
                             <option value="uc">UC - EPO จริง (180)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>🧾 สิทธิ์คนไข้:</label>
+                        <select
+                            value={filterPatientRight}
+                            onChange={(e) => setFilterPatientRight(e.target.value)}
+                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }}
+                        >
+                            <option value="all">ทั้งหมด</option>
+                            {patientRightOptions.map((right) => (
+                                <option key={right} value={right}>{right}</option>
+                            ))}
                         </select>
                     </div>
 
@@ -824,9 +946,25 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                     <div style={{ alignSelf: 'flex-end' }}>
                         <button
                             onClick={() => void fetchMonitorData()}
-                            style={{ width: '100%', padding: '8px', background: '#2196f3', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer' }}
+                            style={{ width: '100%', padding: '8px', background: '#2196f3', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer', marginBottom: '8px' }}
                         >
                             🔄 รีโหลด
+                        </button>
+                        <button
+                            onClick={handleExportExcel}
+                            disabled={filteredData.length === 0}
+                            style={{
+                                width: '100%',
+                                padding: '8px',
+                                background: filteredData.length === 0 ? '#cfd8dc' : '#43a047',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                fontWeight: 600,
+                                cursor: filteredData.length === 0 ? 'not-allowed' : 'pointer',
+                            }}
+                        >
+                            📥 Excel
                         </button>
                     </div>
                 </div>

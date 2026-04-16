@@ -235,6 +235,24 @@ export const evaluateBillingLogic = (item: any) => {
             addWarningFundNote(fundNotes, 'เสริมธาตุเหล็ก', ironNearMissing, 'drug');
         }
 
+        const ferrokidAgeYears = Number(item?.age_y ?? item?.age ?? -1);
+        const ferrokidAgeMonths = Number(item?.age_month ?? -1);
+        const hasFerrokidAge = toBool(item?.ferrokid_age_eligible)
+            || (ferrokidAgeMonths >= 2 && ferrokidAgeMonths <= 144)
+            || (ferrokidAgeYears >= 0 && ferrokidAgeYears <= 12);
+        const hasFerrokidDiag = toBool(item?.has_ferrokid_diag) || hasDiagCode(item, ['Z130']);
+        const hasFerrokidMed = toBool(item?.has_ferrokid_med) || toBool(item?.has_ferrokid);
+        const ferrokidNearMissing = getNearFundMissingParts(true, '', [
+            { met: hasFerrokidAge, label: ' อายุ 2 เดือน-12 ปี' },
+            { met: hasFerrokidDiag, label: ' DX Z130' },
+            { met: hasFerrokidMed, label: ' ยา Ferrokid' },
+        ], hasFerrokidDiag || hasFerrokidMed);
+        if (hasFerrokidAge && hasFerrokidDiag && hasFerrokidMed) {
+            fundNotes.push({ label: '🧒 เสริมธาตุเหล็กเด็ก (Ferrokid)', kind: 'matched', group: 'drug' });
+        } else if (ferrokidNearMissing.length > 0) {
+            addWarningFundNote(fundNotes, 'เสริมธาตุเหล็กเด็ก (Ferrokid)', ferrokidNearMissing, 'drug');
+        }
+
         const hasPregLab = toBool(item?.has_preg_lab);
         const hasPregDiag = toBool(item?.has_preg_diag) || hasDiagCode(item, ['Z320', 'Z321']);
         const hasPregItem = toBool(item?.has_preg_item) || toBool(item?.has_upt);

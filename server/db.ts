@@ -167,6 +167,17 @@ const buildPostIronMedExistsSql = (alias: string) => `
   )
 `;
 
+const buildFerrokidMedExistsSql = (alias: string) => `
+  EXISTS (
+    SELECT 1
+    FROM opitemrece oo
+    LEFT JOIN drugitems di ON di.icode = oo.icode
+    LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+    WHERE oo.vn = ${alias}.vn
+      AND UPPER(CONCAT_WS(' ', COALESCE(di.name, ''), COALESCE(sd.name, ''))) REGEXP 'FERROKID|FERRO KID|FERRO-KID|KID.*IRON|IRON.*KID'
+  )
+`;
+
 const UPT_DX_CODES = ['Z320', 'Z321'];
 const FPG_DX_CODES = ['Z131', 'Z133', 'Z136'];
 const CHOL_DX_CODES = ['Z136'];
@@ -2087,6 +2098,16 @@ export const getCheckData = async (
             THEN 1
           ELSE 0
         END as has_iron,
+        CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 2 AND 144 THEN 1 ELSE 0 END as ferrokid_age_eligible,
+        CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)} THEN 1 ELSE 0 END as has_ferrokid_diag,
+        CASE WHEN ${buildFerrokidMedExistsSql('ovst')} THEN 1 ELSE 0 END as has_ferrokid_med,
+        CASE
+          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 2 AND 144
+            AND ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)}
+            AND ${buildFerrokidMedExistsSql('ovst')}
+            THEN 1
+          ELSE 0
+        END as has_ferrokid,
         CASE WHEN ${buildPregLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_preg_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', UPT_DX_CODES)} THEN 1 ELSE 0 END as has_preg_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30014' LIMIT 1) THEN 1 ELSE 0 END as has_preg_item,
@@ -2752,6 +2773,16 @@ export const getEligibleVisits = async (
             THEN 1
           ELSE 0
         END as has_iron,
+        CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 2 AND 144 THEN 1 ELSE 0 END as ferrokid_age_eligible,
+        CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)} THEN 1 ELSE 0 END as has_ferrokid_diag,
+        CASE WHEN ${buildFerrokidMedExistsSql('ovst')} THEN 1 ELSE 0 END as has_ferrokid_med,
+        CASE
+          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 2 AND 144
+            AND ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)}
+            AND ${buildFerrokidMedExistsSql('ovst')}
+            THEN 1
+          ELSE 0
+        END as has_ferrokid,
         
         -- แม่และเด็ก/ANC
         CASE WHEN ${buildPregLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_preg_lab,
@@ -3862,6 +3893,45 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
                LEFT JOIN s_drugitems dd ON dd.icode = oo.icode
                WHERE oo.vn = o.vn 
                  AND dd.nhso_adp_code = '14001'
+            )
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return rows;
+    }
+
+    if (fundType === 'ferrokid_child') {
+      const [rows] = await connection.query(`
+        SELECT 
+          o.vn, o.hn, 
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          v.age_y as age,
+          TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) as age_month,
+          v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
+          CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 2 AND 144 THEN 'Y' ELSE 'N' END as ferrokid_age_eligible,
+          CASE WHEN ${buildDiagnosisMatchSql('o', 'v', IRON_DX_CODES)} THEN 'Y' ELSE 'N' END as has_ferrokid_diag,
+          CASE WHEN ${buildFerrokidMedExistsSql('o')} THEN 'Y' ELSE 'N' END as has_ferrokid_med,
+          CASE
+            WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 2 AND 144
+              AND ${buildDiagnosisMatchSql('o', 'v', IRON_DX_CODES)}
+              AND ${buildFerrokidMedExistsSql('o')}
+            THEN 'Y' ELSE 'N'
+          END as has_ferrokid,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (
+            ${buildFerrokidMedExistsSql('o')}
+            OR (
+              TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 2 AND 144
+              AND ${buildDiagnosisMatchSql('o', 'v', IRON_DX_CODES)}
             )
           )
         GROUP BY o.vn

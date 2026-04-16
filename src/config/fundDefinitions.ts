@@ -159,6 +159,12 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         conditions: ['หญิงอายุ 13-45 ปี', 'Diagnosis Z130', 'ADP 14001']
     },
     {
+        id: 'ferrokid_child',
+        name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)',
+        description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)',
+        conditions: ['อายุ 2 เดือน-12 ปี', 'Diagnosis Z130', 'มียา Ferrokid']
+    },
+    {
         id: 'chemo',
         name: 'เคมีบำบัด',
         description: 'ผู้ป่วยเคมีบำบัด',

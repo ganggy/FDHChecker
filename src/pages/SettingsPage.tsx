@@ -81,6 +81,7 @@ const FALLBACK_FUND_DEFINITIONS = [
     { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
     { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: '13001 / CBC + Z138' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
+    { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
     { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'Hep C / HCV' },
     { id: 'rehab', name: 'ฟื้นฟูสมรรถภาพ', description: 'งานฟื้นฟู / กายภาพ' },

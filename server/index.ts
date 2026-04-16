@@ -405,6 +405,7 @@ app.get('/api/hosxp/checks', async (req, res) => {
         rec.has_herb || rec.has_telmed || rec.has_drugp ||
         rec.has_instrument || rec.has_knee_oper ||
         rec.has_fpg || rec.has_chol || rec.has_anemia || rec.has_iron ||
+        rec.has_ferrokid || rec.has_ferrokid_med || rec.has_ferrokid_diag || rec.ferrokid_age_eligible ||
         rec.fpg_age_eligible || rec.has_fpg_adp || rec.has_fpg_lab || rec.has_fpg_diag ||
         rec.chol_age_eligible || rec.has_chol_adp || rec.has_chol_lab || rec.has_chol_diag ||
         rec.anemia_age_eligible || rec.has_anemia_adp || rec.has_anemia_lab || rec.has_anemia_diag ||
@@ -912,6 +913,7 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         item.has_herb || item.has_telmed || item.has_drugp ||
         item.has_instrument || item.has_knee_oper ||
         item.has_fpg || item.has_chol || item.has_anemia || item.has_iron ||
+        item.has_ferrokid || item.has_ferrokid_med || item.has_ferrokid_diag || item.ferrokid_age_eligible ||
         item.fpg_age_eligible || item.has_fpg_adp || item.has_fpg_lab || item.has_fpg_diag ||
         item.chol_age_eligible || item.has_chol_adp || item.has_chol_lab || item.has_chol_diag ||
         item.anemia_age_eligible || item.has_anemia_adp || item.has_anemia_lab || item.has_anemia_diag ||

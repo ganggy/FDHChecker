@@ -32,6 +32,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
     { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: '13001 / CBC + Z130' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
+    { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
     { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'Hep C / HCV' },
     { id: 'rehab', name: 'ฟื้นฟูสมรรถภาพ', description: 'งานฟื้นฟู / กายภาพ' },
@@ -173,6 +174,7 @@ export const SpecificFundPage: React.FC = () => {
             'cholesterol_screening': { bg: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)', shadow: 'rgba(247, 151, 30, 0.2)' },
             'anemia_screening': { bg: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)', shadow: 'rgba(238, 156, 167, 0.2)' },
             'iron_supplement': { bg: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', shadow: 'rgba(135, 0, 0, 0.2)' },
+            'ferrokid_child': { bg: 'linear-gradient(135deg, #c31432 0%, #240b36 100%)', shadow: 'rgba(195, 20, 50, 0.22)' },
             'anc_ultrasound': { bg: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', shadow: 'rgba(33, 147, 176, 0.2)' },
             'anc_lab_1': { bg: 'linear-gradient(135deg, #3a1c71 0%, #d76d77 50%, #ffaf7b 100%)', shadow: 'rgba(58, 28, 113, 0.2)' },
             'anc_lab_2': { bg: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', shadow: 'rgba(30, 60, 114, 0.2)' },
@@ -470,6 +472,28 @@ export const SpecificFundPage: React.FC = () => {
                     { met: hasDiag, label: ' Diagnosis Z130' },
                     { met: hasIronMed, label: ' ยาเสริมธาตุเหล็ก' },
                 ], hasIronMed || hasDiag),
+                undefined,
+                isMatched
+            );
+        }
+
+        if (fundId === 'ferrokid_child') {
+            const ageYears = Number(item?.age_y ?? item?.age ?? -1);
+            const ageMonths = Number(item?.age_month ?? -1);
+            const hasAge = toFlag(item?.ferrokid_age_eligible)
+                || (ageMonths >= 2 && ageMonths <= 144)
+                || (ageYears >= 0 && ageYears <= 12);
+            const hasDiag = toFlag(item?.has_ferrokid_diag) || hasDiagCodes(item, ['Z130']);
+            const hasMed = toFlag(item?.has_ferrokid_med) || toFlag(item?.has_ferrokid);
+            const isMatched = hasAge && hasDiag && hasMed;
+            if (hasMed || hasDiag) subfunds.push('🧒 เสริมธาตุเหล็กเด็ก (Ferrokid)');
+            return buildStatusResult(
+                subfunds,
+                getNearStatusMissing(true, '', [
+                    { met: hasAge, label: ' อายุ 2 เดือน-12 ปี' },
+                    { met: hasDiag, label: ' Diagnosis Z130' },
+                    { met: hasMed, label: ' ยา Ferrokid' },
+                ], hasMed || hasDiag),
                 undefined,
                 isMatched
             );
@@ -910,6 +934,7 @@ export const SpecificFundPage: React.FC = () => {
                             cholesterol_screening: { gradient: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)', accent: '#ffd200', light: '#fffce0' },
                             anemia_screening: { gradient: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)', accent: '#ffdde1', light: '#ffe5e8' },
                             iron_supplement: { gradient: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', accent: '#c86464', light: '#ffe0e0' },
+                            ferrokid_child: { gradient: 'linear-gradient(135deg, #c31432 0%, #240b36 100%)', accent: '#c31432', light: '#ffe1ea' },
                             anc_ultrasound: { gradient: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', accent: '#6dd5ed', light: '#e0f7ff' },
                             anc_lab_1: { gradient: 'linear-gradient(135deg, #3a1c71 0%, #d76d77 50%, #ffaf7b 100%)', accent: '#ffaf7b', light: '#fff5e6' },
                             anc_lab_2: { gradient: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', accent: '#2a5298', light: '#e0ebff' },
@@ -1000,6 +1025,7 @@ export const SpecificFundPage: React.FC = () => {
                                             'cholesterol_screening': '🧪',
                                             'anemia_screening': '🩸',
                                             'iron_supplement': '💊',
+                                            'ferrokid_child': '🧒',
                                             'anc_ultrasound': '🔊',
                                             'anc_lab_1': '🧬',
                                             'anc_lab_2': '🧪',
@@ -1393,7 +1419,7 @@ export const SpecificFundPage: React.FC = () => {
                                             <th style={{ width: 110, textAlign: 'center' }}>Authen Code</th>
                                         </>
                                     )}
-                                    {activeFund === 'iron_supplement' && (
+                                    {(activeFund === 'iron_supplement' || activeFund === 'ferrokid_child') && (
                                         <>
                                             <th style={{ width: 60, textAlign: 'center' }}>อายุ</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag หลัก</th>
@@ -1693,10 +1719,18 @@ export const SpecificFundPage: React.FC = () => {
                                                         </td>
                                                     </>
                                                 )}
-                                                {activeFund === 'iron_supplement' && (
+                                                {(activeFund === 'iron_supplement' || activeFund === 'ferrokid_child') && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            <strong style={{ color: item.age >= 13 && item.age <= 45 ? 'var(--success)' : 'var(--danger)' }}>{item.age}</strong>
+                                                            <strong style={{
+                                                                color: activeFund === 'ferrokid_child'
+                                                                    ? (Number(item.age_month ?? -1) >= 2 && Number(item.age_month ?? -1) <= 144 ? 'var(--success)' : 'var(--danger)')
+                                                                    : (item.age >= 13 && item.age <= 45 ? 'var(--success)' : 'var(--danger)')
+                                                            }}>
+                                                                {activeFund === 'ferrokid_child' && item.age_month != null
+                                                                    ? `${item.age} ปี (${item.age_month} เดือน)`
+                                                                    : item.age}
+                                                            </strong>
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.pdx ? <span className="badge badge-primary">{item.pdx}</span> : '-'}

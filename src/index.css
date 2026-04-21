@@ -1481,11 +1481,12 @@ p {
   border-radius: 24px;
   box-shadow: var(--shadow-xl);
   width: 100%;
-  max-width: 700px;
+  max-width: min(960px, 96vw);
   max-height: 88vh;
   display: flex;
   flex-direction: column;
   animation: slideUp 0.2s ease;
+  min-width: 0;
 }
 
 .modal-header {
@@ -1509,6 +1510,7 @@ p {
   overflow-y: auto;
   padding: 24px;
   background: linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.98) 100%);
+  min-width: 0;
 }
 
 .modal-footer {
@@ -1554,6 +1556,7 @@ p {
   background: var(--surface-2);
   padding: 10px 12px;
   border-radius: var(--radius);
+  min-width: 0;
 }
 
 .info-label {
@@ -1568,6 +1571,9 @@ p {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* ========== Section Divider ========== */
@@ -1656,6 +1662,7 @@ p {
   overflow: hidden;
   background: var(--surface);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  min-width: 0;
 }
 
 .modal-table-head {
@@ -1666,6 +1673,57 @@ p {
 
 .modal-table-wrap {
   overflow-x: auto;
+  min-width: 0;
+}
+
+.detail-modal-table {
+  table-layout: fixed;
+}
+
+.detail-modal-table thead th,
+.detail-modal-table tbody td {
+  vertical-align: top;
+}
+
+.detail-modal-table thead th,
+.detail-modal-table tbody td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.detail-modal-table td .badge,
+.detail-modal-table td .modal-chip {
+  white-space: nowrap;
+}
+
+.detail-modal-table--diagnoses th:first-child,
+.detail-modal-table--diagnoses td:first-child {
+  width: 120px;
+  min-width: 120px;
+  white-space: nowrap;
+  padding-right: 16px;
+}
+
+.detail-modal-table--diagnoses th:nth-child(2),
+.detail-modal-table--diagnoses td:nth-child(2) {
+  width: 124px;
+  min-width: 124px;
+  white-space: nowrap;
+  padding-left: 16px;
+}
+
+.detail-modal-table--procedures th:first-child,
+.detail-modal-table--procedures td:first-child {
+  width: 148px;
+  min-width: 148px;
+  white-space: nowrap;
+}
+
+.detail-modal-table--procedures th:nth-child(2),
+.detail-modal-table--procedures td:nth-child(2) {
+  width: auto;
 }
 
 .modal-banner {

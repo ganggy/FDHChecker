@@ -251,7 +251,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                     </div>
                     {diagsData.diagnoses.length > 0 ? (
                       <div className="modal-table-wrap">
-                        <table className="data-table">
+                        <table className="data-table detail-modal-table detail-modal-table--diagnoses">
                           <thead>
                             <tr>
                               <th style={{ width: 80 }}>Type</th>
@@ -286,7 +286,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                     </div>
                     {diagsData.procedures.length > 0 ? (
                       <div className="modal-table-wrap">
-                        <table className="data-table">
+                        <table className="data-table detail-modal-table detail-modal-table--procedures">
                           <thead>
                             <tr>
                               <th style={{ width: 100 }}>ICD-9-CM</th>

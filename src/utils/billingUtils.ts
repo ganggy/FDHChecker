@@ -63,6 +63,14 @@ const hasDiagCode = (item: any, codes: string[]) => {
         item?.dx5,
     ].some((value) => targets.has(cleanDiag(value)));
 };
+const getAnemiaAgeBandLabel = (item: any) => {
+    const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
+    const ageYears = Number(item?.age_y ?? item?.age ?? -1);
+    if (ageMonths >= 6 && ageMonths <= 12) return '6-12 เดือน';
+    if (ageYears >= 3 && ageYears <= 6) return '3-6 ปี';
+    if (toBool(item?.anemia_age_eligible)) return '6-12 เดือน หรือ 3-6 ปี';
+    return '';
+};
 const getAncLab1Requirements = (item: any, hasAncDiag: boolean) => ([
     { met: String(item?.sex ?? '').trim() === '2', label: ' เพศหญิง' },
     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
@@ -206,18 +214,19 @@ export const evaluateBillingLogic = (item: any) => {
         }
 
         const hasAnemiaAge = toBool(item?.anemia_age_eligible);
+        const anemiaAgeBand = getAnemiaAgeBandLabel(item);
         const hasAnemiaAdp = toBool(item?.has_anemia_adp);
         const hasAnemiaLab = toBool(item?.has_anemia_lab);
         const hasAnemiaDiag = toBool(item?.has_anemia_diag);
         const anemiaNearMissing = getNearFundMissingParts(hasAnemiaAdp, ' ADP 13001', [
-            { met: hasAnemiaAge, label: ' หญิงอายุ 13-24 ปี' },
-            { met: hasAnemiaLab, label: ' Lab CBC' },
+            { met: hasAnemiaAge, label: ` อายุ ${anemiaAgeBand || '6-12 เดือน หรือ 3-6 ปี'}` },
+            { met: hasAnemiaLab, label: ' Lab Hb/Hct' },
             { met: hasAnemiaDiag, label: ' DX Z130' },
         ], hasAnemiaLab || hasAnemiaDiag);
         if (hasAnemiaAge && hasAnemiaAdp && hasAnemiaLab && hasAnemiaDiag) {
-            fundNotes.push({ label: '🩸 คัดกรองโลหิตจาง (13001)', kind: 'matched', group: 'other' });
+            fundNotes.push({ label: `🩸 คัดกรองโลหิตจาง (13001${anemiaAgeBand ? `, ${anemiaAgeBand}` : ''})`, kind: 'matched', group: 'other' });
         } else {
-            addWarningFundNote(fundNotes, 'คัดกรองโลหิตจาง', anemiaNearMissing);
+            addWarningFundNote(fundNotes, 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก', anemiaNearMissing);
         }
 
         const hasIronAge = toBool(item?.iron_age_eligible);

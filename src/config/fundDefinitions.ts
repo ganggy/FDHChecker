@@ -149,8 +149,14 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
     {
         id: 'anemia_screening',
         name: 'คัดกรองโลหิตจาง',
-        description: 'คัดกรองหญิงวัยรุ่นและวัยเจริญพันธุ์',
-        conditions: ['หญิงอายุ 13-24 ปี', 'Lab CBC', 'Diagnosis Z130', 'ADP 13001']
+        description: 'คัดกรองโลหิตจางจากการขาดธาตุเหล็กสำหรับเด็กตามช่วงอายุที่กำหนด',
+        conditions: [
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก - อายุ 6-12 เดือน ต้องมี Lab Hb/Hct',
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก - อายุ 3-6 ปี ต้องมี Lab Hb/Hct',
+            'Diagnosis Z130',
+            'ADP 13001'
+        ],
+        caution: 'กองทุนนี้ต้องดู “ช่วงอายุ + Lab Hb/Hct” ให้ตรงกับเกณฑ์ก่อน แล้วค่อยตรวจว่ามี Z130 และ ADP 13001 ครบหรือไม่'
     },
     {
         id: 'iron_supplement',

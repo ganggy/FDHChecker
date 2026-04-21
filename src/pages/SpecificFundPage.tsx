@@ -30,7 +30,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
-    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: '13001 / CBC + Z130' },
+    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: '13001 / Hb-Hct + Z130' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
@@ -436,21 +436,30 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (fundId === 'anemia_screening') {
-            const hasAge = toFlag(item?.age_eligible);
+            const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
+            const ageYears = Number(item?.age_y ?? item?.age ?? -1);
+            const ageBand = String(item?.anemia_age_band ?? '').trim();
+            const hasAgeBand6To12Months = ageMonths >= 6 && ageMonths <= 12;
+            const hasAgeBand3To6Years = ageYears >= 3 && ageYears <= 6;
+            const hasAge = toFlag(item?.age_eligible) || hasAgeBand6To12Months || hasAgeBand3To6Years;
             const hasLab = toFlag(item?.has_anemia_lab);
             const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z130']);
             const hasAdp = toFlag(item?.has_anemia_adp) || hasAnyCodeValue(item?.adp_names, ['13001']) || hasAnyCodeValue(item?.anc_adp_codes, ['13001']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
+            const ageLabel = ageBand || (hasAgeBand6To12Months ? '6-12 เดือน' : hasAgeBand3To6Years ? '3-6 ปี' : '6-12 เดือน หรือ 3-6 ปี');
+            const sourceLabel = ageBand
+                ? `คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (${ageBand} + Hb/Hct)`
+                : 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (Hb/Hct)';
             if (isMatched || hasLab || hasDiag || hasAdp) {
-                subfunds.push(item?.anemia_match_source === 'CBC+Z130' || (!hasAdp && hasAge && hasLab && hasDiag)
-                    ? '🧪 คัดกรองโลหิตจาง (CBC+Z130)'
-                    : '🩸 คัดกรองโลหิตจาง (13001)');
+                subfunds.push(item?.anemia_match_source?.startsWith('ADP13001') || hasAdp
+                    ? '🩸 คัดกรองโลหิตจาง (13001)'
+                    : `🧪 ${sourceLabel}`);
             }
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 13001', [
-                    { met: hasAge, label: ' หญิงอายุ 13-24 ปี' },
-                    { met: hasLab, label: ' Lab CBC' },
+                    { met: hasAge, label: ` อายุ ${ageLabel}` },
+                    { met: hasLab, label: ' Lab Hb/Hct' },
                     { met: hasDiag, label: ' Diagnosis Z130' },
                 ], hasLab || hasDiag),
                 undefined,
@@ -1709,7 +1718,18 @@ export const SpecificFundPage: React.FC = () => {
                                                 {activeFund === 'anemia_screening' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            <strong style={{ color: item.age >= 13 && item.age <= 24 ? 'var(--success)' : 'var(--danger)' }}>{item.age}</strong>
+                                                            {(() => {
+                                                                const anemiaAgeBand = String(item.anemia_age_band ?? '').trim();
+                                                                const isAnemiaAgeBand = anemiaAgeBand === '6-12 เดือน' || anemiaAgeBand === '3-6 ปี';
+                                                                const ageText = item.age_month != null
+                                                                    ? `${item.age} ปี (${item.age_month} เดือน)`
+                                                                    : String(item.age ?? '-');
+                                                                return (
+                                                                    <strong style={{ color: isAnemiaAgeBand ? 'var(--success)' : 'var(--danger)' }}>
+                                                                        {anemiaAgeBand ? `${ageText} • ${anemiaAgeBand}` : ageText}
+                                                                    </strong>
+                                                                );
+                                                            })()}
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.pdx ? <span className="badge badge-primary">{item.pdx}</span> : '-'}

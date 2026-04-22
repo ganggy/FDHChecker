@@ -47,7 +47,17 @@ export const getRepstmConnection = async () => {
   return connection;
 };
 
-const buildAnemiaCbcExistsSql = (alias: string) => `
+const ANEMIA_CBC_REGEX = 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|CBC WITHOUT SMEAR|CBC NO SMEAR|CBC W/O SMEAR|CBC W/O DIFF|ซีบีซี|ความสมบูรณ์ของเม็ดเลือด|เม็ดเลือดสมบูรณ์';
+const ANEMIA_HBHCT_REGEX = 'HB/HCT|HBHCT|HB HCT|HB-HCT|HB|HGB|HEMOGLOBIN|HCT|HEMATOCRIT|ฮีโมโกลบิน|ฮีมาโตคริต|ความเข้มข้นเลือด';
+
+const buildAnemiaLabExistsSql = (alias: string, labKind: 'cbc' | 'hbhct' | 'any' = 'any') => {
+  const regex = labKind === 'cbc'
+    ? ANEMIA_CBC_REGEX
+    : labKind === 'hbhct'
+      ? ANEMIA_HBHCT_REGEX
+      : `${ANEMIA_CBC_REGEX}|${ANEMIA_HBHCT_REGEX}`;
+
+  return `
   (
     EXISTS (
       SELECT 1
@@ -56,7 +66,7 @@ const buildAnemiaCbcExistsSql = (alias: string) => `
       LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
       WHERE oo.vn = ${alias}.vn
         AND (
-          UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|HEMATOLOGY|BLOOD COUNT|WBC|RBC|HGB|HB|HCT|MCV|MCH|MCHC|RDW|PLATELET|PLT|RETIC'
+          UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP '${regex}'
         )
     )
     OR EXISTS (
@@ -68,24 +78,29 @@ const buildAnemiaCbcExistsSql = (alias: string) => `
         AND lo.lab_order_result IS NOT NULL
         AND lo.lab_order_result <> ''
         AND (
-          UPPER(COALESCE(li.lab_items_name, '')) REGEXP 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|HEMATOLOGY|BLOOD COUNT|WBC|RBC|HGB|HB|HCT|MCV|MCH|MCHC|RDW|PLATELET|PLT|RETIC'
+          UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${regex}'
         )
     )
   )
 `;
+};
 
-const buildAnemiaFallbackSql = (alias: string) => `
+const buildAnemiaCbcExistsSql = (alias: string) => buildAnemiaLabExistsSql(alias, 'cbc');
+const buildAnemiaHbHctExistsSql = (alias: string) => buildAnemiaLabExistsSql(alias, 'hbhct');
+
+const buildAnemiaFallbackSql = (alias: string, labKind: 'cbc' | 'hbhct' | 'any' = 'hbhct') => `
   EXISTS (
     SELECT 1
     FROM ovstdiag dx
     WHERE dx.vn = ${alias}.vn
       AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z130'
   )
-  AND ${buildAnemiaCbcExistsSql(alias)}
+  AND ${buildAnemiaLabExistsSql(alias, labKind)}
 `;
 
 const buildAnemiaAgeBandSql = (visitAlias: string) => `
   CASE
+    WHEN v.age_y BETWEEN 13 AND 24 THEN '13-24 ปี'
     WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ${visitAlias}.vstdate) BETWEEN 6 AND 12 THEN '6-12 เดือน'
     WHEN v.age_y BETWEEN 3 AND 6 THEN '3-6 ปี'
     ELSE NULL
@@ -94,7 +109,8 @@ const buildAnemiaAgeBandSql = (visitAlias: string) => `
 
 const buildAnemiaAgeEligibleSql = (visitAlias: string) => `
   (
-    TIMESTAMPDIFF(MONTH, pt.birthday, ${visitAlias}.vstdate) BETWEEN 6 AND 12
+    v.age_y BETWEEN 13 AND 24
+    OR TIMESTAMPDIFF(MONTH, pt.birthday, ${visitAlias}.vstdate) BETWEEN 6 AND 12
     OR v.age_y BETWEEN 3 AND 6
   )
 `;
@@ -2084,21 +2100,29 @@ export const getCheckData = async (
         CASE WHEN ${buildAnemiaAgeEligibleSql('ovst')} THEN 1 ELSE 0 END as anemia_age_eligible,
         ${buildAnemiaAgeBandSql('ovst')} as anemia_age_band,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '13001' LIMIT 1) THEN 1 ELSE 0 END as has_anemia_adp,
-        CASE WHEN ${buildAnemiaCbcExistsSql('ovst')} THEN 1 ELSE 0 END as has_anemia_lab,
+        CASE WHEN ${buildAnemiaCbcExistsSql('ovst')} THEN 1 ELSE 0 END as has_anemia_cbc,
+        CASE WHEN ${buildAnemiaHbHctExistsSql('ovst')} THEN 1 ELSE 0 END as has_anemia_hbhct,
+        CASE WHEN ${buildAnemiaLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_anemia_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} THEN 1 ELSE 0 END as has_anemia_diag,
         CASE
           WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '13001' LIMIT 1)
             THEN 1
-          WHEN ${buildAnemiaAgeEligibleSql('ovst')} AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
+          WHEN v.age_y BETWEEN 13 AND 24 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
+            THEN 1
+          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaHbHctExistsSql('ovst')}
+            THEN 1
+          WHEN v.age_y BETWEEN 3 AND 6 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaHbHctExistsSql('ovst')}
             THEN 1
           ELSE 0
         END as has_anemia,
         CASE
           WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '13001' LIMIT 1)
             THEN 'ADP13001'
-          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
+          WHEN v.age_y BETWEEN 13 AND 24 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
+            THEN 'CBC+Z130(13-24Y)'
+          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaHbHctExistsSql('ovst')}
             THEN 'HbHct+Z130(6-12M)'
-          WHEN v.age_y BETWEEN 3 AND 6 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
+          WHEN v.age_y BETWEEN 3 AND 6 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaHbHctExistsSql('ovst')}
             THEN 'HbHct+Z130(3-6Y)'
           ELSE NULL
         END as anemia_match_source,
@@ -2773,12 +2797,18 @@ export const getEligibleVisits = async (
         CASE WHEN ${buildAnemiaAgeEligibleSql('ovst')} THEN 1 ELSE 0 END as anemia_age_eligible,
         ${buildAnemiaAgeBandSql('ovst')} as anemia_age_band,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '13001' LIMIT 1) THEN 1 ELSE 0 END as has_anemia_adp,
-        CASE WHEN ${buildAnemiaCbcExistsSql('ovst')} THEN 1 ELSE 0 END as has_anemia_lab,
+        CASE WHEN ${buildAnemiaCbcExistsSql('ovst')} THEN 1 ELSE 0 END as has_anemia_cbc,
+        CASE WHEN ${buildAnemiaHbHctExistsSql('ovst')} THEN 1 ELSE 0 END as has_anemia_hbhct,
+        CASE WHEN ${buildAnemiaLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_anemia_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} THEN 1 ELSE 0 END as has_anemia_diag,
         CASE
           WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '13001' LIMIT 1)
             THEN 1
-          WHEN ${buildAnemiaAgeEligibleSql('ovst')} AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
+          WHEN v.age_y BETWEEN 13 AND 24 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
+            THEN 1
+          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaHbHctExistsSql('ovst')}
+            THEN 1
+          WHEN v.age_y BETWEEN 3 AND 6 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaHbHctExistsSql('ovst')}
             THEN 1
           ELSE 0
         END as has_anemia,
@@ -3791,14 +3821,17 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           v.age_y as age,
           TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) as age_month,
           v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
-          CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 OR v.age_y BETWEEN 3 AND 6 THEN 'Y' ELSE 'N' END as age_eligible,
+          CASE WHEN v.age_y BETWEEN 13 AND 24 OR TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 OR v.age_y BETWEEN 3 AND 6 THEN 'Y' ELSE 'N' END as age_eligible,
           CASE
+            WHEN v.age_y BETWEEN 13 AND 24 THEN '13-24 ปี'
             WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 THEN '6-12 เดือน'
             WHEN v.age_y BETWEEN 3 AND 6 THEN '3-6 ปี'
             ELSE NULL
           END as anemia_age_band,
           CASE WHEN ${buildDiagnosisMatchSql('o', 'v', ANEMIA_DX_CODES)} THEN 'Y' ELSE 'N' END as has_anemia_diag,
-          CASE WHEN ${buildAnemiaCbcExistsSql('o')} THEN 'Y' ELSE 'N' END as has_anemia_lab,
+          CASE WHEN ${buildAnemiaCbcExistsSql('o')} THEN 'Y' ELSE 'N' END as has_anemia_cbc,
+          CASE WHEN ${buildAnemiaHbHctExistsSql('o')} THEN 'Y' ELSE 'N' END as has_anemia_hbhct,
+          CASE WHEN ${buildAnemiaLabExistsSql('o')} THEN 'Y' ELSE 'N' END as has_anemia_lab,
           CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code='13001') THEN 'Y' ELSE 'N' END as has_anemia_adp,
           (SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ', ') FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='13001') as adp_names,
           (SELECT GROUP_CONCAT(DISTINCT CONCAT(COALESCE(ndi.name, sd.name, oo.icode)) SEPARATOR ', ')
@@ -3807,7 +3840,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
              LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
             WHERE oo.vn = o.vn
               AND (
-                UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|HB/HCT|HB|HGB|HEMOGLOBIN|HCT|HEMATOCRIT'
+                UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|CBC WITHOUT SMEAR|CBC NO SMEAR|CBC W/O SMEAR|CBC W/O DIFF|HB/HCT|HBHCT|HB HCT|HB-HCT|HB|HGB|HEMOGLOBIN|HCT|HEMATOCRIT'
               )
           ) as cbc_names,
           (SELECT GROUP_CONCAT(DISTINCT REPLACE(UPPER(dx.icd10), '.', '') SEPARATOR ', ')
@@ -3818,8 +3851,19 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           CASE
             WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '13001' LIMIT 1)
               THEN 'ADP13001'
+            WHEN v.age_y BETWEEN 13 AND 24 AND (
+              ${buildAnemiaFallbackSql('o', 'cbc')}
+              OR REPLACE(UPPER(COALESCE(v.pdx, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx0, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx1, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx2, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx3, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx4, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.dx5, '')), '.', '') = 'Z130'
+            )
+              THEN CONCAT('CBC+Z130(', '13-24Y', ')')
             WHEN (TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 OR v.age_y BETWEEN 3 AND 6) AND (
-              ${buildAnemiaFallbackSql('o')}
+              ${buildAnemiaFallbackSql('o', 'hbhct')}
               OR REPLACE(UPPER(COALESCE(v.pdx, '')), '.', '') = 'Z130'
               OR REPLACE(UPPER(COALESCE(v.dx0, '')), '.', '') = 'Z130'
               OR REPLACE(UPPER(COALESCE(v.dx1, '')), '.', '') = 'Z130'
@@ -3845,9 +3889,17 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
               WHERE oo.vn = o.vn AND d.nhso_adp_code = '13001'
             )
             OR (
-              (TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 OR v.age_y BETWEEN 3 AND 6)
+              (
+                v.age_y BETWEEN 13 AND 24
+                OR TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12
+                OR v.age_y BETWEEN 3 AND 6
+              )
               AND ${buildDiagnosisMatchSql('o', 'v', ANEMIA_DX_CODES)}
-              AND ${buildAnemiaCbcExistsSql('o')}
+              AND (
+                (v.age_y BETWEEN 13 AND 24 AND ${buildAnemiaCbcExistsSql('o')})
+                OR (TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 AND ${buildAnemiaHbHctExistsSql('o')})
+                OR (v.age_y BETWEEN 3 AND 6 AND ${buildAnemiaHbHctExistsSql('o')})
+              )
             )
           )
         GROUP BY o.vn

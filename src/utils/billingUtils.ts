@@ -66,10 +66,18 @@ const hasDiagCode = (item: any, codes: string[]) => {
 const getAnemiaAgeBandLabel = (item: any) => {
     const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
     const ageYears = Number(item?.age_y ?? item?.age ?? -1);
+    if (ageYears >= 13 && ageYears <= 24) return '13-24 ปี';
     if (ageMonths >= 6 && ageMonths <= 12) return '6-12 เดือน';
     if (ageYears >= 3 && ageYears <= 6) return '3-6 ปี';
-    if (toBool(item?.anemia_age_eligible)) return '6-12 เดือน หรือ 3-6 ปี';
+    if (toBool(item?.anemia_age_eligible)) return '13-24 ปี / 6-12 เดือน / 3-6 ปี';
     return '';
+};
+const getAnemiaLabRequirement = (item: any) => {
+    const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
+    const ageYears = Number(item?.age_y ?? item?.age ?? -1);
+    if (ageYears >= 13 && ageYears <= 24) return { label: 'Lab CBC', kind: 'cbc' as const };
+    if ((ageMonths >= 6 && ageMonths <= 12) || (ageYears >= 3 && ageYears <= 6)) return { label: 'Lab Hb/Hct', kind: 'hbhct' as const };
+    return { label: 'Lab CBC / Hb/Hct', kind: 'any' as const };
 };
 const getAncLab1Requirements = (item: any, hasAncDiag: boolean) => ([
     { met: String(item?.sex ?? '').trim() === '2', label: ' เพศหญิง' },
@@ -215,16 +223,32 @@ export const evaluateBillingLogic = (item: any) => {
 
         const hasAnemiaAge = toBool(item?.anemia_age_eligible);
         const anemiaAgeBand = getAnemiaAgeBandLabel(item);
+        const anemiaLabRequirement = getAnemiaLabRequirement(item);
         const hasAnemiaAdp = toBool(item?.has_anemia_adp);
-        const hasAnemiaLab = toBool(item?.has_anemia_lab);
+        const hasAnemiaCbc = toBool(item?.has_anemia_cbc);
+        const hasAnemiaHbHct = toBool(item?.has_anemia_hbhct);
+        const hasAnemiaLab = anemiaLabRequirement.kind === 'cbc'
+            ? hasAnemiaCbc
+            : anemiaLabRequirement.kind === 'hbhct'
+                ? hasAnemiaHbHct
+                : toBool(item?.has_anemia_lab);
         const hasAnemiaDiag = toBool(item?.has_anemia_diag);
         const anemiaNearMissing = getNearFundMissingParts(hasAnemiaAdp, ' ADP 13001', [
-            { met: hasAnemiaAge, label: ` อายุ ${anemiaAgeBand || '6-12 เดือน หรือ 3-6 ปี'}` },
-            { met: hasAnemiaLab, label: ' Lab Hb/Hct' },
+            { met: hasAnemiaAge, label: ` อายุ ${anemiaAgeBand || '13-24 ปี / 6-12 เดือน / 3-6 ปี'}` },
+            { met: hasAnemiaLab, label: ` ${anemiaLabRequirement.label}` },
             { met: hasAnemiaDiag, label: ' DX Z130' },
         ], hasAnemiaLab || hasAnemiaDiag);
         if (hasAnemiaAge && hasAnemiaAdp && hasAnemiaLab && hasAnemiaDiag) {
-            fundNotes.push({ label: `🩸 คัดกรองโลหิตจาง (13001${anemiaAgeBand ? `, ${anemiaAgeBand}` : ''})`, kind: 'matched', group: 'other' });
+            const anemiaSummaryLabel = anemiaLabRequirement.kind === 'cbc'
+                ? '🩸 คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130 ADP 13001'
+                : anemiaAgeBand.includes('6-12 เดือน')
+                    ? '🩸 คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130 ADP 13001'
+                    : '🩸 คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130 ADP 13001';
+            fundNotes.push({
+                label: anemiaSummaryLabel,
+                kind: 'matched',
+                group: 'other'
+            });
         } else {
             addWarningFundNote(fundNotes, 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก', anemiaNearMissing);
         }

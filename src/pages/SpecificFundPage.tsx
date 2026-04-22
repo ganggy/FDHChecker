@@ -30,7 +30,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
-    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: '13001 / Hb-Hct + Z130' },
+    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130 + 13001' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
@@ -296,6 +296,39 @@ export const SpecificFundPage: React.FC = () => {
         return allRequirementsMet ? [adpLabel] : [];
     };
 
+    const getAnemiaCriteria = (item: any) => {
+        const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
+        const ageYears = Number(item?.age_y ?? item?.age ?? -1);
+        const hasAgeBand13To24Years = ageYears >= 13 && ageYears <= 24;
+        const hasAgeBand6To12Months = ageMonths >= 6 && ageMonths <= 12;
+        const hasAgeBand3To6Years = ageYears >= 3 && ageYears <= 6;
+        const ageBand = String(item?.anemia_age_band ?? '').trim();
+        const bandLabel = ageBand || (hasAgeBand13To24Years
+            ? '13-24 ปี'
+            : hasAgeBand6To12Months
+                ? '6-12 เดือน'
+                : hasAgeBand3To6Years
+                    ? '3-6 ปี'
+                    : '');
+        const labLabel = hasAgeBand13To24Years
+            ? 'Lab CBC'
+            : (hasAgeBand6To12Months || hasAgeBand3To6Years)
+                ? 'Lab Hb/Hct'
+                : 'Lab CBC / Hb/Hct';
+        const ageLabel = bandLabel || '13-24 ปี / 6-12 เดือน / 3-6 ปี';
+        return {
+            ageMonths,
+            ageYears,
+            ageBand,
+            bandLabel,
+            labLabel,
+            ageLabel,
+            hasAgeBand13To24Years,
+            hasAgeBand6To12Months,
+            hasAgeBand3To6Years,
+        };
+    };
+
     const getStatusForFund = (item: any, fundId: string = activeFund) => {
         const subfunds: string[] = [];
         const age = Number(item?.age_y ?? item?.age ?? 0);
@@ -436,20 +469,24 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (fundId === 'anemia_screening') {
-            const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
-            const ageYears = Number(item?.age_y ?? item?.age ?? -1);
-            const ageBand = String(item?.anemia_age_band ?? '').trim();
-            const hasAgeBand6To12Months = ageMonths >= 6 && ageMonths <= 12;
-            const hasAgeBand3To6Years = ageYears >= 3 && ageYears <= 6;
-            const hasAge = toFlag(item?.age_eligible) || hasAgeBand6To12Months || hasAgeBand3To6Years;
-            const hasLab = toFlag(item?.has_anemia_lab);
+            const anemiaCriteria = getAnemiaCriteria(item);
+            const hasAge = toFlag(item?.age_eligible)
+                || anemiaCriteria.hasAgeBand13To24Years
+                || anemiaCriteria.hasAgeBand6To12Months
+                || anemiaCriteria.hasAgeBand3To6Years;
+            const hasCbc = toFlag(item?.has_anemia_cbc);
+            const hasHbHct = toFlag(item?.has_anemia_hbhct);
+            const requiresCbc = anemiaCriteria.hasAgeBand13To24Years;
+            const requiresHbHct = anemiaCriteria.hasAgeBand6To12Months || anemiaCriteria.hasAgeBand3To6Years;
+            const hasLab = requiresCbc ? hasCbc : (requiresHbHct ? hasHbHct : toFlag(item?.has_anemia_lab));
             const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z130']);
             const hasAdp = toFlag(item?.has_anemia_adp) || hasAnyCodeValue(item?.adp_names, ['13001']) || hasAnyCodeValue(item?.anc_adp_codes, ['13001']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
-            const ageLabel = ageBand || (hasAgeBand6To12Months ? '6-12 เดือน' : hasAgeBand3To6Years ? '3-6 ปี' : '6-12 เดือน หรือ 3-6 ปี');
-            const sourceLabel = ageBand
-                ? `คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (${ageBand} + Hb/Hct)`
-                : 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (Hb/Hct)';
+            const sourceLabel = requiresCbc
+                ? `คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130 ADP 13001`
+                : anemiaCriteria.hasAgeBand6To12Months
+                    ? `คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130 ADP 13001`
+                    : `คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130 ADP 13001`;
             if (isMatched || hasLab || hasDiag || hasAdp) {
                 subfunds.push(item?.anemia_match_source?.startsWith('ADP13001') || hasAdp
                     ? '🩸 คัดกรองโลหิตจาง (13001)'
@@ -458,8 +495,8 @@ export const SpecificFundPage: React.FC = () => {
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 13001', [
-                    { met: hasAge, label: ` อายุ ${ageLabel}` },
-                    { met: hasLab, label: ' Lab Hb/Hct' },
+                    { met: hasAge, label: ` อายุ ${anemiaCriteria.ageLabel}` },
+                    { met: hasLab, label: ` ${anemiaCriteria.labLabel}` },
                     { met: hasDiag, label: ' Diagnosis Z130' },
                 ], hasLab || hasDiag),
                 undefined,
@@ -1720,13 +1757,22 @@ export const SpecificFundPage: React.FC = () => {
                                                         <td style={{ textAlign: 'center' }}>
                                                             {(() => {
                                                                 const anemiaAgeBand = String(item.anemia_age_band ?? '').trim();
-                                                                const isAnemiaAgeBand = anemiaAgeBand === '6-12 เดือน' || anemiaAgeBand === '3-6 ปี';
+                                                                const isAnemiaAgeBand = ['13-24 ปี', '6-12 เดือน', '3-6 ปี'].includes(anemiaAgeBand);
                                                                 const ageText = item.age_month != null
                                                                     ? `${item.age} ปี (${item.age_month} เดือน)`
                                                                     : String(item.age ?? '-');
+                                                                const ageHint = anemiaAgeBand || (
+                                                                    Number(item.age_y ?? item.age ?? -1) >= 13 && Number(item.age_y ?? item.age ?? -1) <= 24
+                                                                        ? '13-24 ปี'
+                                                                        : Number(item.age_month ?? -1) >= 6 && Number(item.age_month ?? -1) <= 12
+                                                                            ? '6-12 เดือน'
+                                                                            : Number(item.age_y ?? item.age ?? -1) >= 3 && Number(item.age_y ?? item.age ?? -1) <= 6
+                                                                                ? '3-6 ปี'
+                                                                                : ''
+                                                                );
                                                                 return (
                                                                     <strong style={{ color: isAnemiaAgeBand ? 'var(--success)' : 'var(--danger)' }}>
-                                                                        {anemiaAgeBand ? `${ageText} • ${anemiaAgeBand}` : ageText}
+                                                                        {ageHint ? `${ageText} • ${ageHint}` : ageText}
                                                                     </strong>
                                                                 );
                                                             })()}

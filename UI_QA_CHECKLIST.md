@@ -35,6 +35,15 @@
 - [x] Modal รายละเอียดชาร์ตยังเปิดได้
 - [x] วันที่เริ่มต้นไม่เพี้ยนตาม timezone
 
+## IPD Flags (Apr 2026)
+
+- [x] เคส LOS > 10 และ RW < 0.8 แสดง High LOS/Low RW warning
+- [x] เคส LOS <= 10 หรือ RW >= 0.8 ไม่ติด High LOS/Low RW warning
+- [x] เคสมี OR code และ RW = 0 แสดง OR but RW=0 warning
+- [x] เคสไม่มี PDx แสดง Missing PDx warning
+- [x] ข้อความ Low RW Warning ในหน้า IPD ตรงกับ Guide (LOS > 10, RW < 0.8)
+- [x] การ์ด IPD ในหน้า Guide มีปุ่ม Copy path สำหรับเอกสาร Vale
+
 ## ตรวจสอบเบิก FDH
 
 - [x] โหลดข้อมูลตามช่วงวันที่ได้

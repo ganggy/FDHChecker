@@ -9,6 +9,7 @@ interface FundGuide {
     payment: string;
     icon: string;
     color: string;
+    referencePath?: string;
 }
 
 const guides: FundGuide[] = [
@@ -407,12 +408,24 @@ const guides: FundGuide[] = [
         codes: ['เกณฑ์ DRG Ver 6.3 / 7.0', 'ระบบ Auto-Flag ในหน้า IPD Monitoring'],
         payment: 'ช่วยป้องกันการติด C (Coding Error) และลดความเสี่ยงจากการสุ่มตรวจของ สปสช.',
         icon: '🛡️',
-        color: 'var(--warning)'
+        color: 'var(--warning)',
+        referencePath: 'D:/myvale/myVale/FDHChecker/funds/36_ipd_pre_audit.md'
     }
 ];
 
 export const GuidePage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
+    const [copiedPathGuideId, setCopiedPathGuideId] = useState<string | null>(null);
+
+    const copyReferencePath = async (guideId: string, path: string) => {
+        try {
+            await navigator.clipboard.writeText(path);
+            setCopiedPathGuideId(guideId);
+            window.setTimeout(() => setCopiedPathGuideId((current) => current === guideId ? null : current), 1500);
+        } catch {
+            setCopiedPathGuideId(null);
+        }
+    };
 
     const filteredGuides = guides.filter(g =>
         g.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -471,6 +484,20 @@ export const GuidePage: React.FC = () => {
                                     ))}
                                 </div>
                             </div>
+                            {guide.referencePath && (
+                                <div style={{ background: 'rgba(37, 99, 235, 0.06)', border: '1px solid rgba(37, 99, 235, 0.18)', padding: 12, borderRadius: 8 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>📚 Vale Reference</div>
+                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', wordBreak: 'break-all', marginBottom: 8 }}>{guide.referencePath}</div>
+                                    <button
+                                        type="button"
+                                        className="btn btn-sm"
+                                        onClick={() => copyReferencePath(guide.id, guide.referencePath!)}
+                                        style={{ border: '1px solid var(--border)', background: '#fff', color: 'var(--primary)', padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}
+                                    >
+                                        {copiedPathGuideId === guide.id ? 'Copied path' : 'Copy path'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                         <div style={{ padding: '12px 20px', background: 'rgba(16, 185, 129, 0.05)', borderTop: '1px solid rgba(16, 185, 129, 0.1)', color: 'var(--success)', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                             <span>💰</span>

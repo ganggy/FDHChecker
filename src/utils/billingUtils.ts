@@ -64,6 +64,20 @@ const hasDiagCode = (item: any, codes: string[]) => {
         item?.dx5,
     ].some((value) => targets.has(cleanDiag(value)));
 };
+const hasDiagPrefix = (item: any, prefix: string) => {
+    const normalizedPrefix = cleanDiag(prefix);
+    return [
+        item?.pdx,
+        item?.main_diag,
+        item?.diag_code,
+        item?.dx0,
+        item?.dx1,
+        item?.dx2,
+        item?.dx3,
+        item?.dx4,
+        item?.dx5,
+    ].some((value) => cleanDiag(value).startsWith(normalizedPrefix));
+};
 const getAnemiaAgeBandLabel = (item: any) => {
     const band = getAnemiaRuleBand(item);
     if (band) return band.ageLabel;
@@ -247,7 +261,7 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasAnemiaAge, label: ` อายุ ${anemiaAgeBand || '13-24 ปี / 6-12 เดือน / 3-6 ปี'}` },
             { met: hasAnemiaLab, label: ` ${anemiaLabRequirement.label}` },
             { met: hasAnemiaDiag, label: ' DX Z130' },
-        ], hasAnemiaLab || hasAnemiaDiag);
+        ], hasAnemiaAge && (hasAnemiaLab || hasAnemiaDiag));
         if (hasAnemiaAge && hasAnemiaAdp && hasAnemiaLab && hasAnemiaDiag) {
             const anemiaSummaryLabel = `🩸 ${getAnemiaRuleBand(item)?.fullCondition || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก Diagnosis Z130 ADP 13001'}`;
             fundNotes.push({
@@ -355,14 +369,16 @@ export const evaluateBillingLogic = (item: any) => {
         } else if (ancLab2NearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC Lab 2', ancLab2NearMissing);
         }
+        const hasDentalDiagK = hasDiagPrefix(item, 'K');
         const hasAncDentalExamAdp = toBool(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
         const ancDentalExamNearMissing = getNearFundMissingParts(hasAncDentalExamAdp, ' ADP 30008', [
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-        ], isFemale && hasAncDiag);
-        if ((hasAncDentalExamAdp || hasAncDiag) && !isFemale) {
+            { met: hasDentalDiagK, label: ' Diagnosis K*' },
+        ], isFemale && hasAncDiag && hasDentalDiagK);
+        if ((hasAncDentalExamAdp || hasAncDiag || hasDentalDiagK) && !isFemale) {
             fundNotes.push({ label: '⚠️ ANC ตรวจฟัน: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
-        } else if (hasAncDentalExamAdp && isFemale && hasAncDiag) {
+        } else if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasDentalDiagK) {
             fundNotes.push({ label: '🦷 ANC ตรวจฟัน', kind: 'matched', group: 'other' });
         } else if (ancDentalExamNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ตรวจฟัน', ancDentalExamNearMissing);
@@ -371,10 +387,11 @@ export const evaluateBillingLogic = (item: any) => {
         const ancDentalCleanNearMissing = getNearFundMissingParts(hasAncDentalCleanAdp, ' ADP 30009', [
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-        ], isFemale && hasAncDiag);
-        if ((hasAncDentalCleanAdp || hasAncDiag) && !isFemale) {
+            { met: hasDentalDiagK, label: ' Diagnosis K*' },
+        ], isFemale && hasAncDiag && hasDentalDiagK);
+        if ((hasAncDentalCleanAdp || hasAncDiag || hasDentalDiagK) && !isFemale) {
             fundNotes.push({ label: '⚠️ ANC ขัดทำความสะอาดฟัน: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
-        } else if (hasAncDentalCleanAdp && isFemale && hasAncDiag) {
+        } else if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasDentalDiagK) {
             fundNotes.push({ label: '🪥 ANC ขัดทำความสะอาดฟัน', kind: 'matched', group: 'other' });
         } else if (ancDentalCleanNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ขัดทำความสะอาดฟัน', ancDentalCleanNearMissing);

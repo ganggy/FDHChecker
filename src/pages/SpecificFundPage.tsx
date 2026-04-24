@@ -239,6 +239,10 @@ export const SpecificFundPage: React.FC = () => {
         return codesToCheck.map(cleanCode).some((code) => availableCodes.has(code));
     };
     const hasDiagRegex = (item: any, regex: RegExp) => collectDiagValues(item).some((code) => regex.test(code));
+    const hasDiagPrefix = (item: any, prefix: string) => {
+        const normalizedPrefix = cleanCode(prefix);
+        return collectDiagValues(item).some((code) => code.startsWith(normalizedPrefix));
+    };
     const hasText = (value: unknown, regex: RegExp) => regex.test(String(value ?? ''));
     const getAncLab1Requirements = (item: any, hasAncDiag: boolean) => {
         const isFemale = String(item?.sex ?? '').trim() === '2';
@@ -490,7 +494,8 @@ export const SpecificFundPage: React.FC = () => {
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
             const bandRule = anemiaCriteria.bandRule;
             const sourceLabel = bandRule?.shortLabel || 'คัดกรองโลหิตจาง';
-            if (isMatched || hasLab || hasDiag || hasAdp) {
+            const anemiaServiceEvidence = hasAge && (hasLab || hasDiag || hasAdp);
+            if (isMatched || anemiaServiceEvidence) {
                 subfunds.push(`🩸 ${sourceLabel}${hasAdp ? ' (13001)' : ''}`);
             }
             const matchedConditions = [
@@ -505,7 +510,7 @@ export const SpecificFundPage: React.FC = () => {
                     { met: hasAge, label: ` อายุ ${anemiaCriteria.ageLabel}` },
                     { met: hasLab, label: ` ${anemiaCriteria.labLabel}` },
                     { met: hasDiag, label: ' Diagnosis Z130' },
-                ], hasLab || hasDiag),
+                ], hasAge && (hasLab || hasDiag)),
                 undefined,
                 isMatched,
                 matchedConditions
@@ -619,15 +624,17 @@ export const SpecificFundPage: React.FC = () => {
 
         if (fundId === 'anc_dental_exam') {
             const hasExam = toFlag(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
-            const ancDentalExamEvidence = hasExam || hasAncDiag;
-            const isMatched = isFemale && hasAncDiag && hasExam;
+            const hasDentalDiagK = hasDiagPrefix(item, 'K');
+            const ancDentalExamEvidence = hasExam || hasAncDiag || hasDentalDiagK;
+            const isMatched = isFemale && hasAncDiag && hasDentalDiagK && hasExam;
             if (ancDentalExamEvidence) subfunds.push('🦷 ANC ตรวจฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasExam, ' ADP 30008', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                ], isFemale && hasAncDiag),
+                    { met: hasDentalDiagK, label: ' Diagnosis K*' },
+                ], isFemale && hasAncDiag && hasDentalDiagK),
                 ancDentalExamEvidence && !isFemale ? 'เพศชาย ไม่สามารถรับบริการ ANC ตรวจฟัน' : undefined,
                 isMatched
             );
@@ -635,15 +642,17 @@ export const SpecificFundPage: React.FC = () => {
 
         if (fundId === 'anc_dental_clean') {
             const hasClean = toFlag(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
-            const ancDentalCleanEvidence = hasClean || hasAncDiag;
-            const isMatched = isFemale && hasAncDiag && hasClean;
+            const hasDentalDiagK = hasDiagPrefix(item, 'K');
+            const ancDentalCleanEvidence = hasClean || hasAncDiag || hasDentalDiagK;
+            const isMatched = isFemale && hasAncDiag && hasDentalDiagK && hasClean;
             if (ancDentalCleanEvidence) subfunds.push('🪥 ANC ขัดทำความสะอาดฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasClean, ' ADP 30009', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                ], isFemale && hasAncDiag),
+                    { met: hasDentalDiagK, label: ' Diagnosis K*' },
+                ], isFemale && hasAncDiag && hasDentalDiagK),
                 ancDentalCleanEvidence && !isFemale ? 'เพศชาย ไม่สามารถรับบริการ ANC ขัดทำความสะอาดฟัน' : undefined,
                 isMatched
             );

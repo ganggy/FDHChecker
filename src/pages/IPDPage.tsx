@@ -723,7 +723,7 @@ export const IPDPage: React.FC = () => {
                         <div style={{ fontWeight: 700, color: 'var(--warning)', marginBottom: 10 }}>2. จุดเสี่ยงการเสียโอกาส (Billing Risk)</div>
                         <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
                             <li><strong>OR/Procedure Mapping:</strong> หากมีการผ่าตัด ต้องลงรหัส ICD-9-CM ให้ครบ เพื่อเปลี่ยนกลุ่ม DRG ให้สูงขึ้น</li>
-                            <li><strong>Low RW Warning:</strong> หากคนกไข้มีวันนอนนาน (LOS &gt; 5 วัน) แต่ RW &lt; 1.0 ให้ตรวจสอบว่าลืมลงรหัส Complication หรือไม่</li>
+                            <li><strong>Low RW Warning:</strong> หากคนไข้มีวันนอนนาน (LOS &gt; 10 วัน) แต่ RW &lt; 0.8 ให้ตรวจสอบว่าลืมลงรหัส Complication หรือไม่</li>
                         </ul>
                     </div>
                     <div className="card" style={{ padding: 16, border: 'none', background: '#fff' }}>

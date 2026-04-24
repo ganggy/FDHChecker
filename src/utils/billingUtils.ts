@@ -239,7 +239,7 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasFpgAge, label: ' อายุ 35-59 ปี' },
             { met: hasFpgLab, label: ' Lab FPG' },
             { met: hasFpgDiag, label: ' DX Z131/Z133/Z136' },
-        ], hasFpgLab || hasFpgDiag);
+        ], hasFpgAge && (hasFpgLab || hasFpgDiag));
         if (hasFpgAge && hasFpgAdp && hasFpgLab && hasFpgDiag) {
             fundNotes.push({ label: '🩸 คัดกรองเบาหวาน', kind: 'matched', group: 'other' });
         } else {
@@ -254,7 +254,7 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasCholAge, label: ' อายุ 45-59 ปี' },
             { met: hasCholLab, label: ' Lab Cholesterol/HDL' },
             { met: hasCholDiag, label: ' DX Z136' },
-        ], hasCholLab || hasCholDiag);
+        ], hasCholAge && (hasCholLab || hasCholDiag));
         if (hasCholAge && hasCholAdp && hasCholLab && hasCholDiag) {
             fundNotes.push({ label: '🧪 คัดกรองไขมัน', kind: 'matched', group: 'other' });
         } else {

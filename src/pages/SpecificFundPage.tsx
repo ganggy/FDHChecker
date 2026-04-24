@@ -446,14 +446,15 @@ export const SpecificFundPage: React.FC = () => {
             const hasDiag = toFlag(item?.has_fpg_diag) || hasDiagCodes(item, ['Z131', 'Z133', 'Z136']);
             const hasAdp = toFlag(item?.has_fpg_adp) || hasAnyCodeValue(item?.adp_names, ['12003']) || hasAnyCodeValue(item?.anc_adp_codes, ['12003']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
-            if (hasLab || hasDiag || hasAdp) subfunds.push('🩸 คัดกรองเบาหวาน');
+            const fpgServiceEvidence = hasAge && (hasLab || hasDiag || hasAdp);
+            if (isMatched || fpgServiceEvidence) subfunds.push('🩸 คัดกรองเบาหวาน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 12003', [
                     { met: hasAge, label: ' อายุ 35-59 ปี' },
                     { met: hasLab, label: ' Lab FPG' },
                     { met: hasDiag, label: ' Diagnosis Z131/Z133/Z136' },
-                ], hasLab || hasDiag),
+                ], hasAge && (hasLab || hasDiag)),
                 undefined,
                 isMatched
             );
@@ -465,14 +466,15 @@ export const SpecificFundPage: React.FC = () => {
             const hasDiag = toFlag(item?.has_chol_diag) || hasDiagCodes(item, ['Z136']);
             const hasAdp = toFlag(item?.has_chol_adp) || hasAnyCodeValue(item?.adp_names, ['12004']) || hasAnyCodeValue(item?.anc_adp_codes, ['12004']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
-            if (hasLab || hasDiag || hasAdp) subfunds.push('🧪 คัดกรองไขมัน');
+            const cholServiceEvidence = hasAge && (hasLab || hasDiag || hasAdp);
+            if (isMatched || cholServiceEvidence) subfunds.push('🧪 คัดกรองไขมัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 12004', [
                     { met: hasAge, label: ' อายุ 45-59 ปี' },
                     { met: hasLab, label: ' Lab Cholesterol/HDL' },
                     { met: hasDiag, label: ' Diagnosis Z136' },
-                ], hasLab || hasDiag),
+                ], hasAge && (hasLab || hasDiag)),
                 undefined,
                 isMatched
             );

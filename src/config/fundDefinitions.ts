@@ -1,3 +1,5 @@
+import { getFundRule } from './fundRuleCatalog';
+
 export interface FundDefinition {
     id: string;
     name: string;
@@ -5,6 +7,8 @@ export interface FundDefinition {
     conditions?: string[];
     caution?: string;
 }
+
+const anemiaRule = getFundRule('anemia_screening');
 
 export const FUND_DEFINITIONS: FundDefinition[] = [
     {
@@ -149,13 +153,13 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
     {
         id: 'anemia_screening',
         name: 'คัดกรองโลหิตจาง',
-        description: 'คัดกรองโลหิตจางจากการขาดธาตุเหล็กตามช่วงอายุและชนิดแลปที่กำหนด',
-        conditions: [
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130 ADP 13001',
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130 ADP 13001',
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130 ADP 13001'
+        description: anemiaRule?.summary || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็กตามช่วงอายุและชนิดแลปที่กำหนด',
+        conditions: anemiaRule?.conditions || [
+            'อายุ 13-24 ปี ต้องมี Lab CBC + Diagnosis Z130 + ADP 13001',
+            'อายุ 6-12 เดือน ต้องมี Lab Hb/Hct + Diagnosis Z130 + ADP 13001',
+            'อายุ 3-6 ปี ต้องมี Lab Hb/Hct + Diagnosis Z130 + ADP 13001'
         ],
-        caution: 'กองทุนนี้ต้องดู “ช่วงอายุ + ชนิดแลป” ให้ตรงกับเกณฑ์ก่อน โดยอายุ 13-24 ปีใช้ CBC และอายุ 6-12 เดือน / 3-6 ปีใช้ Hb/Hct แล้วค่อยตรวจว่ามี Z130 และ ADP 13001 ครบหรือไม่'
+        caution: anemiaRule?.caution || 'กองทุนนี้ต้องดู “ช่วงอายุ + ชนิดแลป” ให้ตรงกับเกณฑ์ก่อน'
       },
     {
         id: 'iron_supplement',

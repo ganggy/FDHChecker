@@ -1,4 +1,5 @@
 import businessRules from '../config/business_rules.json';
+import { getAnemiaRuleBand } from '../config/fundRuleCatalog';
 
 const rules = businessRules as any;
 const insuranceMapping = rules.insurance_mapping || {};
@@ -64,6 +65,8 @@ const hasDiagCode = (item: any, codes: string[]) => {
     ].some((value) => targets.has(cleanDiag(value)));
 };
 const getAnemiaAgeBandLabel = (item: any) => {
+    const band = getAnemiaRuleBand(item);
+    if (band) return band.ageLabel;
     const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
     const ageYears = Number(item?.age_y ?? item?.age ?? -1);
     if (ageYears >= 13 && ageYears <= 24) return '13-24 ปี';
@@ -73,6 +76,8 @@ const getAnemiaAgeBandLabel = (item: any) => {
     return '';
 };
 const getAnemiaLabRequirement = (item: any) => {
+    const band = getAnemiaRuleBand(item);
+    if (band) return { label: band.labLabel, kind: band.id === 'cbc_13_24y' ? 'cbc' as const : 'hbhct' as const };
     const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
     const ageYears = Number(item?.age_y ?? item?.age ?? -1);
     if (ageYears >= 13 && ageYears <= 24) return { label: 'Lab CBC', kind: 'cbc' as const };
@@ -239,11 +244,7 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasAnemiaDiag, label: ' DX Z130' },
         ], hasAnemiaLab || hasAnemiaDiag);
         if (hasAnemiaAge && hasAnemiaAdp && hasAnemiaLab && hasAnemiaDiag) {
-            const anemiaSummaryLabel = anemiaLabRequirement.kind === 'cbc'
-                ? '🩸 คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130 ADP 13001'
-                : anemiaAgeBand.includes('6-12 เดือน')
-                    ? '🩸 คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130 ADP 13001'
-                    : '🩸 คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130 ADP 13001';
+            const anemiaSummaryLabel = `🩸 ${getAnemiaRuleBand(item)?.fullCondition || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก Diagnosis Z130 ADP 13001'}`;
             fundNotes.push({
                 label: anemiaSummaryLabel,
                 kind: 'matched',
@@ -275,14 +276,13 @@ export const evaluateBillingLogic = (item: any) => {
             || (ferrokidAgeYears >= 0 && ferrokidAgeYears <= 12);
         const hasFerrokidDiag = toBool(item?.has_ferrokid_diag) || hasDiagCode(item, ['Z130']);
         const hasFerrokidMed = toBool(item?.has_ferrokid_med) || toBool(item?.has_ferrokid);
-        const ferrokidNearMissing = getNearFundMissingParts(true, '', [
-            { met: hasFerrokidAge, label: ' อายุ 2 เดือน-12 ปี' },
-            { met: hasFerrokidDiag, label: ' DX Z130' },
-            { met: hasFerrokidMed, label: ' ยา Ferrokid' },
-        ], hasFerrokidDiag || hasFerrokidMed);
+        const ferrokidNearMissing = [
+            !hasFerrokidDiag ? ' DX Z130' : '',
+            !hasFerrokidMed ? ' ยา Ferrokid' : '',
+        ].filter(Boolean);
         if (hasFerrokidAge && hasFerrokidDiag && hasFerrokidMed) {
             fundNotes.push({ label: '🧒 เสริมธาตุเหล็กเด็ก (Ferrokid)', kind: 'matched', group: 'drug' });
-        } else if (ferrokidNearMissing.length > 0) {
+        } else if (hasFerrokidAge && (hasFerrokidDiag || hasFerrokidMed) && ferrokidNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'เสริมธาตุเหล็กเด็ก (Ferrokid)', ferrokidNearMissing, 'drug');
         }
 

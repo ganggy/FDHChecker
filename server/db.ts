@@ -4441,6 +4441,9 @@ export const getEligibleIPD = async (
 ): Promise<Record<string, unknown>[]> => {
   const connection = await getUTFConnection();
   try {
+    const [auditTableRows] = await connection.query("SHOW TABLES LIKE 'z_fdh_audit_log'");
+    const hasAuditTable = Array.isArray(auditTableRows) && auditTableRows.length > 0;
+
     let query = `
       SELECT 
         ipt.an,
@@ -4475,15 +4478,15 @@ export const getEligibleIPD = async (
           WHEN ipt.dchdate IS NOT NULL THEN 'รอแพทย์สรุปชาร์ต'
           ELSE 'รอดำเนินการ'
         END as chartStatus,
-        za.status as audit_status,
-        za.updated_by as audit_by,
-        za.updated_at as audit_date
+        ${hasAuditTable ? 'za.status' : 'NULL'} as audit_status,
+        ${hasAuditTable ? 'za.updated_by' : 'NULL'} as audit_by,
+        ${hasAuditTable ? 'za.updated_at' : 'NULL'} as audit_date
         
       FROM ipt
       JOIN patient pt ON ipt.hn = pt.hn
       LEFT JOIN ward w ON ipt.ward = w.ward
       LEFT JOIN pttype ON ipt.pttype = pttype.pttype
-      LEFT JOIN z_fdh_audit_log za ON ipt.an = za.an
+      ${hasAuditTable ? 'LEFT JOIN z_fdh_audit_log za ON ipt.an = za.an' : ''}
       WHERE 1=1
     `;
 
@@ -4523,7 +4526,9 @@ export const getEligibleIPD = async (
 // API สำหรับดึงข้อมูลสรุปชาร์ตผู้ป่วยในแบบละเอียด (IPD Chart Review)
 export const getIPDChartDetails = async (an: string) => {
   const t0 = Date.now();
-  // Use 6 separate connections so all queries run in parallel
+  const warnings: string[] = [];
+  // Use 6 separate connections so all queries run in parallel. Each section is
+  // isolated because HOSxP schemas can differ slightly between hospitals.
   const connections = await Promise.all([
     getUTFConnection(),
     getUTFConnection(),
@@ -4533,17 +4538,33 @@ export const getIPDChartDetails = async (an: string) => {
     getUTFConnection(),
   ]);
   const [c1, c2, c3, c4, c5, c6] = connections;
+  const runSectionQuery = async (
+    section: string,
+    connection: any,
+    sql: string,
+    params: unknown[]
+  ): Promise<Record<string, unknown>[]> => {
+    try {
+      const [rows] = await connection.query(sql, params);
+      return Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`${section}: ${message}`);
+      console.error(`IPD chart section failed (${section}) for AN=${an}:`, error);
+      return [];
+    }
+  };
+
   try {
-    // Run all 6 queries in parallel — none depends on the others
     const [
-      [patient],
-      [diags],
-      [opers],
-      [costs],
-      [labResult],
-      [drugs],
+      patient,
+      diags,
+      opers,
+      costs,
+      labResult,
+      drugs,
     ] = await Promise.all([
-      c1.query(`
+      runSectionQuery('patient', c1, `
         SELECT ipt.an, ipt.hn, ipt.vn,
           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
           w.name as ward
@@ -4552,20 +4573,20 @@ export const getIPDChartDetails = async (an: string) => {
         LEFT JOIN ward w ON ipt.ward = w.ward
         WHERE ipt.an = ? LIMIT 1
       `, [an]),
-      c2.query(`
+      runSectionQuery('diagnosis', c2, `
         SELECT i.diagtype, i.icd10, d.name as codeName
         FROM iptdiag i
         LEFT JOIN icd101 d ON i.icd10 = d.code
         WHERE i.an = ?
         ORDER BY i.diagtype
       `, [an]),
-      c3.query(`
+      runSectionQuery('procedure', c3, `
         SELECT i.icd9, d.name as opName
         FROM iptoprt i
         LEFT JOIN icd9cm1 d ON i.icd9 = d.code
         WHERE i.an = ?
       `, [an]),
-      c4.query(`
+      runSectionQuery('cost', c4, `
         SELECT inc.name as incomeGroup, SUM(o.sum_price) as sumPrice
         FROM opitemrece o
         LEFT JOIN income inc ON o.income = inc.income
@@ -4573,17 +4594,19 @@ export const getIPDChartDetails = async (an: string) => {
         GROUP BY inc.name
         ORDER BY sumPrice DESC
       `, [an]),
-      // IPD: lab_head.vn เก็บ AN สำหรับผู้ป่วยใน
-      c5.query(`
+      // Some HOSxP installations keep IPD lab_head.vn as AN, others keep the
+      // admission VN. Check both so the modal does not miss real lab data.
+      runSectionQuery('lab', c5, `
         SELECT h.order_date, i.lab_items_name, o.lab_order_result, i.lab_items_normal_value
         FROM lab_head h
         JOIN lab_order o ON h.lab_order_number = o.lab_order_number
         JOIN lab_items i ON o.lab_items_code = i.lab_items_code
-        WHERE h.vn = ? AND o.lab_order_result IS NOT NULL AND o.lab_order_result != ''
+        WHERE (h.vn = ? OR h.vn = (SELECT vn FROM ipt WHERE an = ? LIMIT 1))
+          AND o.lab_order_result IS NOT NULL AND o.lab_order_result != ''
         ORDER BY h.order_date DESC
         LIMIT ${businessRules.query_limits.lab_limit}
-      `, [an]),
-      c6.query(`
+      `, [an, an]),
+      runSectionQuery('drug', c6, `
         SELECT d.name, SUM(o.qty) as total_qty, SUM(o.sum_price) as total_price
         FROM opitemrece o
         JOIN s_drugitems d ON o.icode = d.icode
@@ -4596,13 +4619,17 @@ export const getIPDChartDetails = async (an: string) => {
 
     console.log(`📋 getIPDChartDetails AN=${an} done in ${Date.now() - t0}ms`);
 
+    const patientRow = patient[0] || null;
+    if (!patientRow) return null;
+
     return {
-      patient: (patient as any)[0] || null,
-      diags: diags as Record<string, unknown>[],
-      opers: opers as Record<string, unknown>[],
-      costSummary: costs as Record<string, unknown>[],
-      labs: labResult as Record<string, unknown>[],
-      drugs: drugs as Record<string, unknown>[],
+      patient: patientRow,
+      diags,
+      opers,
+      costSummary: costs,
+      labs: labResult,
+      drugs,
+      warnings,
     };
   } catch (error) {
     console.error('Error fetching IPD Chart data:', error);

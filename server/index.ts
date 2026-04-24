@@ -806,6 +806,17 @@ app.post('/api/hosxp/audit', express.json(), async (req, res) => {
     const connection = await getUTFConnection();
     try {
       await connection.query(`
+        CREATE TABLE IF NOT EXISTS z_fdh_audit_log (
+          an varchar(20) NOT NULL,
+          status varchar(30) DEFAULT NULL,
+          updated_by varchar(100) DEFAULT NULL,
+          notes text,
+          created_at datetime DEFAULT CURRENT_TIMESTAMP,
+          updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (an)
+        ) ENGINE=MyISAM DEFAULT CHARSET=tis620;
+      `);
+      await connection.query(`
         INSERT INTO z_fdh_audit_log (an, status, updated_by, notes) 
         VALUES (?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE status = VALUES(status), updated_by = VALUES(updated_by), notes = VALUES(notes), updated_at = NOW();

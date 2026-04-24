@@ -1680,6 +1680,24 @@ p {
   table-layout: fixed;
 }
 
+.detail-modal-table th,
+.detail-modal-table td,
+.detail-modal-table th:first-child,
+.detail-modal-table td:first-child,
+.detail-modal-table th:nth-child(2),
+.detail-modal-table td:nth-child(2),
+.detail-modal-table th:nth-child(3),
+.detail-modal-table td:nth-child(3),
+.detail-modal-table th:nth-child(4),
+.detail-modal-table td:nth-child(4),
+.detail-modal-table th:nth-child(5),
+.detail-modal-table td:nth-child(5) {
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  text-align: left;
+}
+
 .detail-modal-table thead th,
 .detail-modal-table tbody td {
   vertical-align: top;
@@ -1696,6 +1714,151 @@ p {
 .detail-modal-table td .badge,
 .detail-modal-table td .modal-chip {
   white-space: nowrap;
+}
+
+.detail-modal-table tbody td {
+  padding: 12px 12px;
+}
+
+.detail-modal-date-cell {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: normal;
+  word-break: keep-all;
+}
+
+.detail-modal-primary-cell {
+  font-weight: 600;
+  line-height: 1.45;
+  min-width: 0;
+}
+
+.detail-modal-code-cell {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.detail-modal-table--receipt {
+  min-width: 860px;
+}
+
+.detail-modal-table--receipt th:first-child,
+.detail-modal-table--receipt td:first-child {
+  width: 110px;
+  min-width: 110px;
+}
+
+.detail-modal-table--receipt th:nth-child(2),
+.detail-modal-table--receipt td:nth-child(2) {
+  min-width: 220px;
+}
+
+.detail-modal-table--receipt th:nth-child(3),
+.detail-modal-table--receipt td:nth-child(3),
+.detail-modal-table--receipt th:nth-child(4),
+.detail-modal-table--receipt td:nth-child(4) {
+  width: 92px;
+  min-width: 92px;
+  text-align: center;
+}
+
+.detail-modal-table--receipt th:nth-child(5),
+.detail-modal-table--receipt td:nth-child(5),
+.detail-modal-table--receipt th:nth-child(6),
+.detail-modal-table--receipt td:nth-child(6) {
+  width: 104px;
+  min-width: 104px;
+  text-align: right;
+}
+
+.detail-modal-table--receipt th:nth-child(7),
+.detail-modal-table--receipt td:nth-child(7) {
+  width: 142px;
+  min-width: 142px;
+  text-align: center;
+}
+
+.detail-modal-table--receipt th:nth-child(8),
+.detail-modal-table--receipt td:nth-child(8) {
+  min-width: 150px;
+}
+
+.detail-modal-table--labs th:first-child,
+.detail-modal-table--labs td:first-child {
+  width: 140px;
+  min-width: 140px;
+}
+
+.detail-modal-table--labs th:nth-child(2),
+.detail-modal-table--labs td:nth-child(2) {
+  width: auto;
+  min-width: 220px;
+}
+
+.detail-modal-table--labs th:nth-child(3),
+.detail-modal-table--labs td:nth-child(3),
+.detail-modal-table--labs th:nth-child(4),
+.detail-modal-table--labs td:nth-child(4) {
+  width: 120px;
+  min-width: 120px;
+  text-align: center;
+}
+
+.detail-modal-table--drugs th:nth-child(2),
+.detail-modal-table--drugs td:nth-child(2) {
+  min-width: 220px;
+}
+
+.detail-modal-table--drugs th:nth-child(3),
+.detail-modal-table--drugs td:nth-child(3),
+.detail-modal-table--costs th:nth-child(2),
+.detail-modal-table--costs td:nth-child(2) {
+  width: 150px;
+  min-width: 150px;
+  text-align: right;
+}
+
+.detail-modal-table--drugs th:first-child,
+.detail-modal-table--drugs td:first-child,
+.detail-modal-table--services th:first-child,
+.detail-modal-table--services td:first-child {
+  width: 116px;
+  min-width: 116px;
+}
+
+.detail-modal-table--drugs th:nth-child(3),
+.detail-modal-table--drugs td:nth-child(3) {
+  text-align: center;
+}
+
+.detail-modal-table--services {
+  min-width: 720px;
+}
+
+.detail-modal-table--services th:nth-child(2),
+.detail-modal-table--services td:nth-child(2) {
+  min-width: 180px;
+}
+
+.detail-modal-table--services th:nth-child(3),
+.detail-modal-table--services td:nth-child(3),
+.detail-modal-table--services th:nth-child(5),
+.detail-modal-table--services td:nth-child(5) {
+  width: 132px;
+  min-width: 132px;
+  text-align: center;
+}
+
+.detail-modal-table--services th:nth-child(4),
+.detail-modal-table--services td:nth-child(4) {
+  width: 110px;
+  min-width: 110px;
+  text-align: right;
 }
 
 .detail-modal-table--diagnoses th:first-child,

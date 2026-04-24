@@ -356,7 +356,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                   {receiptData.items && receiptData.items.length > 0 ? (
                     <div className="modal-table-card">
                       <div className="modal-table-wrap" style={{ maxHeight: 350 }}>
-                      <table className="data-table">
+                      <table className="data-table detail-modal-table detail-modal-table--receipt">
                         <thead>
                           <tr>
                             <th>รหัส</th>
@@ -379,10 +379,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
 
                             return (
                               <tr key={`${item.icode}-${index}`} style={{ cursor: 'default', background: typeColor.bg }}>
-                                <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>
+                                <td className="detail-modal-code-cell" style={{ color: 'var(--text-muted)' }}>
                                   {item.icode}
                                 </td>
-                                <td>
+                                <td className="detail-modal-primary-cell">
                                   <div style={{ fontWeight: 500, fontSize: 12 }}>{item.item_name || item.icode}</div>
                                   {item.s_drugname && (
                                     <div style={{ fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
@@ -485,7 +485,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
               {!loadingPrescriptions && !prescriptionError && prescriptions.length > 0 && (
                 <div className="modal-table-card">
                   <div className="modal-table-wrap">
-                  <table className="data-table">
+                  <table className="data-table detail-modal-table detail-modal-table--drugs">
                     <thead>
                       <tr>
                         <th>รหัสยา</th>
@@ -498,8 +498,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                     <tbody>
                       {prescriptions.map((item, idx) => (
                         <tr key={idx} style={{ cursor: 'default' }}>
-                          <td style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 600 }}>{item.icode}</td>
-                          <td style={{ fontWeight: 500 }}>{item.drugName || '-'}</td>
+                          <td className="detail-modal-code-cell">{item.icode}</td>
+                          <td className="detail-modal-primary-cell">{item.drugName || '-'}</td>
                           <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{item.qty}</td>
                           <td style={{ textAlign: 'right', fontFamily: 'monospace' }}>{item.unitPrice?.toLocaleString() || '0'} ฿</td>
                           <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>{item.price?.toLocaleString() || '0'} ฿</td>
@@ -546,7 +546,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
               {!loadingServices && !serviceError && services.length > 0 && (
                 <div className="modal-table-card">
                   <div className="modal-table-wrap">
-                  <table className="data-table">
+                  <table className="data-table detail-modal-table detail-modal-table--services">
                     <thead>
                       <tr>
                         <th>รหัสบริการ</th>
@@ -561,8 +561,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                         const canClaim = item.can_claim === 1 || item.adp_code;
                         return (
                           <tr key={idx} style={{ background: canClaim ? '#f0fdf4' : '#fef2f2', cursor: 'default' }}>
-                            <td style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>{item.icode}</td>
-                            <td>{item.income_name || '-'}</td>
+                            <td className="detail-modal-code-cell">{item.icode}</td>
+                            <td className="detail-modal-primary-cell">{item.income_name || '-'}</td>
                             <td style={{ textAlign: 'center' }}>
                               {item.adp_code ? (
                                 <>

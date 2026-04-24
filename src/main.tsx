@@ -9,6 +9,10 @@ const installApiFallbackFetch = () => {
   const candidatePorts = ['3506', '3001'];
   const envBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
 
+  const isAbortError = (error: unknown) => {
+    return error instanceof DOMException && error.name === 'AbortError';
+  };
+
   const buildApiCandidates = (apiPath: string): string[] => {
     const urls: string[] = [];
     const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
@@ -29,7 +33,7 @@ const installApiFallbackFetch = () => {
     return Array.from(new Set(urls));
   };
 
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const isStringInput = typeof input === 'string';
     const requestUrl = isStringInput
       ? input
@@ -42,7 +46,14 @@ const installApiFallbackFetch = () => {
       return nativeFetch(input, init);
     }
 
-    const firstResponse = await nativeFetch(input, init).catch(() => null);
+    let firstResponse: Response | null = null;
+    try {
+      firstResponse = await nativeFetch(input, init);
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+    }
     const contentType = firstResponse?.headers.get('content-type') || '';
     const looksLikeWrongServerHtml =
       !!firstResponse &&
@@ -56,24 +67,36 @@ const installApiFallbackFetch = () => {
       firstResponse.status === 503 ||
       looksLikeWrongServerHtml;
 
-    if (!shouldTryFallback) {
+    if (!shouldTryFallback && firstResponse) {
       return firstResponse;
     }
 
     const candidates = buildApiCandidates(requestUrl);
+    let fallbackResponse: Response | null = null;
     for (const candidateUrl of candidates) {
       try {
         const response = await nativeFetch(candidateUrl, init);
         if (response.ok) {
           return response;
         }
-      } catch {
+        fallbackResponse = response;
+        const fallbackContentType = response.headers.get('content-type') || '';
+        if (!fallbackContentType.toLowerCase().includes('text/html')) {
+          return response;
+        }
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
         // try next candidate
       }
     }
 
     if (firstResponse) {
       return firstResponse;
+    }
+    if (fallbackResponse) {
+      return fallbackResponse;
     }
 
     throw new Error('ไม่สามารถเชื่อมต่อ API ได้');

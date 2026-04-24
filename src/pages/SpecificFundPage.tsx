@@ -4,6 +4,7 @@ import { DetailModal } from '../components/DetailModal';
 import type { CheckRecord } from '../mockData';
 import businessRules from '../config/business_rules.json';
 import { FUND_DEFINITIONS, type FundDefinition } from '../config/fundDefinitions';
+import { getAnemiaRuleBand, getFundRule } from '../config/fundRuleCatalog';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
 import { fetchAppSettings } from '../services/hosxpService';
@@ -263,21 +264,24 @@ export const SpecificFundPage: React.FC = () => {
         { met: toFlag(item?.anc_lab2_cbc), label: ' CBC' },
         ];
     };
-    const buildStatusResult = (subfunds: string[], missing: string[], invalidMessage?: string, isMatched = missing.length === 0) => {
+    const buildStatusResult = (subfunds: string[], missing: string[], invalidMessage?: string, isMatched = missing.length === 0, matchedConditions: string[] = []) => {
+        const cleanMissing = missing.map((part) => part.trim()).filter(Boolean);
         if (invalidMessage) {
-            return { status: invalidMessage, class: 'badge-danger', icon: '❌', subfunds };
+            return { status: invalidMessage, class: 'badge-danger', icon: '❌', subfunds, matchedConditions, missingConditions: cleanMissing };
         }
         if (isMatched) {
-            return { status: 'สมบูรณ์', class: 'badge-success', icon: '✅', subfunds };
+            return { status: 'สมบูรณ์', class: 'badge-success', icon: '✅', subfunds, matchedConditions, missingConditions: [] as string[] };
         }
-        if (missing.length === 0) {
-            return { status: 'ยังไม่เข้าเงื่อนไข', class: 'badge-secondary', icon: 'ℹ️', subfunds };
+        if (cleanMissing.length === 0) {
+            return { status: 'ยังไม่เข้าเงื่อนไข', class: 'badge-secondary', icon: 'ℹ️', subfunds, matchedConditions, missingConditions: [] as string[] };
         }
         return {
-            status: `ขาด${missing.join(' + ')}`,
-            class: missing.length <= 2 ? 'badge-warning' : 'badge-danger',
-            icon: missing.length <= 2 ? '⚠️' : '❌',
+            status: `ขาด ${cleanMissing.join(' + ')}`,
+            class: cleanMissing.length <= 2 ? 'badge-warning' : 'badge-danger',
+            icon: cleanMissing.length <= 2 ? '⚠️' : '❌',
             subfunds,
+            matchedConditions,
+            missingConditions: cleanMissing,
         };
     };
     const getNearStatusMissing = (
@@ -297,6 +301,7 @@ export const SpecificFundPage: React.FC = () => {
     };
 
     const getAnemiaCriteria = (item: any) => {
+        const bandRule = getAnemiaRuleBand(item);
         const ageMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
         const ageYears = Number(item?.age_y ?? item?.age ?? -1);
         const hasAgeBand13To24Years = ageYears >= 13 && ageYears <= 24;
@@ -310,16 +315,17 @@ export const SpecificFundPage: React.FC = () => {
                 : hasAgeBand3To6Years
                     ? '3-6 ปี'
                     : '');
-        const labLabel = hasAgeBand13To24Years
+        const labLabel = bandRule?.labLabel || (hasAgeBand13To24Years
             ? 'Lab CBC'
             : (hasAgeBand6To12Months || hasAgeBand3To6Years)
                 ? 'Lab Hb/Hct'
-                : 'Lab CBC / Hb/Hct';
-        const ageLabel = bandLabel || '13-24 ปี / 6-12 เดือน / 3-6 ปี';
+                : 'Lab CBC / Hb/Hct');
+        const ageLabel = bandRule?.ageLabel || bandLabel || '13-24 ปี / 6-12 เดือน / 3-6 ปี';
         return {
             ageMonths,
             ageYears,
             ageBand,
+            bandRule,
             bandLabel,
             labLabel,
             ageLabel,
@@ -482,16 +488,17 @@ export const SpecificFundPage: React.FC = () => {
             const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z130']);
             const hasAdp = toFlag(item?.has_anemia_adp) || hasAnyCodeValue(item?.adp_names, ['13001']) || hasAnyCodeValue(item?.anc_adp_codes, ['13001']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
-            const sourceLabel = requiresCbc
-                ? `คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130 ADP 13001`
-                : anemiaCriteria.hasAgeBand6To12Months
-                    ? `คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130 ADP 13001`
-                    : `คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130 ADP 13001`;
+            const bandRule = anemiaCriteria.bandRule;
+            const sourceLabel = bandRule?.shortLabel || 'คัดกรองโลหิตจาง';
             if (isMatched || hasLab || hasDiag || hasAdp) {
-                subfunds.push(item?.anemia_match_source?.startsWith('ADP13001') || hasAdp
-                    ? '🩸 คัดกรองโลหิตจาง (13001)'
-                    : `🧪 ${sourceLabel}`);
+                subfunds.push(`🩸 ${sourceLabel}${hasAdp ? ' (13001)' : ''}`);
             }
+            const matchedConditions = [
+                hasAge ? `อายุ ${anemiaCriteria.ageLabel}` : '',
+                hasLab ? anemiaCriteria.labLabel : '',
+                hasDiag ? 'Diagnosis Z130' : '',
+                hasAdp ? 'ADP 13001' : '',
+            ].filter(Boolean);
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 13001', [
@@ -500,7 +507,8 @@ export const SpecificFundPage: React.FC = () => {
                     { met: hasDiag, label: ' Diagnosis Z130' },
                 ], hasLab || hasDiag),
                 undefined,
-                isMatched
+                isMatched,
+                matchedConditions
             );
         }
 
@@ -776,10 +784,10 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (subfunds.length > 0) {
-            return { status: 'สมบูรณ์', class: 'badge-success', icon: '✅', subfunds };
+            return { status: 'สมบูรณ์', class: 'badge-success', icon: '✅', subfunds, matchedConditions: subfunds, missingConditions: [] as string[] };
         }
 
-        return { status: 'ยังไม่เข้าเงื่อนไข', class: 'badge-warning', icon: '❓', subfunds };
+        return { status: 'ยังไม่เข้าเงื่อนไข', class: 'badge-warning', icon: '❓', subfunds, matchedConditions: [] as string[], missingConditions: [] as string[] };
     };
 
     const getStatus = (item: any) => getStatusForFund(item, activeFund);
@@ -822,6 +830,8 @@ export const SpecificFundPage: React.FC = () => {
                 'วันที่รับบริการ': item.serviceDate || '',
                 'สถานะ': status.status,
                 'บริการ': status.subfunds.join(' | ') || '',
+                'เงื่อนไขที่ตรง': status.matchedConditions?.join(' | ') || '',
+                'เงื่อนไขที่ขาด': status.missingConditions?.join(' | ') || '',
             };
 
             if (fundId === 'palliative') {
@@ -907,6 +917,9 @@ export const SpecificFundPage: React.FC = () => {
     }, [activeFund, filteredData, writeExportFile]);
 
     const activeFundDefinition = funds.find((fund) => fund.id === activeFund);
+    const activeRule = getFundRule(activeFund);
+    const activeConditions = activeRule?.conditions || activeFundDefinition?.conditions || [];
+    const activeCaution = activeRule?.caution || activeFundDefinition?.caution;
 
     return (
         <div className="page-container" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1140,7 +1153,7 @@ export const SpecificFundPage: React.FC = () => {
                             ✓ เงื่อนไขการตรวจสอบ: {activeFundDefinition?.name}
                         </h2>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', fontSize: '12px', marginBottom: '10px' }}>
-                            {(activeFundDefinition?.conditions || []).map((condition, index) => {
+                            {activeConditions.map((condition, index) => {
                                 const cardBg = ['#e3f2fd', '#fff3e0', '#f3e5f5', '#e8f5e9'][index % 4];
                                 const cardBorder = ['#2196f3', '#ff9800', '#9c27b0', '#4caf50'][index % 4];
                                 const cardText = ['#1565c0', '#e65100', '#6a1b9a', '#2e7d32'][index % 4];
@@ -1151,13 +1164,13 @@ export const SpecificFundPage: React.FC = () => {
                                     </div>
                                 );
                             })}
-                            {activeFundDefinition?.caution && (
+                            {activeCaution && (
                                 <div style={{ padding: '12px', background: '#fff7ed', borderRadius: '8px', borderLeft: '3px solid #f97316', gridColumn: '1 / -1' }}>
                                     <div style={{ fontWeight: 700, color: '#ea580c', marginBottom: '4px' }}>⚠️ หมายเหตุสำคัญ</div>
-                                    <div style={{ color: '#9a3412', lineHeight: '1.45' }}>{activeFundDefinition.caution}</div>
+                                    <div style={{ color: '#9a3412', lineHeight: '1.45' }}>{activeCaution}</div>
                                 </div>
                             )}
-                            {!activeFundDefinition?.conditions?.length && (
+                            {!activeConditions.length && (
                                 <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: '1 / -1' }}>
                                     <div style={{ fontWeight: 700, color: '#2196f3' }}>ℹ️ ยังไม่มีเงื่อนไขที่ตั้งไว้</div>
                                 </div>

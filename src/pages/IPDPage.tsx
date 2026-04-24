@@ -2,6 +2,44 @@ import React, { useState, useEffect } from 'react';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import * as XLSX from 'xlsx';
 
+const readResponseError = async (response: Response) => {
+    const contentType = response.headers.get('content-type') || '';
+    const rawText = await response.text().catch(() => '');
+
+    if (contentType.toLowerCase().includes('application/json')) {
+        try {
+            const parsed = JSON.parse(rawText);
+            const message = parsed?.error || parsed?.message || rawText;
+            return message ? String(message) : `HTTP ${response.status}`;
+        } catch {
+            // fall through to raw text
+        }
+    }
+
+    const snippet = rawText.trim().slice(0, 240);
+    return snippet ? `HTTP ${response.status}: ${snippet}` : `HTTP ${response.status}`;
+};
+
+const fetchJsonOrThrow = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await fetch(input, init);
+
+    if (!response.ok) {
+        throw new Error(await readResponseError(response));
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.toLowerCase().includes('application/json')) {
+        return response.json();
+    }
+
+    const text = await response.text();
+    try {
+        return JSON.parse(text);
+    } catch {
+        throw new Error(text.trim() ? text.trim().slice(0, 240) : 'Response is not JSON');
+    }
+};
+
 // Skeleton row used while loading
 const SkeletonRows: React.FC<{ cols: number; rows?: number }> = ({ cols, rows = 3 }) => (
     <>
@@ -58,8 +96,7 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
         setLoading(true);
         setLoadError(null);
 
-        fetch(`/api/hosxp/ipd-chart?an=${an}`, { signal: controller.signal })
-            .then(r => r.json())
+        fetchJsonOrThrow(`/api/hosxp/ipd-chart?an=${encodeURIComponent(an)}`, { signal: controller.signal })
             .then(res => {
                 if (res.success) {
                     setData(res.data);
@@ -69,7 +106,7 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
             })
             .catch(err => {
                 if (err.name !== 'AbortError') {
-                    setLoadError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง');
+                    setLoadError(err?.message || 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง');
                 }
             })
             .finally(() => {
@@ -120,7 +157,17 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                         <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
                         <div style={{ color: 'var(--danger)', fontWeight: 600, marginBottom: 8 }}>เกิดข้อผิดพลาดในการดึงข้อมูล</div>
                         <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>{loadError}</div>
-                        <button className="btn btn-primary" onClick={() => { setLoading(true); setLoadError(null); fetch(`/api/hosxp/ipd-chart?an=${an}`).then(r => r.json()).then(res => { if (res.success) setData(res.data); else setLoadError(res.error || 'error'); }).catch(() => setLoadError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้')).finally(() => setLoading(false)); }}>
+                        <button className="btn btn-primary" onClick={() => {
+                            setLoading(true);
+                            setLoadError(null);
+                            fetchJsonOrThrow(`/api/hosxp/ipd-chart?an=${encodeURIComponent(an)}`)
+                                .then(res => {
+                                    if (res.success) setData(res.data);
+                                    else setLoadError(res.error || 'error');
+                                })
+                                .catch((err) => setLoadError(err?.message || 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้'))
+                                .finally(() => setLoading(false));
+                        }}>
                             🔄 ลองใหม่อีกครั้ง
                         </button>
                     </div>
@@ -128,6 +175,17 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                     <div className="alert alert-danger">ไม่พบข้อมูลชาร์ต หรือเกิดข้อผิดพลาดในการดึงข้อมูล</div>
                 ) : (
                     <div>
+                        {Array.isArray(data.warnings) && data.warnings.length > 0 && (
+                            <div className="alert alert-warning" style={{ marginBottom: 16 }}>
+                                <div style={{ fontWeight: 700, marginBottom: 6 }}>ดึงข้อมูลได้บางส่วน</div>
+                                <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                                    {data.warnings.map((warning: string, index: number) => (
+                                        <div key={`${warning}-${index}`}>{warning}</div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24, background: 'linear-gradient(to right, rgba(37, 99, 235, 0.05), rgba(37, 99, 235, 0.02))', padding: '16px 20px', borderRadius: 8, border: '1px solid rgba(37, 99, 235, 0.1)' }}>
                             <div>
                                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>ชื่อผู้ป่วย (Patient Name)</div>
@@ -147,7 +205,7 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                             <span style={{ display: 'inline-block', width: 4, height: 16, background: 'var(--danger)', borderRadius: 2 }}></span>
                             การวินิจฉัยโรค (Diagnosis ICD-10)
                         </h3>
-                        <table className="data-table" style={{ marginBottom: 28, fontSize: 13 }}>
+                        <table className="data-table detail-modal-table detail-modal-table--diagnoses" style={{ marginBottom: 28, fontSize: 13 }}>
                             <thead>
                                 <tr style={{ background: 'var(--surface-2)' }}>
                                     <th style={{ width: 100, textAlign: 'center' }}>ประเภท</th>
@@ -174,7 +232,7 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                             <span style={{ display: 'inline-block', width: 4, height: 16, background: 'var(--success)', borderRadius: 2 }}></span>
                             หัตถการและผ่าตัด (Procedure ICD-9)
                         </h3>
-                        <table className="data-table" style={{ marginBottom: 28, fontSize: 13 }}>
+                        <table className="data-table detail-modal-table detail-modal-table--procedures" style={{ marginBottom: 28, fontSize: 13 }}>
                             <thead>
                                 <tr style={{ background: 'var(--surface-2)' }}>
                                     <th style={{ width: 120 }}>รหัส ICD-9</th>
@@ -195,7 +253,7 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                             <span style={{ display: 'inline-block', width: 4, height: 16, background: 'var(--warning)', borderRadius: 2 }}></span>
                             ผลการตรวจทางห้องปฏิบัติการ (Lab Results ล่าสุด)
                         </h3>
-                        <table className="data-table" style={{ marginBottom: 28, fontSize: 13 }}>
+                        <table className="data-table detail-modal-table detail-modal-table--labs" style={{ marginBottom: 28, fontSize: 13 }}>
                             <thead>
                                 <tr style={{ background: 'var(--surface-2)' }}>
                                     <th style={{ width: 150 }}>วันที่-เวลา</th>
@@ -208,8 +266,8 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                                 {data.labs?.length ? data.labs.map((l: any, i: number) => {
                                     return (
                                         <tr key={i}>
-                                            <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{new Date(l.order_date).toLocaleString('th-TH')}</td>
-                                            <td style={{ fontWeight: 600 }}>{l.lab_items_name || '-'}</td>
+                                            <td className="detail-modal-date-cell">{new Date(l.order_date).toLocaleString('th-TH')}</td>
+                                            <td className="detail-modal-primary-cell">{l.lab_items_name || '-'}</td>
                                             <td style={{ textAlign: 'center', fontWeight: 'bold', color: 'var(--primary)' }}>{l.lab_order_result || '-'}</td>
                                             <td style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{l.lab_items_normal_value || '-'}</td>
                                         </tr>
@@ -222,7 +280,7 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                             <span style={{ display: 'inline-block', width: 4, height: 16, background: 'var(--primary)', borderRadius: 2 }}></span>
                             รายการยาราคาแพง 10 อันดับแรก (Top High-Cost Drugs)
                         </h3>
-                        <table className="data-table" style={{ marginBottom: 28, fontSize: 13 }}>
+                        <table className="data-table detail-modal-table detail-modal-table--drugs" style={{ marginBottom: 28, fontSize: 13 }}>
                             <thead>
                                 <tr style={{ background: 'var(--surface-2)' }}>
                                     <th>ชื่อยา (Drug Name)</th>
@@ -245,7 +303,7 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                             <span style={{ display: 'inline-block', width: 4, height: 16, background: 'var(--teal)', borderRadius: 2 }}></span>
                             สรุปค่าใช้จ่ายตามหมวดหมู่ (Cost Summary)
                         </h3>
-                        <table className="data-table" style={{ fontSize: 13 }}>
+                        <table className="data-table detail-modal-table detail-modal-table--costs" style={{ fontSize: 13 }}>
                             <thead>
                                 <tr style={{ background: 'var(--surface-2)' }}>
                                     <th>หมวดหมู่ค่าใช้จ่าย (Income Group)</th>
@@ -305,15 +363,14 @@ export const IPDPage: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const response = await fetch(`/api/hosxp/ipd-list?startDate=${startDate}&endDate=${endDate}&statusFilter=${statusFilter}`);
-            const result = await response.json();
+            const result = await fetchJsonOrThrow(`/api/hosxp/ipd-list?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&statusFilter=${encodeURIComponent(statusFilter)}`);
             if (result.success) {
                 setData(result.data);
             } else {
                 setError(result.error || 'Failed to fetch IPD data');
             }
         } catch (err) {
-            setError('Error connecting to server');
+            setError(err instanceof Error ? err.message : 'Error connecting to server');
         } finally {
             setLoading(false);
         }
@@ -322,7 +379,7 @@ export const IPDPage: React.FC = () => {
     useEffect(() => {
         fetchIPDData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [statusFilter]); // Re-fetch on status change automatically if desired, or just on mount
+    }, [statusFilter, startDate, endDate]);
 
     const exportToCSV = () => {
         if (!data || data.length === 0) {
@@ -365,7 +422,7 @@ export const IPDPage: React.FC = () => {
     };
 
     const exportToExcel = () => {
-        if (!data || data.length === 0) {
+        if (!filteredData || filteredData.length === 0) {
             alert('ไม่พบข้อมูลสำหรับส่งออก');
             return;
         }

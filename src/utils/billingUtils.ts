@@ -199,7 +199,7 @@ export const evaluateBillingLogic = (item: any) => {
         const hasFpgAge = toBool(item?.fpg_age_eligible);
         const hasFpgAdp = toBool(item?.has_fpg_adp);
         const hasFpgLab = toBool(item?.has_fpg_lab);
-        const hasFpgDiag = toBool(item?.has_fpg_diag);
+        const hasFpgDiag = toBool(item?.has_fpg_diag) || hasDiagCode(item, ['Z131', 'Z133', 'Z136']);
         const fpgNearMissing = getNearFundMissingParts(hasFpgAdp, ' ADP 12003', [
             { met: hasFpgAge, label: ' อายุ 35-59 ปี' },
             { met: hasFpgLab, label: ' Lab FPG' },
@@ -214,7 +214,7 @@ export const evaluateBillingLogic = (item: any) => {
         const hasCholAge = toBool(item?.chol_age_eligible);
         const hasCholAdp = toBool(item?.has_chol_adp);
         const hasCholLab = toBool(item?.has_chol_lab);
-        const hasCholDiag = toBool(item?.has_chol_diag);
+        const hasCholDiag = toBool(item?.has_chol_diag) || hasDiagCode(item, ['Z136']);
         const cholNearMissing = getNearFundMissingParts(hasCholAdp, ' ADP 12004', [
             { met: hasCholAge, label: ' อายุ 45-59 ปี' },
             { met: hasCholLab, label: ' Lab Cholesterol/HDL' },
@@ -226,7 +226,12 @@ export const evaluateBillingLogic = (item: any) => {
             addWarningFundNote(fundNotes, 'คัดกรองไขมัน', cholNearMissing);
         }
 
-        const hasAnemiaAge = toBool(item?.anemia_age_eligible);
+        const anemiaAgeYears = Number(item?.age_y ?? item?.age ?? -1);
+        const anemiaAgeMonths = Number(item?.age_month ?? item?.ageMonths ?? item?.age_months ?? -1);
+        const hasAnemiaAge = toBool(item?.anemia_age_eligible)
+            || (anemiaAgeYears >= 13 && anemiaAgeYears <= 24)
+            || (anemiaAgeMonths >= 6 && anemiaAgeMonths <= 12)
+            || (anemiaAgeYears >= 3 && anemiaAgeYears <= 6);
         const anemiaAgeBand = getAnemiaAgeBandLabel(item);
         const anemiaLabRequirement = getAnemiaLabRequirement(item);
         const hasAnemiaAdp = toBool(item?.has_anemia_adp);
@@ -237,7 +242,7 @@ export const evaluateBillingLogic = (item: any) => {
             : anemiaLabRequirement.kind === 'hbhct'
                 ? hasAnemiaHbHct
                 : toBool(item?.has_anemia_lab);
-        const hasAnemiaDiag = toBool(item?.has_anemia_diag);
+        const hasAnemiaDiag = toBool(item?.has_anemia_diag) || hasDiagCode(item, ['Z130']);
         const anemiaNearMissing = getNearFundMissingParts(hasAnemiaAdp, ' ADP 13001', [
             { met: hasAnemiaAge, label: ` อายุ ${anemiaAgeBand || '13-24 ปี / 6-12 เดือน / 3-6 ปี'}` },
             { met: hasAnemiaLab, label: ` ${anemiaLabRequirement.label}` },
@@ -256,7 +261,7 @@ export const evaluateBillingLogic = (item: any) => {
 
         const hasIronAge = toBool(item?.iron_age_eligible);
         const hasIronAdp = toBool(item?.has_iron_adp);
-        const hasIronDiag = toBool(item?.has_iron_diag);
+        const hasIronDiag = toBool(item?.has_iron_diag) || hasDiagCode(item, ['Z130']);
         const hasIronMed = toBool(item?.has_iron_med) || toBool(item?.has_iron);
         const ironNearMissing = getNearFundMissingParts(hasIronAdp, ' ADP 14001', [
             { met: hasIronAge, label: ' หญิงอายุ 13-45 ปี' },

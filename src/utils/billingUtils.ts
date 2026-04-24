@@ -302,7 +302,7 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasIronAge, label: ' หญิงอายุ 13-45 ปี' },
             { met: hasIronDiag, label: ' DX Z130' },
             { met: hasIronMed, label: ' ยาเสริมธาตุเหล็ก' },
-        ], hasIronMed || hasIronDiag);
+        ], hasIronAge && (hasIronMed || hasIronDiag));
         if (hasIronAge && hasIronAdp && hasIronDiag && hasIronMed) {
             fundNotes.push({ label: '💊 เสริมธาตุเหล็ก', kind: 'matched', group: 'drug' });
         } else {

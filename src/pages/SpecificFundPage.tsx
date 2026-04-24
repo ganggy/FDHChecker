@@ -525,14 +525,15 @@ export const SpecificFundPage: React.FC = () => {
             const hasAdp = toFlag(item?.has_iron_adp) || hasAnyCodeValue(item?.adp_names, ['14001']) || hasAnyCodeValue(item?.anc_adp_codes, ['14001']);
             const hasIronMed = toFlag(item?.has_iron_med);
             const isMatched = hasAge && hasDiag && hasAdp && hasIronMed;
-            if (hasIronMed || hasDiag || hasAdp) subfunds.push('💊 เสริมธาตุเหล็ก');
+            const ironServiceEvidence = hasAge && (hasIronMed || hasDiag || hasAdp);
+            if (isMatched || ironServiceEvidence) subfunds.push('💊 เสริมธาตุเหล็ก');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 14001', [
                     { met: hasAge, label: ' หญิงอายุ 13-45 ปี' },
                     { met: hasDiag, label: ' Diagnosis Z130' },
                     { met: hasIronMed, label: ' ยาเสริมธาตุเหล็ก' },
-                ], hasIronMed || hasDiag),
+                ], hasAge && (hasIronMed || hasDiag)),
                 undefined,
                 isMatched
             );

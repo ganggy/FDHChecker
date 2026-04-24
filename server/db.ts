@@ -3894,11 +3894,9 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
                 OR TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12
                 OR v.age_y BETWEEN 3 AND 6
               )
-              AND ${buildDiagnosisMatchSql('o', 'v', ANEMIA_DX_CODES)}
               AND (
-                (v.age_y BETWEEN 13 AND 24 AND ${buildAnemiaCbcExistsSql('o')})
-                OR (TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 AND ${buildAnemiaHbHctExistsSql('o')})
-                OR (v.age_y BETWEEN 3 AND 6 AND ${buildAnemiaHbHctExistsSql('o')})
+                ${buildDiagnosisMatchSql('o', 'v', ANEMIA_DX_CODES)}
+                OR ${buildAnemiaLabExistsSql('o')}
               )
             )
           )

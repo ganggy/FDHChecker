@@ -625,7 +625,7 @@ export const SpecificFundPage: React.FC = () => {
         if (fundId === 'anc_dental_exam') {
             const hasExam = toFlag(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
             const hasDentalDiagK = hasDiagPrefix(item, 'K');
-            const ancDentalExamEvidence = hasExam || hasAncDiag || hasDentalDiagK;
+            const ancDentalExamEvidence = isFemale && (hasExam || hasAncDiag || hasDentalDiagK);
             const isMatched = isFemale && hasAncDiag && hasDentalDiagK && hasExam;
             if (ancDentalExamEvidence) subfunds.push('🦷 ANC ตรวจฟัน');
             return buildStatusResult(
@@ -635,7 +635,7 @@ export const SpecificFundPage: React.FC = () => {
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
                     { met: hasDentalDiagK, label: ' Diagnosis K*' },
                 ], isFemale && hasAncDiag && hasDentalDiagK),
-                ancDentalExamEvidence && !isFemale ? 'เพศชาย ไม่สามารถรับบริการ ANC ตรวจฟัน' : undefined,
+                undefined,
                 isMatched
             );
         }
@@ -643,7 +643,7 @@ export const SpecificFundPage: React.FC = () => {
         if (fundId === 'anc_dental_clean') {
             const hasClean = toFlag(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
             const hasDentalDiagK = hasDiagPrefix(item, 'K');
-            const ancDentalCleanEvidence = hasClean || hasAncDiag || hasDentalDiagK;
+            const ancDentalCleanEvidence = isFemale && (hasClean || hasAncDiag || hasDentalDiagK);
             const isMatched = isFemale && hasAncDiag && hasDentalDiagK && hasClean;
             if (ancDentalCleanEvidence) subfunds.push('🪥 ANC ขัดทำความสะอาดฟัน');
             return buildStatusResult(
@@ -653,7 +653,7 @@ export const SpecificFundPage: React.FC = () => {
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
                     { met: hasDentalDiagK, label: ' Diagnosis K*' },
                 ], isFemale && hasAncDiag && hasDentalDiagK),
-                ancDentalCleanEvidence && !isFemale ? 'เพศชาย ไม่สามารถรับบริการ ANC ขัดทำความสะอาดฟัน' : undefined,
+                undefined,
                 isMatched
             );
         }
@@ -675,14 +675,16 @@ export const SpecificFundPage: React.FC = () => {
         if (fundId === 'postnatal_supplements') {
             const hasPpSupp = toFlag(item?.has_post_supp) || hasAnyCodeValue(item?.pp_adp_codes, ['30016']);
             const hasPostIronMed = toFlag(item?.has_post_iron_med);
-            const isMatched = hasPostpartumSpecificDiag && hasPpSupp && hasPostIronMed;
-            if (hasPostpartumSpecificDiag || hasPpSupp || hasPostIronMed) subfunds.push('💊 เสริมธาตุเหล็กหลังคลอด');
+            const postpartumSuppEvidence = isFemale && (hasPostpartumSpecificDiag || hasPpSupp);
+            const isMatched = isFemale && hasPostpartumSpecificDiag && hasPpSupp && hasPostIronMed;
+            if (postpartumSuppEvidence) subfunds.push('💊 เสริมธาตุเหล็กหลังคลอด');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasPpSupp, ' ADP 30016', [
+                    { met: isFemale, label: ' เพศหญิง' },
                     { met: hasPostpartumSpecificDiag, label: ' Diagnosis Z391/Z392' },
                     { met: hasPostIronMed, label: ' ยาเสริมธาตุเหล็ก' },
-                ], hasPostpartumSpecificDiag || hasPostIronMed),
+                ], isFemale && (hasPostpartumSpecificDiag || hasPpSupp)),
                 undefined,
                 isMatched
             );

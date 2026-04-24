@@ -376,11 +376,9 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
             { met: hasDentalDiagK, label: ' Diagnosis K*' },
         ], isFemale && hasAncDiag && hasDentalDiagK);
-        if ((hasAncDentalExamAdp || hasAncDiag || hasDentalDiagK) && !isFemale) {
-            fundNotes.push({ label: '⚠️ ANC ตรวจฟัน: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
-        } else if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasDentalDiagK) {
+        if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasDentalDiagK) {
             fundNotes.push({ label: '🦷 ANC ตรวจฟัน', kind: 'matched', group: 'other' });
-        } else if (ancDentalExamNearMissing.length > 0) {
+        } else if (isFemale && (hasAncDentalExamAdp || hasAncDiag || hasDentalDiagK) && ancDentalExamNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ตรวจฟัน', ancDentalExamNearMissing);
         }
         const hasAncDentalCleanAdp = toBool(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
@@ -389,11 +387,9 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
             { met: hasDentalDiagK, label: ' Diagnosis K*' },
         ], isFemale && hasAncDiag && hasDentalDiagK);
-        if ((hasAncDentalCleanAdp || hasAncDiag || hasDentalDiagK) && !isFemale) {
-            fundNotes.push({ label: '⚠️ ANC ขัดทำความสะอาดฟัน: เพศชาย ไม่สามารถรับบริการ', kind: 'warning', group: 'other' });
-        } else if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasDentalDiagK) {
+        if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasDentalDiagK) {
             fundNotes.push({ label: '🪥 ANC ขัดทำความสะอาดฟัน', kind: 'matched', group: 'other' });
-        } else if (ancDentalCleanNearMissing.length > 0) {
+        } else if (isFemale && (hasAncDentalCleanAdp || hasAncDiag || hasDentalDiagK) && ancDentalCleanNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ขัดทำความสะอาดฟัน', ancDentalCleanNearMissing);
         }
 
@@ -402,21 +398,23 @@ export const evaluateBillingLogic = (item: any) => {
         const hasPostIronMed = toBool(item?.has_post_iron_med);
         const hasPostCareAdp = toBool(item?.has_post_care) || hasAnyCodeValue(item?.pp_adp_codes, ['30015']);
         const postCareNearMissing = getNearFundMissingParts(hasPostCareAdp, ' ADP 30015', [
+            { met: isFemale, label: ' เพศหญิง' },
             { met: hasPpDiag, label: ' Diagnosis Z390/Z391/Z392' },
-        ], hasPpDiag);
-        if (hasPostCareAdp && hasPpDiag) {
+        ], isFemale && hasPpDiag);
+        if (isFemale && hasPostCareAdp && hasPpDiag) {
             fundNotes.push({ label: '🤱 ตรวจหลังคลอด', kind: 'matched', group: 'other' });
-        } else if (postCareNearMissing.length > 0) {
+        } else if (isFemale && (hasPpDiag || hasPostCareAdp) && postCareNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ตรวจหลังคลอด', postCareNearMissing);
         }
         const hasPostSuppAdp = toBool(item?.has_post_supp) || hasAnyCodeValue(item?.pp_adp_codes, ['30016']);
         const postSuppNearMissing = getNearFundMissingParts(hasPostSuppAdp, ' ADP 30016', [
+            { met: isFemale, label: ' เพศหญิง' },
             { met: hasPpSpecificDiag, label: ' Diagnosis Z391/Z392' },
             { met: hasPostIronMed, label: ' ยาเสริมธาตุเหล็ก' },
-        ], hasPpSpecificDiag || hasPostIronMed);
-        if (hasPostSuppAdp && hasPpSpecificDiag && hasPostIronMed) {
+        ], isFemale && (hasPpSpecificDiag || hasPostSuppAdp));
+        if (isFemale && hasPostSuppAdp && hasPpSpecificDiag && hasPostIronMed) {
             fundNotes.push({ label: '💊 เสริมธาตุเหล็กหลังคลอด', kind: 'matched', group: 'drug' });
-        } else if (postSuppNearMissing.length > 0) {
+        } else if (isFemale && (hasPpSpecificDiag || hasPostSuppAdp) && postSuppNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'เสริมธาตุเหล็กหลังคลอด', postSuppNearMissing, 'drug');
         }
 

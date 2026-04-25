@@ -4000,12 +4000,10 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
+          AND TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 2 AND 144
           AND (
             ${buildFerrokidMedExistsSql('o')}
-            OR (
-              TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 2 AND 144
-              AND ${buildDiagnosisMatchSql('o', 'v', IRON_DX_CODES)}
-            )
+            OR ${buildDiagnosisMatchSql('o', 'v', IRON_DX_CODES)}
           )
         GROUP BY o.vn
         ORDER BY o.vstdate DESC

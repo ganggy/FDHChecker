@@ -53,6 +53,13 @@ const FDH_API_SETTINGS_KEY = 'fdh_api_settings';
 const NHSO_AUTHEN_SETTINGS_KEY = 'nhso_authen_settings';
 const NHSO_CLOSE_SETTINGS_KEY = 'nhso_close_settings';
 
+const isTruthyFlag = (value: unknown) => (
+  value === true ||
+  value === 1 ||
+  value === '1' ||
+  String(value ?? '').trim().toUpperCase() === 'Y'
+);
+
 const readJsonConfigFile = async (filePath: string) => {
   const data = await fs.readFile(filePath, 'utf8');
   return JSON.parse(data);
@@ -394,6 +401,10 @@ app.get('/api/hosxp/checks', async (req, res) => {
       const fundName = String(rec.fund || '');
 
       const dialysisRegex = new RegExp(businessRules.diagnosis_patterns.dialysis_regex);
+      const hasFerrokidSignal = isTruthyFlag(rec.has_ferrokid) || (
+        isTruthyFlag(rec.ferrokid_age_eligible) &&
+        (isTruthyFlag(rec.has_ferrokid_med) || isTruthyFlag(rec.has_ferrokid_diag))
+      );
 
       const isSpecialFund = !isIPD && (
         rec.has_anc_diag || rec.has_anc_adp ||
@@ -405,7 +416,7 @@ app.get('/api/hosxp/checks', async (req, res) => {
         rec.has_herb || rec.has_telmed || rec.has_drugp ||
         rec.has_instrument || rec.has_knee_oper ||
         rec.has_fpg || rec.has_chol || rec.has_anemia || rec.has_iron ||
-        rec.has_ferrokid || rec.has_ferrokid_med || rec.has_ferrokid_diag || rec.ferrokid_age_eligible ||
+        hasFerrokidSignal ||
         rec.fpg_age_eligible || rec.has_fpg_adp || rec.has_fpg_lab || rec.has_fpg_diag ||
         rec.chol_age_eligible || rec.has_chol_adp || rec.has_chol_lab || rec.has_chol_diag ||
         rec.anemia_age_eligible || rec.has_anemia_adp || rec.has_anemia_lab || rec.has_anemia_diag ||
@@ -914,6 +925,10 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       }
 
       // เช็คว่าเข้าเกณฑ์กองทุนพิเศษแต่ข้อมูลยังไม่ครบหรือไม่
+      const hasFerrokidSignal = isTruthyFlag(item.has_ferrokid) || (
+        isTruthyFlag(item.ferrokid_age_eligible) &&
+        (isTruthyFlag(item.has_ferrokid_med) || isTruthyFlag(item.has_ferrokid_diag))
+      );
       const isSpecialFund = !item.an && (
         item.has_anc_diag || item.has_anc_adp ||
         item.has_cx_diag || item.has_cx_adp ||
@@ -924,7 +939,7 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         item.has_herb || item.has_telmed || item.has_drugp ||
         item.has_instrument || item.has_knee_oper ||
         item.has_fpg || item.has_chol || item.has_anemia || item.has_iron ||
-        item.has_ferrokid || item.has_ferrokid_med || item.has_ferrokid_diag || item.ferrokid_age_eligible ||
+        hasFerrokidSignal ||
         item.fpg_age_eligible || item.has_fpg_adp || item.has_fpg_lab || item.has_fpg_diag ||
         item.chol_age_eligible || item.has_chol_adp || item.has_chol_lab || item.has_chol_diag ||
         item.anemia_age_eligible || item.has_anemia_adp || item.has_anemia_lab || item.has_anemia_diag ||

@@ -25,6 +25,10 @@ import {
   getRepstmImportBatches,
   getRepstmImportedRows,
   getRepDataRows,
+  getReceivableCandidates,
+  getReceivableBatches,
+  getReceivableFilterOptions,
+  saveReceivableBatch,
   syncNhsoAuthenCodes,
   getAuthenSyncLogs,
   ensureNhsoClosePrivilegeTable,
@@ -1819,6 +1823,57 @@ app.get('/api/repstm/:dataType', async (req, res) => {
   } catch (error) {
     console.error('Error fetching REP/STM/INV rows:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านข้อมูล REP/STM/INV' });
+  }
+});
+
+app.get('/api/receivables/candidates', async (req, res) => {
+  try {
+    const data = await getReceivableCandidates({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      patientRight: req.query.patientRight ? String(req.query.patientRight) : undefined,
+      hosxpRight: req.query.hosxpRight ? String(req.query.hosxpRight) : undefined,
+      financeRight: req.query.financeRight ? String(req.query.financeRight) : undefined,
+    });
+    res.json({ success: true, data, totalRecords: data.length });
+  } catch (error) {
+    console.error('Error fetching receivable candidates:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านข้อมูลตั้งลูกหนี้สิทธิ์' });
+  }
+});
+
+app.get('/api/receivables/filter-options', async (_req, res) => {
+  try {
+    const data = await getReceivableFilterOptions();
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching receivable filter options:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านตัวเลือกสิทธิ์บัญชีลูกหนี้' });
+  }
+});
+
+app.get('/api/receivables/batches', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 50);
+    const data = await getReceivableBatches(limit);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching receivable batches:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัติบัญชีลูกหนี้' });
+  }
+});
+
+app.post('/api/receivables/batches', async (req, res) => {
+  try {
+    const result = await saveReceivableBatch(req.body || {});
+    if (!result.success) {
+      return res.status(500).json(result);
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('Error saving receivable batch:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการบันทึกชุดบัญชีลูกหนี้' });
   }
 });
 

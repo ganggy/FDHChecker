@@ -6,6 +6,7 @@ import { FDHCheckerPage } from './pages/FDHCheckerPage';
 import { FDHImportStatusPage } from './pages/FDHImportStatusPage';
 import { NhsoClosePage } from './pages/NhsoClosePage';
 import { RepStmImportPage } from './pages/RepStmImportPage';
+import { ReceivablePage } from './pages/ReceivablePage';
 import { RepDenyPage } from './pages/RepDenyPage';
 import { SpecificFundPage } from './pages/SpecificFundPage';
 import { SpecialMonitorPage } from './pages/SpecialMonitorPage';
@@ -27,6 +28,7 @@ function App() {
   const toolNavItems: Array<{ page: AppPage; icon: string; label: string; soft?: boolean }> = [
     { page: 'fdhImport', icon: '📥', label: 'นำเข้าสถานะ FDH' },
     { page: 'repstm', icon: '🧾', label: 'นำเข้า REP/STM' },
+    { page: 'receivable', icon: '💼', label: 'บัญชีลูกหนี้' },
     { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
     { page: 'admin', icon: '📊', label: 'แดชบอร์ดสรุป' },
     { page: 'specific', icon: '🎯', label: 'รายกองทุน (พิเศษ)' },
@@ -129,6 +131,7 @@ function App() {
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
         {currentPage === 'nhsoClose' && <NhsoClosePage />}
         {currentPage === 'repstm' && <RepStmImportPage />}
+        {currentPage === 'receivable' && <ReceivablePage />}
         {currentPage === 'repDeny' && <RepDenyPage />}
         {currentPage === 'admin' && <AdminDashboard />}
         {currentPage === 'specific' && <SpecificFundPage />}

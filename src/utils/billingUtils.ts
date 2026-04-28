@@ -206,7 +206,7 @@ export const evaluateBillingLogic = (item: any) => {
         const palliativeAdp = toBool(item?.has_pal_adp) || toBool(item?.has_30001) || toBool(item?.has_cons01) || toBool(item?.has_eva001);
         const palliativeMatch = palliativeDiag && palliativeAdp;
 
-        if (toBool(item?.has_telmed) || item?.ovstist_export_code === rules.project_codes?.ovstist_tele) {
+        if (toBool(item?.has_telmed) || String(item?.ovstist_export_code ?? '').trim() === String(rules.project_codes?.ovstist_tele ?? '5').trim()) {
             fundNotes.push({ label: '📱 Telemedicine', kind: 'matched', group: 'other' });
         }
         if (toBool(item?.has_drugp)) {

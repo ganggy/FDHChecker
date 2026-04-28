@@ -25,6 +25,11 @@ interface Config {
         hospital_name?: string;
         hospital_code?: string;
         specific_fund_visibility?: Record<string, boolean>;
+        receivable_signers?: {
+            director?: { name?: string; position?: string };
+            insurance_head?: { name?: string; position?: string };
+            finance?: { name?: string; position?: string };
+        };
         lab_costs?: {
             default?: {
                 enabled?: boolean;
@@ -304,6 +309,8 @@ export const SettingsPage: React.FC = () => {
     };
     const specificFundVisibility = (mergedSiteSettings?.specific_fund_visibility || {}) as Record<string, boolean>;
     const visibleSpecificFundCount = fundDefinitions.filter((fund) => specificFundVisibility[fund.id] !== false).length;
+    const receivableSigners = (mergedSiteSettings?.receivable_signers || {}) as Record<string, { name?: string; position?: string }>;
+    const signerValue = (role: string, field: 'name' | 'position', fallback = '') => receivableSigners[role]?.[field] || fallback;
 
     if (loading) return <div className="loading-state">กำลังโหลดข้อมูลการตั้งค่า...</div>;
 
@@ -589,6 +596,67 @@ export const SettingsPage: React.FC = () => {
                                     value={mergedCostSettings.epo_real_base}
                                     onChange={(e) => setSiteSetting(['lab_costs', 'service_cost_overrides', 'epo_real_base'], Number(e.target.value) || 0)}
                                 />
+                            </div>
+                        </div>
+                        <div className="settings-card" style={{ marginTop: 20, padding: 20, background: 'rgba(16, 185, 129, 0.06)' }}>
+                            <div style={{ marginBottom: 14 }}>
+                                <h4 style={{ margin: 0 }}>✍️ ผู้ลงนามเอกสารบัญชีลูกหนี้</h4>
+                                <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                                    ใช้สำหรับพิมพ์รายงานหลักฐานการเงินจากหน้า <strong>บัญชีลูกหนี้สิทธิ์</strong>
+                                </p>
+                            </div>
+                            <div className="settings-grid">
+                                <div className="form-group">
+                                    <label>ชื่อ ผอ.</label>
+                                    <input
+                                        type="text"
+                                        value={signerValue('director', 'name')}
+                                        onChange={(e) => setSiteSetting(['receivable_signers', 'director', 'name'], e.target.value)}
+                                        placeholder="ชื่อผู้ลงนาม"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>ตำแหน่ง ผอ.</label>
+                                    <input
+                                        type="text"
+                                        value={signerValue('director', 'position', 'ผู้อำนวยการโรงพยาบาล')}
+                                        onChange={(e) => setSiteSetting(['receivable_signers', 'director', 'position'], e.target.value)}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>ชื่อหัวหน้างานประกัน</label>
+                                    <input
+                                        type="text"
+                                        value={signerValue('insurance_head', 'name')}
+                                        onChange={(e) => setSiteSetting(['receivable_signers', 'insurance_head', 'name'], e.target.value)}
+                                        placeholder="ชื่อผู้ลงนาม"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>ตำแหน่งหัวหน้างานประกัน</label>
+                                    <input
+                                        type="text"
+                                        value={signerValue('insurance_head', 'position', 'หัวหน้างานประกันสุขภาพ')}
+                                        onChange={(e) => setSiteSetting(['receivable_signers', 'insurance_head', 'position'], e.target.value)}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>ชื่อการเงิน</label>
+                                    <input
+                                        type="text"
+                                        value={signerValue('finance', 'name')}
+                                        onChange={(e) => setSiteSetting(['receivable_signers', 'finance', 'name'], e.target.value)}
+                                        placeholder="ชื่อผู้ลงนาม"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>ตำแหน่งการเงิน</label>
+                                    <input
+                                        type="text"
+                                        value={signerValue('finance', 'position', 'เจ้าหน้าที่การเงิน')}
+                                        onChange={(e) => setSiteSetting(['receivable_signers', 'finance', 'position'], e.target.value)}
+                                    />
+                                </div>
                             </div>
                         </div>
                         <div className="settings-card" style={{ marginTop: 20, padding: 20, background: 'rgba(59, 130, 246, 0.04)' }}>

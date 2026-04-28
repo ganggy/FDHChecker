@@ -1,4 +1,4 @@
-export type AppPage = 'staff' | 'ipd' | 'admin' | 'fdh' | 'fdhImport' | 'nhsoClose' | 'repstm' | 'repDeny' | 'specific' | 'monitor' | 'guide' | 'settings';
+export type AppPage = 'staff' | 'ipd' | 'admin' | 'fdh' | 'fdhImport' | 'nhsoClose' | 'repstm' | 'receivable' | 'repDeny' | 'specific' | 'monitor' | 'guide' | 'settings';
 
 export interface DashboardNavigationPayload {
   source?: 'dashboard';

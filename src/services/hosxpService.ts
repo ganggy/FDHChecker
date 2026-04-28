@@ -349,6 +349,124 @@ export const fetchRepstmBatches = async (dataType?: 'REP' | 'STM' | 'INV', limit
   return json.data || [];
 };
 
+export interface ReceivableCandidate {
+  patient_type: 'OPD' | 'IPD' | string;
+  vn?: string | null;
+  an?: string | null;
+  hn?: string | null;
+  cid?: string | null;
+  patient_name?: string | null;
+  pttype?: string | null;
+  pttype_name?: string | null;
+  hipdata_code?: string | null;
+  service_date?: string | null;
+  total_income?: number | string | null;
+  claimable_amount?: number | string | null;
+  item_count?: number | string | null;
+  claim_summary?: string | null;
+  hosxp_right_code?: string | null;
+  hosxp_right_name?: string | null;
+  finance_right_code?: string | null;
+  finance_right_name?: string | null;
+  debtor_code?: string | null;
+  revenue_code?: string | null;
+  payment_type_code?: string | null;
+  payment_type_name?: string | null;
+  rep_amount?: number | string | null;
+  diff_amount?: number | string | null;
+  rep_no?: string | null;
+  compare_status?: string | null;
+}
+
+export interface ReceivableFilterOption {
+  code: string;
+  name: string;
+  hipdata_code?: string | null;
+}
+
+export interface ReceivableFilterOptions {
+  hosxpRights: ReceivableFilterOption[];
+  financeRights: ReceivableFilterOption[];
+}
+
+export const fetchReceivableCandidates = async (params: {
+  startDate: string;
+  endDate: string;
+  patientType?: string;
+  patientRight?: string;
+  hosxpRight?: string;
+  financeRight?: string;
+}): Promise<ReceivableCandidate[]> => {
+  const query = new URLSearchParams();
+  query.set('startDate', params.startDate);
+  query.set('endDate', params.endDate);
+  if (params.patientType) query.set('patientType', params.patientType);
+  if (params.patientRight) query.set('patientRight', params.patientRight);
+  if (params.hosxpRight) query.set('hosxpRight', params.hosxpRight);
+  if (params.financeRight) query.set('financeRight', params.financeRight);
+
+  const response = await fetch(`/api/receivables/candidates?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถอ่านข้อมูลตั้งลูกหนี้สิทธิ์ได้');
+  }
+  return json.data || [];
+};
+
+export const fetchReceivableFilterOptions = async (): Promise<ReceivableFilterOptions> => {
+  const response = await fetch('/api/receivables/filter-options', {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถอ่านตัวเลือกสิทธิ์บัญชีลูกหนี้ได้');
+  }
+  return json.data || { hosxpRights: [], financeRights: [] };
+};
+
+export const fetchReceivableBatches = async (limit = 50) => {
+  const response = await fetch(`/api/receivables/batches?limit=${limit}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถอ่านประวัติบัญชีลูกหนี้ได้');
+  }
+  return json.data || [];
+};
+
+export const saveReceivableBatch = async (payload: {
+  startDate: string;
+  endDate: string;
+  patientType: string;
+  patientRight?: string;
+  hosxpRight?: string;
+  financeRight?: string;
+  createdBy?: string;
+  notes?: string;
+  items: ReceivableCandidate[];
+}) => {
+  const response = await fetch('/api/receivables/batches', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถบันทึกชุดบัญชีลูกหนี้ได้');
+  }
+  return json;
+};
+
 // ฟังก์ชันส่งข้อมูลไปที่ระบบ FDH
 export const submitToFDH = async (records: CheckRecord[]) => {
   try {

@@ -71,6 +71,7 @@ export const SpecificFundPage: React.FC = () => {
     };
 
     const telmedCode = getCodeValue('telmed', 'TELMED');
+    const telmedExportCode = String(rules.project_codes?.ovstist_tele ?? '5').trim();
     const pregnancyCode = getCodeValue('pregnancy_test', '30014');
     const clopidogrelLabel = (siteSettings.lab_costs?.rules?.find(r => r.key === 'clopidogrel')?.label) || 'Clopidogrel';
     const funds: FundDefinition[] = (FUND_DEFINITIONS && FUND_DEFINITIONS.length > 0 ? FUND_DEFINITIONS : FALLBACK_FUND_DEFINITIONS);
@@ -369,7 +370,9 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (fundId === 'telemedicine') {
-            const hasTelmed = toFlag(item?.has_telmed) || item?.ovstist_export_code === rules.project_codes?.ovstist_tele;
+            const hasTelmed =
+                toFlag(item?.has_telmed) ||
+                String(item?.ovstist_export_code ?? '').trim() === telmedExportCode;
             if (hasTelmed) subfunds.push(`📱 ${telmedCode}`);
             return buildStatusResult(subfunds, [hasTelmed ? '' : ` ADP/Export ${telmedCode}`].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
         }
@@ -1565,13 +1568,13 @@ export const SpecificFundPage: React.FC = () => {
                                                 {activeFund === 'telemedicine' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {item.ovstist_export_code === '5'
+                                                            {String(item.ovstist_export_code ?? '').trim() === telmedExportCode
                                                                 ? <span className="badge badge-success" title={item.ovstist_name}>{item.ovstist_export_code} (Tele)</span>
                                                                 : <span className="badge" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }} title={item.ovstist_name}>
                                                                     {item.ovstist_export_code || '-'}
                                                                 </span>}
                                                         </td>                                                        <td style={{ textAlign: 'center', padding: '12px 8px', fontSize: '12px' }}>
-                                                            {item.has_telmed === 'Y'
+                                                            {(toFlag(item?.has_telmed) || String(item.ovstist_export_code ?? '').trim() === telmedExportCode)
                                                                 ? <span className="badge badge-primary">TELMED</span>
                                                                 : <span className="badge badge-danger">✗ ขาด TELMED</span>}
                                                         </td>

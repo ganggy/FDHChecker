@@ -2,6 +2,7 @@ import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import businessRules from './config/business_rules.json';
+import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
 
 dotenv.config();
 
@@ -49,6 +50,8 @@ export const getRepstmConnection = async () => {
 
 const ANEMIA_CBC_REGEX = 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|CBC WITHOUT SMEAR|CBC NO SMEAR|CBC W/O SMEAR|CBC W/O DIFF|ซีบีซี|ความสมบูรณ์ของเม็ดเลือด|เม็ดเลือดสมบูรณ์';
 const ANEMIA_HBHCT_REGEX = 'HB/HCT|HBHCT|HB HCT|HB-HCT|HB|HGB|HEMOGLOBIN|HCT|HEMATOCRIT|ฮีโมโกลบิน|ฮีมาโตคริต|ความเข้มข้นเลือด';
+const TELEMED_ADP_CODE = String((businessRules as any)?.adp_codes?.telmed || 'TELMED').trim().toUpperCase();
+const TELEMED_EXPORT_CODE = String((businessRules as any)?.project_codes?.ovstist_tele || '5').trim();
 
 const buildAnemiaLabExistsSql = (alias: string, labKind: 'cbc' | 'hbhct' | 'any' = 'any') => {
   const regex = labKind === 'cbc'
@@ -158,6 +161,20 @@ const buildServiceOrLabNameExistsSql = (alias: string, regex: string) => `
         AND lo.lab_order_result <> ''
         AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${regex}'
     )
+  )
+`;
+
+const buildTelemedExistsSql = (visitAlias: string, ovstistAlias: string) => `
+  (
+    EXISTS (
+      SELECT 1
+      FROM opitemrece oo
+      JOIN s_drugitems d ON d.icode = oo.icode
+      WHERE oo.vn = ${visitAlias}.vn
+        AND UPPER(COALESCE(d.nhso_adp_code, '')) = '${TELEMED_ADP_CODE}'
+      LIMIT 1
+    )
+    OR COALESCE(${ovstistAlias}.export_code, '') = '${TELEMED_EXPORT_CODE}'
   )
 `;
 
@@ -502,6 +519,54 @@ const REP_DATA_VERIFY_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS rep_data_verify LIKE rep_data
 `;
 
+const RECEIVABLE_BATCH_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS receivable_batch (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    batch_no VARCHAR(64) NOT NULL,
+    patient_type VARCHAR(8) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    created_by VARCHAR(128) NULL,
+    notes TEXT NULL,
+    item_count INT NOT NULL DEFAULT 0,
+    total_receivable DECIMAL(15,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_batch_no (batch_no),
+    INDEX idx_created_at (created_at),
+    INDEX idx_period (start_date, end_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const RECEIVABLE_ITEM_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS receivable_item (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    batch_id BIGINT NOT NULL,
+    patient_type VARCHAR(8) NOT NULL,
+    vn VARCHAR(32) NULL,
+    an VARCHAR(32) NULL,
+    hn VARCHAR(32) NULL,
+    cid VARCHAR(32) NULL,
+    patient_name VARCHAR(255) NULL,
+    pttype VARCHAR(16) NULL,
+    pttype_name VARCHAR(255) NULL,
+    hipdata_code VARCHAR(32) NULL,
+    service_date DATE NULL,
+    claimable_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    rep_amount DECIMAL(15,2) NULL,
+    diff_amount DECIMAL(15,2) NULL,
+    claim_summary TEXT NULL,
+    raw_data JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_batch_id (batch_id),
+    INDEX idx_vn (vn),
+    INDEX idx_an (an),
+    INDEX idx_hn (hn),
+    CONSTRAINT fk_receivable_item_batch
+      FOREIGN KEY (batch_id) REFERENCES receivable_batch(id)
+      ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 export const ensureAppSettingsTable = async () => {
   const connection = await getUTFConnection();
   try {
@@ -527,6 +592,8 @@ export const ensureRepstmTables = async () => {
     await connection.query(REPSTM_IMPORT_ROW_TABLE_SQL);
     await connection.query(REP_DATA_TABLE_SQL);
     await connection.query(REP_DATA_VERIFY_TABLE_SQL);
+    await connection.query(RECEIVABLE_BATCH_TABLE_SQL);
+    await connection.query(RECEIVABLE_ITEM_TABLE_SQL);
     const [batchHashColumns] = await connection.query(
       `SELECT COUNT(*) AS count
        FROM information_schema.COLUMNS
@@ -1986,6 +2053,427 @@ export const getRepDataRows = async (limit = 200): Promise<Record<string, unknow
   }
 };
 
+export interface ReceivableQueryParams {
+  startDate?: string;
+  endDate?: string;
+  patientType?: 'ALL' | 'OPD' | 'IPD' | string;
+  patientRight?: string;
+  hosxpRight?: string;
+  financeRight?: string;
+}
+
+export interface ReceivableBatchPayload extends ReceivableQueryParams {
+  createdBy?: string;
+  notes?: string;
+  items: Record<string, unknown>[];
+}
+
+const toReceivableNumber = (value: unknown) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+};
+
+const normalizeRightFilter = (value?: string) => {
+  const normalized = String(value || 'ALL').trim().toUpperCase();
+  return normalized || 'ALL';
+};
+
+const buildRightFilterSql = (fieldAlias: string, params: unknown[], patientRight?: string) => {
+  const right = normalizeRightFilter(patientRight);
+  if (right === 'ALL' || right === 'ทั้งหมด') return '';
+  if (right === 'UCS') return ` AND (${fieldAlias} IN ('UCS', 'WEL') OR ${fieldAlias} LIKE 'UC%')`;
+  if (right === 'OFC') return ` AND (${fieldAlias} IN ('OFC', 'BKK', 'PTY') OR ${fieldAlias} LIKE 'A%')`;
+  if (right === 'SSS') return ` AND (${fieldAlias} LIKE 'SS%' OR ${fieldAlias} = 'SSI')`;
+  if (right === 'LGO') return ` AND ${fieldAlias} = 'LGO'`;
+  params.push(right);
+  return ` AND ${fieldAlias} = ?`;
+};
+
+const isAllFilter = (value?: string) => {
+  const normalized = String(value || 'ALL').trim().toUpperCase();
+  return !normalized || normalized === 'ALL' || normalized === 'ทั้งหมด';
+};
+
+const buildExactFilterSql = (fieldAlias: string, params: unknown[], value?: string) => {
+  if (isAllFilter(value)) return '';
+  params.push(String(value).trim());
+  return ` AND ${fieldAlias} = ?`;
+};
+
+const buildFinanceRightFilterSql = (fieldAlias: string, params: unknown[], financeRight?: string) => {
+  if (isAllFilter(financeRight)) return '';
+  const codes = RECEIVABLE_RIGHT_MAPPINGS
+    .filter((item) => item.finance_code === String(financeRight).trim())
+    .map((item) => item.hosxp_code)
+    .filter(Boolean);
+
+  if (codes.length === 0) {
+    params.push('__NO_MATCH__');
+    return ` AND ${fieldAlias} = ?`;
+  }
+
+  params.push(...codes);
+  return ` AND ${fieldAlias} IN (${codes.map(() => '?').join(',')})`;
+};
+
+const findReceivableMapping = (pttype?: unknown, hipdataCode?: unknown): ReceivableRightMapping | null => {
+  const code = String(pttype || '').trim().toUpperCase();
+  const hipdata = String(hipdataCode || '').trim().toUpperCase();
+  return RECEIVABLE_RIGHT_MAPPINGS.find((item) => item.hosxp_code.toUpperCase() === code)
+    || RECEIVABLE_RIGHT_MAPPINGS.find((item) => item.hipdata_code.toUpperCase() === hipdata)
+    || null;
+};
+
+const enrichReceivableRow = (row: Record<string, unknown>) => {
+  const mapping = findReceivableMapping(row.pttype, row.hipdata_code);
+  const isIpd = String(row.patient_type || '').toUpperCase() === 'IPD';
+
+  return {
+    ...row,
+    hosxp_right_code: row.pttype || '',
+    hosxp_right_name: row.pttype_name || '',
+    finance_right_code: mapping?.finance_code || '',
+    finance_right_name: mapping?.finance_name || '',
+    debtor_code: isIpd ? mapping?.debtor_ipd || '' : mapping?.debtor_opd || '',
+    revenue_code: isIpd ? mapping?.revenue_ipd || '' : mapping?.revenue_opd || '',
+    payment_type_code: mapping?.payment_type_code || '',
+    payment_type_name: mapping?.payment_type_name || '',
+    rep_amount: null,
+    diff_amount: null,
+    compare_status: null,
+  };
+};
+
+export const getReceivableFilterOptions = async () => {
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT pttype AS code, name, hipdata_code
+       FROM pttype
+       ORDER BY pttype`
+    );
+    const hosxpRights = (Array.isArray(rows) ? rows : [])
+      .map((row) => row as Record<string, unknown>)
+      .map((row) => ({
+        code: String(row.code || '').trim(),
+        name: String(row.name || '').trim(),
+        hipdata_code: String(row.hipdata_code || '').trim(),
+      }))
+      .filter((row) => row.code);
+
+    const financeRights = Array.from(
+      new Map(
+        RECEIVABLE_RIGHT_MAPPINGS
+          .filter((item) => item.finance_code)
+          .map((item) => [item.finance_code, { code: item.finance_code, name: item.finance_name }])
+      ).values()
+    ).sort((a, b) => a.code.localeCompare(b.code, 'th'));
+
+    return { hosxpRights, financeRights };
+  } catch (error) {
+    console.error('Error reading receivable filter options:', error);
+    return {
+      hosxpRights: RECEIVABLE_RIGHT_MAPPINGS
+        .map((item) => ({ code: item.hosxp_code, name: item.hosxp_name, hipdata_code: item.hipdata_code })),
+      financeRights: Array.from(
+        new Map(
+          RECEIVABLE_RIGHT_MAPPINGS
+            .filter((item) => item.finance_code)
+            .map((item) => [item.finance_code, { code: item.finance_code, name: item.finance_name }])
+        ).values()
+      ),
+    };
+  } finally {
+    connection.release();
+  }
+};
+
+const RECEIVABLE_CLAIMABLE_ITEM_SQL = `
+  SELECT
+    item.vn,
+    SUM(item.claim_amount) AS claimable_amount,
+    COUNT(*) AS item_count,
+    GROUP_CONCAT(DISTINCT item.claim_label ORDER BY item.claim_label SEPARATOR ', ') AS claim_summary
+  FROM (
+    SELECT
+      oo.vn,
+      COALESCE(oo.sum_price, oo.qty * oo.unitprice, 0) AS claim_amount,
+      CASE
+        WHEN COALESCE(sd.nhso_adp_code, '') <> '' THEN CONCAT('ADP ', sd.nhso_adp_code)
+        WHEN COALESCE(sd.ttmt_code, '') <> '' OR COALESCE(di.ttmt_code, '') <> '' THEN 'ยา/สมุนไพร TTMT'
+        WHEN COALESCE(sd.tmlt_code, '') <> '' THEN 'Lab TMLT'
+        WHEN UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) REGEXP 'สมุนไพร|ยาไทย|HERB' THEN 'ยาสมุนไพร/ยาไทย'
+        WHEN UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) REGEXP 'ARMSLING|ARM SLING|SLING' THEN 'อุปกรณ์ Armsling'
+        WHEN UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) REGEXP 'ค่าบริการผู้ป่วยนอก|ผู้ป่วยนอก|OPD' THEN 'ค่าบริการผู้ป่วยนอก'
+        ELSE 'รายการเบิกได้'
+      END AS claim_label
+    FROM opitemrece oo
+    LEFT JOIN income inc ON inc.income = oo.income
+    LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+    LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+    LEFT JOIN drugitems di ON di.icode = oo.icode
+    WHERE oo.vstdate BETWEEN ? AND ?
+      AND COALESCE(oo.sum_price, oo.qty * oo.unitprice, 0) > 0
+      AND UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) NOT REGEXP 'อุดฟัน|ถอนฟัน|ทันต|DENTAL'
+      AND (
+        COALESCE(sd.nhso_adp_code, '') <> ''
+        OR COALESCE(sd.ttmt_code, '') <> ''
+        OR COALESCE(di.ttmt_code, '') <> ''
+        OR COALESCE(sd.tmlt_code, '') <> ''
+        OR UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) REGEXP 'สมุนไพร|ยาไทย|HERB|ARMSLING|ARM SLING|SLING|ค่าบริการผู้ป่วยนอก|ผู้ป่วยนอก|OPD'
+      )
+  ) item
+  GROUP BY item.vn
+`;
+
+const attachRepComparison = async (rows: Record<string, unknown>[]) => {
+  if (rows.length === 0) return rows;
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(REP_DATA_TABLE_SQL);
+    const vns = Array.from(new Set(rows.map(row => String(row.vn || '').trim()).filter(Boolean)));
+    const ans = Array.from(new Set(rows.map(row => String(row.an || '').trim()).filter(Boolean)));
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (vns.length > 0) {
+      clauses.push(`vn IN (${vns.map(() => '?').join(',')})`);
+      params.push(...vns);
+    }
+    if (ans.length > 0) {
+      clauses.push(`an IN (${ans.map(() => '?').join(',')})`);
+      params.push(...ans);
+    }
+
+    if (clauses.length === 0) return rows;
+
+    const [repRows] = await connection.query(
+      `SELECT
+         COALESCE(vn, '') AS vn,
+         COALESCE(an, '') AS an,
+         MAX(COALESCE(compensated, nhso, agency, 0)) AS rep_amount,
+         GROUP_CONCAT(DISTINCT rep_no ORDER BY rep_no SEPARATOR ', ') AS rep_no
+       FROM rep_data
+       WHERE ${clauses.join(' OR ')}
+       GROUP BY COALESCE(vn, ''), COALESCE(an, '')`,
+      params
+    );
+
+    const repMap = new Map<string, Record<string, unknown>>();
+    (Array.isArray(repRows) ? repRows : []).forEach((repRow) => {
+      const record = repRow as Record<string, unknown>;
+      const vn = String(record.vn || '').trim();
+      const an = String(record.an || '').trim();
+      if (vn) repMap.set(`VN:${vn}`, record);
+      if (an) repMap.set(`AN:${an}`, record);
+    });
+
+    return rows.map((row) => {
+      const vn = String(row.vn || '').trim();
+      const an = String(row.an || '').trim();
+      const rep = (vn && repMap.get(`VN:${vn}`)) || (an && repMap.get(`AN:${an}`)) || null;
+      const claimableAmount = toReceivableNumber(row.claimable_amount);
+      const repAmount = rep ? toReceivableNumber(rep.rep_amount) : null;
+      return {
+        ...row,
+        rep_amount: repAmount,
+        rep_no: rep?.rep_no || null,
+        diff_amount: repAmount == null ? null : repAmount - claimableAmount,
+        compare_status: repAmount == null
+          ? 'รอ REP/STM'
+          : Math.abs(repAmount - claimableAmount) < 0.01
+            ? 'ตรงกัน'
+            : 'ยอดต่าง',
+      };
+    });
+  } catch (error) {
+    console.error('Error comparing receivable with REP data:', error);
+    return rows.map(row => ({
+      ...row,
+      rep_amount: null,
+      diff_amount: null,
+      compare_status: 'ยังไม่ได้เทียบ REP/STM',
+    }));
+  } finally {
+    connection.release();
+  }
+};
+
+export const getReceivableCandidates = async (params: ReceivableQueryParams): Promise<Record<string, unknown>[]> => {
+  const startDate = String(params.startDate || '').slice(0, 10);
+  const endDate = String(params.endDate || startDate || '').slice(0, 10);
+  const patientType = String(params.patientType || 'ALL').toUpperCase();
+  const connection = await getUTFConnection();
+
+  try {
+    const resultRows: Record<string, unknown>[] = [];
+
+    if (patientType === 'ALL' || patientType === 'OPD') {
+      const opdParams: unknown[] = [startDate, endDate, startDate, endDate];
+      const rightSql = buildRightFilterSql('ptt.hipdata_code', opdParams, params.patientRight);
+      const hosxpSql = buildExactFilterSql('o.pttype', opdParams, params.hosxpRight);
+      const financeSql = buildFinanceRightFilterSql('o.pttype', opdParams, params.financeRight);
+      const [opdRows] = await connection.query(
+        `SELECT
+           'OPD' AS patient_type,
+           o.vn,
+           '' AS an,
+           o.hn,
+           pt.cid,
+           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+           o.pttype,
+           ptt.name AS pttype_name,
+           ptt.hipdata_code,
+           DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+           COALESCE(v.income, 0) AS total_income,
+           claim.claimable_amount,
+           claim.item_count,
+           claim.claim_summary
+         FROM ovst o
+         JOIN (${RECEIVABLE_CLAIMABLE_ITEM_SQL}) claim ON claim.vn = o.vn
+         LEFT JOIN patient pt ON pt.hn = o.hn
+         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+         LEFT JOIN vn_stat v ON v.vn = o.vn
+         WHERE o.vstdate BETWEEN ? AND ?
+           AND COALESCE(claim.claimable_amount, 0) > 0
+           ${rightSql}
+           ${hosxpSql}
+           ${financeSql}
+         ORDER BY o.vstdate, o.vn`,
+        opdParams
+      );
+      if (Array.isArray(opdRows)) resultRows.push(...(opdRows as Record<string, unknown>[]));
+    }
+
+    if (patientType === 'ALL' || patientType === 'IPD') {
+      const ipdParams: unknown[] = [startDate, endDate];
+      const rightSql = buildRightFilterSql('ptt.hipdata_code', ipdParams, params.patientRight);
+      const hosxpSql = buildExactFilterSql('i.pttype', ipdParams, params.hosxpRight);
+      const financeSql = buildFinanceRightFilterSql('i.pttype', ipdParams, params.financeRight);
+      const [ipdRows] = await connection.query(
+        `SELECT
+           'IPD' AS patient_type,
+           '' AS vn,
+           i.an,
+           i.hn,
+           pt.cid,
+           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+           i.pttype,
+           ptt.name AS pttype_name,
+           ptt.hipdata_code,
+           DATE_FORMAT(COALESCE(i.dchdate, i.regdate), '%Y-%m-%d') AS service_date,
+           COALESCE(a.income, 0) AS total_income,
+           GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0) AS claimable_amount,
+           1 AS item_count,
+           'ผู้ป่วยใน: ตั้งลูกหนี้จากยอดค่ารักษาหลังหักรับชำระ/ส่วนลด' AS claim_summary
+         FROM ipt i
+         LEFT JOIN patient pt ON pt.hn = i.hn
+         LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
+         LEFT JOIN an_stat a ON a.an = i.an
+         WHERE COALESCE(i.dchdate, i.regdate) BETWEEN ? AND ?
+           AND GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0) > 0
+           ${rightSql}
+           ${hosxpSql}
+           ${financeSql}
+         ORDER BY COALESCE(i.dchdate, i.regdate), i.an`,
+        ipdParams
+      );
+      if (Array.isArray(ipdRows)) resultRows.push(...(ipdRows as Record<string, unknown>[]));
+    }
+
+    return resultRows.map(enrichReceivableRow);
+  } catch (error) {
+    console.error('Error reading receivable candidates:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const getReceivableBatches = async (limit = 50): Promise<Record<string, unknown>[]> => {
+  const connection = await getRepstmConnection();
+  try {
+    await ensureRepstmTables();
+    const [rows] = await connection.query(
+      `SELECT id, batch_no, patient_type, start_date, end_date, created_by, notes, item_count, total_receivable, created_at
+       FROM receivable_batch
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [limit]
+    );
+    return Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+  } catch (error) {
+    console.error('Error reading receivable batches:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const saveReceivableBatch = async (payload: ReceivableBatchPayload) => {
+  const connection = await getRepstmConnection();
+  try {
+    await ensureRepstmTables();
+    await connection.beginTransaction();
+    const batchNo = `AR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const totalReceivable = items.reduce((sum, item) => sum + toReceivableNumber(item.claimable_amount), 0);
+
+    const [insertResult] = await connection.query(
+      `INSERT INTO receivable_batch
+        (batch_no, patient_type, start_date, end_date, created_by, notes, item_count, total_receivable)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        batchNo,
+        String(payload.patientType || 'ALL').toUpperCase(),
+        String(payload.startDate || '').slice(0, 10),
+        String(payload.endDate || payload.startDate || '').slice(0, 10),
+        payload.createdBy || null,
+        payload.notes || null,
+        items.length,
+        totalReceivable,
+      ]
+    );
+    const batchId = Number((insertResult as any).insertId || 0);
+
+    for (const item of items) {
+      await connection.query(
+        `INSERT INTO receivable_item
+          (batch_id, patient_type, vn, an, hn, cid, patient_name, pttype, pttype_name, hipdata_code, service_date,
+           claimable_amount, rep_amount, diff_amount, claim_summary, raw_data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          batchId,
+          String(item.patient_type || item.patientType || ''),
+          item.vn || null,
+          item.an || null,
+          item.hn || null,
+          item.cid || null,
+          item.patient_name || item.patientName || null,
+          item.pttype || null,
+          item.pttype_name || item.pttypename || null,
+          item.hipdata_code || null,
+          item.service_date || item.serviceDate || null,
+          toReceivableNumber(item.claimable_amount),
+          item.rep_amount == null ? null : toReceivableNumber(item.rep_amount),
+          item.diff_amount == null ? null : toReceivableNumber(item.diff_amount),
+          item.claim_summary || null,
+          JSON.stringify(item),
+        ]
+      );
+    }
+
+    await connection.commit();
+    return { success: true, batchId, batchNo, itemCount: items.length, totalReceivable };
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error saving receivable batch:', error);
+    return { success: false, error };
+  } finally {
+    connection.release();
+  }
+};
+
 export const getRepstmImportBatches = async (
   dataType?: 'REP' | 'STM' | 'INV',
   limit = 20
@@ -2067,7 +2555,7 @@ export const getCheckData = async (
         
         -- กองทุนพิเศษ Subqueries
         TIMESTAMPDIFF(YEAR, pt.birthday, ovst.vstdate) as age_y,
-        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = 'TELMED' LIMIT 1) as has_telmed,
+        CASE WHEN ${buildTelemedExistsSql('ovst', 'ovstist')} THEN 1 ELSE 0 END as has_telmed,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = 'DRUGP' LIMIT 1) as has_drugp,
         (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND di.sks_product_category_id IN (3,4) AND di.ttmt_code IS NOT NULL LIMIT 1) as has_herb,
         (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_type_id = 2 LIMIT 1) as has_instrument,
@@ -2247,6 +2735,7 @@ export const getCheckData = async (
       LEFT JOIN patient pt ON ovst.hn = pt.hn
       LEFT JOIN pttype ON ovst.pttype = pttype.pttype
       LEFT JOIN vn_stat v ON v.vn = ovst.vn
+      LEFT JOIN ovstist ON ovstist.ovstist = ovst.ovstist
       LEFT JOIN opitemrece ON ovst.vn = opitemrece.vn
       WHERE 1=1
     `;
@@ -2763,7 +3252,7 @@ export const getEligibleVisits = async (
         
         -- กองทุนพิเศษ Subqueries
         -- บริการจัดการ Tag พื้นฐาน
-        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '${businessRules.adp_codes.telmed}' LIMIT 1) as has_telmed,
+        CASE WHEN ${buildTelemedExistsSql('ovst', 'ovstist')} THEN 1 ELSE 0 END as has_telmed,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '${businessRules.adp_codes.drugp}' LIMIT 1) as has_drugp,
         (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND di.sks_product_category_id IN (3,4) AND di.ttmt_code IS NOT NULL LIMIT 1) as has_herb,
         (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_type_id = 2 LIMIT 1) as has_instrument,
@@ -2949,6 +3438,7 @@ export const getEligibleVisits = async (
       LEFT JOIN patient pt ON ovst.hn = pt.hn
       LEFT JOIN pttype ON ovst.pttype = pttype.pttype
       LEFT JOIN vn_stat v ON v.vn = ovst.vn
+      LEFT JOIN ovstist ON ovstist.ovstist = ovst.ovstist
       WHERE 1=1
     `;
 
@@ -3422,13 +3912,13 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
           ptt.name as pttypename, ptt.hipdata_code,
           ov.export_code as ovstist_export_code, ov.name as ovstist_name,
-          (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.telmed}' LIMIT 1) as has_telmed
+          CASE WHEN ${buildTelemedExistsSql('o', 'ov')} THEN 1 ELSE 0 END as has_telmed
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         LEFT JOIN ovstist ov ON ov.ovstist = o.ovstist
         WHERE o.vstdate BETWEEN ? AND ?
-          AND (ov.export_code = '5' OR EXISTS (SELECT 1 FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '${businessRules.adp_codes.telmed}'))
+          AND ${buildTelemedExistsSql('o', 'ov')}
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);

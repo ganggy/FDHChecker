@@ -2124,12 +2124,24 @@ const findReceivableMapping = (pttype?: unknown, hipdataCode?: unknown): Receiva
     || null;
 };
 
+const isWholeVisitReceivableHipdata = (hipdataCode?: unknown) => {
+  const hipdata = String(hipdataCode || '').trim().toUpperCase();
+  return hipdata === 'OFC' || hipdata === 'LGO';
+};
+
 const enrichReceivableRow = (row: Record<string, unknown>) => {
   const mapping = findReceivableMapping(row.pttype, row.hipdata_code);
   const isIpd = String(row.patient_type || '').toUpperCase() === 'IPD';
+  const isWholeVisit = isWholeVisitReceivableHipdata(row.hipdata_code);
+  const totalIncome = toReceivableNumber(row.total_income);
+  const claimableAmount = isWholeVisit ? totalIncome : toReceivableNumber(row.claimable_amount);
+  const hipdata = String(row.hipdata_code || '').trim().toUpperCase();
 
   return {
     ...row,
+    claimable_amount: claimableAmount,
+    item_count: isWholeVisit ? Math.max(toReceivableNumber(row.item_count), 1) : row.item_count,
+    claim_summary: isWholeVisit ? `เบิกได้ทั้ง Visit (${hipdata})` : row.claim_summary,
     hosxp_right_code: row.pttype || '',
     hosxp_right_name: row.pttype_name || '',
     finance_right_code: mapping?.finance_code || '',
@@ -2309,7 +2321,7 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
     const resultRows: Record<string, unknown>[] = [];
 
     if (patientType === 'ALL' || patientType === 'OPD') {
-      const opdParams: unknown[] = [startDate, endDate, startDate, endDate];
+      const opdParams: unknown[] = [startDate, endDate, startDate, endDate, startDate, endDate];
       const rightSql = buildRightFilterSql('ptt.hipdata_code', opdParams, params.patientRight);
       const hosxpSql = buildExactFilterSql('o.pttype', opdParams, params.hosxpRight);
       const financeSql = buildFinanceRightFilterSql('o.pttype', opdParams, params.financeRight);
@@ -2326,16 +2338,34 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            ptt.hipdata_code,
            DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
            COALESCE(v.income, 0) AS total_income,
-           claim.claimable_amount,
-           claim.item_count,
-           claim.claim_summary
+           CASE
+             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(v.income, 0)
+             ELSE claim.claimable_amount
+           END AS claimable_amount,
+           CASE
+             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN GREATEST(COALESCE(item_count.count_item, 0), 1)
+             ELSE claim.item_count
+           END AS item_count,
+           CASE
+             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN CONCAT('เบิกได้ทั้ง Visit (', UPPER(COALESCE(ptt.hipdata_code, '')), ')')
+             ELSE claim.claim_summary
+           END AS claim_summary
          FROM ovst o
-         JOIN (${RECEIVABLE_CLAIMABLE_ITEM_SQL}) claim ON claim.vn = o.vn
+         LEFT JOIN (${RECEIVABLE_CLAIMABLE_ITEM_SQL}) claim ON claim.vn = o.vn
+         LEFT JOIN (
+           SELECT vn, COUNT(*) AS count_item
+           FROM opitemrece
+           WHERE vstdate BETWEEN ? AND ?
+           GROUP BY vn
+         ) item_count ON item_count.vn = o.vn
          LEFT JOIN patient pt ON pt.hn = o.hn
          LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
          LEFT JOIN vn_stat v ON v.vn = o.vn
          WHERE o.vstdate BETWEEN ? AND ?
-           AND COALESCE(claim.claimable_amount, 0) > 0
+           AND (
+             COALESCE(claim.claimable_amount, 0) > 0
+             OR (UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') AND COALESCE(v.income, 0) > 0)
+           )
            ${rightSql}
            ${hosxpSql}
            ${financeSql}
@@ -2363,15 +2393,26 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            ptt.hipdata_code,
            DATE_FORMAT(COALESCE(i.dchdate, i.regdate), '%Y-%m-%d') AS service_date,
            COALESCE(a.income, 0) AS total_income,
-           GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0) AS claimable_amount,
+           CASE
+             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(a.income, 0)
+             ELSE GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0)
+           END AS claimable_amount,
            1 AS item_count,
-           'ผู้ป่วยใน: ตั้งลูกหนี้จากยอดค่ารักษาหลังหักรับชำระ/ส่วนลด' AS claim_summary
+           CASE
+             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN CONCAT('เบิกได้ทั้ง Visit (', UPPER(COALESCE(ptt.hipdata_code, '')), ')')
+             ELSE 'ผู้ป่วยใน: ตั้งลูกหนี้จากยอดค่ารักษาหลังหักรับชำระ/ส่วนลด'
+           END AS claim_summary
          FROM ipt i
          LEFT JOIN patient pt ON pt.hn = i.hn
          LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
          LEFT JOIN an_stat a ON a.an = i.an
          WHERE COALESCE(i.dchdate, i.regdate) BETWEEN ? AND ?
-           AND GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0) > 0
+           AND (
+             CASE
+               WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(a.income, 0)
+               ELSE GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0)
+             END
+           ) > 0
            ${rightSql}
            ${hosxpSql}
            ${financeSql}

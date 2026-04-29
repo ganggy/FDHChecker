@@ -42,6 +42,17 @@ const formatDate = (value?: string | null) => {
   return String(value).slice(0, 10);
 };
 
+const formatReceiptSummary = (row: ReceivableCandidate) => {
+  const receiptNo = String(row.receipt_no || '').trim();
+  const hasAmount = row.receipt_amount != null && row.receipt_amount !== '';
+  const receiptAmount = hasAmount ? formatMoney(row.receipt_amount) : '-';
+  const receiptDate = formatDate(row.receipt_date);
+
+  if (!receiptNo && !hasAmount && receiptDate === '-') return '-';
+
+  return [receiptNo || '-', receiptAmount, receiptDate].join(' / ');
+};
+
 const rowKey = (row: ReceivableCandidate, index: number) => (
   `${row.patient_type || 'NA'}:${row.vn || row.an || row.hn || index}:${index}`
 );
@@ -154,7 +165,9 @@ export const ReceivablePage = () => {
       สิทธิ์_HOSxP: optionLabel(row.hosxp_right_code || row.pttype, row.hosxp_right_name || row.pttype_name),
       สิทธิการเงิน: optionLabel(row.finance_right_code, row.finance_right_name),
       รหัสลูกหนี้: row.debtor_code || '',
-      รหัสรายรับ: row.revenue_code || '',
+      เลขที่ใบเสร็จ: row.receipt_no || '',
+      ยอดใบเสร็จ: row.receipt_amount == null || row.receipt_amount === '' ? '' : toNumber(row.receipt_amount),
+      วันที่ใบเสร็จ: formatDate(row.receipt_date),
       ประเภทการชำระ: optionLabel(row.payment_type_code, row.payment_type_name),
       วันที่บริการ: formatDate(row.service_date),
       รายการที่ตั้งลูกหนี้: row.claim_summary || '',
@@ -251,16 +264,48 @@ export const ReceivablePage = () => {
           <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="เช่น ลูกหนี้เดือนเมษายน 2569" />
         </div>
         <div className="receivable-actions">
-          <button className="primary-btn" onClick={loadData} disabled={loading}>
+          <button
+            className={`btn btn-primary receivable-btn receivable-btn--load${loading ? ' is-loading' : ''}`}
+            onClick={loadData}
+            disabled={loading}
+          >
             {loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}
           </button>
-          <button className="secondary-btn" onClick={() => toggleAll(true)} disabled={!rows.length}>เลือกทั้งหมด</button>
-          <button className="secondary-btn" onClick={() => toggleAll(false)} disabled={!rows.length}>ล้างเลือก</button>
-          <button className="success-btn" onClick={saveBatch} disabled={saving || selectedRows.length === 0}>
+          <button
+            className="btn receivable-btn receivable-btn--soft"
+            onClick={() => toggleAll(true)}
+            disabled={!rows.length}
+          >
+            เลือกทั้งหมด
+          </button>
+          <button
+            className="btn receivable-btn receivable-btn--soft"
+            onClick={() => toggleAll(false)}
+            disabled={!rows.length}
+          >
+            ล้างเลือก
+          </button>
+          <button
+            className={`btn btn-success receivable-btn receivable-btn--save${saving ? ' is-loading' : ''}`}
+            onClick={saveBatch}
+            disabled={saving || selectedRows.length === 0}
+          >
             {saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}
           </button>
-          <button className="success-btn" onClick={exportExcel} disabled={selectedRows.length === 0}>ส่งออก Excel</button>
-          <button className="secondary-btn" onClick={() => window.print()} disabled={selectedRows.length === 0}>พิมพ์หลักฐาน</button>
+          <button
+            className="btn receivable-btn receivable-btn--excel"
+            onClick={exportExcel}
+            disabled={selectedRows.length === 0}
+          >
+            ส่งออก Excel
+          </button>
+          <button
+            className="btn receivable-btn receivable-btn--print"
+            onClick={() => window.print()}
+            disabled={selectedRows.length === 0}
+          >
+            พิมพ์หลักฐาน
+          </button>
         </div>
       </section>
 
@@ -306,7 +351,7 @@ export const ReceivablePage = () => {
                 <th>สิทธิ์ HOSxP</th>
                 <th>สิทธิการเงิน</th>
                 <th>รหัสลูกหนี้</th>
-                <th>รหัสรายรับ</th>
+                <th>ใบเสร็จ / ยอด / วันที่</th>
                 <th>วันที่</th>
                 <th>รายการที่เบิกได้</th>
                 <th className="text-right">ตั้งลูกหนี้</th>
@@ -336,7 +381,7 @@ export const ReceivablePage = () => {
                     <td>{optionLabel(row.hosxp_right_code || row.pttype, row.hosxp_right_name || row.pttype_name)}</td>
                     <td>{optionLabel(row.finance_right_code, row.finance_right_name)}</td>
                     <td className="mono">{row.debtor_code || '-'}</td>
-                    <td className="mono">{row.revenue_code || '-'}</td>
+                    <td className="mono">{formatReceiptSummary(row)}</td>
                     <td>{formatDate(row.service_date)}</td>
                     <td className="claim-summary">{row.claim_summary || '-'}</td>
                     <td className="text-right">{formatMoney(row.claimable_amount)}</td>
@@ -376,6 +421,8 @@ export const ReceivablePage = () => {
               <th>ผู้ป่วย</th>
               <th>สิทธิ์การเงิน</th>
               <th>รหัสลูกหนี้</th>
+              <th>เลขที่ใบเสร็จ</th>
+              <th>วันที่ใบเสร็จ</th>
               <th>วันที่</th>
               <th>รายการ</th>
               <th>ยอดลูกหนี้</th>
@@ -390,6 +437,8 @@ export const ReceivablePage = () => {
                 <td>{row.patient_name || ''}</td>
                 <td>{optionLabel(row.finance_right_code, row.finance_right_name)}</td>
                 <td>{row.debtor_code || ''}</td>
+                <td>{row.receipt_no || ''}</td>
+                <td>{formatDate(row.receipt_date)}</td>
                 <td>{formatDate(row.service_date)}</td>
                 <td>{row.claim_summary || ''}</td>
                 <td>{formatMoney(row.claimable_amount)}</td>
@@ -398,7 +447,7 @@ export const ReceivablePage = () => {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={8}>รวม</td>
+              <td colSpan={10}>รวม</td>
               <td>{formatMoney(totalClaimable)}</td>
             </tr>
           </tfoot>

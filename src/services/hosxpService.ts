@@ -370,6 +370,9 @@ export interface ReceivableCandidate {
   finance_right_name?: string | null;
   debtor_code?: string | null;
   revenue_code?: string | null;
+  receipt_no?: string | null;
+  receipt_amount?: number | string | null;
+  receipt_date?: string | null;
   payment_type_code?: string | null;
   payment_type_name?: string | null;
   rep_amount?: number | string | null;

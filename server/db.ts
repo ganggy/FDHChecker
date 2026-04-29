@@ -2148,6 +2148,9 @@ const enrichReceivableRow = (row: Record<string, unknown>) => {
     finance_right_name: mapping?.finance_name || '',
     debtor_code: isIpd ? mapping?.debtor_ipd || '' : mapping?.debtor_opd || '',
     revenue_code: isIpd ? mapping?.revenue_ipd || '' : mapping?.revenue_opd || '',
+    receipt_no: row.receipt_no || '',
+    receipt_amount: row.receipt_amount == null ? null : toReceivableNumber(row.receipt_amount),
+    receipt_date: row.receipt_date || null,
     payment_type_code: mapping?.payment_type_code || '',
     payment_type_name: mapping?.payment_type_name || '',
     rep_amount: null,
@@ -2321,7 +2324,7 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
     const resultRows: Record<string, unknown>[] = [];
 
     if (patientType === 'ALL' || patientType === 'OPD') {
-      const opdParams: unknown[] = [startDate, endDate, startDate, endDate, startDate, endDate];
+      const opdParams: unknown[] = [startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate];
       const rightSql = buildRightFilterSql('ptt.hipdata_code', opdParams, params.patientRight);
       const hosxpSql = buildExactFilterSql('o.pttype', opdParams, params.hosxpRight);
       const financeSql = buildFinanceRightFilterSql('o.pttype', opdParams, params.financeRight);
@@ -2349,7 +2352,10 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            CASE
              WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN CONCAT('เบิกได้ทั้ง Visit (', UPPER(COALESCE(ptt.hipdata_code, '')), ')')
              ELSE claim.claim_summary
-           END AS claim_summary
+           END AS claim_summary,
+           rcpt.receipt_no,
+           rcpt.receipt_amount,
+           rcpt.receipt_date
          FROM ovst o
          LEFT JOIN (${RECEIVABLE_CLAIMABLE_ITEM_SQL}) claim ON claim.vn = o.vn
          LEFT JOIN (
@@ -2358,6 +2364,18 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            WHERE vstdate BETWEEN ? AND ?
            GROUP BY vn
          ) item_count ON item_count.vn = o.vn
+         LEFT JOIN (
+           SELECT
+             rp.vn,
+             GROUP_CONCAT(DISTINCT rp.rcpno ORDER BY rp.finance_number SEPARATOR ', ') AS receipt_no,
+             ROUND(SUM(COALESCE(rp.total_amount, 0)), 2) AS receipt_amount,
+             DATE_FORMAT(MAX(rp.bill_date_time), '%Y-%m-%d') AS receipt_date
+           FROM rcpt_print rp
+           JOIN ovst oo ON oo.vn = rp.vn
+           WHERE oo.vstdate BETWEEN ? AND ?
+             AND COALESCE(rp.status, '') NOT REGEXP 'Abort'
+           GROUP BY rp.vn
+         ) rcpt ON rcpt.vn = o.vn
          LEFT JOIN patient pt ON pt.hn = o.hn
          LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
          LEFT JOIN vn_stat v ON v.vn = o.vn
@@ -2401,7 +2419,10 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            CASE
              WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN CONCAT('เบิกได้ทั้ง Visit (', UPPER(COALESCE(ptt.hipdata_code, '')), ')')
              ELSE 'ผู้ป่วยใน: ตั้งลูกหนี้จากยอดค่ารักษาหลังหักรับชำระ/ส่วนลด'
-           END AS claim_summary
+           END AS claim_summary,
+           '' AS receipt_no,
+           NULL AS receipt_amount,
+           NULL AS receipt_date
          FROM ipt i
          LEFT JOIN patient pt ON pt.hn = i.hn
          LEFT JOIN pttype ptt ON ptt.pttype = i.pttype

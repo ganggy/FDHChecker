@@ -3034,26 +3034,48 @@ textarea:focus {
 .receivable-actions {
   grid-column: 1 / -1;
   display: flex;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   align-items: center;
+  margin-top: 8px;
 }
 
 .receivable-btn {
   position: relative;
   min-height: 46px;
   padding: 0 18px;
-  border-radius: 14px;
+  border-radius: 16px;
   font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.01em;
-  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-width: 1px;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease, background 0.16s ease;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.09);
+}
+
+.receivable-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: saturate(1.03);
+}
+
+.receivable-btn__icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.receivable-btn__label {
+  white-space: nowrap;
 }
 
 .receivable-btn:disabled {
-  opacity: 0.72;
+  opacity: 0.58;
   transform: none;
   box-shadow: none;
+  cursor: not-allowed;
 }
 
 .receivable-btn--load,
@@ -3063,8 +3085,8 @@ textarea:focus {
 
 .receivable-btn--load.is-loading,
 .receivable-btn--save.is-loading {
-  opacity: 0.92;
   color: rgba(255, 255, 255, 0.98);
+  filter: none;
 }
 
 .receivable-btn--load.is-loading::after,
@@ -3081,37 +3103,54 @@ textarea:focus {
 }
 
 .receivable-btn--soft {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.98));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.98));
   color: #334155;
-  border-color: rgba(148, 163, 184, 0.28);
+  border-color: rgba(148, 163, 184, 0.24);
 }
 
 .receivable-btn--soft:hover:not(:disabled) {
-  transform: translateY(-1px);
   background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(226, 232, 240, 0.98));
   box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
 }
 
+.receivable-btn--load {
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 52%, #60a5fa 100%);
+  color: #fff;
+  border-color: rgba(37, 99, 235, 0.45);
+}
+
+.receivable-btn--load:hover:not(:disabled) {
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.24);
+}
+
+.receivable-btn--save {
+  background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
+  color: #fff;
+  border-color: rgba(15, 118, 110, 0.42);
+}
+
+.receivable-btn--save:hover:not(:disabled) {
+  box-shadow: 0 16px 32px rgba(20, 184, 166, 0.22);
+}
+
 .receivable-btn--excel {
-  background: linear-gradient(135deg, #15803d 0%, #22c55e 100%);
+  background: linear-gradient(135deg, #15803d 0%, #22c55e 58%, #4ade80 100%);
   color: #fff;
   border-color: rgba(21, 128, 61, 0.52);
 }
 
 .receivable-btn--excel:hover:not(:disabled) {
-  transform: translateY(-1px);
   box-shadow: 0 14px 28px rgba(21, 128, 61, 0.22);
 }
 
 .receivable-btn--print {
-  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-  color: #0f172a;
-  border-color: rgba(148, 163, 184, 0.3);
+  background: linear-gradient(135deg, #fff7ed 0%, #fed7aa 100%);
+  color: #9a3412;
+  border-color: rgba(251, 146, 60, 0.34);
 }
 
 .receivable-btn--print:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(51, 65, 85, 0.12);
+  box-shadow: 0 12px 24px rgba(234, 88, 12, 0.16);
 }
 
 .receivable-summary-grid {

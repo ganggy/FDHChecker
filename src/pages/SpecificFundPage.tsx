@@ -245,6 +245,46 @@ export const SpecificFundPage: React.FC = () => {
         return collectDiagValues(item).some((code) => code.startsWith(normalizedPrefix));
     };
     const hasText = (value: unknown, regex: RegExp) => regex.test(String(value ?? ''));
+    const getSendStatusLabel = (status: unknown) => {
+        const value = String(status ?? '').trim().toLowerCase();
+        if (!value) return 'ยังไม่ระบุ';
+        if (value === 'ready' || value === 'สมบูรณ์') return 'พร้อมส่งเบิก';
+        if (value === 'pending') return 'รอแก้ไข';
+        if (value === 'rejected') return 'ไม่พร้อมส่ง';
+        if (value === 'ยังไม่เข้าเงื่อนไข') return 'ยังไม่เข้าเงื่อนไข';
+        return String(status ?? '').trim();
+    };
+    const getSendStatusBadgeClass = (status: unknown) => {
+        const value = String(status ?? '').trim().toLowerCase();
+        if (value === 'ready' || value === 'สมบูรณ์') return 'badge-success';
+        if (value === 'pending' || value === 'rejected' || value === 'ยังไม่เข้าเงื่อนไข') return 'badge-warning';
+        return 'badge-secondary';
+    };
+    /** Returns true when any FDH settlement field carries data, meaning this visit was already submitted to FDH */
+    const hasFdhData = (item: any) =>
+        Boolean(String(item?.fdh_claim_status_message ?? '').trim()) ||
+        Boolean(String(item?.fdh_stm_period ?? '').trim()) ||
+        (item?.fdh_act_amt != null && item?.fdh_act_amt !== '') ||
+        Boolean(String(item?.fdh_settle_at ?? '').trim());
+    const getEffectiveSendStatusLabel = (item: any) =>
+        hasFdhData(item) ? 'ส่งแล้ว' : getSendStatusLabel(item.status);
+    const getEffectiveSendStatusBadgeClass = (item: any) =>
+        hasFdhData(item) ? 'badge-success' : getSendStatusBadgeClass(item.status);
+    const getFdhStatusLabel = (item: any) => (
+        String(item?.fdh_status_label ?? '').trim()
+        || (toFlag(item?.has_close)
+            ? 'ปิดสิทธิแล้ว (EP)'
+            : toFlag(item?.has_authen)
+                ? 'มี Authen (PP)'
+                : 'ยังไม่มีสถานะ FDH')
+    );
+    const getFdhStatusBadgeClass = (item: any) => (
+        toFlag(item?.has_close)
+            ? 'badge-success'
+            : toFlag(item?.has_authen)
+                ? 'badge-info'
+                : 'badge-warning'
+    );
     const getAncLab1Requirements = (item: any, hasAncDiag: boolean) => {
         const isFemale = String(item?.sex ?? '').trim() === '2';
         return [
@@ -845,6 +885,12 @@ export const SpecificFundPage: React.FC = () => {
                 'CID': item.cid || '',
                 'สิทธิ์': item.pttypename || '',
                 'วันที่รับบริการ': item.serviceDate || '',
+                'สถานะการส่งเบิก': getEffectiveSendStatusLabel(item),
+                'สถานะ FDH': getFdhStatusLabel(item),
+                'FDH Status': item.fdh_claim_status_message || '',
+                'Fdh_Stm_Period': item.fdh_stm_period || '',
+                'Fdh_Act_Amt': item.fdh_act_amt != null ? Number(item.fdh_act_amt) : '',
+                'Fdh_Settle_At': item.fdh_settle_at || '',
                 'สถานะ': status.status,
                 'บริการ': status.subfunds.join(' | ') || '',
                 'เงื่อนไขที่ตรง': status.matchedConditions?.join(' | ') || '',
@@ -1518,12 +1564,23 @@ export const SpecificFundPage: React.FC = () => {
                                         🏷️ SUBFUNDS TAGS
                                     </th>
                                     <th style={{ width: 90, textAlign: 'center' }}>สถานะ</th>
+                                    <th style={{ width: 140, textAlign: 'center' }}>สถานะการส่งเบิก</th>
+                                    <th style={{ width: 150, textAlign: 'center' }}>สถานะ FDH</th>
+                                    <th style={{ width: 110, textAlign: 'center' }}>FDH Status</th>
+                                    <th style={{ width: 110, textAlign: 'center' }}>Fdh_Stm_Period</th>
+                                    <th style={{ width: 100, textAlign: 'right' }}>Fdh_Act_Amt</th>
+                                    <th style={{ width: 120, textAlign: 'center' }}>Fdh_Settle_At</th>
                                 </tr>
                             </thead>                            <tbody>
                                 {filteredData.length === 0 ? (
                                     <tr><td colSpan={100} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>ไม่พบข้อมูล{showIncompleteOnly ? ' ไม่สมบูรณ์' : 'ในช่วงวันที่เลือก'}</td></tr>
                                 ) : (                                    filteredData.map((item, index) => {
-                                        const st = getStatus(item);                                        return (
+                                        const st = getStatus(item);
+                                        const sendStatusLabel = getEffectiveSendStatusLabel(item);
+                                        const sendStatusClass = getEffectiveSendStatusBadgeClass(item);
+                                        const fdhStatusLabel = getFdhStatusLabel(item);
+                                        const fdhStatusClass = getFdhStatusBadgeClass(item);
+                                        return (
                                             <tr key={item.vn} onClick={() => handleRowClick(item)} className="clickable-row" style={{ cursor: 'pointer', background: st.status !== 'สมบูรณ์' ? 'rgba(239, 68, 68, 0.04)' : '' }}>
                                                 <td style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', padding: '6px 4px' }}>{index + 1}</td>
                                                 <td style={{ padding: '6px 8px' }}>
@@ -1533,7 +1590,8 @@ export const SpecificFundPage: React.FC = () => {
                                                 <td style={{ padding: '6px 8px' }}>
                                                     <div style={{ fontWeight: 600, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.patientName}</div>
                                                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.cid}</div>
-                                                </td>                                                <td style={{ padding: '6px 8px' }}>
+                                                </td>
+                                                <td style={{ padding: '6px 8px' }}>
                                                     <div style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.pttypename}>
                                                         {item.pttypename}
                                                     </div>
@@ -1852,7 +1910,9 @@ export const SpecificFundPage: React.FC = () => {
                                                         <td style={{ textAlign: 'center' }}>
                                                             <span className="badge badge-success">{item.authencode || '-'}</span>
                                                         </td>
-                                                    </>                                                )}                                                <td style={{ padding: '6px 8px' }}>
+                                                    </>
+                                                )}
+                                                <td style={{ padding: '6px 8px' }}>
                                                     <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
                                                         {st.subfunds && st.subfunds.length > 0 ? (
                                                             st.subfunds.map((subfund, idx) => {
@@ -1885,7 +1945,29 @@ export const SpecificFundPage: React.FC = () => {
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <span className={`badge ${st.class}`} style={{ fontSize: 11 }}>{st.icon} {st.status}</span>
-                                                </td>                                            </tr>
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    <span className={`badge ${sendStatusClass}`} style={{ fontSize: 10 }}>{sendStatusLabel}</span>
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    <span className={`badge ${fdhStatusClass}`} style={{ fontSize: 10 }}>{fdhStatusLabel}</span>
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    {item.fdh_claim_status_message
+                                                        ? <span className="badge badge-info" style={{ fontSize: 10 }}>{item.fdh_claim_status_message}</span>
+                                                        : <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>-</span>}
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    <span style={{ fontSize: 11 }}>{item.fdh_stm_period || '-'}</span>
+                                                </td>
+                                                <td style={{ textAlign: 'right', padding: '6px 8px' }}>
+                                                    {item.fdh_act_amt != null && item.fdh_act_amt !== ''
+                                                        ? <strong style={{ color: 'var(--teal)', fontSize: 11 }}>{Number(item.fdh_act_amt).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                                                        : <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>-</span>}
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    <span style={{ fontSize: 11 }}>{item.fdh_settle_at || '-'}</span>
+                                                </td></tr>
                                         );
                                     })
                                 )}
@@ -1901,6 +1983,7 @@ export const SpecificFundPage: React.FC = () => {
             {selectedRecord && (
                 <DetailModal record={selectedRecord} onClose={() => setSelectedRecord(null)} />
             )}
+
         </div>
     );
 };

@@ -351,6 +351,26 @@ const FDH_STATUS_IMPORT_LOG_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const FDH_CLAIM_STATUS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS fdh_claim_status (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(25) NULL,
+    transaction_uid VARCHAR(191) NOT NULL,
+    hcode VARCHAR(32) NULL,
+    environment VARCHAR(16) NULL,
+    fdh_reservation_status VARCHAR(64) NULL,
+    fdh_reservation_datetime DATETIME NULL,
+    fdh_claim_status_message VARCHAR(255) NULL,
+    error_code VARCHAR(128) NULL,
+    raw_payload JSON NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_transaction_uid (transaction_uid),
+    INDEX idx_vn (vn),
+    INDEX idx_reservation_status (fdh_reservation_status),
+    INDEX idx_updated_at (updated_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 const AUTHEN_SYNC_LOG_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS authen_sync_log (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -571,6 +591,78 @@ export const ensureAppSettingsTable = async () => {
   const connection = await getUTFConnection();
   try {
     await connection.query(APP_SETTINGS_TABLE_SQL);
+  } finally {
+    connection.release();
+  }
+};
+
+const ensureFdhClaimStatusSchema = async (connection: any): Promise<void> => {
+  await connection.query(FDH_CLAIM_STATUS_TABLE_SQL);
+
+  const [columnRows] = await connection.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'fdh_claim_status'`
+  );
+  const existingColumns = new Set(
+    (Array.isArray(columnRows) ? columnRows : [])
+      .map((row: any) => String(row.COLUMN_NAME || '').toLowerCase())
+  );
+  const columns: Array<[string, string]> = [
+    ['vn', 'ADD COLUMN vn VARCHAR(25) NULL AFTER id'],
+    ['transaction_uid', 'ADD COLUMN transaction_uid VARCHAR(191) NOT NULL AFTER vn'],
+    ['hcode', 'ADD COLUMN hcode VARCHAR(32) NULL AFTER transaction_uid'],
+    ['environment', 'ADD COLUMN environment VARCHAR(16) NULL AFTER hcode'],
+    ['fdh_reservation_status', 'ADD COLUMN fdh_reservation_status VARCHAR(64) NULL AFTER environment'],
+    ['fdh_reservation_datetime', 'ADD COLUMN fdh_reservation_datetime DATETIME NULL AFTER fdh_reservation_status'],
+    ['fdh_claim_status_message', 'ADD COLUMN fdh_claim_status_message VARCHAR(255) NULL AFTER fdh_reservation_datetime'],
+    ['error_code', 'ADD COLUMN error_code VARCHAR(128) NULL AFTER fdh_claim_status_message'],
+    ['fdh_stm_period', 'ADD COLUMN fdh_stm_period VARCHAR(200) NULL AFTER error_code'],
+    ['fdh_act_amt', 'ADD COLUMN fdh_act_amt DOUBLE(12,2) NULL AFTER fdh_stm_period'],
+    ['fdh_settle_at', 'ADD COLUMN fdh_settle_at VARCHAR(200) NULL AFTER fdh_act_amt'],
+    ['raw_payload', 'ADD COLUMN raw_payload JSON NULL AFTER fdh_settle_at'],
+    ['updated_at', 'ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER raw_payload'],
+  ];
+
+  for (const [column, alterSql] of columns) {
+    if (!existingColumns.has(column)) {
+      await connection.query(`ALTER TABLE fdh_claim_status ${alterSql}`);
+    }
+  }
+
+  const [indexRows] = await connection.query(
+    `SELECT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'fdh_claim_status'`
+  );
+  const existingIndexes = new Set(
+    (Array.isArray(indexRows) ? indexRows : [])
+      .map((row: any) => String(row.INDEX_NAME || '').toLowerCase())
+  );
+  const indexes: Array<[string, string]> = [
+    ['uk_transaction_uid', 'ADD UNIQUE KEY uk_transaction_uid (transaction_uid)'],
+    ['idx_vn', 'ADD INDEX idx_vn (vn)'],
+    ['idx_reservation_status', 'ADD INDEX idx_reservation_status (fdh_reservation_status)'],
+    ['idx_updated_at', 'ADD INDEX idx_updated_at (updated_at)'],
+  ];
+
+  for (const [indexName, alterSql] of indexes) {
+    if (!existingIndexes.has(indexName)) {
+      try {
+        await connection.query(`ALTER TABLE fdh_claim_status ${alterSql}`);
+      } catch (error) {
+        console.warn(`Unable to add fdh_claim_status index ${indexName}:`, error);
+      }
+    }
+  }
+};
+
+export const ensureFdhClaimStatusTable = async () => {
+  const connection = await getUTFConnection();
+  try {
+    await ensureFdhClaimStatusSchema(connection);
   } finally {
     connection.release();
   }
@@ -2607,6 +2699,13 @@ export const getCheckData = async (
         v.age_y as age_y,
         COALESCE(pttype.name, 'ไม่ระบุสิทธิ') as fund,
         pttype.hipdata_code,
+        COALESCE(pttype.pttype_eclaim_id, '') as pttype_eclaim_id,
+        COALESCE((
+          SELECT pe.name
+          FROM pttype_eclaim pe
+          WHERE pe.code = pttype.pttype_eclaim_id
+          LIMIT 1
+        ), '') as pttype_eclaim_name,
         DATE_FORMAT(ovst.vstdate, '%Y-%m-%d') as serviceDate,
         (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) as main_diag,
         CASE 
@@ -3570,30 +3669,36 @@ export const getExportData = async (vns: string[]) => {
     // 1. INS (Insurance)
     const ins = await runQuery('INS', `
       SELECT 
-        ovst.hn as HN,
-        pttype.hipdata_code as INSCL,
-        pttype.pttype as SUBTYPE,
-        pt.cid as CID,
-        DATE_FORMAT(ovst.vstdate, '%Y%m%d') as DATEEXP,
-        COALESCE(auth.claim_code, '') as HOSPMAIN,
-        COALESCE(auth.claim_code, '') as HOSPSUB,
-        '' as GOVCODE,
-        '' as GOVNAME,
-        COALESCE(auth.claim_code, '') as PERMITNO,
-        '' as DOCNO,
-        '' as OWNRPID,
-        '' as OWNNAME,
-        pttype.hipdata_code as SUBINSCL,
-        '1' as RELINSCL,
-        ovst.ovstost as HTYPE
+        ovst.hn AS HN,
+        COALESCE(pttype.hipdata_code, '') AS INSCL,
+        COALESCE(pttype.pttype, '') AS SUBTYPE,
+        COALESCE(pt.cid, '') AS CID,
+        ? AS HCODE,
+        DATE_FORMAT(COALESCE(vp.expire_date, ovst.vstdate), '%Y%m%d') AS DATEEXP,
+        COALESCE(NULLIF(ovst.hospmain, ''), ?) AS HOSPMAIN,
+        COALESCE(NULLIF(ovst.hospsub, ''), COALESCE(NULLIF(ovst.hospmain, ''), ?)) AS HOSPSUB,
+        '' AS GOVCODE,
+        '' AS GOVNAME,
+        COALESCE(auth.claim_code, '') AS PERMITNO,
+        '' AS DOCNO,
+        '' AS OWNRPID,
+        '' AS OWNNAME,
+        COALESCE(ovst.an, '') AS AN,
+        ovst.vn AS SEQ,
+        '' AS SUBINSCL,
+        '' AS RELINSCL,
+        '' AS HTYPE
       FROM ovst
       JOIN patient pt ON ovst.hn = pt.hn
       JOIN pttype ON ovst.pttype = pttype.pttype
+      LEFT JOIN visit_pttype vp ON ovst.vn = vp.vn AND ovst.pttype = vp.pttype
       LEFT JOIN (
-        SELECT vn, MAX(claim_code) as claim_code FROM authenhos GROUP BY vn
+        SELECT vn, MAX(claim_code) AS claim_code FROM authenhos GROUP BY vn
       ) auth ON ovst.vn = auth.vn
       WHERE ovst.vn IN (?)
-    `, [vns]);    // 2. PAT (Patient)
+    `, [hcode, hcode, hcode, vns]);
+
+    // 2. PAT (Patient)
     const pat = await runQuery('PAT', `
       SELECT 
         ? as HCODE,
@@ -3606,7 +3711,7 @@ export const getExportData = async (vns: string[]) => {
         pt.occupation as OCCUPA,
         pt.nationality as NATION,
         pt.cid as PERSON_ID,
-        pt.pname as NAMEPAT,
+        CONCAT('"', CONCAT(COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, ''), ',', COALESCE(pt.pname, '')), '"') as NAMEPAT,
         pt.pname as TITLE,
         pt.fname as FNAME,
         pt.lname as LNAME,
@@ -3618,23 +3723,24 @@ export const getExportData = async (vns: string[]) => {
     // 3. OPD (Visit)
     const opd = await runQuery('OPD', `
       SELECT 
-        hn as HN,
-        DATE_FORMAT(vstdate, '%Y%m%d') as DATEOPD,
-        DATE_FORMAT(vsttime, '%H%i') as TIMEOPD,
-        vn as SEQ,
-        '1' as UUC,
-        main_dep as CLINIC,
-        '' as DETAIL,
-        '' as BTEMP,
-        '' as SBP,
-        '' as DBP,
-        '' as PR,
-        '' as RR,
-        '1' as OPTYPE,
-        '1' as TYPEIN,
-        '1' as TYPEOUT
-      FROM ovst
-      WHERE vn IN (?)
+        o.hn AS HN,
+        o.main_dep AS CLINIC,
+        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEOPD,
+        DATE_FORMAT(o.vsttime, '%H%i') AS TIMEOPD,
+        o.vn AS SEQ,
+        '1' AS UUC,
+        COALESCE(s.cc, '') AS DETAIL,
+        '' AS BTEMP,
+        '' AS SBP,
+        '' AS DBP,
+        '' AS PR,
+        '' AS RR,
+        '' AS OPTYPE,
+        '1' AS TYPEIN,
+        '' AS TYPEOUT
+      FROM ovst o
+      LEFT JOIN opdscreen s ON o.vn = s.vn
+      WHERE o.vn IN (?)
     `, [vns]);
 
     // 4. ORF (Refer Out)
@@ -3655,50 +3761,53 @@ export const getExportData = async (vns: string[]) => {
     // 5. ODX (Diagnosis)
     const odx = await runQuery('ODX', `
       SELECT 
-        hn as HN,
-        DATE_FORMAT(vstdate, '%Y%m%d') as DATEDX,
-        clinic_dep as CLINIC,
-        icd10 as DIAG,
-        diagtype as DXTYPE,
-        doctor as DRDX,
-        vn as SEQ,
-        '' as PERSON_ID
-      FROM ovstdiag
-      WHERE vn IN (?)
+        o.hn AS HN,
+        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEDX,
+        COALESCE(o.main_dep, '') AS CLINIC,
+        dx.icd10 AS DIAG,
+        dx.diagtype AS DXTYPE,
+        dx.doctor AS DRDX,
+        COALESCE(pt.cid, '') AS PERSON_ID,
+        dx.vn AS SEQ
+      FROM ovstdiag dx
+      JOIN ovst o ON dx.vn = o.vn
+      LEFT JOIN patient pt ON o.hn = pt.hn
+      WHERE dx.vn IN (?)
     `, [vns]);
 
     // 6. OOP (Procedures)
     const oop = await runQuery('OOP', `
       SELECT 
-        ovst.hn as HN,
-        DATE_FORMAT(ovst.vstdate, '%Y%m%d') as DATEOPD,
-        ovst.main_dep as CLINIC,
-        d.icd9 as OPER,
-        d.doctor as DROPID,
-        ovst.vn as SEQ,
-        '' as PERSON_ID,
-        '' as SERVPRICE
+        ovst.hn AS HN,
+        DATE_FORMAT(ovst.vstdate, '%Y%m%d') AS DATEOPD,
+        ovst.main_dep AS CLINIC,
+        d.icd9 AS OPER,
+        d.doctor AS DROPID,
+        COALESCE(pt.cid, '') AS PERSON_ID,
+        ovst.vn AS SEQ,
+        '' AS SERVPRICE
       FROM doctor_operation d
       JOIN ovst ON d.vn = ovst.vn
+      LEFT JOIN patient pt ON ovst.hn = pt.hn
       WHERE d.vn IN (?)
     `, [vns]);
 
     // 7. IPD (Admission)
     const ipd = await runQuery('IPD', `
       SELECT 
-        an as AN,
-        hn as HN,
-        DATE_FORMAT(regdate, '%Y%m%d') as DATEADM,
-        DATE_FORMAT(regtime, '%H%i') as TIMEADM,
-        DATE_FORMAT(dchdate, '%Y%m%d') as DATEDSC,
-        DATE_FORMAT(dchtime, '%H%i') as TIMEDSC,
-        dchstts as DISCHS,
-        dchtype as DISCHT,
-        ward as WARDDSC,
-        ward as ADM_W,
-        '1' as UUC,
-        '1' as SVCTYPE,
-        dept as DEPT
+        hn AS HN,
+        an AS AN,
+        DATE_FORMAT(regdate, '%Y%m%d') AS DATEADM,
+        DATE_FORMAT(regtime, '%H%i') AS TIMEADM,
+        DATE_FORMAT(dchdate, '%Y%m%d') AS DATEDSC,
+        DATE_FORMAT(dchtime, '%H%i') AS TIMEDSC,
+        dchstts AS DISCHS,
+        dchtype AS DISCHT,
+        ward AS WARDDSC,
+        dept AS DEPT,
+        ward AS ADM_W,
+        '1' AS UUC,
+        '1' AS SVCTYPE
       FROM ipt
       WHERE vn IN (?)
     `, [vns]);
@@ -3728,14 +3837,14 @@ export const getExportData = async (vns: string[]) => {
     // ใช้ iptoprt ให้สอดคล้องกับตารางที่ระบบใช้จริงในส่วน IPD chart review
     const iop = await runQuery('IOP', `
       SELECT 
-        an as AN,
-        icd9 as OPER,
-        '1' as OPTYPE,
-        '' as DATEIN,
-        '' as TIMEIN,
-        '' as DATEOUT,
-        '' as TIMEOUT,
-        '' as DROPID
+        an AS AN,
+        icd9 AS OPER,
+        '1' AS OPTYPE,
+        '' AS DROPID,
+        '' AS DATEIN,
+        '' AS TIMEIN,
+        '' AS DATEOUT,
+        '' AS TIMEOUT
       FROM iptoprt
       WHERE an IN (SELECT an FROM ipt WHERE vn IN (?))
     `, [vns]);
@@ -3743,18 +3852,21 @@ export const getExportData = async (vns: string[]) => {
     // 11. CHT (Financial Summary)
     const cht = await runQuery('CHT', `
       SELECT 
-        o.hn as HN,
-        o.an as AN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') as DATE,
-        o.income as CHRGITEM,
-        SUM(o.sum_price) as AMOUNT,
-        o.pttype as PTTYPE,
-        pt.cid as PERSON_ID,
-        o.vn as SEQ
-      FROM opitemrece o
-      JOIN patient pt ON o.hn = pt.hn
+        o.hn AS HN,
+        COALESCE(o.an, '') AS AN,
+        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATE,
+        IFNULL(v.income, 0) AS TOTAL,
+        IFNULL(v.rcpt_money, 0) AS PAID,
+        o.pttype AS PTTYPE,
+        COALESCE(pt.cid, '') AS PERSON_ID,
+        o.vn AS SEQ,
+        '' AS OPD_MEMO,
+        '' AS INVOICE_NO,
+        '' AS INVOICE_LT
+      FROM ovst o
+      LEFT JOIN vn_stat v ON o.vn = v.vn
+      LEFT JOIN patient pt ON o.hn = pt.hn
       WHERE o.vn IN (?)
-      GROUP BY o.vn, o.income
     `, [vns]);
 
     // 12. CHA (Financial Details)
@@ -3775,13 +3887,24 @@ export const getExportData = async (vns: string[]) => {
     // 13. AER (Accident/Emergency)
     const aer = await runQuery('AER', `
       SELECT 
-        hn as HN,
-        an as AN,
-        DATE_FORMAT(vstdate, '%Y%m%d') as DATEOPD,
-        DATE_FORMAT(vstdate, '%Y%m%d') as AEDATE,
-        DATE_FORMAT(vsttime, '%H%i') as AETIME,
-        '1' as AETYPE,
-        vn as SEQ
+        hn AS HN,
+        COALESCE(an, '') AS AN,
+        DATE_FORMAT(vstdate, '%Y%m%d') AS DATEOPD,
+        '' AS AUTHAE,
+        DATE_FORMAT(vstdate, '%Y%m%d') AS AEDATE,
+        DATE_FORMAT(vsttime, '%H%i') AS AETIME,
+        '1' AS AETYPE,
+        '' AS REFER_NO,
+        '' AS REFMAINI,
+        '' AS IREFTYPE,
+        '' AS REFMAINO,
+        '' AS OREFTYPE,
+        '' AS UCAE,
+        '' AS EMTYPE,
+        vn AS SEQ,
+        '' AS AESTATUS,
+        '' AS DALERT,
+        '' AS TALERT
       FROM er_regist
       WHERE vn IN (?)
     `, [vns]);
@@ -3790,26 +3913,31 @@ export const getExportData = async (vns: string[]) => {
     // รองรับทั้ง ADP จาก nondrugitems และ s_drugitems เพราะกองทุนพิเศษจำนวนมาก map ไว้ใน s_drugitems
     const adp = await runQuery('ADP', `
       SELECT 
-        o.hn as HN,
-        o.an as AN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') as DATEOPD,
-        COALESCE(n.nhso_adp_type_id, '1') as TYPE,
-        COALESCE(n.nhso_adp_code, sd.nhso_adp_code, o.icode) as CODE,
-        o.qty as QTY,
-        o.unitprice as RATE,
-        o.vn as SEQ,
-        '' as CAGCODE,
-        '' as DOSE,
-        '' as CA_TYPE,
-        '' as SERIALNO,
-        '0' as TOTCOPAY,
-        '1' as USE_STATUS,
-        o.sum_price as TOTAL,
-        COALESCE(sd.tmlt_code, '') as TMLTCODE,
-        '' as STATUS1,
-        '' as BI,
-        o.main_dep as CLINIC,
-        '1' as ITEMSRC
+        o.hn AS HN,
+        COALESCE(o.an, '') AS AN,
+        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEOPD,
+        '' AS BILLMAUD,
+        COALESCE(n.nhso_adp_type_id, '4') AS TYPE,
+        COALESCE(n.nhso_adp_code, sd.nhso_adp_code, o.icode) AS CODE,
+        o.qty AS QTY,
+        o.unitprice AS RATE,
+        o.vn AS SEQ,
+        '' AS CAGCODE,
+        '' AS DOSE,
+        '' AS CA_TYPE,
+        '' AS SERIALNO,
+        '0.00' AS TOTCOPAY,
+        '' AS USE_STATUS,
+        o.sum_price AS TOTAL,
+        COALESCE(o.qty, 0) AS QTYDAY,
+        COALESCE(sd.tmlt_code, '') AS TMLTCODE,
+        '' AS STATUS1,
+        '' AS BI,
+        '' AS GRAVIDA,
+        '' AS GA_WEEK,
+        '' AS DCIP,
+        '' AS LMP,
+        '' AS SP_ITEM
       FROM opitemrece o
       LEFT JOIN nondrugitems n ON o.icode = n.icode
       LEFT JOIN s_drugitems sd ON o.icode = sd.icode
@@ -3824,12 +3952,13 @@ export const getExportData = async (vns: string[]) => {
     // 15. LVD (Leave Day)
     const lvd = await runQuery('LVD', `
       SELECT 
-        an as AN,
-        DATE_FORMAT(out_datetime, '%Y%m%d') as DATEOUT,
-        DATE_FORMAT(out_datetime, '%H%i') as TIMEOUT,
-        DATE_FORMAT(in_datetime, '%Y%m%d') as DATEIN,
-        DATE_FORMAT(in_datetime, '%H%i') as TIMEIN,
-        qty_day as QTYDAY
+        '' AS SEQLVD,
+        an AS AN,
+        DATE_FORMAT(out_datetime, '%Y%m%d') AS DATEOUT,
+        DATE_FORMAT(out_datetime, '%H%i') AS TIMEOUT,
+        DATE_FORMAT(in_datetime, '%Y%m%d') AS DATEIN,
+        DATE_FORMAT(in_datetime, '%H%i') AS TIMEIN,
+        qty_day AS QTYDAY
       FROM ipt_leave
       WHERE an IN (SELECT an FROM ipt WHERE vn IN (?))
     `, [vns]);
@@ -3837,26 +3966,27 @@ export const getExportData = async (vns: string[]) => {
     // 16. DRU (Drugs)
     const dru = await runQuery('DRU', `
       SELECT 
-        ? as HCODE,
-        o.hn as HN,
-        o.an as AN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') as DATE_SERV,
-        o.icode as DID,
-        d.name as DIDNAME,
-        o.qty as AMOUNT,
-        o.unitprice as DRUGPRIC,
-        d.unitcost as DRUGCOST,
-        COALESCE(s.did, '') as DIDSTD,
-        d.units as UNIT,
-        '' as UNIT_PACK,
-        o.vn as SEQ,
-        '' as DRUGREMARK,
-        '' as PA_NO,
-        '0' as TOTCOPAY,
-        '1' as USE_STATUS,
-        '' as SIGCODE,
-        '' as SIGTEXT,
-        pt.cid as PERSON_ID
+        ? AS HCODE,
+        o.hn AS HN,
+        COALESCE(o.an, '') AS AN,
+        o.main_dep AS CLINIC,
+        COALESCE(pt.cid, '') AS PERSON_ID,
+        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATE_SERV,
+        o.icode AS DID,
+        d.name AS DIDNAME,
+        o.qty AS AMOUNT,
+        o.unitprice AS DRUGPRIC,
+        IFNULL(d.unitcost, 0) AS DRUGCOST,
+        COALESCE(s.did, '') AS DIDSTD,
+        d.units AS UNIT,
+        '' AS UNIT_PACK,
+        o.vn AS SEQ,
+        '' AS DRUGTYPE,
+        '' AS DRUGREMARK,
+        '' AS PA_NO,
+        '0.00' AS TOTCOPAY,
+        '1' AS USE_STATUS,
+        o.sum_price AS TOTAL
       FROM opitemrece o
       JOIN drugitems d ON o.icode = d.icode
       LEFT JOIN s_drugitems s ON o.icode = s.icode
@@ -3937,6 +4067,251 @@ export const getDiagsAndProcedures = async (vn: string) => {
   }
 };
 
+const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, rows: Record<string, unknown>[]) => {
+  const uniqueVns = Array.from(
+    new Set(
+      rows
+        .map((row) => normalizeImportCellValue(row.vn))
+        .filter(Boolean)
+    )
+  );
+
+  if (uniqueVns.length === 0) {
+    return rows;
+  }
+
+  const vnQuery = uniqueVns.map(() => 'SELECT ? AS vn').join(' UNION ALL ');
+  const [statusRows] = await connection.query(
+    `
+      SELECT
+        t.vn,
+        COALESCE(
+          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = t.vn AND IFNULL(ah.claim_code, '') <> '' LIMIT 1),
+          (SELECT vp.auth_code FROM visit_pttype vp WHERE vp.vn = t.vn AND IFNULL(vp.auth_code, '') <> '' LIMIT 1),
+          ''
+        ) AS authencode,
+        COALESCE(
+          (SELECT ncp.nhso_authen_code
+           FROM nhso_confirm_privilege ncp
+           WHERE ncp.vn = t.vn
+             AND ncp.nhso_status = 'Y'
+             AND IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP'
+           LIMIT 1),
+          (SELECT ah.claim_code
+           FROM authenhos ah
+           WHERE ah.vn = t.vn
+             AND IFNULL(ah.claim_code, '') REGEXP '^EP'
+           LIMIT 1),
+          (SELECT vp.auth_code
+           FROM visit_pttype vp
+           WHERE vp.vn = t.vn
+             AND IFNULL(vp.auth_code, '') REGEXP '^EP'
+           LIMIT 1),
+          ''
+        ) AS close_code
+      FROM (${vnQuery}) t
+    `,
+    uniqueVns
+  );
+
+  const statusMap = new Map<string, { authencode: string; closeCode: string }>();
+  if (Array.isArray(statusRows)) {
+    for (const row of statusRows as Record<string, unknown>[]) {
+      const vn = normalizeImportCellValue(row.vn);
+      statusMap.set(vn, {
+        authencode: normalizeImportCellValue(row.authencode),
+        closeCode: normalizeImportCellValue(row.close_code),
+      });
+    }
+  }
+
+  // Fetch FDH settlement fields from HosXP fdh_claim_status table (may not exist on all installs)
+  const vnList = uniqueVns.map(() => '?').join(',');
+  type FdhClaimRow = { fdh_claim_status_message: string; fdh_stm_period: string; fdh_act_amt: number | null; fdh_settle_at: string };
+  const fdhClaimMap = new Map<string, FdhClaimRow>();
+  try {
+    const [fdhRows] = await connection.query(
+      `SELECT vn, fdh_claim_status_message, fdh_stm_period, fdh_act_amt, fdh_settle_at
+       FROM fdh_claim_status
+       WHERE vn IN (${vnList})`,
+      uniqueVns
+    );
+    if (Array.isArray(fdhRows)) {
+      for (const row of fdhRows as Record<string, unknown>[]) {
+        const vn = normalizeImportCellValue(row.vn);
+        if (vn) {
+          fdhClaimMap.set(vn, {
+            fdh_claim_status_message: normalizeImportCellValue(row.fdh_claim_status_message),
+            fdh_stm_period: normalizeImportCellValue(row.fdh_stm_period),
+            fdh_act_amt: row.fdh_act_amt != null ? Number(row.fdh_act_amt) : null,
+            fdh_settle_at: normalizeImportCellValue(row.fdh_settle_at),
+          });
+        }
+      }
+    }
+  } catch {
+    // fdh_claim_status table or settlement columns may not exist on this HosXP installation – skip silently
+    try {
+      // Fallback: try without the extended settlement columns
+      const [fdhRowsFallback] = await connection.query(
+        `SELECT vn, fdh_claim_status_message FROM fdh_claim_status WHERE vn IN (${vnList})`,
+        uniqueVns
+      );
+      if (Array.isArray(fdhRowsFallback)) {
+        for (const row of fdhRowsFallback as Record<string, unknown>[]) {
+          const vn = normalizeImportCellValue(row.vn);
+          if (vn) {
+            fdhClaimMap.set(vn, {
+              fdh_claim_status_message: normalizeImportCellValue(row.fdh_claim_status_message),
+              fdh_stm_period: '',
+              fdh_act_amt: null,
+              fdh_settle_at: '',
+            });
+          }
+        }
+      }
+    } catch {
+      // Table doesn't exist at all – fdhClaimMap stays empty
+    }
+  }
+
+  return rows.map((row) => {
+    const vn = normalizeImportCellValue(row.vn);
+    const statusInfo = statusMap.get(vn);
+    const fdhClaim = fdhClaimMap.get(vn);
+    const authencode = normalizeImportCellValue(row.authencode) || statusInfo?.authencode || '';
+    const closeCode = normalizeImportCellValue(row.close_code) || statusInfo?.closeCode || '';
+    return {
+      ...row,
+      authencode,
+      has_authen: normalizeImportCellValue(row.has_authen) || (authencode ? 'Y' : 'N'),
+      close_code: closeCode,
+      has_close: normalizeImportCellValue(row.has_close) || (closeCode ? 'Y' : 'N'),
+      fdh_status_label: normalizeImportCellValue(row.fdh_status_label)
+        || (closeCode ? 'ปิดสิทธิแล้ว (EP)' : authencode ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH'),
+      fdh_claim_status_message: fdhClaim?.fdh_claim_status_message || '',
+      fdh_stm_period: fdhClaim?.fdh_stm_period || '',
+      fdh_act_amt: fdhClaim?.fdh_act_amt ?? null,
+      fdh_settle_at: fdhClaim?.fdh_settle_at || '',
+    };
+  });
+};
+
+// ---- FDH track_trans import ----
+
+export type FdhImportSummary = {
+  total: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  errorMessages: string[];
+};
+
+const upsertFdhClaimStatusFromApi = async (
+  connection: mysql.PoolConnection,
+  vn: string,
+  hcode: string,
+  message: string,
+  stmPeriod: string,
+  actAmt: number | null,
+  settleAt: string,
+  rawPayload: unknown,
+) => {
+  // Try UPDATE first, then INSERT
+  const [upd] = await connection.query(
+    `UPDATE fdh_claim_status
+     SET fdh_claim_status_message = ?,
+         fdh_stm_period = ?,
+         fdh_act_amt = ?,
+         fdh_settle_at = ?,
+         raw_payload = ?,
+         updated_at = NOW()
+     WHERE vn = ?`,
+    [message || null, stmPeriod || null, actAmt ?? null, settleAt || null,
+     JSON.stringify(rawPayload ?? {}), vn]
+  ) as mysql.ResultSetHeader[];
+  const affected = (upd as unknown as { affectedRows?: number }).affectedRows ?? 0;
+  if (affected === 0) {
+    // No existing row — insert new one
+    const transactionUid = `track_${vn}`;
+    await connection.query(
+      `INSERT IGNORE INTO fdh_claim_status
+         (vn, transaction_uid, hcode, fdh_claim_status_message, fdh_stm_period, fdh_act_amt, fdh_settle_at, raw_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [vn, transactionUid, hcode,
+       message || null, stmPeriod || null, actAmt ?? null, settleAt || null,
+       JSON.stringify(rawPayload ?? {})]
+    );
+  }
+};
+
+export const importFdhStatusForDateRange = async (options: {
+  token: string;
+  apiBaseUrl: string;
+  hospitalCode: string;
+  startDate: string;
+  endDate: string;
+}): Promise<FdhImportSummary> => {
+  const summary: FdhImportSummary = { total: 0, updated: 0, skipped: 0, errors: 0, errorMessages: [] };
+  const connection = await getUTFConnection();
+  try {
+    await ensureFdhClaimStatusSchema(connection);
+
+    // Query all OPD visits in the date range
+    const [visitRows] = await connection.query(
+      `SELECT o.vn, o.hn, DATE_FORMAT(o.vstdate,'%Y-%m-%d') AS vstdate
+       FROM ovst o
+       WHERE o.vstdate BETWEEN ? AND ?
+       ORDER BY o.vstdate, o.vn`,
+      [options.startDate, options.endDate]
+    );
+    const visits = Array.isArray(visitRows) ? (visitRows as Record<string, unknown>[]) : [];
+    summary.total = visits.length;
+
+    const trackUrl = `${options.apiBaseUrl.replace(/\/+$/, '')}/api/v1/ucs/track_trans`;
+
+    for (const row of visits) {
+      const vn = normalizeImportCellValue(row.vn);
+      if (!vn) { summary.skipped += 1; continue; }
+      try {
+        const res = await fetch(trackUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${options.token}`,
+          },
+          body: JSON.stringify({ hcode: options.hospitalCode, vn }),
+          signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+        });
+
+        let payload: Record<string, unknown> = {};
+        try { payload = await res.json() as Record<string, unknown>; } catch { /* ignore */ }
+
+        const dataArr = Array.isArray(payload.data)
+          ? (payload.data as Record<string, unknown>[])
+          : (payload.data && typeof payload.data === 'object' ? [payload.data as Record<string, unknown>] : []);
+        const dataItem = dataArr[0] || {};
+
+        const message = normalizeImportCellValue(dataItem.status ?? payload.message ?? payload.message_th ?? '');
+        const stmPeriod = normalizeImportCellValue(dataItem.stm_period ?? '');
+        const actAmt = dataItem.act_amt != null ? Number(dataItem.act_amt) : null;
+        const settleAt = normalizeImportCellValue(dataItem.settle_at ?? '');
+
+        await upsertFdhClaimStatusFromApi(connection, vn, options.hospitalCode,
+          message, stmPeriod, actAmt, settleAt, payload);
+        summary.updated += 1;
+      } catch (err) {
+        summary.errors += 1;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${vn}: ${msg}`);
+      }
+    }
+  } finally {
+    connection.release();
+  }
+  return summary;
+};
+
 export const getSpecificFundData = async (fundType: string, startDate: string, endDate: string) => {
   const connection = await getUTFConnection();
   try {
@@ -3962,7 +4337,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'telemedicine') {
@@ -3984,7 +4359,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'drugp') {
@@ -4004,7 +4379,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'herb') {
@@ -4030,7 +4405,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'knee') {
@@ -4057,7 +4432,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'instrument') {
@@ -4082,7 +4457,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
 
@@ -4118,7 +4493,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           )          GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     // Family Planning — Z30.x + ADP codes starting with FP (FP002_1, FP002_2, FP003_1, FP003_2, FP003_4 ...)
@@ -4152,7 +4527,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }    // Antenatal Care (combined) — Z34/Z35 + ANC ADP codes
     if (fundType === 'anc') {
       const ancVisitCode = '30011';
@@ -4197,7 +4572,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     // Postpartum — Z39.x + ADP 30015
@@ -4231,7 +4606,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'clopidogrel') {
@@ -4272,7 +4647,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'fpg_screening') {
@@ -4316,7 +4691,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'cholesterol_screening') {
@@ -4359,7 +4734,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'anemia_screening') {
@@ -4455,7 +4830,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'iron_supplement') {
@@ -4523,7 +4898,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'ferrokid_child') {
@@ -4560,7 +4935,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return rows;
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     // ANC Funds Mapping
@@ -4638,7 +5013,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
               GROUP BY o.vn
               ORDER BY o.vstdate DESC
           `, [startDate, endDate]);
-        return rows;
+        return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     // Other PP Funds Mapping
@@ -4715,7 +5090,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
             GROUP BY o.vn
             ORDER BY o.vstdate DESC
         `, [startDate, endDate]);
-        return rows;
+        return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
     }
 
     // สามารถเพิ่มเงื่อนไขกองทุนอื่นๆ ต่อไปได้ที่นี่

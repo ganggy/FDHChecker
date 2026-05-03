@@ -25,6 +25,7 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
               <th style={{ textAlign: 'center' }}>ประเภท</th>
               <th style={{ textAlign: 'center' }}>Diag</th>
               <th style={{ minWidth: 150 }}>สถานะกองทุน</th>
+              <th style={{ minWidth: 180 }}>สถานะ FDH / ECLAIM</th>
               <th style={{ textAlign: 'center' }}>สถานะข้อมูล</th>
               <th style={{ textAlign: 'right' }}>ราคา (บาท)</th>
             </tr>
@@ -40,6 +41,13 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                 : logic.incompleteFund
                   ? 'ใกล้เข้าเงื่อนไขกองทุนพิเศษ'
                   : '';
+              const eclaimCode = String(item.pttype_eclaim_id || '').trim();
+              const eclaimName = String(item.pttype_eclaim_name || '').trim();
+              const eclaimLabel = eclaimCode
+                ? `${eclaimCode}${eclaimName ? `: ${eclaimName}` : ''}`
+                : 'ไม่ระบุ';
+              const fdhLabel = item.fdh_status_label
+                || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
 
               return (
                 <tr
@@ -142,6 +150,16 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                           ))}
                         </div>
                       )}
+                    </div>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span className={`badge ${item.has_close ? 'badge-success' : item.has_authen ? 'badge-info' : 'badge-warning'}`} style={{ fontSize: 10, alignSelf: 'flex-start' }}>
+                        FDH: {fdhLabel}
+                      </span>
+                      <span className="badge" style={{ fontSize: 10, alignSelf: 'flex-start', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1' }}>
+                        ECLAIM: {eclaimLabel}
+                      </span>
                     </div>
                   </td>
                   <td style={{ textAlign: 'center' }}>

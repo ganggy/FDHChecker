@@ -42,15 +42,9 @@ const formatDate = (value?: string | null) => {
   return String(value).slice(0, 10);
 };
 
-const formatReceiptSummary = (row: ReceivableCandidate) => {
-  const receiptNo = String(row.receipt_no || '').trim();
-  const hasAmount = row.receipt_amount != null && row.receipt_amount !== '';
-  const receiptAmount = hasAmount ? formatMoney(row.receipt_amount) : '-';
-  const receiptDate = formatDate(row.receipt_date);
-
-  if (!receiptNo && !hasAmount && receiptDate === '-') return '-';
-
-  return [receiptNo || '-', receiptAmount, receiptDate].join(' / ');
+const formatReceiptAmount = (value: unknown) => {
+  if (value == null || value === '') return '-';
+  return formatMoney(value);
 };
 
 const rowKey = (row: ReceivableCandidate, index: number) => (
@@ -269,42 +263,48 @@ export const ReceivablePage = () => {
             onClick={loadData}
             disabled={loading}
           >
-            {loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}
+            <span className="receivable-btn__icon">↻</span>
+            <span className="receivable-btn__label">{loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}</span>
           </button>
           <button
             className="btn receivable-btn receivable-btn--soft"
             onClick={() => toggleAll(true)}
             disabled={!rows.length}
           >
-            เลือกทั้งหมด
+            <span className="receivable-btn__icon">✓</span>
+            <span className="receivable-btn__label">เลือกทั้งหมด</span>
           </button>
           <button
             className="btn receivable-btn receivable-btn--soft"
             onClick={() => toggleAll(false)}
             disabled={!rows.length}
           >
-            ล้างเลือก
+            <span className="receivable-btn__icon">×</span>
+            <span className="receivable-btn__label">ล้างเลือก</span>
           </button>
           <button
             className={`btn btn-success receivable-btn receivable-btn--save${saving ? ' is-loading' : ''}`}
             onClick={saveBatch}
             disabled={saving || selectedRows.length === 0}
           >
-            {saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}
+            <span className="receivable-btn__icon">💾</span>
+            <span className="receivable-btn__label">{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
           </button>
           <button
             className="btn receivable-btn receivable-btn--excel"
             onClick={exportExcel}
             disabled={selectedRows.length === 0}
           >
-            ส่งออก Excel
+            <span className="receivable-btn__icon">📊</span>
+            <span className="receivable-btn__label">ส่งออก Excel</span>
           </button>
           <button
             className="btn receivable-btn receivable-btn--print"
             onClick={() => window.print()}
             disabled={selectedRows.length === 0}
           >
-            พิมพ์หลักฐาน
+            <span className="receivable-btn__icon">🖨</span>
+            <span className="receivable-btn__label">พิมพ์หลักฐาน</span>
           </button>
         </div>
       </section>
@@ -351,7 +351,9 @@ export const ReceivablePage = () => {
                 <th>สิทธิ์ HOSxP</th>
                 <th>สิทธิการเงิน</th>
                 <th>รหัสลูกหนี้</th>
-                <th>ใบเสร็จ / ยอด / วันที่</th>
+                <th>เลขที่ใบเสร็จ</th>
+                <th className="text-right">ยอดใบเสร็จ</th>
+                <th>วันที่ใบเสร็จ</th>
                 <th>วันที่</th>
                 <th>รายการที่เบิกได้</th>
                 <th className="text-right">ตั้งลูกหนี้</th>
@@ -360,7 +362,7 @@ export const ReceivablePage = () => {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="empty-cell">ยังไม่มีข้อมูล กด “ดึงข้อมูล” เพื่อเริ่มคำนวณบัญชีลูกหนี้</td>
+                  <td colSpan={14} className="empty-cell">ยังไม่มีข้อมูล กด “ดึงข้อมูล” เพื่อเริ่มคำนวณบัญชีลูกหนี้</td>
                 </tr>
               )}
               {rows.map((row, index) => {
@@ -381,7 +383,9 @@ export const ReceivablePage = () => {
                     <td>{optionLabel(row.hosxp_right_code || row.pttype, row.hosxp_right_name || row.pttype_name)}</td>
                     <td>{optionLabel(row.finance_right_code, row.finance_right_name)}</td>
                     <td className="mono">{row.debtor_code || '-'}</td>
-                    <td className="mono">{formatReceiptSummary(row)}</td>
+                    <td className="mono">{row.receipt_no || '-'}</td>
+                    <td className="mono text-right">{formatReceiptAmount(row.receipt_amount)}</td>
+                    <td>{formatDate(row.receipt_date)}</td>
                     <td>{formatDate(row.service_date)}</td>
                     <td className="claim-summary">{row.claim_summary || '-'}</td>
                     <td className="text-right">{formatMoney(row.claimable_amount)}</td>
@@ -422,6 +426,7 @@ export const ReceivablePage = () => {
               <th>สิทธิ์การเงิน</th>
               <th>รหัสลูกหนี้</th>
               <th>เลขที่ใบเสร็จ</th>
+              <th>ยอดใบเสร็จ</th>
               <th>วันที่ใบเสร็จ</th>
               <th>วันที่</th>
               <th>รายการ</th>
@@ -438,6 +443,7 @@ export const ReceivablePage = () => {
                 <td>{optionLabel(row.finance_right_code, row.finance_right_name)}</td>
                 <td>{row.debtor_code || ''}</td>
                 <td>{row.receipt_no || ''}</td>
+                <td>{formatReceiptAmount(row.receipt_amount)}</td>
                 <td>{formatDate(row.receipt_date)}</td>
                 <td>{formatDate(row.service_date)}</td>
                 <td>{row.claim_summary || ''}</td>
@@ -447,7 +453,7 @@ export const ReceivablePage = () => {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={10}>รวม</td>
+              <td colSpan={11}>รวม</td>
               <td>{formatMoney(totalClaimable)}</td>
             </tr>
           </tfoot>

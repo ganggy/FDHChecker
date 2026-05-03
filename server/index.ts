@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
+import iconv from 'iconv-lite';
 import crypto from 'crypto';
 import { getVisitsCached } from './cacheManager.js';
 import {
@@ -35,7 +36,8 @@ import {
   getNhsoClosePrivilegeCandidates,
   getNhsoClosePrivilegeHistory,
   testNhsoClosePrivilegeToken,
-  submitNhsoClosePrivileges
+  submitNhsoClosePrivileges,
+  importFdhStatusForDateRange,
 } from './db.js';
 import businessRules from './config/business_rules.json';
 import { promises as fs } from 'fs';
@@ -56,6 +58,7 @@ const APP_SETTINGS_KEY = 'site_settings';
 const FDH_API_SETTINGS_KEY = 'fdh_api_settings';
 const NHSO_AUTHEN_SETTINGS_KEY = 'nhso_authen_settings';
 const NHSO_CLOSE_SETTINGS_KEY = 'nhso_close_settings';
+const NHSO_ECLAIM_SETTINGS_KEY = 'nhso_eclaim_settings';
 
 const isTruthyFlag = (value: unknown) => (
   value === true ||
@@ -105,6 +108,16 @@ const getDefaultNhsoCloseConfig = () => ({
   maxDays: 4,
 });
 
+const getDefaultNhsoEclaimConfig = () => ({
+  // Keycloak SSO token endpoint (grant_type=password, client_id=eclaim)
+  authUrl: 'https://iam.nhso.go.th/realms/nhso/protocol/openid-connect/token',
+  clientId: 'eclaim',
+  fileListUrl: 'https://eclaim.nhso.go.th/Client/backend/api/center/m-uploads/search',
+  downloadUrl: 'https://eclaim.nhso.go.th/Client/ec2/backend/api/transaction/rep-downloads/exec-download',
+  username: '',
+  password: '',
+});
+
 const getResolvedHospitalCode = async (): Promise<string> => {
   const siteSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
   const appSettingsHcode = siteSettings && typeof siteSettings === 'object'
@@ -136,6 +149,26 @@ const getResolvedFdhApiConfig = async (overrides?: Record<string, unknown>) => {
     mergedConfig.hcode = resolvedHospitalCode;
   }
 
+  // Fallback: read API_FDH_User / API_FDH_Password from HosXP opdconfig
+  // when not configured in app settings
+  if (!String(mergedConfig.username || '').trim() || !String(mergedConfig.password || '').trim()) {
+    try {
+      const conn = await getUTFConnection();
+      const [rows] = await conn.query('SELECT API_FDH_User, API_FDH_Password FROM opdconfig LIMIT 1');
+      const conf = (rows as any)?.[0];
+      if (conf) {
+        if (!String(mergedConfig.username || '').trim() && conf.API_FDH_User) {
+          mergedConfig.username = String(conf.API_FDH_User).trim();
+        }
+        if (!String(mergedConfig.password || '').trim() && conf.API_FDH_Password) {
+          mergedConfig.password = String(conf.API_FDH_Password).trim();
+        }
+      }
+    } catch {
+      // opdconfig not available or columns don't exist — that's OK
+    }
+  }
+
   return mergedConfig;
 };
 
@@ -152,6 +185,15 @@ const getResolvedNhsoCloseConfig = async (overrides?: Record<string, unknown>) =
   const savedConfig = await getAppSetting<Record<string, unknown>>(NHSO_CLOSE_SETTINGS_KEY);
   return {
     ...getDefaultNhsoCloseConfig(),
+    ...(savedConfig || {}),
+    ...(overrides || {}),
+  } as Record<string, unknown>;
+};
+
+const getResolvedNhsoEclaimConfig = async (overrides?: Record<string, unknown>) => {
+  const savedConfig = await getAppSetting<Record<string, unknown>>(NHSO_ECLAIM_SETTINGS_KEY);
+  return {
+    ...getDefaultNhsoEclaimConfig(),
     ...(savedConfig || {}),
     ...(overrides || {}),
   } as Record<string, unknown>;
@@ -440,6 +482,7 @@ app.get('/api/hosxp/checks', async (req, res) => {
 
       const isBillable = !isIPD && (isOFC_LGO || (isUCS && isSpecialFund));
       const hasCloseEp = !!rec.has_close_ep;
+      const hasAuthenPp = !!rec.has_authen_pp;
 
       if (isBillable && !hasCloseEp) {
         issues.push('ยังไม่ปิดสิทธิ (EP)');
@@ -452,8 +495,13 @@ app.get('/api/hosxp/checks', async (req, res) => {
         status: isComplete ? 'ready' : 'pending',
         isBillable,
         issues: issues,
-        has_authen: rec.has_authen_pp ? 1 : 0,
+        has_authen: hasAuthenPp ? 1 : 0,
         has_close: hasCloseEp ? 1 : 0,
+        fdh_status_label: hasCloseEp
+          ? 'ปิดสิทธิแล้ว (EP)'
+          : hasAuthenPp
+            ? 'มี Authen (PP)'
+            : 'ยังไม่มีสถานะ FDH',
         _dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback'
       };
     });
@@ -1022,8 +1070,27 @@ app.post('/api/fdh/export-zip', async (req, res) => {
     // รายชื่อแฟ้มทั้งหมด 16 แฟ้ม (ตามมาตรฐานรหัส 16 แฟ้ม)
     const folderNames = ['INS', 'PAT', 'OPD', 'ORF', 'ODX', 'OOP', 'IPD', 'IRF', 'IDX', 'IOP', 'CHT', 'CHA', 'AER', 'ADP', 'LVD', 'DRU'];
 
+    const fileLayouts: Record<string, string[]> = {
+      INS: ['HN', 'INSCL', 'SUBTYPE', 'CID', 'HCODE', 'DATEEXP', 'HOSPMAIN', 'HOSPSUB', 'GOVCODE', 'GOVNAME', 'PERMITNO', 'DOCNO', 'OWNRPID', 'OWNNAME', 'AN', 'SEQ', 'SUBINSCL', 'RELINSCL', 'HTYPE'],
+      PAT: ['HCODE', 'HN', 'CHANGWAT', 'AMPHUR', 'DOB', 'SEX', 'MARRIAGE', 'OCCUPA', 'NATION', 'PERSON_ID', 'NAMEPAT', 'TITLE', 'FNAME', 'LNAME', 'IDTYPE'],
+      OPD: ['HN', 'CLINIC', 'DATEOPD', 'TIMEOPD', 'SEQ', 'UUC', 'DETAIL', 'BTEMP', 'SBP', 'DBP', 'PR', 'RR', 'OPTYPE', 'TYPEIN', 'TYPEOUT'],
+      ORF: ['HN', 'DATEOPD', 'CLINIC', 'REFER', 'REFERTYPE', 'SEQ', 'REFERDATE'],
+      ODX: ['HN', 'DATEDX', 'CLINIC', 'DIAG', 'DXTYPE', 'DRDX', 'PERSON_ID', 'SEQ'],
+      OOP: ['HN', 'DATEOPD', 'CLINIC', 'OPER', 'DROPID', 'PERSON_ID', 'SEQ', 'SERVPRICE'],
+      IPD: ['HN', 'AN', 'DATEADM', 'TIMEADM', 'DATEDSC', 'TIMEDSC', 'DISCHS', 'DISCHT', 'WARDDSC', 'DEPT', 'ADM_W', 'UUC', 'SVCTYPE'],
+      IRF: ['AN', 'REFER', 'REFERTYPE'],
+      IDX: ['AN', 'DIAG', 'DXTYPE', 'DRDX'],
+      IOP: ['AN', 'OPER', 'OPTYPE', 'DROPID', 'DATEIN', 'TIMEIN', 'DATEOUT', 'TIMEOUT'],
+      CHT: ['HN', 'AN', 'DATE', 'TOTAL', 'PAID', 'PTTYPE', 'PERSON_ID', 'SEQ', 'OPD_MEMO', 'INVOICE_NO', 'INVOICE_LT'],
+      CHA: ['HN', 'AN', 'DATE', 'CHRGITEM', 'AMOUNT', 'PERSON_ID', 'SEQ'],
+      AER: ['HN', 'AN', 'DATEOPD', 'AUTHAE', 'AEDATE', 'AETIME', 'AETYPE', 'REFER_NO', 'REFMAINI', 'IREFTYPE', 'REFMAINO', 'OREFTYPE', 'UCAE', 'EMTYPE', 'SEQ', 'AESTATUS', 'DALERT', 'TALERT'],
+      ADP: ['HN', 'AN', 'DATEOPD', 'BILLMAUD', 'TYPE', 'CODE', 'QTY', 'RATE', 'SEQ', 'CAGCODE', 'DOSE', 'CA_TYPE', 'SERIALNO', 'TOTCOPAY', 'USE_STATUS', 'TOTAL', 'QTYDAY', 'TMLTCODE', 'STATUS1', 'BI', 'GRAVIDA', 'GA_WEEK', 'DCIP', 'LMP', 'SP_ITEM'],
+      LVD: ['SEQLVD', 'AN', 'DATEOUT', 'TIMEOUT', 'DATEIN', 'TIMEIN', 'QTYDAY'],
+      DRU: ['HCODE', 'HN', 'AN', 'CLINIC', 'PERSON_ID', 'DATE_SERV', 'DID', 'DIDNAME', 'AMOUNT', 'DRUGPRIC', 'DRUGCOST', 'DIDSTD', 'UNIT', 'UNIT_PACK', 'SEQ', 'DRUGTYPE', 'DRUGREMARK', 'PA_NO', 'TOTCOPAY', 'USE_STATUS', 'TOTAL']
+    };
+
     // ฟังก์ชันสำหรับแปลงข้อมูลเป็นรูปแบบ Pipe Delimited (.txt)
-    // สำหรับส่ง FDH ใช้เฉพาะข้อมูลจริง ไม่มี header/BOM และ strip อักขระที่อาจทำให้ delimiter เพี้ยน
+    // ใช้ header และลำดับคอลัมน์ตายตัวตามตัวอย่างไฟล์ที่นำเข้าได้
     const normalizePipeValue = (value: unknown) => {
       if (value === null || value === undefined) return '';
       return String(value)
@@ -1034,17 +1101,24 @@ app.post('/api/fdh/export-zip', async (req, res) => {
     };
 
     const formatToPipe = (data: any, folder: string) => {
+      const columns = fileLayouts[folder] || [];
       const rows = (data as any)[folder] || [];
-      if (!rows || rows.length === 0) return '';
-      return rows
-        .map((row: any) => Object.values(row).map(normalizePipeValue).join('|'))
+      const header = columns.join('|');
+      if (!rows || rows.length === 0) {
+        return header;
+      }
+
+      const body = rows
+        .map((row: any) => columns.map((column) => normalizePipeValue(row?.[column])).join('|'))
         .join('\r\n');
+
+      return `${header}\r\n${body}`;
     };
 
     // ใส่ข้อมูลลงในแต่ละไฟล์
     folderNames.forEach(folder => {
       const content = formatToPipe(data, folder);
-      zip.addFile(`${folder}.txt`, Buffer.from(content, 'utf8'));
+      zip.addFile(`${folder}.TXT`, iconv.encode(content, 'cp874'));
     });
 
     // 3. ส่งไฟล์ ZIP กลับไปยัง Client
@@ -2329,6 +2403,341 @@ app.post('/api/fdh/request-token', async (req, res) => {
   } catch (error) {
     console.error('Error requesting FDH token:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการขอ token จาก FDH' });
+  }
+});
+
+app.post('/api/fdh/import-status-by-date', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.body as { startDate?: string; endDate?: string };
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุ startDate และ endDate' });
+    }
+
+    const fdhConfig = await getResolvedFdhApiConfig();
+    const tokenUrl = String(fdhConfig.tokenUrl || '').trim();
+    const username = String(fdhConfig.username || '').trim();
+    const password = String(fdhConfig.password || '');
+    const hospitalCode = String(fdhConfig.hcode || '').trim();
+    const apiBaseUrl = String(fdhConfig.apiBaseUrl || 'https://fdh.moph.go.th').trim();
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า username/password สำหรับ FDH API (ตั้งค่าที่เมนู FDH API Settings)' });
+    }
+    if (!hospitalCode) {
+      return res.status(400).json({ success: false, error: 'ยังไม่พบ Hospital Code' });
+    }
+
+    // Get FDH token
+    const tokenEndpoint = getFdhTokenEndpoint(tokenUrl);
+    const passwordHashCandidates = getPasswordHashCandidates(password);
+    let fdhToken: string | null = null;
+
+    for (const passwordHash of passwordHashCandidates) {
+      if (fdhToken) break;
+      try {
+        const query = new URLSearchParams({
+          Action: 'get_moph_access_token',
+          user: username,
+          password_hash: passwordHash,
+          hospital_code: hospitalCode
+        }).toString();
+        const tokenRes = await fetch(`${tokenEndpoint}?${query}`, { method: 'POST' });
+        const rawText = await tokenRes.text();
+        let parsed: unknown = {};
+        try { parsed = JSON.parse(rawText); } catch { /* raw */ }
+        fdhToken = extractTokenFromPayload(parsed) || (rawText.trim().startsWith('{') ? null : rawText.trim() || null);
+      } catch { /* try next */ }
+    }
+
+    if (!fdhToken) {
+      return res.status(400).json({ success: false, error: 'ไม่สามารถขอ FDH token ได้ — กรุณาตรวจสอบ username/password ในการตั้งค่า FDH API' });
+    }
+
+    const summary = await importFdhStatusForDateRange({
+      token: fdhToken,
+      apiBaseUrl,
+      hospitalCode,
+      startDate,
+      endDate,
+    });
+
+    return res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error importing FDH status:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการนำเข้าสถานะ FDH' });
+  }
+});
+
+// ─── NHSO eclaim download endpoints ──────────────────────────────────────────
+
+/** GET /api/config/nhso-eclaim-settings */
+app.get('/api/config/nhso-eclaim-settings', async (_req, res) => {
+  try {
+    const data = await getResolvedNhsoEclaimConfig();
+    res.json({ success: true, data: { ...data, password: data.password ? '***' : '' } });
+  } catch (error) {
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/config/nhso-eclaim-settings */
+app.post('/api/config/nhso-eclaim-settings', async (req, res) => {
+  try {
+    const current = await getResolvedNhsoEclaimConfig();
+    const payload = {
+      ...current,
+      username: String(req.body?.username ?? current.username ?? ''),
+      password: req.body?.password && req.body.password !== '***'
+        ? String(req.body.password)
+        : String(current.password ?? ''),
+      authUrl: String(req.body?.authUrl ?? current.authUrl),
+      fileListUrl: String(req.body?.fileListUrl ?? current.fileListUrl),
+      downloadUrl: String(req.body?.downloadUrl ?? current.downloadUrl),
+    };
+    await setAppSetting(NHSO_ECLAIM_SETTINGS_KEY, payload);
+    res.json({ success: true, message: 'NHSO eclaim settings saved' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/nhso-eclaim/auth — get token from NHSO eclaim */
+/** POST /api/nhso-eclaim/browser-login — open Edge, user logs in, capture Bearer token + intercept API calls */
+app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
+  try {
+    const { chromium } = await import('playwright');
+    const edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+    const edgePath64 = 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe';
+    const fs = await import('fs');
+    const executablePath = fs.existsSync(edgePath64) ? edgePath64 : fs.existsSync(edgePath) ? edgePath : undefined;
+
+    const browser = await chromium.launch({
+      executablePath,
+      headless: false,
+      args: ['--start-maximized'],
+    });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    let capturedToken: string | null = null;
+    const capturedApiCalls: { url: string; method: string; hasAuth: boolean }[] = [];
+    const capturedApiResponses: { url: string; statusCode: number; body: unknown }[] = [];
+
+    // Intercept all requests to catch Bearer token AND log API calls to eclaim backend
+    page.on('request', (request) => {
+      const auth = request.headers()['authorization'] || '';
+      const url = request.url();
+      if (auth.startsWith('Bearer ') && auth.length > 20) {
+        const t = auth.replace(/^Bearer\s+/i, '').trim();
+        if (t) capturedToken = t;
+      }
+      if (url.includes('eclaim.nhso.go.th') && (url.includes('/api/') || url.includes('/backend/'))) {
+        const hasAuth = auth.startsWith('Bearer ');
+        if (!capturedApiCalls.some((c) => c.url === url)) {
+          capturedApiCalls.push({ url, method: request.method(), hasAuth });
+        }
+      }
+    });
+
+    // Intercept responses for file-list and upload-related APIs
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (
+        url.includes('eclaim.nhso.go.th') &&
+        (url.includes('upload') || url.includes('download') || url.includes('search') || url.includes('m-upload'))
+      ) {
+        try {
+          const body = await response.json();
+          capturedApiResponses.push({ url, statusCode: response.status(), body });
+        } catch { /* not JSON */ }
+      }
+    });
+
+    await page.goto('https://eclaim.nhso.go.th/Client/', { waitUntil: 'domcontentloaded' });
+
+    // Wait up to 3 minutes for user to login and a Bearer token to be captured
+    const deadline = Date.now() + 3 * 60 * 1000;
+    while (!capturedToken && Date.now() < deadline) {
+      await page.waitForTimeout(800);
+      if (!capturedToken) {
+        try {
+          const stored = await page.evaluate(() => {
+            const all = { ...localStorage, ...sessionStorage } as Record<string, string>;
+            const key = Object.keys(all).find((k) => k.toLowerCase().includes('token') && !k.includes('refresh'));
+            return key ? all[key] : null;
+          });
+          if (stored && stored.length > 20) capturedToken = stored;
+        } catch { /* page may not be ready */ }
+      }
+    }
+
+    // After login, wait a bit more to capture file-list API calls if user navigates around
+    if (capturedToken) {
+      await page.waitForTimeout(3000);
+    }
+
+    await browser.close();
+
+    if (!capturedToken) {
+      return res.status(408).json({ success: false, error: 'หมดเวลา 3 นาที — ไม่พบ token กรุณา login ให้เสร็จก่อนหมดเวลา' });
+    }
+    return res.json({
+      success: true,
+      token: capturedToken,
+      discoveredApiCalls: capturedApiCalls.slice(0, 30),
+      discoveredApiResponses: capturedApiResponses.slice(0, 5),
+    });
+  } catch (error) {
+    console.error('browser-login error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.post('/api/nhso-eclaim/auth', async (req, res) => {
+  try {
+    const cfg = await getResolvedNhsoEclaimConfig();
+    const username = String(req.body?.username || cfg.username || '');
+    const password = String(req.body?.password || cfg.password || '');
+    const authUrl = String(cfg.authUrl);
+    const clientId = String(cfg.clientId || 'eclaim');
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า username/password สำหรับ NHSO eclaim' });
+    }
+
+    // Keycloak Resource Owner Password Credentials grant
+    // Pass URLSearchParams object directly so fetch sets Content-Type without ;charset=UTF-8
+    const formBody = new URLSearchParams({
+      grant_type: 'password',
+      client_id: clientId,
+      username,
+      password,
+    });
+
+    const authRes = await fetch(authUrl, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: formBody, // URLSearchParams → auto Content-Type: application/x-www-form-urlencoded
+    });
+    const authJson = await authRes.json() as Record<string, unknown>;
+
+    // Keycloak returns { access_token, token_type, ... } on success
+    const token = String(authJson?.access_token || authJson?.token || authJson?.accessToken || '').trim();
+    if (!token) {
+      const errMsg = String(authJson?.error_description || authJson?.error || JSON.stringify(authJson)).slice(0, 300);
+      return res.status(401).json({ success: false, error: `NHSO eclaim auth ไม่สำเร็จ: ${errMsg}` });
+    }
+    return res.json({ success: true, token, tokenType: authJson?.token_type || 'Bearer' });
+  } catch (error) {
+    console.error('NHSO eclaim auth error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+const extractEclaimFileArray = (json: unknown): unknown[] => {
+  if (Array.isArray(json)) return json;
+  const j = json as Record<string, unknown>;
+  if (Array.isArray(j?.data)) return j.data as unknown[];
+  if (Array.isArray(j?.files)) return j.files as unknown[];
+  if (Array.isArray(j?.content)) return j.content as unknown[];
+  if (Array.isArray(j?.result)) return j.result as unknown[];
+  if (Array.isArray(j?.items)) return j.items as unknown[];
+  if (Array.isArray(j?.list)) return j.list as unknown[];
+  return [];
+};
+
+/** GET /api/nhso-eclaim/file-list?period=202512&fileType=REP */
+app.get('/api/nhso-eclaim/file-list', async (req, res) => {
+  try {
+    const cfg = await getResolvedNhsoEclaimConfig();
+    const period = String(req.query.period || '').trim();
+    const fileType = String(req.query.fileType || '').trim().toUpperCase();
+    const token = String(req.query.token || '').trim();
+
+    if (!token) return res.status(400).json({ success: false, error: 'กรุณาส่ง token ก่อน' });
+
+    // Try multiple URL patterns (custom stored URL first, then known variants)
+    const urlsToTry = [
+      String(cfg.fileListUrl),
+      'https://eclaim.nhso.go.th/Client/ec2/backend/api/center/m-uploads/search',
+      'https://eclaim.nhso.go.th/Client/backend/api/center/m-uploads/search',
+    ].filter((u, i, arr) => u && arr.indexOf(u) === i);
+
+    const debugLog: { url: string; status: number; body: unknown }[] = [];
+
+    for (const baseUrl of urlsToTry) {
+      const searchUrl = new URL(baseUrl);
+      if (period) searchUrl.searchParams.set('period', period);
+      if (fileType && fileType !== 'ALL') searchUrl.searchParams.set('type', fileType);
+
+      try {
+        const listRes = await fetch(searchUrl.toString(), {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        });
+        const statusCode = listRes.status;
+        const text = await listRes.text();
+        let listJson: unknown;
+        try { listJson = JSON.parse(text); } catch { listJson = text; }
+        debugLog.push({ url: searchUrl.toString(), status: statusCode, body: listJson });
+
+        if (listRes.ok) {
+          const files = extractEclaimFileArray(listJson);
+          if (files.length > 0) {
+            return res.json({ success: true, data: files, raw: listJson, url: searchUrl.toString(), statusCode, debug: debugLog });
+          }
+        }
+      } catch (fetchErr) {
+        debugLog.push({ url: baseUrl, status: 0, body: String(fetchErr) });
+      }
+    }
+
+    // All URLs returned empty — return last result with full debug info
+    const last = debugLog[debugLog.length - 1];
+    return res.json({ success: true, data: [], raw: last?.body ?? null, url: last?.url ?? '', statusCode: last?.status ?? 0, debug: debugLog });
+  } catch (error) {
+    console.error('NHSO eclaim file-list error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/nhso-eclaim/download — proxy download, return base64 */
+app.post('/api/nhso-eclaim/download', async (req, res) => {
+  try {
+    const cfg = await getResolvedNhsoEclaimConfig();
+    const { token, filename, period, hcode, downloadPayload } = req.body as {
+      token: string; filename?: string; period?: string; hcode?: string;
+      downloadPayload?: Record<string, unknown>;
+    };
+
+    if (!token) return res.status(400).json({ success: false, error: 'กรุณาส่ง token' });
+
+    const body = downloadPayload || { filename, period, hcode };
+    const dlRes = await fetch(String(cfg.downloadUrl), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/octet-stream, application/json, */*',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!dlRes.ok) {
+      const errText = await dlRes.text();
+      return res.status(dlRes.status).json({ success: false, error: `NHSO eclaim download ไม่สำเร็จ: ${errText.slice(0, 300)}` });
+    }
+
+    const contentType = dlRes.headers.get('content-type') || 'application/octet-stream';
+    const buffer = Buffer.from(await dlRes.arrayBuffer());
+    return res.json({
+      success: true,
+      filename: filename || 'download.xlsx',
+      contentType,
+      base64: buffer.toString('base64'),
+    });
+  } catch (error) {
+    console.error('NHSO eclaim download error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
   }
 });
 

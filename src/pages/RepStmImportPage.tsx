@@ -307,6 +307,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimDownloading, setEclaimDownloading] = useState(false);
   const [eclaimDebugLog, setEclaimDebugLog] = useState<{ url: string; status: number; body: unknown }[]>([]);
   const [eclaimDiscoveredApis, setEclaimDiscoveredApis] = useState<{ url: string; method: string; hasAuth: boolean; hasCookie?: boolean }[]>([]);
+  const [eclaimRepUrls, setEclaimRepUrls] = useState<string[]>([]); // REP-related URLs discovered from browser
   const [eclaimShowDebug, setEclaimShowDebug] = useState(false);
 
   /** Returns all YYYYMM periods between two ISO date strings (inclusive) */
@@ -418,6 +419,7 @@ export const RepStmImportPage: React.FC = () => {
       const json = await res.json() as {
         success: boolean; token?: string; sessionCookie?: string; error?: string;
         discoveredApiCalls?: { url: string; method: string; hasAuth: boolean; hasCookie: boolean }[];
+        repUrls?: string[];
       };
       if (!json.success) throw new Error(json.error || 'ไม่ได้รับ session');
       if (json.token) {
@@ -430,6 +432,9 @@ export const RepStmImportPage: React.FC = () => {
       if (!json.token && !json.sessionCookie) throw new Error('ไม่พบ token หรือ session cookie');
       if (json.discoveredApiCalls?.length) {
         setEclaimDiscoveredApis(json.discoveredApiCalls);
+      }
+      if (json.repUrls?.length) {
+        setEclaimRepUrls(json.repUrls);
       }
     } catch (err) {
       setEclaimError((err as Error).message);
@@ -491,6 +496,8 @@ export const RepStmImportPage: React.FC = () => {
         const params = new URLSearchParams({ period, fileType: eclaimFileType });
         if (token) params.set('token', token);
         if (sessionCookie) params.set('sessionCookie', sessionCookie);
+        // Pass a discovered REP URL from browser if available (most likely to work)
+        if (eclaimRepUrls.length > 0) params.set('repUrl', eclaimRepUrls[0]);
         const listRes = await fetch(`/api/nhso-eclaim/file-list?${params.toString()}`);
         const listJson = await listRes.json() as {
           success: boolean; data?: unknown[]; error?: string;

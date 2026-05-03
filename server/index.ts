@@ -2502,7 +2502,7 @@ app.post('/api/config/nhso-eclaim-settings', async (req, res) => {
 });
 
 /** POST /api/nhso-eclaim/auth — get token from NHSO eclaim */
-/** POST /api/nhso-eclaim/browser-login — open Edge at MainWebAction.do, capture session cookie + all API calls */
+/** POST /api/nhso-eclaim/browser-login — open Edge at MainWebAction.do, capture session cookie + auto-navigate to REP */
 app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
   try {
     const { chromium } = await import('playwright');
@@ -2521,27 +2521,30 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
 
     let capturedToken: string | null = null;
     const capturedApiCalls: { url: string; method: string; hasAuth: boolean; hasCookie: boolean }[] = [];
+    const capturedRepUrls: string[] = [];
 
-    // Intercept ALL requests to eclaim.nhso.go.th — capture Bearer tokens AND action URLs
+    // Intercept ALL requests — capture Bearer tokens, session cookies, REP-related URLs
     page.on('request', (request) => {
       const auth = request.headers()['authorization'] || '';
       const cookie = request.headers()['cookie'] || '';
       const url = request.url();
 
       if (auth.startsWith('Bearer ') && auth.length > 20) {
-        const t = auth.replace(/^Bearer\s+/i, '').trim();
-        if (t) capturedToken = t;
+        capturedToken = auth.replace(/^Bearer\s+/i, '').trim() || capturedToken;
       }
 
-      // Capture ALL non-static requests (JS/CSS excluded) from eclaim system
       if (
         url.includes('eclaim.nhso.go.th') &&
         !url.match(/\.(js|css|png|jpg|gif|ico|woff|woff2|ttf|svg)(\?|$)/i)
       ) {
         const hasAuth = auth.startsWith('Bearer ');
-        const hasCookie = cookie.includes('JSESSIONID') || cookie.includes('session');
+        const hasCookie = cookie.toLowerCase().includes('jsessionid') || cookie.toLowerCase().includes('session');
         if (!capturedApiCalls.some((c) => c.url === url)) {
           capturedApiCalls.push({ url, method: request.method(), hasAuth, hasCookie });
+        }
+        // Track REP/STM related action URLs
+        if (/rep|stm|statement|upload|download/i.test(url) && hasCookie) {
+          if (!capturedRepUrls.includes(url)) capturedRepUrls.push(url);
         }
       }
     });
@@ -2549,59 +2552,69 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
     // Open old e-Claim system (MainWebAction.do)
     await page.goto('https://eclaim.nhso.go.th/webComponent/main/MainWebAction.do', { waitUntil: 'domcontentloaded' });
 
-    // Wait up to 5 minutes — user logs in AND ideally clicks on REP download section
+    // Wait up to 5 minutes for user to complete login via Keycloak OAuth
     const deadline = Date.now() + 5 * 60 * 1000;
-    let loggedIn = false;
     let sessionCookie = '';
+    let autoClickedRep = false;
 
     while (Date.now() < deadline) {
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(1200);
 
-      // Check for Bearer token (new system fallback)
-      if (!capturedToken) {
-        try {
-          const stored = await page.evaluate(() => {
-            const all = { ...localStorage, ...sessionStorage } as Record<string, string>;
-            const key = Object.keys(all).find((k) => k.toLowerCase().includes('token') && !k.includes('refresh'));
-            return key ? all[key] : null;
-          });
-          if (stored && stored.length > 20) capturedToken = stored;
-        } catch { /* page may not be ready */ }
-      }
+      // Collect all cookies from the current context
+      let cookies: Awaited<ReturnType<typeof context.cookies>> = [];
+      try { cookies = await context.cookies(); } catch { /* ignore */ }
 
-      // Check session cookies
-      if (!loggedIn) {
+      const jsession = cookies.find((c) => c.name === 'JSESSIONID' || c.name.toUpperCase() === 'JSESSIONID');
+      if (!jsession) continue;
+
+      // We have JSESSIONID — verify we're on the main page (not still on login/Keycloak)
+      const currentUrl = page.url();
+      const onEclaim = currentUrl.includes('eclaim.nhso.go.th');
+      const onKeycloak = currentUrl.includes('iam.nhso.go.th') || currentUrl.includes('LoginAction.do?code=');
+      if (!onEclaim || onKeycloak) continue;
+
+      // Check we're on the main page (not login form)
+      const isLoginForm = await page.evaluate(() =>
+        !!(document.querySelector('input[name="username"]') || document.querySelector('input[type="password"]'))
+      ).catch(() => true);
+      if (isLoginForm) continue;
+
+      // Update session cookie string
+      sessionCookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+
+      // Auto-click REP menu item once
+      if (!autoClickedRep) {
+        autoClickedRep = true;
         try {
-          const cookies = await context.cookies();
-          const jsession = cookies.find((c) => c.name === 'JSESSIONID' || c.name.toLowerCase().includes('session'));
-          if (jsession) {
-            // Verify user is actually logged in by checking page content
-            const isLoginPage = await page.evaluate(() =>
-              !!(document.querySelector('input[name="username"]') || document.querySelector('input[type="password"]'))
-            );
-            if (!isLoginPage) {
-              loggedIn = true;
-              // Collect all cookies as a cookie header string
-              sessionCookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-              // Wait 60 more seconds for user to navigate to REP section
-              const navDeadline = Date.now() + 60 * 1000;
-              while (Date.now() < navDeadline) {
-                await page.waitForTimeout(1000);
-                // Keep updating cookies and API calls
-                const freshCookies = await context.cookies();
-                sessionCookie = freshCookies.map((c) => `${c.name}=${c.value}`).join('; ');
-              }
-              break;
-            }
+          // Try to find and click "REP" link in the left sidebar
+          const repLink = await page.$(
+            'a[href*="rep" i], a[href*="REP"], a:text-matches("REP|ข้อมูลผลการตรวจสอบ", "i")'
+          );
+          if (repLink) {
+            await repLink.click();
+            await page.waitForTimeout(3000);
+            // Update cookies + capture URLs after clicking
+            cookies = await context.cookies();
+            sessionCookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
           }
-        } catch { /* context may not be ready */ }
+        } catch { /* link not found — user can click manually */ }
+
+        // Wait 30 more seconds to capture any AJAX calls after clicking
+        const waitEnd = Date.now() + 30 * 1000;
+        while (Date.now() < waitEnd) {
+          await page.waitForTimeout(1000);
+          try {
+            const freshCookies = await context.cookies();
+            sessionCookie = freshCookies.map((c) => `${c.name}=${c.value}`).join('; ');
+          } catch { /* ignore */ }
+        }
+        break;
       }
     }
 
     await browser.close();
 
-    const hasSession = !!sessionCookie || !!capturedToken;
-    if (!hasSession) {
+    if (!sessionCookie && !capturedToken) {
       return res.status(408).json({ success: false, error: 'หมดเวลา 5 นาที — ไม่พบ session กรุณา login ให้เสร็จก่อนหมดเวลา' });
     }
 
@@ -2609,7 +2622,8 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
       success: true,
       token: capturedToken,
       sessionCookie: sessionCookie || null,
-      discoveredApiCalls: capturedApiCalls.slice(0, 50),
+      discoveredApiCalls: capturedApiCalls.slice(0, 60),
+      repUrls: capturedRepUrls,
     });
   } catch (error) {
     console.error('browser-login error:', error);
@@ -2681,29 +2695,44 @@ app.get('/api/nhso-eclaim/file-list', async (req, res) => {
     if (!token && !req.query.sessionCookie) return res.status(400).json({ success: false, error: 'กรุณาส่ง token หรือ sessionCookie ก่อน' });
 
     const sessionCookie = String(req.query.sessionCookie || '').trim();
+    // repUrl: a discovered URL from browser-login that we know works with this session
+    const repUrl = String(req.query.repUrl || '').trim();
 
     // Build auth headers — Bearer token (new system) or Cookie session (old system)
     const makeAuthHeaders = (extra: Record<string, string> = {}) => {
       if (token) return { Authorization: `Bearer ${token}`, Accept: 'application/json', ...extra };
-      return { Cookie: sessionCookie, Accept: 'application/json, text/html, */*', ...extra };
+      return {
+        Cookie: sessionCookie,
+        Accept: 'application/json, text/html, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        Referer: 'https://eclaim.nhso.go.th/webComponent/main/MainWebAction.do',
+        ...extra,
+      };
     };
 
-    // URL candidates: custom URL first, then new-system URLs, then old-system (Java servlet) URLs
+    // URL candidates: repUrl from browser first, then custom URL, then known patterns
     const urlsToTry = [
+      repUrl, // discovered from browser session — most likely to work
       String(cfg.fileListUrl),
       'https://eclaim.nhso.go.th/Client/ec2/backend/api/center/m-uploads/search',
       'https://eclaim.nhso.go.th/Client/backend/api/center/m-uploads/search',
-      // Old Java system candidates — period as repPeriod param
-      `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=searchRep&repPeriod=${period}&type=${fileType}`,
-      `https://eclaim.nhso.go.th/webComponent/statement/StatementAction.do?method=search&period=${period}`,
+      // Old Java system REP action URLs — try multiple method names
+      `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=search&period=${period}&type=${fileType}`,
+      `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=list&period=${period}`,
+      `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do`,
     ].filter((u, i, arr) => u && arr.indexOf(u) === i);
 
     const debugLog: { url: string; status: number; body: unknown }[] = [];
 
     for (const baseUrl of urlsToTry) {
       const searchUrl = new URL(baseUrl);
-      if (period) searchUrl.searchParams.set('period', period);
-      if (fileType && fileType !== 'ALL') searchUrl.searchParams.set('type', fileType);
+      // Only add params if not already present in the URL
+      if (period && !searchUrl.searchParams.has('period') && !searchUrl.searchParams.has('repPeriod')) {
+        searchUrl.searchParams.set('period', period);
+      }
+      if (fileType && fileType !== 'ALL' && !searchUrl.searchParams.has('type') && !searchUrl.searchParams.has('fileType')) {
+        searchUrl.searchParams.set('type', fileType);
+      }
 
       try {
         const listRes = await fetch(searchUrl.toString(), {

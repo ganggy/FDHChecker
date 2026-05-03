@@ -2502,7 +2502,7 @@ app.post('/api/config/nhso-eclaim-settings', async (req, res) => {
 });
 
 /** POST /api/nhso-eclaim/auth — get token from NHSO eclaim */
-/** POST /api/nhso-eclaim/browser-login — open Edge, user logs in, capture Bearer token + intercept API calls */
+/** POST /api/nhso-eclaim/browser-login — open Edge at MainWebAction.do, capture session cookie + all API calls */
 app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
   try {
     const { chromium } = await import('playwright');
@@ -2520,45 +2520,44 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
     const page = await context.newPage();
 
     let capturedToken: string | null = null;
-    const capturedApiCalls: { url: string; method: string; hasAuth: boolean }[] = [];
-    const capturedApiResponses: { url: string; statusCode: number; body: unknown }[] = [];
+    const capturedApiCalls: { url: string; method: string; hasAuth: boolean; hasCookie: boolean }[] = [];
 
-    // Intercept all requests to catch Bearer token AND log API calls to eclaim backend
+    // Intercept ALL requests to eclaim.nhso.go.th — capture Bearer tokens AND action URLs
     page.on('request', (request) => {
       const auth = request.headers()['authorization'] || '';
+      const cookie = request.headers()['cookie'] || '';
       const url = request.url();
+
       if (auth.startsWith('Bearer ') && auth.length > 20) {
         const t = auth.replace(/^Bearer\s+/i, '').trim();
         if (t) capturedToken = t;
       }
-      if (url.includes('eclaim.nhso.go.th') && (url.includes('/api/') || url.includes('/backend/'))) {
+
+      // Capture ALL non-static requests (JS/CSS excluded) from eclaim system
+      if (
+        url.includes('eclaim.nhso.go.th') &&
+        !url.match(/\.(js|css|png|jpg|gif|ico|woff|woff2|ttf|svg)(\?|$)/i)
+      ) {
         const hasAuth = auth.startsWith('Bearer ');
+        const hasCookie = cookie.includes('JSESSIONID') || cookie.includes('session');
         if (!capturedApiCalls.some((c) => c.url === url)) {
-          capturedApiCalls.push({ url, method: request.method(), hasAuth });
+          capturedApiCalls.push({ url, method: request.method(), hasAuth, hasCookie });
         }
       }
     });
 
-    // Intercept responses for file-list and upload-related APIs
-    page.on('response', async (response) => {
-      const url = response.url();
-      if (
-        url.includes('eclaim.nhso.go.th') &&
-        (url.includes('upload') || url.includes('download') || url.includes('search') || url.includes('m-upload'))
-      ) {
-        try {
-          const body = await response.json();
-          capturedApiResponses.push({ url, statusCode: response.status(), body });
-        } catch { /* not JSON */ }
-      }
-    });
+    // Open old e-Claim system (MainWebAction.do)
+    await page.goto('https://eclaim.nhso.go.th/webComponent/main/MainWebAction.do', { waitUntil: 'domcontentloaded' });
 
-    await page.goto('https://eclaim.nhso.go.th/Client/', { waitUntil: 'domcontentloaded' });
+    // Wait up to 5 minutes — user logs in AND ideally clicks on REP download section
+    const deadline = Date.now() + 5 * 60 * 1000;
+    let loggedIn = false;
+    let sessionCookie = '';
 
-    // Wait up to 3 minutes for user to login and a Bearer token to be captured
-    const deadline = Date.now() + 3 * 60 * 1000;
-    while (!capturedToken && Date.now() < deadline) {
-      await page.waitForTimeout(800);
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(1000);
+
+      // Check for Bearer token (new system fallback)
       if (!capturedToken) {
         try {
           const stored = await page.evaluate(() => {
@@ -2569,23 +2568,48 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
           if (stored && stored.length > 20) capturedToken = stored;
         } catch { /* page may not be ready */ }
       }
-    }
 
-    // After login, wait a bit more to capture file-list API calls if user navigates around
-    if (capturedToken) {
-      await page.waitForTimeout(3000);
+      // Check session cookies
+      if (!loggedIn) {
+        try {
+          const cookies = await context.cookies();
+          const jsession = cookies.find((c) => c.name === 'JSESSIONID' || c.name.toLowerCase().includes('session'));
+          if (jsession) {
+            // Verify user is actually logged in by checking page content
+            const isLoginPage = await page.evaluate(() =>
+              !!(document.querySelector('input[name="username"]') || document.querySelector('input[type="password"]'))
+            );
+            if (!isLoginPage) {
+              loggedIn = true;
+              // Collect all cookies as a cookie header string
+              sessionCookie = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+              // Wait 60 more seconds for user to navigate to REP section
+              const navDeadline = Date.now() + 60 * 1000;
+              while (Date.now() < navDeadline) {
+                await page.waitForTimeout(1000);
+                // Keep updating cookies and API calls
+                const freshCookies = await context.cookies();
+                sessionCookie = freshCookies.map((c) => `${c.name}=${c.value}`).join('; ');
+              }
+              break;
+            }
+          }
+        } catch { /* context may not be ready */ }
+      }
     }
 
     await browser.close();
 
-    if (!capturedToken) {
-      return res.status(408).json({ success: false, error: 'หมดเวลา 3 นาที — ไม่พบ token กรุณา login ให้เสร็จก่อนหมดเวลา' });
+    const hasSession = !!sessionCookie || !!capturedToken;
+    if (!hasSession) {
+      return res.status(408).json({ success: false, error: 'หมดเวลา 5 นาที — ไม่พบ session กรุณา login ให้เสร็จก่อนหมดเวลา' });
     }
+
     return res.json({
       success: true,
       token: capturedToken,
-      discoveredApiCalls: capturedApiCalls.slice(0, 30),
-      discoveredApiResponses: capturedApiResponses.slice(0, 5),
+      sessionCookie: sessionCookie || null,
+      discoveredApiCalls: capturedApiCalls.slice(0, 50),
     });
   } catch (error) {
     console.error('browser-login error:', error);
@@ -2654,13 +2678,24 @@ app.get('/api/nhso-eclaim/file-list', async (req, res) => {
     const fileType = String(req.query.fileType || '').trim().toUpperCase();
     const token = String(req.query.token || '').trim();
 
-    if (!token) return res.status(400).json({ success: false, error: 'กรุณาส่ง token ก่อน' });
+    if (!token && !req.query.sessionCookie) return res.status(400).json({ success: false, error: 'กรุณาส่ง token หรือ sessionCookie ก่อน' });
 
-    // Try multiple URL patterns (custom stored URL first, then known variants)
+    const sessionCookie = String(req.query.sessionCookie || '').trim();
+
+    // Build auth headers — Bearer token (new system) or Cookie session (old system)
+    const makeAuthHeaders = (extra: Record<string, string> = {}) => {
+      if (token) return { Authorization: `Bearer ${token}`, Accept: 'application/json', ...extra };
+      return { Cookie: sessionCookie, Accept: 'application/json, text/html, */*', ...extra };
+    };
+
+    // URL candidates: custom URL first, then new-system URLs, then old-system (Java servlet) URLs
     const urlsToTry = [
       String(cfg.fileListUrl),
       'https://eclaim.nhso.go.th/Client/ec2/backend/api/center/m-uploads/search',
       'https://eclaim.nhso.go.th/Client/backend/api/center/m-uploads/search',
+      // Old Java system candidates — period as repPeriod param
+      `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=searchRep&repPeriod=${period}&type=${fileType}`,
+      `https://eclaim.nhso.go.th/webComponent/statement/StatementAction.do?method=search&period=${period}`,
     ].filter((u, i, arr) => u && arr.indexOf(u) === i);
 
     const debugLog: { url: string; status: number; body: unknown }[] = [];
@@ -2672,7 +2707,7 @@ app.get('/api/nhso-eclaim/file-list', async (req, res) => {
 
       try {
         const listRes = await fetch(searchUrl.toString(), {
-          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+          headers: makeAuthHeaders(),
         });
         const statusCode = listRes.status;
         const text = await listRes.text();
@@ -2704,22 +2739,24 @@ app.get('/api/nhso-eclaim/file-list', async (req, res) => {
 app.post('/api/nhso-eclaim/download', async (req, res) => {
   try {
     const cfg = await getResolvedNhsoEclaimConfig();
-    const { token, filename, period, hcode, downloadPayload } = req.body as {
-      token: string; filename?: string; period?: string; hcode?: string;
-      downloadPayload?: Record<string, unknown>;
+    const { token, sessionCookie, filename, period, hcode, downloadPayload, downloadUrl } = req.body as {
+      token?: string; sessionCookie?: string; filename?: string; period?: string; hcode?: string;
+      downloadPayload?: Record<string, unknown>; downloadUrl?: string;
     };
 
-    if (!token) return res.status(400).json({ success: false, error: 'กรุณาส่ง token' });
+    if (!token && !sessionCookie) return res.status(400).json({ success: false, error: 'กรุณาส่ง token หรือ sessionCookie' });
 
+    const targetUrl = downloadUrl || String(cfg.downloadUrl);
     const body = downloadPayload || { filename, period, hcode };
-    const dlRes = await fetch(String(cfg.downloadUrl), {
+
+    const dlHeaders: Record<string, string> = token
+      ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/octet-stream, application/json, */*' }
+      : { Cookie: sessionCookie!, Accept: 'application/octet-stream, */*' };
+
+    const dlRes = await fetch(targetUrl, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/octet-stream, application/json, */*',
-      },
-      body: JSON.stringify(body),
+      headers: dlHeaders,
+      body: token ? JSON.stringify(body) : new URLSearchParams(body as Record<string, string>).toString(),
     });
 
     if (!dlRes.ok) {

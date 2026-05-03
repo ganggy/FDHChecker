@@ -298,6 +298,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimToken, setEclaimToken] = useState('');
   const [eclaimTokenMode, setEclaimTokenMode] = useState(true); // default: token mode
   const [eclaimManualToken, setEclaimManualToken] = useState('');
+  const [eclaimSessionCookie, setEclaimSessionCookie] = useState(''); // Java session cookie from old system
   const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
   const [eclaimLoading, setEclaimLoading] = useState(false);
   const [eclaimError, setEclaimError] = useState<string | null>(null);
@@ -305,7 +306,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimSelected, setEclaimSelected] = useState<Set<string>>(new Set());
   const [eclaimDownloading, setEclaimDownloading] = useState(false);
   const [eclaimDebugLog, setEclaimDebugLog] = useState<{ url: string; status: number; body: unknown }[]>([]);
-  const [eclaimDiscoveredApis, setEclaimDiscoveredApis] = useState<{ url: string; method: string; hasAuth: boolean }[]>([]);
+  const [eclaimDiscoveredApis, setEclaimDiscoveredApis] = useState<{ url: string; method: string; hasAuth: boolean; hasCookie?: boolean }[]>([]);
   const [eclaimShowDebug, setEclaimShowDebug] = useState(false);
 
   /** Returns all YYYYMM periods between two ISO date strings (inclusive) */
@@ -415,13 +416,18 @@ export const RepStmImportPage: React.FC = () => {
     try {
       const res = await fetch('/api/nhso-eclaim/browser-login', { method: 'POST' });
       const json = await res.json() as {
-        success: boolean; token?: string; error?: string;
-        discoveredApiCalls?: { url: string; method: string; hasAuth: boolean }[];
-        discoveredApiResponses?: { url: string; statusCode: number; body: unknown }[];
+        success: boolean; token?: string; sessionCookie?: string; error?: string;
+        discoveredApiCalls?: { url: string; method: string; hasAuth: boolean; hasCookie: boolean }[];
       };
-      if (!json.success || !json.token) throw new Error(json.error || 'ไม่ได้รับ token');
-      setEclaimManualToken(json.token);
-      setEclaimToken(json.token);
+      if (!json.success) throw new Error(json.error || 'ไม่ได้รับ session');
+      if (json.token) {
+        setEclaimManualToken(json.token);
+        setEclaimToken(json.token);
+      }
+      if (json.sessionCookie) {
+        setEclaimSessionCookie(json.sessionCookie);
+      }
+      if (!json.token && !json.sessionCookie) throw new Error('ไม่พบ token หรือ session cookie');
       if (json.discoveredApiCalls?.length) {
         setEclaimDiscoveredApis(json.discoveredApiCalls);
       }
@@ -444,22 +450,23 @@ export const RepStmImportPage: React.FC = () => {
 
     try {
       setEclaimLoading(true);
-      let token: string;
+      let token = '';
+      let sessionCookie = '';
 
       if (eclaimTokenMode) {
-        // Use manually pasted Bearer token from browser session
+        // Use session from browser-login (cookie or Bearer token)
         token = eclaimManualToken.trim().replace(/^Bearer\s+/i, '');
-        if (!token) {
-          setEclaimError('กรุณาวาง Bearer token จาก browser');
+        sessionCookie = eclaimSessionCookie.trim();
+        if (!token && !sessionCookie) {
+          setEclaimError('กรุณากด "เปิด Edge ให้ Login" ก่อน');
           return;
         }
-        setEclaimToken(token);
+        if (token) setEclaimToken(token);
       } else {
         if (!eclaimUser.trim() || !eclaimPass.trim()) {
           setEclaimError('กรุณากรอก username / password NHSO eclaim');
           return;
         }
-        // 1) Auth via Keycloak ROPC
         const authRes = await fetch('/api/nhso-eclaim/auth', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -469,8 +476,6 @@ export const RepStmImportPage: React.FC = () => {
         if (!authJson.success || !authJson.token) throw new Error(authJson.error || 'ขอ token ไม่สำเร็จ');
         token = authJson.token;
         setEclaimToken(token);
-
-        // Save credentials for next time
         await fetch('/api/config/nhso-eclaim-settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -478,13 +483,15 @@ export const RepStmImportPage: React.FC = () => {
         });
       }
 
-      // 2) File list — fetch all periods in range and merge results
+      // File list — fetch all periods, pass token or sessionCookie
       const allFiles: Record<string, unknown>[] = [];
       const seenKeys = new Set<string>();
       const allDebugLog: { url: string; status: number; body: unknown }[] = [];
       for (const period of eclaimPeriods) {
-        const listUrl = `/api/nhso-eclaim/file-list?token=${encodeURIComponent(token)}&period=${encodeURIComponent(period)}&fileType=${eclaimFileType}`;
-        const listRes = await fetch(listUrl);
+        const params = new URLSearchParams({ period, fileType: eclaimFileType });
+        if (token) params.set('token', token);
+        if (sessionCookie) params.set('sessionCookie', sessionCookie);
+        const listRes = await fetch(`/api/nhso-eclaim/file-list?${params.toString()}`);
         const listJson = await listRes.json() as {
           success: boolean; data?: unknown[]; error?: string;
           debug?: { url: string; status: number; body: unknown }[];
@@ -503,7 +510,7 @@ export const RepStmImportPage: React.FC = () => {
       setEclaimFiles(allFiles);
       if (allFiles.length === 0) {
         setEclaimError(`ไม่พบไฟล์สำหรับงวด ${eclaimPeriods.join(', ')} ประเภท ${eclaimFileType}`);
-        setEclaimShowDebug(true); // auto-expand debug when no files found
+        setEclaimShowDebug(true);
       }
     } catch (err) {
       setEclaimError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
@@ -870,20 +877,20 @@ export const RepStmImportPage: React.FC = () => {
               <div style={{ marginBottom: 12 }}>
                 {/* Step-by-step guide card */}
                 <div style={{ background: 'var(--bg-secondary,#f0f4ff)', border: '1px solid var(--border-color,#c7d2fe)', borderRadius: 8, padding: 12, marginBottom: 10, fontSize: 12 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 6 }}>📋 วิธีได้ Token (ทำ 1 ครั้ง)</div>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>📋 วิธี Login (ทำ 1 ครั้ง)</div>
 
-                  {/* Alert: must use /Client/ not MainWebAction.do */}
-                  <div style={{ background:'#fef3c7', border:'1px solid #f59e0b', borderRadius:6, padding:'6px 10px', marginBottom:8, color:'#92400e' }}>
-                    ⚠️ ต้องเปิดระบบใหม่ที่ <strong>eclaim.nhso.go.th/Client/</strong> เท่านั้น<br/>
-                    (ไม่ใช่ MainWebAction.do ซึ่งเป็นระบบเก่า ไม่มี Bearer token)
+                  <div style={{ background:'#dcfce7', border:'1px solid #16a34a', borderRadius:6, padding:'6px 10px', marginBottom:8, color:'#166534' }}>
+                    ✅ ใช้ระบบเก่า <strong>eclaim.nhso.go.th/webComponent/main/MainWebAction.do</strong><br/>
+                    (เข้าสู่ระบบด้วย username/password เหมือนใช้งานปกติ)
                   </div>
 
                   <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
                     <li>
-                      กดปุ่ม <strong>🌐 เปิด Edge ให้ Login</strong> ด้านล่าง — ระบบจะเปิด Edge ไปที่ eclaim.nhso.go.th/Client/ ให้อัตโนมัติ
+                      กดปุ่ม <strong>🌐 เปิด Edge ให้ Login</strong> — ระบบจะเปิด Edge ไปที่ eclaim.nhso.go.th ให้อัตโนมัติ
                     </li>
-                    <li>Login ให้เสร็จในหน้าต่างที่เปิดขึ้น (ภายใน 3 นาที)</li>
-                    <li>ระบบจะดักจับ token และ Browser จะปิดตัวเองอัตโนมัติ</li>
+                    <li>Login ด้วย username/password ปกติ (ภายใน 5 นาที)</li>
+                    <li>หลัง login สำเร็จ ให้คลิก <strong>"ข้อมูลผลการตรวจสอบ REP"</strong> ในเมนูซ้าย เพื่อให้ระบบจดจำ URL</li>
+                    <li>รอ ~60 วินาที แล้ว Browser จะปิดตัวเองอัตโนมัติ</li>
                   </ol>
 
                   <div style={{ marginTop: 10 }}>
@@ -894,30 +901,34 @@ export const RepStmImportPage: React.FC = () => {
                       style={{ width: '100%' }}
                     >
                       {eclaimBrowserLoading
-                        ? '⏳ รอ Login... (Browser เปิดอยู่ — กรุณา Login ให้เสร็จ)'
-                        : '🌐 เปิด Edge ให้ Login และดึง Token อัตโนมัติ'}
+                        ? '⏳ รอ Login... (Browser เปิดอยู่ — Login แล้วคลิก REP ในเมนู)'
+                        : '🌐 เปิด Edge ให้ Login (eclaim.nhso.go.th)'}
                     </button>
-                    {eclaimManualToken && !eclaimBrowserLoading && (
+                    {(eclaimSessionCookie || eclaimManualToken) && !eclaimBrowserLoading && (
                       <div style={{ marginTop: 6, color:'#16a34a', fontSize: 12 }}>
-                        ✅ ได้รับ Token แล้ว — กดปุ่ม "ค้นหาไฟล์" ได้เลย
+                        ✅ {eclaimSessionCookie ? 'ได้รับ Session Cookie แล้ว' : 'ได้รับ Token แล้ว'} — กดปุ่ม "ค้นหาไฟล์" ได้เลย
                       </div>
                     )}
                   </div>
 
                   <div style={{ marginTop: 8, color:'var(--text-muted)', fontSize: 11 }}>
-                    หรือวาง token เองใน textarea ด้านล่าง (F12 → Network → Request Headers → Authorization)
+                    (ระบบจะดักจับ session cookie อัตโนมัติหลัง login)
                   </div>
                 </div>
 
-                <label className="form-label">วาง Token ที่นี่</label>
-                <textarea
-                  className="form-control"
-                  rows={3}
-                  style={{ fontFamily: 'monospace', fontSize: 11, resize: 'vertical' }}
-                  value={eclaimManualToken}
-                  onChange={(e) => setEclaimManualToken(e.target.value)}
-                  placeholder="eyJhbGciOiJSUzI1NiIsI... หรือ Bearer eyJ..."
-                />
+                {eclaimSessionCookie && (
+                  <div style={{ marginBottom: 8 }}>
+                    <label className="form-label" style={{ fontSize: 11 }}>Session Cookie (ดักจับอัตโนมัติ)</label>
+                    <textarea
+                      className="form-control"
+                      rows={2}
+                      style={{ fontFamily: 'monospace', fontSize: 10, resize: 'vertical', color: '#16a34a' }}
+                      value={eclaimSessionCookie}
+                      onChange={(e) => setEclaimSessionCookie(e.target.value)}
+                      placeholder="JSESSIONID=..."
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
@@ -1000,8 +1011,9 @@ export const RepStmImportPage: React.FC = () => {
                         {eclaimDiscoveredApis.map((a, i) => (
                           <div key={i} style={{ marginBottom: 2 }}>
                             <span style={{ color: '#89b4fa' }}>{a.method}</span>{' '}
-                            <span style={{ color: a.hasAuth ? '#a6e3a1' : '#f38ba8' }}>{a.url}</span>
+                            <span style={{ color: (a.hasAuth || a.hasCookie) ? '#a6e3a1' : '#f38ba8' }}>{a.url}</span>
                             {a.hasAuth && <span style={{ color: '#fab387' }}> [Bearer ✓]</span>}
+                            {a.hasCookie && <span style={{ color: '#fab387' }}> [Cookie ✓]</span>}
                           </div>
                         ))}
                       </div>

@@ -59,12 +59,15 @@ const ISSUE_LABELS: Record<string, string> = {
 };
 
 const isCritical = (code: string) => code.startsWith('ER1');
+const extractIssueCode = (issue: string) => issue.split(':')[0]?.trim() || issue.trim();
 
 interface VisitRow {
   vn: string;
   hn: string;
   patient_name?: string;
+  patientName?: string;
   vstdate?: string;
+  serviceDate?: string;
   maininscl?: string;
   issues?: string[];
   status?: string;
@@ -90,20 +93,21 @@ function buildFileSummary(visits: VisitRow[]): FileSummary[] {
   for (const v of visits) {
     const issues = v.issues || [];
     for (const issue of issues) {
-      const files = ISSUE_FILE_MAP[issue];
+      const issueCode = extractIssueCode(issue);
+      const files = ISSUE_FILE_MAP[issueCode];
       if (!files) continue;
       for (const f of files) {
         if (!fileMap[f]) continue;
         const entry = {
           vn: v.vn,
           hn: v.hn,
-          patient_name: v.patient_name,
-          vstdate: v.vstdate,
-          issue,
-          isCritical: isCritical(issue),
+          patient_name: v.patient_name || v.patientName,
+          vstdate: v.vstdate || v.serviceDate,
+          issue: issueCode,
+          isCritical: isCritical(issueCode),
         };
         fileMap[f].visits.push(entry);
-        if (isCritical(issue)) {
+        if (isCritical(issueCode)) {
           fileMap[f].critical += 1;
         } else {
           fileMap[f].warning += 1;
@@ -141,7 +145,7 @@ export default function PreSubmitValidatorPage() {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
       const data: VisitRow[] = Array.isArray(json) ? json : json.data || [];
-      setVisits(data);
+      setVisits(data.filter((item) => item.isBillable !== false));
       setLoaded(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
@@ -151,26 +155,36 @@ export default function PreSubmitValidatorPage() {
   };
 
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <h1 className="page-title">Pre-submit Validator 16 แฟ้ม</h1>
-        <p style={{ color: '#6b7280', marginTop: 4 }}>ตรวจสอบความสมบูรณ์ของข้อมูลก่อนส่งเบิก สปสช.</p>
+    <div className="page-container workflow-page">
+      <div className="workflow-hero">
+        <div className="workflow-hero__content">
+          <div>
+            <h1 className="page-title workflow-hero__title">Pre-submit Validator 16 แฟ้ม</h1>
+            <p className="workflow-hero__description">ตรวจสอบความสมบูรณ์ของข้อมูลก่อนส่งเบิก สปสช. แยกให้ชัดระหว่างรายการที่ห้ามส่งกับรายการที่ควรตรวจสอบเพิ่มเติม</p>
+          </div>
+          <div className="workflow-hero__meta">
+            <span className="workflow-badge workflow-badge--accent">พร้อมส่งออก 16 แฟ้ม</span>
+            <span className="workflow-badge">ตรวจย้อนหลังได้ตามช่วงวันที่</span>
+          </div>
+        </div>
       </div>
 
-      <div className="card">
+      <div className="card workflow-panel">
         <div className="card-body">
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div className="form-group" style={{ margin: 0 }}>
+          <div className="workflow-filter-grid">
+            <div className="form-group">
               <label>วันที่เริ่มต้น</label>
               <input type="date" className="form-control" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
+            <div className="form-group">
               <label>วันที่สิ้นสุด</label>
               <input type="date" className="form-control" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
-            <button className="btn btn-primary" onClick={handleLoad} disabled={loading}>
-              {loading ? 'กำลังโหลด...' : '🔍 ตรวจสอบ'}
-            </button>
+            <div className="workflow-filter-actions">
+              <button className="btn btn-primary" onClick={handleLoad} disabled={loading}>
+                {loading ? 'กำลังโหลด...' : '🔍 ตรวจสอบ'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -183,51 +197,41 @@ export default function PreSubmitValidatorPage() {
 
       {loaded && (
         <>
-          {/* Summary Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 16 }}>
-            <div className="card" style={{ borderLeft: '4px solid #6366f1' }}>
-              <div className="card-body" style={{ textAlign: 'center', padding: 16 }}>
-                <div style={{ fontSize: 28, fontWeight: 700, color: '#6366f1' }}>{totalVisits}</div>
-                <div style={{ color: '#6b7280', fontSize: 13 }}>Visit ทั้งหมด</div>
-              </div>
+          <div className="workflow-summary-grid">
+            <div className="workflow-stat" style={{ ['--stat-color' as string]: '#6366f1' }}>
+              <div className="workflow-stat__value">{totalVisits}</div>
+              <div className="workflow-stat__label">Visit ทั้งหมด</div>
             </div>
-            <div className="card" style={{ borderLeft: '4px solid #10b981' }}>
-              <div className="card-body" style={{ textAlign: 'center', padding: 16 }}>
-                <div style={{ fontSize: 28, fontWeight: 700, color: '#10b981' }}>{ready}</div>
-                <div style={{ color: '#6b7280', fontSize: 13 }}>ผ่านการตรวจ / พร้อมส่ง</div>
-              </div>
+            <div className="workflow-stat" style={{ ['--stat-color' as string]: '#10b981' }}>
+              <div className="workflow-stat__value">{ready}</div>
+              <div className="workflow-stat__label">ผ่านการตรวจ / พร้อมส่ง</div>
             </div>
-            <div className="card" style={{ borderLeft: '4px solid #ef4444' }}>
-              <div className="card-body" style={{ textAlign: 'center', padding: 16 }}>
-                <div style={{ fontSize: 28, fontWeight: 700, color: '#ef4444' }}>{blocking}</div>
-                <div style={{ color: '#6b7280', fontSize: 13 }}>ห้ามส่ง (ER1xx)</div>
-              </div>
+            <div className="workflow-stat" style={{ ['--stat-color' as string]: '#ef4444' }}>
+              <div className="workflow-stat__value">{blocking}</div>
+              <div className="workflow-stat__label">ห้ามส่ง (ER1xx)</div>
             </div>
-            <div className="card" style={{ borderLeft: '4px solid #f59e0b' }}>
-              <div className="card-body" style={{ textAlign: 'center', padding: 16 }}>
-                <div style={{ fontSize: 28, fontWeight: 700, color: '#f59e0b' }}>{withIssues - blocking}</div>
-                <div style={{ color: '#6b7280', fontSize: 13 }}>ควรตรวจสอบ (ER2xx)</div>
-              </div>
+            <div className="workflow-stat" style={{ ['--stat-color' as string]: '#f59e0b' }}>
+              <div className="workflow-stat__value">{withIssues - blocking}</div>
+              <div className="workflow-stat__label">ควรตรวจสอบ (ER2xx)</div>
             </div>
           </div>
 
-          {/* Per-file breakdown */}
           {fileSummaries.length === 0 ? (
-            <div className="alert alert-success" style={{ marginTop: 16 }}>
+            <div className="workflow-empty">
               ✅ ไม่พบปัญหาในช่วงวันที่เลือก — ข้อมูลผ่านการตรวจสอบทั้งหมด
             </div>
           ) : (
-            <div style={{ marginTop: 16 }}>
-              <h3 style={{ marginBottom: 12 }}>รายละเอียดปัญหาตามแฟ้ม</h3>
+            <div>
+              <h3 className="workflow-section-title">รายละเอียดปัญหาตามแฟ้ม</h3>
               {fileSummaries.map((f) => (
-                <div key={f.fileCode} className="card" style={{ marginBottom: 10, borderLeft: `4px solid ${f.critical > 0 ? '#ef4444' : '#f59e0b'}` }}>
-                  <div
-                    className="card-header"
-                    style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                <div key={f.fileCode} className="workflow-accordion-card">
+                  <button
+                    type="button"
+                    className="workflow-accordion-header"
                     onClick={() => setExpandedFile(expandedFile === f.fileCode ? null : f.fileCode)}
                   >
-                    <span style={{ fontWeight: 600 }}>{f.label}</span>
-                    <span style={{ display: 'flex', gap: 8 }}>
+                    <span className="workflow-accordion-title">{f.label}</span>
+                    <span className="workflow-accordion-meta">
                       {f.critical > 0 && (
                         <span className="badge badge-danger">{f.critical} ห้ามส่ง</span>
                       )}
@@ -236,7 +240,7 @@ export default function PreSubmitValidatorPage() {
                       )}
                       <span style={{ color: '#9ca3af' }}>{expandedFile === f.fileCode ? '▲' : '▼'}</span>
                     </span>
-                  </div>
+                  </button>
 
                   {expandedFile === f.fileCode && (
                     <div className="card-body" style={{ padding: 0 }}>

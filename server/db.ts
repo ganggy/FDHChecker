@@ -2878,7 +2878,7 @@ export const getRejectTrackingItems = async (filters?: {
   const connection = await getRepstmConnection();
   try {
     await connection.query(CLAIM_REJECT_NOTE_TABLE_SQL);
-    const whereClauses: string[] = ["COALESCE(rd.errorcode, '') <> ''"];
+    const whereClauses: string[] = ["TRIM(COALESCE(rd.errorcode, '')) NOT IN ('', '-')"];
     const params: unknown[] = [];
 
     if (filters?.startDate) {

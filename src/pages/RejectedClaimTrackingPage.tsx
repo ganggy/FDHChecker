@@ -111,6 +111,8 @@ export default function RejectedClaimTrackingPage() {
         }),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const result = await resp.json() as { success?: boolean; error?: string };
+      if (!result.success) throw new Error(result.error || 'บันทึกไม่สำเร็จ');
       setItems((prev) =>
         prev.map((i) =>
           i.rep_data_id === editItem.rep_data_id
@@ -120,7 +122,7 @@ export default function RejectedClaimTrackingPage() {
       );
       setEditItem(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
+      setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
     } finally {
       setSaving(false);
     }
@@ -135,25 +137,32 @@ export default function RejectedClaimTrackingPage() {
   const funds = Array.from(new Set(items.map((i) => i.maininscl || '').filter(Boolean))).sort();
 
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <h1 className="page-title">Rejected Claim Tracking</h1>
-        <p style={{ color: '#6b7280', marginTop: 4 }}>ติดตามรายการเคลมที่ถูกตีกลับจาก สปสช. และบันทึกการดำเนินการ</p>
+    <div className="page-container workflow-page">
+      <div className="workflow-hero">
+        <div className="workflow-hero__content">
+          <div>
+            <h1 className="page-title workflow-hero__title">Rejected Claim Tracking</h1>
+            <p className="workflow-hero__description">ติดตามรายการเคลมที่ถูกตีกลับจาก สปสช. แยกตามสถานะการแก้ไข สาเหตุ และผู้รับผิดชอบ เพื่อให้การแก้ไขและส่งซ้ำตามได้ง่ายขึ้น</p>
+          </div>
+          <div className="workflow-hero__meta">
+            <span className="workflow-badge workflow-badge--accent">จัดการ reject รายเคส</span>
+            <span className="workflow-badge">{items.length} รายการในผลค้นหา</span>
+          </div>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="card">
+      <div className="card workflow-panel">
         <div className="card-body">
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div className="form-group" style={{ margin: 0 }}>
+          <div className="workflow-filter-grid">
+            <div className="form-group">
               <label>วันที่เริ่มต้น</label>
               <input type="date" className="form-control" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
+            <div className="form-group">
               <label>วันที่สิ้นสุด</label>
               <input type="date" className="form-control" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
+            <div className="form-group">
               <label>สถานะการแก้ไข</label>
               <select className="form-control" value={resolveFilter} onChange={(e) => setResolveFilter(e.target.value)}>
                 <option value="all">ทั้งหมด</option>
@@ -162,7 +171,7 @@ export default function RejectedClaimTrackingPage() {
                 ))}
               </select>
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
+            <div className="form-group">
               <label>รหัสข้อผิดพลาด</label>
               <input
                 type="text"
@@ -170,17 +179,16 @@ export default function RejectedClaimTrackingPage() {
                 placeholder="เช่น ER101"
                 value={errorcodeFilter}
                 onChange={(e) => setErrorcodeFilter(e.target.value)}
-                style={{ width: 110 }}
               />
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
+            <div className="form-group">
               <label>กองทุน</label>
               <select className="form-control" value={fundFilter} onChange={(e) => setFundFilter(e.target.value)}>
                 <option value="all">ทั้งหมด</option>
                 {funds.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
             </div>
-            <div className="form-group" style={{ margin: 0, flex: 1 }}>
+            <div className="form-group">
               <label>ค้นหา</label>
               <input
                 type="text"
@@ -190,45 +198,41 @@ export default function RejectedClaimTrackingPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <button className="btn btn-primary" onClick={loadItems} disabled={loading}>
-              {loading ? 'กำลังโหลด...' : '🔍 ค้นหา'}
-            </button>
+            <div className="workflow-filter-actions">
+              <button className="btn btn-primary" onClick={loadItems} disabled={loading}>
+                {loading ? 'กำลังโหลด...' : '🔍 ค้นหา'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {error && <div className="alert alert-danger" style={{ marginTop: 12 }}>{error}</div>}
 
-      {/* Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginTop: 16 }}>
-        <div className="card" style={{ borderLeft: '4px solid #ef4444' }}>
-          <div className="card-body" style={{ textAlign: 'center', padding: 16 }}>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#ef4444' }}>{openCount}</div>
-            <div style={{ color: '#6b7280', fontSize: 13 }}>รอดำเนินการ</div>
-          </div>
+      <div className="workflow-summary-grid">
+        <div className="workflow-stat" style={{ ['--stat-color' as string]: '#ef4444' }}>
+          <div className="workflow-stat__value">{openCount}</div>
+          <div className="workflow-stat__label">รอดำเนินการ</div>
         </div>
-        <div className="card" style={{ borderLeft: '4px solid #f59e0b' }}>
-          <div className="card-body" style={{ textAlign: 'center', padding: 16 }}>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#f59e0b' }}>{inProgressCount}</div>
-            <div style={{ color: '#6b7280', fontSize: 13 }}>กำลังดำเนินการ</div>
-          </div>
+        <div className="workflow-stat" style={{ ['--stat-color' as string]: '#f59e0b' }}>
+          <div className="workflow-stat__value">{inProgressCount}</div>
+          <div className="workflow-stat__label">กำลังดำเนินการ</div>
         </div>
-        <div className="card" style={{ borderLeft: '4px solid #10b981' }}>
-          <div className="card-body" style={{ textAlign: 'center', padding: 16 }}>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#10b981' }}>{resolvedCount}</div>
-            <div style={{ color: '#6b7280', fontSize: 13 }}>แก้ไขแล้ว</div>
-          </div>
+        <div className="workflow-stat" style={{ ['--stat-color' as string]: '#10b981' }}>
+          <div className="workflow-stat__value">{resolvedCount}</div>
+          <div className="workflow-stat__label">แก้ไขแล้ว</div>
         </div>
-        <div className="card" style={{ borderLeft: '4px solid #6366f1' }}>
-          <div className="card-body" style={{ textAlign: 'center', padding: 16 }}>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#6366f1' }}>{items.length}</div>
-            <div style={{ color: '#6b7280', fontSize: 13 }}>รายการทั้งหมด</div>
-          </div>
+        <div className="workflow-stat" style={{ ['--stat-color' as string]: '#6366f1' }}>
+          <div className="workflow-stat__value">{items.length}</div>
+          <div className="workflow-stat__label">รายการทั้งหมด</div>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="card" style={{ marginTop: 16 }}>
+      <div className="card workflow-panel workflow-table-card">
+        <div className="card-header">
+          <span className="workflow-table-title">รายการเคลมที่ถูกตีกลับ</span>
+          <span className="workflow-table-meta">จัดลำดับตามวันที่ล่าสุดและพร้อมบันทึกผลการแก้ไข</span>
+        </div>
         <div className="card-body" style={{ padding: 0 }}>
           <div className="modal-table-wrap">
             <table className="data-table">
@@ -284,20 +288,13 @@ export default function RejectedClaimTrackingPage() {
                       </td>
                       <td>
                         <span
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: 10,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            background: resolveColor(item.resolve_status || 'open') + '22',
-                            color: resolveColor(item.resolve_status || 'open'),
-                            border: `1px solid ${resolveColor(item.resolve_status || 'open')}44`,
-                          }}
+                          className="workflow-status-pill"
+                          style={{ ['--pill-color' as string]: resolveColor(item.resolve_status || 'open') }}
                         >
                           {resolveLabel(item.resolve_status || 'open')}
                         </span>
                       </td>
-                      <td style={{ maxWidth: 160, whiteSpace: 'normal', fontSize: 12 }}>{item.note || '-'}</td>
+                      <td className="workflow-note-cell">{item.note || '-'}</td>
                       <td style={{ fontSize: 12 }}>{item.assigned_to || '-'}</td>
                       <td>
                         <button
@@ -317,20 +314,19 @@ export default function RejectedClaimTrackingPage() {
         </div>
       </div>
 
-      {/* Note edit modal */}
       {editItem && (
         <div
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-          }}
+          className="workflow-modal-backdrop"
           onClick={(e) => { if (e.target === e.currentTarget) setEditItem(null); }}
         >
-          <div style={{ background: '#fff', borderRadius: 8, padding: 24, minWidth: 440, maxWidth: 560, width: '90%' }}>
-            <h3 style={{ marginBottom: 4 }}>บันทึกการดำเนินการ</h3>
-            <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
+          <div className="workflow-modal">
+            <div className="workflow-modal__header">
+            <h3 className="workflow-modal__title">บันทึกการดำเนินการ</h3>
+            <p className="workflow-modal__subtitle">
               {editItem.patient_name || ''} {editItem.vn ? `VN: ${editItem.vn}` : ''} {editItem.an ? `AN: ${editItem.an}` : ''}
             </p>
+            </div>
+            <div className="workflow-modal__body">
 
             {editItem.errorcode && (
               <div className="alert alert-danger" style={{ marginBottom: 12, padding: '8px 12px', fontSize: 13 }}>
@@ -367,11 +363,12 @@ export default function RejectedClaimTrackingPage() {
                 placeholder="รายละเอียดการดำเนินการ เช่น แก้ ICD-10 เป็น J06 แล้วส่งใหม่..."
               />
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div className="workflow-modal__actions">
               <button className="btn btn-secondary" onClick={() => setEditItem(null)}>ยกเลิก</button>
               <button className="btn btn-primary" onClick={handleEditSave} disabled={saving}>
                 {saving ? 'กำลังบันทึก...' : 'บันทึก'}
               </button>
+            </div>
             </div>
           </div>
         </div>

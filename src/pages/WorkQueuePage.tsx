@@ -29,6 +29,20 @@ interface QueueItem {
   updated_at?: string;
 }
 
+interface EligibleVisitImportRow {
+  vn?: string;
+  vstId?: string;
+  hn?: string;
+  patient_name?: string;
+  patientName?: string;
+  maininscl?: string;
+  fund?: string;
+  vstdate?: string;
+  serviceDate?: string;
+  isBillable?: boolean;
+  status?: string;
+}
+
 export default function WorkQueuePage() {
   const [startDate, setStartDate] = useState(() => formatLocalDateDaysAgo(14));
   const [endDate, setEndDate] = useState(() => formatLocalDateInput());
@@ -80,16 +94,22 @@ export default function WorkQueuePage() {
       const resp = await fetch(`/api/hosxp/eligible-visits?${params}`);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const json = await resp.json();
-      const visits: Record<string, unknown>[] = Array.isArray(json) ? json : json.data || [];
+      const visits: EligibleVisitImportRow[] = Array.isArray(json) ? json : json.data || [];
+      const workflowItems = visits.filter((item) => item.isBillable !== false && item.status !== 'rejected');
+
+      if (workflowItems.length === 0) {
+        throw new Error('ไม่พบรายการที่เข้า workflow สำหรับช่วงวันที่ที่เลือก');
+      }
 
       // Bulk add to queue
       const bulkResp = await fetch('/api/work-queue/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: visits }),
+        body: JSON.stringify({ items: workflowItems }),
       });
       if (!bulkResp.ok) throw new Error(`HTTP ${bulkResp.status}`);
-      const result = await bulkResp.json();
+      const result = await bulkResp.json() as { success?: boolean; count?: number; error?: string };
+      if (!result.success) throw new Error(result.error || 'เพิ่ม Work Queue ไม่สำเร็จ');
       alert(`เพิ่ม ${result.count} รายการเข้า Work Queue แล้ว`);
       await loadQueue();
     } catch (e) {
@@ -116,6 +136,8 @@ export default function WorkQueuePage() {
         body: JSON.stringify({ queueStatus: editStatus, notes: editNotes, assignedTo: editAssigned }),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const result = await resp.json() as { success?: boolean; error?: string };
+      if (!result.success) throw new Error(result.error || 'บันทึกไม่สำเร็จ');
       setItems((prev) =>
         prev.map((i) =>
           i.vn === editItem.vn ? { ...i, queue_status: editStatus, notes: editNotes, assigned_to: editAssigned } : i
@@ -136,25 +158,32 @@ export default function WorkQueuePage() {
   );
 
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <h1 className="page-title">Work Queue — คิวงาน VN</h1>
-        <p style={{ color: '#6b7280', marginTop: 4 }}>ติดตามสถานะงานรายการเคลมแต่ละ VN</p>
+    <div className="page-container workflow-page">
+      <div className="workflow-hero">
+        <div className="workflow-hero__content">
+          <div>
+            <h1 className="page-title workflow-hero__title">Work Queue — คิวงาน VN</h1>
+            <p className="workflow-hero__description">มองเห็นงานค้างแต่ละ VN ในภาพเดียว ไล่สถานะงานตามทีมที่รับผิดชอบ และอัปเดตหมายเหตุได้ทันทีจากตารางเดียว</p>
+          </div>
+          <div className="workflow-hero__meta">
+            <span className="workflow-badge workflow-badge--accent">Workflow ตามสถานะจริง</span>
+            <span className="workflow-badge">{items.length} รายการในมุมมองนี้</span>
+          </div>
+        </div>
       </div>
 
-      {/* Filter row */}
-      <div className="card">
+      <div className="card workflow-panel">
         <div className="card-body">
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div className="form-group" style={{ margin: 0 }}>
+          <div className="workflow-filter-grid">
+            <div className="form-group">
               <label>วันที่เริ่มต้น</label>
               <input type="date" className="form-control" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
+            <div className="form-group">
               <label>วันที่สิ้นสุด</label>
               <input type="date" className="form-control" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
-            <div className="form-group" style={{ margin: 0 }}>
+            <div className="form-group">
               <label>สถานะ</label>
               <select className="form-control" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                 <option value="all">ทั้งหมด</option>
@@ -163,7 +192,7 @@ export default function WorkQueuePage() {
                 ))}
               </select>
             </div>
-            <div className="form-group" style={{ margin: 0, flex: 1 }}>
+            <div className="form-group">
               <label>ค้นหา (VN/HN/ชื่อ)</label>
               <input
                 type="text"
@@ -173,17 +202,19 @@ export default function WorkQueuePage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <button className="btn btn-primary" onClick={loadQueue} disabled={loading}>
-              {loading ? 'กำลังโหลด...' : '🔄 โหลด'}
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={handleImportFromEligible}
-              disabled={saving === 'import'}
-              title="ดึง visit จากช่วงวันที่ที่เลือกมาเพิ่มใน Queue"
-            >
-              {saving === 'import' ? 'กำลังนำเข้า...' : '➕ นำเข้าจาก Eligible Visits'}
-            </button>
+            <div className="workflow-filter-actions">
+              <button className="btn btn-primary" onClick={loadQueue} disabled={loading}>
+                {loading ? 'กำลังโหลด...' : '🔄 โหลด'}
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={handleImportFromEligible}
+                disabled={saving === 'import'}
+                title="ดึง visit จากช่วงวันที่ที่เลือกมาเพิ่มใน Queue"
+              >
+                {saving === 'import' ? 'กำลังนำเข้า...' : '➕ นำเข้าจาก Eligible Visits'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -192,33 +223,32 @@ export default function WorkQueuePage() {
         <div className="alert alert-danger" style={{ marginTop: 12 }}>{error}</div>
       )}
 
-      {/* Status summary pills */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+      <div className="workflow-summary-grid">
+        {QUEUE_STATUSES.slice(0, 4).map((s) => (
+          <div key={s.value} className="workflow-stat" style={{ ['--stat-color' as string]: s.color }}>
+            <div className="workflow-stat__value">{statusCounts[s.value] || 0}</div>
+            <div className="workflow-stat__label">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="workflow-chip-row">
         {QUEUE_STATUSES.map((s) => (
           <span
             key={s.value}
             onClick={() => setStatusFilter(statusFilter === s.value ? 'all' : s.value)}
-            style={{
-              cursor: 'pointer',
-              padding: '4px 12px',
-              borderRadius: 20,
-              fontSize: 13,
-              fontWeight: statusFilter === s.value ? 700 : 400,
-              background: statusFilter === s.value ? s.color : '#f3f4f6',
-              color: statusFilter === s.value ? '#fff' : '#374151',
-              border: `2px solid ${s.color}`,
-              userSelect: 'none',
-            }}
+            className={`workflow-chip ${statusFilter === s.value ? 'is-active' : ''}`}
+            style={{ ['--chip-color' as string]: s.color }}
           >
             {s.label} ({statusCounts[s.value] || 0})
           </span>
         ))}
       </div>
 
-      {/* Table */}
-      <div className="card" style={{ marginTop: 12 }}>
+      <div className="card workflow-panel workflow-table-card">
         <div className="card-header">
-          <span>รายการ ({items.length})</span>
+          <span className="workflow-table-title">รายการคิวงาน</span>
+          <span className="workflow-table-meta">ทั้งหมด {items.length} รายการ</span>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           <div className="modal-table-wrap">
@@ -254,21 +284,14 @@ export default function WorkQueuePage() {
                       <td className="table-cell-nowrap">{item.service_date?.slice(0, 10) || '-'}</td>
                       <td>
                         <span
-                          style={{
-                            padding: '2px 10px',
-                            borderRadius: 12,
-                            fontSize: 12,
-                            fontWeight: 600,
-                            background: statusColor(item.queue_status) + '22',
-                            color: statusColor(item.queue_status),
-                            border: `1px solid ${statusColor(item.queue_status)}44`,
-                          }}
+                          className="workflow-status-pill"
+                          style={{ ['--pill-color' as string]: statusColor(item.queue_status) }}
                         >
                           {statusLabel(item.queue_status)}
                         </span>
                       </td>
                       <td>{item.assigned_to || '-'}</td>
-                      <td style={{ maxWidth: 180, whiteSpace: 'normal', fontSize: 12 }}>{item.notes || '-'}</td>
+                      <td className="workflow-note-cell">{item.notes || '-'}</td>
                       <td className="table-cell-nowrap" style={{ fontSize: 12, color: '#6b7280' }}>
                         {item.updated_at ? new Date(item.updated_at).toLocaleDateString('th-TH') : '-'}
                       </td>
@@ -291,17 +314,17 @@ export default function WorkQueuePage() {
         </div>
       </div>
 
-      {/* Edit Modal */}
       {editItem && (
         <div
-          style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-          }}
+          className="workflow-modal-backdrop"
           onClick={(e) => { if (e.target === e.currentTarget) setEditItem(null); }}
         >
-          <div style={{ background: '#fff', borderRadius: 8, padding: 24, minWidth: 400, maxWidth: 560, width: '90%' }}>
-            <h3 style={{ marginBottom: 16 }}>แก้ไขสถานะ — VN {editItem.vn}</h3>
+          <div className="workflow-modal">
+            <div className="workflow-modal__header">
+              <h3 className="workflow-modal__title">แก้ไขสถานะ — VN {editItem.vn}</h3>
+              <p className="workflow-modal__subtitle">อัปเดตเจ้าของงาน สถานะปัจจุบัน และหมายเหตุให้ทีมเห็นข้อมูลชุดเดียวกัน</p>
+            </div>
+            <div className="workflow-modal__body">
             <div className="form-group">
               <label>สถานะ</label>
               <select className="form-control" value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
@@ -318,11 +341,12 @@ export default function WorkQueuePage() {
               <label>หมายเหตุ</label>
               <textarea className="form-control" rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="รายละเอียด..." />
             </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div className="workflow-modal__actions">
               <button className="btn btn-secondary" onClick={() => setEditItem(null)}>ยกเลิก</button>
               <button className="btn btn-primary" onClick={handleEditSave} disabled={saving === editItem.vn}>
                 {saving === editItem.vn ? 'กำลังบันทึก...' : 'บันทึก'}
               </button>
+            </div>
             </div>
           </div>
         </div>

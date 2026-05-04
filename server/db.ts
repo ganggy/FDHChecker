@@ -557,6 +557,48 @@ const RECEIVABLE_BATCH_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const CLAIM_WORK_QUEUE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS claim_work_queue (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(25) NOT NULL,
+    hn VARCHAR(25) NULL,
+    patient_name VARCHAR(255) NULL,
+    fund VARCHAR(128) NULL,
+    service_date DATE NULL,
+    queue_status VARCHAR(32) NOT NULL DEFAULT 'pending_mr',
+    assigned_to VARCHAR(128) NULL,
+    notes TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_vn (vn),
+    INDEX idx_queue_status (queue_status),
+    INDEX idx_service_date (service_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const CLAIM_REJECT_NOTE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS claim_reject_note (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    rep_data_id BIGINT NULL,
+    tran_id VARCHAR(191) NULL,
+    vn VARCHAR(32) NULL,
+    an VARCHAR(32) NULL,
+    hn VARCHAR(32) NULL,
+    errorcode VARCHAR(128) NULL,
+    verifycode VARCHAR(128) NULL,
+    resolve_status VARCHAR(32) NOT NULL DEFAULT 'open',
+    note TEXT NULL,
+    assigned_to VARCHAR(128) NULL,
+    resolved_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_tran_id (tran_id),
+    INDEX idx_vn (vn),
+    INDEX idx_resolve_status (resolve_status),
+    INDEX idx_errorcode (errorcode)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 const RECEIVABLE_ITEM_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS receivable_item (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -719,6 +761,8 @@ export const ensureRepstmTables = async () => {
     }
     await connection.query(AUTHEN_SYNC_LOG_TABLE_SQL);
     await connection.query(AUTHEN_SYNC_CANCEL_TABLE_SQL);
+    await connection.query(CLAIM_WORK_QUEUE_TABLE_SQL);
+    await connection.query(CLAIM_REJECT_NOTE_TABLE_SQL);
   } finally {
     connection.release();
   }
@@ -2673,6 +2717,287 @@ export const getRepstmImportedRows = async (
   } catch (error) {
     console.error('Error reading REP/STM/INV imported rows:', error);
     return [];
+  } finally {
+    connection.release();
+  }
+};
+
+// ============================================================
+// Work Queue Functions
+// ============================================================
+
+export const getWorkQueueItems = async (filters?: {
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+  fund?: string;
+  search?: string;
+  limit?: number;
+}): Promise<Record<string, unknown>[]> => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(CLAIM_WORK_QUEUE_TABLE_SQL);
+    const whereClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters?.status && filters.status !== 'all') {
+      whereClauses.push('queue_status = ?');
+      params.push(filters.status);
+    }
+    if (filters?.startDate) {
+      whereClauses.push('service_date >= ?');
+      params.push(filters.startDate);
+    }
+    if (filters?.endDate) {
+      whereClauses.push('service_date <= ?');
+      params.push(filters.endDate);
+    }
+    if (filters?.fund && filters.fund !== 'all') {
+      whereClauses.push('fund = ?');
+      params.push(filters.fund);
+    }
+    if (filters?.search?.trim()) {
+      whereClauses.push('(vn LIKE ? OR hn LIKE ? OR patient_name LIKE ?)');
+      const kw = `%${filters.search.trim()}%`;
+      params.push(kw, kw, kw);
+    }
+
+    const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const limit = Math.min(Number(filters?.limit || 500), 2000);
+    params.push(limit);
+
+    const [rows] = await connection.query(
+      `SELECT id, vn, hn, patient_name, fund, service_date, queue_status, assigned_to, notes, created_at, updated_at
+       FROM claim_work_queue
+       ${whereStr}
+       ORDER BY service_date DESC, updated_at DESC, id DESC
+       LIMIT ?`,
+      params
+    );
+    return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+  } catch (error) {
+    console.error('Error reading work queue:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const upsertWorkQueueItem = async (item: {
+  vn: string;
+  hn?: string;
+  patientName?: string;
+  fund?: string;
+  serviceDate?: string;
+  queueStatus?: string;
+  assignedTo?: string;
+  notes?: string;
+}): Promise<{ success: boolean }> => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(CLAIM_WORK_QUEUE_TABLE_SQL);
+    await connection.query(
+      `INSERT INTO claim_work_queue (vn, hn, patient_name, fund, service_date, queue_status, assigned_to, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         hn = COALESCE(VALUES(hn), hn),
+         patient_name = COALESCE(VALUES(patient_name), patient_name),
+         fund = COALESCE(VALUES(fund), fund),
+         service_date = COALESCE(VALUES(service_date), service_date),
+         queue_status = COALESCE(VALUES(queue_status), queue_status),
+         assigned_to = VALUES(assigned_to),
+         notes = VALUES(notes),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        item.vn,
+        item.hn || null,
+        item.patientName || null,
+        item.fund || null,
+        item.serviceDate || null,
+        item.queueStatus || 'pending_mr',
+        item.assignedTo || null,
+        item.notes || null,
+      ]
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Error upserting work queue item:', error);
+    return { success: false };
+  } finally {
+    connection.release();
+  }
+};
+
+export const bulkUpsertWorkQueue = async (items: Array<{
+  vn: string;
+  hn?: string;
+  patientName?: string;
+  fund?: string;
+  serviceDate?: string;
+}>): Promise<{ success: boolean; count: number }> => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(CLAIM_WORK_QUEUE_TABLE_SQL);
+    let count = 0;
+    for (const item of items) {
+      if (!item.vn) continue;
+      await connection.query(
+        `INSERT INTO claim_work_queue (vn, hn, patient_name, fund, service_date, queue_status)
+         VALUES (?, ?, ?, ?, ?, 'pending_mr')
+         ON DUPLICATE KEY UPDATE
+           hn = COALESCE(VALUES(hn), hn),
+           patient_name = COALESCE(VALUES(patient_name), patient_name),
+           fund = COALESCE(VALUES(fund), fund),
+           service_date = COALESCE(VALUES(service_date), service_date)`,
+        [item.vn, item.hn || null, item.patientName || null, item.fund || null, item.serviceDate || null]
+      );
+      count += 1;
+    }
+    return { success: true, count };
+  } catch (error) {
+    console.error('Error bulk upserting work queue:', error);
+    return { success: false, count: 0 };
+  } finally {
+    connection.release();
+  }
+};
+
+// ============================================================
+// Reject Tracking Functions
+// ============================================================
+
+export const getRejectTrackingItems = async (filters?: {
+  startDate?: string;
+  endDate?: string;
+  errorcode?: string;
+  resolveStatus?: string;
+  fund?: string;
+  search?: string;
+  limit?: number;
+}): Promise<Record<string, unknown>[]> => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(CLAIM_REJECT_NOTE_TABLE_SQL);
+    const whereClauses: string[] = ["COALESCE(rd.errorcode, '') <> ''"];
+    const params: unknown[] = [];
+
+    if (filters?.startDate) {
+      whereClauses.push('rd.admdate >= ?');
+      params.push(filters.startDate);
+    }
+    if (filters?.endDate) {
+      whereClauses.push('rd.admdate <= ?');
+      params.push(filters.endDate + ' 23:59:59');
+    }
+    if (filters?.errorcode && filters.errorcode !== 'all') {
+      whereClauses.push('rd.errorcode LIKE ?');
+      params.push(`%${filters.errorcode}%`);
+    }
+    if (filters?.resolveStatus && filters.resolveStatus !== 'all') {
+      whereClauses.push('COALESCE(rn.resolve_status, \'open\') = ?');
+      params.push(filters.resolveStatus);
+    }
+    if (filters?.fund && filters.fund !== 'all') {
+      whereClauses.push('rd.maininscl = ?');
+      params.push(filters.fund);
+    }
+    if (filters?.search?.trim()) {
+      whereClauses.push('(rd.vn LIKE ? OR rd.hn LIKE ? OR rd.patient_name LIKE ? OR rd.tran_id LIKE ?)');
+      const kw = `%${filters.search.trim()}%`;
+      params.push(kw, kw, kw, kw);
+    }
+
+    const whereStr = `WHERE ${whereClauses.join(' AND ')}`;
+    const limit = Math.min(Number(filters?.limit || 500), 2000);
+    params.push(limit);
+
+    const [rows] = await connection.query(
+      `SELECT
+         rd.id AS rep_data_id,
+         rd.rep_no,
+         rd.tran_id,
+         rd.hn,
+         rd.vn,
+         rd.an,
+         rd.pid,
+         rd.patient_name,
+         rd.department,
+         rd.admdate,
+         rd.dchdate,
+         rd.maininscl,
+         rd.subinscl,
+         rd.errorcode,
+         rd.verifycode,
+         rd.income,
+         rd.compensated,
+         rd.diff,
+         COALESCE(rn.id, NULL) AS note_id,
+         COALESCE(rn.resolve_status, 'open') AS resolve_status,
+         rn.note,
+         rn.assigned_to,
+         rn.resolved_at,
+         rn.updated_at AS note_updated_at
+       FROM rep_data rd
+       LEFT JOIN claim_reject_note rn ON rn.tran_id = rd.tran_id AND rn.tran_id IS NOT NULL
+       ${whereStr}
+       ORDER BY rd.admdate DESC, rd.id DESC
+       LIMIT ?`,
+      params
+    );
+    return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+  } catch (error) {
+    console.error('Error reading reject tracking items:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const upsertRejectNote = async (note: {
+  repDataId?: number;
+  tranId?: string;
+  vn?: string;
+  an?: string;
+  hn?: string;
+  errorcode?: string;
+  verifycode?: string;
+  resolveStatus: string;
+  note?: string;
+  assignedTo?: string;
+}): Promise<{ success: boolean; id?: number }> => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(CLAIM_REJECT_NOTE_TABLE_SQL);
+    const resolvedAt = note.resolveStatus === 'resolved' ? new Date() : null;
+    const [result] = await connection.query(
+      `INSERT INTO claim_reject_note
+         (rep_data_id, tran_id, vn, an, hn, errorcode, verifycode, resolve_status, note, assigned_to, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         resolve_status = VALUES(resolve_status),
+         note = VALUES(note),
+         assigned_to = VALUES(assigned_to),
+         resolved_at = IF(VALUES(resolve_status) = 'resolved', COALESCE(resolved_at, CURRENT_TIMESTAMP), NULL),
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        note.repDataId || null,
+        note.tranId || null,
+        note.vn || null,
+        note.an || null,
+        note.hn || null,
+        note.errorcode || null,
+        note.verifycode || null,
+        note.resolveStatus || 'open',
+        note.note || null,
+        note.assignedTo || null,
+        resolvedAt,
+      ]
+    );
+    const id = Number((result as any).insertId || 0);
+    return { success: true, id };
+  } catch (error) {
+    console.error('Error upserting reject note:', error);
+    return { success: false };
   } finally {
     connection.release();
   }

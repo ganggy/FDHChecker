@@ -1,0 +1,332 @@
+import { useState, useEffect, useCallback } from 'react';
+import { formatLocalDateDaysAgo, formatLocalDateInput } from '../utils/dateUtils';
+
+const QUEUE_STATUSES: Array<{ value: string; label: string; color: string }> = [
+  { value: 'pending_mr', label: 'รอแก้เวชระเบียน', color: '#f59e0b' },
+  { value: 'pending_authen', label: 'รอ Authen Code', color: '#8b5cf6' },
+  { value: 'pending_icd', label: 'รอ ICD/ICD9', color: '#6366f1' },
+  { value: 'pending_finance', label: 'รอการเงิน', color: '#f97316' },
+  { value: 'ready', label: 'พร้อมส่ง', color: '#10b981' },
+  { value: 'sent', label: 'ส่งแล้ว', color: '#3b82f6' },
+  { value: 'rejected', label: 'ตีกลับ', color: '#ef4444' },
+];
+
+const statusColor = (status: string) =>
+  QUEUE_STATUSES.find((s) => s.value === status)?.color || '#6b7280';
+const statusLabel = (status: string) =>
+  QUEUE_STATUSES.find((s) => s.value === status)?.label || status;
+
+interface QueueItem {
+  id?: number;
+  vn: string;
+  hn?: string;
+  patient_name?: string;
+  fund?: string;
+  service_date?: string;
+  queue_status: string;
+  assigned_to?: string;
+  notes?: string;
+  updated_at?: string;
+}
+
+export default function WorkQueuePage() {
+  const [startDate, setStartDate] = useState(() => formatLocalDateDaysAgo(14));
+  const [endDate, setEndDate] = useState(() => formatLocalDateInput());
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [items, setItems] = useState<QueueItem[]>([]);
+
+  // edit modal state
+  const [editItem, setEditItem] = useState<QueueItem | null>(null);
+  const [editStatus, setEditStatus] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editAssigned, setEditAssigned] = useState('');
+
+  const loadQueue = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      if (search.trim()) params.set('search', search.trim());
+      params.set('limit', '500');
+      const resp = await fetch(`/api/work-queue?${params}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      setItems(Array.isArray(json.data) ? json.data : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
+    } finally {
+      setLoading(false);
+    }
+  }, [startDate, endDate, statusFilter, search]);
+
+  useEffect(() => {
+    loadQueue();
+  }, [loadQueue]);
+
+  const handleImportFromEligible = async () => {
+    if (!startDate || !endDate) return;
+    setSaving('import');
+    setError('');
+    try {
+      // Load eligible visits
+      const params = new URLSearchParams({ startDate, endDate, limit: '500' });
+      const resp = await fetch(`/api/hosxp/eligible-visits?${params}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      const visits: Record<string, unknown>[] = Array.isArray(json) ? json : json.data || [];
+
+      // Bulk add to queue
+      const bulkResp = await fetch('/api/work-queue/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: visits }),
+      });
+      if (!bulkResp.ok) throw new Error(`HTTP ${bulkResp.status}`);
+      const result = await bulkResp.json();
+      alert(`เพิ่ม ${result.count} รายการเข้า Work Queue แล้ว`);
+      await loadQueue();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'นำเข้าข้อมูลไม่สำเร็จ');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleEditOpen = (item: QueueItem) => {
+    setEditItem(item);
+    setEditStatus(item.queue_status);
+    setEditNotes(item.notes || '');
+    setEditAssigned(item.assigned_to || '');
+  };
+
+  const handleEditSave = async () => {
+    if (!editItem) return;
+    setSaving(editItem.vn);
+    try {
+      const resp = await fetch(`/api/work-queue/${encodeURIComponent(editItem.vn)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ queueStatus: editStatus, notes: editNotes, assignedTo: editAssigned }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      setItems((prev) =>
+        prev.map((i) =>
+          i.vn === editItem.vn ? { ...i, queue_status: editStatus, notes: editNotes, assigned_to: editAssigned } : i
+        )
+      );
+      setEditItem(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  // Summary by status
+  const statusCounts = QUEUE_STATUSES.reduce(
+    (acc, s) => ({ ...acc, [s.value]: items.filter((i) => i.queue_status === s.value).length }),
+    {} as Record<string, number>
+  );
+
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <h1 className="page-title">Work Queue — คิวงาน VN</h1>
+        <p style={{ color: '#6b7280', marginTop: 4 }}>ติดตามสถานะงานรายการเคลมแต่ละ VN</p>
+      </div>
+
+      {/* Filter row */}
+      <div className="card">
+        <div className="card-body">
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>วันที่เริ่มต้น</label>
+              <input type="date" className="form-control" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>วันที่สิ้นสุด</label>
+              <input type="date" className="form-control" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>สถานะ</label>
+              <select className="form-control" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="all">ทั้งหมด</option>
+                {QUEUE_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ margin: 0, flex: 1 }}>
+              <label>ค้นหา (VN/HN/ชื่อ)</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="ค้นหา..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <button className="btn btn-primary" onClick={loadQueue} disabled={loading}>
+              {loading ? 'กำลังโหลด...' : '🔄 โหลด'}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={handleImportFromEligible}
+              disabled={saving === 'import'}
+              title="ดึง visit จากช่วงวันที่ที่เลือกมาเพิ่มใน Queue"
+            >
+              {saving === 'import' ? 'กำลังนำเข้า...' : '➕ นำเข้าจาก Eligible Visits'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="alert alert-danger" style={{ marginTop: 12 }}>{error}</div>
+      )}
+
+      {/* Status summary pills */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+        {QUEUE_STATUSES.map((s) => (
+          <span
+            key={s.value}
+            onClick={() => setStatusFilter(statusFilter === s.value ? 'all' : s.value)}
+            style={{
+              cursor: 'pointer',
+              padding: '4px 12px',
+              borderRadius: 20,
+              fontSize: 13,
+              fontWeight: statusFilter === s.value ? 700 : 400,
+              background: statusFilter === s.value ? s.color : '#f3f4f6',
+              color: statusFilter === s.value ? '#fff' : '#374151',
+              border: `2px solid ${s.color}`,
+              userSelect: 'none',
+            }}
+          >
+            {s.label} ({statusCounts[s.value] || 0})
+          </span>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="card" style={{ marginTop: 12 }}>
+        <div className="card-header">
+          <span>รายการ ({items.length})</span>
+        </div>
+        <div className="card-body" style={{ padding: 0 }}>
+          <div className="modal-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>VN</th>
+                  <th>HN</th>
+                  <th>ชื่อ-สกุล</th>
+                  <th>สิทธิ์</th>
+                  <th>วันที่บริการ</th>
+                  <th>สถานะ</th>
+                  <th>ผู้รับผิดชอบ</th>
+                  <th>หมายเหตุ</th>
+                  <th>อัปเดต</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} style={{ textAlign: 'center', color: '#9ca3af', padding: 24 }}>
+                      ไม่พบข้อมูล
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((item) => (
+                    <tr key={item.vn}>
+                      <td className="table-cell-nowrap">{item.vn}</td>
+                      <td>{item.hn || '-'}</td>
+                      <td>{item.patient_name || '-'}</td>
+                      <td>{item.fund || '-'}</td>
+                      <td className="table-cell-nowrap">{item.service_date?.slice(0, 10) || '-'}</td>
+                      <td>
+                        <span
+                          style={{
+                            padding: '2px 10px',
+                            borderRadius: 12,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            background: statusColor(item.queue_status) + '22',
+                            color: statusColor(item.queue_status),
+                            border: `1px solid ${statusColor(item.queue_status)}44`,
+                          }}
+                        >
+                          {statusLabel(item.queue_status)}
+                        </span>
+                      </td>
+                      <td>{item.assigned_to || '-'}</td>
+                      <td style={{ maxWidth: 180, whiteSpace: 'normal', fontSize: 12 }}>{item.notes || '-'}</td>
+                      <td className="table-cell-nowrap" style={{ fontSize: 12, color: '#6b7280' }}>
+                        {item.updated_at ? new Date(item.updated_at).toLocaleDateString('th-TH') : '-'}
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '3px 10px', fontSize: 12 }}
+                          onClick={() => handleEditOpen(item)}
+                          disabled={saving === item.vn}
+                        >
+                          แก้ไข
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Edit Modal */}
+      {editItem && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setEditItem(null); }}
+        >
+          <div style={{ background: '#fff', borderRadius: 8, padding: 24, minWidth: 400, maxWidth: 560, width: '90%' }}>
+            <h3 style={{ marginBottom: 16 }}>แก้ไขสถานะ — VN {editItem.vn}</h3>
+            <div className="form-group">
+              <label>สถานะ</label>
+              <select className="form-control" value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                {QUEUE_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>ผู้รับผิดชอบ</label>
+              <input type="text" className="form-control" value={editAssigned} onChange={(e) => setEditAssigned(e.target.value)} placeholder="ชื่อหรือแผนก" />
+            </div>
+            <div className="form-group">
+              <label>หมายเหตุ</label>
+              <textarea className="form-control" rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="รายละเอียด..." />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setEditItem(null)}>ยกเลิก</button>
+              <button className="btn btn-primary" onClick={handleEditSave} disabled={saving === editItem.vn}>
+                {saving === editItem.vn ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -290,24 +290,18 @@ export const RepStmImportPage: React.FC = () => {
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
   const todayStr = today.toISOString().slice(0, 10);
   const [eclaimOpen, setEclaimOpen] = useState(false);
-  const [eclaimUser, setEclaimUser] = useState('');
-  const [eclaimPass, setEclaimPass] = useState('');
   const [eclaimStartDate, setEclaimStartDate] = useState(firstOfMonth);
   const [eclaimEndDate, setEclaimEndDate] = useState(todayStr);
   const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
-  const [eclaimToken, setEclaimToken] = useState('');
-  const [eclaimTokenMode, setEclaimTokenMode] = useState(true); // default: token mode
-  const [eclaimManualToken, setEclaimManualToken] = useState('');
-  const [eclaimSessionCookie, setEclaimSessionCookie] = useState(''); // Java session cookie from old system
   const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
+  const [eclaimBrowserReady, setEclaimBrowserReady] = useState(false);
   const [eclaimLoading, setEclaimLoading] = useState(false);
   const [eclaimError, setEclaimError] = useState<string | null>(null);
   const [eclaimFiles, setEclaimFiles] = useState<Record<string, unknown>[]>([]);
   const [eclaimSelected, setEclaimSelected] = useState<Set<string>>(new Set());
   const [eclaimDownloading, setEclaimDownloading] = useState(false);
-  const [eclaimDebugLog, setEclaimDebugLog] = useState<{ url: string; status: number; body: unknown }[]>([]);
-  const [eclaimDiscoveredApis, setEclaimDiscoveredApis] = useState<{ url: string; method: string; hasAuth: boolean; hasCookie?: boolean }[]>([]);
-  const [eclaimRepUrls, setEclaimRepUrls] = useState<string[]>([]); // REP-related URLs discovered from browser
+  const [eclaimAutoDownload, setEclaimAutoDownload] = useState(false);
+  const [eclaimDebugLog, setEclaimDebugLog] = useState<{ period: string; url: string; title: string; rowCount: number; htmlSnippet: string }[]>([]);
   const [eclaimShowDebug, setEclaimShowDebug] = useState(false);
 
   /** Returns all YYYYMM periods between two ISO date strings (inclusive) */
@@ -387,16 +381,11 @@ export const RepStmImportPage: React.FC = () => {
     void loadData(dataType);
   }, [dataType]);
 
-  // Preload saved NHSO eclaim credentials
+  // Probe saved settings once so the backend connection is warmed up for browser-based login.
   useEffect(() => {
     fetch('/api/config/nhso-eclaim-settings')
       .then((r) => r.json())
-      .then((json: unknown) => {
-        const data = (json as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
-        if (data) {
-          if (data.username) setEclaimUser(String(data.username));
-        }
-      })
+      .then(() => undefined)
       .catch(() => {/* ignore */});
   }, []);
 
@@ -413,29 +402,13 @@ export const RepStmImportPage: React.FC = () => {
 
   const handleBrowserLogin = async () => {
     setEclaimError(null);
+    setEclaimBrowserReady(false);
     setEclaimBrowserLoading(true);
     try {
       const res = await fetch('/api/nhso-eclaim/browser-login', { method: 'POST' });
-      const json = await res.json() as {
-        success: boolean; token?: string; sessionCookie?: string; error?: string;
-        discoveredApiCalls?: { url: string; method: string; hasAuth: boolean; hasCookie: boolean }[];
-        repUrls?: string[];
-      };
-      if (!json.success) throw new Error(json.error || 'ไม่ได้รับ session');
-      if (json.token) {
-        setEclaimManualToken(json.token);
-        setEclaimToken(json.token);
-      }
-      if (json.sessionCookie) {
-        setEclaimSessionCookie(json.sessionCookie);
-      }
-      if (!json.token && !json.sessionCookie) throw new Error('ไม่พบ token หรือ session cookie');
-      if (json.discoveredApiCalls?.length) {
-        setEclaimDiscoveredApis(json.discoveredApiCalls);
-      }
-      if (json.repUrls?.length) {
-        setEclaimRepUrls(json.repUrls);
-      }
+      const json = await res.json() as { success: boolean; ready?: boolean; repPageUrl?: string; error?: string };
+      if (!json.success) throw new Error(json.error || 'Login ไม่สำเร็จ');
+      setEclaimBrowserReady(true);
     } catch (err) {
       setEclaimError((err as Error).message);
     } finally {
@@ -443,81 +416,48 @@ export const RepStmImportPage: React.FC = () => {
     }
   };
 
+  const handleBrowserClose = async () => {
+    await fetch('/api/nhso-eclaim/browser-close', { method: 'POST' }).catch(() => {/* ignore */});
+    setEclaimBrowserReady(false);
+  };
+
   const handleEclaimSearch = async () => {
     setEclaimError(null);
     setEclaimFiles([]);
     setEclaimSelected(new Set());
+    setEclaimDebugLog([]);
 
     if (eclaimPeriods.length === 0) {
       setEclaimError('ช่วงวันที่ไม่ถูกต้อง');
       return;
     }
+    if (!eclaimBrowserReady) {
+      setEclaimError('กรุณากด "เปิด Edge ให้ Login" ก่อน');
+      return;
+    }
 
     try {
       setEclaimLoading(true);
-      let token = '';
-      let sessionCookie = '';
-
-      if (eclaimTokenMode) {
-        // Use session from browser-login (cookie or Bearer token)
-        token = eclaimManualToken.trim().replace(/^Bearer\s+/i, '');
-        sessionCookie = eclaimSessionCookie.trim();
-        if (!token && !sessionCookie) {
-          setEclaimError('กรุณากด "เปิด Edge ให้ Login" ก่อน');
-          return;
-        }
-        if (token) setEclaimToken(token);
-      } else {
-        if (!eclaimUser.trim() || !eclaimPass.trim()) {
-          setEclaimError('กรุณากรอก username / password NHSO eclaim');
-          return;
-        }
-        const authRes = await fetch('/api/nhso-eclaim/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: eclaimUser, password: eclaimPass }),
-        });
-        const authJson = await authRes.json() as { success: boolean; token?: string; error?: string };
-        if (!authJson.success || !authJson.token) throw new Error(authJson.error || 'ขอ token ไม่สำเร็จ');
-        token = authJson.token;
-        setEclaimToken(token);
-        await fetch('/api/config/nhso-eclaim-settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: eclaimUser, password: eclaimPass }),
-        });
-      }
-
-      // File list — fetch all periods, pass token or sessionCookie
-      const allFiles: Record<string, unknown>[] = [];
-      const seenKeys = new Set<string>();
-      const allDebugLog: { url: string; status: number; body: unknown }[] = [];
-      for (const period of eclaimPeriods) {
-        const params = new URLSearchParams({ period, fileType: eclaimFileType });
-        if (token) params.set('token', token);
-        if (sessionCookie) params.set('sessionCookie', sessionCookie);
-        // Pass a discovered REP URL from browser if available (most likely to work)
-        if (eclaimRepUrls.length > 0) params.set('repUrl', eclaimRepUrls[0]);
-        const listRes = await fetch(`/api/nhso-eclaim/file-list?${params.toString()}`);
-        const listJson = await listRes.json() as {
-          success: boolean; data?: unknown[]; error?: string;
-          debug?: { url: string; status: number; body: unknown }[];
-        };
-        if (listJson.debug) allDebugLog.push(...listJson.debug);
-        if (!listJson.success) continue;
-        for (const f of (listJson.data || []) as Record<string, unknown>[]) {
-          const key = String(f.filename || f.fileName || f.name || JSON.stringify(f));
-          if (!seenKeys.has(key)) {
-            seenKeys.add(key);
-            allFiles.push({ ...f, _period: period });
-          }
-        }
-      }
-      setEclaimDebugLog(allDebugLog);
-      setEclaimFiles(allFiles);
-      if (allFiles.length === 0) {
+      const res = await fetch('/api/nhso-eclaim/browser-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periods: eclaimPeriods, fileType: eclaimFileType }),
+      });
+      const json = await res.json() as {
+        success: boolean; data?: Record<string, unknown>[]; debug?: typeof eclaimDebugLog; error?: string;
+      };
+      if (!json.success) throw new Error(json.error || 'ค้นหาไม่สำเร็จ');
+      if (json.debug) setEclaimDebugLog(json.debug);
+      const files = json.data || [];
+      setEclaimFiles(files);
+      if (files.length === 0) {
         setEclaimError(`ไม่พบไฟล์สำหรับงวด ${eclaimPeriods.join(', ')} ประเภท ${eclaimFileType}`);
         setEclaimShowDebug(true);
+      } else if (eclaimAutoDownload) {
+        // Auto-select all and download
+        const allKeys = new Set(files.map((f) => String(f.filename || f.fileName || f.name || '')).filter(Boolean));
+        setEclaimSelected(allKeys);
+        await handleEclaimDownloadFiles(files, allKeys);
       }
     } catch (err) {
       setEclaimError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
@@ -526,27 +466,27 @@ export const RepStmImportPage: React.FC = () => {
     }
   };
 
-  const handleEclaimDownload = async () => {
-    if (eclaimSelected.size === 0 || !eclaimToken) return;
+  /** Core download logic — accepts files + selected set directly so it can be called from auto-download */
+  const handleEclaimDownloadFiles = async (filesToProcess: Record<string, unknown>[], selectedKeys: Set<string>) => {
+    if (selectedKeys.size === 0 || !eclaimBrowserReady) return;
     setEclaimDownloading(true);
     setEclaimError(null);
-    const filesToDownload = eclaimFiles.filter((f) => {
+    const filesToDownload = filesToProcess.filter((f) => {
       const key = String(f.filename || f.fileName || f.name || '');
-      return eclaimSelected.has(key);
+      return selectedKeys.has(key);
     });
 
     const dataTransfer = new DataTransfer();
     for (const fileObj of filesToDownload) {
       const filename = String(fileObj.filename || fileObj.fileName || fileObj.name || 'download.xlsx');
       try {
-        const dlRes = await fetch('/api/nhso-eclaim/download', {
+        const dlRes = await fetch('/api/nhso-eclaim/browser-download', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            token: eclaimToken,
+            downloadHref: String(fileObj.downloadHref || ''),
+            downloadOnclick: String(fileObj.downloadOnclick || ''),
             filename,
-            period: String(fileObj._period || eclaimPeriods[0] || ''),
-            downloadPayload: fileObj,
           }),
         });
         const dlJson = await dlRes.json() as { success: boolean; base64?: string; contentType?: string; error?: string };
@@ -554,8 +494,8 @@ export const RepStmImportPage: React.FC = () => {
         const binaryStr = atob(dlJson.base64);
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-        const blob = new Blob([bytes], { type: dlJson.contentType || 'application/vnd.ms-excel' });
-        const dlFile = new File([blob], filename, { type: dlJson.contentType || 'application/vnd.ms-excel' });
+        const blob = new Blob([bytes], { type: dlJson.contentType || 'application/octet-stream' });
+        const dlFile = new File([blob], filename, { type: dlJson.contentType || 'application/octet-stream' });
         dataTransfer.items.add(dlFile);
       } catch (err) {
         setEclaimError(err instanceof Error ? err.message : `ดาวน์โหลด ${filename} ไม่สำเร็จ`);
@@ -565,6 +505,10 @@ export const RepStmImportPage: React.FC = () => {
       await handleFileChange(dataTransfer.files, true);
     }
     setEclaimDownloading(false);
+  };
+
+  const handleEclaimDownload = async () => {
+    await handleEclaimDownloadFiles(eclaimFiles, eclaimSelected);
   };
 
   const handleFileChange = async (files: FileList | null, append = false) => {
@@ -869,86 +813,35 @@ export const RepStmImportPage: React.FC = () => {
               </span>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
-                <input
-                  type="checkbox"
-                  checked={eclaimTokenMode}
-                  onChange={(e) => { setEclaimTokenMode(e.target.checked); setEclaimError(null); }}
-                />
-                <span>🔑 ใช้ Token จาก Browser (แนะนำ) — ไม่ต้องพิมพ์ username/password</span>
-              </label>
-            </div>
-
-            {eclaimTokenMode ? (
-              <div style={{ marginBottom: 12 }}>
-                {/* Step-by-step guide card */}
-                <div style={{ background: 'var(--bg-secondary,#f0f4ff)', border: '1px solid var(--border-color,#c7d2fe)', borderRadius: 8, padding: 12, marginBottom: 10, fontSize: 12 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 6 }}>📋 วิธี Login (ทำ 1 ครั้ง)</div>
-
-                  <div style={{ background:'#dcfce7', border:'1px solid #16a34a', borderRadius:6, padding:'6px 10px', marginBottom:8, color:'#166534' }}>
-                    ✅ ใช้ระบบเก่า <strong>eclaim.nhso.go.th/webComponent/main/MainWebAction.do</strong><br/>
-                    (เข้าสู่ระบบด้วย username/password เหมือนใช้งานปกติ)
-                  </div>
-
-                  <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-                    <li>
-                      กดปุ่ม <strong>🌐 เปิด Edge ให้ Login</strong> — ระบบจะเปิด Edge ไปที่ eclaim.nhso.go.th ให้อัตโนมัติ
-                    </li>
-                    <li>Login ด้วย username/password ปกติ (ภายใน 5 นาที)</li>
-                    <li>หลัง login สำเร็จ ให้คลิก <strong>"ข้อมูลผลการตรวจสอบ REP"</strong> ในเมนูซ้าย เพื่อให้ระบบจดจำ URL</li>
-                    <li>รอ ~60 วินาที แล้ว Browser จะปิดตัวเองอัตโนมัติ</li>
-                  </ol>
-
-                  <div style={{ marginTop: 10 }}>
-                    <button
-                      className="btn btn-primary"
-                      onClick={handleBrowserLogin}
-                      disabled={eclaimBrowserLoading}
-                      style={{ width: '100%' }}
-                    >
-                      {eclaimBrowserLoading
-                        ? '⏳ รอ Login... (Browser เปิดอยู่ — Login แล้วคลิก REP ในเมนู)'
-                        : '🌐 เปิด Edge ให้ Login (eclaim.nhso.go.th)'}
+            {/* Step 1: Browser Login */}
+            <div style={{ background: 'var(--bg-secondary,#f0f4ff)', border: '1px solid var(--border-color,#c7d2fe)', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>📋 ขั้นตอนที่ 1 — Login ผ่าน Browser</div>
+              <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+                <li>กดปุ่ม <strong>🌐 เปิด Edge ให้ Login</strong> — ระบบจะเปิด Edge ไปที่ eclaim.nhso.go.th อัตโนมัติ</li>
+                <li>Login ด้วย username/password ปกติ (ภายใน 5 นาที)</li>
+                <li>รอให้ระบบตรวจจับการ login สำเร็จ — <strong>อย่าปิด Browser</strong></li>
+              </ol>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleBrowserLogin}
+                  disabled={eclaimBrowserLoading}
+                  style={{ flexShrink: 0 }}
+                >
+                  {eclaimBrowserLoading
+                    ? '⏳ รอ Login... (Browser เปิดอยู่ — Login แล้วรอระบบตรวจจับ)'
+                    : '🌐 เปิด Edge ให้ Login'}
+                </button>
+                {eclaimBrowserReady && !eclaimBrowserLoading && (
+                  <>
+                    <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 13 }}>✅ Browser พร้อมแล้ว — กดค้นหาไฟล์ได้เลย</span>
+                    <button className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 10px' }} onClick={handleBrowserClose}>
+                      ❌ ปิด Browser
                     </button>
-                    {(eclaimSessionCookie || eclaimManualToken) && !eclaimBrowserLoading && (
-                      <div style={{ marginTop: 6, color:'#16a34a', fontSize: 12 }}>
-                        ✅ {eclaimSessionCookie ? 'ได้รับ Session Cookie แล้ว' : 'ได้รับ Token แล้ว'} — กดปุ่ม "ค้นหาไฟล์" ได้เลย
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ marginTop: 8, color:'var(--text-muted)', fontSize: 11 }}>
-                    (ระบบจะดักจับ session cookie อัตโนมัติหลัง login)
-                  </div>
-                </div>
-
-                {eclaimSessionCookie && (
-                  <div style={{ marginBottom: 8 }}>
-                    <label className="form-label" style={{ fontSize: 11 }}>Session Cookie (ดักจับอัตโนมัติ)</label>
-                    <textarea
-                      className="form-control"
-                      rows={2}
-                      style={{ fontFamily: 'monospace', fontSize: 10, resize: 'vertical', color: '#16a34a' }}
-                      value={eclaimSessionCookie}
-                      onChange={(e) => setEclaimSessionCookie(e.target.value)}
-                      placeholder="JSESSIONID=..."
-                    />
-                  </div>
+                  </>
                 )}
               </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Username (NHSO eclaim)</label>
-                  <input className="form-control" value={eclaimUser} onChange={(e) => setEclaimUser(e.target.value)} placeholder="nhso_username" />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Password</label>
-                  <input type="password" className="form-control" value={eclaimPass} onChange={(e) => setEclaimPass(e.target.value)} placeholder="••••••••" />
-                </div>
-              </div>
-            )}
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -970,28 +863,40 @@ export const RepStmImportPage: React.FC = () => {
               </div>
             </div>
 
-            {eclaimPeriods.length > 0 && (
-              <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-muted)' }}>
-                งวดที่จะค้นหา ({eclaimPeriods.length} งวด):{' '}
-                {eclaimPeriods.map((p) => (
-                  <span key={p} className="badge badge-info" style={{ marginRight: 4 }}>{p}</span>
-                ))}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'flex-end' }}>
+              <div style={{ flex: 1 }}>
+                {eclaimPeriods.length > 0 && (
+                  <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                    งวดที่จะค้นหา ({eclaimPeriods.length} งวด):{' '}
+                    {eclaimPeriods.slice(0, 12).map((p) => (
+                      <span key={p} className="badge badge-info" style={{ marginRight: 4 }}>{p}</span>
+                    ))}
+                    {eclaimPeriods.length > 12 && <span style={{ fontSize: 11 }}>+{eclaimPeriods.length - 12} งวด</span>}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" onClick={handleEclaimSearch} disabled={eclaimLoading || eclaimDownloading || !eclaimBrowserReady}>
+                    {eclaimLoading ? '⟳ กำลังค้นหา...' : '🔍 ค้นหาไฟล์จาก NHSO eclaim'}
+                  </button>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={eclaimAutoDownload}
+                      onChange={(e) => setEclaimAutoDownload(e.target.checked)}
+                    />
+                    Auto Download (ดาวน์โหลดทุกไฟล์ที่พบอัตโนมัติ)
+                  </label>
+                  {eclaimFiles.length > 0 && (
+                    <button
+                      className="btn btn-success"
+                      onClick={handleEclaimDownload}
+                      disabled={eclaimDownloading || eclaimSelected.size === 0 || !eclaimBrowserReady}
+                    >
+                      {eclaimDownloading ? '⟳ กำลังดาวน์โหลด...' : `⬇️ ดาวน์โหลดและเพิ่มในคิว (${eclaimSelected.size} ไฟล์)`}
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-              <button className="btn btn-primary" onClick={handleEclaimSearch} disabled={eclaimLoading}>
-                {eclaimLoading ? '⟳ กำลังค้นหา...' : '🔍 ค้นหาไฟล์จาก NHSO eclaim'}
-              </button>
-              {eclaimFiles.length > 0 && (
-                <button
-                  className="btn btn-success"
-                  onClick={handleEclaimDownload}
-                  disabled={eclaimDownloading || eclaimSelected.size === 0}
-                >
-                  {eclaimDownloading ? '⟳ กำลังดาวน์โหลด...' : `⬇️ ดาวน์โหลดและเพิ่มในคิว (${eclaimSelected.size} ไฟล์)`}
-                </button>
-              )}
             </div>
 
             {eclaimError && (
@@ -1000,44 +905,33 @@ export const RepStmImportPage: React.FC = () => {
               </div>
             )}
 
-            {/* Debug panel — auto-shows when no files found */}
-            {(eclaimDebugLog.length > 0 || eclaimDiscoveredApis.length > 0) && (
+            {/* Debug panel */}
+            {eclaimDebugLog.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <button
                   className="btn btn-secondary"
                   style={{ fontSize: 11, padding: '2px 10px' }}
                   onClick={() => setEclaimShowDebug((v) => !v)}
                 >
-                  🔧 {eclaimShowDebug ? 'ซ่อน' : 'แสดง'} Debug Info
+                  🔧 {eclaimShowDebug ? 'ซ่อน' : 'แสดง'} Debug Info ({eclaimDebugLog.length} งวด)
                 </button>
                 {eclaimShowDebug && (
-                  <div style={{ marginTop: 8, background: '#1e1e2e', color: '#cdd6f4', borderRadius: 8, padding: 12, fontSize: 11, fontFamily: 'monospace', maxHeight: 320, overflowY: 'auto' }}>
-                    {eclaimDiscoveredApis.length > 0 && (
-                      <div style={{ marginBottom: 8 }}>
-                        <div style={{ color: '#a6e3a1', fontWeight: 600, marginBottom: 4 }}>🔍 API calls intercepted from browser:</div>
-                        {eclaimDiscoveredApis.map((a, i) => (
-                          <div key={i} style={{ marginBottom: 2 }}>
-                            <span style={{ color: '#89b4fa' }}>{a.method}</span>{' '}
-                            <span style={{ color: (a.hasAuth || a.hasCookie) ? '#a6e3a1' : '#f38ba8' }}>{a.url}</span>
-                            {a.hasAuth && <span style={{ color: '#fab387' }}> [Bearer ✓]</span>}
-                            {a.hasCookie && <span style={{ color: '#fab387' }}> [Cookie ✓]</span>}
-                          </div>
-                        ))}
+                  <div style={{ marginTop: 8, background: '#1e1e2e', color: '#cdd6f4', borderRadius: 8, padding: 12, fontSize: 11, fontFamily: 'monospace', maxHeight: 400, overflowY: 'auto' }}>
+                    {eclaimDebugLog.map((d, i) => (
+                      <div key={i} style={{ marginBottom: 12, borderLeft: '2px solid #45475a', paddingLeft: 8 }}>
+                        <div>
+                          <span style={{ color: '#fab387' }}>งวด {d.period}</span>{' '}
+                          <span style={{ color: '#cba6f7' }}>rows={d.rowCount}</span>{' '}
+                          <span style={{ color: '#89b4fa' }}>{d.url}</span>
+                        </div>
+                        {d.title && <div style={{ color: '#f38ba8', fontSize: 10 }}>title: {d.title}</div>}
+                        {d.htmlSnippet && (
+                          <pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 120, overflowY: 'auto', fontSize: 10, color: '#cdd6f4' }}>
+                            {d.htmlSnippet.slice(0, 1200)}
+                          </pre>
+                        )}
                       </div>
-                    )}
-                    {eclaimDebugLog.length > 0 && (
-                      <div>
-                        <div style={{ color: '#a6e3a1', fontWeight: 600, marginBottom: 4 }}>📡 File-list API attempts:</div>
-                        {eclaimDebugLog.map((d, i) => (
-                          <div key={i} style={{ marginBottom: 8, borderLeft: '2px solid #45475a', paddingLeft: 8 }}>
-                            <div><span style={{ color: d.status >= 200 && d.status < 300 ? '#a6e3a1' : '#f38ba8' }}>HTTP {d.status}</span>{' '}<span style={{ color: '#89b4fa' }}>{d.url}</span></div>
-                            <pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 100, overflowY: 'auto', fontSize: 10, color: '#cdd6f4' }}>
-                              {JSON.stringify(d.body, null, 2).slice(0, 800)}
-                            </pre>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
@@ -1062,16 +956,18 @@ export const RepStmImportPage: React.FC = () => {
                         />
                       </th>
                       <th>ชื่อไฟล์</th>
-                      <th>ประเภท</th>
                       <th>งวด</th>
-                      <th>ขนาด</th>
-                      <th>วันที่</th>
+                      <th>ข้อมูลเพิ่มเติม</th>
+                      <th>ดาวน์โหลด</th>
                     </tr>
                   </thead>
                   <tbody>
                     {eclaimFiles.map((file, idx) => {
                       const key = String(file.filename || file.fileName || file.name || idx);
                       const checked = eclaimSelected.has(key);
+                      const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+                      const href = String(file.downloadHref || '');
+                      const hasOnclick = Boolean(file.downloadOnclick);
                       return (
                         <tr key={key} onClick={() => setEclaimSelected((prev) => {
                           const next = new Set(prev);
@@ -1085,11 +981,16 @@ export const RepStmImportPage: React.FC = () => {
                               return next;
                             })} />
                           </td>
-                          <td className="table-cell-nowrap">{key}</td>
-                          <td className="table-cell-nowrap">{String(file.type || file.fileType || '-')}</td>
+                          <td className="table-cell-nowrap" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={key}>{key}</td>
                           <td className="table-cell-nowrap">{String(file.period || file._period || '-')}</td>
-                          <td className="table-cell-nowrap">{String(file.fileSize || file.size || '-')}</td>
-                          <td className="table-cell-nowrap">{String(file.uploadDate || file.date || file.createdAt || '-')}</td>
+                          <td className="table-cell-nowrap" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {cells.filter(Boolean).slice(0, 4).join(' | ') || '-'}
+                          </td>
+                          <td className="table-cell-nowrap">
+                            {href && <span style={{ fontSize: 10, color: '#2563eb' }}>🔗 มี URL</span>}
+                            {!href && hasOnclick && <span style={{ fontSize: 10, color: '#d97706' }}>⚡ onclick</span>}
+                            {!href && !hasOnclick && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>?</span>}
+                          </td>
                         </tr>
                       );
                     })}
@@ -1098,7 +999,7 @@ export const RepStmImportPage: React.FC = () => {
               </div>
             )}
 
-            {eclaimFiles.length === 0 && !eclaimLoading && eclaimToken && (
+            {eclaimFiles.length === 0 && !eclaimLoading && eclaimBrowserReady && (
               <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
                 ไม่พบไฟล์สำหรับงวด {eclaimPeriods.join(', ')} ประเภท {eclaimFileType}
               </div>

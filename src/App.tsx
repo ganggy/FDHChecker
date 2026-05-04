@@ -8,6 +8,10 @@ import { NhsoClosePage } from './pages/NhsoClosePage';
 import { RepStmImportPage } from './pages/RepStmImportPage';
 import { ReceivablePage } from './pages/ReceivablePage';
 import { RepDenyPage } from './pages/RepDenyPage';
+import { AuthenSyncPage } from './pages/AuthenSyncPage';
+import PreSubmitValidatorPage from './pages/PreSubmitValidatorPage';
+import WorkQueuePage from './pages/WorkQueuePage';
+import RejectedClaimTrackingPage from './pages/RejectedClaimTrackingPage';
 import { SpecificFundPage } from './pages/SpecificFundPage';
 import { SpecialMonitorPage } from './pages/SpecialMonitorPage';
 import { GuidePage } from './pages/GuidePage';
@@ -28,6 +32,10 @@ function App() {
   const toolNavItems: Array<{ page: AppPage; icon: string; label: string; soft?: boolean }> = [
     { page: 'fdhImport', icon: '📥', label: 'นำเข้าสถานะ FDH' },
     { page: 'repstm', icon: '🧾', label: 'นำเข้า REP/STM' },
+    { page: 'authenSync', icon: '🪪', label: 'นำเข้า Authen Code' },
+    { page: 'preValidator', icon: '✅', label: 'Pre-submit Validator' },
+    { page: 'workQueue', icon: '📋', label: 'Work Queue' },
+    { page: 'rejectTracking', icon: '🔴', label: 'ติดตาม Reject' },
     { page: 'receivable', icon: '💼', label: 'บัญชีลูกหนี้' },
     { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
     { page: 'admin', icon: '📊', label: 'แดชบอร์ดสรุป' },
@@ -131,11 +139,15 @@ function App() {
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
         {currentPage === 'nhsoClose' && <NhsoClosePage />}
         {currentPage === 'repstm' && <RepStmImportPage />}
+        {currentPage === 'authenSync' && <AuthenSyncPage />}
         {currentPage === 'receivable' && <ReceivablePage />}
         {currentPage === 'repDeny' && <RepDenyPage />}
         {currentPage === 'admin' && <AdminDashboard />}
         {currentPage === 'specific' && <SpecificFundPage />}
         {currentPage === 'monitor' && <SpecialMonitorPage />}
+        {currentPage === 'preValidator' && <PreSubmitValidatorPage />}
+        {currentPage === 'workQueue' && <WorkQueuePage />}
+        {currentPage === 'rejectTracking' && <RejectedClaimTrackingPage />}
         {currentPage === 'guide' && <GuidePage />}
         {currentPage === 'settings' && <SettingsPage />}
       </div>

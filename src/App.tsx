@@ -30,24 +30,19 @@ function App() {
   ];
 
   const toolNavItems: Array<{ page: AppPage; icon: string; label: string; soft?: boolean }> = [
-    { page: 'fdhImport', icon: '📥', label: 'นำเข้าสถานะ FDH' },
-    { page: 'repstm', icon: '🧾', label: 'นำเข้า REP/STM' },
-    { page: 'authenSync', icon: '🪪', label: 'นำเข้า Authen Code' },
-    { page: 'preValidator', icon: '✅', label: 'Pre-submit Validator' },
-    { page: 'workQueue', icon: '📋', label: 'Work Queue' },
+    { page: 'fdhImport', icon: '📥', label: 'สถานะ FDH' },
+    { page: 'repstm', icon: '🧾', label: 'REP/STM' },
+    { page: 'authenSync', icon: '🪪', label: 'Authen Code' },
+    { page: 'preValidator', icon: '✅', label: 'Pre-submit' },
+    { page: 'workQueue', icon: '📋', label: 'คิวงาน' },
     { page: 'rejectTracking', icon: '🔴', label: 'ติดตาม Reject' },
     { page: 'receivable', icon: '💼', label: 'บัญชีลูกหนี้' },
     { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
-    { page: 'admin', icon: '📊', label: 'แดชบอร์ดสรุป' },
-    { page: 'specific', icon: '🎯', label: 'รายกองทุน (พิเศษ)' },
-    { page: 'monitor', icon: '📈', label: 'รายการมอนิเตอร์พิเศษ' },
+    { page: 'admin', icon: '📊', label: 'Dashboard' },
+    { page: 'specific', icon: '🎯', label: 'กองทุนพิเศษ' },
+    { page: 'monitor', icon: '📈', label: 'มอนิเตอร์พิเศษ' },
+    { page: 'guide', icon: '📚', label: 'คู่มือกองทุน', soft: true },
   ];
-  const guideNavItem: { page: AppPage; icon: string; label: string; soft?: boolean } = {
-    page: 'guide',
-    icon: '📚',
-    label: 'คู่มือเงื่อนไขกองทุน',
-    soft: true,
-  };
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -118,15 +113,6 @@ function App() {
                   <span>{item.label}</span>
                 </button>
               ))}
-            </div>
-            <div className="navbar-guide-rail">
-              <button
-                className={`nav-btn nav-btn--soft nav-btn--guide ${currentPage === guideNavItem.page ? 'active' : ''}`}
-                onClick={() => setCurrentPage(guideNavItem.page)}
-              >
-                <span className="nav-btn-icon">{guideNavItem.icon}</span>
-                <span>{guideNavItem.label}</span>
-              </button>
             </div>
           </div>
         </div>

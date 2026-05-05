@@ -180,12 +180,15 @@ export const InsuranceOverviewPage = () => {
   }, [data?.opdStatusRows, opdHipdataFilter]);
   const opdSubmissionSummary = useMemo(() => {
     const total = filteredOpdStatusRows.length;
+    const claimDetailImported = filteredOpdStatusRows.filter((row) => row.fdh_source === 'FDH ClaimDetail').length;
     const sent = filteredOpdStatusRows.filter((row) => row.fdh_found === true).length;
+    const nonClaim = filteredOpdStatusRows.filter((row) => String(row.fdh_status || '').includes('ไม่ประสงค์')).length;
     const closed = filteredOpdStatusRows.filter((row) => row.close_completed === true).length;
-    const pending = Math.max(0, total - sent);
-    const completeRate = total > 0 ? Math.round((sent / total) * 100) : 0;
+    const claimDetailMissing = Math.max(0, total - claimDetailImported);
+    const importedRate = total > 0 ? Math.round((claimDetailImported / total) * 100) : 0;
+    const sentRate = total > 0 ? Math.round((sent / total) * 100) : 0;
     const closeRate = total > 0 ? Math.round((closed / total) * 100) : 0;
-    return { total, sent, pending, closed, completeRate, closeRate };
+    return { total, claimDetailImported, claimDetailMissing, sent, nonClaim, closed, importedRate, sentRate, closeRate };
   }, [filteredOpdStatusRows]);
   const hipdataOptions = useMemo(() => {
     const countsByHipdata = new Map<string, number>();
@@ -204,11 +207,12 @@ export const InsuranceOverviewPage = () => {
   }, [data?.ipdLagRows, hipdataFilter]);
   const ipdSubmissionSummary = useMemo(() => {
     const total = filteredIpdLagRows.length;
+    const claimDetailImported = filteredIpdLagRows.filter((row) => row.fdh_source === 'FDH ClaimDetail').length;
     const sent = filteredIpdLagRows.filter((row) => row.fdh_found === true).length;
     const repReceived = filteredIpdLagRows.filter((row) => Boolean(row.rep_no)).length;
     const pending = Math.max(0, total - sent);
     const completeRate = total > 0 ? Math.round((sent / total) * 100) : 0;
-    return { total, sent, pending, repReceived, completeRate };
+    return { total, claimDetailImported, sent, pending, repReceived, completeRate };
   }, [filteredIpdLagRows]);
   const missingRuleSummary = useMemo(() => {
     const groups = new Map<string, {

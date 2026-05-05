@@ -2933,6 +2933,15 @@ export const getInsuranceOverview = async (options: {
     if (normalized.includes('reject') || normalized.includes('deny')) return raw;
     return raw;
   };
+  const isFdhMissingStatus = (value: unknown) => {
+    const raw = String(value || '').trim().toLowerCase();
+    const display = formatFdhDisplayStatus(value).toLowerCase();
+    return !raw
+      || raw.includes('unclaimed')
+      || display.includes('ไม่มีรายการนี้')
+      || display.includes('ไม่ประสงค์')
+      || display.includes('ยังไม่พบ');
+  };
   const buildFdhStatusLabel = (row: Record<string, unknown>) => {
     const reservationStatus = String(row.fdh_reservation_status || '').trim();
     const message = String(row.fdh_claim_status_message || '').trim();
@@ -3158,8 +3167,15 @@ export const getInsuranceOverview = async (options: {
         || repMap.get(`VN:${String(row.vn || '').trim()}`)
         || repMap.get(`TRN:${String(row.transaction_uid || '').trim()}`)
         || null;
+      const rawFdhStatus = fdhClaimDetail?.claim_status || row.fdh_reservation_status || row.fdh_claim_status_message || '';
+      const fdhStatus = fdhClaimDetail?.claim_status ? String(fdhClaimDetail.claim_status) : buildFdhStatusLabel(row);
+      const isMissingInFdh = isFdhMissingStatus(rawFdhStatus || fdhStatus);
       const fdhSentAt = fdhClaimDetail?.sent_at || row.fdh_reservation_datetime || row.fdh_updated_at || null;
-      const fdhFound = Boolean(fdhClaimDetail) || hasFdhStatus(row);
+      const effectiveFdhSentAt = isMissingInFdh ? null : fdhSentAt;
+      const fdhFound = !isMissingInFdh && (Boolean(fdhClaimDetail) || hasFdhStatus(row));
+      const fdhFollowupNote = isMissingInFdh
+        ? 'ยังไม่ส่งหรือยังไม่พบรายการ IPD ใน FDH ให้ตาม chart'
+        : (effectiveFdhSentAt ? 'ส่งเข้า FDH แล้ว' : 'พบสถานะ FDH แต่ยังไม่มีวันส่ง');
       const receivable = receivableByVisit.get(`AN:${row.an || ''}`);
       const expected = receivable ? toNumber(receivable.claimable_amount) : Math.max(toNumber(row.income) - toNumber(row.rcpt_money) - toNumber(row.discount_money), 0);
       const repAmount = rep ? toNumber(rep.rep_amount) : null;
@@ -3188,13 +3204,13 @@ export const getInsuranceOverview = async (options: {
         fdh_source: fdhClaimDetail ? 'FDH ClaimDetail' : 'FDH API',
         fdh_claim_code: fdhClaimDetail?.claim_code || null,
         fdh_upload_uid: fdhClaimDetail?.upload_uid || null,
-        fdh_status_raw: fdhClaimDetail?.claim_status || row.fdh_reservation_status || row.fdh_claim_status_message || '',
-        fdh_status: fdhClaimDetail?.claim_status ? String(fdhClaimDetail.claim_status) : buildFdhStatusLabel(row),
-        fdh_followup_note: fdhSentAt ? 'ส่งเข้า FDH แล้ว' : (fdhClaimDetail ? 'พบรหัสเคลมจาก ClaimDetail แต่ยังไม่มีวันส่ง' : 'ยังไม่ส่งหรือยังไม่พบรายการ IPD ใน FDH ให้ตาม chart'),
+        fdh_status_raw: rawFdhStatus,
+        fdh_status: fdhStatus,
+        fdh_followup_note: fdhFollowupNote,
         fdh_message: fdhClaimDetail?.claim_status || row.fdh_claim_status_message,
         fdh_error_code: row.error_code,
-        fdh_sent_at: fdhSentAt,
-        days_dch_to_fdh: diffDays(row.dchdate, fdhSentAt || today),
+        fdh_sent_at: effectiveFdhSentAt,
+        days_dch_to_fdh: diffDays(row.dchdate, effectiveFdhSentAt || today),
         rep_no: rep?.rep_no || null,
         rep_received_at: rep?.rep_imported_at || rep?.senddate || null,
         days_dch_to_rep: diffDays(row.dchdate, rep?.rep_imported_at || rep?.senddate),

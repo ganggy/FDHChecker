@@ -1805,7 +1805,7 @@ const buildRowsHash = (scope: string, rows: Record<string, unknown>[]) => {
   const normalizedRows = rows.map((row) => {
     const normalizedEntries = Object.entries(row).map(([key, value]) => [key.trim(), normalizeImportCellValue(value)]);
     return Object.fromEntries(normalizedEntries.sort(([a], [b]) => a.localeCompare(b)));
-  });
+  }).sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
   const payload = stableStringify({
     scope,
     rowCount: normalizedRows.length,
@@ -2256,7 +2256,7 @@ export const importFdhClaimDetailRows = async (payload: {
 
     const batchHash = buildRowsHash('FDH_CLAIM_DETAIL', normalizedRows);
     const [duplicateRows] = await connection.query(
-      `SELECT id, row_count, source_filename, created_at
+      `SELECT id, row_count, op_count, ip_count, source_filename, created_at
        FROM fdh_claim_detail_batch
        WHERE batch_hash = ?
        LIMIT 1`,
@@ -2271,6 +2271,8 @@ export const importFdhClaimDetailRows = async (payload: {
         duplicate: true,
         batchId: Number(existing.id || 0),
         rowCount: Number(existing.row_count || normalizedRows.length),
+        opCount: Number(existing.op_count || 0),
+        ipCount: Number(existing.ip_count || 0),
         message: `ไฟล์ FDH ClaimDetail นี้ถูกนำเข้าแล้วเมื่อ ${String(existing.created_at || '-')}`,
       };
     }

@@ -180,6 +180,9 @@ export const FdhClaimDetailImportPage = () => {
                 เลือกไฟล์ Excel จาก FDH
               </button>
               <small>{fileName || 'รองรับไฟล์ 11101-NHSO-ClaimDetail.xlsx'}</small>
+              <small style={{ display: 'block', marginTop: 6, color: '#64748b' }}>
+                ระบบตรวจซ้ำจากเนื้อหาในไฟล์ ไม่ได้ดูแค่ชื่อไฟล์ หากชื่อเดิมแต่สถานะในไฟล์เปลี่ยน จะนำเข้าเป็นรอบใหม่ได้
+              </small>
             </div>
             <div className="form-group">
               <label>ผู้นำเข้า</label>

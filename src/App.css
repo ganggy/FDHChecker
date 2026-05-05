@@ -943,6 +943,31 @@
   min-width: 1280px;
 }
 
+.insurance-section-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.95rem 1.1rem 1.1rem;
+  border-top: 1px solid rgba(226, 232, 240, 0.78);
+  background: linear-gradient(90deg, rgba(248, 250, 252, 0.92), rgba(239, 246, 255, 0.6));
+}
+
+.insurance-section-footer strong,
+.insurance-section-footer small {
+  display: block;
+}
+
+.insurance-section-footer strong {
+  color: #0f172a;
+  font-size: 0.9rem;
+}
+
+.insurance-section-footer small {
+  margin-top: 0.25rem;
+  color: #64748b;
+}
+
 .insurance-account-table,
 .insurance-missing-table {
   min-width: 860px;

@@ -121,16 +121,6 @@ const firstDayOfMonth = () => {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
 };
 
-const statusClass = (status?: string) => {
-  const text = String(status || '');
-  if (!text || text.includes('ยังไม่พบในรายการ')) return 'insurance-status insurance-status--muted';
-  if (text.includes('error') || text.includes('Error') || text.includes('reject') || text.includes('ปฏิเสธ')) {
-    return 'insurance-status insurance-status--danger';
-  }
-  if (text.includes('ไม่มีรายการนี้') || text.includes('ไม่ประสงค์') || text.includes('รับข้อมูลรอ') || text.includes('unclaimed') || text.includes('รอ') || text.includes('pending')) return 'insurance-status insurance-status--warning';
-  return 'insurance-status insurance-status--success';
-};
-
 export const InsuranceOverviewPage = () => {
   const [startDate, setStartDate] = useState(firstDayOfMonth());
   const [endDate, setEndDate] = useState(formatLocalDateInput());
@@ -140,6 +130,10 @@ export const InsuranceOverviewPage = () => {
   const [error, setError] = useState('');
   const [hipdataFilter, setHipdataFilter] = useState('ALL');
   const [opdHipdataFilter, setOpdHipdataFilter] = useState('ALL');
+
+  const navigateTo = (page: 'staff' | 'ipd') => {
+    window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page } }));
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -216,6 +210,35 @@ export const InsuranceOverviewPage = () => {
     const completeRate = total > 0 ? Math.round((sent / total) * 100) : 0;
     return { total, sent, pending, repReceived, completeRate };
   }, [filteredIpdLagRows]);
+  const missingRuleSummary = useMemo(() => {
+    const groups = new Map<string, {
+      patient_type: string;
+      pttype: string;
+      pttype_name: string;
+      hipdata_code: string;
+      item_count: number;
+      claimable_amount: number;
+    }>();
+    (data?.missingRuleRows || []).forEach((row) => {
+      const key = [
+        row.patient_type || '-',
+        row.pttype || '-',
+        row.hipdata_code || '-',
+      ].join('|');
+      const current = groups.get(key) || {
+        patient_type: row.patient_type || '-',
+        pttype: row.pttype || '-',
+        pttype_name: row.pttype_name || '',
+        hipdata_code: row.hipdata_code || '-',
+        item_count: 0,
+        claimable_amount: 0,
+      };
+      current.item_count += 1;
+      current.claimable_amount += Number(row.claimable_amount || 0);
+      groups.set(key, current);
+    });
+    return Array.from(groups.values()).sort((a, b) => b.item_count - a.item_count || a.pttype.localeCompare(b.pttype, 'th'));
+  }, [data?.missingRuleRows]);
 
   return (
     <div className="workflow-page insurance-page">
@@ -334,7 +357,7 @@ export const InsuranceOverviewPage = () => {
           <section className="card workflow-table-card">
             <div className="card-header">
               <span className="workflow-table-title">OPD สรุปการส่งข้อมูล FDH ตามสิทธิ์</span>
-              <span className="workflow-table-meta">ดูการส่งเบิกและการปิดสิทธิ์รายตัว</span>
+              <span className="workflow-table-meta">ภาพรวมตาม HIPDATA และสถานะปิดสิทธิ์</span>
             </div>
             <div className="insurance-submission-panel">
               <div className="insurance-hipdata-filter">
@@ -379,66 +402,19 @@ export const InsuranceOverviewPage = () => {
                 </div>
               </div>
             </div>
-            <div className="modal-table-wrap">
-              <table className="data-table workflow-readable-table insurance-opd-status-table">
-                <thead>
-                  <tr>
-                    <th>VN / HN</th>
-                    <th>ผู้ป่วย / สิทธิ์</th>
-                    <th>วันที่รับบริการ</th>
-                    <th>สถานะ FDH</th>
-                    <th>สถานะปิดสิทธิ์</th>
-                    <th>ยอดคาดรับ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOpdStatusRows.map((row) => (
-                    <tr key={row.vn || row.hn}>
-                      <td>
-                        <div className="workflow-id-cell">{row.vn || '-'}</div>
-                        <small>HN {row.hn || '-'}</small>
-                      </td>
-                      <td className="workflow-person-cell">
-                        <div>{row.patient_name || '-'}</div>
-                        <small>{row.hipdata_code || 'ไม่ระบุ'} {row.pttype_name || row.pttype || ''}</small>
-                      </td>
-                      <td className="table-cell-nowrap">{row.service_date || '-'}</td>
-                      <td>
-                        <span className={statusClass(row.fdh_status)}>{row.fdh_status || 'ยังไม่พบสถานะ FDH'}</span>
-                        {row.fdh_claim_code || row.fdh_upload_uid ? (
-                          <div style={{ marginTop: 6 }}>
-                            {row.fdh_claim_code && <div className="workflow-id-cell">Claim: {row.fdh_claim_code}</div>}
-                            {row.fdh_upload_uid && <small>Upload: {row.fdh_upload_uid}</small>}
-                            {row.fdh_source && <small style={{ display: 'block' }}>Source: {row.fdh_source}</small>}
-                          </div>
-                        ) : null}
-                        {row.fdh_followup_note ? <small style={{ display: 'block', marginTop: 4 }}>{row.fdh_followup_note}</small> : null}
-                      </td>
-                      <td>
-                        <span className={`insurance-status ${row.close_completed ? 'insurance-status--success' : 'insurance-status--warning'}`}>
-                          {row.close_completed ? 'ปิดสิทธิ์แล้ว' : 'ยังไม่ปิดสิทธิ์'}
-                        </span>
-                        {row.close_code ? <small style={{ display: 'block', marginTop: 4 }}>{row.close_code}</small> : null}
-                      </td>
-                      <td className="workflow-money-cell">{money(row.income)}</td>
-                    </tr>
-                  ))}
-                  {filteredOpdStatusRows.length === 0 && (
-                    <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: 24 }}>
-                        ไม่พบรายการ OPD ในสิทธิ์ {opdHipdataFilter}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="insurance-section-footer">
+              <div>
+                <strong>รายละเอียดรายตัวแยกไปหน้า OPD</strong>
+                <small>ใช้หน้านี้ดูภาพรวมก่อน แล้วค่อยลงรายการผู้ป่วยนอกเฉพาะที่ต้องแก้</small>
+              </div>
+              <button className="btn btn-secondary" onClick={() => navigateTo('staff')}>เปิดหน้า OPD</button>
             </div>
           </section>
 
           <section className="card workflow-table-card">
             <div className="card-header">
-              <span className="workflow-table-title">IPD ระยะเวลาหลัง Discharge ถึง FDH / REP</span>
-              <span className="workflow-table-meta">ใช้ติดตามรอบส่งข้อมูลและรับ REP/STM</span>
+              <span className="workflow-table-title">IPD ภาพรวมหลัง Discharge ถึง FDH / REP</span>
+              <span className="workflow-table-meta">สรุปตาม HIPDATA เพื่อดูงานค้างก่อนลงรายตัว</span>
             </div>
             <div className="insurance-submission-panel">
               <div className="insurance-hipdata-filter">
@@ -483,64 +459,12 @@ export const InsuranceOverviewPage = () => {
                 </div>
               </div>
             </div>
-            <div className="modal-table-wrap">
-              <table className="data-table workflow-readable-table insurance-ipd-lag-table">
-                <thead>
-                  <tr>
-                    <th>AN / HN</th>
-                    <th>ผู้ป่วย</th>
-                    <th>D/C</th>
-                    <th>สถานะ / รหัสเคลม FDH</th>
-                    <th>วันถึง FDH</th>
-                    <th>REP/STM</th>
-                    <th>วันถึง REP</th>
-                    <th>คาดรับ</th>
-                    <th>REP จ่าย</th>
-                    <th>Diff</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredIpdLagRows.map((row) => (
-                    <tr key={row.an || row.vn}>
-                      <td>
-                        <div className="workflow-id-cell">{row.an || '-'}</div>
-                        <small>HN {row.hn || '-'}</small>
-                      </td>
-                      <td className="workflow-person-cell">
-                        <div>{row.patient_name || '-'}</div>
-                        <small>{row.hipdata_code || 'ไม่ระบุ'} {row.pttype_name || ''}</small>
-                      </td>
-                      <td className="table-cell-nowrap">{row.dchdate || '-'}</td>
-                      <td>
-                        <span className={statusClass(row.fdh_status)}>{row.fdh_status || 'ยังไม่พบสถานะ FDH'}</span>
-                        {row.fdh_claim_code || row.fdh_upload_uid ? (
-                          <div style={{ marginTop: 6 }}>
-                            {row.fdh_claim_code && <div className="workflow-id-cell">Claim: {row.fdh_claim_code}</div>}
-                            {row.fdh_upload_uid && <small>Upload: {row.fdh_upload_uid}</small>}
-                            {row.fdh_source && <small style={{ display: 'block' }}>Source: {row.fdh_source}</small>}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td>
-                        <div>{row.days_dch_to_fdh == null ? '-' : `${row.days_dch_to_fdh} วัน`}</div>
-                        {row.fdh_followup_note ? <small>{row.fdh_followup_note}</small> : null}
-                      </td>
-                      <td>{row.rep_no || '-'}</td>
-                      <td>{row.days_dch_to_rep == null ? '-' : `${row.days_dch_to_rep} วัน`}</td>
-                      <td className="workflow-money-cell">{money(row.expected_receivable)}</td>
-                      <td className="workflow-money-cell">{row.rep_amount == null ? '-' : money(row.rep_amount)}</td>
-                      <td className="workflow-money-cell">{row.diff_amount == null ? '-' : money(row.diff_amount)}</td>
-                    </tr>
-                  ))}
-                  {filteredIpdLagRows.length === 0 && (
-                    <tr>
-                      <td colSpan={10} style={{ textAlign: 'center', padding: 24 }}>
-                        ไม่พบรายการ IPD ในสิทธิ์ {hipdataFilter}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="insurance-section-footer">
+              <div>
+                <strong>รายละเอียดรายตัวแยกไปหน้า IPD</strong>
+                <small>หน้า IPD ใช้ตาม chart, discharge, FDH และ REP/STM เป็นรายคน</small>
+              </div>
+              <button className="btn btn-secondary" onClick={() => navigateTo('ipd')}>เปิดหน้า IPD</button>
             </div>
           </section>
 
@@ -580,31 +504,29 @@ export const InsuranceOverviewPage = () => {
 
             <div className="card workflow-table-card">
               <div className="card-header">
-                <span className="workflow-table-title">ข้อมูลที่ต้องเติมใน vale/rules</span>
-                <span className="workflow-table-meta">สิทธิที่ไม่มีหัวบัญชีครบ</span>
+                <span className="workflow-table-title">สรุปข้อมูลที่ต้องเติมใน vale/rules</span>
+                <span className="workflow-table-meta">รวมตามสิทธิ ไม่แสดงรายตัว</span>
               </div>
               <div className="modal-table-wrap">
                 <table className="data-table workflow-readable-table insurance-missing-table">
                   <thead>
                     <tr>
                       <th>ประเภท</th>
-                      <th>VN/AN</th>
-                      <th>HN</th>
                       <th>สิทธิ HOSxP</th>
                       <th>HIPDATA</th>
+                      <th>จำนวน</th>
                       <th>ยอด</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {data.missingRuleRows.length === 0 ? (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20 }}>ยังไม่พบ mapping ที่ขาดในช่วงนี้</td></tr>
-                    ) : data.missingRuleRows.map((row, index) => (
-                      <tr key={`${row.vn || row.an}-${index}`}>
+                    {missingRuleSummary.length === 0 ? (
+                      <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20 }}>ยังไม่พบ mapping ที่ขาดในช่วงนี้</td></tr>
+                    ) : missingRuleSummary.map((row) => (
+                      <tr key={`${row.patient_type}-${row.pttype}-${row.hipdata_code}`}>
                         <td>{row.patient_type || '-'}</td>
-                        <td className="workflow-id-cell">{row.vn || row.an || '-'}</td>
-                        <td>{row.hn || '-'}</td>
                         <td>{row.pttype || '-'} {row.pttype_name || ''}</td>
                         <td>{row.hipdata_code || '-'}</td>
+                        <td>{count(row.item_count)}</td>
                         <td className="workflow-money-cell">{money(row.claimable_amount)}</td>
                       </tr>
                     ))}

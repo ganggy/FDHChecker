@@ -494,20 +494,31 @@ export const IPDPage: React.FC = () => {
         const text = String(item.fdh_status_label || item.fdh_reservation_status || item.fdh_claim_status_message || '').toLowerCase();
         if (item.fdh_error_code || text.includes('reject') || text.includes('error') || text.includes('fail') || text.includes('ปฏิเสธ')) return 'danger';
         if (!item.fdh_transaction_uid && !item.fdh_reservation_status && !item.fdh_claim_status_message && !item.fdh_updated_at) return 'muted';
-        if (text.includes('unclaimed') || text.includes('ยังไม่พบเคลม') || text.includes('รอ') || text.includes('pending')) return 'warning';
+        if (text.includes('unclaimed') || text.includes('ไม่มีรายการนี้') || text.includes('รับข้อมูลรอ') || text.includes('รอ') || text.includes('pending')) return 'warning';
         return 'success';
+    };
+
+    const formatFdhDisplayStatus = (value: unknown) => {
+        const raw = String(value || '').trim();
+        const normalized = raw.toLowerCase();
+        if (!raw) return '';
+        if (normalized === 'received') return 'รับข้อมูลรอประมวลผล';
+        if (normalized === 'unclaimed') return 'ไม่มีรายการนี้ส่งเข้ามาในระบบ';
+        if (normalized.includes('unclaimed') && raw.includes('ไม่ประสงค์')) return 'ไม่ประสงค์เบิก สปสช.';
+        if (normalized === 'cut_off_batch') return 'ตัดรอบการเบิกจ่าย';
+        if (normalized.includes('cut_off_batch')) return raw.includes('ตัดรอบ') ? raw : 'ตัดรอบการเบิกจ่าย';
+        if (normalized.includes('processed') || normalized.includes('process_pass') || normalized.includes('approved')) return 'ประมวลผลผ่าน';
+        return raw;
     };
 
     const getFdhStatusLabel = (item: any) => {
         if (item.fdh_status_label) {
-            return String(item.fdh_status_label).toLowerCase() === 'unclaimed' ? 'ตรวจ FDH แล้ว: ยังไม่พบเคลม' : item.fdh_status_label;
+            return formatFdhDisplayStatus(item.fdh_status_label);
         }
-        if (item.fdh_reservation_status) return item.fdh_reservation_status;
-        if (item.fdh_claim_status_message) {
-            return String(item.fdh_claim_status_message).toLowerCase() === 'unclaimed' ? 'ตรวจ FDH แล้ว: ยังไม่พบเคลม' : item.fdh_claim_status_message;
-        }
+        if (item.fdh_reservation_status) return formatFdhDisplayStatus(item.fdh_reservation_status);
+        if (item.fdh_claim_status_message) return formatFdhDisplayStatus(item.fdh_claim_status_message);
         if (item.fdh_transaction_uid || item.fdh_updated_at) return 'พบสถานะ FDH';
-        return 'ยังไม่พบ FDH';
+        return 'ยังไม่พบในรายการส่งเคลม FDH';
     };
 
     return (

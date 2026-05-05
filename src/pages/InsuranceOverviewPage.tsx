@@ -95,11 +95,11 @@ const firstDayOfMonth = () => {
 
 const statusClass = (status?: string) => {
   const text = String(status || '');
-  if (!text || text.includes('ยังไม่')) return 'insurance-status insurance-status--muted';
+  if (!text || text.includes('ยังไม่พบในรายการ')) return 'insurance-status insurance-status--muted';
   if (text.includes('error') || text.includes('Error') || text.includes('reject') || text.includes('ปฏิเสธ')) {
     return 'insurance-status insurance-status--danger';
   }
-  if (text.includes('ยังไม่พบเคลม') || text.includes('unclaimed') || text.includes('รอ') || text.includes('pending')) return 'insurance-status insurance-status--warning';
+  if (text.includes('ไม่มีรายการนี้') || text.includes('ไม่ประสงค์') || text.includes('รับข้อมูลรอ') || text.includes('unclaimed') || text.includes('รอ') || text.includes('pending')) return 'insurance-status insurance-status--warning';
   return 'insurance-status insurance-status--success';
 };
 

@@ -2644,16 +2644,26 @@ export const getInsuranceOverview = async (options: {
     || row.fdh_settle_at
     || row.fdh_updated_at
   );
+  const formatFdhDisplayStatus = (value: unknown) => {
+    const raw = String(value || '').trim();
+    const normalized = raw.toLowerCase();
+    if (!raw) return '';
+    if (normalized === 'received') return 'รับข้อมูลรอประมวลผล';
+    if (normalized === 'unclaimed') return 'ไม่มีรายการนี้ส่งเข้ามาในระบบ';
+    if (normalized.includes('unclaimed') && raw.includes('ไม่ประสงค์')) return 'ไม่ประสงค์เบิก สปสช.';
+    if (normalized === 'cut_off_batch') return 'ตัดรอบการเบิกจ่าย';
+    if (normalized.includes('cut_off_batch')) return raw.includes('ตัดรอบ') ? raw : 'ตัดรอบการเบิกจ่าย';
+    if (normalized.includes('processed') || normalized.includes('process_pass') || normalized.includes('approved')) return 'ประมวลผลผ่าน';
+    if (normalized.includes('reject') || normalized.includes('deny')) return raw;
+    return raw;
+  };
   const buildFdhStatusLabel = (row: Record<string, unknown>) => {
     const reservationStatus = String(row.fdh_reservation_status || '').trim();
     const message = String(row.fdh_claim_status_message || '').trim();
-    if (reservationStatus) return reservationStatus;
-    if (message) {
-      if (message.toLowerCase() === 'unclaimed') return 'ตรวจ FDH แล้ว: ยังไม่พบเคลม';
-      return message;
-    }
+    if (reservationStatus) return formatFdhDisplayStatus(reservationStatus);
+    if (message) return formatFdhDisplayStatus(message);
     if (row.transaction_uid) return 'ส่ง FDH แล้ว';
-    return 'ยังไม่มีข้อมูลจาก FDH';
+    return 'ยังไม่พบในรายการส่งเคลม FDH';
   };
   const initMonth = (month: string) => ({
     month,
@@ -2874,6 +2884,7 @@ export const getInsuranceOverview = async (options: {
         expected_receivable: expected,
         transaction_uid: row.transaction_uid,
         fdh_found: fdhFound,
+        fdh_status_raw: row.fdh_reservation_status || row.fdh_claim_status_message || '',
         fdh_status: buildFdhStatusLabel(row),
         fdh_message: row.fdh_claim_status_message,
         fdh_error_code: row.error_code,

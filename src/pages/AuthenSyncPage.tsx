@@ -206,7 +206,7 @@ export const AuthenSyncPage: React.FC = () => {
         <div className="card-body" style={{ padding: 0 }}>
           {logs.length > 0 ? (
             <div className="modal-table-wrap">
-              <table className="data-table">
+              <table className="data-table long-id-table long-id-table--authen">
                 <thead>
                   <tr>
                     <th>VN</th>
@@ -220,16 +220,16 @@ export const AuthenSyncPage: React.FC = () => {
                 <tbody>
                   {logs.map((row) => (
                     <tr key={row.id}>
-                      <td className="table-cell-nowrap">{row.vn}</td>
-                      <td className="table-cell-nowrap">{row.cid || '-'}</td>
-                      <td className="table-cell-nowrap">{row.claim_code || '-'}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{row.vn}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{row.cid || '-'}</td>
+                      <td className="table-cell-nowrap workflow-code-cell">{row.claim_code || '-'}</td>
                       <td className="table-cell-nowrap">
                         <span className={`badge ${row.status === 'updated' ? 'badge-success' : row.status === 'error' ? 'badge-danger' : 'badge-warning'}`}>
                           {row.status}
                         </span>
                       </td>
-                      <td>{row.message || '-'}</td>
-                      <td className="table-cell-nowrap">{row.synced_at}</td>
+                      <td className="long-message-cell">{row.message || '-'}</td>
+                      <td className="table-cell-nowrap workflow-code-cell">{row.synced_at}</td>
                     </tr>
                   ))}
                 </tbody>

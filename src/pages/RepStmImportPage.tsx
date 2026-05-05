@@ -939,7 +939,7 @@ export const RepStmImportPage: React.FC = () => {
 
             {eclaimFiles.length > 0 && (
               <div className="modal-table-wrap">
-                <table className="data-table">
+                <table className="data-table long-id-table long-id-table--repstm-latest">
                   <thead>
                     <tr>
                       <th>
@@ -1240,15 +1240,15 @@ export const RepStmImportPage: React.FC = () => {
                       if (isRepType) {
                         return (
                           <tr key={row.id}>
-                            <td className="table-cell-nowrap">{row.tran_id || '-'}</td>
-                            <td className="table-cell-nowrap">{row.rep_no || '-'}</td>
-                            <td className="table-cell-nowrap">{row.hn || '-'}</td>
-                            <td className="table-cell-nowrap">{row.vn || row.an || '-'}</td>
-                            <td>{row.patient_name || String(raw['ชื่อ-สกุล'] ?? '-')}</td>
+                            <td className="table-cell-nowrap workflow-id-cell">{row.tran_id || '-'}</td>
+                            <td className="table-cell-nowrap workflow-id-cell">{row.rep_no || '-'}</td>
+                            <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
+                            <td className="table-cell-nowrap workflow-id-cell">{row.vn || row.an || '-'}</td>
+                            <td className="workflow-person-cell">{row.patient_name || String(raw['ชื่อ-สกุล'] ?? '-')}</td>
                             <td className="table-cell-nowrap">{row.department || '-'}</td>
-                            <td className="table-cell-nowrap">{row.compensated != null ? Number(row.compensated).toLocaleString() : '-'}</td>
-                            <td className="table-cell-nowrap">{row.income != null ? Number(row.income).toLocaleString() : '-'}</td>
-                            <td className="table-cell-nowrap">{row.diff != null ? Number(row.diff).toLocaleString() : '-'}</td>
+                            <td className="table-cell-nowrap workflow-money-cell">{row.compensated != null ? Number(row.compensated).toLocaleString() : '-'}</td>
+                            <td className="table-cell-nowrap workflow-money-cell">{row.income != null ? Number(row.income).toLocaleString() : '-'}</td>
+                            <td className="table-cell-nowrap workflow-money-cell">{row.diff != null ? Number(row.diff).toLocaleString() : '-'}</td>
                           </tr>
                         );
                       }

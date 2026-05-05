@@ -252,7 +252,7 @@ export default function WorkQueuePage() {
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           <div className="modal-table-wrap">
-            <table className="data-table">
+            <table className="data-table workflow-readable-table workflow-readable-table--queue">
               <thead>
                 <tr>
                   <th>VN</th>
@@ -277,9 +277,9 @@ export default function WorkQueuePage() {
                 ) : (
                   items.map((item) => (
                     <tr key={item.vn}>
-                      <td className="table-cell-nowrap">{item.vn}</td>
-                      <td>{item.hn || '-'}</td>
-                      <td>{item.patient_name || '-'}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.vn}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.hn || '-'}</td>
+                      <td className="workflow-person-cell">{item.patient_name || '-'}</td>
                       <td>{item.fund || '-'}</td>
                       <td className="table-cell-nowrap">{item.service_date?.slice(0, 10) || '-'}</td>
                       <td>
@@ -290,7 +290,7 @@ export default function WorkQueuePage() {
                           {statusLabel(item.queue_status)}
                         </span>
                       </td>
-                      <td>{item.assigned_to || '-'}</td>
+                      <td className="workflow-owner-cell">{item.assigned_to || '-'}</td>
                       <td className="workflow-note-cell">{item.notes || '-'}</td>
                       <td className="table-cell-nowrap" style={{ fontSize: 12, color: '#6b7280' }}>
                         {item.updated_at ? new Date(item.updated_at).toLocaleDateString('th-TH') : '-'}

@@ -245,7 +245,7 @@ export default function PreSubmitValidatorPage() {
                   {expandedFile === f.fileCode && (
                     <div className="card-body" style={{ padding: 0 }}>
                       <div className="modal-table-wrap">
-                        <table className="data-table">
+                        <table className="data-table workflow-readable-table workflow-readable-table--validator">
                           <thead>
                             <tr>
                               <th>VN</th>
@@ -260,9 +260,9 @@ export default function PreSubmitValidatorPage() {
                           <tbody>
                             {f.visits.map((row, idx) => (
                               <tr key={idx}>
-                                <td className="table-cell-nowrap">{row.vn}</td>
-                                <td>{row.hn}</td>
-                                <td>{row.patient_name || '-'}</td>
+                                <td className="table-cell-nowrap workflow-id-cell">{row.vn}</td>
+                                <td className="table-cell-nowrap workflow-id-cell">{row.hn}</td>
+                                <td className="workflow-person-cell">{row.patient_name || '-'}</td>
                                 <td className="table-cell-nowrap">{row.vstdate?.slice(0, 10) || '-'}</td>
                                 <td><span className="badge badge-secondary">{row.issue}</span></td>
                                 <td style={{ fontSize: 13 }}>{ISSUE_LABELS[row.issue] || row.issue}</td>

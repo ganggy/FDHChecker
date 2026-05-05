@@ -235,7 +235,7 @@ export default function RejectedClaimTrackingPage() {
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           <div className="modal-table-wrap">
-            <table className="data-table">
+            <table className="data-table workflow-readable-table workflow-readable-table--reject">
               <thead>
                 <tr>
                   <th>REP No.</th>
@@ -263,12 +263,12 @@ export default function RejectedClaimTrackingPage() {
                 ) : (
                   items.map((item) => (
                     <tr key={item.rep_data_id}>
-                      <td style={{ fontSize: 12 }}>{item.rep_no || '-'}</td>
-                      <td className="table-cell-nowrap" style={{ fontSize: 12 }}>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.rep_no || '-'}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">
                         {item.vn || item.an || '-'}
                       </td>
-                      <td>{item.hn || '-'}</td>
-                      <td>{item.patient_name || '-'}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.hn || '-'}</td>
+                      <td className="workflow-person-cell">{item.patient_name || '-'}</td>
                       <td>{item.maininscl || '-'}</td>
                       <td className="table-cell-nowrap" style={{ fontSize: 12 }}>
                         {item.admdate ? String(item.admdate).slice(0, 10) : '-'}
@@ -278,8 +278,8 @@ export default function RejectedClaimTrackingPage() {
                           <span className="badge badge-danger" style={{ fontSize: 11 }}>{item.errorcode}</span>
                         ) : '-'}
                       </td>
-                      <td style={{ fontSize: 11, color: '#6b7280' }}>{item.verifycode || '-'}</td>
-                      <td style={{ textAlign: 'right', fontSize: 12 }}>
+                      <td className="workflow-code-cell">{item.verifycode || '-'}</td>
+                      <td className="workflow-money-cell">
                         {item.diff != null ? (
                           <span style={{ color: Number(item.diff) >= 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
                             {Number(item.diff).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
@@ -295,7 +295,7 @@ export default function RejectedClaimTrackingPage() {
                         </span>
                       </td>
                       <td className="workflow-note-cell">{item.note || '-'}</td>
-                      <td style={{ fontSize: 12 }}>{item.assigned_to || '-'}</td>
+                      <td className="workflow-owner-cell">{item.assigned_to || '-'}</td>
                       <td>
                         <button
                           className="btn btn-secondary"

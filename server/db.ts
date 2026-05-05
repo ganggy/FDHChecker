@@ -2608,6 +2608,315 @@ export const getReceivableBatches = async (limit = 50): Promise<Record<string, u
   }
 };
 
+export const getInsuranceOverview = async (options: {
+  startDate?: string;
+  endDate?: string;
+  accountCode?: string;
+}): Promise<Record<string, unknown>> => {
+  const today = new Date().toISOString().slice(0, 10);
+  const startDate = String(options.startDate || today.slice(0, 8) + '01').slice(0, 10);
+  const endDate = String(options.endDate || today).slice(0, 10);
+  const accountCode = String(options.accountCode || '').trim();
+  const hosConnection = await getUTFConnection();
+  const repConnection = await getRepstmConnection();
+
+  const toNumber = (value: unknown) => {
+    const amount = Number(value);
+    return Number.isFinite(amount) ? amount : 0;
+  };
+
+  const diffDays = (from: unknown, to: unknown) => {
+    if (!from || !to) return null;
+    const start = new Date(String(from));
+    const end = new Date(String(to));
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
+  };
+
+  const monthKey = (value: unknown) => String(value || '').slice(0, 7) || 'ไม่ระบุ';
+  const initMonth = (month: string) => ({
+    month,
+    opdVisits: 0,
+    opdIncome: 0,
+    opdExpectedReceivable: 0,
+    opdClosed: 0,
+    opdMissingClose: 0,
+    ipdDischarged: 0,
+    ipdIncome: 0,
+    ipdExpectedReceivable: 0,
+    ipdFdhSubmitted: 0,
+    ipdRepReceived: 0,
+    nonClaimable: 0,
+    receivable: 0,
+  });
+
+  try {
+    await ensureFdhClaimStatusTable();
+    await ensureRepstmTables();
+    await ensureNhsoClosePrivilegeTable();
+
+    const receivableRows = await getReceivableCandidates({
+      startDate,
+      endDate,
+      patientType: 'ALL',
+    });
+
+    const filteredReceivableRows = accountCode
+      ? receivableRows.filter((row) => (
+        String(row.debtor_code || '').includes(accountCode)
+        || String(row.revenue_code || '').includes(accountCode)
+        || String(row.finance_right_code || '').includes(accountCode)
+        || String(row.finance_right_name || '').includes(accountCode)
+      ))
+      : receivableRows;
+
+    const receivableByVisit = new Map<string, Record<string, unknown>>();
+    filteredReceivableRows.forEach((row) => {
+      const key = String(row.patient_type).toUpperCase() === 'IPD'
+        ? `AN:${row.an || ''}`
+        : `VN:${row.vn || ''}`;
+      if (key !== 'AN:' && key !== 'VN:') receivableByVisit.set(key, row);
+    });
+
+    const [opdRows] = await hosConnection.query(
+      `SELECT
+         DATE_FORMAT(o.vstdate, '%Y-%m') AS month,
+         COUNT(*) AS visit_count,
+         ROUND(SUM(COALESCE(v.income, 0)), 2) AS total_income,
+         SUM(
+           CASE
+             WHEN IFNULL(ncp.nhso_status, '') = 'Y'
+               OR IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP'
+               OR IFNULL((SELECT claim_code FROM authenhos ah WHERE ah.vn = o.vn AND ah.claim_code REGEXP '^EP' LIMIT 1), '') <> ''
+             THEN 1 ELSE 0
+           END
+         ) AS closed_count
+       FROM ovst o
+       LEFT JOIN vn_stat v ON v.vn = o.vn
+       LEFT JOIN nhso_confirm_privilege ncp ON ncp.vn = o.vn
+       WHERE o.vstdate BETWEEN ? AND ?
+       GROUP BY DATE_FORMAT(o.vstdate, '%Y-%m')
+       ORDER BY month`,
+      [startDate, endDate]
+    );
+
+    const [ipdRows] = await hosConnection.query(
+      `SELECT
+         i.an,
+         i.vn,
+         i.hn,
+         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+         DATE_FORMAT(i.regdate, '%Y-%m-%d') AS admdate,
+         DATE_FORMAT(i.dchdate, '%Y-%m-%d') AS dchdate,
+         DATE_FORMAT(i.dchdate, '%Y-%m') AS month,
+         COALESCE(a.income, 0) AS income,
+         COALESCE(a.rcpt_money, 0) AS rcpt_money,
+         COALESCE(a.discount_money, 0) AS discount_money,
+         ptt.pttype,
+         ptt.name AS pttype_name,
+         ptt.hipdata_code,
+         fdh.transaction_uid,
+         fdh.fdh_reservation_status,
+         fdh.fdh_reservation_datetime,
+         fdh.fdh_claim_status_message,
+         fdh.error_code,
+         fdh.fdh_stm_period,
+         fdh.fdh_act_amt,
+         fdh.fdh_settle_at,
+         fdh.updated_at AS fdh_updated_at
+       FROM ipt i
+       LEFT JOIN an_stat a ON a.an = i.an
+       LEFT JOIN patient pt ON pt.hn = i.hn
+       LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
+       LEFT JOIN (
+         SELECT s.*
+         FROM fdh_claim_status s
+         JOIN (
+           SELECT vn, MAX(updated_at) AS max_updated_at
+           FROM fdh_claim_status
+           WHERE IFNULL(vn, '') <> ''
+           GROUP BY vn
+         ) latest ON latest.vn = s.vn AND latest.max_updated_at = s.updated_at
+       ) fdh ON fdh.vn = i.vn
+       WHERE i.dchdate BETWEEN ? AND ?
+       ORDER BY i.dchdate DESC, i.an DESC`,
+      [startDate, endDate]
+    );
+
+    const ipdAnList = (Array.isArray(ipdRows) ? ipdRows : [])
+      .map((row: any) => String(row.an || '').trim())
+      .filter(Boolean);
+
+    let repMap = new Map<string, Record<string, unknown>>();
+    if (ipdAnList.length > 0) {
+      const [repRows] = await repConnection.query(
+        `SELECT
+           an,
+           MAX(rep_no) AS rep_no,
+           MIN(senddate) AS senddate,
+           MAX(created_at) AS rep_imported_at,
+           MAX(COALESCE(compensated, nhso, agency, 0)) AS rep_amount,
+           GROUP_CONCAT(DISTINCT errorcode ORDER BY errorcode SEPARATOR ', ') AS errorcode
+         FROM rep_data
+         WHERE department = 'IP' AND an IN (${ipdAnList.map(() => '?').join(',')})
+         GROUP BY an`,
+        ipdAnList
+      );
+      repMap = new Map(
+        (Array.isArray(repRows) ? repRows : [])
+          .map((row: any) => [String(row.an || '').trim(), row as Record<string, unknown>])
+      );
+    }
+
+    const months = new Map<string, ReturnType<typeof initMonth>>();
+    const getMonth = (month: string) => {
+      if (!months.has(month)) months.set(month, initMonth(month));
+      return months.get(month)!;
+    };
+
+    (Array.isArray(opdRows) ? opdRows : []).forEach((row: any) => {
+      const month = getMonth(String(row.month || 'ไม่ระบุ'));
+      month.opdVisits += toNumber(row.visit_count);
+      month.opdIncome += toNumber(row.total_income);
+      month.opdClosed += toNumber(row.closed_count);
+      month.opdMissingClose += Math.max(0, toNumber(row.visit_count) - toNumber(row.closed_count));
+    });
+
+    filteredReceivableRows.forEach((row) => {
+      const month = getMonth(monthKey(row.service_date));
+      const amount = toNumber(row.claimable_amount);
+      month.receivable += amount;
+      if (String(row.patient_type).toUpperCase() === 'IPD') {
+        month.ipdExpectedReceivable += amount;
+      } else {
+        month.opdExpectedReceivable += amount;
+      }
+    });
+
+    const ipdDetailRows = (Array.isArray(ipdRows) ? ipdRows : []).map((row: any) => {
+      const rep = repMap.get(String(row.an || '').trim()) || null;
+      const fdhSentAt = row.fdh_reservation_datetime || row.fdh_updated_at || null;
+      const receivable = receivableByVisit.get(`AN:${row.an || ''}`);
+      const expected = receivable ? toNumber(receivable.claimable_amount) : Math.max(toNumber(row.income) - toNumber(row.rcpt_money) - toNumber(row.discount_money), 0);
+      const repAmount = rep ? toNumber(rep.rep_amount) : null;
+      const month = getMonth(String(row.month || monthKey(row.dchdate)));
+      month.ipdDischarged += 1;
+      month.ipdIncome += toNumber(row.income);
+      if (row.transaction_uid || row.fdh_reservation_status) month.ipdFdhSubmitted += 1;
+      if (rep) month.ipdRepReceived += 1;
+      if (expected <= 0) month.nonClaimable += toNumber(row.income);
+
+      return {
+        an: row.an,
+        vn: row.vn,
+        hn: row.hn,
+        patient_name: row.patient_name,
+        admdate: row.admdate,
+        dchdate: row.dchdate,
+        month: row.month,
+        pttype: row.pttype,
+        pttype_name: row.pttype_name,
+        hipdata_code: row.hipdata_code,
+        income: toNumber(row.income),
+        expected_receivable: expected,
+        transaction_uid: row.transaction_uid,
+        fdh_status: row.fdh_reservation_status || (row.transaction_uid ? 'ส่ง FDH แล้ว' : 'ยังไม่พบสถานะ FDH'),
+        fdh_message: row.fdh_claim_status_message,
+        fdh_error_code: row.error_code,
+        fdh_sent_at: fdhSentAt,
+        days_dch_to_fdh: diffDays(row.dchdate, fdhSentAt),
+        rep_no: rep?.rep_no || null,
+        rep_received_at: rep?.rep_imported_at || rep?.senddate || null,
+        days_dch_to_rep: diffDays(row.dchdate, rep?.rep_imported_at || rep?.senddate),
+        rep_amount: repAmount,
+        diff_amount: repAmount == null ? null : repAmount - expected,
+        errorcode: rep?.errorcode || null,
+      };
+    });
+
+    const accountRows = new Map<string, Record<string, unknown>>();
+    filteredReceivableRows.forEach((row) => {
+      const patientType = String(row.patient_type || '').toUpperCase();
+      const debtorCode = String(row.debtor_code || '').trim() || 'ไม่พบหัวบัญชีลูกหนี้';
+      const revenueCode = String(row.revenue_code || '').trim() || 'ไม่พบหัวบัญชีรายได้';
+      const key = `${patientType}|${debtorCode}|${revenueCode}|${row.finance_right_code || ''}`;
+      const current = accountRows.get(key) || {
+        patient_type: patientType,
+        finance_right_code: row.finance_right_code || '',
+        finance_right_name: row.finance_right_name || 'ไม่พบ mapping สิทธิ',
+        debtor_code: debtorCode,
+        revenue_code: revenueCode,
+        item_count: 0,
+        total_receivable: 0,
+      };
+      current.item_count = toNumber(current.item_count) + 1;
+      current.total_receivable = toNumber(current.total_receivable) + toNumber(row.claimable_amount);
+      accountRows.set(key, current);
+    });
+
+    const missingRuleRows = filteredReceivableRows
+      .filter((row) => !row.debtor_code || !row.revenue_code || !row.finance_right_code)
+      .slice(0, 50)
+      .map((row) => ({
+        patient_type: row.patient_type,
+        vn: row.vn,
+        an: row.an,
+        hn: row.hn,
+        pttype: row.pttype,
+        pttype_name: row.pttype_name,
+        hipdata_code: row.hipdata_code,
+        claimable_amount: row.claimable_amount,
+      }));
+
+    const summary = {
+      opdVisits: 0,
+      opdIncome: 0,
+      opdExpectedReceivable: 0,
+      opdClosed: 0,
+      opdMissingClose: 0,
+      ipdDischarged: ipdDetailRows.length,
+      ipdIncome: ipdDetailRows.reduce((sum, row) => sum + toNumber(row.income), 0),
+      ipdExpectedReceivable: 0,
+      ipdFdhSubmitted: ipdDetailRows.filter(row => row.transaction_uid || row.fdh_status !== 'ยังไม่พบสถานะ FDH').length,
+      ipdRepReceived: ipdDetailRows.filter(row => row.rep_no).length,
+      receivableTotal: filteredReceivableRows.reduce((sum, row) => sum + toNumber(row.claimable_amount), 0),
+      nonClaimableTotal: 0,
+      missingRuleCount: missingRuleRows.length,
+    };
+
+    Array.from(months.values()).forEach((month) => {
+      summary.opdVisits += month.opdVisits;
+      summary.opdIncome += month.opdIncome;
+      summary.opdExpectedReceivable += month.opdExpectedReceivable;
+      summary.opdClosed += month.opdClosed;
+      summary.opdMissingClose += month.opdMissingClose;
+      summary.ipdExpectedReceivable += month.ipdExpectedReceivable;
+      summary.nonClaimableTotal += month.nonClaimable;
+    });
+
+    const lagRows = ipdDetailRows
+      .filter(row => row.dchdate)
+      .slice(0, 100);
+
+    return {
+      startDate,
+      endDate,
+      accountCode,
+      summary,
+      months: Array.from(months.values()).sort((a, b) => a.month.localeCompare(b.month)),
+      ipdLagRows: lagRows,
+      accountRows: Array.from(accountRows.values()).sort((a, b) => String(a.debtor_code).localeCompare(String(b.debtor_code))),
+      missingRuleRows,
+    };
+  } catch (error) {
+    console.error('Error building insurance overview:', error);
+    throw error;
+  } finally {
+    hosConnection.release();
+    repConnection.release();
+  }
+};
+
 export const saveReceivableBatch = async (payload: ReceivableBatchPayload) => {
   const connection = await getRepstmConnection();
   try {
@@ -5689,6 +5998,7 @@ export const getEligibleIPD = async (
 ): Promise<Record<string, unknown>[]> => {
   const connection = await getUTFConnection();
   try {
+    await ensureFdhClaimStatusSchema(connection);
     const [auditTableRows] = await connection.query("SHOW TABLES LIKE 'z_fdh_audit_log'");
     const hasAuditTable = Array.isArray(auditTableRows) && auditTableRows.length > 0;
 
@@ -5728,13 +6038,32 @@ export const getEligibleIPD = async (
         END as chartStatus,
         ${hasAuditTable ? 'za.status' : 'NULL'} as audit_status,
         ${hasAuditTable ? 'za.updated_by' : 'NULL'} as audit_by,
-        ${hasAuditTable ? 'za.updated_at' : 'NULL'} as audit_date
+        ${hasAuditTable ? 'za.updated_at' : 'NULL'} as audit_date,
+        fdh.transaction_uid as fdh_transaction_uid,
+        fdh.fdh_reservation_status,
+        fdh.fdh_reservation_datetime,
+        fdh.fdh_claim_status_message,
+        fdh.error_code as fdh_error_code,
+        fdh.fdh_stm_period,
+        fdh.fdh_act_amt,
+        fdh.fdh_settle_at,
+        fdh.updated_at as fdh_updated_at
         
       FROM ipt
       JOIN patient pt ON ipt.hn = pt.hn
       LEFT JOIN ward w ON ipt.ward = w.ward
       LEFT JOIN pttype ON ipt.pttype = pttype.pttype
       ${hasAuditTable ? 'LEFT JOIN z_fdh_audit_log za ON ipt.an = za.an' : ''}
+      LEFT JOIN (
+        SELECT s.*
+        FROM fdh_claim_status s
+        JOIN (
+          SELECT vn, MAX(updated_at) AS max_updated_at
+          FROM fdh_claim_status
+          WHERE IFNULL(vn, '') <> ''
+          GROUP BY vn
+        ) latest ON latest.vn = s.vn AND latest.max_updated_at = s.updated_at
+      ) fdh ON fdh.vn = ipt.vn
       WHERE 1=1
     `;
 

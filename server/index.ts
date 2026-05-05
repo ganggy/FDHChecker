@@ -29,6 +29,7 @@ import {
   getReceivableCandidates,
   getReceivableBatches,
   getReceivableFilterOptions,
+  getInsuranceOverview,
   saveReceivableBatch,
   syncNhsoAuthenCodes,
   getAuthenSyncLogs,
@@ -1947,6 +1948,23 @@ app.get('/api/receivables/batches', async (req, res) => {
   } catch (error) {
     console.error('Error fetching receivable batches:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัติบัญชีลูกหนี้' });
+  }
+});
+
+app.get('/api/insurance/overview', async (req, res) => {
+  try {
+    const data = await getInsuranceOverview({
+      startDate: String(req.query.startDate || ''),
+      endDate: String(req.query.endDate || ''),
+      accountCode: String(req.query.accountCode || ''),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching insurance overview:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถโหลดรายงานภาพรวมงานประกันได้',
+    });
   }
 });
 

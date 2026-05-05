@@ -170,13 +170,13 @@
 }
 
 .workflow-readable-table {
-  min-width: 1120px;
+  min-width: max(100%, 1280px);
   table-layout: fixed;
   font-variant-numeric: tabular-nums;
 }
 
 .long-id-table {
-  min-width: 1080px;
+  min-width: max(100%, 1280px);
   table-layout: fixed;
   font-variant-numeric: tabular-nums;
 }
@@ -227,19 +227,19 @@
 }
 
 .workflow-readable-table--validator {
-  min-width: 980px;
+  min-width: max(100%, 1280px);
 }
 
 .workflow-readable-table--queue {
-  min-width: 1180px;
+  min-width: max(100%, 1360px);
 }
 
 .workflow-readable-table--reject {
-  min-width: 1480px;
+  min-width: max(100%, 1560px);
 }
 
 .repdeny-readable-table {
-  min-width: 1420px;
+  min-width: max(100%, 1500px);
 }
 
 .workflow-id-cell,
@@ -314,7 +314,7 @@
 }
 
 .long-id-table--fdh-import-result {
-  min-width: 1120px;
+  min-width: max(100%, 1280px);
 }
 
 .long-id-table--fdh-import-result th:nth-child(2),
@@ -336,7 +336,7 @@
 }
 
 .long-id-table--fdh-import-history {
-  min-width: 1280px;
+  min-width: max(100%, 1400px);
 }
 
 .long-id-table--fdh-import-history th:nth-child(7),
@@ -345,7 +345,7 @@
 }
 
 .long-id-table--nhso-close {
-  min-width: 1360px;
+  min-width: max(100%, 1460px);
 }
 
 .long-id-table--nhso-close th:nth-child(2),
@@ -376,7 +376,7 @@
 }
 
 .long-id-table--nhso-history {
-  min-width: 1180px;
+  min-width: max(100%, 1320px);
 }
 
 .long-id-table--nhso-history th:nth-child(1),
@@ -396,7 +396,7 @@
 }
 
 .long-id-table--repstm-latest {
-  min-width: 1220px;
+  min-width: max(100%, 1380px);
 }
 
 .long-id-table--repstm-latest th:nth-child(1),

@@ -2581,7 +2581,8 @@ p {
 
 /* ========== Visual Polish Layer ========== */
 :root {
-  --content-max: 1480px;
+  --content-max: 1980px;
+  --table-readable-min: 1280px;
   --surface-glass: rgba(255, 255, 255, 0.88);
   --surface-glass-strong: rgba(255, 255, 255, 0.96);
   --border-soft: rgba(148, 163, 184, 0.22);
@@ -2599,12 +2600,39 @@ body {
 }
 
 .app-main {
-  padding: 24px clamp(14px, 2vw, 28px) 58px;
+  padding: 18px clamp(8px, 1.2vw, 24px) 58px;
 }
 
 .page-container {
   max-width: var(--content-max);
-  padding-inline: clamp(10px, 1.2vw, 20px);
+  padding-inline: clamp(8px, 1vw, 18px);
+}
+
+.page-container > .card,
+.page-container > .workflow-table-card,
+.page-container > .workflow-panel,
+.workflow-page > .card,
+.workflow-page > .workflow-table-card,
+.workflow-page > .workflow-panel {
+  width: 100%;
+}
+
+.page-container .table-card,
+.page-container .specific-fund-table-wrap,
+.page-container .repdeny-table-wrap,
+.page-container .repstm-table-shell,
+.page-container .modal-table-wrap,
+.page-container .receivable-table-wrap {
+  width: 100%;
+}
+
+.page-container .modal-table-wrap .data-table,
+.page-container .table-card .data-table,
+.page-container .specific-fund-table-wrap .data-table,
+.page-container .repdeny-table-wrap .data-table,
+.page-container .repstm-table-shell .data-table,
+.page-container .receivable-table-wrap .data-table {
+  min-width: max(100%, var(--table-readable-min));
 }
 
 .page-header {

@@ -55,6 +55,7 @@ type IpdLagRow = {
   days_dch_to_rep?: number | null;
   rep_amount?: number | null;
   diff_amount?: number | null;
+  errorcode?: string | null;
 };
 
 type OpdStatusRow = {
@@ -98,6 +99,78 @@ type MissingRuleRow = {
   claimable_amount?: number;
 };
 
+type ValeRuleSuggestionRow = {
+  patient_type?: string;
+  pttype?: string;
+  pttype_name?: string;
+  hipdata_code?: string;
+  total?: number;
+  claimable_amount?: number;
+  missing_finance_count?: number;
+  missing_debtor_count?: number;
+  missing_revenue_count?: number;
+  suggested_action?: string;
+};
+
+type FrequentEntryIssueRow = {
+  issue_key?: string;
+  issue_label?: string;
+  total?: number;
+  total_amount?: number;
+};
+
+type FrequentSystemErrors = {
+  rep_error_codes?: Array<{ error_code?: string; total?: number }>;
+  fdh_status_errors?: Array<{ status_label?: string; total?: number }>;
+};
+
+type RepAnalytics = {
+  financial?: {
+    ipd_total_cases?: number;
+    rep_received_cases?: number;
+    rep_missing_cases?: number;
+    expected_total?: number;
+    rep_amount_total?: number;
+    diff_total?: number;
+    underpaid_cases?: number;
+    underpaid_total?: number;
+    overpaid_cases?: number;
+    overpaid_total?: number;
+    lag_avg_days?: number | null;
+    lag_p50_days?: number | null;
+    lag_p90_days?: number | null;
+  };
+  reject_status_summary?: Array<{ resolve_status?: string; total?: number }>;
+  reject_top_errors?: Array<{
+    errorcode?: string;
+    total?: number;
+    income_total?: number;
+    compensated_total?: number;
+    diff_total?: number;
+  }>;
+  import_health?: Array<{
+    data_type?: string;
+    batch_count?: number;
+    row_count?: number;
+    last_import_at?: string | null;
+    total_amount?: number | null;
+  }>;
+  statement_match_summary?: Array<{
+    data_type?: string;
+    total_rows?: number;
+    matched_rows?: number;
+    unmatched_rows?: number;
+    matched_rate?: number;
+    total_amount?: number;
+  }>;
+  statement_top_errors?: Array<{
+    data_type?: string;
+    errorcode?: string;
+    total?: number;
+    amount_total?: number;
+  }>;
+};
+
 type OverviewData = {
   startDate: string;
   endDate: string;
@@ -107,6 +180,10 @@ type OverviewData = {
   ipdLagRows: IpdLagRow[];
   accountRows: AccountRow[];
   missingRuleRows: MissingRuleRow[];
+  valeRuleSuggestions?: ValeRuleSuggestionRow[];
+  frequentEntryIssues?: FrequentEntryIssueRow[];
+  frequentSystemErrors?: FrequentSystemErrors;
+  repAnalytics?: RepAnalytics;
 };
 
 const money = (value: unknown) => Number(value || 0).toLocaleString('th-TH', {
@@ -160,6 +237,8 @@ export const InsuranceOverviewPage = () => {
   }, []);
 
   const summary = data?.summary;
+  const repAnalytics = data?.repAnalytics;
+  const repFinancial = repAnalytics?.financial;
   const opdCloseRate = summary && summary.opdVisits > 0 ? Math.round((summary.opdClosed / summary.opdVisits) * 100) : 0;
   const ipdFdhRate = summary && summary.ipdDischarged > 0 ? Math.round((summary.ipdFdhSubmitted / summary.ipdDischarged) * 100) : 0;
   const ipdRepRate = summary && summary.ipdDischarged > 0 ? Math.round((summary.ipdRepReceived / summary.ipdDischarged) * 100) : 0;
@@ -184,11 +263,13 @@ export const InsuranceOverviewPage = () => {
     const sent = filteredOpdStatusRows.filter((row) => row.fdh_found === true).length;
     const nonClaim = filteredOpdStatusRows.filter((row) => String(row.fdh_status || '').includes('ไม่ประสงค์')).length;
     const closed = filteredOpdStatusRows.filter((row) => row.close_completed === true).length;
+    const pending = Math.max(0, total - sent);
     const claimDetailMissing = Math.max(0, total - claimDetailImported);
     const importedRate = total > 0 ? Math.round((claimDetailImported / total) * 100) : 0;
     const sentRate = total > 0 ? Math.round((sent / total) * 100) : 0;
+    const completeRate = total > 0 ? Math.round((sent / total) * 100) : 0;
     const closeRate = total > 0 ? Math.round((closed / total) * 100) : 0;
-    return { total, claimDetailImported, claimDetailMissing, sent, nonClaim, closed, importedRate, sentRate, closeRate };
+    return { total, claimDetailImported, claimDetailMissing, sent, nonClaim, closed, pending, importedRate, sentRate, completeRate, closeRate };
   }, [filteredOpdStatusRows]);
   const hipdataOptions = useMemo(() => {
     const countsByHipdata = new Map<string, number>();
@@ -317,6 +398,11 @@ export const InsuranceOverviewPage = () => {
               <strong>{count(summary.missingRuleCount)}</strong>
               <small>ต้องเติม vale/rules หัวบัญชี</small>
             </div>
+            <div className="insurance-kpi-card insurance-kpi-card--indigo">
+              <span>OPD รายได้รวม</span>
+              <strong>{money(summary.opdIncome)}</strong>
+              <small>คาดรับลูกหนี้ {money(summary.opdExpectedReceivable)} ({summary.opdIncome > 0 ? Math.round((summary.opdExpectedReceivable / summary.opdIncome) * 100) : 0}%)</small>
+            </div>
           </div>
 
           <section className="card workflow-table-card">
@@ -331,6 +417,7 @@ export const InsuranceOverviewPage = () => {
                     <th>เดือน</th>
                     <th>OPD Visit</th>
                     <th>OPD ปิดสิทธิ์</th>
+                    <th>OPD รายได้</th>
                     <th>OPD คาดรับ</th>
                     <th>IPD D/C</th>
                     <th>IPD มีสถานะ FDH</th>
@@ -345,12 +432,171 @@ export const InsuranceOverviewPage = () => {
                       <td className="workflow-id-cell">{row.month}</td>
                       <td>{count(row.opdVisits)}</td>
                       <td>{count(row.opdClosed)} / ค้าง {count(row.opdMissingClose)}</td>
+                      <td className="workflow-money-cell">{money(row.opdIncome)}</td>
                       <td className="workflow-money-cell">{money(row.opdExpectedReceivable)}</td>
                       <td>{count(row.ipdDischarged)}</td>
                       <td>{count(row.ipdFdhSubmitted)}</td>
                       <td>{count(row.ipdRepReceived)}</td>
                       <td className="workflow-money-cell">{money(row.ipdExpectedReceivable)}</td>
                       <td className="workflow-money-cell">{money(row.receivable)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="card workflow-table-card">
+            <div className="card-header">
+              <span className="workflow-table-title">วิเคราะห์ REP/STM สำหรับงานประกัน</span>
+              <span className="workflow-table-meta">ภาพรวมการชดเชย, reject และสุขภาพการนำเข้าไฟล์</span>
+            </div>
+            <div className="insurance-submission-panel">
+              <div className="insurance-submission-grid">
+                <div className="insurance-submission-card">
+                  <span>IPD ควรมี REP</span>
+                  <strong>{count(repFinancial?.ipd_total_cases)}</strong>
+                  <small>ตาม discharge ในช่วงวันที่เลือก</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--success">
+                  <span>REP ได้แล้ว</span>
+                  <strong>{count(repFinancial?.rep_received_cases)}</strong>
+                  <small>ค้าง REP {count(repFinancial?.rep_missing_cases)} เคส</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--teal">
+                  <span>ยอดคาดรับ vs REP</span>
+                  <strong>{money(repFinancial?.expected_total)} / {money(repFinancial?.rep_amount_total)}</strong>
+                  <small>ส่วนต่างรวม {money(repFinancial?.diff_total)}</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--warning">
+                  <span>Lag REP (วัน)</span>
+                  <strong>{count(repFinancial?.lag_p50_days)} / {count(repFinancial?.lag_p90_days)}</strong>
+                  <small>เฉลี่ย {repFinancial?.lag_avg_days ?? '-'} วัน</small>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-table-wrap insurance-table-gap-top">
+              <table className="data-table workflow-readable-table insurance-missing-table">
+                <thead>
+                  <tr>
+                    <th>สถานะ Reject Tracking</th>
+                    <th>จำนวน</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(repAnalytics?.reject_status_summary || []).length === 0 ? (
+                    <tr><td colSpan={2} className="empty-cell">ยังไม่มีข้อมูล reject ในช่วงนี้</td></tr>
+                  ) : (repAnalytics?.reject_status_summary || []).map((row, index) => (
+                    <tr key={`${row.resolve_status || 'unknown'}-${index}`}>
+                      <td>{row.resolve_status || 'open'}</td>
+                      <td>{count(row.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="modal-table-wrap insurance-table-gap-top">
+              <table className="data-table workflow-readable-table insurance-missing-table">
+                <thead>
+                  <tr>
+                    <th>Top REP Errorcode</th>
+                    <th>จำนวน</th>
+                    <th>Income</th>
+                    <th>Compensated</th>
+                    <th>Diff</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(repAnalytics?.reject_top_errors || []).length === 0 ? (
+                    <tr><td colSpan={5} className="empty-cell">ยังไม่พบ REP errorcode ในช่วงนี้</td></tr>
+                  ) : (repAnalytics?.reject_top_errors || []).map((row, index) => (
+                    <tr key={`${row.errorcode || 'unknown'}-${index}`}>
+                      <td>{row.errorcode || '-'}</td>
+                      <td>{count(row.total)}</td>
+                      <td className="workflow-money-cell">{money(row.income_total)}</td>
+                      <td className="workflow-money-cell">{money(row.compensated_total)}</td>
+                      <td className="workflow-money-cell">{money(row.diff_total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="modal-table-wrap insurance-table-gap-top">
+              <table className="data-table workflow-readable-table insurance-missing-table">
+                <thead>
+                  <tr>
+                    <th>Import Type</th>
+                    <th>Batch</th>
+                    <th>Rows</th>
+                    <th>Amount</th>
+                    <th>Last Import</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(repAnalytics?.import_health || []).length === 0 ? (
+                    <tr><td colSpan={5} className="empty-cell">ยังไม่พบการนำเข้า REP/STM/INV ในช่วงนี้</td></tr>
+                  ) : (repAnalytics?.import_health || []).map((row, index) => (
+                    <tr key={`${row.data_type || 'unknown'}-${index}`}>
+                      <td>{row.data_type || '-'}</td>
+                      <td>{count(row.batch_count)}</td>
+                      <td>{count(row.row_count)}</td>
+                      <td className="workflow-money-cell">{row.total_amount == null ? '-' : money(row.total_amount)}</td>
+                      <td>{row.last_import_at || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="modal-table-wrap insurance-table-gap-top">
+              <table className="data-table workflow-readable-table insurance-missing-table">
+                <thead>
+                  <tr>
+                    <th>STM/INV Type</th>
+                    <th>Rows</th>
+                    <th>Matched</th>
+                    <th>Unmatched</th>
+                    <th>Matched %</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(repAnalytics?.statement_match_summary || []).length === 0 ? (
+                    <tr><td colSpan={6} className="empty-cell">ยังไม่พบข้อมูล match ของ STM/INV ในช่วงนี้</td></tr>
+                  ) : (repAnalytics?.statement_match_summary || []).map((row, index) => (
+                    <tr key={`${row.data_type || 'unknown'}-match-${index}`}>
+                      <td>{row.data_type || '-'}</td>
+                      <td>{count(row.total_rows)}</td>
+                      <td>{count(row.matched_rows)}</td>
+                      <td>{count(row.unmatched_rows)}</td>
+                      <td>{row.matched_rate ?? 0}%</td>
+                      <td className="workflow-money-cell">{money(row.total_amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="modal-table-wrap insurance-table-gap-top">
+              <table className="data-table workflow-readable-table insurance-missing-table">
+                <thead>
+                  <tr>
+                    <th>STM/INV Top Error</th>
+                    <th>จำนวน</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(repAnalytics?.statement_top_errors || []).length === 0 ? (
+                    <tr><td colSpan={3} className="empty-cell">ยังไม่พบ errorcode ของ STM/INV ในช่วงนี้</td></tr>
+                  ) : (repAnalytics?.statement_top_errors || []).map((row, index) => (
+                    <tr key={`${row.data_type || 'unknown'}-${row.errorcode || 'err'}-${index}`}>
+                      <td>{row.data_type || '-'}: {row.errorcode || '-'}</td>
+                      <td>{count(row.total)}</td>
+                      <td className="workflow-money-cell">{money(row.amount_total)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -390,19 +636,19 @@ export const InsuranceOverviewPage = () => {
                   <small>visit</small>
                 </div>
                 <div className="insurance-submission-card insurance-submission-card--success">
-                  <span>ส่ง FDH แล้ว</span>
-                  <strong>{count(opdSubmissionSummary.sent)}</strong>
-                  <small>พบรายการใน ClaimDetail FDH</small>
+                  <span>พบใน ClaimDetail FDH</span>
+                  <strong>{count(opdSubmissionSummary.claimDetailImported)}</strong>
+                  <small>นำเข้าแล้ว/เทียบ VN ได้ ({opdSubmissionSummary.importedRate}%)</small>
                 </div>
                 <div className="insurance-submission-card insurance-submission-card--warning">
-                  <span>ยังไม่ส่ง / ยังไม่พบ</span>
-                  <strong>{count(opdSubmissionSummary.pending)}</strong>
-                  <small>ต้องตามรอบส่งหรือค้นจาก FDH</small>
+                  <span>ยังไม่พบ ClaimDetail</span>
+                  <strong>{count(opdSubmissionSummary.claimDetailMissing)}</strong>
+                  <small>ยังไม่มีในไฟล์นำเข้าหรือ VN ไม่ตรง</small>
                 </div>
                 <div className="insurance-submission-card insurance-submission-card--teal">
-                  <span>ความครบถ้วน</span>
-                  <strong>{opdSubmissionSummary.completeRate}%</strong>
-                  <small>ปิดสิทธิ์แล้ว {count(opdSubmissionSummary.closed)} ราย ({opdSubmissionSummary.closeRate}%)</small>
+                  <span>สถานะส่งเบิก</span>
+                  <strong>{count(opdSubmissionSummary.sent)}</strong>
+                  <small>ไม่ประสงค์เบิก {count(opdSubmissionSummary.nonClaim)} | ปิดสิทธิ์ {count(opdSubmissionSummary.closed)} ({opdSubmissionSummary.closeRate}%)</small>
                 </div>
               </div>
             </div>
@@ -447,9 +693,9 @@ export const InsuranceOverviewPage = () => {
                   <small>discharge</small>
                 </div>
                 <div className="insurance-submission-card insurance-submission-card--success">
-                  <span>ส่ง FDH แล้ว</span>
+                  <span>มีสถานะ FDH</span>
                   <strong>{count(ipdSubmissionSummary.sent)}</strong>
-                  <small>มีรายการส่ง/สถานะจริง</small>
+                  <small>ClaimDetail {count(ipdSubmissionSummary.claimDetailImported)} / track status {count(Math.max(0, ipdSubmissionSummary.sent - ipdSubmissionSummary.claimDetailImported))}</small>
                 </div>
                 <div className="insurance-submission-card insurance-submission-card--warning">
                   <span>ยังไม่ส่ง / ยังไม่พบ</span>
@@ -524,7 +770,7 @@ export const InsuranceOverviewPage = () => {
                   </thead>
                   <tbody>
                     {missingRuleSummary.length === 0 ? (
-                      <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20 }}>ยังไม่พบ mapping ที่ขาดในช่วงนี้</td></tr>
+                      <tr><td colSpan={5} className="empty-cell">ยังไม่พบ mapping ที่ขาดในช่วงนี้</td></tr>
                     ) : missingRuleSummary.map((row) => (
                       <tr key={`${row.patient_type}-${row.pttype}-${row.hipdata_code}`}>
                         <td>{row.patient_type || '-'}</td>
@@ -532,6 +778,110 @@ export const InsuranceOverviewPage = () => {
                         <td>{row.hipdata_code || '-'}</td>
                         <td>{count(row.item_count)}</td>
                         <td className="workflow-money-cell">{money(row.claimable_amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="card workflow-table-card">
+              <div className="card-header">
+                <span className="workflow-table-title">ข้อเสนอเติม vale/rules ที่พบบ่อย</span>
+                <span className="workflow-table-meta">Top {count(data.valeRuleSuggestions?.length || 0)} กลุ่ม</span>
+              </div>
+              <div className="modal-table-wrap">
+                <table className="data-table workflow-readable-table insurance-missing-table">
+                  <thead>
+                    <tr>
+                      <th>ประเภท</th>
+                      <th>สิทธิ HOSxP</th>
+                      <th>HIPDATA</th>
+                      <th>จำนวน</th>
+                      <th>ยอด</th>
+                      <th>ต้องเติม</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.valeRuleSuggestions || []).length === 0 ? (
+                      <tr><td colSpan={6} className="empty-cell">ยังไม่พบข้อมูลที่ต้องเติม vale/rules</td></tr>
+                    ) : (data.valeRuleSuggestions || []).map((row, index) => (
+                      <tr key={`${row.patient_type}-${row.pttype}-${row.hipdata_code}-${index}`}>
+                        <td>{row.patient_type || '-'}</td>
+                        <td>{row.pttype || '-'} {row.pttype_name || ''}</td>
+                        <td>{row.hipdata_code || '-'}</td>
+                        <td>{count(row.total)}</td>
+                        <td className="workflow-money-cell">{money(row.claimable_amount)}</td>
+                        <td>{row.suggested_action || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="card workflow-table-card">
+              <div className="card-header">
+                <span className="workflow-table-title">Error ที่เกิดขึ้นบ่อย (HOSxP/FDH/REP)</span>
+                <span className="workflow-table-meta">รวมสาเหตุที่พบซ้ำในช่วงวันที่ที่เลือก</span>
+              </div>
+              <div className="modal-table-wrap">
+                <table className="data-table workflow-readable-table insurance-missing-table">
+                  <thead>
+                    <tr>
+                      <th>กลุ่มปัญหา</th>
+                      <th>จำนวน</th>
+                      <th>มูลค่าเกี่ยวข้อง</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.frequentEntryIssues || []).length === 0 ? (
+                      <tr><td colSpan={3} className="empty-cell">ยังไม่พบ error ที่เกิดซ้ำ</td></tr>
+                    ) : (data.frequentEntryIssues || []).map((row) => (
+                      <tr key={row.issue_key || row.issue_label}>
+                        <td>{row.issue_label || '-'}</td>
+                        <td>{count(row.total)}</td>
+                        <td className="workflow-money-cell">{money(row.total_amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="modal-table-wrap insurance-table-gap-top">
+                <table className="data-table workflow-readable-table insurance-missing-table">
+                  <thead>
+                    <tr>
+                      <th>REP Error Code</th>
+                      <th>จำนวน</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.frequentSystemErrors?.rep_error_codes || []).length === 0 ? (
+                      <tr><td colSpan={2} className="empty-cell">ไม่พบ REP error code ในช่วงนี้</td></tr>
+                    ) : (data.frequentSystemErrors?.rep_error_codes || []).map((row, index) => (
+                      <tr key={`${row.error_code || 'rep'}-${index}`}>
+                        <td>{row.error_code || '-'}</td>
+                        <td>{count(row.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="modal-table-wrap insurance-table-gap-top">
+                <table className="data-table workflow-readable-table insurance-missing-table">
+                  <thead>
+                    <tr>
+                      <th>FDH Status Error</th>
+                      <th>จำนวน</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data.frequentSystemErrors?.fdh_status_errors || []).length === 0 ? (
+                      <tr><td colSpan={2} className="empty-cell">ไม่พบสถานะผิดพลาดจาก FDH ในช่วงนี้</td></tr>
+                    ) : (data.frequentSystemErrors?.fdh_status_errors || []).map((row, index) => (
+                      <tr key={`${row.status_label || 'fdh'}-${index}`}>
+                        <td>{row.status_label || '-'}</td>
+                        <td>{count(row.total)}</td>
                       </tr>
                     ))}
                   </tbody>

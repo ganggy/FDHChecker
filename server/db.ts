@@ -591,6 +591,53 @@ const REP_DATA_VERIFY_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS rep_data_verify LIKE rep_data
 `;
 
+const REPSTM_STATEMENT_DATA_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS repstm_statement_data (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    batch_id BIGINT NOT NULL,
+    data_type VARCHAR(8) NOT NULL,
+    record_uid VARCHAR(191) NOT NULL,
+    statement_no VARCHAR(128) NULL,
+    tran_id VARCHAR(191) NULL,
+    hcode VARCHAR(16) NULL,
+    hn VARCHAR(32) NULL,
+    vn VARCHAR(32) NULL,
+    an VARCHAR(32) NULL,
+    pid VARCHAR(32) NULL,
+    patient_name VARCHAR(255) NULL,
+    patient_type VARCHAR(64) NULL,
+    department VARCHAR(8) NULL,
+    service_datetime DATETIME NULL,
+    senddate DATETIME NULL,
+    maininscl VARCHAR(32) NULL,
+    subinscl VARCHAR(32) NULL,
+    errorcode VARCHAR(128) NULL,
+    verifycode VARCHAR(128) NULL,
+    amount DECIMAL(15,2) NULL,
+    paid_amount DECIMAL(15,2) NULL,
+    invoice_amount DECIMAL(15,2) NULL,
+    filename VARCHAR(255) NOT NULL,
+    filefrom VARCHAR(32) NOT NULL DEFAULT 'NHSO',
+    matched_visit_code VARCHAR(32) NULL,
+    matched_status VARCHAR(16) NOT NULL DEFAULT 'unmatched',
+    raw_data JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_statement_record (data_type, record_uid),
+    INDEX idx_statement_batch_id (batch_id),
+    INDEX idx_statement_data_type (data_type),
+    INDEX idx_statement_tran_id (tran_id),
+    INDEX idx_statement_vn (vn),
+    INDEX idx_statement_an (an),
+    INDEX idx_statement_hn (hn),
+    INDEX idx_statement_errorcode (errorcode),
+    INDEX idx_statement_service_datetime (service_datetime),
+    CONSTRAINT fk_statement_batch
+      FOREIGN KEY (batch_id) REFERENCES repstm_import_batch(id)
+      ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 const RECEIVABLE_BATCH_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS receivable_batch (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -780,6 +827,7 @@ export const ensureRepstmTables = async () => {
     await connection.query(FDH_CLAIM_DETAIL_ROW_TABLE_SQL);
     await connection.query(REP_DATA_TABLE_SQL);
     await connection.query(REP_DATA_VERIFY_TABLE_SQL);
+    await connection.query(REPSTM_STATEMENT_DATA_TABLE_SQL);
     await connection.query(RECEIVABLE_BATCH_TABLE_SQL);
     await connection.query(RECEIVABLE_ITEM_TABLE_SQL);
     const [batchHashColumns] = await connection.query(
@@ -812,6 +860,26 @@ export const ensureRepstmTables = async () => {
         ALTER TABLE repstm_import_batch
         ADD UNIQUE INDEX uk_data_type_batch_hash (data_type, batch_hash)
       `);
+    }
+
+    const [filenameUniqueIndexes] = await connection.query(
+      `SELECT INDEX_NAME
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'repstm_import_batch'
+         AND NON_UNIQUE = 0
+         AND INDEX_NAME <> 'PRIMARY'
+       GROUP BY INDEX_NAME
+       HAVING SUM(CASE WHEN COLUMN_NAME = 'source_filename' THEN 1 ELSE 0 END) > 0
+          AND SUM(CASE WHEN COLUMN_NAME = 'batch_hash' THEN 1 ELSE 0 END) = 0`
+    );
+    if (Array.isArray(filenameUniqueIndexes)) {
+      for (const row of filenameUniqueIndexes as Record<string, unknown>[]) {
+        const indexName = String(row.INDEX_NAME || '').replace(/`/g, '``');
+        if (indexName) {
+          await connection.query(`ALTER TABLE repstm_import_batch DROP INDEX \`${indexName}\``);
+        }
+      }
     }
     await connection.query(AUTHEN_SYNC_LOG_TABLE_SQL);
     await connection.query(AUTHEN_SYNC_CANCEL_TABLE_SQL);
@@ -1932,6 +2000,23 @@ const resolveRepRecordUid = (tranId: string, repNo: string, department: string, 
   return [repNo.trim() || 'REP', visitCode || hn.trim() || String(index + 1)].filter(Boolean).join(':');
 };
 
+const resolveStatementRecordUid = (
+  dataType: 'STM' | 'INV',
+  tranId: string,
+  statementNo: string,
+  department: string,
+  vn: string,
+  an: string,
+  hn: string,
+  index: number
+) => {
+  if (tranId.trim()) return `${dataType}:${tranId.trim()}`;
+  const visitCode = department === 'IP' ? an.trim() : vn.trim();
+  return [dataType, statementNo.trim() || 'STATEMENT', visitCode || hn.trim() || String(index + 1)]
+    .filter(Boolean)
+    .join(':');
+};
+
 const resolveVisitDateOnly = (dateTime: string | null) => dateTime?.split(' ')[0] || null;
 
 const resolveRepVisitCode = async (
@@ -2119,6 +2204,114 @@ const importRepDataRows = async (
   }
 };
 
+const importStatementDataRows = async (
+  repConnection: mysql.PoolConnection,
+  hosConnection: mysql.PoolConnection,
+  batchId: number,
+  payload: {
+    dataType: 'STM' | 'INV';
+    sourceFilename: string;
+    rows: Record<string, unknown>[];
+  }
+) => {
+  await repConnection.query(REPSTM_STATEMENT_DATA_TABLE_SQL);
+
+  for (let index = 0; index < payload.rows.length; index += 1) {
+    const row = payload.rows[index];
+    const statementNo = pickRowValueAdvanced(row, [
+      'STM No.', 'STM No', 'STM',
+      'INV No.', 'INV No', 'INV',
+      'invoice_no', 'เลขที่เอกสาร', 'เลขที่ใบแจ้งหนี้', 'document_no', 'docno'
+    ]);
+    const tranId = pickRowValueAdvanced(row, ['TRAN_ID', 'transaction_uid', 'tranid']);
+    const fallbackSiteSettings = (businessRules as Record<string, unknown>)?.site_settings as Record<string, unknown> | undefined;
+    const hcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode']) || String(fallbackSiteSettings?.hospital_code || '');
+    const hn = pickRowValueAdvanced(row, ['HN']);
+    const rawVn = pickRowValueAdvanced(row, ['VN', 'SEQ', 'seq', 'visit_no']);
+    const rawAn = pickRowValueAdvanced(row, ['AN']);
+    const pid = pickRowValueAdvanced(row, ['PID', 'CID']);
+    const patientName = pickRowValueAdvanced(row, ['ชื่อ-สกุล', 'ชื่อ - สกุล', 'ชื่อสกุล']);
+    const patientType = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย']);
+    const serviceDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, ['service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่']));
+    const senddate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['senddate', 'วันส่งข้อมูล']));
+    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก']);
+    const subinscl = pickRowValueAdvanced(row, ['subinscl', 'สิทธิย่อย']);
+    const errorcode = pickRowValueAdvanced(row, ['errorcode', 'error code']);
+    const verifycode = pickRowValueAdvanced(row, ['verifycode', 'verify code']);
+    const amount = toAmountValue(pickRowValueAdvanced(row, ['amount', 'total', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount']));
+    const paidAmount = toAmountValue(pickRowValueAdvanced(row, ['paid', 'paid_amount', 'ยอดชำระ']));
+    const invoiceAmount = toAmountValue(pickRowValueAdvanced(row, ['invoice_amount', 'inv_amount', 'ยอดเรียกเก็บ']));
+
+    const department = resolveDepartment(patientType, rawAn);
+    const matchedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, serviceDateTime, rawAn, rawVn);
+    const vn = department === 'OP' ? (matchedVisitCode || rawVn.trim()) : rawVn.trim();
+    const an = department === 'IP' ? (matchedVisitCode || rawAn.trim()) : rawAn.trim();
+    const recordUid = resolveStatementRecordUid(payload.dataType, tranId, statementNo, department, vn, an, hn, index);
+    const matchedStatus = matchedVisitCode ? 'matched' : 'unmatched';
+
+    await repConnection.query(
+      `INSERT INTO repstm_statement_data
+       (batch_id, data_type, record_uid, statement_no, tran_id, hcode, hn, vn, an, pid, patient_name, patient_type, department,
+        service_datetime, senddate, maininscl, subinscl, errorcode, verifycode, amount, paid_amount, invoice_amount,
+        filename, filefrom, matched_visit_code, matched_status, raw_data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'NHSO', ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+        batch_id = VALUES(batch_id),
+        statement_no = VALUES(statement_no),
+        tran_id = VALUES(tran_id),
+        hcode = VALUES(hcode),
+        hn = VALUES(hn),
+        vn = VALUES(vn),
+        an = VALUES(an),
+        pid = VALUES(pid),
+        patient_name = VALUES(patient_name),
+        patient_type = VALUES(patient_type),
+        department = VALUES(department),
+        service_datetime = VALUES(service_datetime),
+        senddate = VALUES(senddate),
+        maininscl = VALUES(maininscl),
+        subinscl = VALUES(subinscl),
+        errorcode = VALUES(errorcode),
+        verifycode = VALUES(verifycode),
+        amount = VALUES(amount),
+        paid_amount = VALUES(paid_amount),
+        invoice_amount = VALUES(invoice_amount),
+        filename = VALUES(filename),
+        matched_visit_code = VALUES(matched_visit_code),
+        matched_status = VALUES(matched_status),
+        raw_data = VALUES(raw_data)`,
+      [
+        batchId,
+        payload.dataType,
+        recordUid,
+        statementNo || null,
+        tranId || null,
+        hcode || null,
+        hn || null,
+        vn || null,
+        an || null,
+        pid || null,
+        patientName || null,
+        patientType || null,
+        department || null,
+        serviceDateTime,
+        senddate,
+        maininscl || null,
+        subinscl || null,
+        errorcode || null,
+        verifycode || null,
+        amount,
+        paidAmount,
+        invoiceAmount,
+        payload.sourceFilename,
+        matchedVisitCode || null,
+        matchedStatus,
+        JSON.stringify(row),
+      ]
+    );
+  }
+};
+
 const summarizeImportRow = (row: Record<string, unknown>) => {
   const refKey = pickRowValue(row, ['rep', 'stm', 'invoice', 'invoice_no', 'เลขที่เอกสาร', 'เลขที่ใบแจ้งหนี้', 'document_no', 'docno', 'claimno', 'transaction_uid']);
   const hn = pickRowValue(row, ['hn', 'HN']);
@@ -2147,12 +2340,11 @@ export const importRepstmRows = async (payload: {
   notes?: string;
   rows: Record<string, unknown>[];
 }) => {
+  await ensureRepstmTables();
   const connection = await getRepstmConnection();
   const hosConnection = await getUTFConnection();
   try {
     await connection.beginTransaction();
-    await connection.query(REPSTM_IMPORT_BATCH_TABLE_SQL);
-    await connection.query(REPSTM_IMPORT_ROW_TABLE_SQL);
 
     const batchHash = buildBatchHash(payload.dataType, payload.rows);
     const [duplicateRows] = await connection.query(
@@ -2171,7 +2363,7 @@ export const importRepstmRows = async (payload: {
         duplicate: true,
         batchId: Number(existing.id || 0),
         rowCount: Number(existing.row_count || payload.rows.length),
-        message: `ไฟล์นี้ถูกนำเข้าแล้วเมื่อ ${String(existing.created_at || '-')}`,
+        message: `ข้อมูลชุดนี้ถูกนำเข้าแล้วเมื่อ ${String(existing.created_at || '-')} (ตรวจจากเนื้อหาไฟล์)`,
       };
     }
 
@@ -2216,6 +2408,12 @@ export const importRepstmRows = async (payload: {
 
     if (payload.dataType === 'REP') {
       await importRepDataRows(connection, hosConnection, batchId, {
+        sourceFilename: payload.sourceFilename,
+        rows: payload.rows,
+      });
+    } else if (payload.dataType === 'STM' || payload.dataType === 'INV') {
+      await importStatementDataRows(connection, hosConnection, batchId, {
+        dataType: payload.dataType,
         sourceFilename: payload.sourceFilename,
         rows: payload.rows,
       });
@@ -2590,16 +2788,20 @@ const isWholeVisitReceivableHipdata = (hipdataCode?: unknown) => {
 const enrichReceivableRow = (row: Record<string, unknown>) => {
   const mapping = findReceivableMapping(row.pttype, row.hipdata_code);
   const isIpd = String(row.patient_type || '').toUpperCase() === 'IPD';
-  const isWholeVisit = isWholeVisitReceivableHipdata(row.hipdata_code);
   const totalIncome = toReceivableNumber(row.total_income);
-  const claimableAmount = isWholeVisit ? totalIncome : toReceivableNumber(row.claimable_amount);
+  const claimableAmount = isIpd
+    ? (isWholeVisitReceivableHipdata(row.hipdata_code) ? totalIncome : toReceivableNumber(row.claimable_amount))
+    : totalIncome;
+  const isWholeVisit = !isIpd || isWholeVisitReceivableHipdata(row.hipdata_code);
   const hipdata = String(row.hipdata_code || '').trim().toUpperCase();
 
   return {
     ...row,
     claimable_amount: claimableAmount,
     item_count: isWholeVisit ? Math.max(toReceivableNumber(row.item_count), 1) : row.item_count,
-    claim_summary: isWholeVisit ? `เบิกได้ทั้ง Visit (${hipdata})` : row.claim_summary,
+    claim_summary: isIpd
+      ? (isWholeVisitReceivableHipdata(row.hipdata_code) ? `เบิกได้ทั้ง Visit (${hipdata})` : row.claim_summary)
+      : `ยอดรวมใบสั่งยา/ใบเสร็จ Visit (${hipdata})`,
     hosxp_right_code: row.pttype || '',
     hosxp_right_name: row.pttype_name || '',
     finance_right_code: mapping?.finance_code || '',
@@ -2838,10 +3040,7 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
          LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
          LEFT JOIN vn_stat v ON v.vn = o.vn
          WHERE o.vstdate BETWEEN ? AND ?
-           AND (
-             COALESCE(claim.claimable_amount, 0) > 0
-             OR (UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') AND COALESCE(v.income, 0) > 0)
-           )
+           AND COALESCE(v.income, 0) > 0
            ${rightSql}
            ${hosxpSql}
            ${financeSql}
@@ -2928,6 +3127,276 @@ export const getReceivableBatches = async (limit = 50): Promise<Record<string, u
   } finally {
     connection.release();
   }
+};
+
+// ---- Reconciliation: Compare claimable amounts vs REP/STM/INV per visit ----
+
+export interface ReconciliationQueryParams {
+  startDate?: string;
+  endDate?: string;
+  patientType?: string;
+  patientRight?: string;
+  hosxpRight?: string;
+  financeRight?: string;
+  compareStatus?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ReconciliationRow {
+  patient_type: string;
+  visit_key: string;
+  vn: string;
+  an: string;
+  hn: string;
+  cid: string | null;
+  patient_name: string;
+  pttype: string;
+  pttype_name: string;
+  hipdata_code: string;
+  service_date: string;
+  claimable_amount: number;
+  rep_amount: number | null;
+  rep_no: string | null;
+  has_rep: boolean;
+  stm_amount: number | null;
+  stm_paid_amount: number | null;
+  has_stm: boolean;
+  inv_amount: number | null;
+  inv_invoice_amount: number | null;
+  has_inv: boolean;
+  diff_rep: number | null;
+  diff_stm: number | null;
+  diff_inv: number | null;
+  compare_status: string;
+}
+
+export const getVisitRepStmComparison = async (params: ReconciliationQueryParams): Promise<{
+  data: ReconciliationRow[];
+  total: number;
+  summary: {
+    total_visits: number;
+    matched: number;
+    mismatched: number;
+    pending_rep: number;
+    pending_stm: number;
+    no_data: number;
+    total_claimable: number;
+    total_rep: number;
+    total_stm: number;
+    total_inv: number;
+  };
+}> => {
+  const today = new Date().toISOString().slice(0, 10);
+  const startDate = String(params.startDate || today).slice(0, 10);
+  const endDate = String(params.endDate || startDate).slice(0, 10);
+  const page = Math.max(1, Number(params.page || 1));
+  const pageSize = Math.min(500, Math.max(10, Number(params.pageSize || 100)));
+  const compareStatusFilter = String(params.compareStatus || '').trim();
+
+  // Step 1: get base receivable candidates (claimable amounts computed consistently)
+  const baseRows = await getReceivableCandidates({
+    startDate,
+    endDate,
+    patientType: params.patientType,
+    patientRight: params.patientRight,
+    hosxpRight: params.hosxpRight,
+    financeRight: params.financeRight,
+  });
+
+  if (baseRows.length === 0) {
+    const emptySummary = {
+      total_visits: 0, matched: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
+      no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_inv: 0,
+    };
+    return { data: [], total: 0, summary: emptySummary };
+  }
+
+  const toNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const toNumNull = (v: unknown): number | null => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+
+  const vns = Array.from(new Set(baseRows.map(r => String(r.vn || '').trim()).filter(Boolean)));
+  const ans = Array.from(new Set(baseRows.map(r => String(r.an || '').trim()).filter(Boolean)));
+
+  const repConnection = await getRepstmConnection();
+  const repMap = new Map<string, { rep_amount: number; rep_no: string }>();
+  const stmMap = new Map<string, { stm_amount: number | null; stm_paid_amount: number | null }>();
+  const invMap = new Map<string, { inv_amount: number | null; inv_invoice_amount: number | null }>();
+
+  try {
+    await ensureRepstmTables();
+
+    // --- Step 2: Attach REP data ---
+    const repClauses: string[] = [];
+    const repParams: unknown[] = [];
+    if (vns.length > 0) { repClauses.push(`vn IN (${vns.map(() => '?').join(',')})`); repParams.push(...vns); }
+    if (ans.length > 0) { repClauses.push(`an IN (${ans.map(() => '?').join(',')})`); repParams.push(...ans); }
+
+    if (repClauses.length > 0) {
+      const [repRows] = await repConnection.query(
+        `SELECT
+           COALESCE(vn, '') AS vn,
+           COALESCE(an, '') AS an,
+           MAX(COALESCE(compensated, nhso, agency, 0)) AS rep_amount,
+           GROUP_CONCAT(DISTINCT rep_no ORDER BY rep_no SEPARATOR ', ') AS rep_no
+         FROM rep_data
+         WHERE ${repClauses.join(' OR ')}
+         GROUP BY COALESCE(vn, ''), COALESCE(an, '')`,
+        repParams
+      );
+      (Array.isArray(repRows) ? repRows : []).forEach((r) => {
+        const rec = r as Record<string, unknown>;
+        const vn = String(rec.vn || '').trim();
+        const an = String(rec.an || '').trim();
+        const entry = { rep_amount: toNum(rec.rep_amount), rep_no: String(rec.rep_no || '') };
+        if (vn) repMap.set(`VN:${vn}`, entry);
+        if (an) repMap.set(`AN:${an}`, entry);
+      });
+    }
+
+    // --- Step 3: Attach STM data ---
+    const stmClauses: string[] = [];
+    const stmParams: unknown[] = [];
+    if (vns.length > 0) { stmClauses.push(`matched_visit_code IN (${vns.map(() => '?').join(',')}) OR vn IN (${vns.map(() => '?').join(',')})`); stmParams.push(...vns, ...vns); }
+    if (ans.length > 0) { stmClauses.push(`matched_visit_code IN (${ans.map(() => '?').join(',')}) OR an IN (${ans.map(() => '?').join(',')})`); stmParams.push(...ans, ...ans); }
+
+    if (stmClauses.length > 0) {
+      const [stmRows] = await repConnection.query(
+        `SELECT
+           COALESCE(matched_visit_code, vn, an, '') AS visit_code,
+           data_type,
+           SUM(COALESCE(amount, 0)) AS total_amount,
+           SUM(COALESCE(paid_amount, 0)) AS total_paid_amount,
+           SUM(COALESCE(invoice_amount, 0)) AS total_invoice_amount
+         FROM repstm_statement_data
+         WHERE data_type IN ('STM', 'INV')
+           AND (${stmClauses.join(' OR ')})
+         GROUP BY COALESCE(matched_visit_code, vn, an, ''), data_type`,
+        stmParams
+      );
+      (Array.isArray(stmRows) ? stmRows : []).forEach((r) => {
+        const rec = r as Record<string, unknown>;
+        const vc = String(rec.visit_code || '').trim();
+        const dtype = String(rec.data_type || '').toUpperCase();
+        if (!vc) return;
+        if (dtype === 'STM') {
+          stmMap.set(vc, { stm_amount: toNumNull(rec.total_amount), stm_paid_amount: toNumNull(rec.total_paid_amount) });
+        } else if (dtype === 'INV') {
+          invMap.set(vc, { inv_amount: toNumNull(rec.total_amount), inv_invoice_amount: toNumNull(rec.total_invoice_amount) });
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Error fetching REP/STM/INV for reconciliation:', err);
+  } finally {
+    repConnection.release();
+  }
+
+  // --- Step 4: Assemble rows and compute diffs/status ---
+  const assembled: ReconciliationRow[] = baseRows.map((base) => {
+    const vn = String(base.vn || '').trim();
+    const an = String(base.an || '').trim();
+    const visitKey = an ? `AN:${an}` : `VN:${vn}`;
+    const claimable = toNum(base.claimable_amount);
+
+    const rep = (vn && repMap.get(`VN:${vn}`)) || (an && repMap.get(`AN:${an}`)) || null;
+    const stm = (vn && stmMap.get(vn)) || (an && stmMap.get(an)) || null;
+    const inv = (vn && invMap.get(vn)) || (an && invMap.get(an)) || null;
+
+    const repAmt = rep ? rep.rep_amount : null;
+    const stmAmt = stm ? stm.stm_amount : null;
+    const invAmt = inv ? inv.inv_amount : null;
+
+    const diffRep = repAmt != null ? repAmt - claimable : null;
+    const diffStm = stmAmt != null ? stmAmt - claimable : null;
+    const diffInv = invAmt != null ? invAmt - claimable : null;
+
+    const hasRep = repAmt != null;
+    const hasStm = stmAmt != null;
+    const hasInv = invAmt != null;
+
+    let compareStatus: string;
+    if (!hasRep && !hasStm && !hasInv) {
+      compareStatus = 'ไม่มีข้อมูล';
+    } else if (hasRep && !hasStm && !hasInv) {
+      if (diffRep != null && Math.abs(diffRep) < 0.01) compareStatus = 'ตรงกัน';
+      else compareStatus = 'ยอดต่าง';
+    } else if (!hasRep && (hasStm || hasInv)) {
+      const stmOrInvAmt = stmAmt ?? invAmt ?? 0;
+      const diff = stmOrInvAmt - claimable;
+      if (Math.abs(diff) < 0.01) compareStatus = 'ตรงกัน';
+      else compareStatus = 'ยอดต่าง';
+    } else {
+      // has both REP and STM/INV
+      const repOk = diffRep != null && Math.abs(diffRep) < 0.01;
+      const stmOk = (stmAmt == null || (diffStm != null && Math.abs(diffStm) < 0.01));
+      const invOk = (invAmt == null || (diffInv != null && Math.abs(diffInv) < 0.01));
+      if (repOk && stmOk && invOk) compareStatus = 'ตรงกัน';
+      else compareStatus = 'ยอดต่าง';
+    }
+    // Override: if claimable > 0 but no REP
+    if (claimable > 0 && !hasRep) {
+      if (!hasStm && !hasInv) compareStatus = 'รอ REP';
+      else compareStatus = compareStatus === 'ตรงกัน' ? 'ตรงกัน' : 'รอ REP';
+    }
+    if (claimable > 0 && hasRep && !hasStm && !hasInv) {
+      if (compareStatus !== 'ตรงกัน') compareStatus = 'ยอดต่าง';
+    }
+
+    return {
+      patient_type: String(base.patient_type || ''),
+      visit_key: visitKey,
+      vn: vn,
+      an: an,
+      hn: String(base.hn || ''),
+      cid: base.cid != null ? String(base.cid) : null,
+      patient_name: String(base.patient_name || ''),
+      pttype: String(base.pttype || ''),
+      pttype_name: String(base.pttype_name || ''),
+      hipdata_code: String(base.hipdata_code || ''),
+      service_date: String(base.service_date || ''),
+      claimable_amount: claimable,
+      rep_amount: repAmt,
+      rep_no: rep ? rep.rep_no || null : null,
+      has_rep: hasRep,
+      stm_amount: stmAmt,
+      stm_paid_amount: stm ? stm.stm_paid_amount : null,
+      has_stm: hasStm,
+      inv_amount: invAmt,
+      inv_invoice_amount: inv ? inv.inv_invoice_amount : null,
+      has_inv: hasInv,
+      diff_rep: diffRep,
+      diff_stm: diffStm,
+      diff_inv: diffInv,
+      compare_status: compareStatus,
+    };
+  });
+
+  // --- Step 5: Filter by compareStatus if requested ---
+  const filtered = compareStatusFilter
+    ? assembled.filter(r => r.compare_status === compareStatusFilter)
+    : assembled;
+
+  // --- Step 6: Summary ---
+  const summary = {
+    total_visits: filtered.length,
+    matched: filtered.filter(r => r.compare_status === 'ตรงกัน').length,
+    mismatched: filtered.filter(r => r.compare_status === 'ยอดต่าง').length,
+    pending_rep: filtered.filter(r => r.compare_status === 'รอ REP').length,
+    pending_stm: filtered.filter(r => r.compare_status === 'รอ STM/INV').length,
+    no_data: filtered.filter(r => r.compare_status === 'ไม่มีข้อมูล').length,
+    total_claimable: Math.round(filtered.reduce((s, r) => s + r.claimable_amount, 0) * 100) / 100,
+    total_rep: Math.round(filtered.reduce((s, r) => s + (r.rep_amount ?? 0), 0) * 100) / 100,
+    total_stm: Math.round(filtered.reduce((s, r) => s + (r.stm_amount ?? 0), 0) * 100) / 100,
+    total_inv: Math.round(filtered.reduce((s, r) => s + (r.inv_amount ?? 0), 0) * 100) / 100,
+  };
+
+  // --- Step 7: Paginate ---
+  const total = filtered.length;
+  const offset = (page - 1) * pageSize;
+  const data = filtered.slice(offset, offset + pageSize);
+
+  return { data, total, summary };
 };
 
 export const getInsuranceOverview = async (options: {
@@ -3139,7 +3608,7 @@ export const getInsuranceOverview = async (options: {
     const opdVnList = (Array.isArray(opdDetailRowsRaw) ? opdDetailRowsRaw : [])
       .map((row: any) => String(row.vn || '').trim())
       .filter(Boolean);
-    let opdClaimDetailMap = new Map<string, Record<string, unknown>>();
+    const opdClaimDetailMap = new Map<string, Record<string, unknown>>();
     if (opdVnList.length > 0) {
       const [opdClaimDetailRows] = await repConnection.query(
         `SELECT d.*
@@ -3157,6 +3626,27 @@ export const getInsuranceOverview = async (options: {
       (Array.isArray(opdClaimDetailRows) ? opdClaimDetailRows : []).forEach((row: any) => {
         const vn = String(row.vn || '').trim();
         if (vn) opdClaimDetailMap.set(`VN:${vn}`, row as Record<string, unknown>);
+      });
+    }
+
+    // OPD fallback: check fdh_claim_status for VNs not found in ClaimDetail import
+    const opdFdhStatusMap = new Map<string, Record<string, unknown>>();
+    const opdVnsNotInClaimDetail = opdVnList.filter((vn) => !opdClaimDetailMap.has(`VN:${vn}`));
+    if (opdVnsNotInClaimDetail.length > 0) {
+      const [opdFdhStatusRows] = await hosConnection.query(
+        `SELECT s.*
+         FROM fdh_claim_status s
+         JOIN (
+           SELECT vn, MAX(updated_at) AS max_updated_at
+           FROM fdh_claim_status
+           WHERE IFNULL(vn, '') <> '' AND vn IN (${opdVnsNotInClaimDetail.map(() => '?').join(',')})
+           GROUP BY vn
+         ) latest ON latest.vn = s.vn AND latest.max_updated_at = s.updated_at`,
+        opdVnsNotInClaimDetail
+      );
+      (Array.isArray(opdFdhStatusRows) ? opdFdhStatusRows : []).forEach((row: any) => {
+        const vn = String(row.vn || '').trim();
+        if (vn) opdFdhStatusMap.set(`VN:${vn}`, row as Record<string, unknown>);
       });
     }
 
@@ -3264,9 +3754,23 @@ export const getInsuranceOverview = async (options: {
 
     const opdStatusRows = (Array.isArray(opdDetailRowsRaw) ? opdDetailRowsRaw : []).map((row: any) => {
       const claimDetail = opdClaimDetailMap.get(`VN:${String(row.vn || '').trim()}`) || null;
-      const rawFdhStatus = String(claimDetail?.claim_status || '').trim();
-      const isMissingInFdh = isFdhMissingStatus(rawFdhStatus);
-      const fdhFound = Boolean(claimDetail) && !isMissingInFdh;
+      const fdhApiStatus = opdFdhStatusMap.get(`VN:${String(row.vn || '').trim()}`) || null;
+      const claimDetailStatus = String(claimDetail?.claim_status || '').trim();
+      const fdhApiRawStatus = String(fdhApiStatus?.fdh_reservation_status || fdhApiStatus?.fdh_claim_status_message || '').trim();
+      const rawFdhStatus = claimDetailStatus || fdhApiRawStatus;
+      const isMissingInFdh = isFdhMissingStatus(rawFdhStatus) && !fdhApiStatus?.transaction_uid;
+      const fdhFoundViaClaimDetail = Boolean(claimDetail) && !isFdhMissingStatus(claimDetailStatus);
+      const fdhFoundViaApi = Boolean(fdhApiStatus) && Boolean(fdhApiStatus?.transaction_uid) && !isFdhMissingStatus(fdhApiRawStatus);
+      const fdhFound = fdhFoundViaClaimDetail || fdhFoundViaApi;
+      const effectiveFdhSentAt = fdhFound
+        ? (claimDetail?.sent_at || fdhApiStatus?.fdh_reservation_datetime || null)
+        : null;
+      const fdhSource = claimDetail ? 'FDH ClaimDetail' : (fdhApiStatus ? 'FDH API' : null);
+      const fdhStatusDisplay = claimDetail
+        ? formatFdhDisplayStatus(claimDetail.claim_status)
+        : (fdhApiStatus
+          ? formatFdhDisplayStatus(fdhApiStatus.fdh_reservation_status || fdhApiStatus.fdh_claim_status_message)
+          : 'ยังไม่พบในรายการส่งเคลม FDH');
       return {
         vn: row.vn,
         hn: row.hn,
@@ -3280,12 +3784,12 @@ export const getInsuranceOverview = async (options: {
         close_completed: Boolean(row.close_completed),
         close_code: row.close_code || null,
         fdh_found: fdhFound,
-        fdh_source: claimDetail ? 'FDH ClaimDetail' : null,
+        fdh_source: fdhSource,
         fdh_claim_code: claimDetail?.claim_code || null,
-        fdh_upload_uid: claimDetail?.upload_uid || null,
-        fdh_status: claimDetail ? formatFdhDisplayStatus(claimDetail.claim_status) : 'ยังไม่พบในรายการส่งเคลม FDH',
-        fdh_sent_at: fdhFound ? claimDetail?.sent_at || null : null,
-        fdh_followup_note: fdhFound ? 'ส่งเข้า FDH แล้ว' : 'ยังไม่ส่งหรือยังไม่พบรายการ OPD ใน FDH',
+        fdh_upload_uid: claimDetail?.upload_uid || fdhApiStatus?.transaction_uid || null,
+        fdh_status: fdhStatusDisplay,
+        fdh_sent_at: effectiveFdhSentAt,
+        fdh_followup_note: fdhFound ? 'ส่งเข้า FDH แล้ว' : (isMissingInFdh ? 'ยังไม่ส่งหรือยังไม่พบรายการ OPD ใน FDH' : 'พบสถานะ FDH แต่ยังไม่มี transaction_uid'),
       };
     });
 
@@ -3368,19 +3872,18 @@ export const getInsuranceOverview = async (options: {
       accountRows.set(key, current);
     });
 
-    const missingRuleRows = filteredReceivableRows
-      .filter((row) => !row.debtor_code || !row.revenue_code || !row.finance_right_code)
-      .slice(0, 50)
-      .map((row) => ({
-        patient_type: row.patient_type,
-        vn: row.vn,
-        an: row.an,
-        hn: row.hn,
-        pttype: row.pttype,
-        pttype_name: row.pttype_name,
-        hipdata_code: row.hipdata_code,
-        claimable_amount: row.claimable_amount,
-      }));
+    const missingRuleRowsFull = filteredReceivableRows
+      .filter((row) => !row.debtor_code || !row.revenue_code || !row.finance_right_code);
+    const missingRuleRows = missingRuleRowsFull.slice(0, 50).map((row) => ({
+      patient_type: row.patient_type,
+      vn: row.vn,
+      an: row.an,
+      hn: row.hn,
+      pttype: row.pttype,
+      pttype_name: row.pttype_name,
+      hipdata_code: row.hipdata_code,
+      claimable_amount: row.claimable_amount,
+    }));
 
     const summary = {
       opdVisits: 0,
@@ -3395,7 +3898,7 @@ export const getInsuranceOverview = async (options: {
       ipdRepReceived: ipdDetailRows.filter(row => row.rep_no).length,
       receivableTotal: filteredReceivableRows.reduce((sum, row) => sum + toNumber(row.claimable_amount), 0),
       nonClaimableTotal: 0,
-      missingRuleCount: missingRuleRows.length,
+      missingRuleCount: missingRuleRowsFull.length,
     };
 
     Array.from(months.values()).forEach((month) => {
@@ -3409,8 +3912,328 @@ export const getInsuranceOverview = async (options: {
     });
 
     const lagRows = ipdDetailRows
-      .filter(row => row.dchdate)
-      .slice(0, 100);
+      .filter(row => row.dchdate);
+
+    const valeSuggestionMap = new Map<string, {
+      patient_type: string;
+      pttype: string;
+      pttype_name: string;
+      hipdata_code: string;
+      total: number;
+      claimable_amount: number;
+      missing_finance_count: number;
+      missing_debtor_count: number;
+      missing_revenue_count: number;
+      suggested_action: string;
+    }>();
+
+    missingRuleRowsFull.forEach((row) => {
+      const patientType = String(row.patient_type || '-').toUpperCase();
+      const pttype = String(row.pttype || '-');
+      const pttypeName = String(row.pttype_name || '');
+      const hipdataCode = String(row.hipdata_code || '-').trim() || '-';
+      const key = `${patientType}|${pttype}|${hipdataCode}`;
+      const current = valeSuggestionMap.get(key) || {
+        patient_type: patientType,
+        pttype,
+        pttype_name: pttypeName,
+        hipdata_code: hipdataCode,
+        total: 0,
+        claimable_amount: 0,
+        missing_finance_count: 0,
+        missing_debtor_count: 0,
+        missing_revenue_count: 0,
+        suggested_action: '',
+      };
+
+      current.total += 1;
+      current.claimable_amount += toNumber(row.claimable_amount);
+      if (!row.finance_right_code) current.missing_finance_count += 1;
+      if (!row.debtor_code) current.missing_debtor_count += 1;
+      if (!row.revenue_code) current.missing_revenue_count += 1;
+
+      const actions: string[] = [];
+      if (current.missing_finance_count > 0) actions.push('เพิ่ม mapping สิทธิการเงิน');
+      if (current.missing_debtor_count > 0) actions.push('เพิ่ม vale/rules รหัสลูกหนี้');
+      if (current.missing_revenue_count > 0) actions.push('เพิ่ม vale/rules รหัสรายได้');
+      current.suggested_action = actions.join(' + ');
+      valeSuggestionMap.set(key, current);
+    });
+
+    const frequentEntryIssues = [
+      {
+        issue_key: 'OPD_CLOSE_MISSING',
+        issue_label: 'OPD ยังไม่ปิดสิทธิ์/ไม่พบรหัส EP',
+        total: opdStatusRows.filter((row) => !row.close_completed).length,
+        total_amount: opdStatusRows
+          .filter((row) => !row.close_completed)
+          .reduce((sum, row) => sum + toNumber(row.income), 0),
+      },
+      {
+        issue_key: 'OPD_NOT_FOUND_FDH',
+        issue_label: 'OPD ยังไม่พบใน FDH',
+        total: opdStatusRows.filter((row) => !row.fdh_found).length,
+        total_amount: opdStatusRows
+          .filter((row) => !row.fdh_found)
+          .reduce((sum, row) => sum + toNumber(row.income), 0),
+      },
+      {
+        issue_key: 'IPD_NOT_FOUND_FDH',
+        issue_label: 'IPD ยังไม่พบใน FDH',
+        total: ipdDetailRows.filter((row) => !row.fdh_found).length,
+        total_amount: ipdDetailRows
+          .filter((row) => !row.fdh_found)
+          .reduce((sum, row) => sum + toNumber(row.expected_receivable), 0),
+      },
+      {
+        issue_key: 'IPD_REP_NOT_RECEIVED',
+        issue_label: 'IPD ส่ง FDH แล้วแต่ยังไม่มี REP/STM',
+        total: ipdDetailRows.filter((row) => row.fdh_found && !row.rep_no).length,
+        total_amount: ipdDetailRows
+          .filter((row) => row.fdh_found && !row.rep_no)
+          .reduce((sum, row) => sum + toNumber(row.expected_receivable), 0),
+      },
+      {
+        issue_key: 'MAPPING_MISSING',
+        issue_label: 'ข้อมูลสิทธิยังขาด mapping (vale/rules)',
+        total: missingRuleRowsFull.length,
+        total_amount: missingRuleRowsFull.reduce((sum, row) => sum + toNumber(row.claimable_amount), 0),
+      },
+    ].filter((row) => row.total > 0)
+      .sort((a, b) => b.total - a.total || b.total_amount - a.total_amount);
+
+    const repErrorMap = new Map<string, { error_code: string; total: number }>();
+    ipdDetailRows.forEach((row) => {
+      String(row.errorcode || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .forEach((errorCode) => {
+          const current = repErrorMap.get(errorCode) || { error_code: errorCode, total: 0 };
+          current.total += 1;
+          repErrorMap.set(errorCode, current);
+        });
+    });
+
+    const fdhErrorStatusMap = new Map<string, { status_label: string; total: number }>();
+    [...opdStatusRows, ...ipdDetailRows].forEach((row) => {
+      const status = String(row.fdh_status || '').trim();
+      if (!status) return;
+      const normalized = status.toLowerCase();
+      const isErrorLike = normalized.includes('reject')
+        || normalized.includes('deny')
+        || normalized.includes('unclaimed')
+        || normalized.includes('cut_off')
+        || status.includes('ไม่พบ')
+        || status.includes('ไม่ประสงค์')
+        || status.includes('ตัดรอบ')
+        || status.includes('ปฏิเสธ');
+      if (!isErrorLike) return;
+      const current = fdhErrorStatusMap.get(status) || { status_label: status, total: 0 };
+      current.total += 1;
+      fdhErrorStatusMap.set(status, current);
+    });
+
+    const frequentSystemErrors = {
+      rep_error_codes: Array.from(repErrorMap.values())
+        .sort((a, b) => b.total - a.total || a.error_code.localeCompare(b.error_code, 'th'))
+        .slice(0, 10),
+      fdh_status_errors: Array.from(fdhErrorStatusMap.values())
+        .sort((a, b) => b.total - a.total || a.status_label.localeCompare(b.status_label, 'th'))
+        .slice(0, 10),
+    };
+
+    const repRowsWithAmount = ipdDetailRows.filter((row) => row.rep_amount != null);
+    const repRowsWithDiff = ipdDetailRows.filter((row) => row.diff_amount != null);
+    const repRowsWithLag = ipdDetailRows
+      .map((row) => Number(row.days_dch_to_rep))
+      .filter((value) => Number.isFinite(value));
+    const sortedLagDays = [...repRowsWithLag].sort((a, b) => a - b);
+    const percentile = (values: number[], p: number) => {
+      if (values.length === 0) return null;
+      const idx = Math.max(0, Math.min(values.length - 1, Math.ceil((p / 100) * values.length) - 1));
+      return values[idx];
+    };
+
+    const repFinancial = {
+      ipd_total_cases: ipdDetailRows.length,
+      rep_received_cases: repRowsWithAmount.length,
+      rep_missing_cases: Math.max(0, ipdDetailRows.length - repRowsWithAmount.length),
+      expected_total: ipdDetailRows.reduce((sum, row) => sum + toNumber(row.expected_receivable), 0),
+      rep_amount_total: repRowsWithAmount.reduce((sum, row) => sum + toNumber(row.rep_amount), 0),
+      diff_total: repRowsWithDiff.reduce((sum, row) => sum + toNumber(row.diff_amount), 0),
+      underpaid_cases: repRowsWithDiff.filter((row) => toNumber(row.diff_amount) < 0).length,
+      underpaid_total: repRowsWithDiff
+        .filter((row) => toNumber(row.diff_amount) < 0)
+        .reduce((sum, row) => sum + Math.abs(toNumber(row.diff_amount)), 0),
+      overpaid_cases: repRowsWithDiff.filter((row) => toNumber(row.diff_amount) > 0).length,
+      overpaid_total: repRowsWithDiff
+        .filter((row) => toNumber(row.diff_amount) > 0)
+        .reduce((sum, row) => sum + toNumber(row.diff_amount), 0),
+      lag_avg_days: sortedLagDays.length > 0
+        ? Number((sortedLagDays.reduce((sum, days) => sum + days, 0) / sortedLagDays.length).toFixed(1))
+        : null,
+      lag_p50_days: percentile(sortedLagDays, 50),
+      lag_p90_days: percentile(sortedLagDays, 90),
+    };
+
+    const [rejectStatusRows] = await repConnection.query(
+      `SELECT
+         COALESCE(rn.resolve_status, 'open') AS resolve_status,
+         COUNT(*) AS total
+       FROM rep_data rd
+       LEFT JOIN claim_reject_note rn ON rn.tran_id = rd.tran_id AND rn.tran_id IS NOT NULL
+       WHERE rd.department = 'IP'
+         AND COALESCE(rd.errorcode, '') <> ''
+         AND DATE(COALESCE(rd.dchdate, rd.admdate)) BETWEEN ? AND ?
+       GROUP BY COALESCE(rn.resolve_status, 'open')`,
+      [startDate, endDate]
+    );
+
+    const rejectStatusSummary = (Array.isArray(rejectStatusRows) ? rejectStatusRows : []).map((row) => {
+      const item = row as Record<string, unknown>;
+      return {
+        resolve_status: String(item.resolve_status || 'open'),
+        total: toNumber(item.total),
+      };
+    });
+
+    const [rejectTopErrorsRows] = await repConnection.query(
+      `SELECT
+         rd.errorcode,
+         COUNT(*) AS total,
+         SUM(COALESCE(rd.income, 0)) AS income_total,
+         SUM(COALESCE(rd.compensated, 0)) AS compensated_total,
+         SUM(COALESCE(rd.diff, 0)) AS diff_total
+       FROM rep_data rd
+       WHERE rd.department = 'IP'
+         AND COALESCE(rd.errorcode, '') <> ''
+         AND DATE(COALESCE(rd.dchdate, rd.admdate)) BETWEEN ? AND ?
+       GROUP BY rd.errorcode
+       ORDER BY total DESC, income_total DESC
+       LIMIT 10`,
+      [startDate, endDate]
+    );
+
+    const rejectTopErrors = (Array.isArray(rejectTopErrorsRows) ? rejectTopErrorsRows : []).map((row) => {
+      const item = row as Record<string, unknown>;
+      return {
+        errorcode: String(item.errorcode || ''),
+        total: toNumber(item.total),
+        income_total: toNumber(item.income_total),
+        compensated_total: toNumber(item.compensated_total),
+        diff_total: toNumber(item.diff_total),
+      };
+    });
+
+    const [importHealthRows] = await repConnection.query(
+      `SELECT
+         data_type,
+         COUNT(*) AS batch_count,
+         SUM(COALESCE(row_count, 0)) AS row_count,
+         MAX(created_at) AS last_import_at
+       FROM repstm_import_batch
+       WHERE data_type IN ('REP', 'STM', 'INV')
+         AND DATE(created_at) BETWEEN ? AND ?
+       GROUP BY data_type`,
+      [startDate, endDate]
+    );
+
+    const [stmInvAmountRows] = await repConnection.query(
+      `SELECT
+         r.data_type,
+         SUM(COALESCE(r.amount, 0)) AS total_amount
+       FROM repstm_import_row r
+       JOIN repstm_import_batch b ON b.id = r.batch_id
+       WHERE r.data_type IN ('STM', 'INV')
+         AND DATE(b.created_at) BETWEEN ? AND ?
+       GROUP BY r.data_type`,
+      [startDate, endDate]
+    );
+
+    const [statementMatchRows] = await repConnection.query(
+      `SELECT
+         data_type,
+         COUNT(*) AS total_rows,
+         SUM(CASE WHEN matched_status = 'matched' THEN 1 ELSE 0 END) AS matched_rows,
+         SUM(CASE WHEN matched_status = 'unmatched' THEN 1 ELSE 0 END) AS unmatched_rows,
+         SUM(COALESCE(amount, 0)) AS total_amount
+       FROM repstm_statement_data
+       WHERE data_type IN ('STM', 'INV')
+         AND DATE(COALESCE(service_datetime, senddate, created_at)) BETWEEN ? AND ?
+       GROUP BY data_type`,
+      [startDate, endDate]
+    );
+
+    const [statementErrorRows] = await repConnection.query(
+      `SELECT
+         data_type,
+         errorcode,
+         COUNT(*) AS total,
+         SUM(COALESCE(amount, 0)) AS amount_total
+       FROM repstm_statement_data
+       WHERE data_type IN ('STM', 'INV')
+         AND COALESCE(errorcode, '') <> ''
+         AND DATE(COALESCE(service_datetime, senddate, created_at)) BETWEEN ? AND ?
+       GROUP BY data_type, errorcode
+       ORDER BY total DESC, amount_total DESC
+       LIMIT 20`,
+      [startDate, endDate]
+    );
+
+    const stmInvAmountMap = new Map<string, number>();
+    (Array.isArray(stmInvAmountRows) ? stmInvAmountRows : []).forEach((row) => {
+      const item = row as Record<string, unknown>;
+      stmInvAmountMap.set(String(item.data_type || '').toUpperCase(), toNumber(item.total_amount));
+    });
+
+    const repstmImportHealth = (Array.isArray(importHealthRows) ? importHealthRows : []).map((row) => {
+      const item = row as Record<string, unknown>;
+      const dataType = String(item.data_type || '').toUpperCase();
+      return {
+        data_type: dataType,
+        batch_count: toNumber(item.batch_count),
+        row_count: toNumber(item.row_count),
+        last_import_at: item.last_import_at || null,
+        total_amount: dataType === 'STM' || dataType === 'INV'
+          ? toNumber(stmInvAmountMap.get(dataType) || 0)
+          : null,
+      };
+    });
+
+    const statementMatchSummary = (Array.isArray(statementMatchRows) ? statementMatchRows : []).map((row) => {
+      const item = row as Record<string, unknown>;
+      const totalRows = toNumber(item.total_rows);
+      const matchedRows = toNumber(item.matched_rows);
+      const unmatchedRows = toNumber(item.unmatched_rows);
+      return {
+        data_type: String(item.data_type || '').toUpperCase(),
+        total_rows: totalRows,
+        matched_rows: matchedRows,
+        unmatched_rows: unmatchedRows,
+        matched_rate: totalRows > 0 ? Number(((matchedRows / totalRows) * 100).toFixed(1)) : 0,
+        total_amount: toNumber(item.total_amount),
+      };
+    });
+
+    const statementTopErrors = (Array.isArray(statementErrorRows) ? statementErrorRows : []).map((row) => {
+      const item = row as Record<string, unknown>;
+      return {
+        data_type: String(item.data_type || '').toUpperCase(),
+        errorcode: String(item.errorcode || ''),
+        total: toNumber(item.total),
+        amount_total: toNumber(item.amount_total),
+      };
+    });
+
+    const repAnalytics = {
+      financial: repFinancial,
+      reject_status_summary: rejectStatusSummary,
+      reject_top_errors: rejectTopErrors,
+      import_health: repstmImportHealth,
+      statement_match_summary: statementMatchSummary,
+      statement_top_errors: statementTopErrors,
+    };
 
     return {
       startDate,
@@ -3422,6 +4245,12 @@ export const getInsuranceOverview = async (options: {
       ipdLagRows: lagRows,
       accountRows: Array.from(accountRows.values()).sort((a, b) => String(a.debtor_code).localeCompare(String(b.debtor_code))),
       missingRuleRows,
+      valeRuleSuggestions: Array.from(valeSuggestionMap.values())
+        .sort((a, b) => b.total - a.total || b.claimable_amount - a.claimable_amount)
+        .slice(0, 20),
+      frequentEntryIssues,
+      frequentSystemErrors,
+      repAnalytics,
     };
   } catch (error) {
     console.error('Error building insurance overview:', error);

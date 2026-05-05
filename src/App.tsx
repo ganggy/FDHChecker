@@ -9,6 +9,7 @@ import { NhsoClosePage } from './pages/NhsoClosePage';
 import { RepStmImportPage } from './pages/RepStmImportPage';
 import { ReceivablePage } from './pages/ReceivablePage';
 import { InsuranceOverviewPage } from './pages/InsuranceOverviewPage';
+import { VisitReconciliationPage } from './pages/VisitReconciliationPage';
 import { RepDenyPage } from './pages/RepDenyPage';
 import { AuthenSyncPage } from './pages/AuthenSyncPage';
 import PreSubmitValidatorPage from './pages/PreSubmitValidatorPage';
@@ -40,6 +41,7 @@ function App() {
     { page: 'workQueue', icon: '📋', label: 'คิวงาน' },
     { page: 'rejectTracking', icon: '🔴', label: 'ติดตาม Reject' },
     { page: 'receivable', icon: '💼', label: 'บัญชีลูกหนี้' },
+    { page: 'reconciliation', icon: '🔄', label: 'กระทบยอด REP/STM' },
     { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกัน' },
     { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
     { page: 'admin', icon: '📊', label: 'Dashboard' },
@@ -133,6 +135,7 @@ function App() {
         {currentPage === 'authenSync' && <AuthenSyncPage />}
         {currentPage === 'receivable' && <ReceivablePage />}
         {currentPage === 'insuranceOverview' && <InsuranceOverviewPage />}
+        {currentPage === 'reconciliation' && <VisitReconciliationPage />}
         {currentPage === 'repDeny' && <RepDenyPage />}
         {currentPage === 'admin' && <AdminDashboard />}
         {currentPage === 'specific' && <SpecificFundPage />}

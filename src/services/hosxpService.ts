@@ -470,6 +470,92 @@ export const saveReceivableBatch = async (payload: {
   return json;
 };
 
+// ---- Reconciliation types and service ----
+
+export interface ReconciliationRow {
+  patient_type: string;
+  visit_key: string;
+  vn: string;
+  an: string;
+  hn: string;
+  cid: string | null;
+  patient_name: string;
+  pttype: string;
+  pttype_name: string;
+  hipdata_code: string;
+  service_date: string;
+  claimable_amount: number;
+  rep_amount: number | null;
+  rep_no: string | null;
+  has_rep: boolean;
+  stm_amount: number | null;
+  stm_paid_amount: number | null;
+  has_stm: boolean;
+  inv_amount: number | null;
+  inv_invoice_amount: number | null;
+  has_inv: boolean;
+  diff_rep: number | null;
+  diff_stm: number | null;
+  diff_inv: number | null;
+  compare_status: string;
+}
+
+export interface ReconciliationSummary {
+  total_visits: number;
+  matched: number;
+  mismatched: number;
+  pending_rep: number;
+  pending_stm: number;
+  no_data: number;
+  total_claimable: number;
+  total_rep: number;
+  total_stm: number;
+  total_inv: number;
+}
+
+export interface ReconciliationResponse {
+  success: boolean;
+  data: ReconciliationRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: ReconciliationSummary;
+}
+
+export const fetchReceivableReconciliation = async (params: {
+  startDate: string;
+  endDate: string;
+  patientType?: string;
+  patientRight?: string;
+  hosxpRight?: string;
+  financeRight?: string;
+  compareStatus?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ReconciliationResponse> => {
+  const query = new URLSearchParams();
+  query.set('startDate', params.startDate);
+  query.set('endDate', params.endDate);
+  if (params.patientType) query.set('patientType', params.patientType);
+  if (params.patientRight) query.set('patientRight', params.patientRight);
+  if (params.hosxpRight) query.set('hosxpRight', params.hosxpRight);
+  if (params.financeRight) query.set('financeRight', params.financeRight);
+  if (params.compareStatus) query.set('compareStatus', params.compareStatus);
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+
+  const response = await fetch(`/api/receivables/reconciliation?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดข้อมูลกระทบยอด REP/STM ได้');
+  }
+  return json as ReconciliationResponse;
+};
+
 // ฟังก์ชันส่งข้อมูลไปที่ระบบ FDH
 export const submitToFDH = async (records: CheckRecord[]) => {
   try {

@@ -34,6 +34,7 @@ import {
   getReceivableBatches,
   getReceivableFilterOptions,
   getInsuranceOverview,
+  getVisitRepStmComparison,
   saveReceivableBatch,
   syncNhsoAuthenCodes,
   getAuthenSyncLogs,
@@ -1993,6 +1994,28 @@ app.get('/api/fdh/claim-detail/rows', async (req, res) => {
   } catch (error) {
     console.error('Error fetching FDH ClaimDetail rows:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านข้อมูล FDH ClaimDetail' });
+  }
+});
+
+app.get('/api/receivables/reconciliation', async (req, res) => {
+  try {
+    const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
+    const pageSize = req.query.pageSize ? Math.min(500, Math.max(10, Number(req.query.pageSize))) : 100;
+    const result = await getVisitRepStmComparison({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      patientRight: req.query.patientRight ? String(req.query.patientRight) : undefined,
+      hosxpRight: req.query.hosxpRight ? String(req.query.hosxpRight) : undefined,
+      financeRight: req.query.financeRight ? String(req.query.financeRight) : undefined,
+      compareStatus: req.query.compareStatus ? String(req.query.compareStatus) : undefined,
+      page,
+      pageSize,
+    });
+    res.json({ success: true, ...result, page, pageSize });
+  } catch (error) {
+    console.error('Error fetching reconciliation data:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูลกระทบยอด REP/STM' });
   }
 });
 

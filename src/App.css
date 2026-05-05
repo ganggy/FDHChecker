@@ -973,6 +973,10 @@
   min-width: 860px;
 }
 
+.insurance-table-gap-top {
+  margin-top: 12px;
+}
+
 .insurance-split-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);

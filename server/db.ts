@@ -2634,6 +2634,27 @@ export const getInsuranceOverview = async (options: {
   };
 
   const monthKey = (value: unknown) => String(value || '').slice(0, 7) || 'ไม่ระบุ';
+  const hasFdhStatus = (row: Record<string, unknown>) => Boolean(
+    row.transaction_uid
+    || row.fdh_reservation_status
+    || row.fdh_claim_status_message
+    || row.error_code
+    || row.fdh_stm_period
+    || row.fdh_act_amt != null
+    || row.fdh_settle_at
+    || row.fdh_updated_at
+  );
+  const buildFdhStatusLabel = (row: Record<string, unknown>) => {
+    const reservationStatus = String(row.fdh_reservation_status || '').trim();
+    const message = String(row.fdh_claim_status_message || '').trim();
+    if (reservationStatus) return reservationStatus;
+    if (message) {
+      if (message.toLowerCase() === 'unclaimed') return 'ตรวจ FDH แล้ว: ยังไม่พบเคลม';
+      return message;
+    }
+    if (row.transaction_uid) return 'ส่ง FDH แล้ว';
+    return 'ยังไม่มีข้อมูลจาก FDH';
+  };
   const initMonth = (month: string) => ({
     month,
     opdVisits: 0,
@@ -2746,26 +2767,54 @@ export const getInsuranceOverview = async (options: {
     const ipdAnList = (Array.isArray(ipdRows) ? ipdRows : [])
       .map((row: any) => String(row.an || '').trim())
       .filter(Boolean);
+    const ipdVnList = (Array.isArray(ipdRows) ? ipdRows : [])
+      .map((row: any) => String(row.vn || '').trim())
+      .filter(Boolean);
+    const ipdTranIdList = (Array.isArray(ipdRows) ? ipdRows : [])
+      .map((row: any) => String(row.transaction_uid || '').trim())
+      .filter(Boolean);
 
     let repMap = new Map<string, Record<string, unknown>>();
-    if (ipdAnList.length > 0) {
+    if (ipdAnList.length > 0 || ipdVnList.length > 0 || ipdTranIdList.length > 0) {
+      const whereParts: string[] = [];
+      const repParams: string[] = [];
+      if (ipdAnList.length > 0) {
+        whereParts.push(`an IN (${ipdAnList.map(() => '?').join(',')})`);
+        repParams.push(...ipdAnList);
+      }
+      if (ipdVnList.length > 0) {
+        whereParts.push(`vn IN (${ipdVnList.map(() => '?').join(',')})`);
+        repParams.push(...ipdVnList);
+      }
+      if (ipdTranIdList.length > 0) {
+        whereParts.push(`tran_id IN (${ipdTranIdList.map(() => '?').join(',')})`);
+        repParams.push(...ipdTranIdList);
+      }
       const [repRows] = await repConnection.query(
         `SELECT
            an,
+           vn,
+           tran_id,
            MAX(rep_no) AS rep_no,
            MIN(senddate) AS senddate,
            MAX(created_at) AS rep_imported_at,
            MAX(COALESCE(compensated, nhso, agency, 0)) AS rep_amount,
            GROUP_CONCAT(DISTINCT errorcode ORDER BY errorcode SEPARATOR ', ') AS errorcode
          FROM rep_data
-         WHERE department = 'IP' AND an IN (${ipdAnList.map(() => '?').join(',')})
-         GROUP BY an`,
-        ipdAnList
+         WHERE department = 'IP' AND (${whereParts.join(' OR ')})
+         GROUP BY an, vn, tran_id`,
+        repParams
       );
-      repMap = new Map(
-        (Array.isArray(repRows) ? repRows : [])
-          .map((row: any) => [String(row.an || '').trim(), row as Record<string, unknown>])
-      );
+      repMap = new Map();
+      (Array.isArray(repRows) ? repRows : []).forEach((row: any) => {
+        const repRow = row as Record<string, unknown>;
+        const an = String(row.an || '').trim();
+        const vn = String(row.vn || '').trim();
+        const tranId = String(row.tran_id || '').trim();
+        if (an) repMap.set(`AN:${an}`, repRow);
+        if (vn) repMap.set(`VN:${vn}`, repRow);
+        if (tranId) repMap.set(`TRN:${tranId}`, repRow);
+      });
     }
 
     const months = new Map<string, ReturnType<typeof initMonth>>();
@@ -2794,15 +2843,19 @@ export const getInsuranceOverview = async (options: {
     });
 
     const ipdDetailRows = (Array.isArray(ipdRows) ? ipdRows : []).map((row: any) => {
-      const rep = repMap.get(String(row.an || '').trim()) || null;
+      const rep = repMap.get(`AN:${String(row.an || '').trim()}`)
+        || repMap.get(`VN:${String(row.vn || '').trim()}`)
+        || repMap.get(`TRN:${String(row.transaction_uid || '').trim()}`)
+        || null;
       const fdhSentAt = row.fdh_reservation_datetime || row.fdh_updated_at || null;
+      const fdhFound = hasFdhStatus(row);
       const receivable = receivableByVisit.get(`AN:${row.an || ''}`);
       const expected = receivable ? toNumber(receivable.claimable_amount) : Math.max(toNumber(row.income) - toNumber(row.rcpt_money) - toNumber(row.discount_money), 0);
       const repAmount = rep ? toNumber(rep.rep_amount) : null;
       const month = getMonth(String(row.month || monthKey(row.dchdate)));
       month.ipdDischarged += 1;
       month.ipdIncome += toNumber(row.income);
-      if (row.transaction_uid || row.fdh_reservation_status) month.ipdFdhSubmitted += 1;
+      if (fdhFound) month.ipdFdhSubmitted += 1;
       if (rep) month.ipdRepReceived += 1;
       if (expected <= 0) month.nonClaimable += toNumber(row.income);
 
@@ -2820,7 +2873,8 @@ export const getInsuranceOverview = async (options: {
         income: toNumber(row.income),
         expected_receivable: expected,
         transaction_uid: row.transaction_uid,
-        fdh_status: row.fdh_reservation_status || (row.transaction_uid ? 'ส่ง FDH แล้ว' : 'ยังไม่พบสถานะ FDH'),
+        fdh_found: fdhFound,
+        fdh_status: buildFdhStatusLabel(row),
         fdh_message: row.fdh_claim_status_message,
         fdh_error_code: row.error_code,
         fdh_sent_at: fdhSentAt,
@@ -2877,7 +2931,7 @@ export const getInsuranceOverview = async (options: {
       ipdDischarged: ipdDetailRows.length,
       ipdIncome: ipdDetailRows.reduce((sum, row) => sum + toNumber(row.income), 0),
       ipdExpectedReceivable: 0,
-      ipdFdhSubmitted: ipdDetailRows.filter(row => row.transaction_uid || row.fdh_status !== 'ยังไม่พบสถานะ FDH').length,
+      ipdFdhSubmitted: ipdDetailRows.filter(row => row.fdh_found).length,
       ipdRepReceived: ipdDetailRows.filter(row => row.rep_no).length,
       receivableTotal: filteredReceivableRows.reduce((sum, row) => sum + toNumber(row.claimable_amount), 0),
       nonClaimableTotal: 0,
@@ -6040,6 +6094,7 @@ export const getEligibleIPD = async (
         ${hasAuditTable ? 'za.updated_by' : 'NULL'} as audit_by,
         ${hasAuditTable ? 'za.updated_at' : 'NULL'} as audit_date,
         fdh.transaction_uid as fdh_transaction_uid,
+        COALESCE(fdh.fdh_reservation_status, fdh.fdh_claim_status_message, IF(fdh.transaction_uid IS NOT NULL, 'ส่ง FDH แล้ว', NULL)) as fdh_status_label,
         fdh.fdh_reservation_status,
         fdh.fdh_reservation_datetime,
         fdh.fdh_claim_status_message,

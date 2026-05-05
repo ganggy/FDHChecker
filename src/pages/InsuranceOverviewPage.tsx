@@ -99,7 +99,7 @@ const statusClass = (status?: string) => {
   if (text.includes('error') || text.includes('Error') || text.includes('reject') || text.includes('ปฏิเสธ')) {
     return 'insurance-status insurance-status--danger';
   }
-  if (text.includes('รอ') || text.includes('pending')) return 'insurance-status insurance-status--warning';
+  if (text.includes('ยังไม่พบเคลม') || text.includes('unclaimed') || text.includes('รอ') || text.includes('pending')) return 'insurance-status insurance-status--warning';
   return 'insurance-status insurance-status--success';
 };
 
@@ -187,7 +187,7 @@ export const InsuranceOverviewPage = () => {
               <small>{count(summary.opdClosed)} / {count(summary.opdVisits)} visit</small>
             </div>
             <div className="insurance-kpi-card insurance-kpi-card--green">
-              <span>IPD ส่ง FDH แล้ว</span>
+              <span>IPD มีสถานะ FDH</span>
               <strong>{ipdFdhRate}%</strong>
               <small>{count(summary.ipdFdhSubmitted)} / {count(summary.ipdDischarged)} discharge</small>
             </div>
@@ -227,7 +227,7 @@ export const InsuranceOverviewPage = () => {
                     <th>OPD ปิดสิทธิ์</th>
                     <th>OPD คาดรับ</th>
                     <th>IPD D/C</th>
-                    <th>IPD ส่ง FDH</th>
+                    <th>IPD มีสถานะ FDH</th>
                     <th>IPD ได้ REP</th>
                     <th>IPD คาดรับ</th>
                     <th>ลูกหนี้รวม</th>

@@ -491,15 +491,21 @@ export const IPDPage: React.FC = () => {
     const fdhSubmittedCount = data.filter(i => i.fdh_transaction_uid || i.fdh_reservation_status || i.fdh_updated_at).length;
 
     const getFdhStatusTone = (item: any) => {
-        const text = String(item.fdh_reservation_status || item.fdh_claim_status_message || '').toLowerCase();
+        const text = String(item.fdh_status_label || item.fdh_reservation_status || item.fdh_claim_status_message || '').toLowerCase();
         if (item.fdh_error_code || text.includes('reject') || text.includes('error') || text.includes('fail') || text.includes('ปฏิเสธ')) return 'danger';
-        if (!item.fdh_transaction_uid && !item.fdh_reservation_status && !item.fdh_updated_at) return 'muted';
-        if (text.includes('รอ') || text.includes('pending')) return 'warning';
+        if (!item.fdh_transaction_uid && !item.fdh_reservation_status && !item.fdh_claim_status_message && !item.fdh_updated_at) return 'muted';
+        if (text.includes('unclaimed') || text.includes('ยังไม่พบเคลม') || text.includes('รอ') || text.includes('pending')) return 'warning';
         return 'success';
     };
 
     const getFdhStatusLabel = (item: any) => {
+        if (item.fdh_status_label) {
+            return String(item.fdh_status_label).toLowerCase() === 'unclaimed' ? 'ตรวจ FDH แล้ว: ยังไม่พบเคลม' : item.fdh_status_label;
+        }
         if (item.fdh_reservation_status) return item.fdh_reservation_status;
+        if (item.fdh_claim_status_message) {
+            return String(item.fdh_claim_status_message).toLowerCase() === 'unclaimed' ? 'ตรวจ FDH แล้ว: ยังไม่พบเคลม' : item.fdh_claim_status_message;
+        }
         if (item.fdh_transaction_uid || item.fdh_updated_at) return 'พบสถานะ FDH';
         return 'ยังไม่พบ FDH';
     };

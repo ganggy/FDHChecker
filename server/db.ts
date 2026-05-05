@@ -3061,25 +3061,18 @@ export const getInsuranceOverview = async (options: {
       .filter(Boolean);
 
     let fdhClaimDetailMap = new Map<string, Record<string, unknown>>();
-    if (ipdAnList.length > 0 || ipdVnList.length > 0) {
-      const fdhDetailWhere: string[] = [];
-      const fdhDetailParams: string[] = [];
-      if (ipdAnList.length > 0) {
-        fdhDetailWhere.push(`an IN (${ipdAnList.map(() => '?').join(',')})`);
-        fdhDetailParams.push(...ipdAnList);
-      }
-      if (ipdVnList.length > 0) {
-        fdhDetailWhere.push(`vn IN (${ipdVnList.map(() => '?').join(',')})`);
-        fdhDetailParams.push(...ipdVnList);
-      }
+    if (ipdAnList.length > 0) {
+      const fdhDetailParams: string[] = [...ipdAnList];
       const [fdhDetailRows] = await repConnection.query(
         `SELECT d.*
          FROM fdh_claim_detail_row d
          JOIN (
-           SELECT COALESCE(NULLIF(an, ''), NULLIF(vn, ''), claim_code) AS match_key, MAX(id) AS max_id
+           SELECT an AS match_key, MAX(id) AS max_id
            FROM fdh_claim_detail_row
-           WHERE ${fdhDetailWhere.join(' OR ')}
-           GROUP BY COALESCE(NULLIF(an, ''), NULLIF(vn, ''), claim_code)
+           WHERE IFNULL(an, '') <> ''
+             AND UPPER(IFNULL(patient_type, '')) IN ('IP', 'IPD')
+             AND an IN (${ipdAnList.map(() => '?').join(',')})
+           GROUP BY an
          ) latest ON latest.max_id = d.id`,
         fdhDetailParams
       );
@@ -3087,9 +3080,7 @@ export const getInsuranceOverview = async (options: {
       (Array.isArray(fdhDetailRows) ? fdhDetailRows : []).forEach((row: any) => {
         const detail = row as Record<string, unknown>;
         const an = String(row.an || '').trim();
-        const vn = String(row.vn || '').trim();
         if (an) fdhClaimDetailMap.set(`AN:${an}`, detail);
-        if (vn) fdhClaimDetailMap.set(`VN:${vn}`, detail);
       });
     }
 
@@ -3162,9 +3153,7 @@ export const getInsuranceOverview = async (options: {
     });
 
     const ipdDetailRows = (Array.isArray(ipdRows) ? ipdRows : []).map((row: any) => {
-      const fdhClaimDetail = fdhClaimDetailMap.get(`AN:${String(row.an || '').trim()}`)
-        || fdhClaimDetailMap.get(`VN:${String(row.vn || '').trim()}`)
-        || null;
+      const fdhClaimDetail = fdhClaimDetailMap.get(`AN:${String(row.an || '').trim()}`) || null;
       const rep = repMap.get(`AN:${String(row.an || '').trim()}`)
         || repMap.get(`VN:${String(row.vn || '').trim()}`)
         || repMap.get(`TRN:${String(row.transaction_uid || '').trim()}`)
@@ -3201,10 +3190,11 @@ export const getInsuranceOverview = async (options: {
         fdh_upload_uid: fdhClaimDetail?.upload_uid || null,
         fdh_status_raw: fdhClaimDetail?.claim_status || row.fdh_reservation_status || row.fdh_claim_status_message || '',
         fdh_status: fdhClaimDetail?.claim_status ? String(fdhClaimDetail.claim_status) : buildFdhStatusLabel(row),
+        fdh_followup_note: fdhSentAt ? 'ส่งเข้า FDH แล้ว' : (fdhClaimDetail ? 'พบรหัสเคลมจาก ClaimDetail แต่ยังไม่มีวันส่ง' : 'ยังไม่ส่งหรือยังไม่พบรายการ IPD ใน FDH ให้ตาม chart'),
         fdh_message: fdhClaimDetail?.claim_status || row.fdh_claim_status_message,
         fdh_error_code: row.error_code,
         fdh_sent_at: fdhSentAt,
-        days_dch_to_fdh: diffDays(row.dchdate, fdhSentAt),
+        days_dch_to_fdh: diffDays(row.dchdate, fdhSentAt || today),
         rep_no: rep?.rep_no || null,
         rep_received_at: rep?.rep_imported_at || rep?.senddate || null,
         days_dch_to_rep: diffDays(row.dchdate, rep?.rep_imported_at || rep?.senddate),
@@ -6379,6 +6369,7 @@ export const getEligibleIPD = async (
   const connection = await getUTFConnection();
   try {
     await ensureFdhClaimStatusSchema(connection);
+    await ensureRepstmTables();
     const [auditTableRows] = await connection.query("SHOW TABLES LIKE 'z_fdh_audit_log'");
     const hasAuditTable = Array.isArray(auditTableRows) && auditTableRows.length > 0;
 
@@ -6419,22 +6410,42 @@ export const getEligibleIPD = async (
         ${hasAuditTable ? 'za.status' : 'NULL'} as audit_status,
         ${hasAuditTable ? 'za.updated_by' : 'NULL'} as audit_by,
         ${hasAuditTable ? 'za.updated_at' : 'NULL'} as audit_date,
-        fdh.transaction_uid as fdh_transaction_uid,
-        COALESCE(fdh.fdh_reservation_status, fdh.fdh_claim_status_message, IF(fdh.transaction_uid IS NOT NULL, 'ส่ง FDH แล้ว', NULL)) as fdh_status_label,
+        COALESCE(fdh_detail.upload_uid, fdh.transaction_uid) as fdh_transaction_uid,
+        COALESCE(
+          fdh_detail.claim_status,
+          fdh.fdh_reservation_status,
+          fdh.fdh_claim_status_message,
+          IF(fdh.transaction_uid IS NOT NULL, 'ส่ง FDH แล้ว', NULL)
+        ) as fdh_status_label,
         fdh.fdh_reservation_status,
-        fdh.fdh_reservation_datetime,
+        COALESCE(fdh_detail.sent_at, fdh.fdh_reservation_datetime) as fdh_reservation_datetime,
         fdh.fdh_claim_status_message,
         fdh.error_code as fdh_error_code,
         fdh.fdh_stm_period,
         fdh.fdh_act_amt,
         fdh.fdh_settle_at,
-        fdh.updated_at as fdh_updated_at
+        fdh.updated_at as fdh_updated_at,
+        fdh_detail.claim_code as fdh_claim_code,
+        fdh_detail.upload_uid as fdh_upload_uid,
+        fdh_detail.claim_status as fdh_claim_detail_status,
+        fdh_detail.sent_at as fdh_claim_detail_sent_at
         
       FROM ipt
       JOIN patient pt ON ipt.hn = pt.hn
       LEFT JOIN ward w ON ipt.ward = w.ward
       LEFT JOIN pttype ON ipt.pttype = pttype.pttype
       ${hasAuditTable ? 'LEFT JOIN z_fdh_audit_log za ON ipt.an = za.an' : ''}
+      LEFT JOIN (
+        SELECT d.*
+        FROM repstminv.fdh_claim_detail_row d
+        JOIN (
+          SELECT an, MAX(id) AS max_id
+          FROM repstminv.fdh_claim_detail_row
+          WHERE IFNULL(an, '') <> ''
+            AND UPPER(IFNULL(patient_type, '')) IN ('IP', 'IPD')
+          GROUP BY an
+        ) latest ON latest.max_id = d.id
+      ) fdh_detail ON fdh_detail.an = ipt.an
       LEFT JOIN (
         SELECT s.*
         FROM fdh_claim_status s
@@ -6452,15 +6463,15 @@ export const getEligibleIPD = async (
 
     // Default to last 30 days if no dates provided
     if (startDate) {
-      query += ` AND DATE(ipt.regdate) >= ?`;
-      params.push(startDate);
+      query += ` AND (DATE(ipt.regdate) >= ? OR (ipt.dchdate IS NOT NULL AND DATE(ipt.dchdate) >= ?))`;
+      params.push(startDate, startDate);
     } else {
-      query += ` AND DATE(ipt.regdate) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)`;
+      query += ` AND (DATE(ipt.regdate) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) OR (ipt.dchdate IS NOT NULL AND DATE(ipt.dchdate) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)))`;
     }
 
     if (endDate) {
-      query += ` AND DATE(ipt.regdate) <= ?`;
-      params.push(endDate);
+      query += ` AND (DATE(ipt.regdate) <= ? OR (ipt.dchdate IS NOT NULL AND DATE(ipt.dchdate) <= ?))`;
+      params.push(endDate, endDate);
     }
 
     if (statusFilter === 'admitted') {

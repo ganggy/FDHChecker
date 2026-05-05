@@ -61,6 +61,11 @@ const SkeletonRows: React.FC<{ cols: number; rows?: number }> = ({ cols, rows = 
     </>
 );
 
+const firstDayOfCurrentMonth = () => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+};
+
 const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditComplete?: () => void }> = ({ an, onClose, onAuditComplete }) => {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -352,7 +357,7 @@ export const IPDPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
 
     const todayStr = formatLocalDateInput();
-    const [startDate, setStartDate] = useState(todayStr);
+    const [startDate, setStartDate] = useState(firstDayOfCurrentMonth());
     const [endDate, setEndDate] = useState(todayStr);
     const [statusFilter, setStatusFilter] = useState('all');
     const [wardFilter, setWardFilter] = useState('all');
@@ -562,7 +567,7 @@ export const IPDPage: React.FC = () => {
                     </div>
 
                     <div className="form-group" style={{ marginBottom: 0, width: 150 }}>
-                        <label className="form-label">📅 เริ่มวันที่ (Admit)</label>
+                        <label className="form-label">📅 เริ่มวันที่ (Admit/D/C)</label>
                         <input
                             type="date"
                             className="form-control"

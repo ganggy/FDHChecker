@@ -44,6 +44,7 @@ type IpdLagRow = {
   fdh_claim_code?: string | null;
   fdh_upload_uid?: string | null;
   fdh_status?: string;
+  fdh_followup_note?: string;
   fdh_sent_at?: string;
   days_dch_to_fdh?: number | null;
   rep_no?: string | null;
@@ -295,7 +296,10 @@ export const InsuranceOverviewPage = () => {
                           </div>
                         ) : null}
                       </td>
-                      <td>{row.days_dch_to_fdh == null ? '-' : `${row.days_dch_to_fdh} วัน`}</td>
+                      <td>
+                        <div>{row.days_dch_to_fdh == null ? '-' : `${row.days_dch_to_fdh} วัน`}</div>
+                        {row.fdh_followup_note ? <small>{row.fdh_followup_note}</small> : null}
+                      </td>
                       <td>{row.rep_no || '-'}</td>
                       <td>{row.days_dch_to_rep == null ? '-' : `${row.days_dch_to_rep} วัน`}</td>
                       <td className="workflow-money-cell">{money(row.expected_receivable)}</td>

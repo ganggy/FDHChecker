@@ -4,6 +4,7 @@ import { IPDPage } from './pages/IPDPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { FDHCheckerPage } from './pages/FDHCheckerPage';
 import { FDHImportStatusPage } from './pages/FDHImportStatusPage';
+import { FdhClaimDetailImportPage } from './pages/FdhClaimDetailImportPage';
 import { NhsoClosePage } from './pages/NhsoClosePage';
 import { RepStmImportPage } from './pages/RepStmImportPage';
 import { ReceivablePage } from './pages/ReceivablePage';
@@ -32,6 +33,7 @@ function App() {
 
   const toolNavItems: Array<{ page: AppPage; icon: string; label: string; soft?: boolean }> = [
     { page: 'fdhImport', icon: '📥', label: 'สถานะ FDH' },
+    { page: 'fdhClaimDetail', icon: '📄', label: 'ClaimDetail FDH' },
     { page: 'repstm', icon: '🧾', label: 'REP/STM' },
     { page: 'authenSync', icon: '🪪', label: 'Authen Code' },
     { page: 'preValidator', icon: '✅', label: 'Pre-submit' },
@@ -125,6 +127,7 @@ function App() {
         {currentPage === 'ipd' && <IPDPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
+        {currentPage === 'fdhClaimDetail' && <FdhClaimDetailImportPage />}
         {currentPage === 'nhsoClose' && <NhsoClosePage />}
         {currentPage === 'repstm' && <RepStmImportPage />}
         {currentPage === 'authenSync' && <AuthenSyncPage />}

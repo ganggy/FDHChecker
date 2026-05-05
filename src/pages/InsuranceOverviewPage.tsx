@@ -40,6 +40,9 @@ type IpdLagRow = {
   dchdate?: string;
   income?: number;
   expected_receivable?: number;
+  fdh_source?: string;
+  fdh_claim_code?: string | null;
+  fdh_upload_uid?: string | null;
   fdh_status?: string;
   fdh_sent_at?: string;
   days_dch_to_fdh?: number | null;
@@ -264,7 +267,7 @@ export const InsuranceOverviewPage = () => {
                     <th>AN / HN</th>
                     <th>ผู้ป่วย</th>
                     <th>D/C</th>
-                    <th>สถานะ FDH</th>
+                    <th>สถานะ / รหัสเคลม FDH</th>
                     <th>วันถึง FDH</th>
                     <th>REP/STM</th>
                     <th>วันถึง REP</th>
@@ -282,7 +285,16 @@ export const InsuranceOverviewPage = () => {
                       </td>
                       <td className="workflow-person-cell">{row.patient_name || '-'}</td>
                       <td className="table-cell-nowrap">{row.dchdate || '-'}</td>
-                      <td><span className={statusClass(row.fdh_status)}>{row.fdh_status || 'ยังไม่พบสถานะ FDH'}</span></td>
+                      <td>
+                        <span className={statusClass(row.fdh_status)}>{row.fdh_status || 'ยังไม่พบสถานะ FDH'}</span>
+                        {row.fdh_claim_code || row.fdh_upload_uid ? (
+                          <div style={{ marginTop: 6 }}>
+                            {row.fdh_claim_code && <div className="workflow-id-cell">Claim: {row.fdh_claim_code}</div>}
+                            {row.fdh_upload_uid && <small>Upload: {row.fdh_upload_uid}</small>}
+                            {row.fdh_source && <small style={{ display: 'block' }}>Source: {row.fdh_source}</small>}
+                          </div>
+                        ) : null}
+                      </td>
                       <td>{row.days_dch_to_fdh == null ? '-' : `${row.days_dch_to_fdh} วัน`}</td>
                       <td>{row.rep_no || '-'}</td>
                       <td>{row.days_dch_to_rep == null ? '-' : `${row.days_dch_to_rep} วัน`}</td>

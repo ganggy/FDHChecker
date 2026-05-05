@@ -474,6 +474,58 @@ const REPSTM_IMPORT_ROW_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const FDH_CLAIM_DETAIL_BATCH_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS fdh_claim_detail_batch (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    source_filename VARCHAR(255) NOT NULL,
+    batch_hash VARCHAR(64) NULL,
+    sheet_name VARCHAR(255) NULL,
+    imported_by VARCHAR(128) NULL,
+    row_count INT NOT NULL DEFAULT 0,
+    op_count INT NOT NULL DEFAULT 0,
+    ip_count INT NOT NULL DEFAULT 0,
+    notes TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_fdh_claim_detail_hash (batch_hash),
+    INDEX idx_created_at (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const FDH_CLAIM_DETAIL_ROW_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS fdh_claim_detail_row (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    batch_id BIGINT NOT NULL,
+    row_no INT NOT NULL,
+    claim_code VARCHAR(191) NULL,
+    hn VARCHAR(32) NULL,
+    vn VARCHAR(32) NULL,
+    an VARCHAR(32) NULL,
+    patient_type VARCHAR(16) NULL,
+    service_datetime DATETIME NULL,
+    admit_datetime DATETIME NULL,
+    discharge_datetime DATETIME NULL,
+    privilege_use VARCHAR(32) NULL,
+    sent_at DATETIME NULL,
+    upload_uid VARCHAR(191) NULL,
+    maininscl VARCHAR(32) NULL,
+    claim_status VARCHAR(128) NULL,
+    raw_data JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_claim_code (claim_code),
+    INDEX idx_batch_id (batch_id),
+    INDEX idx_hn (hn),
+    INDEX idx_vn (vn),
+    INDEX idx_an (an),
+    INDEX idx_patient_type (patient_type),
+    INDEX idx_claim_status (claim_status),
+    INDEX idx_sent_at (sent_at),
+    CONSTRAINT fk_fdh_claim_detail_batch
+      FOREIGN KEY (batch_id) REFERENCES fdh_claim_detail_batch(id)
+      ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 const REP_DATA_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS rep_data (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -724,6 +776,8 @@ export const ensureRepstmTables = async () => {
   try {
     await connection.query(REPSTM_IMPORT_BATCH_TABLE_SQL);
     await connection.query(REPSTM_IMPORT_ROW_TABLE_SQL);
+    await connection.query(FDH_CLAIM_DETAIL_BATCH_TABLE_SQL);
+    await connection.query(FDH_CLAIM_DETAIL_ROW_TABLE_SQL);
     await connection.query(REP_DATA_TABLE_SQL);
     await connection.query(REP_DATA_VERIFY_TABLE_SQL);
     await connection.query(RECEIVABLE_BATCH_TABLE_SQL);
@@ -1747,18 +1801,20 @@ const stableStringify = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
-const buildBatchHash = (dataType: 'REP' | 'STM' | 'INV', rows: Record<string, unknown>[]) => {
+const buildRowsHash = (scope: string, rows: Record<string, unknown>[]) => {
   const normalizedRows = rows.map((row) => {
     const normalizedEntries = Object.entries(row).map(([key, value]) => [key.trim(), normalizeImportCellValue(value)]);
     return Object.fromEntries(normalizedEntries.sort(([a], [b]) => a.localeCompare(b)));
   });
   const payload = stableStringify({
-    dataType,
+    scope,
     rowCount: normalizedRows.length,
     rows: normalizedRows,
   });
   return crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
 };
+
+const buildBatchHash = (dataType: 'REP' | 'STM' | 'INV', rows: Record<string, unknown>[]) => buildRowsHash(dataType, rows);
 
 const normalizeLookupKey = (value: string) =>
   value
@@ -1805,6 +1861,17 @@ const parseFlexibleDateTime = (value: string): string | null => {
     const day = dayRaw.padStart(2, '0');
     const month = monthRaw.padStart(2, '0');
     const year = yearRaw.padStart(4, '0');
+    const hour = hourRaw.padStart(2, '0');
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  }
+
+  const dmyDashMatch = text.match(/^(\d{1,2})-(\d{1,2})-(\d{4})(?:[ ]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (dmyDashMatch) {
+    const [, dayRaw, monthRaw, yearRaw, hourRaw = '00', minute = '00', second = '00'] = dmyDashMatch;
+    const day = dayRaw.padStart(2, '0');
+    const month = monthRaw.padStart(2, '0');
+    const yearNumber = Number(yearRaw);
+    const year = String(yearNumber > 2400 ? yearNumber - 543 : yearNumber).padStart(4, '0');
     const hour = hourRaw.padStart(2, '0');
     return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
   }
@@ -2162,6 +2229,213 @@ export const importRepstmRows = async (payload: {
     return { success: false, error };
   } finally {
     hosConnection.release();
+    connection.release();
+  }
+};
+
+export const importFdhClaimDetailRows = async (payload: {
+  sourceFilename: string;
+  sheetName?: string;
+  importedBy?: string;
+  notes?: string;
+  rows: Record<string, unknown>[];
+}) => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query(FDH_CLAIM_DETAIL_BATCH_TABLE_SQL);
+    await connection.query(FDH_CLAIM_DETAIL_ROW_TABLE_SQL);
+
+    const normalizedRows = payload.rows.filter((row) => {
+      const claimCode = pickRowValueAdvanced(row, ['รหัสการเคลม', 'claim_code', 'claim code']);
+      const hn = pickRowValueAdvanced(row, ['HN']);
+      const vn = pickRowValueAdvanced(row, ['รหัสบริการ (SEQ)', 'SEQ', 'VN']);
+      const an = pickRowValueAdvanced(row, ['รหัสผู้ป่วยใน (AN)', 'AN']);
+      return Boolean(claimCode || hn || vn || an);
+    });
+
+    const batchHash = buildRowsHash('FDH_CLAIM_DETAIL', normalizedRows);
+    const [duplicateRows] = await connection.query(
+      `SELECT id, row_count, source_filename, created_at
+       FROM fdh_claim_detail_batch
+       WHERE batch_hash = ?
+       LIMIT 1`,
+      [batchHash]
+    );
+
+    if (Array.isArray(duplicateRows) && duplicateRows.length > 0) {
+      await connection.rollback();
+      const existing = duplicateRows[0] as Record<string, unknown>;
+      return {
+        success: true,
+        duplicate: true,
+        batchId: Number(existing.id || 0),
+        rowCount: Number(existing.row_count || normalizedRows.length),
+        message: `ไฟล์ FDH ClaimDetail นี้ถูกนำเข้าแล้วเมื่อ ${String(existing.created_at || '-')}`,
+      };
+    }
+
+    const opCount = normalizedRows.filter((row) => {
+      const patientType = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย', 'patient_type']).toUpperCase();
+      return patientType === 'OP' || patientType === 'OPD';
+    }).length;
+    const ipCount = normalizedRows.filter((row) => {
+      const patientType = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย', 'patient_type']).toUpperCase();
+      return patientType === 'IP' || patientType === 'IPD';
+    }).length;
+
+    const [batchResult] = await connection.query(
+      `INSERT INTO fdh_claim_detail_batch
+       (source_filename, batch_hash, sheet_name, imported_by, row_count, op_count, ip_count, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        payload.sourceFilename,
+        batchHash,
+        payload.sheetName || null,
+        payload.importedBy || null,
+        normalizedRows.length,
+        opCount,
+        ipCount,
+        payload.notes || null,
+      ]
+    );
+    const batchId = Number((batchResult as mysql.ResultSetHeader).insertId);
+
+    for (let index = 0; index < normalizedRows.length; index += 1) {
+      const row = normalizedRows[index];
+      const claimCode = pickRowValueAdvanced(row, ['รหัสการเคลม', 'claim_code', 'claim code']);
+      const hn = pickRowValueAdvanced(row, ['HN']);
+      const vn = pickRowValueAdvanced(row, ['รหัสบริการ (SEQ)', 'SEQ', 'VN']);
+      const an = pickRowValueAdvanced(row, ['รหัสผู้ป่วยใน (AN)', 'AN']);
+      const patientTypeRaw = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย', 'patient_type']);
+      const patientType = patientTypeRaw.toUpperCase() === 'IPD' ? 'IP' : patientTypeRaw.toUpperCase() === 'OPD' ? 'OP' : patientTypeRaw.toUpperCase();
+      const serviceDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันเข้ารับบริการ', 'service_datetime', 'service date']));
+      const admitDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันที่รับการรักษา', 'วันเข้ารักษา', 'admit_datetime', 'admdate']));
+      const dischargeDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันจำหน่ายออก', 'วันจำหน่าย', 'discharge_datetime', 'dchdate']));
+      const sentAt = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันที่ส่งหา สปสช.', 'วันส่งข้อมูล', 'sent_at', 'senddate']));
+      const privilegeUse = pickRowValueAdvanced(row, ['การใช้สิทธิ']);
+      const uploadUid = pickRowValueAdvanced(row, ['upload uid', 'upload_uid']);
+      const maininscl = pickRowValueAdvanced(row, ['สิทธิ', 'maininscl']);
+      const claimStatus = pickRowValueAdvanced(row, ['สถานะรายการเคลม', 'claim_status', 'status']);
+
+      await connection.query(
+        `INSERT INTO fdh_claim_detail_row
+         (batch_id, row_no, claim_code, hn, vn, an, patient_type, service_datetime, admit_datetime,
+          discharge_datetime, privilege_use, sent_at, upload_uid, maininscl, claim_status, raw_data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          batch_id = VALUES(batch_id),
+          row_no = VALUES(row_no),
+          hn = VALUES(hn),
+          vn = VALUES(vn),
+          an = VALUES(an),
+          patient_type = VALUES(patient_type),
+          service_datetime = VALUES(service_datetime),
+          admit_datetime = VALUES(admit_datetime),
+          discharge_datetime = VALUES(discharge_datetime),
+          privilege_use = VALUES(privilege_use),
+          sent_at = VALUES(sent_at),
+          upload_uid = VALUES(upload_uid),
+          maininscl = VALUES(maininscl),
+          claim_status = VALUES(claim_status),
+          raw_data = VALUES(raw_data)`,
+        [
+          batchId,
+          index + 1,
+          claimCode || null,
+          hn || null,
+          vn || null,
+          an || null,
+          patientType || null,
+          serviceDateTime,
+          admitDateTime,
+          dischargeDateTime,
+          privilegeUse || null,
+          sentAt,
+          uploadUid || null,
+          maininscl || null,
+          claimStatus || null,
+          JSON.stringify(row),
+        ]
+      );
+    }
+
+    await connection.commit();
+    return { success: true, duplicate: false, batchId, rowCount: normalizedRows.length, opCount, ipCount };
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error importing FDH ClaimDetail rows:', error);
+    return { success: false, error };
+  } finally {
+    connection.release();
+  }
+};
+
+export const getFdhClaimDetailBatches = async (limit = 20): Promise<Record<string, unknown>[]> => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(FDH_CLAIM_DETAIL_BATCH_TABLE_SQL);
+    const [rows] = await connection.query(
+      `SELECT id, source_filename, sheet_name, imported_by, row_count, op_count, ip_count, notes, created_at
+       FROM fdh_claim_detail_batch
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [limit]
+    );
+    return Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const getFdhClaimDetailRows = async (options: {
+  patientType?: string;
+  status?: string;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+  limit?: number;
+} = {}): Promise<Record<string, unknown>[]> => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(FDH_CLAIM_DETAIL_ROW_TABLE_SQL);
+    const where: string[] = [];
+    const params: Array<string | number> = [];
+    const patientType = String(options.patientType || '').toUpperCase();
+    if (patientType === 'OP' || patientType === 'IP') {
+      where.push('patient_type = ?');
+      params.push(patientType);
+    }
+    if (options.status) {
+      where.push('claim_status = ?');
+      params.push(options.status);
+    }
+    if (options.startDate) {
+      where.push('DATE(COALESCE(discharge_datetime, service_datetime, admit_datetime, sent_at)) >= ?');
+      params.push(options.startDate);
+    }
+    if (options.endDate) {
+      where.push('DATE(COALESCE(discharge_datetime, service_datetime, admit_datetime, sent_at)) <= ?');
+      params.push(options.endDate);
+    }
+    if (options.search) {
+      where.push('(claim_code LIKE ? OR upload_uid LIKE ? OR hn LIKE ? OR vn LIKE ? OR an LIKE ?)');
+      const q = `%${options.search}%`;
+      params.push(q, q, q, q, q);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const limit = Math.min(Math.max(Number(options.limit || 200), 1), 1000);
+    const [rows] = await connection.query(
+      `SELECT id, batch_id, row_no, claim_code, hn, vn, an, patient_type, service_datetime, admit_datetime,
+              discharge_datetime, privilege_use, sent_at, upload_uid, maininscl, claim_status, raw_data, created_at
+       FROM fdh_claim_detail_row
+       ${whereSql}
+       ORDER BY COALESCE(sent_at, discharge_datetime, service_datetime, admit_datetime, created_at) DESC, id DESC
+       LIMIT ?`,
+      [...params, limit]
+    );
+    return Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+  } finally {
     connection.release();
   }
 };
@@ -2784,6 +3058,39 @@ export const getInsuranceOverview = async (options: {
       .map((row: any) => String(row.transaction_uid || '').trim())
       .filter(Boolean);
 
+    let fdhClaimDetailMap = new Map<string, Record<string, unknown>>();
+    if (ipdAnList.length > 0 || ipdVnList.length > 0) {
+      const fdhDetailWhere: string[] = [];
+      const fdhDetailParams: string[] = [];
+      if (ipdAnList.length > 0) {
+        fdhDetailWhere.push(`an IN (${ipdAnList.map(() => '?').join(',')})`);
+        fdhDetailParams.push(...ipdAnList);
+      }
+      if (ipdVnList.length > 0) {
+        fdhDetailWhere.push(`vn IN (${ipdVnList.map(() => '?').join(',')})`);
+        fdhDetailParams.push(...ipdVnList);
+      }
+      const [fdhDetailRows] = await repConnection.query(
+        `SELECT d.*
+         FROM fdh_claim_detail_row d
+         JOIN (
+           SELECT COALESCE(NULLIF(an, ''), NULLIF(vn, ''), claim_code) AS match_key, MAX(id) AS max_id
+           FROM fdh_claim_detail_row
+           WHERE ${fdhDetailWhere.join(' OR ')}
+           GROUP BY COALESCE(NULLIF(an, ''), NULLIF(vn, ''), claim_code)
+         ) latest ON latest.max_id = d.id`,
+        fdhDetailParams
+      );
+      fdhClaimDetailMap = new Map();
+      (Array.isArray(fdhDetailRows) ? fdhDetailRows : []).forEach((row: any) => {
+        const detail = row as Record<string, unknown>;
+        const an = String(row.an || '').trim();
+        const vn = String(row.vn || '').trim();
+        if (an) fdhClaimDetailMap.set(`AN:${an}`, detail);
+        if (vn) fdhClaimDetailMap.set(`VN:${vn}`, detail);
+      });
+    }
+
     let repMap = new Map<string, Record<string, unknown>>();
     if (ipdAnList.length > 0 || ipdVnList.length > 0 || ipdTranIdList.length > 0) {
       const whereParts: string[] = [];
@@ -2853,12 +3160,15 @@ export const getInsuranceOverview = async (options: {
     });
 
     const ipdDetailRows = (Array.isArray(ipdRows) ? ipdRows : []).map((row: any) => {
+      const fdhClaimDetail = fdhClaimDetailMap.get(`AN:${String(row.an || '').trim()}`)
+        || fdhClaimDetailMap.get(`VN:${String(row.vn || '').trim()}`)
+        || null;
       const rep = repMap.get(`AN:${String(row.an || '').trim()}`)
         || repMap.get(`VN:${String(row.vn || '').trim()}`)
         || repMap.get(`TRN:${String(row.transaction_uid || '').trim()}`)
         || null;
-      const fdhSentAt = row.fdh_reservation_datetime || row.fdh_updated_at || null;
-      const fdhFound = hasFdhStatus(row);
+      const fdhSentAt = fdhClaimDetail?.sent_at || row.fdh_reservation_datetime || row.fdh_updated_at || null;
+      const fdhFound = Boolean(fdhClaimDetail) || hasFdhStatus(row);
       const receivable = receivableByVisit.get(`AN:${row.an || ''}`);
       const expected = receivable ? toNumber(receivable.claimable_amount) : Math.max(toNumber(row.income) - toNumber(row.rcpt_money) - toNumber(row.discount_money), 0);
       const repAmount = rep ? toNumber(rep.rep_amount) : null;
@@ -2882,11 +3192,14 @@ export const getInsuranceOverview = async (options: {
         hipdata_code: row.hipdata_code,
         income: toNumber(row.income),
         expected_receivable: expected,
-        transaction_uid: row.transaction_uid,
+        transaction_uid: fdhClaimDetail?.upload_uid || row.transaction_uid,
         fdh_found: fdhFound,
-        fdh_status_raw: row.fdh_reservation_status || row.fdh_claim_status_message || '',
-        fdh_status: buildFdhStatusLabel(row),
-        fdh_message: row.fdh_claim_status_message,
+        fdh_source: fdhClaimDetail ? 'FDH ClaimDetail' : 'FDH API',
+        fdh_claim_code: fdhClaimDetail?.claim_code || null,
+        fdh_upload_uid: fdhClaimDetail?.upload_uid || null,
+        fdh_status_raw: fdhClaimDetail?.claim_status || row.fdh_reservation_status || row.fdh_claim_status_message || '',
+        fdh_status: fdhClaimDetail?.claim_status ? String(fdhClaimDetail.claim_status) : buildFdhStatusLabel(row),
+        fdh_message: fdhClaimDetail?.claim_status || row.fdh_claim_status_message,
         fdh_error_code: row.error_code,
         fdh_sent_at: fdhSentAt,
         days_dch_to_fdh: diffDays(row.dchdate, fdhSentAt),

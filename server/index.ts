@@ -23,6 +23,9 @@ import {
   getFdhStatusImportLogs,
   ensureRepstmTables,
   importRepstmRows,
+  importFdhClaimDetailRows,
+  getFdhClaimDetailBatches,
+  getFdhClaimDetailRows,
   getRepstmImportBatches,
   getRepstmImportedRows,
   getRepDataRows,
@@ -1910,6 +1913,75 @@ app.get('/api/repstm/:dataType', async (req, res) => {
   } catch (error) {
     console.error('Error fetching REP/STM/INV rows:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านข้อมูล REP/STM/INV' });
+  }
+});
+
+app.post('/api/fdh/claim-detail/import', async (req, res) => {
+  try {
+    const { sourceFilename, sheetName, importedBy, notes, rows } = req.body as {
+      sourceFilename?: string;
+      sheetName?: string;
+      importedBy?: string;
+      notes?: string;
+      rows?: Record<string, unknown>[];
+    };
+
+    if (!sourceFilename || !Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาเลือกไฟล์ FDH ClaimDetail ที่มีข้อมูล' });
+    }
+
+    const result = await importFdhClaimDetailRows({
+      sourceFilename: String(sourceFilename).trim(),
+      sheetName: sheetName ? String(sheetName).trim() : undefined,
+      importedBy: importedBy ? String(importedBy).trim() : undefined,
+      notes: notes ? String(notes).trim() : undefined,
+      rows,
+    });
+
+    if (!result.success) {
+      throw result.error || new Error('Import FDH ClaimDetail failed');
+    }
+
+    return res.json({
+      success: true,
+      duplicate: result.duplicate,
+      batchId: result.batchId,
+      rowCount: result.rowCount,
+      opCount: result.opCount || 0,
+      ipCount: result.ipCount || 0,
+      message: result.message,
+    });
+  } catch (error) {
+    console.error('Error importing FDH ClaimDetail:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการนำเข้า FDH ClaimDetail' });
+  }
+});
+
+app.get('/api/fdh/claim-detail/batches', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 20);
+    const data = await getFdhClaimDetailBatches(limit);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching FDH ClaimDetail batches:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัตินำเข้า FDH ClaimDetail' });
+  }
+});
+
+app.get('/api/fdh/claim-detail/rows', async (req, res) => {
+  try {
+    const data = await getFdhClaimDetailRows({
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      status: req.query.status ? String(req.query.status) : undefined,
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      search: req.query.search ? String(req.query.search) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching FDH ClaimDetail rows:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านข้อมูล FDH ClaimDetail' });
   }
 });
 

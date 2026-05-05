@@ -28,7 +28,22 @@ interface ClaimDetailRow {
   claim_status?: string;
 }
 
+interface ClaimDetailSummary {
+  batch_count?: number;
+  batch_row_total?: number;
+  batch_op_total?: number;
+  batch_ip_total?: number;
+  latest_import_at?: string;
+  row_total?: number;
+  op_total?: number;
+  ip_total?: number;
+  distinct_claim_total?: number;
+  distinct_upload_total?: number;
+  status_counts?: Array<{ claim_status: string; total: number }>;
+}
+
 const normalizeCell = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
+const numberTh = (value: unknown) => Number(value || 0).toLocaleString('th-TH');
 
 const isHeaderRow = (row: unknown[]) => {
   const text = row.map(normalizeCell).join('|');
@@ -87,6 +102,7 @@ export const FdhClaimDetailImportPage = () => {
   const [notes, setNotes] = useState('');
   const [batches, setBatches] = useState<ClaimDetailBatch[]>([]);
   const [importedRows, setImportedRows] = useState<ClaimDetailRow[]>([]);
+  const [dbSummary, setDbSummary] = useState<ClaimDetailSummary | null>(null);
 
   const summary = useMemo(() => {
     const statusCounts = rows.reduce<Record<string, number>>((acc, row) => {
@@ -100,14 +116,17 @@ export const FdhClaimDetailImportPage = () => {
   }, [rows]);
 
   const loadHistory = async () => {
-    const [batchRes, rowRes] = await Promise.all([
+    const [batchRes, rowRes, summaryRes] = await Promise.all([
       fetch('/api/fdh/claim-detail/batches?limit=20'),
       fetch('/api/fdh/claim-detail/rows?limit=100'),
+      fetch('/api/fdh/claim-detail/summary'),
     ]);
     const batchJson = await batchRes.json();
     const rowJson = await rowRes.json();
+    const summaryJson = await summaryRes.json();
     if (batchJson.success) setBatches(batchJson.data || []);
     if (rowJson.success) setImportedRows(rowJson.data || []);
+    if (summaryJson.success) setDbSummary(summaryJson.data || null);
   };
 
   useEffect(() => {
@@ -202,28 +221,63 @@ export const FdhClaimDetailImportPage = () => {
         </div>
       </section>
 
+      <div className="insurance-kpi-grid">
+        <div className="insurance-kpi-card insurance-kpi-card--blue">
+          <span>นำเข้าสะสมทั้งหมด</span>
+          <strong>{numberTh(dbSummary?.row_total)}</strong>
+          <small>จาก {numberTh(dbSummary?.batch_count)} รอบนำเข้า</small>
+        </div>
+        <div className="insurance-kpi-card insurance-kpi-card--green">
+          <span>OP สะสมในฐาน</span>
+          <strong>{numberTh(dbSummary?.op_total)}</strong>
+          <small>ใช้เทียบ SEQ/VN</small>
+        </div>
+        <div className="insurance-kpi-card insurance-kpi-card--teal">
+          <span>IP สะสมในฐาน</span>
+          <strong>{numberTh(dbSummary?.ip_total)}</strong>
+          <small>ใช้เทียบ AN</small>
+        </div>
+        <div className="insurance-kpi-card insurance-kpi-card--amber">
+          <span>Claim ไม่ซ้ำ</span>
+          <strong>{numberTh(dbSummary?.distinct_claim_total)}</strong>
+          <small>Upload UID {numberTh(dbSummary?.distinct_upload_total)}</small>
+        </div>
+        <div className="insurance-kpi-card insurance-kpi-card--slate">
+          <span>นำเข้าล่าสุด</span>
+          <strong style={{ fontSize: '1.1rem' }}>{dbSummary?.latest_import_at || '-'}</strong>
+          <small>ยอดตามฐานข้อมูลปัจจุบัน</small>
+        </div>
+        {(dbSummary?.status_counts || []).slice(0, 1).map((item) => (
+          <div className="insurance-kpi-card insurance-kpi-card--rose" key={item.claim_status}>
+            <span>สถานะมากสุด</span>
+            <strong>{numberTh(item.total)}</strong>
+            <small>{item.claim_status || '-'}</small>
+          </div>
+        ))}
+      </div>
+
       {rows.length > 0 && (
         <>
           <div className="insurance-kpi-grid">
             <div className="insurance-kpi-card insurance-kpi-card--blue">
               <span>รายการทั้งหมด</span>
-              <strong>{rows.length.toLocaleString('th-TH')}</strong>
+              <strong>{numberTh(rows.length)}</strong>
               <small>Sheet: {sheetName}</small>
             </div>
             <div className="insurance-kpi-card insurance-kpi-card--green">
               <span>ผู้ป่วยนอก OP</span>
-              <strong>{summary.opCount.toLocaleString('th-TH')}</strong>
+              <strong>{numberTh(summary.opCount)}</strong>
               <small>เทียบด้วย SEQ/VN</small>
             </div>
             <div className="insurance-kpi-card insurance-kpi-card--teal">
               <span>ผู้ป่วยใน IP</span>
-              <strong>{summary.ipCount.toLocaleString('th-TH')}</strong>
+              <strong>{numberTh(summary.ipCount)}</strong>
               <small>เทียบด้วย AN</small>
             </div>
             {Object.entries(summary.statusCounts).slice(0, 3).map(([claimStatus, value]) => (
               <div className="insurance-kpi-card insurance-kpi-card--amber" key={claimStatus}>
                 <span>{claimStatus}</span>
-                <strong>{value.toLocaleString('th-TH')}</strong>
+                <strong>{numberTh(value)}</strong>
                 <small>สถานะจาก FDH</small>
               </div>
             ))}

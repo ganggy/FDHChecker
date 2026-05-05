@@ -2390,6 +2390,52 @@ export const getFdhClaimDetailBatches = async (limit = 20): Promise<Record<strin
   }
 };
 
+export const getFdhClaimDetailSummary = async (): Promise<Record<string, unknown>> => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(FDH_CLAIM_DETAIL_BATCH_TABLE_SQL);
+    await connection.query(FDH_CLAIM_DETAIL_ROW_TABLE_SQL);
+
+    const [batchRows] = await connection.query(
+      `SELECT
+         COUNT(*) AS batch_count,
+         COALESCE(SUM(row_count), 0) AS batch_row_total,
+         COALESCE(SUM(op_count), 0) AS batch_op_total,
+         COALESCE(SUM(ip_count), 0) AS batch_ip_total,
+         MAX(created_at) AS latest_import_at
+       FROM fdh_claim_detail_batch`
+    );
+
+    const [rowRows] = await connection.query(
+      `SELECT
+         COUNT(*) AS row_total,
+         SUM(CASE WHEN UPPER(IFNULL(patient_type, '')) IN ('OP', 'OPD') THEN 1 ELSE 0 END) AS op_total,
+         SUM(CASE WHEN UPPER(IFNULL(patient_type, '')) IN ('IP', 'IPD') THEN 1 ELSE 0 END) AS ip_total,
+         COUNT(DISTINCT NULLIF(claim_code, '')) AS distinct_claim_total,
+         COUNT(DISTINCT NULLIF(upload_uid, '')) AS distinct_upload_total
+       FROM fdh_claim_detail_row`
+    );
+
+    const [statusRows] = await connection.query(
+      `SELECT COALESCE(NULLIF(claim_status, ''), '(ว่าง)') AS claim_status, COUNT(*) AS total
+       FROM fdh_claim_detail_row
+       GROUP BY COALESCE(NULLIF(claim_status, ''), '(ว่าง)')
+       ORDER BY total DESC
+       LIMIT 6`
+    );
+
+    const batchSummary = Array.isArray(batchRows) ? (batchRows[0] as Record<string, unknown> | undefined) : undefined;
+    const rowSummary = Array.isArray(rowRows) ? (rowRows[0] as Record<string, unknown> | undefined) : undefined;
+    return {
+      ...(batchSummary || {}),
+      ...(rowSummary || {}),
+      status_counts: Array.isArray(statusRows) ? statusRows : [],
+    };
+  } finally {
+    connection.release();
+  }
+};
+
 export const getFdhClaimDetailRows = async (options: {
   patientType?: string;
   status?: string;

@@ -25,6 +25,7 @@ import {
   importRepstmRows,
   importFdhClaimDetailRows,
   getFdhClaimDetailBatches,
+  getFdhClaimDetailSummary,
   getFdhClaimDetailRows,
   getRepstmImportBatches,
   getRepstmImportedRows,
@@ -1965,6 +1966,16 @@ app.get('/api/fdh/claim-detail/batches', async (req, res) => {
   } catch (error) {
     console.error('Error fetching FDH ClaimDetail batches:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัตินำเข้า FDH ClaimDetail' });
+  }
+});
+
+app.get('/api/fdh/claim-detail/summary', async (_req, res) => {
+  try {
+    const data = await getFdhClaimDetailSummary();
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching FDH ClaimDetail summary:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านยอดรวมนำเข้า FDH ClaimDetail' });
   }
 });
 

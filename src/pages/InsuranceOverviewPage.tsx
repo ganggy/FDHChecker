@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatLocalDateInput } from '../utils/dateUtils';
 
 type Summary = {
@@ -40,9 +40,12 @@ type IpdLagRow = {
   dchdate?: string;
   income?: number;
   expected_receivable?: number;
+  hipdata_code?: string;
+  pttype_name?: string;
   fdh_source?: string;
   fdh_claim_code?: string | null;
   fdh_upload_uid?: string | null;
+  fdh_found?: boolean;
   fdh_status?: string;
   fdh_followup_note?: string;
   fdh_sent_at?: string;
@@ -114,6 +117,7 @@ export const InsuranceOverviewPage = () => {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hipdataFilter, setHipdataFilter] = useState('ALL');
 
   const loadData = async () => {
     setLoading(true);
@@ -141,6 +145,29 @@ export const InsuranceOverviewPage = () => {
   const opdCloseRate = summary && summary.opdVisits > 0 ? Math.round((summary.opdClosed / summary.opdVisits) * 100) : 0;
   const ipdFdhRate = summary && summary.ipdDischarged > 0 ? Math.round((summary.ipdFdhSubmitted / summary.ipdDischarged) * 100) : 0;
   const ipdRepRate = summary && summary.ipdDischarged > 0 ? Math.round((summary.ipdRepReceived / summary.ipdDischarged) * 100) : 0;
+  const hipdataOptions = useMemo(() => {
+    const countsByHipdata = new Map<string, number>();
+    (data?.ipdLagRows || []).forEach((row) => {
+      const key = String(row.hipdata_code || 'ไม่ระบุ').trim() || 'ไม่ระบุ';
+      countsByHipdata.set(key, (countsByHipdata.get(key) || 0) + 1);
+    });
+    return Array.from(countsByHipdata.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'))
+      .map(([code, total]) => ({ code, total }));
+  }, [data?.ipdLagRows]);
+  const filteredIpdLagRows = useMemo(() => {
+    const rows = data?.ipdLagRows || [];
+    if (hipdataFilter === 'ALL') return rows;
+    return rows.filter((row) => String(row.hipdata_code || 'ไม่ระบุ').trim() === hipdataFilter);
+  }, [data?.ipdLagRows, hipdataFilter]);
+  const ipdSubmissionSummary = useMemo(() => {
+    const total = filteredIpdLagRows.length;
+    const sent = filteredIpdLagRows.filter((row) => row.fdh_found === true).length;
+    const repReceived = filteredIpdLagRows.filter((row) => Boolean(row.rep_no)).length;
+    const pending = Math.max(0, total - sent);
+    const completeRate = total > 0 ? Math.round((sent / total) * 100) : 0;
+    return { total, sent, pending, repReceived, completeRate };
+  }, [filteredIpdLagRows]);
 
   return (
     <div className="workflow-page insurance-page">
@@ -261,6 +288,49 @@ export const InsuranceOverviewPage = () => {
               <span className="workflow-table-title">IPD ระยะเวลาหลัง Discharge ถึง FDH / REP</span>
               <span className="workflow-table-meta">ใช้ติดตามรอบส่งข้อมูลและรับ REP/STM</span>
             </div>
+            <div className="insurance-submission-panel">
+              <div className="insurance-hipdata-filter">
+                <span className="insurance-filter-label">สิทธิ์ผู้ป่วย (HIPDATA)</span>
+                <button
+                  className={`insurance-filter-chip ${hipdataFilter === 'ALL' ? 'is-active' : ''}`}
+                  onClick={() => setHipdataFilter('ALL')}
+                >
+                  ทั้งหมด <strong>{count(data.ipdLagRows.length)}</strong>
+                </button>
+                {hipdataOptions.map((item) => (
+                  <button
+                    key={item.code}
+                    className={`insurance-filter-chip ${hipdataFilter === item.code ? 'is-active' : ''}`}
+                    onClick={() => setHipdataFilter(item.code)}
+                  >
+                    {item.code} <strong>{count(item.total)}</strong>
+                  </button>
+                ))}
+              </div>
+
+              <div className="insurance-submission-grid">
+                <div className="insurance-submission-card">
+                  <span>รวม IPD ที่เลือก</span>
+                  <strong>{count(ipdSubmissionSummary.total)}</strong>
+                  <small>discharge</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--success">
+                  <span>ส่ง FDH แล้ว</span>
+                  <strong>{count(ipdSubmissionSummary.sent)}</strong>
+                  <small>มีรายการส่ง/สถานะจริง</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--warning">
+                  <span>ยังไม่ส่ง / ยังไม่พบ</span>
+                  <strong>{count(ipdSubmissionSummary.pending)}</strong>
+                  <small>ต้องตาม chart หรือรอบส่ง</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--teal">
+                  <span>การส่งครบถ้วน</span>
+                  <strong>{ipdSubmissionSummary.completeRate}%</strong>
+                  <small>REP แล้ว {count(ipdSubmissionSummary.repReceived)} ราย</small>
+                </div>
+              </div>
+            </div>
             <div className="modal-table-wrap">
               <table className="data-table workflow-readable-table insurance-ipd-lag-table">
                 <thead>
@@ -278,13 +348,16 @@ export const InsuranceOverviewPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.ipdLagRows.map((row) => (
+                  {filteredIpdLagRows.map((row) => (
                     <tr key={row.an || row.vn}>
                       <td>
                         <div className="workflow-id-cell">{row.an || '-'}</div>
                         <small>HN {row.hn || '-'}</small>
                       </td>
-                      <td className="workflow-person-cell">{row.patient_name || '-'}</td>
+                      <td className="workflow-person-cell">
+                        <div>{row.patient_name || '-'}</div>
+                        <small>{row.hipdata_code || 'ไม่ระบุ'} {row.pttype_name || ''}</small>
+                      </td>
                       <td className="table-cell-nowrap">{row.dchdate || '-'}</td>
                       <td>
                         <span className={statusClass(row.fdh_status)}>{row.fdh_status || 'ยังไม่พบสถานะ FDH'}</span>
@@ -307,6 +380,13 @@ export const InsuranceOverviewPage = () => {
                       <td className="workflow-money-cell">{row.diff_amount == null ? '-' : money(row.diff_amount)}</td>
                     </tr>
                   ))}
+                  {filteredIpdLagRows.length === 0 && (
+                    <tr>
+                      <td colSpan={10} style={{ textAlign: 'center', padding: 24 }}>
+                        ไม่พบรายการ IPD ในสิทธิ์ {hipdataFilter}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

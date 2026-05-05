@@ -813,6 +813,100 @@
   color: #64748b;
 }
 
+.insurance-submission-panel {
+  padding: 1rem 1.1rem 1.15rem;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.84);
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(248, 251, 255, 0.95), rgba(255, 255, 255, 0.98));
+}
+
+.insurance-hipdata-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+}
+
+.insurance-filter-label {
+  color: #334155;
+  font-size: 0.8rem;
+  font-weight: 800;
+  margin-right: 0.15rem;
+}
+
+.insurance-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.48rem 0.78rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(255, 255, 255, 0.9);
+  color: #334155;
+  font-family: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.insurance-filter-chip strong {
+  color: #2563eb;
+}
+
+.insurance-filter-chip:hover,
+.insurance-filter-chip.is-active {
+  transform: translateY(-1px);
+  border-color: rgba(37, 99, 235, 0.44);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.12);
+}
+
+.insurance-filter-chip.is-active {
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  color: #fff;
+}
+
+.insurance-filter-chip.is-active strong {
+  color: #dbeafe;
+}
+
+.insurance-submission-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.insurance-submission-card {
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: #fff;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.055);
+  border-top: 3px solid var(--submission-color, #64748b);
+}
+
+.insurance-submission-card span,
+.insurance-submission-card small {
+  display: block;
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.insurance-submission-card strong {
+  display: block;
+  margin: 0.2rem 0;
+  color: var(--submission-color, #334155);
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.insurance-submission-card--success { --submission-color: #16a34a; }
+.insurance-submission-card--warning { --submission-color: #d97706; }
+.insurance-submission-card--teal { --submission-color: #0f766e; }
+
 .ipd-fdh-status {
   width: 100%;
   padding: 0.48rem 0.52rem;
@@ -873,6 +967,7 @@
   }
 
   .insurance-kpi-grid,
+  .insurance-submission-grid,
   .insurance-split-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -897,6 +992,7 @@
   }
 
   .insurance-kpi-grid,
+  .insurance-submission-grid,
   .insurance-split-grid {
     grid-template-columns: 1fr;
   }

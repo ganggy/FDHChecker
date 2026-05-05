@@ -6527,7 +6527,18 @@ export const getEligibleIPD = async (
         fdh_detail.claim_code as fdh_claim_code,
         fdh_detail.upload_uid as fdh_upload_uid,
         fdh_detail.claim_status as fdh_claim_detail_status,
-        fdh_detail.sent_at as fdh_claim_detail_sent_at
+        fdh_detail.sent_at as fdh_claim_detail_sent_at,
+        CASE
+          WHEN ipt.dchdate IS NULL THEN NULL
+          WHEN COALESCE(fdh_detail.sent_at, fdh.fdh_reservation_datetime, fdh.updated_at) IS NOT NULL
+            THEN DATEDIFF(DATE(COALESCE(fdh_detail.sent_at, fdh.fdh_reservation_datetime, fdh.updated_at)), DATE(ipt.dchdate))
+          ELSE DATEDIFF(CURDATE(), DATE(ipt.dchdate))
+        END as fdh_days_from_discharge,
+        CASE
+          WHEN ipt.dchdate IS NULL THEN 'ยังไม่จำหน่าย'
+          WHEN COALESCE(fdh_detail.sent_at, fdh.fdh_reservation_datetime, fdh.updated_at) IS NOT NULL THEN 'ส่ง FDH แล้ว'
+          ELSE 'ยังไม่ส่ง/ยังไม่พบวันส่ง FDH'
+        END as fdh_days_note
         
       FROM ipt
       JOIN patient pt ON ipt.hn = pt.hn

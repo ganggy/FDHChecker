@@ -392,7 +392,7 @@ export const IPDPage: React.FC = () => {
             return;
         }
 
-        const headers = ['ลำดับ', 'AN', 'HN', 'ชื่อ-สกุล', 'ตึกผู้ป่วย', 'สิทธิ', 'วันที่ Admit', 'วันที่ D/C', 'วันนอน (LOS)', 'รหัสโรค (PDx)', 'รหัสหัตถการ (OR)', 'DRG', 'RW', 'ค่าใช้จ่าย', 'สถานะ FDH', 'วันที่ส่ง FDH', 'Error FDH', 'สถานะ'];
+        const headers = ['ลำดับ', 'AN', 'HN', 'ชื่อ-สกุล', 'ตึกผู้ป่วย', 'สิทธิ', 'วันที่ Admit', 'วันที่ D/C', 'วันนอน (LOS)', 'รหัสโรค (PDx)', 'รหัสหัตถการ (OR)', 'DRG', 'RW', 'ค่าใช้จ่าย', 'สถานะ FDH', 'วันที่ส่ง FDH', 'วันหลัง D/C ถึง FDH', 'Error FDH', 'สถานะ'];
 
         const rows = data.map((item, index) => {
             const statusStr = !item.pdx || item.pdx === '-' ? 'รอสรุปชาร์ต' : (item.dchdate ? 'จำหน่าย (D/C)' : 'กำลังรักษา');
@@ -413,6 +413,7 @@ export const IPDPage: React.FC = () => {
                 item.totalPrice || '0',
                 getFdhStatusLabel(item),
                 item.fdh_reservation_datetime || item.fdh_updated_at || '',
+                formatFdhDays(item),
                 item.fdh_error_code || '',
                 statusStr
             ].map(cell => `"${cell}"`).join(',');
@@ -454,6 +455,7 @@ export const IPDPage: React.FC = () => {
                 'ค่าใช้จ่าย': item.totalPrice || '0',
                 'สถานะ FDH': getFdhStatusLabel(item),
                 'วันที่ส่ง FDH': item.fdh_reservation_datetime || item.fdh_updated_at || '',
+                'วันหลัง D/C ถึง FDH': formatFdhDays(item),
                 'Error FDH': item.fdh_error_code || '',
                 'สถานะ': statusStr
             };
@@ -468,7 +470,7 @@ export const IPDPage: React.FC = () => {
             { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 12 },
             { wch: 10 }, { wch: 12 }, { wch: 20 }, { wch: 10 },
             { wch: 10 }, { wch: 15 }, { wch: 18 }, { wch: 18 },
-            { wch: 14 }, { wch: 15 }
+            { wch: 18 }, { wch: 14 }, { wch: 15 }
         ];
         worksheet['!cols'] = colWidths;
 
@@ -524,6 +526,16 @@ export const IPDPage: React.FC = () => {
         if (item.fdh_claim_status_message) return formatFdhDisplayStatus(item.fdh_claim_status_message);
         if (item.fdh_transaction_uid || item.fdh_updated_at) return 'พบสถานะ FDH';
         return 'ยังไม่พบในรายการส่งเคลม FDH';
+    };
+
+    const formatFdhDays = (item: any) => {
+        if (item.fdh_days_from_discharge == null || item.fdh_days_from_discharge === '') {
+            return item.status === 'Admitted' ? 'ยังไม่จำหน่าย' : '-';
+        }
+        const days = Number(item.fdh_days_from_discharge);
+        if (Number.isNaN(days)) return '-';
+        const note = String(item.fdh_days_note || '').trim();
+        return note ? `${days} วัน (${note})` : `${days} วัน`;
     };
 
     return (
@@ -620,7 +632,7 @@ export const IPDPage: React.FC = () => {
                 </div>
             )}            <div className="card" style={{ overflow: 'visible' }}>
                 <div style={{ overflowX: 'auto' }}>
-                    <table className="data-table ipd-status-table" style={{ minWidth: 1510 }}>
+                    <table className="data-table ipd-status-table" style={{ minWidth: 1640 }}>
                         <thead>
                             <tr>
                                 <th style={{ width: 40, textAlign: 'center' }}>#</th>
@@ -631,6 +643,7 @@ export const IPDPage: React.FC = () => {
                                 <th style={{ width: 160, background: 'rgba(37, 99, 235, 0.05)' }}>ข้อมูลทางคลินิก (รหัสโรค/หัตถการ)</th>
                                 <th style={{ width: 130, textAlign: 'center', background: 'rgba(16, 185, 129, 0.05)' }}>ระบบเบิกจ่าย<br /><span style={{ fontSize: 11, fontWeight: 'normal' }}>(RW / ค่าใช้จ่าย)</span></th>
                                 <th style={{ width: 160, textAlign: 'center', background: 'rgba(14, 165, 233, 0.06)' }}>สถานะ FDH<br /><span style={{ fontSize: 11, fontWeight: 'normal' }}>รายตัว</span></th>
+                                <th style={{ width: 130, textAlign: 'center', background: 'rgba(14, 165, 233, 0.06)' }}>วันถึง FDH<br /><span style={{ fontSize: 11, fontWeight: 'normal' }}>หลัง D/C</span></th>
                                 <th style={{ width: 150, textAlign: 'center' }}>สถานะผู้ป่วย / ชาร์ต</th>
                                 <th style={{ width: 180, textAlign: 'center', background: 'rgba(245, 158, 11, 0.05)' }}>ตรวจจับความเสี่ยง<br /><span style={{ fontSize: 11, fontWeight: 'normal' }}>(Auto Pre-Audit)</span></th>
                                 <th style={{ width: 90, textAlign: 'center' }}>จัดการ</th>
@@ -639,7 +652,7 @@ export const IPDPage: React.FC = () => {
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={11} style={{ textAlign: 'center', padding: '40px 0' }}>
+                                    <td colSpan={12} style={{ textAlign: 'center', padding: '40px 0' }}>
                                         <div className="spinner" style={{ margin: '0 auto 10px' }} />
                                         กำลังดึงข้อมูลจากระบบ HOSxP...
                                     </td>
@@ -699,6 +712,14 @@ export const IPDPage: React.FC = () => {
                                                 {item.fdh_act_amt ? <small>{Number(item.fdh_act_amt).toLocaleString()} ฿</small> : null}
                                             </div>
                                         </td>
+                                        <td style={{ textAlign: 'center', background: 'rgba(14, 165, 233, 0.03)' }}>
+                                            <div style={{ fontWeight: 800, color: item.fdh_days_note === 'ส่ง FDH แล้ว' ? 'var(--success)' : 'var(--warning)' }}>
+                                                {item.fdh_days_from_discharge == null ? '-' : `${item.fdh_days_from_discharge} วัน`}
+                                            </div>
+                                            <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 4 }}>
+                                                {item.fdh_days_note || (item.status === 'Admitted' ? 'ยังไม่จำหน่าย' : 'ยังไม่พบวันส่ง')}
+                                            </div>
+                                        </td>
                                         <td style={{ textAlign: 'center' }}>
                                             <div style={{ marginBottom: 4 }}>
                                                 {item.status === 'Admitted'
@@ -755,7 +776,7 @@ export const IPDPage: React.FC = () => {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={11} style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                                    <td colSpan={12} style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
                                         ไม่พบข้อมูลผู้ป่วยใน ตามเงื่อนไขที่ระบุ
                                     </td>
                                 </tr>

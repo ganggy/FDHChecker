@@ -939,6 +939,10 @@
   min-width: 1380px;
 }
 
+.insurance-opd-status-table {
+  min-width: 1280px;
+}
+
 .insurance-account-table,
 .insurance-missing-table {
   min-width: 860px;

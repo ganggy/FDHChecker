@@ -3016,6 +3016,37 @@ export const getInsuranceOverview = async (options: {
       [startDate, endDate]
     );
 
+    const [opdDetailRowsRaw] = await hosConnection.query(
+      `SELECT
+         o.vn,
+         o.hn,
+         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+         DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+         DATE_FORMAT(o.vstdate, '%Y-%m') AS month,
+         COALESCE(v.income, 0) AS income,
+         ptt.pttype,
+         ptt.name AS pttype_name,
+         ptt.hipdata_code,
+         CASE
+           WHEN IFNULL(ncp.nhso_status, '') = 'Y'
+             OR IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP'
+             OR IFNULL((SELECT claim_code FROM authenhos ah WHERE ah.vn = o.vn AND ah.claim_code REGEXP '^EP' LIMIT 1), '') <> ''
+           THEN 1 ELSE 0
+         END AS close_completed,
+         COALESCE(
+           NULLIF(ncp.nhso_authen_code, ''),
+           (SELECT claim_code FROM authenhos ah WHERE ah.vn = o.vn AND ah.claim_code REGEXP '^EP' LIMIT 1)
+         ) AS close_code
+       FROM ovst o
+       LEFT JOIN patient pt ON pt.hn = o.hn
+       LEFT JOIN vn_stat v ON v.vn = o.vn
+       LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+       LEFT JOIN nhso_confirm_privilege ncp ON ncp.vn = o.vn
+       WHERE o.vstdate BETWEEN ? AND ?
+       ORDER BY o.vstdate DESC, o.vn DESC`,
+      [startDate, endDate]
+    );
+
     const [ipdRows] = await hosConnection.query(
       `SELECT
          i.an,
@@ -3058,6 +3089,30 @@ export const getInsuranceOverview = async (options: {
        ORDER BY i.dchdate DESC, i.an DESC`,
       [startDate, endDate]
     );
+
+    const opdVnList = (Array.isArray(opdDetailRowsRaw) ? opdDetailRowsRaw : [])
+      .map((row: any) => String(row.vn || '').trim())
+      .filter(Boolean);
+    let opdClaimDetailMap = new Map<string, Record<string, unknown>>();
+    if (opdVnList.length > 0) {
+      const [opdClaimDetailRows] = await repConnection.query(
+        `SELECT d.*
+         FROM fdh_claim_detail_row d
+         JOIN (
+           SELECT vn AS match_key, MAX(id) AS max_id
+           FROM fdh_claim_detail_row
+           WHERE IFNULL(vn, '') <> ''
+             AND UPPER(IFNULL(patient_type, '')) IN ('OP', 'OPD')
+             AND vn IN (${opdVnList.map(() => '?').join(',')})
+           GROUP BY vn
+         ) latest ON latest.max_id = d.id`,
+        opdVnList
+      );
+      (Array.isArray(opdClaimDetailRows) ? opdClaimDetailRows : []).forEach((row: any) => {
+        const vn = String(row.vn || '').trim();
+        if (vn) opdClaimDetailMap.set(`VN:${vn}`, row as Record<string, unknown>);
+      });
+    }
 
     const ipdAnList = (Array.isArray(ipdRows) ? ipdRows : [])
       .map((row: any) => String(row.an || '').trim())
@@ -3159,6 +3214,33 @@ export const getInsuranceOverview = async (options: {
       } else {
         month.opdExpectedReceivable += amount;
       }
+    });
+
+    const opdStatusRows = (Array.isArray(opdDetailRowsRaw) ? opdDetailRowsRaw : []).map((row: any) => {
+      const claimDetail = opdClaimDetailMap.get(`VN:${String(row.vn || '').trim()}`) || null;
+      const rawFdhStatus = String(claimDetail?.claim_status || '').trim();
+      const isMissingInFdh = isFdhMissingStatus(rawFdhStatus);
+      const fdhFound = Boolean(claimDetail) && !isMissingInFdh;
+      return {
+        vn: row.vn,
+        hn: row.hn,
+        patient_name: row.patient_name,
+        service_date: row.service_date,
+        month: row.month,
+        pttype: row.pttype,
+        pttype_name: row.pttype_name,
+        hipdata_code: row.hipdata_code,
+        income: toNumber(row.income),
+        close_completed: Boolean(row.close_completed),
+        close_code: row.close_code || null,
+        fdh_found: fdhFound,
+        fdh_source: claimDetail ? 'FDH ClaimDetail' : null,
+        fdh_claim_code: claimDetail?.claim_code || null,
+        fdh_upload_uid: claimDetail?.upload_uid || null,
+        fdh_status: claimDetail ? formatFdhDisplayStatus(claimDetail.claim_status) : 'ยังไม่พบในรายการส่งเคลม FDH',
+        fdh_sent_at: fdhFound ? claimDetail?.sent_at || null : null,
+        fdh_followup_note: fdhFound ? 'ส่งเข้า FDH แล้ว' : 'ยังไม่ส่งหรือยังไม่พบรายการ OPD ใน FDH',
+      };
     });
 
     const ipdDetailRows = (Array.isArray(ipdRows) ? ipdRows : []).map((row: any) => {
@@ -3290,6 +3372,7 @@ export const getInsuranceOverview = async (options: {
       accountCode,
       summary,
       months: Array.from(months.values()).sort((a, b) => a.month.localeCompare(b.month)),
+      opdStatusRows,
       ipdLagRows: lagRows,
       accountRows: Array.from(accountRows.values()).sort((a, b) => String(a.debtor_code).localeCompare(String(b.debtor_code))),
       missingRuleRows,

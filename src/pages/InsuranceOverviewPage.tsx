@@ -57,6 +57,26 @@ type IpdLagRow = {
   diff_amount?: number | null;
 };
 
+type OpdStatusRow = {
+  vn?: string;
+  hn?: string;
+  patient_name?: string;
+  service_date?: string;
+  income?: number;
+  pttype?: string;
+  pttype_name?: string;
+  hipdata_code?: string;
+  close_completed?: boolean;
+  close_code?: string | null;
+  fdh_source?: string | null;
+  fdh_claim_code?: string | null;
+  fdh_upload_uid?: string | null;
+  fdh_found?: boolean;
+  fdh_status?: string;
+  fdh_sent_at?: string | null;
+  fdh_followup_note?: string;
+};
+
 type AccountRow = {
   patient_type: string;
   finance_right_code?: string;
@@ -83,6 +103,7 @@ type OverviewData = {
   endDate: string;
   summary: Summary;
   months: MonthRow[];
+  opdStatusRows: OpdStatusRow[];
   ipdLagRows: IpdLagRow[];
   accountRows: AccountRow[];
   missingRuleRows: MissingRuleRow[];
@@ -118,6 +139,7 @@ export const InsuranceOverviewPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [hipdataFilter, setHipdataFilter] = useState('ALL');
+  const [opdHipdataFilter, setOpdHipdataFilter] = useState('ALL');
 
   const loadData = async () => {
     setLoading(true);
@@ -129,6 +151,8 @@ export const InsuranceOverviewPage = () => {
       const json = await resp.json();
       if (!resp.ok || !json.success) throw new Error(json.error || 'โหลดรายงานไม่สำเร็จ');
       setData(json.data);
+      setHipdataFilter('ALL');
+      setOpdHipdataFilter('ALL');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'โหลดรายงานไม่สำเร็จ');
     } finally {
@@ -145,6 +169,30 @@ export const InsuranceOverviewPage = () => {
   const opdCloseRate = summary && summary.opdVisits > 0 ? Math.round((summary.opdClosed / summary.opdVisits) * 100) : 0;
   const ipdFdhRate = summary && summary.ipdDischarged > 0 ? Math.round((summary.ipdFdhSubmitted / summary.ipdDischarged) * 100) : 0;
   const ipdRepRate = summary && summary.ipdDischarged > 0 ? Math.round((summary.ipdRepReceived / summary.ipdDischarged) * 100) : 0;
+  const opdHipdataOptions = useMemo(() => {
+    const countsByHipdata = new Map<string, number>();
+    (data?.opdStatusRows || []).forEach((row) => {
+      const key = String(row.hipdata_code || 'ไม่ระบุ').trim() || 'ไม่ระบุ';
+      countsByHipdata.set(key, (countsByHipdata.get(key) || 0) + 1);
+    });
+    return Array.from(countsByHipdata.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'th'))
+      .map(([code, total]) => ({ code, total }));
+  }, [data?.opdStatusRows]);
+  const filteredOpdStatusRows = useMemo(() => {
+    const rows = data?.opdStatusRows || [];
+    if (opdHipdataFilter === 'ALL') return rows;
+    return rows.filter((row) => String(row.hipdata_code || 'ไม่ระบุ').trim() === opdHipdataFilter);
+  }, [data?.opdStatusRows, opdHipdataFilter]);
+  const opdSubmissionSummary = useMemo(() => {
+    const total = filteredOpdStatusRows.length;
+    const sent = filteredOpdStatusRows.filter((row) => row.fdh_found === true).length;
+    const closed = filteredOpdStatusRows.filter((row) => row.close_completed === true).length;
+    const pending = Math.max(0, total - sent);
+    const completeRate = total > 0 ? Math.round((sent / total) * 100) : 0;
+    const closeRate = total > 0 ? Math.round((closed / total) * 100) : 0;
+    return { total, sent, pending, closed, completeRate, closeRate };
+  }, [filteredOpdStatusRows]);
   const hipdataOptions = useMemo(() => {
     const countsByHipdata = new Map<string, number>();
     (data?.ipdLagRows || []).forEach((row) => {
@@ -278,6 +326,110 @@ export const InsuranceOverviewPage = () => {
                       <td className="workflow-money-cell">{money(row.receivable)}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="card workflow-table-card">
+            <div className="card-header">
+              <span className="workflow-table-title">OPD สรุปการส่งข้อมูล FDH ตามสิทธิ์</span>
+              <span className="workflow-table-meta">ดูการส่งเบิกและการปิดสิทธิ์รายตัว</span>
+            </div>
+            <div className="insurance-submission-panel">
+              <div className="insurance-hipdata-filter">
+                <span className="insurance-filter-label">สิทธิ์ผู้ป่วย (HIPDATA)</span>
+                <button
+                  className={`insurance-filter-chip ${opdHipdataFilter === 'ALL' ? 'is-active' : ''}`}
+                  onClick={() => setOpdHipdataFilter('ALL')}
+                >
+                  ทั้งหมด <strong>{count(data.opdStatusRows.length)}</strong>
+                </button>
+                {opdHipdataOptions.map((item) => (
+                  <button
+                    key={item.code}
+                    className={`insurance-filter-chip ${opdHipdataFilter === item.code ? 'is-active' : ''}`}
+                    onClick={() => setOpdHipdataFilter(item.code)}
+                  >
+                    {item.code} <strong>{count(item.total)}</strong>
+                  </button>
+                ))}
+              </div>
+
+              <div className="insurance-submission-grid">
+                <div className="insurance-submission-card">
+                  <span>รวม OPD ที่เลือก</span>
+                  <strong>{count(opdSubmissionSummary.total)}</strong>
+                  <small>visit</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--success">
+                  <span>ส่ง FDH แล้ว</span>
+                  <strong>{count(opdSubmissionSummary.sent)}</strong>
+                  <small>พบรายการใน ClaimDetail FDH</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--warning">
+                  <span>ยังไม่ส่ง / ยังไม่พบ</span>
+                  <strong>{count(opdSubmissionSummary.pending)}</strong>
+                  <small>ต้องตามรอบส่งหรือค้นจาก FDH</small>
+                </div>
+                <div className="insurance-submission-card insurance-submission-card--teal">
+                  <span>ความครบถ้วน</span>
+                  <strong>{opdSubmissionSummary.completeRate}%</strong>
+                  <small>ปิดสิทธิ์แล้ว {count(opdSubmissionSummary.closed)} ราย ({opdSubmissionSummary.closeRate}%)</small>
+                </div>
+              </div>
+            </div>
+            <div className="modal-table-wrap">
+              <table className="data-table workflow-readable-table insurance-opd-status-table">
+                <thead>
+                  <tr>
+                    <th>VN / HN</th>
+                    <th>ผู้ป่วย / สิทธิ์</th>
+                    <th>วันที่รับบริการ</th>
+                    <th>สถานะ FDH</th>
+                    <th>สถานะปิดสิทธิ์</th>
+                    <th>ยอดคาดรับ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOpdStatusRows.map((row) => (
+                    <tr key={row.vn || row.hn}>
+                      <td>
+                        <div className="workflow-id-cell">{row.vn || '-'}</div>
+                        <small>HN {row.hn || '-'}</small>
+                      </td>
+                      <td className="workflow-person-cell">
+                        <div>{row.patient_name || '-'}</div>
+                        <small>{row.hipdata_code || 'ไม่ระบุ'} {row.pttype_name || row.pttype || ''}</small>
+                      </td>
+                      <td className="table-cell-nowrap">{row.service_date || '-'}</td>
+                      <td>
+                        <span className={statusClass(row.fdh_status)}>{row.fdh_status || 'ยังไม่พบสถานะ FDH'}</span>
+                        {row.fdh_claim_code || row.fdh_upload_uid ? (
+                          <div style={{ marginTop: 6 }}>
+                            {row.fdh_claim_code && <div className="workflow-id-cell">Claim: {row.fdh_claim_code}</div>}
+                            {row.fdh_upload_uid && <small>Upload: {row.fdh_upload_uid}</small>}
+                            {row.fdh_source && <small style={{ display: 'block' }}>Source: {row.fdh_source}</small>}
+                          </div>
+                        ) : null}
+                        {row.fdh_followup_note ? <small style={{ display: 'block', marginTop: 4 }}>{row.fdh_followup_note}</small> : null}
+                      </td>
+                      <td>
+                        <span className={`insurance-status ${row.close_completed ? 'insurance-status--success' : 'insurance-status--warning'}`}>
+                          {row.close_completed ? 'ปิดสิทธิ์แล้ว' : 'ยังไม่ปิดสิทธิ์'}
+                        </span>
+                        {row.close_code ? <small style={{ display: 'block', marginTop: 4 }}>{row.close_code}</small> : null}
+                      </td>
+                      <td className="workflow-money-cell">{money(row.income)}</td>
+                    </tr>
+                  ))}
+                  {filteredOpdStatusRows.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: 24 }}>
+                        ไม่พบรายการ OPD ในสิทธิ์ {opdHipdataFilter}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

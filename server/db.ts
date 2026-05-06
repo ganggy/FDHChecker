@@ -886,6 +886,7 @@ export const ensureRepstmTables = async () => {
              END,
              department = CASE
                WHEN UPPER(COALESCE(department, '')) IN ('OP', 'IP') THEN UPPER(COALESCE(department, ''))
+               WHEN UPPER(COALESCE(patient_type, '')) IN ('OPD', 'OP') THEN 'OP'
                WHEN NULLIF(TRIM(COALESCE(an, '')), '') IS NOT NULL THEN 'IP'
                WHEN UPPER(COALESCE(patient_type, '')) IN ('IPD', 'IP') THEN 'IP'
                ELSE 'OP'
@@ -902,6 +903,8 @@ export const ensureRepstmTables = async () => {
                ELSE NULLIF(TRIM(COALESCE(vn, '')), '')
              END,
              an = CASE
+               WHEN UPPER(COALESCE(patient_type, '')) IN ('OPD', 'OP')
+                 THEN NULL
                WHEN (
                  UPPER(COALESCE(department, '')) = 'IP'
                  OR (
@@ -958,6 +961,7 @@ export const ensureRepstmTables = async () => {
            s.hn = COALESCE(NULLIF(TRIM(COALESCE(s.hn, '')), ''), NULLIF(TRIM(COALESCE(r.hn, '')), '')),
            s.department = CASE
              WHEN UPPER(COALESCE(s.department, '')) IN ('OP', 'IP') THEN UPPER(COALESCE(s.department, ''))
+             WHEN UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP') THEN 'OP'
              WHEN NULLIF(TRIM(COALESCE(s.an, '')), '') IS NOT NULL THEN 'IP'
              WHEN UPPER(COALESCE(s.patient_type, '')) IN ('IPD', 'IP') THEN 'IP'
              WHEN NULLIF(TRIM(COALESCE(r.an, '')), '') IS NOT NULL THEN 'IP'
@@ -971,6 +975,7 @@ export const ensureRepstmTables = async () => {
                  AND NULLIF(TRIM(COALESCE(s.an, '')), '') IS NULL
                  AND UPPER(COALESCE(s.patient_type, '')) NOT IN ('IPD', 'IP')
                )
+               OR UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP')
              )
                THEN COALESCE(
                  NULLIF(TRIM(COALESCE(s.vn, '')), ''),
@@ -980,6 +985,8 @@ export const ensureRepstmTables = async () => {
              ELSE NULLIF(TRIM(COALESCE(s.vn, '')), '')
            END,
            s.an = CASE
+             WHEN UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP')
+               THEN NULL
              WHEN (
                UPPER(COALESCE(s.department, '')) = 'IP'
                OR (
@@ -2176,6 +2183,7 @@ const formatYYMM = (dateTime: string | null) => {
 
 const resolveDepartment = (patientType: string, an: string) => {
   const normalized = patientType.trim().toUpperCase();
+  if (normalized.includes('OP') || patientType.includes('ผู้ป่วยนอก')) return 'OP';
   if (normalized.includes('IP') || patientType.includes('ผู้ป่วยใน') || an.trim()) return 'IP';
   return 'OP';
 };
@@ -2481,7 +2489,7 @@ const importStatementDataRows = async (
     const department = resolveDepartment(patientType, rawAn);
     const matchedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, serviceDateTime, pid, rawAn, rawVn);
     const vn = department === 'OP' ? (matchedVisitCode || rawVn.trim()) : rawVn.trim();
-    const an = department === 'IP' ? (matchedVisitCode || rawAn.trim()) : rawAn.trim();
+    const an = department === 'IP' ? (matchedVisitCode || rawAn.trim()) : '';
     const recordUid = resolveStatementRecordUid(payload.dataType, tranId, statementNo, department, vn, an, hn, index);
     const matchedStatus = matchedVisitCode ? 'matched' : 'unmatched';
 

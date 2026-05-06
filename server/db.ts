@@ -850,184 +850,186 @@ export const ensureRepstmTables = async () => {
       }
     }
 
-    // Repair historical REP rows where SEQ NO should be used as VN (OP) or AN (IP).
-    const repFixTables = ['rep_data', 'rep_data_verify'];
-    const repBatchSize = 2000;
-    for (const tableName of repFixTables) {
-      let lastId = 0;
+    const enableHistoricalRepair = process.env.REPSTM_ENABLE_HISTORICAL_REPAIR === '1';
+    if (enableHistoricalRepair) {
+      // Optional heavy repair for historical data. Keep disabled by default for fast imports.
+      const repFixTables = ['rep_data', 'rep_data_verify'];
+      const repBatchSize = 2000;
+      for (const tableName of repFixTables) {
+        let lastId = 0;
+        while (true) {
+          const [idRows] = await connection.query(
+            `SELECT id
+             FROM ${tableName}
+             WHERE id > ?
+               AND NULLIF(TRIM(COALESCE(seq_no, '')), '') IS NOT NULL
+             ORDER BY id
+             LIMIT ?`,
+            [lastId, repBatchSize]
+          );
+          const ids = (Array.isArray(idRows) ? idRows : [])
+            .map((r) => Number((r as Record<string, unknown>).id || 0))
+            .filter((id) => Number.isFinite(id) && id > 0);
+          if (ids.length === 0) break;
+
+          await connection.query(
+            `UPDATE ${tableName}
+             SET
+               seq_no = CASE
+                 WHEN (
+                   UPPER(COALESCE(department, '')) = 'OP'
+                   OR (
+                     UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                     AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
+                   )
+                 )
+                   THEN COALESCE(NULLIF(TRIM(COALESCE(vn, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
+                 ELSE NULLIF(TRIM(COALESCE(seq_no, '')), '')
+               END,
+               department = CASE
+                 WHEN UPPER(COALESCE(department, '')) IN ('OP', 'IP') THEN UPPER(COALESCE(department, ''))
+                 WHEN UPPER(COALESCE(patient_type, '')) IN ('OPD', 'OP') THEN 'OP'
+                 WHEN NULLIF(TRIM(COALESCE(an, '')), '') IS NOT NULL THEN 'IP'
+                 WHEN UPPER(COALESCE(patient_type, '')) IN ('IPD', 'IP') THEN 'IP'
+                 ELSE 'OP'
+               END,
+               vn = CASE
+                 WHEN (
+                   UPPER(COALESCE(department, '')) = 'OP'
+                   OR (
+                     UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                     AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
+                   )
+                 )
+                   THEN COALESCE(NULLIF(TRIM(COALESCE(vn, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
+                 ELSE NULLIF(TRIM(COALESCE(vn, '')), '')
+               END,
+               an = CASE
+                 WHEN UPPER(COALESCE(patient_type, '')) IN ('OPD', 'OP')
+                   THEN NULL
+                 WHEN (
+                   UPPER(COALESCE(department, '')) = 'IP'
+                   OR (
+                     UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                     AND (
+                       NULLIF(TRIM(COALESCE(an, '')), '') IS NOT NULL
+                       OR UPPER(COALESCE(patient_type, '')) IN ('IPD', 'IP')
+                     )
+                   )
+                 )
+                   THEN COALESCE(NULLIF(TRIM(COALESCE(an, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
+                 WHEN (
+                   UPPER(COALESCE(department, '')) = 'OP'
+                   OR (
+                     UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                     AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
+                   )
+                 )
+                   THEN NULL
+                 ELSE NULLIF(TRIM(COALESCE(an, '')), '')
+               END
+             WHERE id IN (${ids.map(() => '?').join(',')})`,
+            ids
+          );
+
+          lastId = ids[ids.length - 1];
+        }
+      }
+
+      const stmBatchSize = 2000;
+      let stmLastId = 0;
       while (true) {
-        const [idRows] = await connection.query(
+        const [stmIdRows] = await connection.query(
           `SELECT id
-           FROM ${tableName}
+           FROM repstm_statement_data
            WHERE id > ?
-             AND NULLIF(TRIM(COALESCE(seq_no, '')), '') IS NOT NULL
+             AND data_type IN ('STM', 'INV')
            ORDER BY id
            LIMIT ?`,
-          [lastId, repBatchSize]
+          [stmLastId, stmBatchSize]
         );
-        const ids = (Array.isArray(idRows) ? idRows : [])
+        const stmIds = (Array.isArray(stmIdRows) ? stmIdRows : [])
           .map((r) => Number((r as Record<string, unknown>).id || 0))
           .filter((id) => Number.isFinite(id) && id > 0);
-        if (ids.length === 0) break;
+        if (stmIds.length === 0) break;
 
         await connection.query(
-          `UPDATE ${tableName}
+          `UPDATE repstm_statement_data s
+           LEFT JOIN rep_data r
+             ON NULLIF(TRIM(COALESCE(r.tran_id, '')), '') = NULLIF(TRIM(COALESCE(s.tran_id, '')), '')
            SET
-             seq_no = CASE
-               WHEN (
-                 UPPER(COALESCE(department, '')) = 'OP'
-                 OR (
-                   UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
-                   AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
-                 )
-               )
-                 THEN COALESCE(NULLIF(TRIM(COALESCE(vn, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
-               ELSE NULLIF(TRIM(COALESCE(seq_no, '')), '')
-             END,
-             department = CASE
-               WHEN UPPER(COALESCE(department, '')) IN ('OP', 'IP') THEN UPPER(COALESCE(department, ''))
-               WHEN UPPER(COALESCE(patient_type, '')) IN ('OPD', 'OP') THEN 'OP'
-               WHEN NULLIF(TRIM(COALESCE(an, '')), '') IS NOT NULL THEN 'IP'
-               WHEN UPPER(COALESCE(patient_type, '')) IN ('IPD', 'IP') THEN 'IP'
+             s.pid = NULLIF(TRIM(COALESCE(s.pid, '')), ''),
+             s.hn = COALESCE(NULLIF(TRIM(COALESCE(s.hn, '')), ''), NULLIF(TRIM(COALESCE(r.hn, '')), '')),
+             s.department = CASE
+               WHEN UPPER(COALESCE(s.department, '')) IN ('OP', 'IP') THEN UPPER(COALESCE(s.department, ''))
+               WHEN UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP') THEN 'OP'
+               WHEN NULLIF(TRIM(COALESCE(s.an, '')), '') IS NOT NULL THEN 'IP'
+               WHEN UPPER(COALESCE(s.patient_type, '')) IN ('IPD', 'IP') THEN 'IP'
+               WHEN NULLIF(TRIM(COALESCE(r.an, '')), '') IS NOT NULL THEN 'IP'
                ELSE 'OP'
              END,
-             vn = CASE
+             s.vn = CASE
                WHEN (
-                 UPPER(COALESCE(department, '')) = 'OP'
+                 UPPER(COALESCE(s.department, '')) = 'OP'
                  OR (
-                   UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
-                   AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
+                   UPPER(COALESCE(s.department, '')) NOT IN ('OP', 'IP')
+                   AND NULLIF(TRIM(COALESCE(s.an, '')), '') IS NULL
+                   AND UPPER(COALESCE(s.patient_type, '')) NOT IN ('IPD', 'IP')
                  )
+                 OR UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP')
                )
-                 THEN COALESCE(NULLIF(TRIM(COALESCE(vn, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
-               ELSE NULLIF(TRIM(COALESCE(vn, '')), '')
+                 THEN COALESCE(
+                   NULLIF(TRIM(COALESCE(s.vn, '')), ''),
+                   CASE WHEN UPPER(COALESCE(s.department, '')) = 'OP' THEN NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), '') ELSE NULL END,
+                   NULLIF(TRIM(COALESCE(r.vn, '')), '')
+                 )
+               ELSE NULLIF(TRIM(COALESCE(s.vn, '')), '')
              END,
-             an = CASE
-               WHEN UPPER(COALESCE(patient_type, '')) IN ('OPD', 'OP')
+             s.an = CASE
+               WHEN UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP')
                  THEN NULL
                WHEN (
-                 UPPER(COALESCE(department, '')) = 'IP'
+                 UPPER(COALESCE(s.department, '')) = 'IP'
                  OR (
-                   UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                   UPPER(COALESCE(s.department, '')) NOT IN ('OP', 'IP')
                    AND (
-                     NULLIF(TRIM(COALESCE(an, '')), '') IS NOT NULL
-                     OR UPPER(COALESCE(patient_type, '')) IN ('IPD', 'IP')
+                     NULLIF(TRIM(COALESCE(s.an, '')), '') IS NOT NULL
+                     OR UPPER(COALESCE(s.patient_type, '')) IN ('IPD', 'IP')
+                     OR NULLIF(TRIM(COALESCE(r.an, '')), '') IS NOT NULL
                    )
                  )
                )
-                 THEN COALESCE(NULLIF(TRIM(COALESCE(an, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
-               WHEN (
-                 UPPER(COALESCE(department, '')) = 'OP'
-                 OR (
-                   UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
-                   AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
+                 THEN COALESCE(
+                   NULLIF(TRIM(COALESCE(s.an, '')), ''),
+                   CASE WHEN UPPER(COALESCE(s.department, '')) = 'IP' THEN NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), '') ELSE NULL END,
+                   NULLIF(TRIM(COALESCE(r.an, '')), '')
                  )
-               )
-                 THEN NULL
-               ELSE NULLIF(TRIM(COALESCE(an, '')), '')
-             END
-           WHERE id IN (${ids.map(() => '?').join(',')})`,
-          ids
-        );
-
-        lastId = ids[ids.length - 1];
-      }
-    }
-
-    // Repair historical STM/INV rows and move data into correct columns.
-    const stmBatchSize = 2000;
-    let stmLastId = 0;
-    while (true) {
-      const [stmIdRows] = await connection.query(
-        `SELECT id
-         FROM repstm_statement_data
-         WHERE id > ?
-           AND data_type IN ('STM', 'INV')
-         ORDER BY id
-         LIMIT ?`,
-        [stmLastId, stmBatchSize]
-      );
-      const stmIds = (Array.isArray(stmIdRows) ? stmIdRows : [])
-        .map((r) => Number((r as Record<string, unknown>).id || 0))
-        .filter((id) => Number.isFinite(id) && id > 0);
-      if (stmIds.length === 0) break;
-
-      await connection.query(
-        `UPDATE repstm_statement_data s
-         LEFT JOIN rep_data r
-           ON NULLIF(TRIM(COALESCE(r.tran_id, '')), '') = NULLIF(TRIM(COALESCE(s.tran_id, '')), '')
-         SET
-           s.pid = NULLIF(TRIM(COALESCE(s.pid, '')), ''),
-           s.hn = COALESCE(NULLIF(TRIM(COALESCE(s.hn, '')), ''), NULLIF(TRIM(COALESCE(r.hn, '')), '')),
-           s.department = CASE
-             WHEN UPPER(COALESCE(s.department, '')) IN ('OP', 'IP') THEN UPPER(COALESCE(s.department, ''))
-             WHEN UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP') THEN 'OP'
-             WHEN NULLIF(TRIM(COALESCE(s.an, '')), '') IS NOT NULL THEN 'IP'
-             WHEN UPPER(COALESCE(s.patient_type, '')) IN ('IPD', 'IP') THEN 'IP'
-             WHEN NULLIF(TRIM(COALESCE(r.an, '')), '') IS NOT NULL THEN 'IP'
-             ELSE 'OP'
-           END,
-           s.vn = CASE
-             WHEN (
-               UPPER(COALESCE(s.department, '')) = 'OP'
-               OR (
-                 UPPER(COALESCE(s.department, '')) NOT IN ('OP', 'IP')
-                 AND NULLIF(TRIM(COALESCE(s.an, '')), '') IS NULL
-                 AND UPPER(COALESCE(s.patient_type, '')) NOT IN ('IPD', 'IP')
-               )
-               OR UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP')
-             )
-               THEN COALESCE(
-                 NULLIF(TRIM(COALESCE(s.vn, '')), ''),
-                 CASE WHEN UPPER(COALESCE(s.department, '')) = 'OP' THEN NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), '') ELSE NULL END,
-                 NULLIF(TRIM(COALESCE(r.vn, '')), '')
-               )
-             ELSE NULLIF(TRIM(COALESCE(s.vn, '')), '')
-           END,
-           s.an = CASE
-             WHEN UPPER(COALESCE(s.patient_type, '')) IN ('OPD', 'OP')
-               THEN NULL
-             WHEN (
-               UPPER(COALESCE(s.department, '')) = 'IP'
-               OR (
-                 UPPER(COALESCE(s.department, '')) NOT IN ('OP', 'IP')
-                 AND (
-                   NULLIF(TRIM(COALESCE(s.an, '')), '') IS NOT NULL
-                   OR UPPER(COALESCE(s.patient_type, '')) IN ('IPD', 'IP')
-                   OR NULLIF(TRIM(COALESCE(r.an, '')), '') IS NOT NULL
-                 )
-               )
-             )
-               THEN COALESCE(
-                 NULLIF(TRIM(COALESCE(s.an, '')), ''),
-                 CASE WHEN UPPER(COALESCE(s.department, '')) = 'IP' THEN NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), '') ELSE NULL END,
-                 NULLIF(TRIM(COALESCE(r.an, '')), '')
-               )
-             ELSE NULL
-           END,
-           s.matched_visit_code = COALESCE(
-             NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), ''),
-             CASE
-               WHEN UPPER(COALESCE(s.department, '')) = 'IP' THEN COALESCE(NULLIF(TRIM(COALESCE(s.an, '')), ''), NULLIF(TRIM(COALESCE(r.an, '')), ''))
-               ELSE COALESCE(NULLIF(TRIM(COALESCE(s.vn, '')), ''), NULLIF(TRIM(COALESCE(r.vn, '')), ''))
-             END
-           ),
-           s.matched_status = CASE
-             WHEN NULLIF(TRIM(COALESCE(
-               s.matched_visit_code,
+               ELSE NULL
+             END,
+             s.matched_visit_code = COALESCE(
+               NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), ''),
                CASE
                  WHEN UPPER(COALESCE(s.department, '')) = 'IP' THEN COALESCE(NULLIF(TRIM(COALESCE(s.an, '')), ''), NULLIF(TRIM(COALESCE(r.an, '')), ''))
                  ELSE COALESCE(NULLIF(TRIM(COALESCE(s.vn, '')), ''), NULLIF(TRIM(COALESCE(r.vn, '')), ''))
-               END,
-               ''
-             )), '') IS NOT NULL THEN 'matched'
-             ELSE 'unmatched'
-           END
-         WHERE s.id IN (${stmIds.map(() => '?').join(',')})`,
-        stmIds
-      );
+               END
+             ),
+             s.matched_status = CASE
+               WHEN NULLIF(TRIM(COALESCE(
+                 s.matched_visit_code,
+                 CASE
+                   WHEN UPPER(COALESCE(s.department, '')) = 'IP' THEN COALESCE(NULLIF(TRIM(COALESCE(s.an, '')), ''), NULLIF(TRIM(COALESCE(r.an, '')), ''))
+                   ELSE COALESCE(NULLIF(TRIM(COALESCE(s.vn, '')), ''), NULLIF(TRIM(COALESCE(r.vn, '')), ''))
+                 END,
+                 ''
+               )), '') IS NOT NULL THEN 'matched'
+               ELSE 'unmatched'
+             END
+           WHERE s.id IN (${stmIds.map(() => '?').join(',')})`,
+          stmIds
+        );
 
-      stmLastId = stmIds[stmIds.length - 1];
+        stmLastId = stmIds[stmIds.length - 1];
+      }
     }
 
     const [batchHashColumns] = await connection.query(

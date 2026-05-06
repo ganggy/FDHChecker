@@ -10,9 +10,9 @@ import {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const firstOfMonth = () => {
+const firstOfYear = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+  return `${d.getFullYear()}-01-01`;
 };
 
 const toNumber = (value: unknown) => {
@@ -88,7 +88,7 @@ const SummaryCard = ({
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
 
 export const VisitReconciliationPage = () => {
-  const [startDate, setStartDate] = useState(firstOfMonth());
+  const [startDate, setStartDate] = useState(firstOfYear());
   const [endDate, setEndDate] = useState(todayIso());
   const [patientType, setPatientType] = useState('ALL');
   const [hosxpRight, setHosxpRight] = useState('ALL');
@@ -217,10 +217,10 @@ export const VisitReconciliationPage = () => {
     <div style={{ padding: '20px 16px', maxWidth: 1400, margin: '0 auto' }}>
       <div style={{ marginBottom: 20 }}>
         <h2 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: 4, color: '#1e293b' }}>
-          🔄 กระทบยอด REP / STM / INV รายวิสิต
+          🔄 กระทบยอด REP / STM / INV visit
         </h2>
         <p style={{ color: '#6b7280', fontSize: '0.88rem', margin: 0 }}>
-          เปรียบเทียบยอดตั้งลูกหนี้กับข้อมูล REP, STM, INV รายวิสิตเพื่อตรวจสอบความสอดคล้อง
+          เปรียบเทียบยอดตั้งลูกหนี้กับข้อมูล REP, STM, INV visit เพื่อตรวจสอบความสอดคล้อง
         </p>
       </div>
 

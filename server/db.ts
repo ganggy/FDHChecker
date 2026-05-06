@@ -532,7 +532,7 @@ const REP_DATA_TABLE_SQL = `
     batch_id BIGINT NOT NULL,
     record_uid VARCHAR(191) NOT NULL,
     rep_no VARCHAR(64) NULL,
-    seq_no INT NULL,
+    seq_no VARCHAR(32) NULL,
     tran_id VARCHAR(191) NULL,
     hcode VARCHAR(16) NULL,
     hn VARCHAR(32) NULL,
@@ -830,6 +830,199 @@ export const ensureRepstmTables = async () => {
     await connection.query(REPSTM_STATEMENT_DATA_TABLE_SQL);
     await connection.query(RECEIVABLE_BATCH_TABLE_SQL);
     await connection.query(RECEIVABLE_ITEM_TABLE_SQL);
+
+    const repSeqColumnTables = ['rep_data', 'rep_data_verify'];
+    for (const tableName of repSeqColumnTables) {
+      const [seqColumnRows] = await connection.query(
+        `SELECT COLUMN_TYPE
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = ?
+           AND COLUMN_NAME = 'seq_no'
+         LIMIT 1`,
+        [tableName]
+      );
+      const seqColumnType = Array.isArray(seqColumnRows)
+        ? String((seqColumnRows[0] as Record<string, unknown>)?.COLUMN_TYPE || '').toLowerCase()
+        : '';
+      if (seqColumnType && !seqColumnType.includes('varchar')) {
+        await connection.query(`ALTER TABLE ${tableName} MODIFY COLUMN seq_no VARCHAR(32) NULL`);
+      }
+    }
+
+    // Repair historical REP rows where SEQ NO should be used as VN (OP) or AN (IP).
+    const repFixTables = ['rep_data', 'rep_data_verify'];
+    const repBatchSize = 2000;
+    for (const tableName of repFixTables) {
+      let lastId = 0;
+      while (true) {
+        const [idRows] = await connection.query(
+          `SELECT id
+           FROM ${tableName}
+           WHERE id > ?
+             AND NULLIF(TRIM(COALESCE(seq_no, '')), '') IS NOT NULL
+           ORDER BY id
+           LIMIT ?`,
+          [lastId, repBatchSize]
+        );
+        const ids = (Array.isArray(idRows) ? idRows : [])
+          .map((r) => Number((r as Record<string, unknown>).id || 0))
+          .filter((id) => Number.isFinite(id) && id > 0);
+        if (ids.length === 0) break;
+
+        await connection.query(
+          `UPDATE ${tableName}
+           SET
+             seq_no = CASE
+               WHEN (
+                 UPPER(COALESCE(department, '')) = 'OP'
+                 OR (
+                   UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                   AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
+                 )
+               )
+                 THEN COALESCE(NULLIF(TRIM(COALESCE(vn, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
+               ELSE NULLIF(TRIM(COALESCE(seq_no, '')), '')
+             END,
+             department = CASE
+               WHEN UPPER(COALESCE(department, '')) IN ('OP', 'IP') THEN UPPER(COALESCE(department, ''))
+               WHEN NULLIF(TRIM(COALESCE(an, '')), '') IS NOT NULL THEN 'IP'
+               WHEN UPPER(COALESCE(patient_type, '')) IN ('IPD', 'IP') THEN 'IP'
+               ELSE 'OP'
+             END,
+             vn = CASE
+               WHEN (
+                 UPPER(COALESCE(department, '')) = 'OP'
+                 OR (
+                   UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                   AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
+                 )
+               )
+                 THEN COALESCE(NULLIF(TRIM(COALESCE(vn, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
+               ELSE NULLIF(TRIM(COALESCE(vn, '')), '')
+             END,
+             an = CASE
+               WHEN (
+                 UPPER(COALESCE(department, '')) = 'IP'
+                 OR (
+                   UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                   AND (
+                     NULLIF(TRIM(COALESCE(an, '')), '') IS NOT NULL
+                     OR UPPER(COALESCE(patient_type, '')) IN ('IPD', 'IP')
+                   )
+                 )
+               )
+                 THEN COALESCE(NULLIF(TRIM(COALESCE(an, '')), ''), NULLIF(TRIM(COALESCE(seq_no, '')), ''))
+               WHEN (
+                 UPPER(COALESCE(department, '')) = 'OP'
+                 OR (
+                   UPPER(COALESCE(department, '')) NOT IN ('OP', 'IP')
+                   AND NULLIF(TRIM(COALESCE(an, '')), '') IS NULL
+                 )
+               )
+                 THEN NULL
+               ELSE NULLIF(TRIM(COALESCE(an, '')), '')
+             END
+           WHERE id IN (${ids.map(() => '?').join(',')})`,
+          ids
+        );
+
+        lastId = ids[ids.length - 1];
+      }
+    }
+
+    // Repair historical STM/INV rows and move data into correct columns.
+    const stmBatchSize = 2000;
+    let stmLastId = 0;
+    while (true) {
+      const [stmIdRows] = await connection.query(
+        `SELECT id
+         FROM repstm_statement_data
+         WHERE id > ?
+           AND data_type IN ('STM', 'INV')
+         ORDER BY id
+         LIMIT ?`,
+        [stmLastId, stmBatchSize]
+      );
+      const stmIds = (Array.isArray(stmIdRows) ? stmIdRows : [])
+        .map((r) => Number((r as Record<string, unknown>).id || 0))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      if (stmIds.length === 0) break;
+
+      await connection.query(
+        `UPDATE repstm_statement_data s
+         LEFT JOIN rep_data r
+           ON NULLIF(TRIM(COALESCE(r.tran_id, '')), '') = NULLIF(TRIM(COALESCE(s.tran_id, '')), '')
+         SET
+           s.pid = NULLIF(TRIM(COALESCE(s.pid, '')), ''),
+           s.hn = COALESCE(NULLIF(TRIM(COALESCE(s.hn, '')), ''), NULLIF(TRIM(COALESCE(r.hn, '')), '')),
+           s.department = CASE
+             WHEN UPPER(COALESCE(s.department, '')) IN ('OP', 'IP') THEN UPPER(COALESCE(s.department, ''))
+             WHEN NULLIF(TRIM(COALESCE(s.an, '')), '') IS NOT NULL THEN 'IP'
+             WHEN UPPER(COALESCE(s.patient_type, '')) IN ('IPD', 'IP') THEN 'IP'
+             WHEN NULLIF(TRIM(COALESCE(r.an, '')), '') IS NOT NULL THEN 'IP'
+             ELSE 'OP'
+           END,
+           s.vn = CASE
+             WHEN (
+               UPPER(COALESCE(s.department, '')) = 'OP'
+               OR (
+                 UPPER(COALESCE(s.department, '')) NOT IN ('OP', 'IP')
+                 AND NULLIF(TRIM(COALESCE(s.an, '')), '') IS NULL
+                 AND UPPER(COALESCE(s.patient_type, '')) NOT IN ('IPD', 'IP')
+               )
+             )
+               THEN COALESCE(
+                 NULLIF(TRIM(COALESCE(s.vn, '')), ''),
+                 CASE WHEN UPPER(COALESCE(s.department, '')) = 'OP' THEN NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), '') ELSE NULL END,
+                 NULLIF(TRIM(COALESCE(r.vn, '')), '')
+               )
+             ELSE NULLIF(TRIM(COALESCE(s.vn, '')), '')
+           END,
+           s.an = CASE
+             WHEN (
+               UPPER(COALESCE(s.department, '')) = 'IP'
+               OR (
+                 UPPER(COALESCE(s.department, '')) NOT IN ('OP', 'IP')
+                 AND (
+                   NULLIF(TRIM(COALESCE(s.an, '')), '') IS NOT NULL
+                   OR UPPER(COALESCE(s.patient_type, '')) IN ('IPD', 'IP')
+                   OR NULLIF(TRIM(COALESCE(r.an, '')), '') IS NOT NULL
+                 )
+               )
+             )
+               THEN COALESCE(
+                 NULLIF(TRIM(COALESCE(s.an, '')), ''),
+                 CASE WHEN UPPER(COALESCE(s.department, '')) = 'IP' THEN NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), '') ELSE NULL END,
+                 NULLIF(TRIM(COALESCE(r.an, '')), '')
+               )
+             ELSE NULL
+           END,
+           s.matched_visit_code = COALESCE(
+             NULLIF(TRIM(COALESCE(s.matched_visit_code, '')), ''),
+             CASE
+               WHEN UPPER(COALESCE(s.department, '')) = 'IP' THEN COALESCE(NULLIF(TRIM(COALESCE(s.an, '')), ''), NULLIF(TRIM(COALESCE(r.an, '')), ''))
+               ELSE COALESCE(NULLIF(TRIM(COALESCE(s.vn, '')), ''), NULLIF(TRIM(COALESCE(r.vn, '')), ''))
+             END
+           ),
+           s.matched_status = CASE
+             WHEN NULLIF(TRIM(COALESCE(
+               s.matched_visit_code,
+               CASE
+                 WHEN UPPER(COALESCE(s.department, '')) = 'IP' THEN COALESCE(NULLIF(TRIM(COALESCE(s.an, '')), ''), NULLIF(TRIM(COALESCE(r.an, '')), ''))
+                 ELSE COALESCE(NULLIF(TRIM(COALESCE(s.vn, '')), ''), NULLIF(TRIM(COALESCE(r.vn, '')), ''))
+               END,
+               ''
+             )), '') IS NOT NULL THEN 'matched'
+             ELSE 'unmatched'
+           END
+         WHERE s.id IN (${stmIds.map(() => '?').join(',')})`,
+        stmIds
+      );
+
+      stmLastId = stmIds[stmIds.length - 1];
+    }
+
     const [batchHashColumns] = await connection.query(
       `SELECT COUNT(*) AS count
        FROM information_schema.COLUMNS
@@ -1842,6 +2035,11 @@ const normalizeImportCellValue = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
+const normalizeCitizenId = (value: string): string => {
+  const digits = value.replace(/\D/g, '');
+  return digits.length === 13 ? digits : '';
+};
+
 const pickRowValue = (row: Record<string, unknown>, candidates: string[]) => {
   const entries = Object.entries(row);
   for (const candidate of candidates) {
@@ -2024,14 +2222,32 @@ const resolveRepVisitCode = async (
   department: string,
   hn: string,
   admdate: string | null,
+  pid: string,
   an: string,
   vn: string
 ) => {
+  const normalizedCid = normalizeCitizenId(pid);
   if (department === 'IP') {
     if (an.trim()) return an.trim();
     if (!hn.trim() || !admdate) return '';
     const visitDate = resolveVisitDateOnly(admdate);
     if (!visitDate) return '';
+    if (normalizedCid) {
+      const [cidRows] = await hosConnection.query(
+        `SELECT i.an
+         FROM ipt i
+         JOIN patient pt ON pt.hn = i.hn
+         WHERE i.hn = ?
+           AND pt.cid = ?
+           AND (i.regdate = ? OR i.dchdate = ?)
+         ORDER BY i.an DESC
+         LIMIT 1`,
+        [hn.trim(), normalizedCid, visitDate, visitDate]
+      );
+      if (Array.isArray(cidRows) && cidRows.length > 0) {
+        return normalizeImportCellValue((cidRows[0] as Record<string, unknown>).an);
+      }
+    }
     const [rows] = await hosConnection.query(
       `SELECT an
        FROM ipt
@@ -2047,6 +2263,22 @@ const resolveRepVisitCode = async (
   if (!hn.trim() || !admdate) return '';
   const visitDate = resolveVisitDateOnly(admdate);
   if (!visitDate) return '';
+  if (normalizedCid) {
+    const [cidRows] = await hosConnection.query(
+      `SELECT o.vn
+       FROM ovst o
+       JOIN patient pt ON pt.hn = o.hn
+       WHERE o.hn = ?
+         AND pt.cid = ?
+         AND o.vstdate = ?
+       ORDER BY o.vn DESC
+       LIMIT 1`,
+      [hn.trim(), normalizedCid, visitDate]
+    );
+    if (Array.isArray(cidRows) && cidRows.length > 0) {
+      return normalizeImportCellValue((cidRows[0] as Record<string, unknown>).vn);
+    }
+  }
   const [rows] = await hosConnection.query(
     `SELECT vn
      FROM ovst
@@ -2102,7 +2334,7 @@ const importRepDataRows = async (
   for (let index = 0; index < payload.rows.length; index += 1) {
     const row = payload.rows[index];
     const repNo = pickRowValueAdvanced(row, ['REP No.', 'REP No', 'REP']);
-    const seqNo = toAmountValue(pickRowValueAdvanced(row, ['ลำดับที่', 'no']));
+    const seqNo = pickRowValueAdvanced(row, ['SEQ NO', 'SEQ_NO', 'SEQNO', 'SEQ', 'ลำดับที่', 'no']);
     const tranId = pickRowValueAdvanced(row, ['TRAN_ID', 'transaction_uid', 'tranid']);
     const fallbackSiteSettings = (businessRules as Record<string, unknown>)?.site_settings as Record<string, unknown> | undefined;
     const hcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode']) || String(fallbackSiteSettings?.hospital_code || '');
@@ -2133,14 +2365,18 @@ const importRepDataRows = async (
     const ontop = toAmountValue(pickRowValueAdvanced(row, ['ONTOP']));
 
     const department = resolveDepartment(patientType, rawAn);
-    const resolvedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, admdate, rawAn, '');
-    const vn = department === 'OP' ? resolvedVisitCode : '';
-    const an = department === 'IP' ? (resolvedVisitCode || rawAn.trim()) : rawAn.trim();
+    const normalizedSeqNo = normalizeImportCellValue(seqNo);
+    const fallbackVn = department === 'OP' ? normalizedSeqNo : '';
+    const fallbackAn = department === 'IP' ? (rawAn.trim() || normalizedSeqNo) : rawAn.trim();
+    const resolvedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, admdate, pid, fallbackAn, fallbackVn);
+    const vn = department === 'OP' ? (resolvedVisitCode || fallbackVn) : '';
+    const an = department === 'IP' ? (resolvedVisitCode || fallbackAn) : '';
     const income = await resolveRepIncome(hosConnection, department, vn, an);
     const effectiveCompensated = compensated ?? nhso ?? null;
     const diff = income != null && effectiveCompensated != null ? Number((effectiveCompensated - income).toFixed(2)) : null;
     const downAmount = diff != null && diff > 0 ? diff : null;
     const upAmount = diff != null && diff < 0 ? diff : null;
+    const seqNoForSave = department === 'OP' ? (vn || normalizedSeqNo) : normalizedSeqNo;
     const recordUid = resolveRepRecordUid(tranId, repNo, department, vn, an, hn, index);
     const yymm = formatYYMM(department === 'IP' ? dchdate || admdate : admdate);
     const yearbudget = formatBudgetYear(department === 'IP' ? dchdate || admdate : admdate);
@@ -2194,7 +2430,7 @@ const importRepDataRows = async (
         yearbudget = VALUES(yearbudget),
         raw_data = VALUES(raw_data)`,
       [
-        batchId, recordUid, repNo || null, seqNo, tranId || null, hcode || null, hn || null, vn || null, an || null, pid || null,
+        batchId, recordUid, repNo || null, seqNoForSave || null, tranId || null, hcode || null, hn || null, vn || null, an || null, pid || null,
         patientName || null, patientType || null, department || null, admdate, dchdate, senddate, maininscl || null,
         subinscl || null, errorcode || null, verifycode || null, projectcode || null, payload.sourceFilename,
         percentpay, income, effectiveCompensated, nhso, agency, hc, ae, inst, op, ip, dmis, drug, ontop, diff, downAmount, upAmount,
@@ -2243,7 +2479,7 @@ const importStatementDataRows = async (
     const invoiceAmount = toAmountValue(pickRowValueAdvanced(row, ['invoice_amount', 'inv_amount', 'ยอดเรียกเก็บ']));
 
     const department = resolveDepartment(patientType, rawAn);
-    const matchedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, serviceDateTime, rawAn, rawVn);
+    const matchedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, serviceDateTime, pid, rawAn, rawVn);
     const vn = department === 'OP' ? (matchedVisitCode || rawVn.trim()) : rawVn.trim();
     const an = department === 'IP' ? (matchedVisitCode || rawAn.trim()) : rawAn.trim();
     const recordUid = resolveStatementRecordUid(payload.dataType, tranId, statementNo, department, vn, an, hn, index);
@@ -3220,6 +3456,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
 
   const repConnection = await getRepstmConnection();
   const repMap = new Map<string, { rep_amount: number; rep_no: string }>();
+  const repTranToVisit = new Map<string, string>();
   const stmMap = new Map<string, { stm_amount: number | null; stm_paid_amount: number | null }>();
   const invMap = new Map<string, { inv_amount: number | null; inv_invoice_amount: number | null }>();
 
@@ -3252,31 +3489,65 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
         if (vn) repMap.set(`VN:${vn}`, entry);
         if (an) repMap.set(`AN:${an}`, entry);
       });
+
+      const [repTranRows] = await repConnection.query(
+        `SELECT
+           COALESCE(tran_id, '') AS tran_id,
+           COALESCE(vn, '') AS vn,
+           COALESCE(an, '') AS an
+         FROM rep_data
+         WHERE (${repClauses.join(' OR ')})
+           AND NULLIF(TRIM(COALESCE(tran_id, '')), '') IS NOT NULL`,
+        repParams
+      );
+      (Array.isArray(repTranRows) ? repTranRows : []).forEach((r) => {
+        const rec = r as Record<string, unknown>;
+        const tranId = String(rec.tran_id || '').trim();
+        const vn = String(rec.vn || '').trim();
+        const an = String(rec.an || '').trim();
+        if (!tranId) return;
+        repTranToVisit.set(tranId, vn || an || '');
+      });
     }
 
     // --- Step 3: Attach STM data ---
     const stmClauses: string[] = [];
     const stmParams: unknown[] = [];
-    if (vns.length > 0) { stmClauses.push(`matched_visit_code IN (${vns.map(() => '?').join(',')}) OR vn IN (${vns.map(() => '?').join(',')})`); stmParams.push(...vns, ...vns); }
-    if (ans.length > 0) { stmClauses.push(`matched_visit_code IN (${ans.map(() => '?').join(',')}) OR an IN (${ans.map(() => '?').join(',')})`); stmParams.push(...ans, ...ans); }
+    const repTranIds = Array.from(repTranToVisit.keys());
+    if (vns.length > 0) {
+      stmClauses.push(`s.matched_visit_code IN (${vns.map(() => '?').join(',')}) OR s.vn IN (${vns.map(() => '?').join(',')}) OR r_link.vn IN (${vns.map(() => '?').join(',')})`);
+      stmParams.push(...vns, ...vns, ...vns);
+    }
+    if (ans.length > 0) {
+      stmClauses.push(`s.matched_visit_code IN (${ans.map(() => '?').join(',')}) OR s.an IN (${ans.map(() => '?').join(',')}) OR r_link.an IN (${ans.map(() => '?').join(',')})`);
+      stmParams.push(...ans, ...ans, ...ans);
+    }
+    if (repTranIds.length > 0) {
+      stmClauses.push(`s.tran_id IN (${repTranIds.map(() => '?').join(',')})`);
+      stmParams.push(...repTranIds);
+    }
 
     if (stmClauses.length > 0) {
       const [stmRows] = await repConnection.query(
         `SELECT
-           COALESCE(matched_visit_code, vn, an, '') AS visit_code,
-           data_type,
-           SUM(COALESCE(amount, 0)) AS total_amount,
-           SUM(COALESCE(paid_amount, 0)) AS total_paid_amount,
-           SUM(COALESCE(invoice_amount, 0)) AS total_invoice_amount
-         FROM repstm_statement_data
-         WHERE data_type IN ('STM', 'INV')
+           COALESCE(s.matched_visit_code, s.vn, s.an, r_link.vn, r_link.an, '') AS visit_code,
+           COALESCE(s.tran_id, '') AS tran_id,
+           s.data_type,
+           SUM(COALESCE(s.amount, 0)) AS total_amount,
+           SUM(COALESCE(s.paid_amount, 0)) AS total_paid_amount,
+           SUM(COALESCE(s.invoice_amount, 0)) AS total_invoice_amount
+         FROM repstm_statement_data s
+         LEFT JOIN rep_data r_link
+           ON NULLIF(TRIM(COALESCE(r_link.tran_id, '')), '') = NULLIF(TRIM(COALESCE(s.tran_id, '')), '')
+         WHERE s.data_type IN ('STM', 'INV')
            AND (${stmClauses.join(' OR ')})
-         GROUP BY COALESCE(matched_visit_code, vn, an, ''), data_type`,
+         GROUP BY COALESCE(s.matched_visit_code, s.vn, s.an, r_link.vn, r_link.an, ''), COALESCE(s.tran_id, ''), s.data_type`,
         stmParams
       );
       (Array.isArray(stmRows) ? stmRows : []).forEach((r) => {
         const rec = r as Record<string, unknown>;
-        const vc = String(rec.visit_code || '').trim();
+        const tranId = String(rec.tran_id || '').trim();
+        const vc = String(rec.visit_code || '').trim() || (tranId ? (repTranToVisit.get(tranId) || '') : '');
         const dtype = String(rec.data_type || '').toUpperCase();
         if (!vc) return;
         if (dtype === 'STM') {
@@ -3319,8 +3590,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     if (!hasRep && !hasStm && !hasInv) {
       compareStatus = 'ไม่มีข้อมูล';
     } else if (hasRep && !hasStm && !hasInv) {
-      if (diffRep != null && Math.abs(diffRep) < 0.01) compareStatus = 'ตรงกัน';
-      else compareStatus = 'ยอดต่าง';
+      compareStatus = 'รอ STM/INV';
     } else if (!hasRep && (hasStm || hasInv)) {
       const stmOrInvAmt = stmAmt ?? invAmt ?? 0;
       const diff = stmOrInvAmt - claimable;
@@ -3340,7 +3610,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       else compareStatus = compareStatus === 'ตรงกัน' ? 'ตรงกัน' : 'รอ REP';
     }
     if (claimable > 0 && hasRep && !hasStm && !hasInv) {
-      if (compareStatus !== 'ตรงกัน') compareStatus = 'ยอดต่าง';
+      compareStatus = 'รอ STM/INV';
     }
 
     return {

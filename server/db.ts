@@ -2999,6 +2999,10 @@ export interface ReceivableQueryParams {
   patientRight?: string;
   hosxpRight?: string;
   financeRight?: string;
+  /** Max rows to return per patient type (OPD / IPD). Default unlimited. */
+  limit?: number;
+  /** Offset for pagination. Default 0. */
+  offset?: number;
 }
 
 export interface ReceivableBatchPayload extends ReceivableQueryParams {
@@ -3257,68 +3261,21 @@ const attachRepComparison = async (rows: Record<string, unknown>[]) => {
   }
 };
 
-export const getReceivableCandidates = async (params: ReceivableQueryParams): Promise<Record<string, unknown>[]> => {
+export const countReceivableCandidates = async (params: Omit<ReceivableQueryParams, 'limit' | 'offset'>): Promise<number> => {
   const startDate = String(params.startDate || '').slice(0, 10);
   const endDate = String(params.endDate || startDate || '').slice(0, 10);
   const patientType = String(params.patientType || 'ALL').toUpperCase();
   const connection = await getUTFConnection();
-
   try {
-    const resultRows: Record<string, unknown>[] = [];
-
+    let total = 0;
     if (patientType === 'ALL' || patientType === 'OPD') {
-      const opdParams: unknown[] = [startDate, endDate, startDate, endDate, startDate, endDate, startDate, endDate];
+      const opdParams: unknown[] = [startDate, endDate];
       const rightSql = buildRightFilterSql('ptt.hipdata_code', opdParams, params.patientRight);
       const hosxpSql = buildExactFilterSql('o.pttype', opdParams, params.hosxpRight);
       const financeSql = buildFinanceRightFilterSql('o.pttype', opdParams, params.financeRight);
-      const [opdRows] = await connection.query(
-        `SELECT
-           'OPD' AS patient_type,
-           o.vn,
-           '' AS an,
-           o.hn,
-           pt.cid,
-           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
-           o.pttype,
-           ptt.name AS pttype_name,
-           ptt.hipdata_code,
-           DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
-           COALESCE(v.income, 0) AS total_income,
-           CASE
-             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(v.income, 0)
-             ELSE claim.claimable_amount
-           END AS claimable_amount,
-           CASE
-             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN GREATEST(COALESCE(item_count.count_item, 0), 1)
-             ELSE claim.item_count
-           END AS item_count,
-           CASE
-             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN CONCAT('เบิกได้ทั้ง Visit (', UPPER(COALESCE(ptt.hipdata_code, '')), ')')
-             ELSE claim.claim_summary
-           END AS claim_summary,
-           rcpt.receipt_no,
-           rcpt.receipt_amount,
-           rcpt.receipt_date
+      const [cntRows] = await connection.query(
+        `SELECT COUNT(*) AS cnt
          FROM ovst o
-         LEFT JOIN (${RECEIVABLE_CLAIMABLE_ITEM_SQL}) claim ON claim.vn = o.vn
-         LEFT JOIN (
-           SELECT vn, COUNT(*) AS count_item
-           FROM opitemrece
-           WHERE vstdate BETWEEN ? AND ?
-           GROUP BY vn
-         ) item_count ON item_count.vn = o.vn
-         LEFT JOIN (
-           SELECT
-             rp.vn,
-             GROUP_CONCAT(DISTINCT rp.rcpno ORDER BY rp.finance_number SEPARATOR ', ') AS receipt_no,
-             ROUND(SUM(COALESCE(rp.total_amount, 0)), 2) AS receipt_amount,
-             DATE_FORMAT(MAX(rp.bill_date_time), '%Y-%m-%d') AS receipt_date
-           FROM rcpt_print rp
-           JOIN ovst oo ON oo.vn = rp.vn
-           WHERE oo.vstdate BETWEEN ? AND ?
-             AND COALESCE(rp.status, '') NOT REGEXP 'Abort'
-           GROUP BY rp.vn
-         ) rcpt ON rcpt.vn = o.vn
          LEFT JOIN patient pt ON pt.hn = o.hn
          LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
          LEFT JOIN vn_stat v ON v.vn = o.vn
@@ -3326,11 +3283,186 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            AND COALESCE(v.income, 0) > 0
            ${rightSql}
            ${hosxpSql}
-           ${financeSql}
-         ORDER BY o.vstdate, o.vn`,
+           ${financeSql}`,
         opdParams
       );
-      if (Array.isArray(opdRows)) resultRows.push(...(opdRows as Record<string, unknown>[]));
+      total += Number((Array.isArray(cntRows) ? (cntRows[0] as Record<string, unknown>)?.cnt : 0) ?? 0);
+    }
+    if (patientType === 'ALL' || patientType === 'IPD') {
+      const ipdParams: unknown[] = [startDate, endDate];
+      const rightSql = buildRightFilterSql('ptt.hipdata_code', ipdParams, params.patientRight);
+      const hosxpSql = buildExactFilterSql('i.pttype', ipdParams, params.hosxpRight);
+      const financeSql = buildFinanceRightFilterSql('i.pttype', ipdParams, params.financeRight);
+      const [cntRows] = await connection.query(
+        `SELECT COUNT(*) AS cnt
+         FROM ipt i
+         LEFT JOIN patient pt ON pt.hn = i.hn
+         LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
+         LEFT JOIN an_stat a ON a.an = i.an
+         WHERE COALESCE(i.dchdate, i.regdate) BETWEEN ? AND ?
+           AND (
+             CASE
+               WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(a.income, 0)
+               ELSE GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0)
+             END
+           ) > 0
+           ${rightSql}
+           ${hosxpSql}
+           ${financeSql}`,
+        ipdParams
+      );
+      total += Number((Array.isArray(cntRows) ? (cntRows[0] as Record<string, unknown>)?.cnt : 0) ?? 0);
+    }
+    return total;
+  } catch (err) {
+    console.error('Error counting receivable candidates:', err);
+    return 0;
+  } finally {
+    connection.release();
+  }
+};
+
+export const getReceivableCandidates = async (params: ReceivableQueryParams): Promise<Record<string, unknown>[]> => {
+  const startDate = String(params.startDate || '').slice(0, 10);
+  const endDate = String(params.endDate || startDate || '').slice(0, 10);
+  const patientType = String(params.patientType || 'ALL').toUpperCase();
+  const rowLimit = params.limit != null ? Math.max(1, Number(params.limit)) : null;
+  const rowOffset = params.offset != null ? Math.max(0, Number(params.offset)) : 0;
+  const connection = await getUTFConnection();
+
+  try {
+    const resultRows: Record<string, unknown>[] = [];
+
+    if (patientType === 'ALL' || patientType === 'OPD') {
+      // Step A: get paginated VNs (fast - simple join, no heavy subqueries)
+      const vnFilterParams: unknown[] = [startDate, endDate];
+      const rightSqlVn = buildRightFilterSql('ptt.hipdata_code', vnFilterParams, params.patientRight);
+      const hosxpSqlVn = buildExactFilterSql('o.pttype', vnFilterParams, params.hosxpRight);
+      const financeSqlVn = buildFinanceRightFilterSql('o.pttype', vnFilterParams, params.financeRight);
+      const limitSql = rowLimit != null ? ` LIMIT ${rowLimit} OFFSET ${rowOffset}` : '';
+      const [vnRows] = await connection.query(
+        `SELECT o.vn
+         FROM ovst o
+         LEFT JOIN patient pt ON pt.hn = o.hn
+         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+         LEFT JOIN vn_stat v ON v.vn = o.vn
+         WHERE o.vstdate BETWEEN ? AND ?
+           AND COALESCE(v.income, 0) > 0
+           ${rightSqlVn}
+           ${hosxpSqlVn}
+           ${financeSqlVn}
+         ORDER BY o.vstdate, o.vn${limitSql}`,
+        vnFilterParams
+      );
+      const pagedVns = (Array.isArray(vnRows) ? vnRows : []).map((r) => String((r as Record<string, unknown>).vn || '').trim()).filter(Boolean);
+
+      if (pagedVns.length > 0) {
+        // Step B: enrich only the paged VNs — filter all subqueries by VN list (fast, no full table scan)
+        const vnPlaceholders = pagedVns.map(() => '?').join(',');
+        // param order: startDate, endDate (claimItem), pagedVns (claimItem vn IN),
+        //              startDate, endDate (item_count), pagedVns (item_count vn IN),
+        //              pagedVns (rcpt_print), pagedVns (main IN)
+        const enrichParams: unknown[] = [
+          startDate, endDate, ...pagedVns,  // claimItemSql: vstdate BETWEEN + vn IN
+          startDate, endDate, ...pagedVns,  // item_count: vstdate BETWEEN + vn IN
+          ...pagedVns,                       // rcpt_print: rp.vn IN
+          ...pagedVns,                       // main WHERE o.vn IN
+        ];
+        const claimItemSql = `
+  SELECT
+    item.vn,
+    SUM(item.claim_amount) AS claimable_amount,
+    COUNT(*) AS item_count,
+    GROUP_CONCAT(DISTINCT item.claim_label ORDER BY item.claim_label SEPARATOR ', ') AS claim_summary
+  FROM (
+    SELECT
+      oo.vn,
+      COALESCE(oo.sum_price, oo.qty * oo.unitprice, 0) AS claim_amount,
+      CASE
+        WHEN COALESCE(sd.nhso_adp_code, '') <> '' THEN CONCAT('ADP ', sd.nhso_adp_code)
+        WHEN COALESCE(sd.ttmt_code, '') <> '' OR COALESCE(di.ttmt_code, '') <> '' THEN 'ยา/สมุนไพร TTMT'
+        WHEN COALESCE(sd.tmlt_code, '') <> '' THEN 'Lab TMLT'
+        WHEN UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) REGEXP 'สมุนไพร|ยาไทย|HERB' THEN 'ยาสมุนไพร/ยาไทย'
+        WHEN UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) REGEXP 'ARMSLING|ARM SLING|SLING' THEN 'อุปกรณ์ Armsling'
+        WHEN UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) REGEXP 'ค่าบริการผู้ป่วยนอก|ผู้ป่วยนอก|OPD' THEN 'ค่าบริการผู้ป่วยนอก'
+        ELSE 'รายการเบิกได้'
+      END AS claim_label
+    FROM opitemrece oo
+    LEFT JOIN income inc ON inc.income = oo.income
+    LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+    LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+    LEFT JOIN drugitems di ON di.icode = oo.icode
+    WHERE oo.vstdate BETWEEN ? AND ?
+      AND oo.vn IN (${vnPlaceholders})
+      AND COALESCE(oo.sum_price, oo.qty * oo.unitprice, 0) > 0
+      AND UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) NOT REGEXP 'อุดฟัน|ถอนฟัน|ทันต|DENTAL'
+      AND (
+        COALESCE(sd.nhso_adp_code, '') <> ''
+        OR COALESCE(sd.ttmt_code, '') <> ''
+        OR COALESCE(di.ttmt_code, '') <> ''
+        OR COALESCE(sd.tmlt_code, '') <> ''
+        OR UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(ndi.name, ''), COALESCE(sd.name, ''), COALESCE(di.name, ''))) REGEXP 'สมุนไพร|ยาไทย|HERB|ARMSLING|ARM SLING|SLING|ค่าบริการผู้ป่วยนอก|ผู้ป่วยนอก|OPD'
+      )
+  ) item
+  GROUP BY item.vn
+`;
+        const [opdRows] = await connection.query(
+          `SELECT
+             'OPD' AS patient_type,
+             o.vn,
+             '' AS an,
+             o.hn,
+             pt.cid,
+             CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+             o.pttype,
+             ptt.name AS pttype_name,
+             ptt.hipdata_code,
+             DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+             COALESCE(v.income, 0) AS total_income,
+             CASE
+               WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(v.income, 0)
+               ELSE claim.claimable_amount
+             END AS claimable_amount,
+             CASE
+               WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN GREATEST(COALESCE(item_count.count_item, 0), 1)
+               ELSE claim.item_count
+             END AS item_count,
+             CASE
+               WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN CONCAT('เบิกได้ทั้ง Visit (', UPPER(COALESCE(ptt.hipdata_code, '')), ')')
+               ELSE claim.claim_summary
+             END AS claim_summary,
+             rcpt.receipt_no,
+             rcpt.receipt_amount,
+             rcpt.receipt_date
+           FROM ovst o
+           LEFT JOIN (${claimItemSql}) claim ON claim.vn = o.vn
+           LEFT JOIN (
+             SELECT vn, COUNT(*) AS count_item
+             FROM opitemrece
+             WHERE vstdate BETWEEN ? AND ?
+               AND vn IN (${vnPlaceholders})
+             GROUP BY vn
+           ) item_count ON item_count.vn = o.vn
+           LEFT JOIN (
+             SELECT
+               rp.vn,
+               GROUP_CONCAT(DISTINCT rp.rcpno ORDER BY rp.finance_number SEPARATOR ', ') AS receipt_no,
+               ROUND(SUM(COALESCE(rp.total_amount, 0)), 2) AS receipt_amount,
+               DATE_FORMAT(MAX(rp.bill_date_time), '%Y-%m-%d') AS receipt_date
+             FROM rcpt_print rp
+             WHERE rp.vn IN (${vnPlaceholders})
+               AND COALESCE(rp.status, '') NOT REGEXP 'Abort'
+             GROUP BY rp.vn
+           ) rcpt ON rcpt.vn = o.vn
+           LEFT JOIN patient pt ON pt.hn = o.hn
+           LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+           LEFT JOIN vn_stat v ON v.vn = o.vn
+           WHERE o.vn IN (${vnPlaceholders})
+           ORDER BY o.vstdate, o.vn`,
+          enrichParams
+        );
+        if (Array.isArray(opdRows)) resultRows.push(...(opdRows as Record<string, unknown>[]));
+      }
     }
 
     if (patientType === 'ALL' || patientType === 'IPD') {
@@ -3338,6 +3470,7 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
       const rightSql = buildRightFilterSql('ptt.hipdata_code', ipdParams, params.patientRight);
       const hosxpSql = buildExactFilterSql('i.pttype', ipdParams, params.hosxpRight);
       const financeSql = buildFinanceRightFilterSql('i.pttype', ipdParams, params.financeRight);
+      const ipdLimitSql = rowLimit != null ? ` LIMIT ${rowLimit} OFFSET ${rowOffset}` : '';
       const [ipdRows] = await connection.query(
         `SELECT
            'IPD' AS patient_type,
@@ -3377,10 +3510,10 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            ${rightSql}
            ${hosxpSql}
            ${financeSql}
-         ORDER BY COALESCE(i.dchdate, i.regdate), i.an`,
+         ORDER BY COALESCE(i.dchdate, i.regdate), i.an${ipdLimitSql}`,
         ipdParams
       );
-      if (Array.isArray(ipdRows)) resultRows.push(...(ipdRows as Record<string, unknown>[]));
+      if (Array.isArray(ipdRows)) resultRows.push(...(ipdRows as Record<string, unknown>[]));   
     }
 
     return resultRows.map(enrichReceivableRow);
@@ -3477,14 +3610,36 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   const pageSize = Math.min(500, Math.max(10, Number(params.pageSize || 100)));
   const compareStatusFilter = String(params.compareStatus || '').trim();
 
-  // Step 1: get base receivable candidates (claimable amounts computed consistently)
-  const baseRows = await getReceivableCandidates({
+  // Step 1: get total count and base rows for current page using DB-level pagination
+  // When compareStatus filter is active we must scan all rows (slower) but still cap at 5000 for safety
+  const candidateParams = {
     startDate,
     endDate,
     patientType: params.patientType,
     patientRight: params.patientRight,
     hosxpRight: params.hosxpRight,
     financeRight: params.financeRight,
+  };
+
+  const totalCount = await countReceivableCandidates(candidateParams);
+
+  if (totalCount === 0) {
+    const emptySummary = {
+      total_visits: 0, matched: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
+      no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_inv: 0,
+    };
+    return { data: [], total: 0, summary: emptySummary };
+  }
+
+  // Fetch only current page from DB (no compareStatus pre-filter possible at this stage)
+  // If compareStatus filter is active, load up to 2000 rows to find enough matches
+  const fetchLimit = compareStatusFilter ? Math.min(totalCount, 2000) : pageSize;
+  const fetchOffset = compareStatusFilter ? 0 : (page - 1) * pageSize;
+
+  const baseRows = await getReceivableCandidates({
+    ...candidateParams,
+    limit: fetchLimit,
+    offset: fetchOffset,
   });
 
   if (baseRows.length === 0) {
@@ -3562,12 +3717,12 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     const stmParams: unknown[] = [];
     const repTranIds = Array.from(repTranToVisit.keys());
     if (vns.length > 0) {
-      stmClauses.push(`s.matched_visit_code IN (${vns.map(() => '?').join(',')}) OR s.vn IN (${vns.map(() => '?').join(',')}) OR r_link.vn IN (${vns.map(() => '?').join(',')})`);
-      stmParams.push(...vns, ...vns, ...vns);
+      stmClauses.push(`s.matched_visit_code IN (${vns.map(() => '?').join(',')}) OR s.vn IN (${vns.map(() => '?').join(',')})`);
+      stmParams.push(...vns, ...vns);
     }
     if (ans.length > 0) {
-      stmClauses.push(`s.matched_visit_code IN (${ans.map(() => '?').join(',')}) OR s.an IN (${ans.map(() => '?').join(',')}) OR r_link.an IN (${ans.map(() => '?').join(',')})`);
-      stmParams.push(...ans, ...ans, ...ans);
+      stmClauses.push(`s.matched_visit_code IN (${ans.map(() => '?').join(',')}) OR s.an IN (${ans.map(() => '?').join(',')})`);
+      stmParams.push(...ans, ...ans);
     }
     if (repTranIds.length > 0) {
       stmClauses.push(`s.tran_id IN (${repTranIds.map(() => '?').join(',')})`);
@@ -3577,18 +3732,16 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     if (stmClauses.length > 0) {
       const [stmRows] = await repConnection.query(
         `SELECT
-           COALESCE(s.matched_visit_code, s.vn, s.an, r_link.vn, r_link.an, '') AS visit_code,
+           COALESCE(s.matched_visit_code, s.vn, s.an, '') AS visit_code,
            COALESCE(s.tran_id, '') AS tran_id,
            s.data_type,
            SUM(COALESCE(s.amount, 0)) AS total_amount,
            SUM(COALESCE(s.paid_amount, 0)) AS total_paid_amount,
            SUM(COALESCE(s.invoice_amount, 0)) AS total_invoice_amount
          FROM repstm_statement_data s
-         LEFT JOIN rep_data r_link
-           ON NULLIF(TRIM(COALESCE(r_link.tran_id, '')), '') = NULLIF(TRIM(COALESCE(s.tran_id, '')), '')
          WHERE s.data_type IN ('STM', 'INV')
            AND (${stmClauses.join(' OR ')})
-         GROUP BY COALESCE(s.matched_visit_code, s.vn, s.an, r_link.vn, r_link.an, ''), COALESCE(s.tran_id, ''), s.data_type`,
+         GROUP BY COALESCE(s.matched_visit_code, s.vn, s.an, ''), COALESCE(s.tran_id, ''), s.data_type`,
         stmParams
       );
       (Array.isArray(stmRows) ? stmRows : []).forEach((r) => {
@@ -3709,9 +3862,19 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   };
 
   // --- Step 7: Paginate ---
-  const total = filtered.length;
-  const offset = (page - 1) * pageSize;
-  const data = filtered.slice(offset, offset + pageSize);
+  // When compareStatus filter is active: paginate the filtered in-memory set
+  // When no filter: data was already fetched page-by-page from DB, so return all assembled rows
+  let total: number;
+  let data: ReconciliationRow[];
+  if (compareStatusFilter) {
+    total = filtered.length;
+    const offset = (page - 1) * pageSize;
+    data = filtered.slice(offset, offset + pageSize);
+  } else {
+    // DB-level paging was used; total = full count from DB, data = the assembled page rows
+    total = totalCount;
+    data = filtered; // filtered may only differ from assembled if compareStatus filter applied
+  }
 
   return { data, total, summary };
 };
@@ -7648,6 +7811,295 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
   } catch (error) {
     console.error('Error in getKidneyMonitorDetailed:', error);
     return { data: [], totalCount: 0, returned: 0, truncated: false };
+  }
+};
+
+type FsProjectItem = {
+  code: string;
+  label: string;
+  amount: number;
+};
+
+// FS monitor must use only ProjectCode/ADP items from the NHSO 16-file guide.
+// Do not infer from broad item names, otherwise one matching visit can be over-counted.
+const FS_PROJECT_ITEMS: FsProjectItem[] = [
+  { code: '1B004N', label: 'Pap smear ผลปกติ', amount: 250 },
+  { code: '1B004P', label: 'Pap smear ผลผิดปกติ', amount: 250 },
+  { code: '1B004_0N', label: 'VIA ผลปกติ', amount: 250 },
+  { code: '1B004_0P', label: 'VIA ผลผิดปกติ', amount: 250 },
+  { code: '1B0046_01', label: 'HPV DNA type 16/18/Other', amount: 280 },
+  { code: '1B0046_1', label: 'HPV DNA 14 type fully', amount: 370 },
+  { code: '1B005', label: 'Colposcopy', amount: 900 },
+  { code: '12001', label: 'คัดกรอง/ประเมินปัจจัยเสี่ยง อายุ 15-34 ปี', amount: 100 },
+  { code: '12002', label: 'คัดกรอง/ประเมินปัจจัยเสี่ยง อายุ 35-59 ปี', amount: 150 },
+  { code: '12003', label: 'คัดกรองเบาหวาน FPG อายุ 35-59 ปี', amount: 40 },
+  { code: '12004', label: 'คัดกรองไขมัน Cholesterol/HDL อายุ 45-59 ปี', amount: 160 },
+  { code: '13001', label: 'คัดกรองโลหิตจาง', amount: 65 },
+  { code: '14001', label: 'เสริมธาตุเหล็ก Ferrofolic', amount: 80 },
+  { code: '15001', label: 'ทาฟลูออไรด์', amount: 100 },
+  { code: '30008', label: 'ANC ตรวจฟัน', amount: 0 },
+  { code: '30009', label: 'ANC ขัดทำความสะอาดฟัน', amount: 500 },
+  { code: '30010', label: 'ANC Ultrasound', amount: 400 },
+  { code: '30011', label: 'ANC Visit', amount: 360 },
+  { code: '30012', label: 'ANC Lab 1', amount: 600 },
+  { code: '30013', label: 'ANC Lab 2 / ใกล้คลอด', amount: 190 },
+  { code: '30014', label: 'ตรวจครรภ์ (UPT)', amount: 75 },
+  { code: '30015', label: 'ดูแลหลังคลอด', amount: 150 },
+  { code: '30016', label: 'เสริมธาตุเหล็กหลังคลอด', amount: 135 },
+  { code: '37550', label: 'ตรวจยีน BRCA1/BRCA2', amount: 10000 },
+  { code: '90001', label: 'ให้คำปรึกษา/เก็บตัวอย่าง BRCA', amount: 500 },
+  { code: '90002', label: 'ตรวจ BRCA ญาติสายตรง', amount: 2500 },
+  { code: '90004', label: 'ตัดชิ้นเนื้อช่องปากส่งพยาธิ', amount: 600 },
+  { code: '90005', label: 'คัดกรองมะเร็งลำไส้ใหญ่และไส้ตรง', amount: 60 },
+  { code: 'AB001', label: 'บริการยุติการตั้งครรภ์', amount: 3000 },
+  { code: 'AB002', label: 'บริการยุติการตั้งครรภ์', amount: 3000 },
+  { code: 'AB003', label: 'บริการยุติการตั้งครรภ์', amount: 3000 },
+  { code: 'FP001', label: 'วางแผนครอบครัว ห่วงอนามัย', amount: 800 },
+  { code: 'FP002', label: 'วางแผนครอบครัว ยาฝังคุมกำเนิด', amount: 2500 },
+];
+
+const FS_PROJECT_ITEM_BY_CODE = new Map(
+  FS_PROJECT_ITEMS.map((item) => [item.code.toUpperCase(), item])
+);
+
+const sqlStringLiteral = (value: string) => `'${value.replace(/'/g, "''")}'`;
+const FS_PROJECT_CODE_SQL = FS_PROJECT_ITEMS
+  .map((item) => sqlStringLiteral(item.code.toUpperCase()))
+  .join(', ');
+
+const buildFsProjectCodeExpression = (field: string) =>
+  `UPPER(REPLACE(TRIM(COALESCE(${field}, '')), ' ', ''))`;
+
+const FS_PROJECT_MATCH_SQL = `
+  CASE
+    WHEN ${buildFsProjectCodeExpression('sd.nhso_adp_code')} IN (${FS_PROJECT_CODE_SQL}) THEN ${buildFsProjectCodeExpression('sd.nhso_adp_code')}
+    WHEN ${buildFsProjectCodeExpression('sd.tmlt_code')} IN (${FS_PROJECT_CODE_SQL}) THEN ${buildFsProjectCodeExpression('sd.tmlt_code')}
+    WHEN ${buildFsProjectCodeExpression('sd.ttmt_code')} IN (${FS_PROJECT_CODE_SQL}) THEN ${buildFsProjectCodeExpression('sd.ttmt_code')}
+    WHEN ${buildFsProjectCodeExpression('oo.icode')} IN (${FS_PROJECT_CODE_SQL}) THEN ${buildFsProjectCodeExpression('oo.icode')}
+    ELSE ''
+  END
+`;
+
+type FsAggregate = {
+  key: string;
+  label: string;
+  amount: number;
+  visits: Set<string>;
+  patients: Set<string>;
+  items: number;
+  qty: number;
+};
+
+const addFsAggregate = (
+  map: Map<string, FsAggregate>,
+  key: string,
+  label: string,
+  row: { vn: string; hn: string; amount: number; qty: number }
+) => {
+  const normalizedKey = key || 'ไม่ระบุ';
+  const existing = map.get(normalizedKey) || {
+    key: normalizedKey,
+    label: label || normalizedKey,
+    amount: 0,
+    visits: new Set<string>(),
+    patients: new Set<string>(),
+    items: 0,
+    qty: 0,
+  };
+  existing.amount += row.amount;
+  existing.qty += row.qty;
+  existing.items += 1;
+  if (row.vn) existing.visits.add(row.vn);
+  if (row.hn) existing.patients.add(row.hn);
+  map.set(normalizedKey, existing);
+};
+
+const serializeFsAggregate = (entry: FsAggregate) => ({
+  key: entry.key,
+  label: entry.label,
+  amount: Number(entry.amount.toFixed(2)),
+  qty: Number(entry.qty.toFixed(2)),
+  items: entry.items,
+  visitCount: entry.visits.size,
+  patientCount: entry.patients.size,
+});
+
+export const getFsMonitor = async (startDate: string, endDate: string) => {
+  const connection = await getUTFConnection();
+  const toNumber = (value: unknown) => {
+    const amount = Number(value);
+    return Number.isFinite(amount) ? amount : 0;
+  };
+  const toText = (value: unknown) => String(value ?? '').trim();
+
+  try {
+    const [rows] = await connection.query(
+      `
+      SELECT *
+      FROM (
+        SELECT
+          o.vn,
+          o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+          pt.cid,
+          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+          pt.pttype AS patient_pttype,
+          patient_ptt.name AS patient_pttype_name,
+          patient_ptt.hipdata_code AS patient_hipdata_code,
+          o.pttype AS visit_pttype,
+          visit_ptt.name AS visit_pttype_name,
+          visit_ptt.hipdata_code AS visit_hipdata_code,
+          oo.icode,
+          oo.income AS income_code,
+          inc.name AS income_name,
+          ${FS_PROJECT_MATCH_SQL} AS fs_code,
+          COALESCE(NULLIF(sd.name, ''), NULLIF(di.name, ''), NULLIF(ndi.name, ''), oo.icode) AS item_name,
+          COALESCE(oo.qty, 0) AS qty,
+          COALESCE(oo.unitprice, 0) AS unit_price,
+          COALESCE(oo.sum_price, oo.qty * oo.unitprice, 0) AS raw_amount
+        FROM opitemrece oo
+        JOIN ovst o ON o.vn = oo.vn
+        LEFT JOIN patient pt ON pt.hn = o.hn
+        LEFT JOIN pttype patient_ptt ON patient_ptt.pttype = pt.pttype
+        LEFT JOIN pttype visit_ptt ON visit_ptt.pttype = o.pttype
+        LEFT JOIN income inc ON inc.income = oo.income
+        LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+        LEFT JOIN drugitems di ON di.icode = oo.icode
+        LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND COALESCE(oo.sum_price, oo.qty * oo.unitprice, 0) > 0
+      ) fs
+      WHERE fs.fs_code <> ''
+      ORDER BY fs.service_date, fs.vn, fs.fs_code, fs.item_name
+      LIMIT 10000
+      `,
+      [startDate, endDate]
+    );
+
+    const detailMap = new Map<string, {
+      vn: string;
+      hn: string;
+      serviceDate: string;
+      cid: string;
+      patientName: string;
+      patientPttype: string;
+      patientPttypeName: string;
+      patientHipdata: string;
+      visitPttype: string;
+      visitPttypeName: string;
+      visitHipdata: string;
+      icode: string;
+      incomeCode: string;
+      incomeName: string;
+      fsCode: string;
+      serviceKey: string;
+      serviceLabel: string;
+      itemName: string;
+      qty: number;
+      unitPrice: number;
+      rawAmount: number;
+      amount: number;
+    }>();
+
+    (rows as Record<string, unknown>[]).forEach((row) => {
+      const fsCode = toText(row.fs_code).toUpperCase();
+      const projectItem = FS_PROJECT_ITEM_BY_CODE.get(fsCode);
+      if (!projectItem) return;
+
+      const vn = toText(row.vn);
+      const detailKey = `${vn}|${fsCode}`;
+      const existing = detailMap.get(detailKey);
+
+      if (existing) {
+        existing.qty += toNumber(row.qty);
+        existing.rawAmount += toNumber(row.raw_amount);
+        const itemName = toText(row.item_name);
+        if (itemName && !existing.itemName.split(' | ').includes(itemName)) {
+          existing.itemName = `${existing.itemName} | ${itemName}`;
+        }
+        return;
+      }
+
+      detailMap.set(detailKey, {
+        vn: toText(row.vn),
+        hn: toText(row.hn),
+        serviceDate: toText(row.service_date),
+        cid: toText(row.cid),
+        patientName: toText(row.patient_name),
+        patientPttype: toText(row.patient_pttype),
+        patientPttypeName: toText(row.patient_pttype_name),
+        patientHipdata: toText(row.patient_hipdata_code),
+        visitPttype: toText(row.visit_pttype),
+        visitPttypeName: toText(row.visit_pttype_name),
+        visitHipdata: toText(row.visit_hipdata_code),
+        icode: toText(row.icode),
+        incomeCode: toText(row.income_code),
+        incomeName: toText(row.income_name),
+        fsCode,
+        serviceKey: fsCode,
+        serviceLabel: projectItem.label,
+        itemName: toText(row.item_name),
+        qty: toNumber(row.qty),
+        unitPrice: toNumber(row.unit_price),
+        rawAmount: toNumber(row.raw_amount),
+        amount: projectItem.amount,
+      });
+    });
+
+    const detailRows = [...detailMap.values()];
+
+    const byHipdata = new Map<string, FsAggregate>();
+    const byPatientPttype = new Map<string, FsAggregate>();
+    const byVisitPttype = new Map<string, FsAggregate>();
+    const topServices = new Map<string, FsAggregate>();
+    const visits = new Set<string>();
+    const patients = new Set<string>();
+    let totalAmount = 0;
+
+    detailRows.forEach((row) => {
+      totalAmount += row.amount;
+      if (row.vn) visits.add(row.vn);
+      if (row.hn) patients.add(row.hn);
+      addFsAggregate(byHipdata, row.patientHipdata || 'ไม่ระบุ', row.patientHipdata || 'ไม่ระบุ hipdata', row);
+      addFsAggregate(
+        byPatientPttype,
+        row.patientPttype || 'ไม่ระบุ',
+        `${row.patientPttype || 'ไม่ระบุ'} ${row.patientPttypeName || ''}`.trim(),
+        row
+      );
+      addFsAggregate(
+        byVisitPttype,
+        row.visitPttype || 'ไม่ระบุ',
+        `${row.visitPttype || 'ไม่ระบุ'} ${row.visitPttypeName || ''}`.trim(),
+        row
+      );
+      addFsAggregate(
+        topServices,
+        row.fsCode,
+        `${row.fsCode} ${row.serviceLabel}`.trim(),
+        row
+      );
+    });
+
+    const sortByAmount = (items: FsAggregate[]) => items
+      .map(serializeFsAggregate)
+      .sort((a, b) => b.amount - a.amount);
+
+    return {
+      summary: {
+        totalAmount: Number(totalAmount.toFixed(2)),
+        itemCount: detailRows.length,
+        visitCount: visits.size,
+        patientCount: patients.size,
+      },
+      byHipdata: sortByAmount([...byHipdata.values()]),
+      byPatientPttype: sortByAmount([...byPatientPttype.values()]),
+      byVisitPttype: sortByAmount([...byVisitPttype.values()]),
+      topServices: sortByAmount([...topServices.values()]).slice(0, 30),
+      details: detailRows,
+    };
+  } finally {
+    connection.release();
   }
 };
 

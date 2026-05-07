@@ -10,9 +10,9 @@ import {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const firstOfYear = () => {
+const firstOfMonth = () => {
   const d = new Date();
-  return `${d.getFullYear()}-01-01`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 };
 
 const toNumber = (value: unknown) => {
@@ -88,7 +88,7 @@ const SummaryCard = ({
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
 
 export const VisitReconciliationPage = () => {
-  const [startDate, setStartDate] = useState(firstOfYear());
+  const [startDate, setStartDate] = useState(firstOfMonth());
   const [endDate, setEndDate] = useState(todayIso());
   const [patientType, setPatientType] = useState('ALL');
   const [hosxpRight, setHosxpRight] = useState('ALL');

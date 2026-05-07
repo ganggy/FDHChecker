@@ -17,6 +17,7 @@ import WorkQueuePage from './pages/WorkQueuePage';
 import RejectedClaimTrackingPage from './pages/RejectedClaimTrackingPage';
 import { SpecificFundPage } from './pages/SpecificFundPage';
 import { SpecialMonitorPage } from './pages/SpecialMonitorPage';
+import { FsMonitorPage } from './pages/FsMonitorPage';
 import { GuidePage } from './pages/GuidePage';
 import { SettingsPage } from './pages/SettingsPage';
 import type { AppPage } from './utils/navigationState';
@@ -47,6 +48,7 @@ function App() {
     { page: 'admin', icon: '📊', label: 'Dashboard' },
     { page: 'specific', icon: '🎯', label: 'กองทุนพิเศษ' },
     { page: 'monitor', icon: '📈', label: 'มอนิเตอร์พิเศษ' },
+    { page: 'fsMonitor', icon: '💰', label: 'มอนิเตอร์ FS' },
     { page: 'guide', icon: '📚', label: 'คู่มือกองทุน', soft: true },
   ];
 
@@ -140,6 +142,7 @@ function App() {
         {currentPage === 'admin' && <AdminDashboard />}
         {currentPage === 'specific' && <SpecificFundPage />}
         {currentPage === 'monitor' && <SpecialMonitorPage />}
+        {currentPage === 'fsMonitor' && <FsMonitorPage />}
         {currentPage === 'preValidator' && <PreSubmitValidatorPage />}
         {currentPage === 'workQueue' && <WorkQueuePage />}
         {currentPage === 'rejectTracking' && <RejectedClaimTrackingPage />}

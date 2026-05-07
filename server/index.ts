@@ -16,6 +16,7 @@ import {
   getDrugPrices,
   getServiceADPCodes,
   getKidneyMonitorDetailed,
+  getFsMonitor,
   getUTFConnection,
   getAppSetting,
   setAppSetting,
@@ -1588,6 +1589,30 @@ app.get('/api/hosxp/kidney-monitor', async (req, res) => {
   } catch (error) {
     console.error('Error fetching kidney monitor data:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับมอนิเตอร์กองทุน FS จากรายการค่าใช้จ่ายจริง
+app.get('/api/hosxp/fs-monitor', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'Missing date parameters' });
+    }
+
+    console.log(`💰 Fetching FS monitor data from ${startDate} to ${endDate}`);
+    const result = await getFsMonitor(startDate as string, endDate as string);
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('Error fetching FS monitor data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      message: (error as Error).message,
+    });
   }
 });
 

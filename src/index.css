@@ -3516,7 +3516,7 @@ textarea:focus {
 
 .receivable-table {
   width: 100%;
-  min-width: 1180px;
+  min-width: 1480px;
   border-collapse: collapse;
   font-size: 0.9rem;
 }
@@ -3543,6 +3543,20 @@ textarea:focus {
 .claim-summary {
   min-width: 260px;
   line-height: 1.55;
+}
+
+.claim-account-note {
+  min-width: 150px;
+  line-height: 1.45;
+}
+
+.claim-account-note span,
+.claim-account-note small {
+  display: block;
+}
+
+.claim-account-note small {
+  color: #64748b;
 }
 
 .type-pill,

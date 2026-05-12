@@ -15,14 +15,14 @@ interface FundGuide {
 const guides: FundGuide[] = [
     {
         id: 'anemia_screening',
-        title: 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (CBC / Hb-Hct + Z130 + 13001)',
+        title: 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (CBC / Hb-Hct + Z130/Z138 + 13001)',
         description: 'กองทุนคัดกรองโลหิตจางจากการขาดธาตุเหล็กตามช่วงอายุ โดยต้องดูว่าช่วงอายุใดต้องคู่กับ CBC หรือ Hb/Hct ให้ตรงกับ visit ที่รับบริการ',
         conditions: [
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130 ADP 13001',
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130 ADP 13001',
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130 ADP 13001'
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130/Z138 ADP 13001',
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130/Z138 ADP 13001',
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130/Z138 ADP 13001'
         ],
-        codes: ['ADP 13001', 'Lab CBC', 'Hb/Hct / Hemoglobin / Hematocrit', 'ICD-10: Z130'],
+        codes: ['ADP 13001', 'Lab CBC', 'Hb/Hct / Hemoglobin / Hematocrit', 'ICD-10: Z130/Z138'],
         payment: 'ให้ยึดตามกติกาโครงการคัดกรองโลหิตจางของหน่วยบริการและประกาศ สปสช. ล่าสุด',
         icon: '🩸',
         color: 'var(--danger)'

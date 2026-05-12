@@ -96,7 +96,7 @@ const buildAnemiaFallbackSql = (alias: string, labKind: 'cbc' | 'hbhct' | 'any' 
     SELECT 1
     FROM ovstdiag dx
     WHERE dx.vn = ${alias}.vn
-      AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z130'
+      AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z130', 'Z138')
   )
   AND ${buildAnemiaLabExistsSql(alias, labKind)}
 `;
@@ -229,7 +229,7 @@ const buildFerrokidMedExistsSql = (alias: string) => `
 const UPT_DX_CODES = ['Z320', 'Z321'];
 const FPG_DX_CODES = ['Z131', 'Z133', 'Z136'];
 const CHOL_DX_CODES = ['Z136'];
-const ANEMIA_DX_CODES = ['Z130'];
+const ANEMIA_DX_CODES = ['Z130', 'Z138'];
 const IRON_DX_CODES = ['Z130'];
 const POSTNATAL_CARE_DX_CODES = ['Z390', 'Z391', 'Z392'];
 const POSTNATAL_SUPPLEMENT_DX_CODES = ['Z391', 'Z392'];
@@ -3072,9 +3072,79 @@ const isWholeVisitReceivableHipdata = (hipdataCode?: unknown) => {
   return hipdata === 'OFC' || hipdata === 'LGO';
 };
 
+const resolveReceivableAccount = (
+  row: Record<string, unknown>,
+  mapping: ReceivableRightMapping | null,
+  isIpd: boolean,
+) => {
+  const sourceText = [
+    row.pttype,
+    row.pttype_name,
+    mapping?.hosxp_code,
+    mapping?.hosxp_name,
+    mapping?.finance_code,
+    mapping?.finance_name,
+  ].map((value) => String(value || '').trim()).join(' ');
+
+  let debtorCode = isIpd ? mapping?.debtor_ipd || '' : mapping?.debtor_opd || '';
+  let revenueCode = isIpd ? mapping?.revenue_ipd || '' : mapping?.revenue_opd || '';
+
+  const isCr = /\bCR\b/i.test(sourceText) || sourceText.includes('บริการเฉพาะ');
+  const isOpRefer = /OP\s*Refer/i.test(sourceText) || sourceText.includes('รับส่งต่อ');
+  const isPp = debtorCode === '1102050101.209'
+    || revenueCode === '4301020105.223'
+    || sourceText.includes('PP')
+    || sourceText.includes('P&P')
+    || sourceText.includes('สร้างเสริมสุขภาพ');
+
+  if (isOpRefer) {
+    debtorCode = '1102050101.222';
+    revenueCode = '4301020105.263';
+  } else if (isCr) {
+    debtorCode = isIpd ? '1102050101.217' : '1102050101.216';
+    revenueCode = isIpd ? '4301020105.245' : '4301020105.244';
+  } else if (isPp) {
+    debtorCode = '1102050101.209';
+    revenueCode = '4301020105.223';
+  }
+
+  let accountGroup = 'อื่น ๆ / รอตรวจสอบ';
+  let paymentSource = 'other';
+  let pricingMethod = 'ตามสิทธิ/เงื่อนไขบริการ';
+
+  if (isOpRefer || debtorCode === '1102050101.222' || revenueCode === '4301020105.263') {
+    accountGroup = 'OP Refer';
+    paymentSource = 'clearing_house';
+    pricingMethod = 'fee schedule';
+  } else if (isCr || ['1102050101.216', '1102050101.217'].includes(debtorCode)) {
+    accountGroup = 'UC บริการเฉพาะ (CR)';
+    paymentSource = 'CR';
+    pricingMethod = 'ตามรายการบริการเฉพาะ';
+  } else if (debtorCode === '1102050101.209') {
+    accountGroup = 'P&P / PPFS';
+    paymentSource = 'PPFS';
+    pricingMethod = 'fee schedule / flat rate';
+  } else if (debtorCode === '1102050101.201' || debtorCode === '1102050101.202') {
+    accountGroup = isIpd ? 'UC IP ปกติ' : 'UC OP ใน CUP';
+    paymentSource = 'UC';
+    pricingMethod = isIpd ? 'DRG / global budget' : 'เหมาจ่ายรายหัว/OP';
+  } else if (String(mapping?.hipdata_code || '').toUpperCase().startsWith('SS')) {
+    accountGroup = 'ประกันสังคม';
+    paymentSource = 'SSS';
+    pricingMethod = 'ตามประกาศประกันสังคม';
+  } else if (['OFC', 'LGO'].includes(String(mapping?.hipdata_code || '').toUpperCase())) {
+    accountGroup = 'เบิกจ่ายตรง';
+    paymentSource = String(mapping?.hipdata_code || '').toUpperCase();
+    pricingMethod = 'เบิกได้ทั้ง Visit';
+  }
+
+  return { debtorCode, revenueCode, accountGroup, paymentSource, pricingMethod };
+};
+
 const enrichReceivableRow = (row: Record<string, unknown>) => {
   const mapping = findReceivableMapping(row.pttype, row.hipdata_code);
   const isIpd = String(row.patient_type || '').toUpperCase() === 'IPD';
+  const account = resolveReceivableAccount(row, mapping, isIpd);
   const totalIncome = toReceivableNumber(row.total_income);
   const claimableAmount = isIpd
     ? (isWholeVisitReceivableHipdata(row.hipdata_code) ? totalIncome : toReceivableNumber(row.claimable_amount))
@@ -3093,8 +3163,11 @@ const enrichReceivableRow = (row: Record<string, unknown>) => {
     hosxp_right_name: row.pttype_name || '',
     finance_right_code: mapping?.finance_code || '',
     finance_right_name: mapping?.finance_name || '',
-    debtor_code: isIpd ? mapping?.debtor_ipd || '' : mapping?.debtor_opd || '',
-    revenue_code: isIpd ? mapping?.revenue_ipd || '' : mapping?.revenue_opd || '',
+    debtor_code: account.debtorCode,
+    revenue_code: account.revenueCode,
+    account_group: account.accountGroup,
+    payment_source: account.paymentSource,
+    pricing_method: account.pricingMethod,
     receipt_no: row.receipt_no || '',
     receipt_amount: row.receipt_amount == null ? null : toReceivableNumber(row.receipt_amount),
     receipt_date: row.receipt_date || null,
@@ -5226,11 +5299,11 @@ export const getCheckData = async (
           WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '13001' LIMIT 1)
             THEN 'ADP13001'
           WHEN v.age_y BETWEEN 13 AND 24 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaCbcExistsSql('ovst')}
-            THEN 'CBC+Z130(13-24Y)'
+            THEN 'CBC+Z130/Z138(13-24Y)'
           WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaHbHctExistsSql('ovst')}
-            THEN 'HbHct+Z130(6-12M)'
+            THEN 'HbHct+Z130/Z138(6-12M)'
           WHEN v.age_y BETWEEN 3 AND 6 AND ${buildDiagnosisMatchSql('ovst', 'v', ANEMIA_DX_CODES)} AND ${buildAnemiaHbHctExistsSql('ovst')}
-            THEN 'HbHct+Z130(3-6Y)'
+            THEN 'HbHct+Z130/Z138(3-6Y)'
           ELSE NULL
         END as anemia_match_source,
         CASE WHEN COALESCE(v.sex, pt.sex) = '2' AND v.age_y BETWEEN 13 AND 45 THEN 1 ELSE 0 END as iron_age_eligible,
@@ -7231,33 +7304,33 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           (SELECT GROUP_CONCAT(DISTINCT REPLACE(UPPER(dx.icd10), '.', '') SEPARATOR ', ')
              FROM ovstdiag dx
             WHERE dx.vn = o.vn
-              AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z130'
+              AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z130', 'Z138')
           ) as z130_diags,
           CASE
             WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '13001' LIMIT 1)
               THEN 'ADP13001'
             WHEN v.age_y BETWEEN 13 AND 24 AND (
               ${buildAnemiaFallbackSql('o', 'cbc')}
-              OR REPLACE(UPPER(COALESCE(v.pdx, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx0, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx1, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx2, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx3, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx4, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx5, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.pdx, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx0, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx1, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx2, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx3, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx4, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx5, '')), '.', '') IN ('Z130', 'Z138')
             )
-              THEN CONCAT('CBC+Z130(', '13-24Y', ')')
+              THEN CONCAT('CBC+Z130/Z138(', '13-24Y', ')')
             WHEN (TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 OR v.age_y BETWEEN 3 AND 6) AND (
               ${buildAnemiaFallbackSql('o', 'hbhct')}
-              OR REPLACE(UPPER(COALESCE(v.pdx, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx0, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx1, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx2, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx3, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx4, '')), '.', '') = 'Z130'
-              OR REPLACE(UPPER(COALESCE(v.dx5, '')), '.', '') = 'Z130'
+              OR REPLACE(UPPER(COALESCE(v.pdx, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx0, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx1, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx2, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx3, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx4, '')), '.', '') IN ('Z130', 'Z138')
+              OR REPLACE(UPPER(COALESCE(v.dx5, '')), '.', '') IN ('Z130', 'Z138')
             )
-              THEN CONCAT('HbHct+Z130(', CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 THEN '6-12M' ELSE '3-6Y' END, ')')
+              THEN CONCAT('HbHct+Z130/Z138(', CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 THEN '6-12M' ELSE '3-6Y' END, ')')
             ELSE NULL
           END as anemia_match_source,
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode

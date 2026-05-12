@@ -102,6 +102,11 @@ export const ReceivablePage = () => {
     [selectedRows],
   );
 
+  const revenueCodeCount = useMemo(
+    () => new Set(selectedRows.map((row) => String(row.revenue_code || '').trim()).filter(Boolean)).size,
+    [selectedRows],
+  );
+
   const signers = {
     director: {
       name: settings?.receivable_signers?.director?.name || '',
@@ -159,6 +164,10 @@ export const ReceivablePage = () => {
       สิทธิ์_HOSxP: optionLabel(row.hosxp_right_code || row.pttype, row.hosxp_right_name || row.pttype_name),
       สิทธิการเงิน: optionLabel(row.finance_right_code, row.finance_right_name),
       รหัสลูกหนี้: row.debtor_code || '',
+      รหัสรายรับ: row.revenue_code || '',
+      กลุ่มบัญชี: row.account_group || '',
+      แหล่งเงิน: row.payment_source || '',
+      วิธีคิดอัตรา: row.pricing_method || '',
       เลขที่ใบเสร็จ: row.receipt_no || '',
       ยอดใบเสร็จ: row.receipt_amount == null || row.receipt_amount === '' ? '' : toNumber(row.receipt_amount),
       วันที่ใบเสร็จ: formatDate(row.receipt_date),
@@ -322,8 +331,8 @@ export const ReceivablePage = () => {
           <strong>{formatMoney(totalClaimable)} บาท</strong>
         </div>
         <div className="summary-card">
-          <span>รหัสลูกหนี้ที่ใช้</span>
-          <strong>{debtorCodeCount.toLocaleString('th-TH')}</strong>
+          <span>รหัสบัญชีที่ใช้</span>
+          <strong>{debtorCodeCount.toLocaleString('th-TH')} / {revenueCodeCount.toLocaleString('th-TH')}</strong>
         </div>
         <div className="summary-card">
           <span>ตัวกรองสิทธิ</span>
@@ -351,6 +360,9 @@ export const ReceivablePage = () => {
                 <th>สิทธิ์ HOSxP</th>
                 <th>สิทธิการเงิน</th>
                 <th>รหัสลูกหนี้</th>
+                <th>รหัสรายรับ</th>
+                <th>กลุ่มบัญชี</th>
+                <th>แหล่งเงิน/วิธีคิด</th>
                 <th>เลขที่ใบเสร็จ</th>
                 <th className="text-right">ยอดใบเสร็จ</th>
                 <th>วันที่ใบเสร็จ</th>
@@ -362,7 +374,7 @@ export const ReceivablePage = () => {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={14} className="empty-cell">ยังไม่มีข้อมูล กด “ดึงข้อมูล” เพื่อเริ่มคำนวณบัญชีลูกหนี้</td>
+                  <td colSpan={17} className="empty-cell">ยังไม่มีข้อมูล กด “ดึงข้อมูล” เพื่อเริ่มคำนวณบัญชีลูกหนี้</td>
                 </tr>
               )}
               {rows.map((row, index) => {
@@ -383,6 +395,12 @@ export const ReceivablePage = () => {
                     <td>{optionLabel(row.hosxp_right_code || row.pttype, row.hosxp_right_name || row.pttype_name)}</td>
                     <td>{optionLabel(row.finance_right_code, row.finance_right_name)}</td>
                     <td className="mono">{row.debtor_code || '-'}</td>
+                    <td className="mono">{row.revenue_code || '-'}</td>
+                    <td>{row.account_group || '-'}</td>
+                    <td className="claim-account-note">
+                      <span>{row.payment_source || '-'}</span>
+                      <small>{row.pricing_method || '-'}</small>
+                    </td>
                     <td className="mono">{row.receipt_no || '-'}</td>
                     <td className="mono text-right">{formatReceiptAmount(row.receipt_amount)}</td>
                     <td>{formatDate(row.receipt_date)}</td>
@@ -425,6 +443,8 @@ export const ReceivablePage = () => {
               <th>ผู้ป่วย</th>
               <th>สิทธิ์การเงิน</th>
               <th>รหัสลูกหนี้</th>
+              <th>รหัสรายรับ</th>
+              <th>กลุ่มบัญชี</th>
               <th>เลขที่ใบเสร็จ</th>
               <th>ยอดใบเสร็จ</th>
               <th>วันที่ใบเสร็จ</th>
@@ -442,6 +462,8 @@ export const ReceivablePage = () => {
                 <td>{row.patient_name || ''}</td>
                 <td>{optionLabel(row.finance_right_code, row.finance_right_name)}</td>
                 <td>{row.debtor_code || ''}</td>
+                <td>{row.revenue_code || ''}</td>
+                <td>{row.account_group || ''}</td>
                 <td>{row.receipt_no || ''}</td>
                 <td>{formatReceiptAmount(row.receipt_amount)}</td>
                 <td>{formatDate(row.receipt_date)}</td>
@@ -453,7 +475,7 @@ export const ReceivablePage = () => {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={11}>รวม</td>
+              <td colSpan={13}>รวม</td>
               <td>{formatMoney(totalClaimable)}</td>
             </tr>
           </tfoot>

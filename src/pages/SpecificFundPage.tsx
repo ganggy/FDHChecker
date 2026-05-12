@@ -31,7 +31,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
-    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130 + 13001' },
+    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
@@ -534,7 +534,7 @@ export const SpecificFundPage: React.FC = () => {
             const requiresCbc = anemiaCriteria.hasAgeBand13To24Years;
             const requiresHbHct = anemiaCriteria.hasAgeBand6To12Months || anemiaCriteria.hasAgeBand3To6Years;
             const hasLab = requiresCbc ? hasCbc : (requiresHbHct ? hasHbHct : toFlag(item?.has_anemia_lab));
-            const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z130']);
+            const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z130', 'Z138']);
             const hasAdp = toFlag(item?.has_anemia_adp) || hasAnyCodeValue(item?.adp_names, ['13001']) || hasAnyCodeValue(item?.anc_adp_codes, ['13001']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
             const bandRule = anemiaCriteria.bandRule;
@@ -546,7 +546,7 @@ export const SpecificFundPage: React.FC = () => {
             const matchedConditions = [
                 hasAge ? `อายุ ${anemiaCriteria.ageLabel}` : '',
                 hasLab ? anemiaCriteria.labLabel : '',
-                hasDiag ? 'Diagnosis Z130' : '',
+                hasDiag ? 'Diagnosis Z130/Z138' : '',
                 hasAdp ? 'ADP 13001' : '',
             ].filter(Boolean);
             return buildStatusResult(
@@ -554,7 +554,7 @@ export const SpecificFundPage: React.FC = () => {
                 getNearStatusMissing(hasAdp, ' ADP 13001', [
                     { met: hasAge, label: ` อายุ ${anemiaCriteria.ageLabel}` },
                     { met: hasLab, label: ` ${anemiaCriteria.labLabel}` },
-                    { met: hasDiag, label: ' Diagnosis Z130' },
+                    { met: hasDiag, label: ' Diagnosis Z130/Z138' },
                 ], hasAge && (hasLab || hasDiag)),
                 undefined,
                 isMatched,

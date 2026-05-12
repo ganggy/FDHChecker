@@ -155,9 +155,9 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'คัดกรองโลหิตจาง',
         description: anemiaRule?.summary || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็กตามช่วงอายุและชนิดแลปที่กำหนด',
         conditions: anemiaRule?.conditions || [
-            'อายุ 13-24 ปี ต้องมี Lab CBC + Diagnosis Z130 + ADP 13001',
-            'อายุ 6-12 เดือน ต้องมี Lab Hb/Hct + Diagnosis Z130 + ADP 13001',
-            'อายุ 3-6 ปี ต้องมี Lab Hb/Hct + Diagnosis Z130 + ADP 13001'
+            'อายุ 13-24 ปี ต้องมี Lab CBC + Diagnosis Z130/Z138 + ADP 13001',
+            'อายุ 6-12 เดือน ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001',
+            'อายุ 3-6 ปี ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001'
         ],
         caution: anemiaRule?.caution || 'กองทุนนี้ต้องดู “ช่วงอายุ + ชนิดแลป” ให้ตรงกับเกณฑ์ก่อน'
       },

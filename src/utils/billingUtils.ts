@@ -284,7 +284,7 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasAnemiaDiag, label: ' DX Z130' },
         ], hasAnemiaAge && (hasAnemiaLab || hasAnemiaDiag));
         if (hasAnemiaAge && hasAnemiaAdp && hasAnemiaLab && hasAnemiaDiag) {
-            const anemiaSummaryLabel = `🩸 ${getAnemiaRuleBand(item)?.fullCondition || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก Diagnosis Z130 ADP 13001'}`;
+            const anemiaSummaryLabel = `🩸 ${getAnemiaRuleBand(item)?.fullCondition || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก Diagnosis Z130/Z138 ADP 13001'}`;
             fundNotes.push({
                 label: anemiaSummaryLabel,
                 kind: 'matched',

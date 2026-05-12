@@ -2494,114 +2494,85 @@ export const getMophVaccineCandidates = async (params: MophVaccineQueryParams): 
       return true;
     });
     return finalRows.slice(0, limit);
+  } finally {
+    connection.release();
+  }
+};
 
-    const whereConditions = [`${mophVaccineTypeSql('te.vaccine_code')} IN (${typePlaceholders})`];
-    const values: Array<string | number> = [...typeSet];
-    if (params.ucOnly) whereConditions.push(`COALESCE(ptt.hipdata_code, '') = 'UCS'`);
-    if (params.authenOnly) whereConditions.push(`TRIM(COALESCE(auth.authencode, '')) <> ''`);
-    if (sendFilter === 'SENT') whereConditions.push(`TRIM(COALESCE(ms.flag, '')) <> ''`);
-    if (sendFilter === 'UNSENT') whereConditions.push(`TRIM(COALESCE(ms.flag, '')) = ''`);
-    if (search) {
-      whereConditions.push(`(
-        o.vn LIKE CONCAT('%', ?, '%')
-        OR o.hn LIKE CONCAT('%', ?, '%')
-        OR pt.cid LIKE CONCAT('%', ?, '%')
-        OR CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) LIKE CONCAT('%', ?, '%')
-        OR te.vaccine_code LIKE CONCAT('%', ?, '%')
-      )`);
-      values.push(search, search, search, search, search);
-    }
+export const getMophClaimDashboardSummary = async (options: {
+  startDate?: string;
+  endDate?: string;
+}) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const startDate = String(options.startDate || today).slice(0, 10);
+  const endDate = String(options.endDate || startDate).slice(0, 10);
+  const connection = await getUTFConnection();
 
-    const [rows] = await connection.query(
+  try {
+    await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
+    const [summaryRows] = await connection.query(
       `
       SELECT
-        COALESCE(ms.flag, '') AS moph,
-        o.vn, pt.cid, o.hn, pt.pname, pt.fname, pt.lname,
-        CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
-        pt.birthday AS dob,
-        TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) AS age_y,
-        pt.sex, pt.marrystatus, LPAD(COALESCE(pt.nationality, ''), 3, '0') AS nation,
-        COALESCE(oc.name, '') AS occupation,
-        TIMESTAMP(o.vstdate, o.vsttime) AS visit_datetime,
-        DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
-        '' AS diag,
-        COALESCE(auth.authencode, '') AS authencode,
-        COALESCE(ptt.hipdata_code, '') AS maininscl,
-        COALESCE(ptt.name, '') AS pttypename,
-        COALESCE(auth.hospmain, '') AS hospmain,
-        COALESCE(auth.hospsub, '') AS hospsub,
-        te.preg_no, te.ga,
-        te.source_type AS epi,
-        ${mophVaccineTypeSql('te.vaccine_code')} AS type,
-        te.vaccine_code, te.vaccine_name, te.dose, te.lot,
-        DATE_FORMAT(te.dateexp, '%Y-%m-%d') AS dateexp,
-        te.company, te.site, te.drugusage, te.doctorlicense, te.doctorname,
-        CONCAT_WS('#',
-          te.vaccine_code,
-          COALESCE(te.lot, ''),
-          IF(COALESCE(te.dose, 0) = 0, '', TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(te.dose AS CHAR)))),
-          COALESCE(te.company, ''),
-          COALESCE(DATE_FORMAT(te.dateexp, '%Y-%m-%d'), ''),
-          COALESCE(DATE_FORMAT(te.dateinj, '%Y-%m-%d %H:%i'), DATE_FORMAT(TIMESTAMP(o.vstdate, o.vsttime), '%Y-%m-%d %H:%i')),
-          COALESCE(te.site, ''),
-          COALESCE(te.drugusage, ''),
-          COALESCE(te.doctorlicense, ''),
-          COALESCE(te.doctorname, ''),
-          COALESCE(te.note, '')
-        ) AS vaccine_note,
-        COALESCE(ms.transaction_uid, '') AS transaction_uid,
-        COALESCE(ms.note, '') AS note,
-        ms.senddate,
-        CASE
-          WHEN IFNULL(te.lot, '') = '' THEN 'Error:ไม่พบ Lot No.'
-          WHEN IFNULL(te.dose, 0) = 0 THEN 'Error:ไม่พบ Dose'
-          WHEN te.dateexp IS NULL OR te.dateexp < DATE(o.vstdate) THEN 'Error:วันหมดอายุต้องมากกว่าวันที่บริการ'
-          WHEN te.vaccine_code = 'I12' AND DATE(o.vstdate) < '2023-07-01' THEN 'Error:รหัส I12 ต้องเริ่มให้ตั้งแต่ 1 กรกฎาคม 2566'
-          WHEN te.vaccine_code = '401' AND DATE(o.vstdate) >= '2023-07-01' THEN 'Error:รหัส 401 ต้องให้ก่อน 1 กรกฎาคม 2566'
-          WHEN te.vaccine_code IN ('310', '311', '320') THEN 'Error:วัคซีน HPV ต้องใช้ตาม QuickWin เท่านั้น'
-          WHEN te.vaccine_code REGEXP '^HPV' AND DATE(o.vstdate) < '2023-11-01' THEN 'Warn:รหัส HPVxxx ต้องเริ่มให้ตั้งแต่ 1 พฤศจิกายน 2566'
-          WHEN te.vaccine_code REGEXP '^HPV' AND TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) NOT BETWEEN 11 AND 20 THEN 'Warn:รหัส HPVxxx ไม่อยู่กลุ่มอายุ 11-20 ปี'
-          WHEN te.vaccine_code = 'P41' AND te.preg_no IS NULL THEN 'Error:ไม่ระบุครรภ์ที่'
-          WHEN te.vaccine_code = 'P41' AND te.ga IS NULL THEN 'Error:ไม่ระบุอายุครรภ์'
-          WHEN te.vaccine_code = 'P41' AND te.ga NOT BETWEEN 27 AND 36 THEN 'Error:อายุครรภ์ต้อง 27-36 สัปดาห์'
-          WHEN COALESCE(auth.authencode, '') = '' THEN 'Warn:ไม่พบรหัส AuthenCode'
-          ELSE ''
-        END AS errorname
-      FROM tmp_moph_vaccine te
-      STRAIGHT_JOIN ovst o ON o.vn = te.vn
-      LEFT JOIN patient pt ON pt.hn = o.hn
-      LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
-      LEFT JOIN occupation oc ON oc.occupation = pt.occupation
-      LEFT JOIN tmp_moph_vaccine_auth auth ON auth.vn = o.vn
-      LEFT JOIN mophclaim_send ms ON ms.vn = o.vn AND ms.type = te.vaccine_code
-      WHERE (
-        ${mophVaccineTypeSql('te.vaccine_code')} IN ('EPI', 'aP')
-        OR (${mophVaccineTypeSql('te.vaccine_code')} = 'dT' AND (TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) >= 24 OR te.source_type = 'ANC'))
-        OR (${mophVaccineTypeSql('te.vaccine_code')} = 'HPV' AND pt.sex = '2')
-      )
-      AND ${whereConditions.join(' AND ')}
-      ORDER BY o.vstdate DESC, o.vn DESC, te.vaccine_code
-      LIMIT ${limit}
+        SUM(CASE WHEN ms.type IN ('DM', 'HT') THEN 1 ELSE 0 END) AS dmht_total,
+        SUM(CASE WHEN ms.type = 'DM' THEN 1 ELSE 0 END) AS dm_total,
+        SUM(CASE WHEN ms.type = 'HT' THEN 1 ELSE 0 END) AS ht_total,
+        SUM(CASE WHEN ms.type IN ('DM', 'HT') AND COALESCE(ms.flag, '') = 'Y' THEN 1 ELSE 0 END) AS dmht_sent,
+        SUM(CASE WHEN ms.type IN ('DM', 'HT') AND COALESCE(ms.flag, '') = 'C' THEN 1 ELSE 0 END) AS dmht_closed,
+        SUM(CASE WHEN ms.type NOT IN ('DM', 'HT') THEN 1 ELSE 0 END) AS vaccine_total,
+        SUM(CASE WHEN ms.type NOT IN ('DM', 'HT') AND COALESCE(ms.flag, '') = 'Y' THEN 1 ELSE 0 END) AS vaccine_sent,
+        SUM(CASE WHEN ms.type NOT IN ('DM', 'HT') AND COALESCE(ms.flag, '') = 'C' THEN 1 ELSE 0 END) AS vaccine_closed,
+        DATE_FORMAT(MAX(ms.senddate), '%Y-%m-%d') AS latest_senddate
+      FROM mophclaim_send ms
+      JOIN ovst o ON o.vn = ms.vn
+      WHERE o.vstdate BETWEEN ? AND ?
       `,
-      values
+      [startDate, endDate]
     );
 
-    const mappedRows = (Array.isArray(rows) ? rows : []).map((row) => {
-      const item = row as Record<string, unknown>;
-      return {
-        ...item,
-        ready: String(item.errorname || '').trim() === '',
-        missing_reason: String(item.errorname || ''),
-      };
-    });
-    return mappedRows.filter((row) => {
-      const errorName = String(row.errorname || '');
-      if (errorFilter === 'NONE') return errorName === '';
-      if (errorFilter === 'HAS') return errorName !== '';
-      if (errorFilter === 'ERROR') return errorName.startsWith('Error');
-      if (errorFilter === 'WARN') return errorName.startsWith('Warn');
-      return true;
-    });
+    const [typeRows] = await connection.query(
+      `
+      SELECT
+        ms.type,
+        COUNT(*) AS total,
+        SUM(CASE WHEN COALESCE(ms.flag, '') = 'Y' THEN 1 ELSE 0 END) AS sent,
+        SUM(CASE WHEN COALESCE(ms.flag, '') = 'C' THEN 1 ELSE 0 END) AS closed,
+        DATE_FORMAT(MAX(ms.senddate), '%Y-%m-%d') AS latest_senddate
+      FROM mophclaim_send ms
+      JOIN ovst o ON o.vn = ms.vn
+      WHERE o.vstdate BETWEEN ? AND ?
+      GROUP BY ms.type
+      ORDER BY total DESC, ms.type
+      LIMIT 12
+      `,
+      [startDate, endDate]
+    );
+
+    const summary = (Array.isArray(summaryRows) && summaryRows[0] ? summaryRows[0] : {}) as Record<string, unknown>;
+    const numberValue = (key: string) => Number(summary[key] || 0);
+
+    return {
+      startDate,
+      endDate,
+      dmht: {
+        total: numberValue('dmht_total'),
+        dm: numberValue('dm_total'),
+        ht: numberValue('ht_total'),
+        sent: numberValue('dmht_sent'),
+        closed: numberValue('dmht_closed'),
+      },
+      vaccine: {
+        total: numberValue('vaccine_total'),
+        sent: numberValue('vaccine_sent'),
+        closed: numberValue('vaccine_closed'),
+      },
+      total: {
+        recorded: numberValue('dmht_total') + numberValue('vaccine_total'),
+        sent: numberValue('dmht_sent') + numberValue('vaccine_sent'),
+        closed: numberValue('dmht_closed') + numberValue('vaccine_closed'),
+      },
+      latestSendDate: summary.latest_senddate || null,
+      byType: Array.isArray(typeRows) ? typeRows : [],
+    };
   } finally {
     connection.release();
   }

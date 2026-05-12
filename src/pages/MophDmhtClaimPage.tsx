@@ -8,6 +8,7 @@ import {
   type MophDmhtCandidate,
 } from '../services/hosxpService';
 import { formatLocalDateInput } from '../utils/dateUtils';
+import { consumeDashboardNavigation } from '../utils/navigationState';
 
 const today = formatLocalDateInput();
 const MOPH_DMHT_ROW_LIMIT = 20000;
@@ -75,14 +76,16 @@ export const MophDmhtClaimPage = () => {
     [rows, selected]
   );
 
-  const loadData = async () => {
+  const loadData = async (dateOverride?: { startDate?: string; endDate?: string }) => {
+    const queryStartDate = dateOverride?.startDate || startDate;
+    const queryEndDate = dateOverride?.endDate || endDate;
     setLoading(true);
     setError('');
     setNotice('');
     try {
       const data = await fetchMophDmhtCandidates({
-        startDate,
-        endDate,
+        startDate: queryStartDate,
+        endDate: queryEndDate,
         diag,
         ucOnly,
         authenOnly,
@@ -101,7 +104,13 @@ export const MophDmhtClaimPage = () => {
   };
 
   useEffect(() => {
-    void loadData();
+    const dashboardPayload = consumeDashboardNavigation('mophDmht');
+    if (dashboardPayload?.startDate) setStartDate(dashboardPayload.startDate);
+    if (dashboardPayload?.endDate) setEndDate(dashboardPayload.endDate);
+    void loadData({
+      startDate: dashboardPayload?.startDate,
+      endDate: dashboardPayload?.endDate,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -253,7 +262,7 @@ export const MophDmhtClaimPage = () => {
               <span>TestZone</span>
             </label>
             <div className="workflow-filter-actions workflow-action-strip">
-              <button className="btn btn-primary" onClick={loadData} disabled={disabled}>
+              <button className="btn btn-primary" onClick={() => void loadData()} disabled={disabled}>
                 {loading ? 'กำลังโหลด...' : 'Refresh'}
               </button>
               <button className="btn btn-secondary" onClick={() => void runAction('check')} disabled={disabled || selectedRows.length === 0}>

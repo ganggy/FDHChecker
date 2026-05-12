@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { fetchMophClaimDashboardSummary, type MophClaimDashboardSummary } from '../services/hosxpService';
 import { formatLocalDateInput } from '../utils/dateUtils';
-import { navigateFromDashboard } from '../utils/navigationState';
+import { navigateFromDashboard, type AppPage } from '../utils/navigationState';
 
 interface EligibleVisit {
   vn: string;
@@ -44,6 +45,18 @@ const cardBase: React.CSSProperties = {
 };
 
 const formatCurrency = (value: number) => `฿${value.toLocaleString()}`;
+
+const emptyMophSummary: MophClaimDashboardSummary = {
+  startDate: '',
+  endDate: '',
+  dmht: { total: 0, dm: 0, ht: 0, sent: 0, closed: 0 },
+  vaccine: { total: 0, sent: 0, closed: 0 },
+  total: { recorded: 0, sent: 0, closed: 0 },
+  latestSendDate: null,
+  byType: [],
+};
+
+const toNumber = (value: unknown) => Number(value || 0);
 
 const MetricCard: React.FC<MetricCardProps> = ({ title, value, subtitle, accent, icon, tone = 'soft', actionLabel, onAction }) => (
   <div
@@ -148,6 +161,7 @@ export const AdminDashboard: React.FC = () => {
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [data, setData] = useState<EligibleVisit[]>([]);
+  const [mophSummary, setMophSummary] = useState<MophClaimDashboardSummary>(emptyMophSummary);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -163,8 +177,15 @@ export const AdminDashboard: React.FC = () => {
         } else {
           setError(result.error || 'Failed to fetch data');
         }
+
+        try {
+          setMophSummary(await fetchMophClaimDashboardSummary({ startDate, endDate }));
+        } catch {
+          setMophSummary(emptyMophSummary);
+        }
       } catch {
         setError('Error connecting to server');
+        setMophSummary(emptyMophSummary);
       } finally {
         setLoading(false);
       }
@@ -418,6 +439,23 @@ export const AdminDashboard: React.FC = () => {
     });
   };
 
+  const openMoph = (page: AppPage, contextLabel: string) => {
+    navigateFromDashboard(page, {
+      source: 'dashboard',
+      contextLabel,
+      startDate,
+      endDate,
+    });
+  };
+
+  const mophDmhtTotal = toNumber(mophSummary.dmht.total);
+  const mophDmhtSent = toNumber(mophSummary.dmht.sent);
+  const mophDmhtClosed = toNumber(mophSummary.dmht.closed);
+  const mophVaccineTotal = toNumber(mophSummary.vaccine.total);
+  const mophVaccineSent = toNumber(mophSummary.vaccine.sent);
+  const mophVaccineClosed = toNumber(mophSummary.vaccine.closed);
+  const latestMophSendDate = mophSummary.latestSendDate ? String(mophSummary.latestSendDate).slice(0, 10) : '-';
+
   return (
     <div className="page-container">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
@@ -490,6 +528,63 @@ export const AdminDashboard: React.FC = () => {
               actionLabel="เปิดกองทุนพิเศษ"
               onAction={() => openSpecific({ showIncompleteOnly: true, contextLabel: 'กองทุนพิเศษที่ยังต้องติดตามจาก Dashboard' })}
             />
+          </div>
+
+          <div style={{ ...cardBase, padding: 24, marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 18 }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 800 }}>MOPH Claim Control</div>
+                <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+                  ติดตามสถานะงานที่ระบบบันทึกว่าส่งแล้วหรือปิดเคสในช่วงวันที่บริการเดียวกับ Dashboard
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700 }}>ล่าสุด {latestMophSendDate}</div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+              <div style={{ padding: 16, borderRadius: 16, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>DM/HT MOPH</div>
+                <div style={{ marginTop: 8, fontSize: 28, fontWeight: 900, color: '#0f172a' }}>{mophDmhtTotal.toLocaleString('th-TH')}</div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#475569' }}>
+                  ส่งแล้ว {mophDmhtSent.toLocaleString('th-TH')} | ปิดเคส/ตัดสิทธิ์ {mophDmhtClosed.toLocaleString('th-TH')}
+                </div>
+                <button className="btn btn-sm btn-primary" style={{ marginTop: 12 }} onClick={() => openMoph('mophDmht', 'เปิด DM/HT MOPH Claim จาก Dashboard')}>
+                  เปิด DM/HT
+                </button>
+              </div>
+
+              <div style={{ padding: 16, borderRadius: 16, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#15803d' }}>Vaccine MOPH</div>
+                <div style={{ marginTop: 8, fontSize: 28, fontWeight: 900, color: '#0f172a' }}>{mophVaccineTotal.toLocaleString('th-TH')}</div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#475569' }}>
+                  ส่งแล้ว {mophVaccineSent.toLocaleString('th-TH')} | ปิดเคส/ตัดสิทธิ์ {mophVaccineClosed.toLocaleString('th-TH')}
+                </div>
+                <button className="btn btn-sm btn-primary" style={{ marginTop: 12 }} onClick={() => openMoph('mophVaccine', 'เปิด Vaccine MOPH Claim จาก Dashboard')}>
+                  เปิด Vaccine
+                </button>
+              </div>
+
+              <div style={{ padding: 16, borderRadius: 16, background: '#fff7ed', border: '1px solid #fed7aa' }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#c2410c' }}>ปิดเคส/ตัดสิทธิ์รวม</div>
+                <div style={{ marginTop: 8, fontSize: 28, fontWeight: 900, color: '#0f172a' }}>{toNumber(mophSummary.total.closed).toLocaleString('th-TH')}</div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#475569' }}>
+                  ใช้ช่วยแยกเคสที่ตรวจแล้วส่งไม่ได้จากเคสที่ยังไม่ทำ
+                </div>
+              </div>
+
+              <div style={{ padding: 16, borderRadius: 16, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#475569' }}>ประเภทที่บันทึกสูงสุด</div>
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {mophSummary.byType.slice(0, 4).map((row) => (
+                    <div key={row.type} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 12 }}>
+                      <span style={{ fontWeight: 800, color: '#0f172a' }}>{row.type}</span>
+                      <span style={{ color: '#64748b' }}>{toNumber(row.total).toLocaleString('th-TH')} รายการ</span>
+                    </div>
+                  ))}
+                  {mophSummary.byType.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>ยังไม่มีสถานะ MOPH ในช่วงนี้</div>}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginBottom: 24 }}>

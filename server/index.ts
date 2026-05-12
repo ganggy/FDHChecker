@@ -36,6 +36,7 @@ import {
   getReceivableFilterOptions,
   getMophDmhtCandidates,
   getMophVaccineCandidates,
+  getMophClaimDashboardSummary,
   getInsuranceOverview,
   getVisitRepStmComparison,
   saveReceivableBatch,
@@ -2643,6 +2644,22 @@ app.get('/api/insurance/overview', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'ไม่สามารถโหลดรายงานภาพรวมงานประกันได้',
+    });
+  }
+});
+
+app.get('/api/dashboard/moph-claim-summary', async (req, res) => {
+  try {
+    const data = await getMophClaimDashboardSummary({
+      startDate: String(req.query.startDate || ''),
+      endDate: String(req.query.endDate || ''),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching MOPH claim dashboard summary:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถโหลดสรุป MOPH Claim ได้',
     });
   }
 });

@@ -689,6 +689,55 @@ export const sendMophVaccineRows = async (
   testZone?: boolean
 ) => postMophVaccineAction('send', rows, testZone);
 
+export interface MophClaimDashboardSummary {
+  startDate: string;
+  endDate: string;
+  dmht: {
+    total: number;
+    dm: number;
+    ht: number;
+    sent: number;
+    closed: number;
+  };
+  vaccine: {
+    total: number;
+    sent: number;
+    closed: number;
+  };
+  total: {
+    recorded: number;
+    sent: number;
+    closed: number;
+  };
+  latestSendDate?: string | null;
+  byType: Array<{
+    type: string;
+    total: number;
+    sent: number;
+    closed: number;
+    latest_senddate?: string | null;
+  }>;
+}
+
+export const fetchMophClaimDashboardSummary = async (params: {
+  startDate: string;
+  endDate: string;
+}): Promise<MophClaimDashboardSummary> => {
+  const query = new URLSearchParams();
+  query.set('startDate', params.startDate);
+  query.set('endDate', params.endDate);
+
+  const response = await fetch(`/api/dashboard/moph-claim-summary?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดสรุป MOPH Claim ได้');
+  }
+  return json.data;
+};
+
 // ---- Reconciliation types and service ----
 
 export interface ReconciliationRow {

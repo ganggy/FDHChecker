@@ -8,6 +8,7 @@ import {
   type MophVaccineCandidate,
 } from '../services/hosxpService';
 import { formatLocalDateInput } from '../utils/dateUtils';
+import { consumeDashboardNavigation } from '../utils/navigationState';
 
 const today = formatLocalDateInput();
 const MOPH_VACCINE_ROW_LIMIT = 20000;
@@ -94,7 +95,9 @@ export const MophVaccineClaimPage = () => {
     return types;
   }, [showEpi, showDt, showHpv, showAp]);
 
-  const loadData = async () => {
+  const loadData = async (dateOverride?: { startDate?: string; endDate?: string }) => {
+    const queryStartDate = dateOverride?.startDate || startDate;
+    const queryEndDate = dateOverride?.endDate || endDate;
     if (selectedTypes.length === 0) {
       setRows([]);
       setSelected({});
@@ -108,8 +111,8 @@ export const MophVaccineClaimPage = () => {
     setNotice('');
     try {
       const data = await fetchMophVaccineCandidates({
-        startDate,
-        endDate,
+        startDate: queryStartDate,
+        endDate: queryEndDate,
         types: selectedTypes,
         ucOnly,
         authenOnly,
@@ -130,7 +133,13 @@ export const MophVaccineClaimPage = () => {
   };
 
   useEffect(() => {
-    void loadData();
+    const dashboardPayload = consumeDashboardNavigation('mophVaccine');
+    if (dashboardPayload?.startDate) setStartDate(dashboardPayload.startDate);
+    if (dashboardPayload?.endDate) setEndDate(dashboardPayload.endDate);
+    void loadData({
+      startDate: dashboardPayload?.startDate,
+      endDate: dashboardPayload?.endDate,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -291,7 +300,7 @@ export const MophVaccineClaimPage = () => {
             <label className="checkbox-row"><input type="checkbox" checked={authenOnly} onChange={(event) => setAuthenOnly(event.target.checked)} /><span>เฉพาะที่มีเลขปิดสิทธิ์/AuthenCode</span></label>
             <label className="checkbox-row"><input type="checkbox" checked={testZone} onChange={(event) => setTestZone(event.target.checked)} /><span>TestZone</span></label>
             <div className="workflow-filter-actions workflow-action-strip">
-              <button className="btn btn-primary" onClick={loadData} disabled={disabled}>
+              <button className="btn btn-primary" onClick={() => void loadData()} disabled={disabled}>
                 {loading ? 'กำลังโหลด...' : 'Refresh'}
               </button>
               <button className="btn btn-secondary" onClick={() => void runAction('check')} disabled={disabled || selectedRows.length === 0}>

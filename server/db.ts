@@ -728,6 +728,22 @@ const RECEIVABLE_ITEM_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const MOPHCLAIM_SEND_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS mophclaim_send (
+    vn VARCHAR(25) NOT NULL,
+    type VARCHAR(10) NOT NULL,
+    senddate DATE NULL,
+    flag CHAR(1) NULL,
+    transaction_uid VARCHAR(100) NULL,
+    note VARCHAR(200) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (vn, type),
+    INDEX idx_flag (flag),
+    INDEX idx_senddate (senddate)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 export const ensureAppSettingsTable = async () => {
   const connection = await getUTFConnection();
   try {
@@ -830,6 +846,7 @@ export const ensureRepstmTables = async () => {
     await connection.query(REPSTM_STATEMENT_DATA_TABLE_SQL);
     await connection.query(RECEIVABLE_BATCH_TABLE_SQL);
     await connection.query(RECEIVABLE_ITEM_TABLE_SQL);
+    await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
 
     const repSeqColumnTables = ['rep_data', 'rep_data_verify'];
     for (const tableName of repSeqColumnTables) {
@@ -1809,6 +1826,782 @@ export const submitNhsoClosePrivileges = async (options: {
     }
 
     return summary;
+  } finally {
+    connection.release();
+  }
+};
+
+export interface MophDmhtQueryParams {
+  startDate?: string;
+  endDate?: string;
+  diag?: 'ALL' | 'DM' | 'HT' | string;
+  ucOnly?: boolean;
+  authenOnly?: boolean;
+  search?: string;
+  limit?: number;
+}
+
+export interface MophVaccineQueryParams {
+  startDate?: string;
+  endDate?: string;
+  types?: string[];
+  ucOnly?: boolean;
+  authenOnly?: boolean;
+  errorFilter?: 'ALL' | 'NONE' | 'HAS' | 'ERROR' | 'WARN' | string;
+  sendFilter?: 'ALL' | 'SENT' | 'UNSENT' | string;
+  search?: string;
+  limit?: number;
+}
+
+const buildDmhtLabResultSql = (
+  visitAlias: string,
+  adpCode: string,
+  sysLabNames: string[],
+  nameRegex: string,
+) => {
+  const sysNames = sysLabNames.map((name) => `'${name.replace(/'/g, "''")}'`).join(',');
+  return `
+    (SELECT lo.lab_order_result
+       FROM lab_head lh
+       JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+       LEFT JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+       LEFT JOIN nondrugitems ndi ON ndi.icode = li.icode
+       LEFT JOIN sys_lab_link sll ON sll.lab_items_code = lo.lab_items_code
+       LEFT JOIN sys_lab_code slc ON slc.sys_lab_code_id = sll.sys_lab_code_id
+      WHERE lh.vn = ${visitAlias}.vn
+        AND lo.lab_order_result IS NOT NULL
+        AND TRIM(lo.lab_order_result) <> ''
+        AND (
+          ndi.nhso_adp_code = '${adpCode}'
+          OR LOWER(COALESCE(slc.sys_lab_name, '')) IN (${sysNames})
+          OR UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${nameRegex}'
+        )
+      ORDER BY lh.order_date DESC, lh.order_time DESC
+      LIMIT 1)
+  `;
+};
+
+const buildDmhtAdpExistsSql = (visitAlias: string, adpCode: string) => `
+  EXISTS (
+    SELECT 1
+    FROM opitemrece oo
+    JOIN s_drugitems d ON d.icode = oo.icode
+    WHERE oo.vn = ${visitAlias}.vn
+      AND d.nhso_adp_code = '${adpCode}'
+    LIMIT 1
+  )
+`;
+
+export const getMophDmhtCandidates = async (params: MophDmhtQueryParams): Promise<Record<string, unknown>[]> => {
+  const today = new Date().toISOString().slice(0, 10);
+  const startDate = String(params.startDate || today).slice(0, 10);
+  const endDate = String(params.endDate || startDate).slice(0, 10);
+  const diag = String(params.diag || 'ALL').toUpperCase();
+  const limit = Math.min(20000, Math.max(1, Number(params.limit || 20000)));
+  const search = String(params.search || '').trim();
+
+  const hba1cResult = buildDmhtLabResultSql('o', '32401', ['hba1c'], 'HBA1C|HEMOGLOBIN A1C|GLYCATED');
+  const potassiumResult = buildDmhtLabResultSql('o', '32103', ['potassium', 'potasssium'], 'POTASSIUM|(^|[^A-Z])K([^A-Z]|$)');
+  const creatinineResult = buildDmhtLabResultSql('o', '32202', ['creatinine'], 'CREATININE|(^|[^A-Z])CR([^A-Z]|$)');
+  const hba1cAdp = buildDmhtAdpExistsSql('o', '32401');
+  const potassiumAdp = buildDmhtAdpExistsSql('o', '32103');
+  const creatinineAdp = buildDmhtAdpExistsSql('o', '32202');
+
+  const connection = await getUTFConnection();
+  try {
+    await connection.query(NHSO_CONFIRM_PRIVILEGE_TABLE_SQL);
+    await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
+    const [rows] = await connection.query(
+      `
+      SELECT *
+      FROM (
+        SELECT
+          o.vn, 'DM' AS diag, pt.cid, o.hn,
+          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+          pt.pname, pt.fname, pt.lname, pt.birthday AS dob,
+          TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) AS age,
+          pt.sex, pt.marrystatus, LPAD(COALESCE(pt.nationality, ''), 3, '0') AS nation,
+          COALESCE(oc.name, '') AS occupation,
+          TIMESTAMP(o.vstdate, o.vsttime) AS visit_datetime,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+          COALESCE(
+            (SELECT ncp.nhso_authen_code
+             FROM nhso_confirm_privilege ncp
+             WHERE ncp.vn = o.vn
+               AND ncp.nhso_status = 'Y'
+               AND IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP'
+             LIMIT 1),
+            (SELECT ah2.claim_code
+             FROM authenhos ah2
+             WHERE ah2.vn = o.vn
+               AND IFNULL(ah2.claim_code, '') REGEXP '^EP'
+             LIMIT 1),
+            (SELECT vp2.auth_code
+             FROM visit_pttype vp2
+             WHERE vp2.vn = o.vn
+               AND IFNULL(vp2.auth_code, '') REGEXP '^EP'
+             LIMIT 1),
+            (SELECT ah2.claim_code
+             FROM authenhos ah2
+             WHERE ah2.vn = o.vn
+               AND IFNULL(ah2.claim_code, '') <> ''
+             LIMIT 1),
+            (SELECT vp2.auth_code
+             FROM visit_pttype vp2
+             WHERE vp2.vn = o.vn
+               AND IFNULL(vp2.auth_code, '') <> ''
+             LIMIT 1),
+            ''
+          ) AS authencode,
+          COALESCE(ptt.hipdata_code, '') AS maininscl,
+          COALESCE(ptt.name, '') AS pttypename,
+          COALESCE(k.department, '') AS department,
+          COALESCE(sp.name, '') AS clinic,
+          COALESCE(vp.hospmain, '') AS hospmain,
+          COALESCE(vp.hospsub, '') AS hospsub,
+          CASE WHEN ${hba1cAdp} THEN 'Y' ELSE '' END AS check_hba1c_adp,
+          ${hba1cResult} AS result_hba1c,
+          '' AS check_potassium_adp, NULL AS result_potassium,
+          '' AS check_creatinine_adp, NULL AS result_creatinine,
+          COALESCE(ms.flag, '') AS moph,
+          COALESCE(ms.transaction_uid, '') AS transaction_uid,
+          COALESCE(ms.note, '') AS note,
+          ms.senddate
+        FROM ovst o
+        JOIN patient pt ON pt.hn = o.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN occupation oc ON oc.occupation = pt.occupation
+        LEFT JOIN visit_pttype vp ON vp.vn = o.vn
+        LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+        LEFT JOIN spclty sp ON sp.spclty = o.spclty
+        LEFT JOIN mophclaim_send ms ON ms.vn = o.vn AND ms.type = 'DM'
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND ${buildDiagnosisMatchSql('o', 'v', ['E10', 'E11', 'E12', 'E13', 'E14'])}
+          AND (${hba1cAdp} OR ${hba1cResult} IS NOT NULL)
+        GROUP BY o.vn
+
+        UNION ALL
+
+        SELECT
+          o.vn, 'HT' AS diag, pt.cid, o.hn,
+          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+          pt.pname, pt.fname, pt.lname, pt.birthday AS dob,
+          TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) AS age,
+          pt.sex, pt.marrystatus, LPAD(COALESCE(pt.nationality, ''), 3, '0') AS nation,
+          COALESCE(oc.name, '') AS occupation,
+          TIMESTAMP(o.vstdate, o.vsttime) AS visit_datetime,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+          COALESCE(
+            (SELECT ncp.nhso_authen_code
+             FROM nhso_confirm_privilege ncp
+             WHERE ncp.vn = o.vn
+               AND ncp.nhso_status = 'Y'
+               AND IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP'
+             LIMIT 1),
+            (SELECT ah2.claim_code
+             FROM authenhos ah2
+             WHERE ah2.vn = o.vn
+               AND IFNULL(ah2.claim_code, '') REGEXP '^EP'
+             LIMIT 1),
+            (SELECT vp2.auth_code
+             FROM visit_pttype vp2
+             WHERE vp2.vn = o.vn
+               AND IFNULL(vp2.auth_code, '') REGEXP '^EP'
+             LIMIT 1),
+            (SELECT ah2.claim_code
+             FROM authenhos ah2
+             WHERE ah2.vn = o.vn
+               AND IFNULL(ah2.claim_code, '') <> ''
+             LIMIT 1),
+            (SELECT vp2.auth_code
+             FROM visit_pttype vp2
+             WHERE vp2.vn = o.vn
+               AND IFNULL(vp2.auth_code, '') <> ''
+             LIMIT 1),
+            ''
+          ) AS authencode,
+          COALESCE(ptt.hipdata_code, '') AS maininscl,
+          COALESCE(ptt.name, '') AS pttypename,
+          COALESCE(k.department, '') AS department,
+          COALESCE(sp.name, '') AS clinic,
+          COALESCE(vp.hospmain, '') AS hospmain,
+          COALESCE(vp.hospsub, '') AS hospsub,
+          '' AS check_hba1c_adp, NULL AS result_hba1c,
+          CASE WHEN ${potassiumAdp} THEN 'Y' ELSE '' END AS check_potassium_adp,
+          ${potassiumResult} AS result_potassium,
+          CASE WHEN ${creatinineAdp} THEN 'Y' ELSE '' END AS check_creatinine_adp,
+          ${creatinineResult} AS result_creatinine,
+          COALESCE(ms.flag, '') AS moph,
+          COALESCE(ms.transaction_uid, '') AS transaction_uid,
+          COALESCE(ms.note, '') AS note,
+          ms.senddate
+        FROM ovst o
+        JOIN patient pt ON pt.hn = o.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN occupation oc ON oc.occupation = pt.occupation
+        LEFT JOIN visit_pttype vp ON vp.vn = o.vn
+        LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+        LEFT JOIN spclty sp ON sp.spclty = o.spclty
+        LEFT JOIN mophclaim_send ms ON ms.vn = o.vn AND ms.type = 'HT'
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND ${buildDiagnosisMatchSql('o', 'v', ['I10', 'I11', 'I12', 'I13', 'I14', 'I15'])}
+          AND (${potassiumAdp} OR ${creatinineAdp} OR ${potassiumResult} IS NOT NULL OR ${creatinineResult} IS NOT NULL)
+        GROUP BY o.vn
+      ) t
+      WHERE (? = 'ALL' OR t.diag = ?)
+        AND (? = 0 OR t.maininscl = 'UCS')
+        AND (? = 0 OR TRIM(t.authencode) <> '')
+        AND (
+          ? = ''
+          OR t.vn LIKE CONCAT('%', ?, '%')
+          OR t.hn LIKE CONCAT('%', ?, '%')
+          OR t.cid LIKE CONCAT('%', ?, '%')
+          OR t.patient_name LIKE CONCAT('%', ?, '%')
+        )
+      ORDER BY t.service_date DESC, t.vn DESC, t.diag
+      LIMIT ${limit}
+      `,
+      [
+        startDate,
+        endDate,
+        startDate,
+        endDate,
+        diag,
+        diag,
+        params.ucOnly ? 1 : 0,
+        params.authenOnly ? 1 : 0,
+        search,
+        search,
+        search,
+        search,
+        search,
+      ],
+    );
+
+    return (Array.isArray(rows) ? rows : []).map((row) => {
+      const item = row as Record<string, unknown>;
+      const type = String(item.diag || '').toUpperCase();
+      const resultHba1c = String(item.result_hba1c || '').trim();
+      const resultK = String(item.result_potassium || '').trim();
+      const resultCr = String(item.result_creatinine || '').trim();
+      const checkHba1c = resultHba1c ? 'Y' : '';
+      const checkPotassium = resultK ? 'Y' : '';
+      const checkCreatinine = resultCr ? 'Y' : '';
+      const ready = type === 'DM' ? checkHba1c === 'Y' : (checkPotassium === 'Y' || checkCreatinine === 'Y');
+      return {
+        ...item,
+        check_hba1c: checkHba1c,
+        check_potassium: checkPotassium,
+        check_creatinine: checkCreatinine,
+        ready,
+        missing_reason: ready ? '' : (type === 'DM' ? 'ไม่พบผล HbA1C' : 'ไม่พบผล Potassium/Creatinine'),
+      };
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+const MOPH_VACCINE_DT_REGEX = '^(106)$';
+const MOPH_VACCINE_HPV_REGEX = '^(HPV|310|311|320)';
+const MOPH_VACCINE_AP_REGEX = '^(P41)$';
+const MOPH_VACCINE_EPI_PATTERN = '010|041|042|043|091|092|093|021|022|023|081|082|083|401|061|073|J11|J12|031|032|033|034|035|084|085|011|024|072|075|086|087|088|402|054|055|044|045|046|051|052|053|R11|R12|R21|R22|R23|D21|D22|D23|I11|I12|I13';
+const MOPH_VACCINE_ALL_REGEX = '^(106|010|041|042|043|091|092|093|021|022|023|081|082|083|401|061|073|J11|J12|031|032|033|034|035|084|085|011|024|072|075|086|087|088|402|054|055|044|045|046|310|311|320|051|052|053|R11|R12|R21|R22|R23|D21|D22|D23|I11|I12|I13|HPV|P41)';
+
+const mophCloseCodeSql = (visitAlias: string) => `
+  COALESCE(
+    (SELECT ncp.nhso_authen_code
+     FROM nhso_confirm_privilege ncp
+     WHERE ncp.vn = ${visitAlias}.vn
+       AND ncp.nhso_status = 'Y'
+       AND IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP'
+     LIMIT 1),
+    (SELECT ah2.claim_code
+     FROM authenhos ah2
+     WHERE ah2.vn = ${visitAlias}.vn
+       AND IFNULL(ah2.claim_code, '') REGEXP '^EP'
+     LIMIT 1),
+    (SELECT vp2.auth_code
+     FROM visit_pttype vp2
+     WHERE vp2.vn = ${visitAlias}.vn
+       AND IFNULL(vp2.auth_code, '') REGEXP '^EP'
+     LIMIT 1),
+    (SELECT ah2.claim_code
+     FROM authenhos ah2
+     WHERE ah2.vn = ${visitAlias}.vn
+       AND IFNULL(ah2.claim_code, '') <> ''
+     LIMIT 1),
+    (SELECT vp2.auth_code
+     FROM visit_pttype vp2
+     WHERE vp2.vn = ${visitAlias}.vn
+       AND IFNULL(vp2.auth_code, '') <> ''
+     LIMIT 1),
+    ''
+  )
+`;
+
+const mophVaccineTypeSql = (codeExpression: string) => `
+  CASE
+    WHEN ${codeExpression} REGEXP '${MOPH_VACCINE_DT_REGEX}' THEN 'dT'
+    WHEN ${codeExpression} REGEXP '${MOPH_VACCINE_HPV_REGEX}' THEN 'HPV'
+    WHEN ${codeExpression} REGEXP '${MOPH_VACCINE_AP_REGEX}' THEN 'aP'
+    ELSE 'EPI'
+  END
+`;
+
+export const getMophVaccineCandidates = async (params: MophVaccineQueryParams): Promise<Record<string, unknown>[]> => {
+  const today = new Date().toISOString().slice(0, 10);
+  const startDate = String(params.startDate || today).slice(0, 10);
+  const endDate = String(params.endDate || startDate).slice(0, 10);
+  const limit = Math.min(20000, Math.max(1, Number(params.limit || 20000)));
+  const search = String(params.search || '').trim();
+  const selectedTypes = (params.types && params.types.length > 0 ? params.types : ['EPI', 'dT'])
+    .map((type) => String(type || '').trim())
+    .filter((type) => ['EPI', 'dT', 'HPV', 'aP'].includes(type));
+  const typeSet = selectedTypes.length > 0 ? selectedTypes : [''];
+  const selectedVaccinePattern = selectedTypes
+    .map((type) => {
+      if (type === 'EPI') return MOPH_VACCINE_EPI_PATTERN;
+      if (type === 'dT') return '106';
+      if (type === 'HPV') return 'HPV|310|311|320';
+      if (type === 'aP') return 'P41';
+      return '';
+    })
+    .filter(Boolean)
+    .join('|') || MOPH_VACCINE_ALL_REGEX.replace(/^\^\(/, '').replace(/\)$/, '');
+  const selectedVaccineRegex = `^(${selectedVaccinePattern})`;
+  const typePlaceholders = typeSet.map(() => '?').join(',');
+  const errorFilter = String(params.errorFilter || 'ALL').toUpperCase();
+  const sendFilter = String(params.sendFilter || 'ALL').toUpperCase();
+  const connection = await getUTFConnection();
+
+  const insertSource = async (sql: string, values: unknown[]) => {
+    await connection.query(sql, values);
+  };
+
+  try {
+    await connection.query(NHSO_CONFIRM_PRIVILEGE_TABLE_SQL);
+    await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
+    await connection.query(`
+      CREATE TEMPORARY TABLE IF NOT EXISTS tmp_moph_vaccine (
+        source_type VARCHAR(10) NOT NULL,
+        vn VARCHAR(25) NOT NULL,
+        hn VARCHAR(25) NULL,
+        vstdate DATE NULL,
+        vsttime VARCHAR(8) NULL,
+        vaccine_code VARCHAR(20) NOT NULL,
+        vaccine_name VARCHAR(255) NULL,
+        lot VARCHAR(100) NULL,
+        dose DECIMAL(8,2) NULL,
+        company VARCHAR(150) NULL,
+        dateexp DATE NULL,
+        dateinj DATETIME NULL,
+        site VARCHAR(20) NULL,
+        drugusage VARCHAR(20) NULL,
+        doctorlicense VARCHAR(50) NULL,
+        doctorname VARCHAR(150) NULL,
+        note VARCHAR(255) NULL,
+        preg_no DECIMAL(3,0) NULL,
+        ga DECIMAL(3,0) NULL,
+        PRIMARY KEY (vn, vaccine_code)
+      ) ENGINE=MEMORY DEFAULT CHARSET=utf8mb4
+    `);
+    await connection.query('DELETE FROM tmp_moph_vaccine');
+
+    await insertSource(
+      `
+      INSERT IGNORE INTO tmp_moph_vaccine
+      SELECT 'Person', o.vn, o.hn, o.vstdate, TIME_FORMAT(o.vsttime, '%H:%i:%s'),
+        v.export_vaccine_code, v.vaccine_name,
+        s.vaccine_lot_no,
+        CASE
+          WHEN COALESCE(s.dose_qty, 0) > 0 THEN s.dose_qty
+          WHEN v.export_vaccine_code = '010' THEN 0.1
+          WHEN v.export_vaccine_code REGEXP '^R' THEN 1.5
+          ELSE 0.5
+        END,
+        '', s.expire_date, NULL, 'LA', 'IM',
+        doc.licenseno, doc.name, '',
+        CASE WHEN v.export_vaccine_code = 'P41' THEN a.preg_no ELSE NULL END,
+        CASE WHEN v.export_vaccine_code = 'P41' THEN TIMESTAMPDIFF(WEEK, a.lmp, o.vstdate) ELSE NULL END
+      FROM ovst o
+      STRAIGHT_JOIN ovst_vaccine s ON s.vn = o.vn
+      STRAIGHT_JOIN person_vaccine v ON v.person_vaccine_id = s.person_vaccine_id
+      LEFT JOIN doctor doc ON doc.code = s.doctor_code
+      LEFT JOIN person_anc_service pas ON pas.vn = o.vn
+      LEFT JOIN person_anc a ON a.person_anc_id = pas.person_anc_id
+      WHERE o.vstdate BETWEEN ? AND ?
+        AND v.export_vaccine_code REGEXP ?
+      `,
+      [startDate, endDate, selectedVaccineRegex]
+    );
+
+    await insertSource(
+      `
+      INSERT IGNORE INTO tmp_moph_vaccine
+      SELECT 'WBC', o.vn, o.hn, o.vstdate, TIME_FORMAT(o.vsttime, '%H:%i:%s'),
+        v.export_vaccine_code, v.wbc_vaccine_name,
+        dd.vaccine_lotno,
+        CASE WHEN v.export_vaccine_code = '010' THEN 0.1 WHEN v.export_vaccine_code REGEXP '^R' THEN 1.5 ELSE 0.5 END,
+        '', dd.vaccine_expire_date, NULL, 'LA', 'IM',
+        doc.licenseno, doc.name, '', NULL, NULL
+      FROM ovst o
+      STRAIGHT_JOIN person_wbc_service s ON s.vn = o.vn
+      STRAIGHT_JOIN person_wbc_vaccine_detail dd ON dd.person_wbc_service_id = s.person_wbc_service_id
+      STRAIGHT_JOIN wbc_vaccine v ON v.wbc_vaccine_id = dd.wbc_vaccine_id
+      LEFT JOIN doctor doc ON doc.code = dd.doctor_code
+      WHERE o.vstdate BETWEEN ? AND ?
+        AND v.export_vaccine_code REGEXP ?
+      `,
+      [startDate, endDate, selectedVaccineRegex]
+    );
+
+    await insertSource(
+      `
+      INSERT IGNORE INTO tmp_moph_vaccine
+      SELECT 'EPI', o.vn, o.hn, o.vstdate, TIME_FORMAT(o.vsttime, '%H:%i:%s'),
+        v.export_vaccine_code, v.epi_vaccine_name,
+        dd.vaccine_lotno,
+        CASE WHEN v.export_vaccine_code = '010' THEN 0.1 WHEN v.export_vaccine_code REGEXP '^R' THEN 1.5 ELSE 0.5 END,
+        '', dd.vaccine_expire_date, NULL, 'LA', 'IM',
+        doc.licenseno, doc.name, '', NULL, NULL
+      FROM ovst o
+      STRAIGHT_JOIN person_epi_vaccine s ON s.vn = o.vn
+      STRAIGHT_JOIN person_epi_vaccine_list dd ON dd.person_epi_vaccine_id = s.person_epi_vaccine_id
+      STRAIGHT_JOIN epi_vaccine v ON v.epi_vaccine_id = dd.epi_vaccine_id
+      LEFT JOIN doctor doc ON doc.code = dd.doctor_code
+      WHERE o.vstdate BETWEEN ? AND ?
+        AND v.export_vaccine_code REGEXP ?
+      `,
+      [startDate, endDate, selectedVaccineRegex]
+    );
+
+    await insertSource(
+      `
+      INSERT IGNORE INTO tmp_moph_vaccine
+      SELECT 'Student', o.vn, o.hn, o.vstdate, TIME_FORMAT(o.vsttime, '%H:%i:%s'),
+        v.export_vaccine_code, v.student_vaccine_name,
+        dd.vaccine_lotno,
+        CASE WHEN v.export_vaccine_code = '010' THEN 0.1 WHEN v.export_vaccine_code REGEXP '^R' THEN 1.5 ELSE 0.5 END,
+        '', dd.vaccine_expire_date, NULL, 'LA', 'IM',
+        doc.licenseno, doc.name, '', NULL, NULL
+      FROM ovst o
+      STRAIGHT_JOIN village_student_vaccine s ON s.vn = o.vn
+      STRAIGHT_JOIN village_student_vaccine_list dd ON dd.village_student_vaccine_id = s.village_student_vaccine_id
+      STRAIGHT_JOIN student_vaccine v ON v.student_vaccine_id = dd.student_vaccine_id
+      LEFT JOIN doctor doc ON doc.code = dd.doctor_code
+      WHERE o.vstdate BETWEEN ? AND ?
+        AND v.export_vaccine_code REGEXP ?
+      `,
+      [startDate, endDate, selectedVaccineRegex]
+    );
+
+    await insertSource(
+      `
+      INSERT IGNORE INTO tmp_moph_vaccine
+      SELECT 'ANC', o.vn, o.hn, o.vstdate, TIME_FORMAT(o.vsttime, '%H:%i:%s'),
+        v.export_vaccine_code, v.anc_service_name,
+        dd.vaccine_lotno,
+        CASE WHEN v.export_vaccine_code = '010' THEN 0.1 WHEN v.export_vaccine_code REGEXP '^R' THEN 1.5 ELSE 0.5 END,
+        '', dd.vaccine_expire_date, NULL, 'LA', 'IM',
+        doc.licenseno, doc.name, '',
+        a.preg_no, s.pa_week
+      FROM ovst o
+      STRAIGHT_JOIN person_anc_service s ON s.vn = o.vn
+      STRAIGHT_JOIN person_anc_service_detail dd ON dd.person_anc_service_id = s.person_anc_service_id
+      STRAIGHT_JOIN anc_service v ON v.anc_service_id = dd.anc_service_id
+      LEFT JOIN person_anc a ON a.person_anc_id = s.person_anc_id
+      LEFT JOIN doctor doc ON doc.code = dd.anc_doctor_code
+      WHERE o.vstdate BETWEEN ? AND ?
+        AND v.export_vaccine_code REGEXP ?
+      `,
+      [startDate, endDate, selectedVaccineRegex]
+    );
+
+    await connection.query(`
+      CREATE TEMPORARY TABLE IF NOT EXISTS tmp_moph_vaccine_auth (
+        vn VARCHAR(25) NOT NULL,
+        authencode VARCHAR(100) NOT NULL,
+        hospmain VARCHAR(10) NULL,
+        hospsub VARCHAR(10) NULL,
+        PRIMARY KEY (vn)
+      ) ENGINE=MEMORY DEFAULT CHARSET=utf8mb4
+    `);
+    await connection.query('DELETE FROM tmp_moph_vaccine_auth');
+    await connection.query(`
+      INSERT IGNORE INTO tmp_moph_vaccine_auth
+      SELECT DISTINCT vn, '', '', ''
+      FROM tmp_moph_vaccine
+    `);
+    await connection.query(`
+      UPDATE tmp_moph_vaccine_auth a
+      JOIN (
+        SELECT v.vn, MAX(ncp.nhso_authen_code) AS authencode
+        FROM tmp_moph_vaccine_auth v
+        JOIN nhso_confirm_privilege ncp ON ncp.vn = v.vn
+        WHERE ncp.nhso_status = 'Y'
+          AND IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP'
+        GROUP BY v.vn
+      ) x ON x.vn = a.vn
+      SET a.authencode = x.authencode
+      WHERE a.authencode = ''
+    `);
+    await connection.query(`
+      UPDATE tmp_moph_vaccine_auth a
+      JOIN (
+        SELECT v.vn,
+          MAX(CASE WHEN IFNULL(ah.claim_code, '') REGEXP '^EP' THEN ah.claim_code END) AS ep_code,
+          MAX(CASE WHEN IFNULL(ah.claim_code, '') <> '' THEN ah.claim_code END) AS any_code
+        FROM tmp_moph_vaccine_auth v
+        JOIN authenhos ah ON ah.vn = v.vn
+        GROUP BY v.vn
+      ) x ON x.vn = a.vn
+      SET a.authencode = COALESCE(x.ep_code, x.any_code, '')
+      WHERE a.authencode = ''
+    `);
+    await connection.query(`
+      UPDATE tmp_moph_vaccine_auth a
+      JOIN (
+        SELECT v.vn,
+          MAX(CASE WHEN IFNULL(vp.auth_code, '') REGEXP '^EP' THEN vp.auth_code END) AS ep_code,
+          MAX(CASE WHEN IFNULL(vp.auth_code, '') <> '' THEN vp.auth_code END) AS any_code,
+          MAX(vp.hospmain) AS hospmain,
+          MAX(vp.hospsub) AS hospsub
+        FROM tmp_moph_vaccine_auth v
+        JOIN visit_pttype vp ON vp.vn = v.vn
+        GROUP BY v.vn
+      ) x ON x.vn = a.vn
+      SET a.authencode = IF(a.authencode = '', COALESCE(x.ep_code, x.any_code, ''), a.authencode),
+          a.hospmain = x.hospmain,
+          a.hospsub = x.hospsub
+    `);
+
+    const rawConditions = [`${mophVaccineTypeSql('te.vaccine_code')} IN (${typePlaceholders})`];
+    const rawValues: Array<string | number> = [...typeSet];
+    if (params.authenOnly) rawConditions.push(`TRIM(COALESCE(auth.authencode, '')) <> ''`);
+    if (sendFilter === 'SENT') rawConditions.push(`TRIM(COALESCE(ms.flag, '')) <> ''`);
+    if (sendFilter === 'UNSENT') rawConditions.push(`TRIM(COALESCE(ms.flag, '')) = ''`);
+    if (search) {
+      rawConditions.push(`(te.vn LIKE CONCAT('%', ?, '%') OR te.hn LIKE CONCAT('%', ?, '%') OR te.vaccine_code LIKE CONCAT('%', ?, '%'))`);
+      rawValues.push(search, search, search);
+    }
+
+    const [rawRows] = await connection.query(
+      `
+      SELECT te.source_type, te.vn, te.hn, DATE_FORMAT(te.vstdate, '%Y-%m-%d') AS service_date,
+        DATE_FORMAT(TIMESTAMP(te.vstdate, te.vsttime), '%Y-%m-%d %H:%i') AS visit_datetime,
+        te.vaccine_code, te.vaccine_name, te.lot, te.dose, te.company,
+        DATE_FORMAT(te.dateexp, '%Y-%m-%d') AS dateexp,
+        te.site, te.drugusage, te.doctorlicense, te.doctorname, te.note AS source_note,
+        te.preg_no, te.ga,
+        COALESCE(auth.authencode, '') AS authencode,
+        COALESCE(auth.hospmain, '') AS hospmain,
+        COALESCE(auth.hospsub, '') AS hospsub,
+        COALESCE(ms.flag, '') AS moph,
+        COALESCE(ms.transaction_uid, '') AS transaction_uid,
+        COALESCE(ms.note, '') AS note,
+        ms.senddate,
+        CONCAT_WS('#', te.vaccine_code, COALESCE(te.lot, ''),
+          IF(COALESCE(te.dose, 0) = 0, '', TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(te.dose AS CHAR)))),
+          COALESCE(te.company, ''), COALESCE(DATE_FORMAT(te.dateexp, '%Y-%m-%d'), ''),
+          DATE_FORMAT(TIMESTAMP(te.vstdate, te.vsttime), '%Y-%m-%d %H:%i'),
+          COALESCE(te.site, ''), COALESCE(te.drugusage, ''), COALESCE(te.doctorlicense, ''), COALESCE(te.doctorname, ''), COALESCE(te.note, '')
+        ) AS vaccine_note
+      FROM tmp_moph_vaccine te
+      LEFT JOIN tmp_moph_vaccine_auth auth ON auth.vn = te.vn
+      LEFT JOIN mophclaim_send ms ON ms.vn = te.vn AND ms.type = te.vaccine_code
+      WHERE ${rawConditions.join(' AND ')}
+      ORDER BY te.vstdate DESC, te.vn DESC, te.vaccine_code
+      LIMIT ${limit}
+      `,
+      rawValues
+    );
+    const rawItems = Array.isArray(rawRows) ? rawRows as Record<string, unknown>[] : [];
+    const vns = [...new Set(rawItems.map((row) => String(row.vn || '')).filter(Boolean))];
+    const detailByVn = new Map<string, Record<string, unknown>>();
+    if (vns.length > 0) {
+      const [detailRows] = await connection.query(
+        `
+        SELECT o.vn, pt.cid, o.hn, pt.pname, pt.fname, pt.lname,
+          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+          DATE_FORMAT(pt.birthday, '%Y-%m-%d') AS dob,
+          TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) AS age_y,
+          pt.sex, pt.marrystatus, LPAD(COALESCE(pt.nationality, ''), 3, '0') AS nation,
+          COALESCE(oc.name, '') AS occupation,
+          COALESCE(ptt.hipdata_code, '') AS maininscl,
+          COALESCE(ptt.name, '') AS pttypename
+        FROM ovst o
+        LEFT JOIN patient pt ON pt.hn = o.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN occupation oc ON oc.occupation = pt.occupation
+        WHERE o.vn IN (${vns.map(() => '?').join(',')})
+        `,
+        vns
+      );
+      for (const row of (Array.isArray(detailRows) ? detailRows as Record<string, unknown>[] : [])) {
+        detailByVn.set(String(row.vn || ''), row);
+      }
+    }
+    const classify = (codeValue: unknown) => {
+      const code = String(codeValue || '');
+      if (/^106$/.test(code)) return 'dT';
+      if (/^(HPV|310|311|320)/.test(code)) return 'HPV';
+      if (/^P41$/.test(code)) return 'aP';
+      return 'EPI';
+    };
+    const finalRows = rawItems.map((row) => {
+      const detail = detailByVn.get(String(row.vn || '')) || {};
+      const merged = { ...row, ...detail };
+      const type = classify(merged.vaccine_code);
+      const ageY = Number(merged.age_y || 0);
+      const serviceDate = String(merged.service_date || '');
+      const dateexp = String(merged.dateexp || '');
+      const code = String(merged.vaccine_code || '');
+      const lot = String(merged.lot || '');
+      const dose = Number(merged.dose || 0);
+      const authencode = String(merged.authencode || '');
+      let errorname = '';
+      if (!lot) errorname = 'Error:ไม่พบ Lot No.';
+      else if (!dose) errorname = 'Error:ไม่พบ Dose';
+      else if (!dateexp || dateexp < serviceDate) errorname = 'Error:วันหมดอายุต้องมากกว่าวันที่บริการ';
+      else if (code === 'I12' && serviceDate < '2023-07-01') errorname = 'Error:รหัส I12 ต้องเริ่มให้ตั้งแต่ 1 กรกฎาคม 2566';
+      else if (code === '401' && serviceDate >= '2023-07-01') errorname = 'Error:รหัส 401 ต้องให้ก่อน 1 กรกฎาคม 2566';
+      else if (['310', '311', '320'].includes(code)) errorname = 'Error:วัคซีน HPV ต้องใช้ตาม QuickWin เท่านั้น';
+      else if (/^HPV/.test(code) && serviceDate < '2023-11-01') errorname = 'Warn:รหัส HPVxxx ต้องเริ่มให้ตั้งแต่ 1 พฤศจิกายน 2566';
+      else if (/^HPV/.test(code) && (ageY < 11 || ageY > 20)) errorname = 'Warn:รหัส HPVxxx ไม่อยู่กลุ่มอายุ 11-20 ปี';
+      else if (code === 'P41' && !merged.preg_no) errorname = 'Error:ไม่ระบุครรภ์ที่';
+      else if (code === 'P41' && !merged.ga) errorname = 'Error:ไม่ระบุอายุครรภ์';
+      else if (code === 'P41' && (Number(merged.ga) < 27 || Number(merged.ga) > 36)) errorname = 'Error:อายุครรภ์ต้อง 27-36 สัปดาห์';
+      else if (!authencode) errorname = 'Warn:ไม่พบรหัส AuthenCode';
+      return { ...merged, epi: merged.source_type, type, errorname, ready: errorname === '', missing_reason: errorname };
+    }).filter((row) => {
+      const type = String(row.type || '');
+      const ageY = Number(row.age_y || 0);
+      const sex = String(row.sex || '');
+      if (!(type === 'EPI' || type === 'aP' || (type === 'dT' && (ageY >= 24 || row.epi === 'ANC')) || (type === 'HPV' && sex === '2'))) return false;
+      if (params.ucOnly && row.maininscl !== 'UCS') return false;
+      if (search) {
+        const haystack = `${row.vn || ''} ${row.hn || ''} ${row.cid || ''} ${row.patient_name || ''} ${row.vaccine_code || ''}`;
+        if (!haystack.includes(search)) return false;
+      }
+      const errorName = String(row.errorname || '');
+      if (errorFilter === 'NONE') return errorName === '';
+      if (errorFilter === 'HAS') return errorName !== '';
+      if (errorFilter === 'ERROR') return errorName.startsWith('Error');
+      if (errorFilter === 'WARN') return errorName.startsWith('Warn');
+      return true;
+    });
+    return finalRows.slice(0, limit);
+
+    const whereConditions = [`${mophVaccineTypeSql('te.vaccine_code')} IN (${typePlaceholders})`];
+    const values: Array<string | number> = [...typeSet];
+    if (params.ucOnly) whereConditions.push(`COALESCE(ptt.hipdata_code, '') = 'UCS'`);
+    if (params.authenOnly) whereConditions.push(`TRIM(COALESCE(auth.authencode, '')) <> ''`);
+    if (sendFilter === 'SENT') whereConditions.push(`TRIM(COALESCE(ms.flag, '')) <> ''`);
+    if (sendFilter === 'UNSENT') whereConditions.push(`TRIM(COALESCE(ms.flag, '')) = ''`);
+    if (search) {
+      whereConditions.push(`(
+        o.vn LIKE CONCAT('%', ?, '%')
+        OR o.hn LIKE CONCAT('%', ?, '%')
+        OR pt.cid LIKE CONCAT('%', ?, '%')
+        OR CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) LIKE CONCAT('%', ?, '%')
+        OR te.vaccine_code LIKE CONCAT('%', ?, '%')
+      )`);
+      values.push(search, search, search, search, search);
+    }
+
+    const [rows] = await connection.query(
+      `
+      SELECT
+        COALESCE(ms.flag, '') AS moph,
+        o.vn, pt.cid, o.hn, pt.pname, pt.fname, pt.lname,
+        CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+        pt.birthday AS dob,
+        TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) AS age_y,
+        pt.sex, pt.marrystatus, LPAD(COALESCE(pt.nationality, ''), 3, '0') AS nation,
+        COALESCE(oc.name, '') AS occupation,
+        TIMESTAMP(o.vstdate, o.vsttime) AS visit_datetime,
+        DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+        '' AS diag,
+        COALESCE(auth.authencode, '') AS authencode,
+        COALESCE(ptt.hipdata_code, '') AS maininscl,
+        COALESCE(ptt.name, '') AS pttypename,
+        COALESCE(auth.hospmain, '') AS hospmain,
+        COALESCE(auth.hospsub, '') AS hospsub,
+        te.preg_no, te.ga,
+        te.source_type AS epi,
+        ${mophVaccineTypeSql('te.vaccine_code')} AS type,
+        te.vaccine_code, te.vaccine_name, te.dose, te.lot,
+        DATE_FORMAT(te.dateexp, '%Y-%m-%d') AS dateexp,
+        te.company, te.site, te.drugusage, te.doctorlicense, te.doctorname,
+        CONCAT_WS('#',
+          te.vaccine_code,
+          COALESCE(te.lot, ''),
+          IF(COALESCE(te.dose, 0) = 0, '', TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(te.dose AS CHAR)))),
+          COALESCE(te.company, ''),
+          COALESCE(DATE_FORMAT(te.dateexp, '%Y-%m-%d'), ''),
+          COALESCE(DATE_FORMAT(te.dateinj, '%Y-%m-%d %H:%i'), DATE_FORMAT(TIMESTAMP(o.vstdate, o.vsttime), '%Y-%m-%d %H:%i')),
+          COALESCE(te.site, ''),
+          COALESCE(te.drugusage, ''),
+          COALESCE(te.doctorlicense, ''),
+          COALESCE(te.doctorname, ''),
+          COALESCE(te.note, '')
+        ) AS vaccine_note,
+        COALESCE(ms.transaction_uid, '') AS transaction_uid,
+        COALESCE(ms.note, '') AS note,
+        ms.senddate,
+        CASE
+          WHEN IFNULL(te.lot, '') = '' THEN 'Error:ไม่พบ Lot No.'
+          WHEN IFNULL(te.dose, 0) = 0 THEN 'Error:ไม่พบ Dose'
+          WHEN te.dateexp IS NULL OR te.dateexp < DATE(o.vstdate) THEN 'Error:วันหมดอายุต้องมากกว่าวันที่บริการ'
+          WHEN te.vaccine_code = 'I12' AND DATE(o.vstdate) < '2023-07-01' THEN 'Error:รหัส I12 ต้องเริ่มให้ตั้งแต่ 1 กรกฎาคม 2566'
+          WHEN te.vaccine_code = '401' AND DATE(o.vstdate) >= '2023-07-01' THEN 'Error:รหัส 401 ต้องให้ก่อน 1 กรกฎาคม 2566'
+          WHEN te.vaccine_code IN ('310', '311', '320') THEN 'Error:วัคซีน HPV ต้องใช้ตาม QuickWin เท่านั้น'
+          WHEN te.vaccine_code REGEXP '^HPV' AND DATE(o.vstdate) < '2023-11-01' THEN 'Warn:รหัส HPVxxx ต้องเริ่มให้ตั้งแต่ 1 พฤศจิกายน 2566'
+          WHEN te.vaccine_code REGEXP '^HPV' AND TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) NOT BETWEEN 11 AND 20 THEN 'Warn:รหัส HPVxxx ไม่อยู่กลุ่มอายุ 11-20 ปี'
+          WHEN te.vaccine_code = 'P41' AND te.preg_no IS NULL THEN 'Error:ไม่ระบุครรภ์ที่'
+          WHEN te.vaccine_code = 'P41' AND te.ga IS NULL THEN 'Error:ไม่ระบุอายุครรภ์'
+          WHEN te.vaccine_code = 'P41' AND te.ga NOT BETWEEN 27 AND 36 THEN 'Error:อายุครรภ์ต้อง 27-36 สัปดาห์'
+          WHEN COALESCE(auth.authencode, '') = '' THEN 'Warn:ไม่พบรหัส AuthenCode'
+          ELSE ''
+        END AS errorname
+      FROM tmp_moph_vaccine te
+      STRAIGHT_JOIN ovst o ON o.vn = te.vn
+      LEFT JOIN patient pt ON pt.hn = o.hn
+      LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+      LEFT JOIN occupation oc ON oc.occupation = pt.occupation
+      LEFT JOIN tmp_moph_vaccine_auth auth ON auth.vn = o.vn
+      LEFT JOIN mophclaim_send ms ON ms.vn = o.vn AND ms.type = te.vaccine_code
+      WHERE (
+        ${mophVaccineTypeSql('te.vaccine_code')} IN ('EPI', 'aP')
+        OR (${mophVaccineTypeSql('te.vaccine_code')} = 'dT' AND (TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) >= 24 OR te.source_type = 'ANC'))
+        OR (${mophVaccineTypeSql('te.vaccine_code')} = 'HPV' AND pt.sex = '2')
+      )
+      AND ${whereConditions.join(' AND ')}
+      ORDER BY o.vstdate DESC, o.vn DESC, te.vaccine_code
+      LIMIT ${limit}
+      `,
+      values
+    );
+
+    const mappedRows = (Array.isArray(rows) ? rows : []).map((row) => {
+      const item = row as Record<string, unknown>;
+      return {
+        ...item,
+        ready: String(item.errorname || '').trim() === '',
+        missing_reason: String(item.errorname || ''),
+      };
+    });
+    return mappedRows.filter((row) => {
+      const errorName = String(row.errorname || '');
+      if (errorFilter === 'NONE') return errorName === '';
+      if (errorFilter === 'HAS') return errorName !== '';
+      if (errorFilter === 'ERROR') return errorName.startsWith('Error');
+      if (errorFilter === 'WARN') return errorName.startsWith('Warn');
+      return true;
+    });
   } finally {
     connection.release();
   }
@@ -3956,11 +4749,13 @@ export const getInsuranceOverview = async (options: {
   startDate?: string;
   endDate?: string;
   accountCode?: string;
+  valeTargetFilename?: string;
 }): Promise<Record<string, unknown>> => {
   const today = new Date().toISOString().slice(0, 10);
   const startDate = String(options.startDate || today.slice(0, 8) + '01').slice(0, 10);
   const endDate = String(options.endDate || today).slice(0, 10);
   const accountCode = String(options.accountCode || '').trim();
+  const valeTargetFilename = String(options.valeTargetFilename || '16แฟ้มFDH.xlsx').trim();
   const hosConnection = await getUTFConnection();
   const repConnection = await getRepstmConnection();
 
@@ -4788,6 +5583,42 @@ export const getInsuranceOverview = async (options: {
       statement_top_errors: statementTopErrors,
     };
 
+    let valeImportStatus: Record<string, unknown> | null = null;
+    if (valeTargetFilename) {
+      const likePattern = `%${valeTargetFilename}%`;
+      const [valeBatchRows] = await repConnection.query(
+        `SELECT
+           COUNT(*) AS batch_matches,
+           MAX(created_at) AS last_import_at
+         FROM repstm_import_batch
+         WHERE source_filename LIKE ?`,
+        [likePattern]
+      );
+      const [valeRepRows] = await repConnection.query(
+        `SELECT COUNT(*) AS rep_data_matches
+         FROM rep_data
+         WHERE filename LIKE ?`,
+        [likePattern]
+      );
+
+      const batchRow = Array.isArray(valeBatchRows) && valeBatchRows.length > 0
+        ? valeBatchRows[0] as Record<string, unknown>
+        : {};
+      const repRow = Array.isArray(valeRepRows) && valeRepRows.length > 0
+        ? valeRepRows[0] as Record<string, unknown>
+        : {};
+      const batchMatches = toNumber(batchRow.batch_matches);
+      const repDataMatches = toNumber(repRow.rep_data_matches);
+
+      valeImportStatus = {
+        target_filename: valeTargetFilename,
+        status: batchMatches > 0 || repDataMatches > 0 ? 'found' : 'missing',
+        batch_matches: batchMatches,
+        rep_data_matches: repDataMatches,
+        last_import_at: batchRow.last_import_at || null,
+      };
+    }
+
     return {
       startDate,
       endDate,
@@ -4801,6 +5632,7 @@ export const getInsuranceOverview = async (options: {
       valeRuleSuggestions: Array.from(valeSuggestionMap.values())
         .sort((a, b) => b.total - a.total || b.claimable_amount - a.claimable_amount)
         .slice(0, 20),
+      valeImportStatus,
       frequentEntryIssues,
       frequentSystemErrors,
       repAnalytics,
@@ -6835,6 +7667,71 @@ export const importFdhStatusForDateRange = async (options: {
         summary.errors += 1;
         const msg = err instanceof Error ? err.message : String(err);
         if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${vn}: ${msg}`);
+      }
+    }
+  } finally {
+    connection.release();
+  }
+  return summary;
+};
+
+export type FdhTrackResult = {
+  vn: string;
+  message: string;
+  stmPeriod: string;
+  actAmt: number | null;
+  settleAt: string;
+  httpStatus: number;
+  raw: unknown;
+};
+
+/** Track FDH claim status for a specific list of VNs (on-demand from UI) */
+export const trackFdhStatusForVns = async (options: {
+  token: string;
+  apiBaseUrl: string;
+  hospitalCode: string;
+  vns: string[];
+}): Promise<FdhImportSummary & { results: FdhTrackResult[] }> => {
+  const summary: FdhImportSummary & { results: FdhTrackResult[] } = {
+    total: 0, updated: 0, skipped: 0, errors: 0, errorMessages: [], results: [],
+  };
+  const connection = await getUTFConnection();
+  try {
+    const trackUrl = `${options.apiBaseUrl.replace(/\/+$/, '')}/api/v1/ucs/track_trans`;
+    summary.total = options.vns.length;
+    for (const vn of options.vns) {
+      if (!vn?.trim()) { summary.skipped += 1; continue; }
+      let httpStatus = 0;
+      try {
+        const apiRes = await fetch(trackUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${options.token}` },
+          body: JSON.stringify({ seq: vn }),
+          signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
+        });
+        httpStatus = apiRes.status;
+        let payload: Record<string, unknown> = {};
+        try { payload = await apiRes.json() as Record<string, unknown>; } catch { /* ignore */ }
+        const dataArr = Array.isArray(payload.data)
+          ? (payload.data as Record<string, unknown>[])
+          : (payload.data && typeof payload.data === 'object' ? [payload.data as Record<string, unknown>] : []);
+        const dataItem = dataArr[dataArr.length - 1] || {};
+        const message = normalizeImportCellValue(
+          dataItem.status ?? payload.message_th ?? payload.message ?? payload.messagecode ?? ''
+        );
+        const stmPeriod = normalizeImportCellValue(dataItem.stm_period ?? '');
+        const actAmt = dataItem.act_amt != null ? Number(dataItem.act_amt) : null;
+        const settleAt = normalizeImportCellValue(dataItem.settle_at ?? '');
+        await upsertFdhClaimStatusFromApi(
+          connection, vn, options.hospitalCode, message, stmPeriod, actAmt, settleAt, payload
+        );
+        summary.updated += 1;
+        summary.results.push({ vn, message, stmPeriod, actAmt, settleAt, httpStatus, raw: payload });
+      } catch (err) {
+        summary.errors += 1;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${vn}: ${msg}`);
+        summary.results.push({ vn, message: `ผิดพลาด: ${msg}`, stmPeriod: '', actAmt: null, settleAt: '', httpStatus, raw: null });
       }
     }
   } finally {

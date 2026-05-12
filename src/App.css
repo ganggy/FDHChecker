@@ -288,6 +288,23 @@
   min-width: 1240px;
 }
 
+.long-id-table--moph-vaccine {
+  min-width: max(100%, 1880px);
+}
+
+.data-table tr.row-warning td {
+  background: #fff7d6;
+}
+
+.data-table tr.row-danger td {
+  background: #ffe0e0;
+}
+
+.text-danger {
+  color: #dc2626;
+  font-weight: 700;
+}
+
 .long-id-table--authen th:nth-child(1),
 .long-id-table--authen td:nth-child(1) {
   width: 160px;

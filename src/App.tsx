@@ -18,6 +18,8 @@ import RejectedClaimTrackingPage from './pages/RejectedClaimTrackingPage';
 import { SpecificFundPage } from './pages/SpecificFundPage';
 import { SpecialMonitorPage } from './pages/SpecialMonitorPage';
 import { FsMonitorPage } from './pages/FsMonitorPage';
+import { MophDmhtClaimPage } from './pages/MophDmhtClaimPage';
+import { MophVaccineClaimPage } from './pages/MophVaccineClaimPage';
 import { GuidePage } from './pages/GuidePage';
 import { SettingsPage } from './pages/SettingsPage';
 import type { AppPage } from './utils/navigationState';
@@ -49,6 +51,8 @@ function App() {
     { page: 'specific', icon: '🎯', label: 'กองทุนพิเศษ' },
     { page: 'monitor', icon: '📈', label: 'มอนิเตอร์พิเศษ' },
     { page: 'fsMonitor', icon: '💰', label: 'มอนิเตอร์ FS' },
+    { page: 'mophDmht', icon: '🧪', label: 'MOPH DMHT' },
+    { page: 'mophVaccine', icon: '💉', label: 'MOPH Vaccine' },
     { page: 'guide', icon: '📚', label: 'คู่มือกองทุน', soft: true },
   ];
 
@@ -143,6 +147,8 @@ function App() {
         {currentPage === 'specific' && <SpecificFundPage />}
         {currentPage === 'monitor' && <SpecialMonitorPage />}
         {currentPage === 'fsMonitor' && <FsMonitorPage />}
+        {currentPage === 'mophDmht' && <MophDmhtClaimPage />}
+        {currentPage === 'mophVaccine' && <MophVaccineClaimPage />}
         {currentPage === 'preValidator' && <PreSubmitValidatorPage />}
         {currentPage === 'workQueue' && <WorkQueuePage />}
         {currentPage === 'rejectTracking' && <RejectedClaimTrackingPage />}

@@ -473,6 +473,222 @@ export const saveReceivableBatch = async (payload: {
   return json;
 };
 
+export interface MophDmhtCandidate {
+  vn: string;
+  diag: 'DM' | 'HT' | string;
+  cid?: string | null;
+  hn?: string | null;
+  patient_name?: string | null;
+  dob?: string | null;
+  age?: number | string | null;
+  sex?: string | null;
+  marrystatus?: string | null;
+  nation?: string | null;
+  occupation?: string | null;
+  visit_datetime?: string | null;
+  service_date?: string | null;
+  authencode?: string | null;
+  maininscl?: string | null;
+  pttypename?: string | null;
+  department?: string | null;
+  clinic?: string | null;
+  hospmain?: string | null;
+  hospsub?: string | null;
+  check_hba1c?: string | null;
+  result_hba1c?: string | null;
+  check_potassium?: string | null;
+  result_potassium?: string | null;
+  check_creatinine?: string | null;
+  result_creatinine?: string | null;
+  moph?: string | null;
+  transaction_uid?: string | null;
+  note?: string | null;
+  senddate?: string | null;
+  ready?: boolean;
+  missing_reason?: string | null;
+}
+
+export interface MophDmhtActionResult {
+  vn: string;
+  diag: 'DM' | 'HT' | string;
+  statusNo?: number;
+  message?: string;
+  transaction_uid?: string;
+  flag?: string;
+}
+
+export const fetchMophDmhtCandidates = async (params: {
+  startDate: string;
+  endDate: string;
+  diag?: string;
+  ucOnly?: boolean;
+  authenOnly?: boolean;
+  search?: string;
+  limit?: number;
+}): Promise<MophDmhtCandidate[]> => {
+  const query = new URLSearchParams();
+  query.set('startDate', params.startDate);
+  query.set('endDate', params.endDate);
+  if (params.diag && params.diag !== 'ALL') query.set('diag', params.diag);
+  if (params.ucOnly) query.set('ucOnly', '1');
+  if (params.authenOnly) query.set('authenOnly', '1');
+  if (params.search?.trim()) query.set('search', params.search.trim());
+  if (params.limit) query.set('limit', String(params.limit));
+
+  const response = await fetch(`/api/moph-claim/dmht/candidates?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดข้อมูล DMHT MOPH Claim ได้');
+  }
+  return json.data || [];
+};
+
+const postMophDmhtAction = async (
+  action: 'check' | 'send',
+  rows: MophDmhtCandidate[],
+  testZone?: boolean
+): Promise<MophDmhtActionResult[]> => {
+  const response = await fetch(`/api/moph-claim/dmht/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows, testZone }),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || `ทำรายการ MOPH DMHT ไม่สำเร็จ`);
+  }
+  return json.results || [];
+};
+
+export const checkMophDmhtRows = async (
+  rows: MophDmhtCandidate[],
+  testZone?: boolean
+) => postMophDmhtAction('check', rows, testZone);
+
+export const sendMophDmhtRows = async (
+  rows: MophDmhtCandidate[],
+  testZone?: boolean
+) => postMophDmhtAction('send', rows, testZone);
+
+export interface MophVaccineCandidate {
+  vn: string;
+  vaccine_code: string;
+  type: 'EPI' | 'dT' | 'HPV' | 'aP' | string;
+  cid?: string | null;
+  hn?: string | null;
+  patient_name?: string | null;
+  pname?: string | null;
+  fname?: string | null;
+  lname?: string | null;
+  dob?: string | null;
+  age_y?: number | string | null;
+  sex?: string | null;
+  marrystatus?: string | null;
+  nation?: string | null;
+  occupation?: string | null;
+  visit_datetime?: string | null;
+  service_date?: string | null;
+  diag?: string | null;
+  authencode?: string | null;
+  maininscl?: string | null;
+  pttypename?: string | null;
+  hospmain?: string | null;
+  hospsub?: string | null;
+  epi?: string | null;
+  preg_no?: number | string | null;
+  ga?: number | string | null;
+  vaccine_name?: string | null;
+  vaccine_note?: string | null;
+  dose?: number | string | null;
+  lot?: string | null;
+  dateexp?: string | null;
+  company?: string | null;
+  site?: string | null;
+  drugusage?: string | null;
+  doctorlicense?: string | null;
+  doctorname?: string | null;
+  moph?: string | null;
+  transaction_uid?: string | null;
+  note?: string | null;
+  senddate?: string | null;
+  errorname?: string | null;
+  ready?: boolean;
+  missing_reason?: string | null;
+}
+
+export interface MophVaccineActionResult {
+  vn: string;
+  vaccine_code: string;
+  type?: string;
+  statusNo?: number;
+  message?: string;
+  transaction_uid?: string;
+  flag?: string;
+}
+
+export const fetchMophVaccineCandidates = async (params: {
+  startDate: string;
+  endDate: string;
+  types?: string[];
+  ucOnly?: boolean;
+  authenOnly?: boolean;
+  errorFilter?: string;
+  sendFilter?: string;
+  search?: string;
+  limit?: number;
+}): Promise<MophVaccineCandidate[]> => {
+  const query = new URLSearchParams();
+  query.set('startDate', params.startDate);
+  query.set('endDate', params.endDate);
+  if (params.types?.length) query.set('types', params.types.join(','));
+  if (params.ucOnly) query.set('ucOnly', '1');
+  if (params.authenOnly) query.set('authenOnly', '1');
+  if (params.errorFilter && params.errorFilter !== 'ALL') query.set('errorFilter', params.errorFilter);
+  if (params.sendFilter && params.sendFilter !== 'ALL') query.set('sendFilter', params.sendFilter);
+  if (params.search?.trim()) query.set('search', params.search.trim());
+  if (params.limit) query.set('limit', String(params.limit));
+
+  const response = await fetch(`/api/moph-claim/vaccine/candidates?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดข้อมูลวัคซีน MOPH Claim ได้');
+  }
+  return json.data || [];
+};
+
+const postMophVaccineAction = async (
+  action: 'check' | 'send',
+  rows: MophVaccineCandidate[],
+  testZone?: boolean
+): Promise<MophVaccineActionResult[]> => {
+  const response = await fetch(`/api/moph-claim/vaccine/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows, testZone }),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ทำรายการวัคซีน MOPH Claim ไม่สำเร็จ');
+  }
+  return json.results || [];
+};
+
+export const checkMophVaccineRows = async (
+  rows: MophVaccineCandidate[],
+  testZone?: boolean
+) => postMophVaccineAction('check', rows, testZone);
+
+export const sendMophVaccineRows = async (
+  rows: MophVaccineCandidate[],
+  testZone?: boolean
+) => postMophVaccineAction('send', rows, testZone);
+
 // ---- Reconciliation types and service ----
 
 export interface ReconciliationRow {

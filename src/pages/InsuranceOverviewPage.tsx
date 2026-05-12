@@ -184,7 +184,16 @@ type OverviewData = {
   frequentEntryIssues?: FrequentEntryIssueRow[];
   frequentSystemErrors?: FrequentSystemErrors;
   repAnalytics?: RepAnalytics;
+  valeImportStatus?: {
+    target_filename?: string;
+    status?: string;
+    batch_matches?: number;
+    rep_data_matches?: number;
+    last_import_at?: string | null;
+  } | null;
 };
+
+const VALE_TARGET_FILENAME = '16แฟ้มFDH.xlsx';
 
 const money = (value: unknown) => Number(value || 0).toLocaleString('th-TH', {
   minimumFractionDigits: 2,
@@ -192,6 +201,16 @@ const money = (value: unknown) => Number(value || 0).toLocaleString('th-TH', {
 });
 
 const count = (value: unknown) => Number(value || 0).toLocaleString('th-TH');
+
+const formatThaiDateTime = (value?: string | null) => {
+  if (!value) return 'ยังไม่พบการนำเข้า';
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString('th-TH', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+};
 
 const firstDayOfMonth = () => {
   const today = new Date();
@@ -202,6 +221,7 @@ export const InsuranceOverviewPage = () => {
   const [startDate, setStartDate] = useState(firstDayOfMonth());
   const [endDate, setEndDate] = useState(formatLocalDateInput());
   const [accountCode, setAccountCode] = useState('');
+  const [valeTargetFilename, setValeTargetFilename] = useState(VALE_TARGET_FILENAME);
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -218,6 +238,7 @@ export const InsuranceOverviewPage = () => {
     try {
       const params = new URLSearchParams({ startDate, endDate });
       if (accountCode.trim()) params.set('accountCode', accountCode.trim());
+      params.set('valeTargetFilename', valeTargetFilename.trim() || VALE_TARGET_FILENAME);
       const resp = await fetch(`/api/insurance/overview?${params}`);
       const json = await resp.json();
       if (!resp.ok || !json.success) throw new Error(json.error || 'โหลดรายงานไม่สำเร็จ');
@@ -237,6 +258,7 @@ export const InsuranceOverviewPage = () => {
   }, []);
 
   const summary = data?.summary;
+  const valeImportStatus = data?.valeImportStatus;
   const repAnalytics = data?.repAnalytics;
   const repFinancial = repAnalytics?.financial;
   const opdCloseRate = summary && summary.opdVisits > 0 ? Math.round((summary.opdClosed / summary.opdVisits) * 100) : 0;
@@ -354,6 +376,15 @@ export const InsuranceOverviewPage = () => {
                 placeholder="เช่น 1102050101 หรือ UC"
               />
             </div>
+            <div className="form-group">
+              <label>ชื่อไฟล์ Vale ที่ต้องตรวจ</label>
+              <input
+                className="form-control"
+                value={valeTargetFilename}
+                onChange={(e) => setValeTargetFilename(e.target.value)}
+                placeholder="เช่น 16แฟ้มFDH.xlsx"
+              />
+            </div>
             <div className="workflow-filter-actions">
               <button className="btn btn-primary" onClick={loadData} disabled={loading}>
                 {loading ? 'กำลังคำนวณ...' : 'ดูรายงาน'}
@@ -402,6 +433,16 @@ export const InsuranceOverviewPage = () => {
               <span>OPD รายได้รวม</span>
               <strong>{money(summary.opdIncome)}</strong>
               <small>คาดรับลูกหนี้ {money(summary.opdExpectedReceivable)} ({summary.opdIncome > 0 ? Math.round((summary.opdExpectedReceivable / summary.opdIncome) * 100) : 0}%)</small>
+            </div>
+            <div className={`insurance-kpi-card ${valeImportStatus?.status === 'found' ? 'insurance-kpi-card--green' : 'insurance-kpi-card--rose'}`}>
+              <span>สถานะไฟล์ Vale</span>
+              <strong>{valeImportStatus?.status === 'found' ? 'พบไฟล์แล้ว' : 'ยังไม่พบไฟล์'}</strong>
+              <small>
+                {valeImportStatus?.target_filename || VALE_TARGET_FILENAME}
+                {' · batch '}{count(valeImportStatus?.batch_matches)}
+                {' · rep '}{count(valeImportStatus?.rep_data_matches)}
+              </small>
+              <small>นำเข้าล่าสุด: {formatThaiDateTime(valeImportStatus?.last_import_at)}</small>
             </div>
           </div>
 

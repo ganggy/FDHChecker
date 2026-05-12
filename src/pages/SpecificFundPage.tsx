@@ -57,6 +57,9 @@ export const SpecificFundPage: React.FC = () => {
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [fundVisibility, setFundVisibility] = useState<Record<string, boolean>>({});
     const [exportingFundId, setExportingFundId] = useState<string | null>(null);
+    const [trackingFdh, setTrackingFdh] = useState(false);
+    const [trackProgress, setTrackProgress] = useState<{ done: number; total: number; updated: number; errors: number } | null>(null);
+    const [trackResult, setTrackResult] = useState<{ success: boolean; message: string } | null>(null);
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
     const siteSettings = rules.site_settings as {
@@ -851,6 +854,47 @@ export const SpecificFundPage: React.FC = () => {
     const getStatusForFundRef = useRef(getStatusForFund);
     getStatusForFundRef.current = getStatusForFund;
 
+    const trackFdhStatus = async () => {
+        if (filteredData.length === 0) return;
+        const vns = filteredData.map((item: any) => String(item.vn || '')).filter(Boolean);
+        if (vns.length === 0) return;
+        setTrackingFdh(true);
+        setTrackResult(null);
+        setTrackProgress({ done: 0, total: vns.length, updated: 0, errors: 0 });
+        try {
+            const chunkSize = 50;
+            let totalUpdated = 0;
+            let totalErrors = 0;
+            for (let i = 0; i < vns.length; i += chunkSize) {
+                const chunk = vns.slice(i, i + chunkSize);
+                const res = await fetch('/api/fdh/track-vns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vns: chunk }),
+                });
+                const json = await res.json();
+                if (json.success) {
+                    totalUpdated += json.summary?.updated ?? 0;
+                    totalErrors += json.summary?.errors ?? 0;
+                } else {
+                    setTrackResult({ success: false, message: json.error || 'เกิดข้อผิดพลาด' });
+                    setTrackingFdh(false);
+                    setTrackProgress(null);
+                    return;
+                }
+                setTrackProgress({ done: Math.min(i + chunkSize, vns.length), total: vns.length, updated: totalUpdated, errors: totalErrors });
+            }
+            setTrackResult({ success: true, message: `ตรวจสอบสำเร็จ ${totalUpdated} รายการ${totalErrors > 0 ? ` (ผิดพลาด ${totalErrors} รายการ)` : ''}` });
+            // Refresh data to show new FDH status
+            void fetchFundData();
+        } catch (e) {
+            setTrackResult({ success: false, message: e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+        } finally {
+            setTrackingFdh(false);
+            setTrackProgress(null);
+        }
+    };
+
     const handleRowClick = (item: any) => {
         const mockRecord: CheckRecord = {
             id: 0,
@@ -1407,8 +1451,41 @@ export const SpecificFundPage: React.FC = () => {
                                 >
                                     📥 ส่งออก Excel
                                 </button>
+                                <button
+                                    className="btn"
+                                    style={{
+                                        padding: '6px 14px',
+                                        fontSize: '12px',
+                                        background: trackingFdh ? '#6c757d' : 'linear-gradient(135deg, #1e3c72, #2a5298)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: trackingFdh || filteredData.length === 0 ? 'not-allowed' : 'pointer',
+                                        opacity: filteredData.length === 0 ? 0.5 : 1,
+                                        fontWeight: 600,
+                                    }}
+                                    onClick={trackFdhStatus}
+                                    disabled={trackingFdh || filteredData.length === 0}
+                                    title="ตรวจสอบสถานะ FDH จาก NHSO API สำหรับรายการทั้งหมดในตาราง"
+                                >
+                                    {trackingFdh ? '⏳ กำลังตรวจสอบ...' : '🔍 ตรวจสอบสถานะ FDH'}
+                                </button>
                             </div>
                         </div>
+                        {trackProgress && (
+                            <div style={{ margin: '0 0 8px 0', padding: '10px 14px', background: 'linear-gradient(135deg,#1e3c72,#2a5298)', borderRadius: 8, color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <span style={{ flex: 1 }}>🔍 กำลังตรวจสอบสถานะ FDH: {trackProgress.done}/{trackProgress.total} รายการ (อัปเดตแล้ว {trackProgress.updated})</span>
+                                <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 4, height: 6, width: 120, overflow: 'hidden' }}>
+                                    <div style={{ background: '#00f2fe', height: '100%', width: `${Math.round((trackProgress.done / Math.max(trackProgress.total, 1)) * 100)}%`, transition: 'width 0.3s' }} />
+                                </div>
+                            </div>
+                        )}
+                        {trackResult && (
+                            <div style={{ margin: '0 0 8px 0', padding: '10px 14px', background: trackResult.success ? '#e8f5e9' : '#ffebee', borderRadius: 8, fontSize: 12, color: trackResult.success ? '#2e7d32' : '#c62828', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${trackResult.success ? '#a5d6a7' : '#ef9a9a'}` }}>
+                                <span>{trackResult.success ? '✅' : '❌'} {trackResult.message}</span>
+                                <button onClick={() => setTrackResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit' }}>✕</button>
+                            </div>
+                        )}
                         {loading && <div className="loading-container"><div className="spinner" /><span>กำลังโหลดข้อมูล...</span></div>}
                         {error && <div className="alert alert-danger">{error}</div>}
                         {!loading && !error && (

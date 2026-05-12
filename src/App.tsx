@@ -56,6 +56,15 @@ function App() {
     { page: 'guide', icon: '📚', label: 'คู่มือกองทุน', soft: true },
   ];
 
+  const toolNavGroups: Array<{ label: string; pages: AppPage[] }> = [
+    { label: 'ส่งข้อมูล', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
+    { label: 'ติดตาม', pages: ['workQueue', 'rejectTracking', 'repDeny'] },
+    { label: 'บัญชี', pages: ['receivable', 'reconciliation', 'insuranceOverview', 'admin'] },
+    { label: 'กองทุน/MOPH', pages: ['specific', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide'] },
+  ];
+
+  const toolNavItemByPage = new Map(toolNavItems.map((item) => [item.page, item]));
+
   useEffect(() => {
     const handleNavigate = (event: Event) => {
       const customEvent = event as CustomEvent<{ page?: AppPage }>;
@@ -114,16 +123,27 @@ function App() {
 
           <div className="navbar-menu-group navbar-menu-group--tools">
             <div className="navbar-group-label">เครื่องมือ</div>
-            <div className="navbar-nav">
-              {toolNavItems.map((item) => (
-                <button
-                  key={item.page}
-                  className={`nav-btn ${item.soft ? 'nav-btn--soft' : ''} ${currentPage === item.page ? 'active' : ''}`}
-                  onClick={() => setCurrentPage(item.page)}
-                >
-                  <span className="nav-btn-icon">{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
+            <div className="navbar-tool-sections">
+              {toolNavGroups.map((group) => (
+                <div className="navbar-tool-section" key={group.label}>
+                  <div className="navbar-tool-section-label">{group.label}</div>
+                  <div className="navbar-nav navbar-nav--tools">
+                    {group.pages.map((page) => {
+                      const item = toolNavItemByPage.get(page);
+                      if (!item) return null;
+                      return (
+                        <button
+                          key={item.page}
+                          className={`nav-btn ${item.soft ? 'nav-btn--soft' : ''} ${currentPage === item.page ? 'active' : ''}`}
+                          onClick={() => setCurrentPage(item.page)}
+                        >
+                          <span className="nav-btn-icon">{item.icon}</span>
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               ))}
             </div>
           </div>

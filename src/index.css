@@ -665,13 +665,52 @@ p {
   flex: 1.1 1 500px;
 }
 
-.navbar-menu-group--tools .navbar-nav {
+.navbar-tool-sections {
   display: grid;
-  grid-template-columns: repeat(9, minmax(104px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.navbar-tool-section {
+  min-width: 0;
+  padding: 7px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.navbar-tool-section-label {
+  margin: 0 3px 6px;
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.navbar-menu-group--tools .navbar-nav--tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   flex-wrap: initial;
   overflow-x: visible;
-  row-gap: 6px;
+  gap: 6px;
+}
+
+.navbar-menu-group--tools .navbar-nav--tools .nav-btn {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.navbar-menu-group--tools .navbar-nav--tools .nav-btn span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .navbar-guide-rail {
@@ -3282,6 +3321,14 @@ textarea:focus {
   }
 
   .navbar-menu-group--tools .navbar-nav {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .navbar-tool-sections {
+    grid-template-columns: 1fr;
+  }
+
+  .navbar-nav--tools {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
 

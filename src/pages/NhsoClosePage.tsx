@@ -73,6 +73,13 @@ const defaultSettings: NhsoCloseSettings = {
   maxDays: 4,
 };
 
+const splitDateTime = (value?: string) => {
+  const raw = String(value || '').replace('T', ' ').trim();
+  if (!raw) return { date: '-', time: '' };
+  const [date, time] = raw.split(' ');
+  return { date: date || '-', time: time ? time.slice(0, 8) : '' };
+};
+
 export const NhsoClosePage: React.FC = () => {
   const [settings, setSettings] = useState<NhsoCloseSettings>(defaultSettings);
   const [startDate, setStartDate] = useState(formatLocalDateDaysAgo(1));
@@ -460,7 +467,7 @@ export const NhsoClosePage: React.FC = () => {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card nhso-close-table-card" style={{ marginBottom: 16 }}>
         <div className="card-header">
           <div className="card-title">รายการพร้อมปิดสิทธิ NHSO</div>
           <span className="badge badge-info">{loading ? 'กำลังโหลด...' : `${rows.length} รายการ`}</span>
@@ -487,25 +494,29 @@ export const NhsoClosePage: React.FC = () => {
                 {rows.length > 0 ? rows.map((row) => {
                   const disabled = Number(row.can_close || 0) !== 1;
                   const isSelected = selectedVns.includes(row.vn);
+                  const visitDateTime = splitDateTime(row.vst_datetime);
                   return (
-                    <tr key={row.vn} className={isSelected ? 'row-selected' : ''}>
-                      <td className="table-index-cell">
+                    <tr key={row.vn} className={`${isSelected ? 'row-selected' : ''} ${disabled ? 'row-muted' : ''}`}>
+                      <td className="table-index-cell nhso-select-cell">
                         <input type="checkbox" checked={isSelected} disabled={disabled} onChange={() => toggleSelection(row.vn)} />
                       </td>
                       <td className="table-cell-nowrap workflow-id-cell">{row.vn}</td>
                       <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
                       <td className="workflow-person-cell">
-                        <div style={{ fontWeight: 700 }}>{row.patient_name || '-'}</div>
-                        <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{row.cid || '-'}</div>
+                        <div className="nhso-patient-name">{row.patient_name || '-'}</div>
+                        <div className="nhso-subtext mono">{row.cid || '-'}</div>
                       </td>
-                      <td className="table-cell-nowrap">{row.vst_datetime || '-'}</td>
-                      <td>
-                        <div>{row.maininscl || '-'}</div>
-                        <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{row.pttypename || '-'}</div>
+                      <td className="nhso-datetime-cell">
+                        <div className="mono">{visitDateTime.date}</div>
+                        {visitDateTime.time && <div className="nhso-subtext mono">{visitDateTime.time}</div>}
+                      </td>
+                      <td className="nhso-right-cell">
+                        <div className="nhso-maininscl">{row.maininscl || '-'}</div>
+                        <div className="nhso-subtext">{row.pttypename || '-'}</div>
                       </td>
                       <td className="table-cell-nowrap workflow-code-cell">{row.close_code || '-'}</td>
                       <td className="table-cell-nowrap">
-                        <span className={`badge ${row.close_status === 'OK' ? 'badge-success' : row.close_status === 'Error' ? 'badge-danger' : row.close_status === 'Cancel' ? 'badge-warning' : 'badge-info'}`}>
+                        <span className={`nhso-status-pill ${row.close_status === 'OK' ? 'nhso-status-pill--success' : row.close_status === 'Error' ? 'nhso-status-pill--danger' : row.close_status === 'Cancel' ? 'nhso-status-pill--warning' : 'nhso-status-pill--info'}`}>
                           {row.close_status || (disabled ? 'ปิดสิทธิแล้ว' : 'ต้องปิดสิทธิ')}
                         </span>
                       </td>

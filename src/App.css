@@ -362,34 +362,166 @@
 }
 
 .long-id-table--nhso-close {
-  min-width: max(100%, 1460px);
+  min-width: max(100%, 1320px);
+}
+
+.long-id-table--nhso-close.data-table th:first-child,
+.long-id-table--nhso-close.data-table td:first-child {
+  width: 54px;
+  min-width: 54px;
+  max-width: 54px;
+  text-align: center;
 }
 
 .long-id-table--nhso-close th:nth-child(2),
 .long-id-table--nhso-close td:nth-child(2) {
-  width: 155px;
+  width: 150px;
 }
 
 .long-id-table--nhso-close th:nth-child(3),
-.long-id-table--nhso-close td:nth-child(3),
+.long-id-table--nhso-close td:nth-child(3) {
+  width: 120px;
+}
+
 .long-id-table--nhso-close th:nth-child(5),
-.long-id-table--nhso-close td:nth-child(5),
+.long-id-table--nhso-close td:nth-child(5) {
+  width: 150px;
+}
+
 .long-id-table--nhso-close th:nth-child(7),
-.long-id-table--nhso-close td:nth-child(7),
+.long-id-table--nhso-close td:nth-child(7) {
+  width: 120px;
+}
+
 .long-id-table--nhso-close th:nth-child(8),
-.long-id-table--nhso-close td:nth-child(8),
+.long-id-table--nhso-close td:nth-child(8) {
+  width: 130px;
+}
+
 .long-id-table--nhso-close th:nth-child(9),
 .long-id-table--nhso-close td:nth-child(9),
 .long-id-table--nhso-close th:nth-child(10),
 .long-id-table--nhso-close td:nth-child(10),
 .long-id-table--nhso-close th:nth-child(11),
 .long-id-table--nhso-close td:nth-child(11) {
-  width: 112px;
+  width: 105px;
 }
 
 .long-id-table--nhso-close th:nth-child(4),
 .long-id-table--nhso-close td:nth-child(4) {
-  width: 230px;
+  width: 250px;
+}
+
+.long-id-table--nhso-close th:nth-child(6),
+.long-id-table--nhso-close td:nth-child(6) {
+  width: 210px;
+}
+
+.nhso-close-table-card .modal-table-wrap {
+  max-height: 62vh;
+  overflow: auto;
+}
+
+.long-id-table--nhso-close thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 0.72rem 0.75rem;
+  font-size: 0.72rem;
+}
+
+.long-id-table--nhso-close tbody td {
+  padding: 0.62rem 0.75rem;
+  line-height: 1.35;
+  vertical-align: middle;
+}
+
+.long-id-table--nhso-close tbody tr.row-selected td {
+  background: rgba(219, 234, 254, 0.76);
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.long-id-table--nhso-close tbody tr.row-muted td {
+  color: #64748b;
+}
+
+.nhso-select-cell input {
+  width: 15px;
+  height: 15px;
+}
+
+.nhso-patient-name {
+  color: #0f172a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.nhso-subtext {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+
+.nhso-datetime-cell {
+  white-space: nowrap;
+  color: #1e3a8a;
+}
+
+.nhso-right-cell {
+  white-space: normal;
+}
+
+.nhso-maininscl {
+  display: inline-flex;
+  align-items: center;
+  min-width: 42px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.nhso-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  padding: 0.32rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.nhso-status-pill--success {
+  border-color: rgba(34, 197, 94, 0.32);
+  background: rgba(220, 252, 231, 0.9);
+  color: #15803d;
+}
+
+.nhso-status-pill--danger {
+  border-color: rgba(239, 68, 68, 0.32);
+  background: rgba(254, 226, 226, 0.9);
+  color: #dc2626;
+}
+
+.nhso-status-pill--warning {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(254, 243, 199, 0.92);
+  color: #b45309;
+}
+
+.nhso-status-pill--info {
+  border-color: rgba(14, 165, 233, 0.28);
+  background: rgba(224, 242, 254, 0.92);
+  color: #0369a1;
 }
 
 .long-id-table--nhso-history {

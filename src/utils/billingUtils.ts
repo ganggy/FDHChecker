@@ -317,11 +317,9 @@ export const evaluateBillingLogic = (item: any) => {
             addWarningFundNote(fundNotes, 'เสริมธาตุเหล็ก', ironNearMissing, 'drug');
         }
 
-        const ferrokidAgeYears = Number(item?.age_y ?? item?.age ?? -1);
         const ferrokidAgeMonths = Number(item?.age_month ?? -1);
         const hasFerrokidAge = toBool(item?.ferrokid_age_eligible)
-            || (ferrokidAgeMonths >= 2 && ferrokidAgeMonths <= 144)
-            || (ferrokidAgeYears >= 0 && ferrokidAgeYears <= 12);
+            || (ferrokidAgeMonths >= 6 && ferrokidAgeMonths <= 12);
         const hasFerrokidDiag = toBool(item?.has_ferrokid_diag) || hasDiagCode(item, ['Z130']);
         const hasFerrokidMed = toBool(item?.has_ferrokid_med) || toBool(item?.has_ferrokid);
         const ferrokidNearMissing = [

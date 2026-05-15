@@ -34,7 +34,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
     { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
-    { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
+    { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
     { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + Anti-HCV' },
     { id: 'hepb', name: 'ไวรัสตับอักเสบบี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + HBsAg' },
@@ -686,11 +686,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         }
 
         if (fundId === 'ferrokid_child') {
-            const ageYears = Number(item?.age_y ?? item?.age ?? -1);
             const ageMonths = Number(item?.age_month ?? -1);
             const hasAge = toFlag(item?.ferrokid_age_eligible)
-                || (ageMonths >= 2 && ageMonths <= 144)
-                || (ageYears >= 0 && ageYears <= 12);
+                || (ageMonths >= 6 && ageMonths <= 12);
             const hasDiag = toFlag(item?.has_ferrokid_diag) || hasDiagCodes(item, ['Z130']);
             const hasMed = toFlag(item?.has_ferrokid_med) || toFlag(item?.has_ferrokid);
             const isMatched = hasAge && hasDiag && hasMed;
@@ -698,7 +696,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(true, '', [
-                    { met: hasAge, label: ' อายุ 2 เดือน-12 ปี' },
+                    { met: hasAge, label: ' อายุ 6-12 เดือน' },
                     { met: hasDiag, label: ' Diagnosis Z130' },
                     { met: hasMed, label: ' ยา Ferrokid' },
                 ], hasMed || hasDiag),
@@ -2243,7 +2241,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         <td style={{ textAlign: 'center' }}>
                                                             <strong style={{
                                                                 color: activeFund === 'ferrokid_child'
-                                                                    ? (Number(item.age_month ?? -1) >= 2 && Number(item.age_month ?? -1) <= 144 ? 'var(--success)' : 'var(--danger)')
+                                                                    ? (Number(item.age_month ?? -1) >= 6 && Number(item.age_month ?? -1) <= 12 ? 'var(--success)' : 'var(--danger)')
                                                                     : (item.age >= 13 && item.age <= 45 ? 'var(--success)' : 'var(--danger)')
                                                             }}>
                                                                 {activeFund === 'ferrokid_child' && item.age_month != null

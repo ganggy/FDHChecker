@@ -242,10 +242,10 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
     {
         id: 'ferrokid_child',
         name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)',
-        description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)',
+        description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)',
         claimChannel: 'KTB',
         recordingSystem: 'KTB ตามประกาศ PPFS 2569',
-        conditions: ['อายุ 2 เดือน-12 ปี', 'Diagnosis Z130', 'มียา Ferrokid']
+        conditions: ['อายุ 6-12 เดือน', 'Diagnosis Z130', 'มียา Ferrokid']
     },
     {
         id: 'chemo',

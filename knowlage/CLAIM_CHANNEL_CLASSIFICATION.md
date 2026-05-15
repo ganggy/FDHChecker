@@ -25,7 +25,7 @@
 | Hepatitis B | KTB | เกิดก่อน พ.ศ. 2535, `Z11.5`, HBsAg |
 | ซิฟิลิสประชาชนทั่วไปเพศชาย | KTB | lab Treponema/Syphilis/RPR/VDRL/TPHA/TPPA; แยกจาก ANC |
 | โลหิตจางเด็ก | KTB | Hb/Hct ตามช่วงอายุ 6-12 เดือน และ 3-6 ปี |
-| ยาเสริมธาตุเหล็กเด็ก | KTB | เด็ก 2 เดือน-5 ปี และ 6-12 ปี ตามประกาศ |
+| ยาเสริมธาตุเหล็กเด็ก (Ferrokid) | KTB | เฉพาะเด็กอายุ 6-12 เดือน |
 | Latent TB | NTIP/TB Data Hub | IGRA, specimen, lab; แยกค่าบริการเจาะเลือด/ส่ง specimen/lab |
 | ANC/ANC lab/ANC ultrasound/ANC dental | e-Claim/KTB | เขต 1-12 e-Claim, เขต 13 KTB ตามเอกสาร |
 | Mental Health Counselling | e-Claim | age 12+, ST-5/9Q, individual counselling frequency limit |

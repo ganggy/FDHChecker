@@ -6212,11 +6212,11 @@ export const getCheckData = async (
             THEN 1
           ELSE 0
         END as has_iron,
-        CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 2 AND 144 THEN 1 ELSE 0 END as ferrokid_age_eligible,
+        CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12 THEN 1 ELSE 0 END as ferrokid_age_eligible,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)} THEN 1 ELSE 0 END as has_ferrokid_diag,
         CASE WHEN ${buildFerrokidMedExistsSql('ovst')} THEN 1 ELSE 0 END as has_ferrokid_med,
         CASE
-          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 2 AND 144
+          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12
             AND ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)}
             AND ${buildFerrokidMedExistsSql('ovst')}
             THEN 1
@@ -6895,11 +6895,11 @@ export const getEligibleVisits = async (
             THEN 1
           ELSE 0
         END as has_iron,
-        CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 2 AND 144 THEN 1 ELSE 0 END as ferrokid_age_eligible,
+        CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12 THEN 1 ELSE 0 END as ferrokid_age_eligible,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)} THEN 1 ELSE 0 END as has_ferrokid_diag,
         CASE WHEN ${buildFerrokidMedExistsSql('ovst')} THEN 1 ELSE 0 END as has_ferrokid_med,
         CASE
-          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 2 AND 144
+          WHEN TIMESTAMPDIFF(MONTH, pt.birthday, ovst.vstdate) BETWEEN 6 AND 12
             AND ${buildDiagnosisMatchSql('ovst', 'v', IRON_DX_CODES)}
             AND ${buildFerrokidMedExistsSql('ovst')}
             THEN 1
@@ -8581,11 +8581,11 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           v.age_y as age,
           TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) as age_month,
           v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
-          CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 2 AND 144 THEN 'Y' ELSE 'N' END as ferrokid_age_eligible,
+          CASE WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12 THEN 'Y' ELSE 'N' END as ferrokid_age_eligible,
           CASE WHEN ${buildDiagnosisMatchSql('o', 'v', IRON_DX_CODES)} THEN 'Y' ELSE 'N' END as has_ferrokid_diag,
           CASE WHEN ${buildFerrokidMedExistsSql('o')} THEN 'Y' ELSE 'N' END as has_ferrokid_med,
           CASE
-            WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 2 AND 144
+            WHEN TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12
               AND ${buildDiagnosisMatchSql('o', 'v', IRON_DX_CODES)}
               AND ${buildFerrokidMedExistsSql('o')}
             THEN 'Y' ELSE 'N'
@@ -8596,7 +8596,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
-          AND TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 2 AND 144
+          AND TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 6 AND 12
           AND (
             ${buildFerrokidMedExistsSql('o')}
             OR ${buildDiagnosisMatchSql('o', 'v', IRON_DX_CODES)}

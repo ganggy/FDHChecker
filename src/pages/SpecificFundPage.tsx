@@ -32,6 +32,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
     { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
+    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
@@ -178,6 +179,7 @@ export const SpecificFundPage: React.FC = () => {
             'fpg_screening': { bg: 'linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)', shadow: 'rgba(255, 75, 43, 0.2)' },
             'cholesterol_screening': { bg: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)', shadow: 'rgba(247, 151, 30, 0.2)' },
             'anemia_screening': { bg: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)', shadow: 'rgba(238, 156, 167, 0.2)' },
+            'syphilis_screening_male': { bg: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)', shadow: 'rgba(20, 184, 166, 0.22)' },
             'iron_supplement': { bg: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', shadow: 'rgba(135, 0, 0, 0.2)' },
             'ferrokid_child': { bg: 'linear-gradient(135deg, #c31432 0%, #240b36 100%)', shadow: 'rgba(195, 20, 50, 0.22)' },
             'anc_ultrasound': { bg: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', shadow: 'rgba(33, 147, 176, 0.2)' },
@@ -562,6 +564,26 @@ export const SpecificFundPage: React.FC = () => {
                 undefined,
                 isMatched,
                 matchedConditions
+            );
+        }
+
+        if (fundId === 'syphilis_screening_male') {
+            const isMale = String(item?.sex ?? '').trim() === '1';
+            const hasLab = toFlag(item?.has_syphilis_lab) || hasValue(item?.syphilis_lab_names) || hasValue(item?.syphilis_service_names);
+            const isMatched = isMale && hasLab;
+            if (hasLab || isMale) subfunds.push('🧪 คัดกรองซิฟิลิส (ชาย)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    isMale ? '' : ' เพศชาย',
+                    hasLab ? '' : ' Lab Treponema/Syphilis',
+                ].filter(Boolean),
+                hasLab && !isMale ? 'ไม่ใช่ประชาชนทั่วไปเพศชาย' : undefined,
+                isMatched,
+                [
+                    isMale ? 'เพศชาย' : '',
+                    hasLab ? 'Lab Treponema/Syphilis' : '',
+                ].filter(Boolean)
             );
         }
 
@@ -1099,6 +1121,7 @@ export const SpecificFundPage: React.FC = () => {
                             fpg_screening: { gradient: 'linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)', accent: '#ff4b2b', light: '#ffe5e0' },
                             cholesterol_screening: { gradient: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)', accent: '#ffd200', light: '#fffce0' },
                             anemia_screening: { gradient: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)', accent: '#ffdde1', light: '#ffe5e8' },
+                            syphilis_screening_male: { gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)', accent: '#14b8a6', light: '#ccfbf1' },
                             iron_supplement: { gradient: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', accent: '#c86464', light: '#ffe0e0' },
                             ferrokid_child: { gradient: 'linear-gradient(135deg, #c31432 0%, #240b36 100%)', accent: '#c31432', light: '#ffe1ea' },
                             anc_ultrasound: { gradient: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', accent: '#6dd5ed', light: '#e0f7ff' },
@@ -1190,6 +1213,7 @@ export const SpecificFundPage: React.FC = () => {
                                             'fpg_screening': '🩸',
                                             'cholesterol_screening': '🧪',
                                             'anemia_screening': '🩸',
+                                            'syphilis_screening_male': '🧪',
                                             'iron_supplement': '💊',
                                             'ferrokid_child': '🧒',
                                             'anc_ultrasound': '🔊',
@@ -1504,7 +1528,8 @@ export const SpecificFundPage: React.FC = () => {
                                     <th style={{ width: 120 }}>VN / HN</th>
                                     <th style={{ width: 150 }}>ชื่อผู้ป่วย / CID</th>
                                     <th style={{ width: 140 }}>สิทธิ์ (PTType)</th>
-                                    <th style={{ width: 105 }}>วันที่รับบริการ</th>                                    {activeFund === 'palliative' && (
+                                    <th style={{ width: 105 }}>วันที่รับบริการ</th>
+                                    {activeFund === 'palliative' && (
                                         <>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z515)</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z718)</th>
@@ -1618,6 +1643,13 @@ export const SpecificFundPage: React.FC = () => {
                                             <th style={{ width: 110, textAlign: 'center' }}>Authen Code</th>
                                         </>
                                     )}
+                                    {activeFund === 'syphilis_screening_male' && (
+                                        <>
+                                            <th style={{ width: 70, textAlign: 'center' }}>เพศ</th>
+                                            <th style={{ width: 220, textAlign: 'left' }}>Lab ซิฟิลิส</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>Authen Code</th>
+                                        </>
+                                    )}
                                     {(activeFund === 'iron_supplement' || activeFund === 'ferrokid_child') && (
                                         <>
                                             <th style={{ width: 60, textAlign: 'center' }}>อายุ</th>
@@ -1648,7 +1680,8 @@ export const SpecificFundPage: React.FC = () => {
                                     <th style={{ width: 100, textAlign: 'right' }}>Fdh_Act_Amt</th>
                                     <th style={{ width: 120, textAlign: 'center' }}>Fdh_Settle_At</th>
                                 </tr>
-                            </thead>                            <tbody>
+                            </thead>
+                            <tbody>
                                 {filteredData.length === 0 ? (
                                     <tr><td colSpan={100} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>ไม่พบข้อมูล{showIncompleteOnly ? ' ไม่สมบูรณ์' : 'ในช่วงวันที่เลือก'}</td></tr>
                                 ) : (                                    filteredData.map((item, index) => {
@@ -1677,7 +1710,8 @@ export const SpecificFundPage: React.FC = () => {
                                                 <td style={{ padding: '6px 8px' }}>
                                                     <div style={{ fontSize: 11 }}>{item.serviceDate}</div>
                                                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.vsttime}</div>
-                                                </td>{activeFund === 'palliative' && (
+                                                </td>
+                                                {activeFund === 'palliative' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.z515_code
@@ -1944,6 +1978,28 @@ export const SpecificFundPage: React.FC = () => {
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.pdx ? <span className="badge badge-primary">{item.pdx}</span> : '-'}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <span className="badge badge-success">{item.authencode || '-'}</span>
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {activeFund === 'syphilis_screening_male' && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <span className={`badge ${String(item.sex ?? '').trim() === '1' ? 'badge-success' : 'badge-danger'}`}>
+                                                                {String(item.sex ?? '').trim() === '1' ? 'ชาย' : String(item.sex ?? '').trim() === '2' ? 'หญิง' : '-'}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--primary)' }}>
+                                                                {item.syphilis_lab_names || item.syphilis_service_names || '-'}
+                                                            </div>
+                                                            {item.syphilis_results && (
+                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+                                                                    ผล: {item.syphilis_results}
+                                                                </div>
+                                                            )}
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             <span className="badge badge-success">{item.authencode || '-'}</span>

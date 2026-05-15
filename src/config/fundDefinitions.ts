@@ -162,6 +162,17 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         caution: anemiaRule?.caution || 'กองทุนนี้ต้องดู “ช่วงอายุ + ชนิดแลป” ให้ตรงกับเกณฑ์ก่อน'
       },
     {
+        id: 'syphilis_screening_male',
+        name: 'คัดกรองซิฟิลิส (ชาย)',
+        description: 'บริการคัดกรองโรคซิฟิลิสในประชาชนทั่วไปเพศชาย',
+        conditions: [
+            'ประชาชนทั่วไปเพศชาย',
+            'มี Lab Treponema Pallidum Antibody หรือรายการตรวจซิฟิลิส',
+            'รองรับชื่อ Lab/บริการกลุ่ม Treponema, Syphilis, RPR, VDRL, TPHA, TPPA'
+        ],
+        caution: 'ตรวจสอบความเหมาะสมของกลุ่มเป้าหมายตามประกาศกองทุน และผลตรวจที่ผูกกับ visit ให้ถูกต้อง'
+    },
+    {
         id: 'iron_supplement',
         name: 'เสริมธาตุเหล็ก',
         description: 'ยาเสริมธาตุเหล็ก',

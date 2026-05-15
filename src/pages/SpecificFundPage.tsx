@@ -35,6 +35,11 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)' },
+    { id: 'mental_health_counselling', name: 'ปรึกษาสุขภาพจิต', description: 'อายุ 12 ปีขึ้นไป + ST-5/9Q + counselling' },
+    { id: 'gender_affirming_hormone', name: 'ฮอร์โมนยืนยันเพศสภาพ', description: 'KTB/VMI + hormone protocol' },
+    { id: 'latent_tb_screening', name: 'คัดกรอง Latent TB', description: 'IGRA / NTIP/TB Data Hub' },
+    { id: 'osteoporosis_screening', name: 'คัดกรองกระดูกพรุน', description: 'หญิง 60 ปีขึ้นไป + FRAX/DXA/BMD' },
+    { id: 'autism_tdas_screening', name: 'คัดกรอง TDAS', description: 'เด็ก 12-60 เดือน + TDAS' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
     { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + Anti-HCV' },
     { id: 'hepb', name: 'ไวรัสตับอักเสบบี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + HBsAg' },
@@ -235,6 +240,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             'syphilis_screening_male': { bg: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)', shadow: 'rgba(20, 184, 166, 0.22)' },
             'iron_supplement': { bg: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', shadow: 'rgba(135, 0, 0, 0.2)' },
             'ferrokid_child': { bg: 'linear-gradient(135deg, #c31432 0%, #240b36 100%)', shadow: 'rgba(195, 20, 50, 0.22)' },
+            'mental_health_counselling': { bg: 'linear-gradient(135deg, #2563eb 0%, #14b8a6 100%)', shadow: 'rgba(37, 99, 235, 0.2)' },
+            'gender_affirming_hormone': { bg: 'linear-gradient(135deg, #db2777 0%, #f97316 100%)', shadow: 'rgba(219, 39, 119, 0.2)' },
+            'latent_tb_screening': { bg: 'linear-gradient(135deg, #334155 0%, #0f766e 100%)', shadow: 'rgba(51, 65, 85, 0.2)' },
+            'osteoporosis_screening': { bg: 'linear-gradient(135deg, #64748b 0%, #38bdf8 100%)', shadow: 'rgba(100, 116, 139, 0.2)' },
+            'autism_tdas_screening': { bg: 'linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)', shadow: 'rgba(124, 58, 237, 0.2)' },
             'anc_ultrasound': { bg: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', shadow: 'rgba(33, 147, 176, 0.2)' },
             'anc_lab_1': { bg: 'linear-gradient(135deg, #3a1c71 0%, #d76d77 50%, #ffaf7b 100%)', shadow: 'rgba(58, 28, 113, 0.2)' },
             'anc_lab_2': { bg: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', shadow: 'rgba(30, 60, 114, 0.2)' },
@@ -702,6 +712,66 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 ], hasMed || hasDiag),
                 undefined,
                 isMatched
+            );
+        }
+
+        const pp2569Labels: Record<string, { label: string; age: string; evidence: string; channel: string; requireSex?: string }> = {
+            mental_health_counselling: {
+                label: 'ปรึกษาสุขภาพจิต',
+                age: 'อายุ 12 ปีขึ้นไป',
+                evidence: 'ST-5/9Q หรือบริการ counselling',
+                channel: 'e-Claim',
+            },
+            gender_affirming_hormone: {
+                label: 'ฮอร์โมนยืนยันเพศสภาพ',
+                age: 'ตาม protocol 1-4',
+                evidence: 'บริการ/แล็บ/ยา hormone',
+                channel: 'KTB/VMI',
+            },
+            latent_tb_screening: {
+                label: 'คัดกรอง Latent TB',
+                age: 'กลุ่มเสี่ยงตามแนวทาง TB',
+                evidence: 'IGRA หรือบริการคัดกรองวัณโรคระยะแฝง',
+                channel: 'NTIP/TB Data Hub',
+            },
+            osteoporosis_screening: {
+                label: 'คัดกรองกระดูกพรุน',
+                age: 'หญิงอายุ 60 ปีขึ้นไป',
+                evidence: 'FRAX/DXA/BMD',
+                channel: 'KTB',
+                requireSex: '2',
+            },
+            autism_tdas_screening: {
+                label: 'คัดกรอง TDAS',
+                age: 'เด็ก 12-60 เดือน',
+                evidence: 'TDAS หรือบริการคัดกรองออทิสติก',
+                channel: 'KTB',
+            },
+        };
+
+        if (pp2569Labels[fundId]) {
+            const meta = pp2569Labels[fundId];
+            const hasAge = toFlag(item?.age_eligible) || !item?.age_eligible;
+            const hasSex = meta.requireSex ? String(item?.sex ?? '').trim() === meta.requireSex : true;
+            const hasEvidence = toFlag(item?.has_specific_evidence) || hasValue(item?.specific_lab_names) || hasValue(item?.specific_service_names);
+            const hasDiag = toFlag(item?.has_specific_diag) || hasValue(item?.specific_diags);
+            const isMatched = hasAge && hasSex && hasEvidence;
+            if (hasAge || hasEvidence || hasDiag) subfunds.push(`${meta.label} (${meta.channel})`);
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasAge ? '' : ` ${meta.age}`,
+                    hasSex ? '' : ' เพศหญิง',
+                    hasEvidence ? '' : ` ${meta.evidence}`,
+                ].filter(Boolean),
+                hasDiag && !hasEvidence ? 'พบ diagnosis ใกล้เคียง แต่ยังไม่พบหลักฐานบริการ/lab' : undefined,
+                isMatched,
+                [
+                    hasAge ? meta.age : '',
+                    hasSex ? '' : '',
+                    hasEvidence ? meta.evidence : '',
+                    meta.channel,
+                ].filter(Boolean)
             );
         }
 
@@ -1244,6 +1314,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                             syphilis_screening_male: { gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)', accent: '#14b8a6', light: '#ccfbf1' },
                             iron_supplement: { gradient: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', accent: '#c86464', light: '#ffe0e0' },
                             ferrokid_child: { gradient: 'linear-gradient(135deg, #c31432 0%, #240b36 100%)', accent: '#c31432', light: '#ffe1ea' },
+                            mental_health_counselling: { gradient: 'linear-gradient(135deg, #2563eb 0%, #14b8a6 100%)', accent: '#14b8a6', light: '#e0f7f4' },
+                            gender_affirming_hormone: { gradient: 'linear-gradient(135deg, #db2777 0%, #f97316 100%)', accent: '#f97316', light: '#fff1e6' },
+                            latent_tb_screening: { gradient: 'linear-gradient(135deg, #334155 0%, #0f766e 100%)', accent: '#0f766e', light: '#e2e8f0' },
+                            osteoporosis_screening: { gradient: 'linear-gradient(135deg, #64748b 0%, #38bdf8 100%)', accent: '#38bdf8', light: '#e0f7ff' },
+                            autism_tdas_screening: { gradient: 'linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)', accent: '#06b6d4', light: '#eef2ff' },
                             anc_ultrasound: { gradient: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', accent: '#6dd5ed', light: '#e0f7ff' },
                             anc_lab_1: { gradient: 'linear-gradient(135deg, #3a1c71 0%, #d76d77 50%, #ffaf7b 100%)', accent: '#ffaf7b', light: '#fff5e6' },
                             anc_lab_2: { gradient: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', accent: '#2a5298', light: '#e0ebff' },
@@ -1337,6 +1412,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             'syphilis_screening_male': '🧪',
                                             'iron_supplement': '💊',
                                             'ferrokid_child': '🧒',
+                                            'mental_health_counselling': '🧠',
+                                            'gender_affirming_hormone': '🧬',
+                                            'latent_tb_screening': '🫁',
+                                            'osteoporosis_screening': '🦴',
+                                            'autism_tdas_screening': '🧩',
                                             'anc_ultrasound': '🔊',
                                             'anc_lab_1': '🧬',
                                             'anc_lab_2': '🧪',
@@ -1590,7 +1670,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         <div style={{ color: '#1565c0' }}>อ่านฟิล์ม CXR</div>
                                     </div>
                                 </>
-                            )}                            {activeFund === 'fp' && (
+                            )}
+                            {activeFund === 'fp' && (
                                 <>
                                     <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
                                         <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ Diagnosis Z30</div>
@@ -1614,7 +1695,30 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     </div>
                                 </>
                             )}
-                            {!['palliative', 'telemedicine', 'herb', 'knee', 'chemo', 'hepc', 'hepb', 'rehab', 'crrt', 'robot', 'proton', 'cxr', 'fp', 'preg_test'].includes(activeFund) && (
+                            {['mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
+                                <>
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
+                                        <div style={{ fontWeight: 700, color: '#4caf50', marginBottom: '4px' }}>✓ กลุ่มเป้าหมาย</div>
+                                        <div style={{ color: '#2e7d32' }}>
+                                            {activeFund === 'mental_health_counselling' ? 'อายุ 12 ปีขึ้นไป'
+                                                : activeFund === 'osteoporosis_screening' ? 'หญิงอายุ 60 ปีขึ้นไป'
+                                                    : activeFund === 'autism_tdas_screening' ? 'เด็ก 12-60 เดือน'
+                                                        : 'ตาม protocol/กลุ่มเสี่ยง'}
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ หลักฐาน</div>
+                                        <div style={{ color: '#1565c0' }}>
+                                            {activeFund === 'latent_tb_screening' ? 'IGRA / Latent TB'
+                                                : activeFund === 'osteoporosis_screening' ? 'FRAX / DXA / BMD'
+                                                    : activeFund === 'autism_tdas_screening' ? 'TDAS'
+                                                        : activeFund === 'gender_affirming_hormone' ? 'Hormone / Lab / VMI'
+                                                            : 'ST-5 / 9Q / Counselling'}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                            {!['palliative', 'telemedicine', 'herb', 'knee', 'chemo', 'hepc', 'hepb', 'rehab', 'crrt', 'robot', 'proton', 'cxr', 'fp', 'preg_test', 'mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
                                 <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: '1 / -1' }}>
                                     <div style={{ fontWeight: 700, color: '#2196f3' }}>ℹ️ เลือกกองทุนด้านซ้ายเพื่อดูเงื่อนไข</div>
                                 </div>                            )}
@@ -1833,6 +1937,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             <th style={{ width: 70, textAlign: 'center' }}>เพศ</th>
                                             <th style={{ width: 220, textAlign: 'left' }}>Lab ซิฟิลิส</th>
                                             <th style={{ width: 110, textAlign: 'center' }}>Authen Code</th>
+                                        </>
+                                    )}
+                                    {['mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
+                                        <>
+                                            <th style={{ width: 120, textAlign: 'center' }}>กลุ่มเป้าหมาย</th>
+                                            <th style={{ width: 120, textAlign: 'center' }}>Dx ใกล้เคียง</th>
+                                            <th style={{ width: 240, textAlign: 'left' }}>หลักฐานบริการ/Lab</th>
+                                            <th style={{ width: 120, textAlign: 'center' }}>ช่องทาง</th>
                                         </>
                                     )}
                                     {(activeFund === 'iron_supplement' || activeFund === 'ferrokid_child') && (
@@ -2055,7 +2167,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             </div>
                                                         </td>
                                                     </>
-                                                )}                                                {activeFund === 'fp' && (
+                                                )}
+                                                {activeFund === 'fp' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.fp_diags ? <span className="badge badge-primary" style={{ maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-block' }} title={item.fp_diags}>{item.fp_diags}</span> : <span className="badge badge-danger">✗ ขาด Z30</span>}
@@ -2150,7 +2263,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     <td style={{ textAlign: 'center' }}>
                                                         {item.has_proton_diag ? <span className="badge badge-primary">Z51.0</span> : <span className="badge badge-danger">✗ ขาด Diag</span>}
                                                     </td>
-                                                )}                                                {activeFund === 'cxr' && (
+                                                )}
+                                                {activeFund === 'cxr' && (
                                                     <td style={{ textAlign: 'center' }}>
                                                         {item.has_cxr_item ? <span className="badge badge-primary">Chest X-Ray</span> : <span className="badge badge-danger">✗ ไม่มี</span>}
                                                     </td>
@@ -2233,6 +2347,44 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             <span className="badge badge-success">{item.authencode || '-'}</span>
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {['mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                                                                <span className={`badge ${toFlag(item.age_eligible) ? 'badge-success' : 'badge-danger'}`}>
+                                                                    {activeFund === 'autism_tdas_screening' && item.age_month != null
+                                                                        ? `${item.age_month} เดือน`
+                                                                        : activeFund === 'osteoporosis_screening'
+                                                                            ? `${item.age ?? '-'} ปี`
+                                                                            : toFlag(item.age_eligible) ? 'อายุเข้าเกณฑ์' : 'อายุไม่เข้า'}
+                                                                </span>
+                                                                {activeFund === 'osteoporosis_screening' && (
+                                                                    <span className={`badge ${String(item.sex ?? '').trim() === '2' ? 'badge-success' : 'badge-danger'}`}>
+                                                                        {String(item.sex ?? '').trim() === '2' ? 'หญิง' : 'ไม่ใช่หญิง'}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {(toFlag(item.has_specific_diag) || item.specific_diags)
+                                                                ? <span className="badge badge-primary">{item.specific_diags || item.pdx || 'มี Dx'}</span>
+                                                                : <span className="badge badge-muted">-</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            <div style={{ fontWeight: 700, fontSize: 11, color: toFlag(item.has_specific_evidence) ? 'var(--primary)' : 'var(--danger)' }}>
+                                                                {item.specific_lab_names || item.specific_service_names || `✗ ขาด ${item.specific_evidence_label || 'หลักฐานบริการ/Lab'}`}
+                                                            </div>
+                                                            {item.specific_results && (
+                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+                                                                    ผล: {item.specific_results}
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <span className="badge badge-info">{item.specific_channel_note || funds.find(f => f.id === activeFund)?.claimChannel || '-'}</span>
                                                         </td>
                                                     </>
                                                 )}

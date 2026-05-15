@@ -20,6 +20,12 @@
 | คัดกรองกระดูกพรุน | หญิงหลังหมดประจำเดือน อายุ 60 ปีขึ้นไป, ทุก 5 ปี, FRAX/DXA | KTB |
 | คัดกรอง Autistic disorder ด้วย TDAS | เด็กไทยอายุ 12-60 เดือน ที่ DSPM ล่าช้าหรือผิดปกติชัดเจน; ผู้ให้บริการต้องผ่านอบรม TDAS | KTB |
 
+## FDHChecker implementation note
+
+- เพิ่มเมนูตรวจแยกช่องทางสำหรับ `Mental Health Counselling`, `Gender affirming hormone`, `Latent TB`, `Osteoporosis`, และ `TDAS`
+- เมนูเหล่านี้ทำหน้าที่ตรวจความครบจาก HOSxP ก่อนนำไปบันทึกในระบบปลายทาง เช่น e-Claim, KTB, VMI, NTIP/TB Data Hub
+- รายการที่ไม่ใช่ FDH/e-Claim ปกติควรแสดงช่องทางเบิกบนหน้าจอให้ชัด เพื่อไม่ปะปนกับ FDH หรือ 43 แฟ้ม
+
 ## ต้องแยกช่องทางเบิกก่อนตั้ง rule
 
 | ช่องทาง | ใช้กับ |

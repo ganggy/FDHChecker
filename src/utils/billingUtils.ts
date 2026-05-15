@@ -65,6 +65,23 @@ const hasDiagCode = (item: any, codes: string[]) => {
         item?.dx5,
     ].some((value) => targets.has(cleanDiag(value)));
 };
+const hasDiagPrefix = (item: any, prefixes: string[]) => {
+    const targets = prefixes.map((prefix) => cleanDiag(prefix));
+    return [
+        item?.pdx,
+        item?.main_diag,
+        item?.diag_code,
+        item?.dx0,
+        item?.dx1,
+        item?.dx2,
+        item?.dx3,
+        item?.dx4,
+        item?.dx5,
+    ].some((value) => {
+        const diag = cleanDiag(value);
+        return targets.some((target) => diag.startsWith(target));
+    });
+};
 const collectDiagValues = (item: any) => {
     const baseValues = [
         item?.pdx,
@@ -222,18 +239,20 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '💊 Clopidogrel', kind: 'matched', group: 'drug' });
         }
 
-        const hasKneeDiag = toBool(item?.has_knee_diag) || hasDiagCode(item, ['M17', 'U5753']);
+        const hasKneeDiagM17 = toBool(item?.has_knee_diag_m17) || hasDiagPrefix(item, ['M17']);
+        const hasKneeDiagU5753 = toBool(item?.has_knee_diag_u5753) || hasDiagCode(item, ['U57.53', 'U5753']);
+        const hasKneeDiag = hasKneeDiagM17 && hasKneeDiagU5753;
         const hasKneeService = toBool(item?.has_knee_oper)
             || toBool(item?.has_knee_poultice)
             || hasText(item?.proc_name, /KNEE|เข่า/)
             || hasText(item?.service_name, /KNEE|เข่า/);
-        if (hasKneeService || (age >= 40 && hasKneeDiag)) {
+        if (age >= 40 && hasKneeDiag) {
             if (age >= 40 && hasKneeDiag && toBool(item?.has_knee_oper)) {
                 fundNotes.push({ label: '🦵 พอกเข่า (43 แฟ้ม)', kind: 'matched', group: 'other' });
             } else {
                 addWarningFundNote(fundNotes, 'พอกเข่า', [
                     age >= 40 ? '' : ' อายุ 40 ปีขึ้นไป',
-                    hasKneeDiag ? '' : ' Diagnosis M17/U57.53',
+                    hasKneeDiag ? '' : ' Diagnosis ต้องมีทั้ง M17 และ U57.53',
                     toBool(item?.has_knee_oper) ? '' : ' หัตถการ/กิจกรรม 43 แฟ้มยังไม่ครบ',
                 ].filter(Boolean), 'other');
             }

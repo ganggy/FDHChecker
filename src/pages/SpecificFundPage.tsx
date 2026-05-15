@@ -499,7 +499,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'knee') {
             const hasAge = toFlag(item?.knee_age_eligible) || age >= 40;
-            const hasDiag = toFlag(item?.has_knee_diag) || hasDiagCodes(item, ['M17', 'U5753']) || hasValue(item?.diag_code);
+            const hasDiagM17 = toFlag(item?.has_knee_diag_m17) || hasDiagPrefix(item, 'M17');
+            const hasDiagU5753 = toFlag(item?.has_knee_diag_u5753) || hasDiagCodes(item, ['U57.53', 'U5753']);
+            const hasDiag = hasDiagM17 && hasDiagU5753;
             const hasThigh = toFlag(item?.has_knee_massage_thigh);
             const hasKnee = toFlag(item?.has_knee_massage_knee);
             const hasLowerLeg = toFlag(item?.has_knee_massage_lower_leg);
@@ -508,12 +510,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             const hasKneeEvidence = hasDiag || hasThigh || hasKnee || hasLowerLeg || hasPoultice || toFlag(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
             const withinLimit = Number(item?.knee_poultice_14d_count ?? 0) <= 5;
             const isMatched = hasAge && hasDiag && hasAllOperations && withinLimit;
-            if (hasKneeEvidence || hasAge) subfunds.push('🦵 พอกเข่า');
+            if (hasKneeEvidence || (hasAge && hasDiag)) subfunds.push('🦵 พอกเข่า');
             return buildStatusResult(
                 subfunds,
                 [
                     hasAge ? '' : ' อายุ 40 ปีขึ้นไป',
-                    hasDiag ? '' : ' Diagnosis M17/U57.53',
+                    hasDiag ? '' : ' Diagnosis ต้องมีทั้ง M17 และ U57.53',
                     hasThigh ? '' : ' หัตถการ 872-78-11',
                     hasKnee ? '' : ' หัตถการ 873-78-11',
                     hasLowerLeg ? '' : ' หัตถการ 874-78-11',
@@ -524,7 +526,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 isMatched,
                 [
                     hasAge ? 'อายุ 40 ปีขึ้นไป' : '',
-                    hasDiag ? 'Diagnosis M17/U57.53' : '',
+                    hasDiag ? 'Diagnosis M17 และ U57.53' : '',
                     hasAllOperations ? 'หัตถการครบ 4 กิจกรรม' : '',
                     withinLimit ? 'ไม่เกิน 5 ครั้ง/2 สัปดาห์' : '',
                 ].filter(Boolean)
@@ -1579,7 +1581,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     </div>
                                     <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
                                         <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ Diagnosis</div>
-                                        <div style={{ color: '#1565c0' }}>M17 หรือ U57.53</div>
+                                        <div style={{ color: '#1565c0' }}>M17 และ U57.53</div>
                                     </div>
                                     <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
                                         <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ หัตถการ</div>
@@ -1839,7 +1841,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     {activeFund === 'knee' && (
                                         <>
                                             <th style={{ width: 60, textAlign: 'center' }}>อายุ</th>
-                                            <th style={{ width: 110, textAlign: 'center' }}>Diag M17/U57.53</th>
+                                            <th style={{ width: 140, textAlign: 'center' }}>Diag M17 + U57.53</th>
                                             <th style={{ width: 240, textAlign: 'left' }}>หัตถการพอกเข่า</th>
                                             <th style={{ width: 95, textAlign: 'center' }}>ครั้ง/2 สัปดาห์</th>
                                         </>
@@ -2076,7 +2078,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {toFlag(item.has_knee_diag)
-                                                                ? <span className="badge badge-primary">{item.diag_code || 'M17/U57.53'}</span>
+                                                                ? <span className="badge badge-primary">{item.diag_code || 'M17 + U57.53'}</span>
                                                                 : <span className="badge badge-danger">✗ ขาด Dx</span>}
                                                         </td>
                                                         <td style={{ textAlign: 'left', padding: '6px 8px' }}>

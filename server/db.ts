@@ -7902,9 +7902,17 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
     }
 
     if (fundType === 'knee') {
-      const kneeDxSql = `
+      const kneeDiagM17Sql = `
         v.pdx LIKE 'M17%' OR v.dx0 LIKE 'M17%' OR v.dx1 LIKE 'M17%' OR v.dx2 LIKE 'M17%' OR v.dx3 LIKE 'M17%' OR v.dx4 LIKE 'M17%' OR v.dx5 LIKE 'M17%'
-        OR v.pdx IN ('U57.53', 'U5753') OR v.dx0 IN ('U57.53', 'U5753') OR v.dx1 IN ('U57.53', 'U5753') OR v.dx2 IN ('U57.53', 'U5753') OR v.dx3 IN ('U57.53', 'U5753') OR v.dx4 IN ('U57.53', 'U5753') OR v.dx5 IN ('U57.53', 'U5753')
+      `;
+      const kneeDiagU5753Sql = `
+        REPLACE(COALESCE(v.pdx, ''), '.', '') = 'U5753'
+        OR REPLACE(COALESCE(v.dx0, ''), '.', '') = 'U5753'
+        OR REPLACE(COALESCE(v.dx1, ''), '.', '') = 'U5753'
+        OR REPLACE(COALESCE(v.dx2, ''), '.', '') = 'U5753'
+        OR REPLACE(COALESCE(v.dx3, ''), '.', '') = 'U5753'
+        OR REPLACE(COALESCE(v.dx4, ''), '.', '') = 'U5753'
+        OR REPLACE(COALESCE(v.dx5, ''), '.', '') = 'U5753'
       `;
       const [rows] = await connection.query(`
         SELECT
@@ -7917,6 +7925,8 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           COALESCE(v.age_y, TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate)) as age_y,
           'Y' as knee_age_eligible,
           'Y' as has_knee_diag,
+          'Y' as has_knee_diag_m17,
+          'Y' as has_knee_diag_u5753,
           CONCAT_WS(', ',
             CASE WHEN v.pdx LIKE 'M17%' OR v.pdx IN ('U57.53', 'U5753') THEN v.pdx END,
             CASE WHEN v.dx0 LIKE 'M17%' OR v.dx0 IN ('U57.53', 'U5753') THEN v.dx0 END,
@@ -7942,7 +7952,8 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         WHERE v.vstdate BETWEEN ? AND ?
           AND v.age_y >= 40
-          AND (${kneeDxSql})
+          AND (${kneeDiagM17Sql})
+          AND (${kneeDiagU5753Sql})
         ORDER BY o.vstdate DESC, o.vn DESC
       `, [startDate, endDate]);
       const kneeRows = rows as Record<string, unknown>[];

@@ -51,6 +51,8 @@ export const getRepstmConnection = async () => {
 const ANEMIA_CBC_REGEX = 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|CBC WITHOUT SMEAR|CBC NO SMEAR|CBC W/O SMEAR|CBC W/O DIFF|ซีบีซี|ความสมบูรณ์ของเม็ดเลือด|เม็ดเลือดสมบูรณ์';
 const ANEMIA_HBHCT_REGEX = 'HB/HCT|HBHCT|HB HCT|HB-HCT|HB|HGB|HEMOGLOBIN|HCT|HEMATOCRIT|ฮีโมโกลบิน|ฮีมาโตคริต|ความเข้มข้นเลือด';
 const SYPHILIS_SCREENING_REGEX = 'TREPONEMA|TREPONEMAL|PALLIDUM|SYPHILIS|ซิฟิลิส|TPHA|TPPA|VDRL|RPR';
+const HEP_C_SCREENING_REGEX = 'ANTI[- ]?HCV|HCV[ -]?(AB|ANTIBODY)|HEPATITIS C.*(AB|ANTIBODY)|ไวรัสตับอักเสบซี';
+const HEP_B_SCREENING_REGEX = 'HBS[- ]?AG|HBsAg|HEPATITIS B SURFACE ANTIGEN|HEPATITIS B ANTIGEN|ไวรัสตับอักเสบบี';
 const TELEMED_ADP_CODE = String((businessRules as any)?.adp_codes?.telmed || 'TELMED').trim().toUpperCase();
 const TELEMED_EXPORT_CODE = String((businessRules as any)?.project_codes?.ovstist_tele || '5').trim();
 
@@ -8043,6 +8045,71 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
             SELECT 1 FROM opitemrece oo 
             JOIN drugitems d ON d.icode = oo.icode 
             WHERE oo.vn = o.vn AND (d.name LIKE '%Clopidogrel%' OR d.name LIKE '%Clopidogre%' OR d.nhso_adp_code = '3799977101')
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'hepc' || fundType === 'hepb') {
+      const labRegex = fundType === 'hepc' ? HEP_C_SCREENING_REGEX : HEP_B_SCREENING_REGEX;
+      const labFlag = fundType === 'hepc' ? 'has_hepc_lab' : 'has_hepb_lab';
+      const labNames = fundType === 'hepc' ? 'hepc_lab_names' : 'hepb_lab_names';
+      const labResults = fundType === 'hepc' ? 'hepc_results' : 'hepb_results';
+      const serviceNames = fundType === 'hepc' ? 'hepc_service_names' : 'hepb_service_names';
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          DATE_FORMAT(pt.birthday, '%Y-%m-%d') as birthday,
+          v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
+          CASE WHEN pt.birthday < '1992-01-01' THEN 'Y' ELSE 'N' END as birth_before_2535,
+          CASE WHEN ${buildDiagnosisMatchSql('o', 'v', ['Z115'])} THEN 'Y' ELSE 'N' END as has_z115_diag,
+          CASE WHEN ${buildServiceOrLabNameExistsSql('o', labRegex)} THEN 'Y' ELSE 'N' END as ${labFlag},
+          (
+            SELECT GROUP_CONCAT(DISTINCT li.lab_items_name ORDER BY li.lab_items_name SEPARATOR ', ')
+            FROM lab_head h
+            JOIN lab_order lo ON h.lab_order_number = lo.lab_order_number
+            JOIN lab_items li ON lo.lab_items_code = li.lab_items_code
+            WHERE h.vn = o.vn
+              AND lo.lab_order_result IS NOT NULL
+              AND lo.lab_order_result <> ''
+              AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${labRegex}'
+          ) as ${labNames},
+          (
+            SELECT GROUP_CONCAT(DISTINCT CONCAT(li.lab_items_name, ': ', lo.lab_order_result) ORDER BY li.lab_items_name SEPARATOR ', ')
+            FROM lab_head h
+            JOIN lab_order lo ON h.lab_order_number = lo.lab_order_number
+            JOIN lab_items li ON lo.lab_items_code = li.lab_items_code
+            WHERE h.vn = o.vn
+              AND lo.lab_order_result IS NOT NULL
+              AND lo.lab_order_result <> ''
+              AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${labRegex}'
+          ) as ${labResults},
+          (
+            SELECT GROUP_CONCAT(DISTINCT COALESCE(ndi.name, sd.name, oo.icode) ORDER BY COALESCE(ndi.name, sd.name, oo.icode) SEPARATOR ', ')
+            FROM opitemrece oo
+            LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+            LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+            WHERE oo.vn = o.vn
+              AND UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP '${labRegex}'
+          ) as ${serviceNames},
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (
+            pt.birthday < '1992-01-01'
+            OR ${buildDiagnosisMatchSql('o', 'v', ['Z115'])}
+            OR ${buildServiceOrLabNameExistsSql('o', labRegex)}
           )
         GROUP BY o.vn
         ORDER BY o.vstdate DESC

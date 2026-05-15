@@ -142,17 +142,31 @@ const guides: FundGuide[] = [
     },
     {
         id: 'hepc',
-        title: 'รักษาโรคไวรัสตับอักเสบซี (HepC)',
-        description: 'บริการคัดกรองและให้ยาต้านไวรัสสำหรับผู้ป่วยที่ติดเชื้อไวรัสตับอักเสบซีเรื้อรัง (HCV)',
+        title: 'คัดกรองไวรัสตับอักเสบซี (Anti-HCV)',
+        description: 'บริการคัดกรองไวรัสตับอักเสบซีสำหรับผู้ที่เกิดก่อน พ.ศ. 2535',
         conditions: [
-            'ผลตรวจ Anti-HCV เป็นบวก หรือ HCV RNA เป็นบวก',
-            'อายุ 15 ปีขึ้นไป (และกลุ่มเสี่ยงตามประกาศ)',
-            'ได้รับยาสูตรผสม เช่น Sofosbuvir/Velpatasvir'
+            'เกิดก่อน พ.ศ. 2535',
+            'Diagnosis Z11.5',
+            'มี Lab Anti-HCV'
         ],
-        codes: ['ICD-10: B18.2 (Chronic viral hepatitis C)', 'ค่าแล็บ HCV RNA'],
-        payment: 'ชดเชยค่ายาต้านไวรัสตามจริง (หลักหมื่นบาท/คอร์ส) และ ค่ายืนยันผล 1,500 บาท',
+        codes: ['ICD-10: Z11.5', 'Lab Anti-HCV'],
+        payment: 'ใช้ตาม Fee Schedule/ประกาศกองทุนปัจจุบัน',
         icon: '💊',
         color: 'var(--warning)'
+    },
+    {
+        id: 'hepb',
+        title: 'คัดกรองไวรัสตับอักเสบบี (HBsAg)',
+        description: 'บริการคัดกรองไวรัสตับอักเสบบีสำหรับผู้ที่เกิดก่อน พ.ศ. 2535',
+        conditions: [
+            'เกิดก่อน พ.ศ. 2535',
+            'Diagnosis Z11.5',
+            'มี Lab HBsAg'
+        ],
+        codes: ['ICD-10: Z11.5', 'Lab HBsAg'],
+        payment: 'ใช้ตาม Fee Schedule/ประกาศกองทุนปัจจุบัน',
+        icon: '🧫',
+        color: 'var(--info)'
     },
     {
         id: 'cxr',

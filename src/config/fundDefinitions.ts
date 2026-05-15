@@ -193,8 +193,14 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
     {
         id: 'hepc',
         name: 'ไวรัสตับอักเสบซี',
-        description: 'Hep C / HCV',
-        conditions: ['Diagnosis B18.2']
+        description: 'คัดกรองไวรัสตับอักเสบซี / Anti-HCV',
+        conditions: ['เกิดก่อน พ.ศ. 2535', 'Diagnosis Z11.5', 'Lab Anti-HCV']
+    },
+    {
+        id: 'hepb',
+        name: 'ไวรัสตับอักเสบบี',
+        description: 'คัดกรองไวรัสตับอักเสบบี / HBsAg',
+        conditions: ['เกิดก่อน พ.ศ. 2535', 'Diagnosis Z11.5', 'Lab HBsAg']
     },
     {
         id: 'rehab',

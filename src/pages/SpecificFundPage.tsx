@@ -36,7 +36,8 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
-    { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'Hep C / HCV' },
+    { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + Anti-HCV' },
+    { id: 'hepb', name: 'ไวรัสตับอักเสบบี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + HBsAg' },
     { id: 'rehab', name: 'ฟื้นฟูสมรรถภาพ', description: 'งานฟื้นฟู / กายภาพ' },
     { id: 'crrt', name: 'ฟอกเลือด (CRRT)', description: 'ผู้ป่วยฟอกเลือด / ไต' },
     { id: 'robot', name: 'ผ่าตัดหุ่นยนต์', description: 'Robotic surgery' },
@@ -170,6 +171,7 @@ export const SpecificFundPage: React.FC = () => {
             'er_emergency': { bg: 'linear-gradient(135deg, #ff6e7f 0%, #bfe9ff 100%)', shadow: 'rgba(255, 110, 127, 0.2)' },
             'chemo': { bg: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)', shadow: 'rgba(161, 196, 253, 0.2)' },
             'hepc': { bg: 'linear-gradient(135deg, #d299c2 0%, #fef9d7 100%)', shadow: 'rgba(210, 153, 194, 0.2)' },
+            'hepb': { bg: 'linear-gradient(135deg, #38bdf8 0%, #0f766e 100%)', shadow: 'rgba(14, 116, 144, 0.22)' },
             'rehab': { bg: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', shadow: 'rgba(250, 112, 154, 0.2)' },
             'crrt': { bg: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', shadow: 'rgba(48, 207, 208, 0.2)' },
             'robot': { bg: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', shadow: 'rgba(168, 237, 234, 0.2)' },
@@ -830,9 +832,49 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (fundId === 'hepc') {
-            const hasHepc = toFlag(item?.has_hepc_diag) || hasDiagCodes(item, ['B182']);
-            if (hasHepc) subfunds.push('🩹 ไวรัสตับอักเสบซี');
-            return buildStatusResult(subfunds, [hasHepc ? '' : ' Diagnosis B182'].filter(Boolean));
+            const birthBefore2535 = toFlag(item?.birth_before_2535) || (item?.birthday ? new Date(item.birthday).getTime() < new Date('1992-01-01').getTime() : false);
+            const hasDiag = toFlag(item?.has_z115_diag) || hasDiagCodes(item, ['Z115']);
+            const hasLab = toFlag(item?.has_hepc_lab) || hasValue(item?.hepc_lab_names) || hasValue(item?.hepc_service_names);
+            const isMatched = birthBefore2535 && hasDiag && hasLab;
+            if (birthBefore2535 || hasDiag || hasLab) subfunds.push('🩹 คัดกรองไวรัสตับอักเสบซี');
+            return buildStatusResult(
+                subfunds,
+                [
+                    birthBefore2535 ? '' : ' เกิดก่อน พ.ศ.2535',
+                    hasDiag ? '' : ' Diagnosis Z11.5',
+                    hasLab ? '' : ' Lab Anti-HCV',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    birthBefore2535 ? 'เกิดก่อน พ.ศ.2535' : '',
+                    hasDiag ? 'Diagnosis Z11.5' : '',
+                    hasLab ? 'Lab Anti-HCV' : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'hepb') {
+            const birthBefore2535 = toFlag(item?.birth_before_2535) || (item?.birthday ? new Date(item.birthday).getTime() < new Date('1992-01-01').getTime() : false);
+            const hasDiag = toFlag(item?.has_z115_diag) || hasDiagCodes(item, ['Z115']);
+            const hasLab = toFlag(item?.has_hepb_lab) || hasValue(item?.hepb_lab_names) || hasValue(item?.hepb_service_names);
+            const isMatched = birthBefore2535 && hasDiag && hasLab;
+            if (birthBefore2535 || hasDiag || hasLab) subfunds.push('🧫 คัดกรองไวรัสตับอักเสบบี');
+            return buildStatusResult(
+                subfunds,
+                [
+                    birthBefore2535 ? '' : ' เกิดก่อน พ.ศ.2535',
+                    hasDiag ? '' : ' Diagnosis Z11.5',
+                    hasLab ? '' : ' Lab HBsAg',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    birthBefore2535 ? 'เกิดก่อน พ.ศ.2535' : '',
+                    hasDiag ? 'Diagnosis Z11.5' : '',
+                    hasLab ? 'Lab HBsAg' : '',
+                ].filter(Boolean)
+            );
         }
 
         if (fundId === 'rehab') {
@@ -1112,6 +1154,7 @@ export const SpecificFundPage: React.FC = () => {
                             er_emergency: { gradient: 'linear-gradient(135deg, #ff6e7f 0%, #bfe9ff 100%)', accent: '#bfe9ff', light: '#e0f7ff' },
                             chemo: { gradient: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)', accent: '#c2e9fb', light: '#e0f7ff' },
                             hepc: { gradient: 'linear-gradient(135deg, #d299c2 0%, #fef9d7 100%)', accent: '#fef9d7', light: '#fffce0' },
+                            hepb: { gradient: 'linear-gradient(135deg, #38bdf8 0%, #0f766e 100%)', accent: '#0f766e', light: '#ccfbf1' },
                             rehab: { gradient: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', accent: '#38ef7d', light: '#e0f7f0' },
                             crrt: { gradient: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', accent: '#6dd5ed', light: '#e0f7ff' },
                             robot: { gradient: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', accent: '#fed6e3', light: '#ffe5f0' },
@@ -1204,6 +1247,7 @@ export const SpecificFundPage: React.FC = () => {
                                             'er_emergency': '🚨',
                                             'chemo': '⚗️',
                                             'hepc': '🩹',
+                                            'hepb': '🧫',
                                             'rehab': '♿',
                                             'crrt': '🏥',
                                             'robot': '🤖',
@@ -1366,8 +1410,32 @@ export const SpecificFundPage: React.FC = () => {
                             {activeFund === 'hepc' && (
                                 <>
                                     <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
-                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ Diagnosis</div>
-                                        <div style={{ color: '#e65100' }}>B18.2</div>
+                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ กลุ่มเป้าหมาย</div>
+                                        <div style={{ color: '#e65100' }}>เกิดก่อน พ.ศ.2535</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ Diagnosis</div>
+                                        <div style={{ color: '#1565c0' }}>Z11.5</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
+                                        <div style={{ fontWeight: 700, color: '#4caf50', marginBottom: '4px' }}>✓ Lab</div>
+                                        <div style={{ color: '#2e7d32' }}>Anti-HCV</div>
+                                    </div>
+                                </>
+                            )}
+                            {activeFund === 'hepb' && (
+                                <>
+                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
+                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ กลุ่มเป้าหมาย</div>
+                                        <div style={{ color: '#e65100' }}>เกิดก่อน พ.ศ.2535</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ Diagnosis</div>
+                                        <div style={{ color: '#1565c0' }}>Z11.5</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
+                                        <div style={{ fontWeight: 700, color: '#4caf50', marginBottom: '4px' }}>✓ Lab</div>
+                                        <div style={{ color: '#2e7d32' }}>HBsAg</div>
                                     </div>
                                 </>
                             )}
@@ -1434,7 +1502,7 @@ export const SpecificFundPage: React.FC = () => {
                                     </div>
                                 </>
                             )}
-                            {!['palliative', 'telemedicine', 'herb', 'knee', 'chemo', 'hepc', 'rehab', 'crrt', 'robot', 'proton', 'cxr', 'fp', 'preg_test'].includes(activeFund) && (
+                            {!['palliative', 'telemedicine', 'herb', 'knee', 'chemo', 'hepc', 'hepb', 'rehab', 'crrt', 'robot', 'proton', 'cxr', 'fp', 'preg_test'].includes(activeFund) && (
                                 <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: '1 / -1' }}>
                                     <div style={{ fontWeight: 700, color: '#2196f3' }}>ℹ️ เลือกกองทุนด้านซ้ายเพื่อดูเงื่อนไข</div>
                                 </div>                            )}
@@ -1604,8 +1672,12 @@ export const SpecificFundPage: React.FC = () => {
                                     {activeFund === 'chemo' && (
                                         <th style={{ width: 120, textAlign: 'center' }}>Diag เคมีบำบัด</th>
                                     )}
-                                    {activeFund === 'hepc' && (
-                                        <th style={{ width: 120, textAlign: 'center' }}>Diag ตับอักเสบซี</th>
+                                    {(activeFund === 'hepc' || activeFund === 'hepb') && (
+                                        <>
+                                            <th style={{ width: 100, textAlign: 'center' }}>เกิดก่อน 2535</th>
+                                            <th style={{ width: 90, textAlign: 'center' }}>Dx Z11.5</th>
+                                            <th style={{ width: 190, textAlign: 'left' }}>{activeFund === 'hepc' ? 'Lab Anti-HCV' : 'Lab HBsAg'}</th>
+                                        </>
                                     )}
                                     {activeFund === 'rehab' && (
                                         <th style={{ width: 100, textAlign: 'center' }}>Diag ฟื้นฟู</th>
@@ -1684,7 +1756,7 @@ export const SpecificFundPage: React.FC = () => {
                             <tbody>
                                 {filteredData.length === 0 ? (
                                     <tr><td colSpan={100} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>ไม่พบข้อมูล{showIncompleteOnly ? ' ไม่สมบูรณ์' : 'ในช่วงวันที่เลือก'}</td></tr>
-                                ) : (                                    filteredData.map((item, index) => {
+                                ) : (filteredData.map((item, index) => {
                                         const st = getStatus(item);
                                         const sendStatusLabel = getEffectiveSendStatusLabel(item);
                                         const sendStatusClass = getEffectiveSendStatusBadgeClass(item);
@@ -1710,8 +1782,7 @@ export const SpecificFundPage: React.FC = () => {
                                                 <td style={{ padding: '6px 8px' }}>
                                                     <div style={{ fontSize: 11 }}>{item.serviceDate}</div>
                                                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.vsttime}</div>
-                                                </td>
-                                                {activeFund === 'palliative' && (
+                                                </td>{activeFund === 'palliative' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.z515_code
@@ -1896,10 +1967,39 @@ export const SpecificFundPage: React.FC = () => {
                                                         {item.has_chemo_diag ? <span className="badge badge-primary">Z511/Z512</span> : <span className="badge badge-danger">✗ ขาด Diag</span>}
                                                     </td>
                                                 )}
-                                                {activeFund === 'hepc' && (
-                                                    <td style={{ textAlign: 'center' }}>
-                                                        {item.has_hepc_diag ? <span className="badge badge-primary">B18.2</span> : <span className="badge badge-danger">✗ ขาด Diag</span>}
-                                                    </td>
+                                                {(activeFund === 'hepc' || activeFund === 'hepb') && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {toFlag(item.birth_before_2535)
+                                                                ? <span className="badge badge-success">{item.birthday || 'ก่อน 2535'}</span>
+                                                                : <span className="badge badge-danger">✗ อายุไม่เข้าเกณฑ์</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {toFlag(item.has_z115_diag)
+                                                                ? <span className="badge badge-primary">Z11.5</span>
+                                                                : <span className="badge badge-danger">✗ ขาด Dx</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            {(() => {
+                                                                const labName = activeFund === 'hepc'
+                                                                    ? (item.hepc_lab_names || item.hepc_service_names)
+                                                                    : (item.hepb_lab_names || item.hepb_service_names);
+                                                                const labResult = activeFund === 'hepc' ? item.hepc_results : item.hepb_results;
+                                                                return (
+                                                                    <>
+                                                                        <div style={{ fontWeight: 700, fontSize: 11, color: labName ? 'var(--primary)' : 'var(--danger)' }}>
+                                                                            {labName || `✗ ขาด ${activeFund === 'hepc' ? 'Anti-HCV' : 'HBsAg'}`}
+                                                                        </div>
+                                                                        {labResult && (
+                                                                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+                                                                                ผล: {labResult}
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                );
+                                                            })()}
+                                                        </td>
+                                                    </>
                                                 )}
                                                 {activeFund === 'rehab' && (
                                                     <td style={{ textAlign: 'center' }}>

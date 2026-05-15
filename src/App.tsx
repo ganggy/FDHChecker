@@ -48,7 +48,11 @@ function App() {
     { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกัน' },
     { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
     { page: 'admin', icon: '📊', label: 'Dashboard' },
-    { page: 'specific', icon: '🎯', label: 'กองทุน/43 แฟ้ม' },
+    { page: 'fundFdh', icon: '📤', label: 'FDH/e-Claim' },
+    { page: 'fund43', icon: '🗂️', label: '43 แฟ้ม' },
+    { page: 'fundKtb', icon: '🏦', label: 'KTB/NTIP' },
+    { page: 'fundOther', icon: '🧩', label: 'อื่นๆ' },
+    { page: 'specific', icon: '🎯', label: 'รวมทุกช่องทาง' },
     { page: 'monitor', icon: '📈', label: 'มอนิเตอร์พิเศษ' },
     { page: 'fsMonitor', icon: '💰', label: 'มอนิเตอร์ FS' },
     { page: 'mophDmht', icon: '🧪', label: 'MOPH DMHT' },
@@ -60,7 +64,10 @@ function App() {
     { label: 'ส่งข้อมูล', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
     { label: 'ติดตาม', pages: ['workQueue', 'rejectTracking', 'repDeny'] },
     { label: 'บัญชี', pages: ['receivable', 'reconciliation', 'insuranceOverview', 'admin'] },
-    { label: 'กองทุน/43 แฟ้ม/MOPH', pages: ['specific', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide'] },
+    { label: 'FDH/e-Claim', pages: ['fundFdh', 'monitor', 'fsMonitor'] },
+    { label: '43 แฟ้ม', pages: ['fund43'] },
+    { label: 'MOPH Claim', pages: ['mophDmht', 'mophVaccine'] },
+    { label: 'KTB/NTIP/อื่นๆ', pages: ['fundKtb', 'fundOther', 'specific', 'guide'] },
   ];
 
   const toolNavItemByPage = new Map(toolNavItems.map((item) => [item.page, item]));
@@ -165,6 +172,10 @@ function App() {
         {currentPage === 'repDeny' && <RepDenyPage />}
         {currentPage === 'admin' && <AdminDashboard />}
         {currentPage === 'specific' && <SpecificFundPage />}
+        {currentPage === 'fundFdh' && <SpecificFundPage channelView="fdh" />}
+        {currentPage === 'fund43' && <SpecificFundPage channelView="43" />}
+        {currentPage === 'fundKtb' && <SpecificFundPage channelView="ktb" />}
+        {currentPage === 'fundOther' && <SpecificFundPage channelView="other" />}
         {currentPage === 'monitor' && <SpecialMonitorPage />}
         {currentPage === 'fsMonitor' && <FsMonitorPage />}
         {currentPage === 'mophDmht' && <MophDmhtClaimPage />}

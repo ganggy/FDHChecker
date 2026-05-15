@@ -46,7 +46,51 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'clopidogrel', name: 'Clopidogrel', description: 'ยาต้านเกล็ดเลือด' },
 ];
 
-export const SpecificFundPage: React.FC = () => {
+type ClaimChannelView = 'all' | 'fdh' | '43' | 'ktb' | 'other';
+
+const CHANNEL_VIEW_LABELS: Record<ClaimChannelView, { title: string; subtitle: string; empty: string }> = {
+    all: {
+        title: 'ตรวจสอบเงื่อนไขรายกองทุน/43 แฟ้ม',
+        subtitle: 'แสดงรายการแยกตามเงื่อนไขการเบิกและความพร้อมข้อมูลส่งออก เช่น Palliative Care และบริการ 43 แฟ้ม',
+        empty: 'ไม่มีเมนูกองทุนที่แสดง',
+    },
+    fdh: {
+        title: 'ตรวจสอบรายการ FDH/e-Claim',
+        subtitle: 'รวมรายการที่ต้องเตรียมส่งเบิกผ่าน FDH หรือ e-Claim โดยแยกจาก 43 แฟ้มและ MOPH Claim',
+        empty: 'ไม่มีรายการ FDH/e-Claim ที่เปิดแสดง',
+    },
+    '43': {
+        title: 'ตรวจสอบรายการ 43 แฟ้ม',
+        subtitle: 'รวมรายการที่เน้นความครบของข้อมูลมาตรฐาน 43 แฟ้ม เช่น Dx, procedure และ visit linkage',
+        empty: 'ไม่มีรายการ 43 แฟ้มที่เปิดแสดง',
+    },
+    ktb: {
+        title: 'ตรวจสอบรายการ KTB/NTIP',
+        subtitle: 'รวมรายการที่ FDHChecker ใช้ตรวจความครบก่อนนำไปบันทึกใน KTB, NTIP หรือ TB Data Hub',
+        empty: 'ไม่มีรายการ KTB/NTIP ที่เปิดแสดง',
+    },
+    other: {
+        title: 'ตรวจสอบรายการช่องทางอื่น',
+        subtitle: 'รวมรายการที่มีระบบเฉพาะหรือ approval workflow แยกจาก FDH, 43 แฟ้ม และ MOPH Claim',
+        empty: 'ไม่มีรายการช่องทางอื่นที่เปิดแสดง',
+    },
+};
+
+const isFundInChannelView = (fund: FundDefinition, view: ClaimChannelView) => {
+    if (view === 'all') return true;
+    const channel = `${fund.claimChannel || ''} ${fund.recordingSystem || ''}`.toLowerCase();
+    if (view === 'fdh') return channel.includes('fdh') || channel.includes('e-claim');
+    if (view === '43') return channel.includes('43');
+    if (view === 'ktb') return channel.includes('ktb') || channel.includes('ntip') || channel.includes('tb data hub');
+    if (view === 'other') return channel.includes('อื่น') || channel.includes('renal') || channel.includes('approval') || channel.includes('vmi');
+    return true;
+};
+
+interface SpecificFundPageProps {
+    channelView?: ClaimChannelView;
+}
+
+export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView = 'all' }) => {
     const [activeFund, setActiveFund] = useState('palliative');
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
@@ -81,9 +125,16 @@ export const SpecificFundPage: React.FC = () => {
     const clopidogrelLabel = (siteSettings.lab_costs?.rules?.find(r => r.key === 'clopidogrel')?.label) || 'Clopidogrel';
     const funds: FundDefinition[] = (FUND_DEFINITIONS && FUND_DEFINITIONS.length > 0 ? FUND_DEFINITIONS : FALLBACK_FUND_DEFINITIONS);
     const visibleFunds = useMemo(
-        () => funds.filter((fund) => fundVisibility[fund.id] !== false),
-        [fundVisibility, funds]
+        () => funds.filter((fund) => fundVisibility[fund.id] !== false && isFundInChannelView(fund, channelView)),
+        [channelView, fundVisibility, funds]
     );
+
+    useEffect(() => {
+        if (visibleFunds.length === 0) return;
+        if (!visibleFunds.some((fund) => fund.id === activeFund)) {
+            setActiveFund(visibleFunds[0].id);
+        }
+    }, [activeFund, visibleFunds]);
 
     const fetchFundDataByType = useCallback(async (fundId: string) => {
         const res = await fetch(`/api/hosxp/specific-funds?fundType=${fundId}&startDate=${startDate}&endDate=${endDate}`);
@@ -1123,8 +1174,8 @@ export const SpecificFundPage: React.FC = () => {
     return (
         <div className="page-container" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="page-header">
-                <h1 className="page-title">🎯 ตรวจสอบเงื่อนไขรายกองทุน/43 แฟ้ม</h1>
-                <p className="page-subtitle">แสดงรายการแยกตามเงื่อนไขการเบิกและความพร้อมข้อมูลส่งออก เช่น Palliative Care และบริการ 43 แฟ้ม</p>
+                <h1 className="page-title">🎯 {CHANNEL_VIEW_LABELS[channelView].title}</h1>
+                <p className="page-subtitle">{CHANNEL_VIEW_LABELS[channelView].subtitle}</p>
             </div>
 
             {dashboardContextItems.length > 0 && (
@@ -1159,7 +1210,7 @@ export const SpecificFundPage: React.FC = () => {
                     {visibleFunds.length === 0 && (
                         <div className="specific-fund-empty" style={{ marginBottom: 12, gridColumn: '1 / -1' }}>
                             <div className="specific-fund-empty__icon">🚫</div>
-                            <div className="specific-fund-empty__title">ไม่มีเมนูกองทุนที่แสดง</div>
+                            <div className="specific-fund-empty__title">{CHANNEL_VIEW_LABELS[channelView].empty}</div>
                             <div className="specific-fund-empty__text">
                                 กรุณาไปที่ <strong>ตั้งค่า</strong> แล้วเปิดรายการที่ต้องการแสดงในหน้า <strong>รายกองทุน/43 แฟ้ม</strong>
                             </div>

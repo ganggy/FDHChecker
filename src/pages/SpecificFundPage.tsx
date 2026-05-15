@@ -1116,6 +1116,9 @@ export const SpecificFundPage: React.FC = () => {
     const activeRule = getFundRule(activeFund);
     const activeConditions = activeRule?.conditions || activeFundDefinition?.conditions || [];
     const activeCaution = activeRule?.caution || activeFundDefinition?.caution;
+    const activeClaimChannel = activeFundDefinition?.claimChannel || 'ยังไม่ได้จัดช่องทาง';
+    const activeRecordingSystem = activeFundDefinition?.recordingSystem || 'ตรวจสอบตามประกาศ/คู่มือกองทุนล่าสุด';
+    const activeClaimChannelNote = activeFundDefinition?.claimChannelNote;
 
     return (
         <div className="page-container" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1352,6 +1355,28 @@ export const SpecificFundPage: React.FC = () => {
                         <h2 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', color: '#1a1a1a' }}>
                             ✓ เงื่อนไขการตรวจสอบ: {activeFundDefinition?.name}
                         </h2>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                            gap: '10px',
+                            marginBottom: '12px',
+                            fontSize: '12px'
+                        }}>
+                            <div style={{ padding: '12px', background: '#eef2ff', borderRadius: '8px', borderLeft: '3px solid #4f46e5' }}>
+                                <div style={{ fontWeight: 700, color: '#4338ca', marginBottom: '4px' }}>ส่งเบิกที่ไหน</div>
+                                <div style={{ color: '#1e1b4b', lineHeight: '1.45' }}>{activeClaimChannel}</div>
+                            </div>
+                            <div style={{ padding: '12px', background: '#ecfeff', borderRadius: '8px', borderLeft: '3px solid #0891b2' }}>
+                                <div style={{ fontWeight: 700, color: '#0e7490', marginBottom: '4px' }}>ระบบบันทึก/ส่งข้อมูล</div>
+                                <div style={{ color: '#164e63', lineHeight: '1.45' }}>{activeRecordingSystem}</div>
+                            </div>
+                            {activeClaimChannelNote && (
+                                <div style={{ padding: '12px', background: '#fefce8', borderRadius: '8px', borderLeft: '3px solid #ca8a04' }}>
+                                    <div style={{ fontWeight: 700, color: '#a16207', marginBottom: '4px' }}>ข้อแยกสำคัญ</div>
+                                    <div style={{ color: '#713f12', lineHeight: '1.45' }}>{activeClaimChannelNote}</div>
+                                </div>
+                            )}
+                        </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', fontSize: '12px', marginBottom: '10px' }}>
                             {activeConditions.map((condition, index) => {
                                 const cardBg = ['#e3f2fd', '#fff3e0', '#f3e5f5', '#e8f5e9'][index % 4];

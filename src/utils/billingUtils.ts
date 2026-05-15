@@ -65,8 +65,8 @@ const hasDiagCode = (item: any, codes: string[]) => {
         item?.dx5,
     ].some((value) => targets.has(cleanDiag(value)));
 };
-const hasDiagPrefix = (item: any, prefixes: string[]) => {
-    const targets = prefixes.map((prefix) => cleanDiag(prefix));
+const hasDiagPrefix = (item: any, prefixes: string | string[]) => {
+    const targets = (Array.isArray(prefixes) ? prefixes : [prefixes]).map((prefix) => cleanDiag(prefix));
     return [
         item?.pdx,
         item?.main_diag,
@@ -111,10 +111,6 @@ const collectDiagValues = (item: any) => {
 };
 const hasDiagRegex = (item: any, regex: RegExp) => collectDiagValues(item).some((code) => regex.test(code));
 const hasText = (value: unknown, regex: RegExp) => regex.test(String(value ?? ''));
-const hasDiagPrefix = (item: any, prefix: string) => {
-    const normalizedPrefix = cleanDiag(prefix);
-    return collectDiagValues(item).some((code) => code.startsWith(normalizedPrefix));
-};
 const getAnemiaAgeBandLabel = (item: any) => {
     const band = getAnemiaRuleBand(item);
     if (band) return band.ageLabel;
@@ -242,10 +238,6 @@ export const evaluateBillingLogic = (item: any) => {
         const hasKneeDiagM17 = toBool(item?.has_knee_diag_m17) || hasDiagPrefix(item, ['M17']);
         const hasKneeDiagU5753 = toBool(item?.has_knee_diag_u5753) || hasDiagCode(item, ['U57.53', 'U5753']);
         const hasKneeDiag = hasKneeDiagM17 && hasKneeDiagU5753;
-        const hasKneeService = toBool(item?.has_knee_oper)
-            || toBool(item?.has_knee_poultice)
-            || hasText(item?.proc_name, /KNEE|เข่า/)
-            || hasText(item?.service_name, /KNEE|เข่า/);
         if (age >= 40 && hasKneeDiag) {
             if (age >= 40 && hasKneeDiag && toBool(item?.has_knee_oper)) {
                 fundNotes.push({ label: '🦵 พอกเข่า (43 แฟ้ม)', kind: 'matched', group: 'other' });

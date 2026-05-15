@@ -110,7 +110,6 @@ const collectDiagValues = (item: any) => {
     return Array.from(new Set(baseValues));
 };
 const hasDiagRegex = (item: any, regex: RegExp) => collectDiagValues(item).some((code) => regex.test(code));
-const hasText = (value: unknown, regex: RegExp) => regex.test(String(value ?? ''));
 const getAnemiaAgeBandLabel = (item: any) => {
     const band = getAnemiaRuleBand(item);
     if (band) return band.ageLabel;

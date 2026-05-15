@@ -190,6 +190,10 @@ type OverviewData = {
     batch_matches?: number;
     rep_data_matches?: number;
     last_import_at?: string | null;
+    latest_batch_id?: number | null;
+    latest_batch_data_type?: string | null;
+    latest_batch_source_filename?: string | null;
+    latest_batch_row_count?: number | null;
   } | null;
 };
 
@@ -224,6 +228,7 @@ export const InsuranceOverviewPage = () => {
   const [valeTargetFilename, setValeTargetFilename] = useState(VALE_TARGET_FILENAME);
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [valeUpdating, setValeUpdating] = useState(false);
   const [error, setError] = useState('');
   const [hipdataFilter, setHipdataFilter] = useState('ALL');
   const [opdHipdataFilter, setOpdHipdataFilter] = useState('ALL');
@@ -249,6 +254,29 @@ export const InsuranceOverviewPage = () => {
       setError(err instanceof Error ? err.message : 'โหลดรายงานไม่สำเร็จ');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshValeStatus = async () => {
+    setValeUpdating(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      params.set('valeTargetFilename', valeTargetFilename.trim() || VALE_TARGET_FILENAME);
+      const resp = await fetch(`/api/insurance/vale-status?${params}`);
+      const json = await resp.json();
+      if (!resp.ok || !json.success) throw new Error(json.error || 'อัปเดทข้อมูล Vale ไม่สำเร็จ');
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          valeImportStatus: json.data || null,
+        };
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'อัปเดทข้อมูล Vale ไม่สำเร็จ');
+    } finally {
+      setValeUpdating(false);
     }
   };
 
@@ -389,6 +417,9 @@ export const InsuranceOverviewPage = () => {
               <button className="btn btn-primary" onClick={loadData} disabled={loading}>
                 {loading ? 'กำลังคำนวณ...' : 'ดูรายงาน'}
               </button>
+              <button className="btn btn-outline-secondary" onClick={refreshValeStatus} disabled={loading || valeUpdating}>
+                {valeUpdating ? 'กำลังอัปเดท Vale...' : 'อัปเดทข้อมูล Vale'}
+              </button>
             </div>
           </div>
         </div>
@@ -441,6 +472,11 @@ export const InsuranceOverviewPage = () => {
                 {valeImportStatus?.target_filename || VALE_TARGET_FILENAME}
                 {' · batch '}{count(valeImportStatus?.batch_matches)}
                 {' · rep '}{count(valeImportStatus?.rep_data_matches)}
+              </small>
+              <small>
+                batch ล่าสุด: {valeImportStatus?.latest_batch_data_type || '-'}
+                {' #'}{valeImportStatus?.latest_batch_id ? count(valeImportStatus.latest_batch_id) : '-'}
+                {' · rows '}{count(valeImportStatus?.latest_batch_row_count)}
               </small>
               <small>นำเข้าล่าสุด: {formatThaiDateTime(valeImportStatus?.last_import_at)}</small>
             </div>

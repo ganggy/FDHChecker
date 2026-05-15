@@ -4738,6 +4738,57 @@ export const getInsuranceOverview = async (options: {
     return Number.isFinite(amount) ? amount : 0;
   };
 
+  const resolveValeImportStatus = async (targetFilename: string) => {
+    if (!targetFilename) return null;
+    const likePattern = `%${targetFilename}%`;
+    const [valeBatchRows] = await repConnection.query(
+      `SELECT
+         COUNT(*) AS batch_matches,
+         MAX(created_at) AS last_import_at
+       FROM repstm_import_batch
+       WHERE source_filename LIKE ?`,
+      [likePattern]
+    );
+    const [valeRepRows] = await repConnection.query(
+      `SELECT COUNT(*) AS rep_data_matches
+       FROM rep_data
+       WHERE filename LIKE ?`,
+      [likePattern]
+    );
+    const [latestBatchRows] = await repConnection.query(
+      `SELECT id, data_type, source_filename, row_count, created_at
+       FROM repstm_import_batch
+       WHERE source_filename LIKE ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [likePattern]
+    );
+
+    const batchRow = Array.isArray(valeBatchRows) && valeBatchRows.length > 0
+      ? valeBatchRows[0] as Record<string, unknown>
+      : {};
+    const repRow = Array.isArray(valeRepRows) && valeRepRows.length > 0
+      ? valeRepRows[0] as Record<string, unknown>
+      : {};
+    const latestBatchRow = Array.isArray(latestBatchRows) && latestBatchRows.length > 0
+      ? latestBatchRows[0] as Record<string, unknown>
+      : {};
+    const batchMatches = toNumber(batchRow.batch_matches);
+    const repDataMatches = toNumber(repRow.rep_data_matches);
+
+    return {
+      target_filename: targetFilename,
+      status: batchMatches > 0 || repDataMatches > 0 ? 'found' : 'missing',
+      batch_matches: batchMatches,
+      rep_data_matches: repDataMatches,
+      last_import_at: batchRow.last_import_at || null,
+      latest_batch_id: batchMatches > 0 ? toNumber(latestBatchRow.id) : null,
+      latest_batch_data_type: latestBatchRow.data_type || null,
+      latest_batch_source_filename: latestBatchRow.source_filename || null,
+      latest_batch_row_count: batchMatches > 0 ? toNumber(latestBatchRow.row_count) : null,
+    };
+  };
+
   const diffDays = (from: unknown, to: unknown) => {
     if (!from || !to) return null;
     const start = new Date(String(from));
@@ -5557,41 +5608,7 @@ export const getInsuranceOverview = async (options: {
       statement_top_errors: statementTopErrors,
     };
 
-    let valeImportStatus: Record<string, unknown> | null = null;
-    if (valeTargetFilename) {
-      const likePattern = `%${valeTargetFilename}%`;
-      const [valeBatchRows] = await repConnection.query(
-        `SELECT
-           COUNT(*) AS batch_matches,
-           MAX(created_at) AS last_import_at
-         FROM repstm_import_batch
-         WHERE source_filename LIKE ?`,
-        [likePattern]
-      );
-      const [valeRepRows] = await repConnection.query(
-        `SELECT COUNT(*) AS rep_data_matches
-         FROM rep_data
-         WHERE filename LIKE ?`,
-        [likePattern]
-      );
-
-      const batchRow = Array.isArray(valeBatchRows) && valeBatchRows.length > 0
-        ? valeBatchRows[0] as Record<string, unknown>
-        : {};
-      const repRow = Array.isArray(valeRepRows) && valeRepRows.length > 0
-        ? valeRepRows[0] as Record<string, unknown>
-        : {};
-      const batchMatches = toNumber(batchRow.batch_matches);
-      const repDataMatches = toNumber(repRow.rep_data_matches);
-
-      valeImportStatus = {
-        target_filename: valeTargetFilename,
-        status: batchMatches > 0 || repDataMatches > 0 ? 'found' : 'missing',
-        batch_matches: batchMatches,
-        rep_data_matches: repDataMatches,
-        last_import_at: batchRow.last_import_at || null,
-      };
-    }
+    const valeImportStatus = await resolveValeImportStatus(valeTargetFilename);
 
     return {
       startDate,
@@ -5616,6 +5633,75 @@ export const getInsuranceOverview = async (options: {
     throw error;
   } finally {
     hosConnection.release();
+    repConnection.release();
+  }
+};
+
+export const getValeImportStatus = async (options: {
+  valeTargetFilename?: string;
+}): Promise<Record<string, unknown> | null> => {
+  const repConnection = await getRepstmConnection();
+  const targetFilename = String(options.valeTargetFilename || '16แฟ้มFDH.xlsx').trim();
+
+  try {
+    await ensureRepstmTables();
+
+    const likePattern = `%${targetFilename}%`;
+    const [valeBatchRows] = await repConnection.query(
+      `SELECT
+         COUNT(*) AS batch_matches,
+         MAX(created_at) AS last_import_at
+       FROM repstm_import_batch
+       WHERE source_filename LIKE ?`,
+      [likePattern]
+    );
+    const [valeRepRows] = await repConnection.query(
+      `SELECT COUNT(*) AS rep_data_matches
+       FROM rep_data
+       WHERE filename LIKE ?`,
+      [likePattern]
+    );
+    const [latestBatchRows] = await repConnection.query(
+      `SELECT id, data_type, source_filename, row_count, created_at
+       FROM repstm_import_batch
+       WHERE source_filename LIKE ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [likePattern]
+    );
+
+    const toNumber = (value: unknown) => {
+      const amount = Number(value);
+      return Number.isFinite(amount) ? amount : 0;
+    };
+
+    const batchRow = Array.isArray(valeBatchRows) && valeBatchRows.length > 0
+      ? valeBatchRows[0] as Record<string, unknown>
+      : {};
+    const repRow = Array.isArray(valeRepRows) && valeRepRows.length > 0
+      ? valeRepRows[0] as Record<string, unknown>
+      : {};
+    const latestBatchRow = Array.isArray(latestBatchRows) && latestBatchRows.length > 0
+      ? latestBatchRows[0] as Record<string, unknown>
+      : {};
+    const batchMatches = toNumber(batchRow.batch_matches);
+    const repDataMatches = toNumber(repRow.rep_data_matches);
+
+    return {
+      target_filename: targetFilename,
+      status: batchMatches > 0 || repDataMatches > 0 ? 'found' : 'missing',
+      batch_matches: batchMatches,
+      rep_data_matches: repDataMatches,
+      last_import_at: batchRow.last_import_at || null,
+      latest_batch_id: batchMatches > 0 ? toNumber(latestBatchRow.id) : null,
+      latest_batch_data_type: latestBatchRow.data_type || null,
+      latest_batch_source_filename: latestBatchRow.source_filename || null,
+      latest_batch_row_count: batchMatches > 0 ? toNumber(latestBatchRow.row_count) : null,
+    };
+  } catch (error) {
+    console.error('Error loading Vale import status:', error);
+    return null;
+  } finally {
     repConnection.release();
   }
 };

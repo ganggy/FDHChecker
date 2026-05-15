@@ -38,6 +38,7 @@ import {
   getMophVaccineCandidates,
   getMophClaimDashboardSummary,
   getInsuranceOverview,
+  getValeImportStatus,
   getVisitRepStmComparison,
   saveReceivableBatch,
   syncNhsoAuthenCodes,
@@ -1587,6 +1588,202 @@ app.post('/api/hosxp/validate-detailed', async (req, res) => {
   }
 });
 
+// API ตรวจความพร้อมก่อนส่งเคลม (อ้างอิง checklist จาก PDF NHSO e-Claim + IPD audit)
+app.post('/api/hosxp/pre-submit-check', (req, res) => {
+  try {
+    const payload = (req.body || {}) as Record<string, unknown>;
+    const eclaim = (payload.eclaim || {}) as Record<string, unknown>;
+    const documents = (payload.documents || {}) as Record<string, unknown>;
+
+    const toText = (value: unknown) => String(value ?? '').trim();
+    const toBool = (value: unknown) => (
+      value === true
+      || value === 1
+      || value === '1'
+      || String(value ?? '').trim().toLowerCase() === 'true'
+      || String(value ?? '').trim().toUpperCase() === 'Y'
+    );
+
+    const checks: Array<{
+      code: string;
+      category: string;
+      severity: 'block' | 'warn';
+      passed: boolean;
+      message: string;
+      expected: string;
+      actual: unknown;
+    }> = [];
+
+    const addCheck = (
+      code: string,
+      category: string,
+      severity: 'block' | 'warn',
+      passed: boolean,
+      message: string,
+      expected: string,
+      actual: unknown,
+    ) => {
+      checks.push({ code, category, severity, passed, message, expected, actual });
+    };
+
+    const fileType = toText(eclaim.fileType).toLowerCase();
+    addCheck(
+      'EC001',
+      'eclaim',
+      'block',
+      fileType === 'txt' || fileType === 'dbf',
+      'ต้องระบุ fileType ให้ถูกต้อง',
+      'txt หรือ dbf',
+      eclaim.fileType,
+    );
+
+    const maininscl = toText(eclaim.maininscl).toUpperCase();
+    const allowedMaininscl = ['UCS', 'OFC', 'LGO', 'SSS'];
+    addCheck(
+      'EC002',
+      'eclaim',
+      'block',
+      allowedMaininscl.includes(maininscl),
+      'ต้องระบุ maininscl ตามสิทธิที่รองรับ',
+      'UCS/OFC/LGO/SSS',
+      eclaim.maininscl,
+    );
+
+    const dataTypes = Array.isArray(eclaim.dataTypes)
+      ? eclaim.dataTypes.map((item) => toText(item).toUpperCase()).filter(Boolean)
+      : [];
+    addCheck(
+      'EC003',
+      'eclaim',
+      'block',
+      dataTypes.length > 0 && dataTypes.every((item) => item === 'IP' || item === 'OP'),
+      'ต้องระบุ dataTypes อย่างน้อย 1 ค่า',
+      "array ของ 'IP' หรือ 'OP'",
+      eclaim.dataTypes,
+    );
+
+    addCheck(
+      'EC004',
+      'eclaim',
+      'block',
+      typeof eclaim.opRefer === 'boolean',
+      'ต้องระบุ opRefer',
+      'boolean',
+      eclaim.opRefer,
+    );
+
+    addCheck(
+      'EC005',
+      'eclaim',
+      'block',
+      typeof eclaim.importDup === 'boolean',
+      'ต้องระบุ importDup',
+      'boolean',
+      eclaim.importDup,
+    );
+
+    addCheck(
+      'EC006',
+      'eclaim',
+      'block',
+      typeof eclaim.assignToMe === 'boolean',
+      'ต้องระบุ assignToMe',
+      'boolean',
+      eclaim.assignToMe,
+    );
+
+    const hasAuthToken = toBool(eclaim.hasToken) || toText(eclaim.token).length > 0;
+    addCheck(
+      'EC007',
+      'eclaim',
+      'block',
+      hasAuthToken,
+      'ต้องมี token สำหรับ Authorization: Bearer <token>',
+      'hasToken=true หรือ token ไม่ว่าง',
+      eclaim.hasToken || eclaim.token || null,
+    );
+
+    const shouldCheckIpdDocs = dataTypes.includes('IP') || toBool(payload.ipdCase);
+    if (shouldCheckIpdDocs) {
+      addCheck(
+        'IPD001',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasDischargeSummary),
+        'ควรมี Discharge Summary ก่อนส่งเคลม IPD',
+        'hasDischargeSummary=true',
+        documents.hasDischargeSummary,
+      );
+
+      addCheck(
+        'IPD002',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasDiagnosisCoding),
+        'ควรระบุรหัสวินิจฉัยตาม ICD-10',
+        'hasDiagnosisCoding=true',
+        documents.hasDiagnosisCoding,
+      );
+
+      addCheck(
+        'IPD003',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasProcedureCoding),
+        'กรณีมีหัตถการ ควรระบุรหัสตาม ICD-9-CM',
+        'hasProcedureCoding=true',
+        documents.hasProcedureCoding,
+      );
+
+      addCheck(
+        'IPD004',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasKeyInvestigation),
+        'ควรมีผล Investigation สำคัญประกอบการรักษา',
+        'hasKeyInvestigation=true',
+        documents.hasKeyInvestigation,
+      );
+
+      addCheck(
+        'IPD005',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasConsultOrOperativeReport),
+        'เคสซับซ้อนควรมี Consultation/Operative report',
+        'hasConsultOrOperativeReport=true',
+        documents.hasConsultOrOperativeReport,
+      );
+    }
+
+    const blockFailed = checks.filter((item) => item.severity === 'block' && !item.passed);
+    const warnFailed = checks.filter((item) => item.severity === 'warn' && !item.passed);
+    const passed = checks.filter((item) => item.passed).length;
+
+    res.json({
+      success: true,
+      readyToSubmit: blockFailed.length === 0,
+      summary: {
+        total: checks.length,
+        passed,
+        blockFailed: blockFailed.length,
+        warnFailed: warnFailed.length,
+      },
+      checks,
+      guidance: {
+        blocking: 'ต้องแก้ก่อนส่งเคลม',
+        warning: 'ควรทบทวนเพื่อลดความเสี่ยงถูกตีกลับ',
+      },
+    });
+  } catch (error) {
+    console.error('Error pre-submit check:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการตรวจ pre-submit',
+    });
+  }
+});
+
 // API สำหรับตรวจสอบสถานะฐานข้อมูล
 app.get('/api/hosxp/status', async (req, res) => {
   try {
@@ -2644,6 +2841,21 @@ app.get('/api/insurance/overview', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'ไม่สามารถโหลดรายงานภาพรวมงานประกันได้',
+    });
+  }
+});
+
+app.get('/api/insurance/vale-status', async (req, res) => {
+  try {
+    const data = await getValeImportStatus({
+      valeTargetFilename: String(req.query.valeTargetFilename || ''),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error refreshing Vale import status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถอัปเดทข้อมูล Vale ได้',
     });
   }
 });

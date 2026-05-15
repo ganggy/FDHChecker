@@ -222,12 +222,20 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '💊 Clopidogrel', kind: 'matched', group: 'drug' });
         }
 
-        const hasKneeService = toBool(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
+        const hasKneeDiag = toBool(item?.has_knee_diag) || hasDiagCode(item, ['M17', 'U5753']);
+        const hasKneeService = toBool(item?.has_knee_oper)
+            || toBool(item?.has_knee_poultice)
+            || hasText(item?.proc_name, /KNEE|เข่า/)
+            || hasText(item?.service_name, /KNEE|เข่า/);
         if (hasKneeService) {
-            if (age >= 40) {
+            if (age >= 40 && hasKneeDiag && toBool(item?.has_knee_oper)) {
                 fundNotes.push({ label: '🦵 พอกเข่า', kind: 'matched', group: 'other' });
             } else {
-                addWarningFundNote(fundNotes, 'พอกเข่า', [' อายุ 40 ปีขึ้นไป'], 'other');
+                addWarningFundNote(fundNotes, 'พอกเข่า', [
+                    age >= 40 ? '' : ' อายุ 40 ปีขึ้นไป',
+                    hasKneeDiag ? '' : ' Diagnosis M17/U57.53',
+                    toBool(item?.has_knee_oper) ? '' : ' หัตถการครบ 4 กิจกรรม',
+                ].filter(Boolean), 'other');
             }
         }
 

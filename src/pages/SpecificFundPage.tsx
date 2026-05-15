@@ -437,12 +437,37 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (fundId === 'knee') {
-            const hasKneeService = toFlag(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
-            if (hasKneeService) subfunds.push('🦵 พอกเข่า');
-            return buildStatusResult(subfunds, [
-                age >= 40 ? '' : ' อายุ 40 ปีขึ้นไป',
-                hasKneeService ? '' : ' บริการพอก/ประคบเข่า',
-            ].filter(Boolean));
+            const hasAge = toFlag(item?.knee_age_eligible) || age >= 40;
+            const hasDiag = toFlag(item?.has_knee_diag) || hasDiagCodes(item, ['M17', 'U5753']) || hasValue(item?.diag_code);
+            const hasThigh = toFlag(item?.has_knee_massage_thigh);
+            const hasKnee = toFlag(item?.has_knee_massage_knee);
+            const hasLowerLeg = toFlag(item?.has_knee_massage_lower_leg);
+            const hasPoultice = toFlag(item?.has_knee_poultice);
+            const hasAllOperations = hasThigh && hasKnee && hasLowerLeg && hasPoultice;
+            const hasKneeEvidence = hasDiag || hasThigh || hasKnee || hasLowerLeg || hasPoultice || toFlag(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
+            const withinLimit = Number(item?.knee_poultice_14d_count ?? 0) <= 5;
+            const isMatched = hasAge && hasDiag && hasAllOperations && withinLimit;
+            if (hasKneeEvidence || hasAge) subfunds.push('🦵 พอกเข่า');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasAge ? '' : ' อายุ 40 ปีขึ้นไป',
+                    hasDiag ? '' : ' Diagnosis M17/U57.53',
+                    hasThigh ? '' : ' หัตถการ 872-78-11',
+                    hasKnee ? '' : ' หัตถการ 873-78-11',
+                    hasLowerLeg ? '' : ' หัตถการ 874-78-11',
+                    hasPoultice ? '' : ' หัตถการ 873-78-35',
+                    withinLimit ? '' : ' เกิน 5 ครั้งใน 2 สัปดาห์',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasAge ? 'อายุ 40 ปีขึ้นไป' : '',
+                    hasDiag ? 'Diagnosis M17/U57.53' : '',
+                    hasAllOperations ? 'หัตถการครบ 4 กิจกรรม' : '',
+                    withinLimit ? 'ไม่เกิน 5 ครั้ง/2 สัปดาห์' : '',
+                ].filter(Boolean)
+            );
         }
 
         if (fundId === 'preg_test') {
@@ -1391,11 +1416,24 @@ export const SpecificFundPage: React.FC = () => {
                                         <div style={{ color: '#e65100' }}>{'> 0 บาท'}</div>
                                     </div>
                                 </>
-                            )}                            {activeFund === 'knee' && (
+                            )}
+                            {activeFund === 'knee' && (
                                 <>
                                     <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
                                         <div style={{ fontWeight: 700, color: '#4caf50', marginBottom: '4px' }}>✓ อายุ</div>
                                         <div style={{ color: '#2e7d32' }}>{'>= 40 ปี'}</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ Diagnosis</div>
+                                        <div style={{ color: '#1565c0' }}>M17 หรือ U57.53</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
+                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ หัตถการ</div>
+                                        <div style={{ color: '#e65100' }}>872-78-11, 873-78-11, 874-78-11, 873-78-35</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#f3e5f5', borderRadius: '8px', borderLeft: '3px solid #9c27b0' }}>
+                                        <div style={{ fontWeight: 700, color: '#9c27b0', marginBottom: '4px' }}>✓ จำกัดครั้ง</div>
+                                        <div style={{ color: '#6a1b9a' }}>ไม่เกินวันละ 1 ครั้ง รวมไม่เกิน 5 ครั้งใน 2 สัปดาห์</div>
                                     </div>
                                 </>
                             )}
@@ -1623,8 +1661,9 @@ export const SpecificFundPage: React.FC = () => {
                                     {activeFund === 'knee' && (
                                         <>
                                             <th style={{ width: 60, textAlign: 'center' }}>อายุ</th>
-                                            <th style={{ width: 90, textAlign: 'center' }}>Diag</th>
-                                            <th style={{ width: 130, textAlign: 'center' }}>รหัสหัตถการ</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>Diag M17/U57.53</th>
+                                            <th style={{ width: 240, textAlign: 'left' }}>หัตถการพอกเข่า</th>
+                                            <th style={{ width: 95, textAlign: 'center' }}>ครั้ง/2 สัปดาห์</th>
                                         </>
                                     )}
                                     {activeFund === 'instrument' && (
@@ -1850,10 +1889,27 @@ export const SpecificFundPage: React.FC = () => {
                                                             <strong style={{ color: item.age_y >= 40 ? 'var(--success)' : 'var(--danger)' }}>{item.age_y}</strong>
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {item.diag_code ? <div style={{ fontSize: 11, color: 'var(--text-secondary)', maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.diag_code}>{item.diag_code}</div> : '-'}
+                                                            {toFlag(item.has_knee_diag)
+                                                                ? <span className="badge badge-primary">{item.diag_code || 'M17/U57.53'}</span>
+                                                                : <span className="badge badge-danger">✗ ขาด Dx</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                                <span className={`badge ${toFlag(item.has_knee_massage_thigh) ? 'badge-success' : 'badge-danger'}`}>872-78-11</span>
+                                                                <span className={`badge ${toFlag(item.has_knee_massage_knee) ? 'badge-success' : 'badge-danger'}`}>873-78-11</span>
+                                                                <span className={`badge ${toFlag(item.has_knee_massage_lower_leg) ? 'badge-success' : 'badge-danger'}`}>874-78-11</span>
+                                                                <span className={`badge ${toFlag(item.has_knee_poultice) ? 'badge-success' : 'badge-danger'}`}>873-78-35</span>
+                                                            </div>
+                                                            {item.oper_names && (
+                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.oper_names}>
+                                                                    {item.oper_names}
+                                                                </div>
+                                                            )}
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            <span className="badge badge-success">{item.oper_code}</span>
+                                                            <span className={`badge ${Number(item.knee_poultice_14d_count || 0) <= 5 ? 'badge-success' : 'badge-danger'}`}>
+                                                                {item.knee_poultice_14d_count || 0}/5
+                                                            </span>
                                                         </td>
                                                     </>
                                                 )}

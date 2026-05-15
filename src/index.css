@@ -910,6 +910,118 @@ p {
   flex-shrink: 0;
 }
 
+.navbar-menu-shell {
+  grid-template-columns: minmax(360px, 0.8fr) minmax(520px, 1.2fr);
+  align-items: center;
+}
+
+.navbar-menu-group {
+  min-height: 58px;
+}
+
+.navbar-menu-group--compact {
+  position: relative;
+  align-self: stretch;
+}
+
+.navbar-menu-group--compact .navbar-group-label {
+  min-width: 72px;
+}
+
+.navbar-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.navbar-dropdown {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.navbar-dropdown-trigger {
+  min-height: 34px;
+  padding-inline: 10px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.navbar-dropdown-trigger.is-open,
+.navbar-dropdown-trigger:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.navbar-dropdown-chevron {
+  margin-left: 2px;
+  font-size: 11px;
+  opacity: 0.74;
+}
+
+.navbar-dropdown-trigger.is-open .navbar-dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.navbar-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 120;
+  min-width: 218px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 7px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 22px 42px rgba(15, 23, 42, 0.34);
+  backdrop-filter: blur(18px);
+}
+
+.navbar-dropdown-menu::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 22px;
+  width: 10px;
+  height: 10px;
+  transform: rotate(45deg);
+  background: rgba(15, 23, 42, 0.96);
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.navbar-dropdown-item {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.navbar-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.navbar-dropdown-item.active {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.34), rgba(255, 255, 255, 0.13));
+  color: #ffffff;
+}
+
 .fund-status-block {
   display: flex;
   flex-direction: column;
@@ -3107,6 +3219,105 @@ textarea:focus-visible {
 
 .nav-btn.active {
   background: linear-gradient(135deg, rgba(255,255,255,0.28), rgba(255,255,255,0.17));
+}
+
+.navbar-menu-shell {
+  grid-template-columns: minmax(360px, 0.75fr) minmax(520px, 1.25fr);
+  align-items: center;
+}
+
+.navbar-menu-group {
+  min-height: 58px;
+}
+
+.navbar-menu-group--compact {
+  position: relative;
+  align-self: stretch;
+}
+
+.navbar-menu-group--compact .navbar-group-label {
+  min-width: 72px;
+}
+
+.navbar-tool-sections {
+  display: none;
+}
+
+.navbar-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.navbar-dropdown {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.navbar-dropdown-trigger {
+  min-height: 34px;
+  padding-inline: 10px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.navbar-dropdown-chevron {
+  margin-left: 2px;
+  font-size: 11px;
+  opacity: 0.74;
+  transition: transform 0.18s ease;
+}
+
+.navbar-dropdown-trigger.is-open .navbar-dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.navbar-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 120;
+  min-width: 218px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 7px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 22px 42px rgba(15, 23, 42, 0.34);
+  backdrop-filter: blur(18px);
+}
+
+.navbar-dropdown-item {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.navbar-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.navbar-dropdown-item.active {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.34), rgba(255, 255, 255, 0.13));
+  color: #ffffff;
 }
 
 .card,

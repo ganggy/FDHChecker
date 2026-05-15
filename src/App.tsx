@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StaffPage } from './pages/StaffPage';
 import { IPDPage } from './pages/IPDPage';
 import { AdminDashboard } from './pages/AdminDashboard';
@@ -27,6 +27,8 @@ import './App.css';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<AppPage>('staff');
+  const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
+  const navMenuRef = useRef<HTMLDivElement | null>(null);
 
   const primaryNavItems: Array<{ page: AppPage; icon: string; label: string; divider?: boolean }> = [
     { page: 'staff', icon: '📋', label: 'รายการ OPD' },
@@ -60,14 +62,14 @@ function App() {
     { page: 'guide', icon: '📚', label: 'คู่มือกองทุน', soft: true },
   ];
 
-  const toolNavGroups: Array<{ label: string; pages: AppPage[] }> = [
-    { label: 'ส่งข้อมูล', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
-    { label: 'ติดตาม', pages: ['workQueue', 'rejectTracking', 'repDeny'] },
-    { label: 'บัญชี', pages: ['receivable', 'reconciliation', 'insuranceOverview', 'admin'] },
-    { label: 'FDH/e-Claim', pages: ['fundFdh', 'monitor', 'fsMonitor'] },
-    { label: '43 แฟ้ม', pages: ['fund43'] },
-    { label: 'MOPH Claim', pages: ['mophDmht', 'mophVaccine'] },
-    { label: 'KTB/NTIP/อื่นๆ', pages: ['fundKtb', 'fundOther', 'specific', 'guide'] },
+  const toolNavGroups: Array<{ label: string; icon: string; pages: AppPage[] }> = [
+    { label: 'ส่งข้อมูล', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
+    { label: 'ติดตาม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'repDeny'] },
+    { label: 'บัญชี', icon: '💼', pages: ['receivable', 'reconciliation', 'insuranceOverview', 'admin'] },
+    { label: 'FDH/e-Claim', icon: '🏥', pages: ['fundFdh', 'monitor', 'fsMonitor'] },
+    { label: '43 แฟ้ม', icon: '🗂️', pages: ['fund43'] },
+    { label: 'MOPH Claim', icon: '🧪', pages: ['mophDmht', 'mophVaccine'] },
+    { label: 'KTB/NTIP/อื่นๆ', icon: '🏦', pages: ['fundKtb', 'fundOther', 'specific', 'guide'] },
   ];
 
   const toolNavItemByPage = new Map(toolNavItems.map((item) => [item.page, item]));
@@ -83,6 +85,23 @@ function App() {
     window.addEventListener('fdh:navigate', handleNavigate as EventListener);
     return () => window.removeEventListener('fdh:navigate', handleNavigate as EventListener);
   }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!navMenuRef.current) return;
+      if (!navMenuRef.current.contains(event.target as Node)) {
+        setOpenNavGroup(null);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, []);
+
+  const goToPage = (page: AppPage) => {
+    setCurrentPage(page);
+    setOpenNavGroup(null);
+  };
 
   return (
     <div className="app-shell">
@@ -103,7 +122,7 @@ function App() {
             </div>
             <button
               className={`nav-btn nav-icon-btn ${currentPage === 'settings' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('settings')}
+              onClick={() => goToPage('settings')}
               title="ตั้งค่าระบบ"
             >
               <span style={{ fontSize: '1.4rem' }}>⚙️</span>
@@ -119,7 +138,7 @@ function App() {
                 <button
                   key={item.page}
                   className={`nav-btn ${item.divider ? 'nav-btn--divider' : ''} ${currentPage === item.page ? 'active' : ''}`}
-                  onClick={() => setCurrentPage(item.page)}
+                  onClick={() => goToPage(item.page)}
                 >
                   <span className="nav-btn-icon">{item.icon}</span>
                   <span>{item.label}</span>
@@ -128,30 +147,46 @@ function App() {
             </div>
           </div>
 
-          <div className="navbar-menu-group navbar-menu-group--tools">
+          <div className="navbar-menu-group navbar-menu-group--tools navbar-menu-group--compact" ref={navMenuRef}>
             <div className="navbar-group-label">เครื่องมือ</div>
-            <div className="navbar-tool-sections">
-              {toolNavGroups.map((group) => (
-                <div className="navbar-tool-section" key={group.label}>
-                  <div className="navbar-tool-section-label">{group.label}</div>
-                  <div className="navbar-nav navbar-nav--tools">
-                    {group.pages.map((page) => {
-                      const item = toolNavItemByPage.get(page);
-                      if (!item) return null;
-                      return (
-                        <button
-                          key={item.page}
-                          className={`nav-btn ${item.soft ? 'nav-btn--soft' : ''} ${currentPage === item.page ? 'active' : ''}`}
-                          onClick={() => setCurrentPage(item.page)}
-                        >
-                          <span className="nav-btn-icon">{item.icon}</span>
-                          <span>{item.label}</span>
-                        </button>
-                      );
-                    })}
+            <div className="navbar-dropdown-row">
+              {toolNavGroups.map((group) => {
+                const isGroupActive = group.pages.includes(currentPage);
+                const isOpen = openNavGroup === group.label;
+                return (
+                  <div className="navbar-dropdown" key={group.label}>
+                    <button
+                      type="button"
+                      className={`nav-btn navbar-dropdown-trigger ${isGroupActive ? 'active' : ''} ${isOpen ? 'is-open' : ''}`}
+                      onClick={() => setOpenNavGroup(isOpen ? null : group.label)}
+                      aria-expanded={isOpen}
+                    >
+                      <span className="nav-btn-icon">{group.icon}</span>
+                      <span>{group.label}</span>
+                      <span className="navbar-dropdown-chevron">▾</span>
+                    </button>
+                    {isOpen && (
+                      <div className="navbar-dropdown-menu">
+                        {group.pages.map((page) => {
+                          const item = toolNavItemByPage.get(page);
+                          if (!item) return null;
+                          return (
+                            <button
+                              key={item.page}
+                              type="button"
+                              className={`navbar-dropdown-item ${currentPage === item.page ? 'active' : ''}`}
+                              onClick={() => goToPage(item.page)}
+                            >
+                              <span className="nav-btn-icon">{item.icon}</span>
+                              <span>{item.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

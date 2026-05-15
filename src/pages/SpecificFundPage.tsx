@@ -14,7 +14,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'telemedicine', name: 'Telemedicine', description: 'บริการแพทย์ทางไกล / Telemed' },
     { id: 'drugp', name: 'ส่งยาไปรษณีย์', description: 'ยา EMS / ส่งยาถึงบ้าน' },
     { id: 'herb', name: 'สมุนไพร / ยาไทย', description: 'รายการสมุนไพรและยาไทย' },
-    { id: 'knee', name: 'ยาพอกเข่า', description: 'บริการยาพอก/ประคบเข่า' },
+    { id: 'knee', name: 'ยาพอกเข่า', description: 'บริการพอกเข่าในชุดข้อมูล 43 แฟ้ม' },
     { id: 'instrument', name: 'อวัยวะเทียม', description: 'วัสดุ/อุปกรณ์เบิกได้' },
     { id: 'preg_test', name: 'ตรวจครรภ์ (UPT)', description: 'คัดกรองการตั้งครรภ์' },
     { id: 'anc', name: 'ANC Visit', description: 'ตรวจครรภ์คุณภาพ / ฝากครรภ์' },
@@ -1120,8 +1120,8 @@ export const SpecificFundPage: React.FC = () => {
     return (
         <div className="page-container" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="page-header">
-                <h1 className="page-title">🎯 ตรวจสอบเงื่อนไขรายกองทุน</h1>
-                <p className="page-subtitle">แสดงรายการแยกตามเงื่อนไขพิเศษของแต่ละโครงการ เช่น Palliative Care</p>
+                <h1 className="page-title">🎯 ตรวจสอบเงื่อนไขรายกองทุน/43 แฟ้ม</h1>
+                <p className="page-subtitle">แสดงรายการแยกตามเงื่อนไขการเบิกและความพร้อมข้อมูลส่งออก เช่น Palliative Care และบริการ 43 แฟ้ม</p>
             </div>
 
             {dashboardContextItems.length > 0 && (
@@ -1158,7 +1158,7 @@ export const SpecificFundPage: React.FC = () => {
                             <div className="specific-fund-empty__icon">🚫</div>
                             <div className="specific-fund-empty__title">ไม่มีเมนูกองทุนที่แสดง</div>
                             <div className="specific-fund-empty__text">
-                                กรุณาไปที่ <strong>ตั้งค่า</strong> แล้วเปิดกองทุนที่ต้องการแสดงในหน้า <strong>รายกองทุน (พิเศษ)</strong>
+                                กรุณาไปที่ <strong>ตั้งค่า</strong> แล้วเปิดรายการที่ต้องการแสดงในหน้า <strong>รายกองทุน/43 แฟ้ม</strong>
                             </div>
                         </div>
                     )}

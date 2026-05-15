@@ -7811,71 +7811,91 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
     }
 
     if (fundType === 'knee') {
+      const kneeDxSql = `
+        v.pdx LIKE 'M17%' OR v.dx0 LIKE 'M17%' OR v.dx1 LIKE 'M17%' OR v.dx2 LIKE 'M17%' OR v.dx3 LIKE 'M17%' OR v.dx4 LIKE 'M17%' OR v.dx5 LIKE 'M17%'
+        OR v.pdx IN ('U57.53', 'U5753') OR v.dx0 IN ('U57.53', 'U5753') OR v.dx1 IN ('U57.53', 'U5753') OR v.dx2 IN ('U57.53', 'U5753') OR v.dx3 IN ('U57.53', 'U5753') OR v.dx4 IN ('U57.53', 'U5753') OR v.dx5 IN ('U57.53', 'U5753')
+      `;
       const [rows] = await connection.query(`
-        SELECT 
-          o.vn, o.hn, 
+        SELECT
+          o.vn, o.hn,
           DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
           DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
           pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
           ptt.name as pttypename, ptt.hipdata_code,
           COALESCE(v.sex, pt.sex) as sex,
-          TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) as age_y,
-          CASE WHEN TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) >= 40 THEN 'Y' ELSE 'N' END as knee_age_eligible,
-          CASE WHEN EXISTS (
-            SELECT 1 FROM ovstdiag dx
-            WHERE dx.vn = o.vn
-              AND REPLACE(UPPER(dx.icd10), '.', '') IN ('M17', 'U5753')
-          ) THEN 'Y' ELSE 'N' END as has_knee_diag,
-          (
-            SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.icd10 SEPARATOR ', ')
-            FROM ovstdiag dx
-            WHERE dx.vn = o.vn
-              AND REPLACE(UPPER(dx.icd10), '.', '') IN ('M17', 'U5753')
+          COALESCE(v.age_y, TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate)) as age_y,
+          'Y' as knee_age_eligible,
+          'Y' as has_knee_diag,
+          CONCAT_WS(', ',
+            CASE WHEN v.pdx LIKE 'M17%' OR v.pdx IN ('U57.53', 'U5753') THEN v.pdx END,
+            CASE WHEN v.dx0 LIKE 'M17%' OR v.dx0 IN ('U57.53', 'U5753') THEN v.dx0 END,
+            CASE WHEN v.dx1 LIKE 'M17%' OR v.dx1 IN ('U57.53', 'U5753') THEN v.dx1 END,
+            CASE WHEN v.dx2 LIKE 'M17%' OR v.dx2 IN ('U57.53', 'U5753') THEN v.dx2 END,
+            CASE WHEN v.dx3 LIKE 'M17%' OR v.dx3 IN ('U57.53', 'U5753') THEN v.dx3 END,
+            CASE WHEN v.dx4 LIKE 'M17%' OR v.dx4 IN ('U57.53', 'U5753') THEN v.dx4 END,
+            CASE WHEN v.dx5 LIKE 'M17%' OR v.dx5 IN ('U57.53', 'U5753') THEN v.dx5 END
           ) as diag_code,
-          GROUP_CONCAT(DISTINCT i.icd10tm ORDER BY i.icd10tm SEPARATOR ', ') as oper_code,
-          GROUP_CONCAT(DISTINCT i.name ORDER BY i.icd10tm SEPARATOR ', ') as oper_names,
-          CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8727811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_thigh,
-          CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_knee,
-          CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8747811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_lower_leg,
-          CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737835' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_poultice,
-          CASE WHEN
-            MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8727811' THEN 1 ELSE 0 END) = 1
-            AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737811' THEN 1 ELSE 0 END) = 1
-            AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8747811' THEN 1 ELSE 0 END) = 1
-            AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737835' THEN 1 ELSE 0 END) = 1
-          THEN 'Y' ELSE 'N' END as has_knee_oper,
-          COUNT(DISTINCT CASE WHEN REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835') THEN REPLACE(i.icd10tm, '-', '') END) as knee_oper_count,
-          (
-            SELECT COUNT(DISTINCT o2.vn)
-            FROM ovst o2
-            JOIN health_med_service s2 ON s2.vn = o2.vn
-            JOIN health_med_service_operation op2 ON op2.health_med_service_id = s2.health_med_service_id
-            JOIN health_med_operation_item i2 ON i2.health_med_operation_item_id = op2.health_med_operation_item_id
-            WHERE o2.hn = o.hn
-              AND o2.vstdate BETWEEN DATE_SUB(o.vstdate, INTERVAL 13 DAY) AND o.vstdate
-              AND REPLACE(i2.icd10tm, '-', '') = '8737835'
-          ) as knee_poultice_14d_count,
+          NULL as oper_code,
+          NULL as oper_names,
+          'N' as has_knee_massage_thigh,
+          'N' as has_knee_massage_knee,
+          'N' as has_knee_massage_lower_leg,
+          'N' as has_knee_poultice,
+          'N' as has_knee_oper,
+          0 as knee_oper_count,
+          0 as knee_poultice_14d_count,
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
-        FROM ovst o
+        FROM vn_stat v
+        JOIN ovst o ON o.vn = v.vn
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
-        LEFT JOIN vn_stat v ON v.vn = o.vn
-        JOIN health_med_service s ON s.vn = o.vn
-        JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
-        JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
-        WHERE o.vstdate BETWEEN ? AND ?
-          AND (
-            REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
-            OR EXISTS (
-              SELECT 1 FROM ovstdiag dx
-              WHERE dx.vn = o.vn
-                AND REPLACE(UPPER(dx.icd10), '.', '') IN ('M17', 'U5753')
-            )
-          )
-        GROUP BY o.vn
-        ORDER BY o.vstdate DESC
+        WHERE v.vstdate BETWEEN ? AND ?
+          AND v.age_y >= 40
+          AND (${kneeDxSql})
+        ORDER BY o.vstdate DESC, o.vn DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      const kneeRows = rows as Record<string, unknown>[];
+      const kneeVns = Array.from(new Set(kneeRows.map((row) => normalizeImportCellValue(row.vn)).filter(Boolean)));
+      if (kneeVns.length > 0) {
+        const vnPlaceholders = kneeVns.map(() => '?').join(',');
+        const [operationRows] = await connection.query(`
+          SELECT
+            s.vn,
+            GROUP_CONCAT(DISTINCT i.icd10tm ORDER BY i.icd10tm SEPARATOR ', ') as oper_code,
+            GROUP_CONCAT(DISTINCT i.health_med_operation_item_name ORDER BY i.icd10tm SEPARATOR ', ') as oper_names,
+            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8727811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_thigh,
+            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_knee,
+            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8747811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_lower_leg,
+            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737835' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_poultice,
+            CASE WHEN
+              MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8727811' THEN 1 ELSE 0 END) = 1
+              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737811' THEN 1 ELSE 0 END) = 1
+              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8747811' THEN 1 ELSE 0 END) = 1
+              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737835' THEN 1 ELSE 0 END) = 1
+            THEN 'Y' ELSE 'N' END as has_knee_oper,
+            COUNT(DISTINCT REPLACE(i.icd10tm, '-', '')) as knee_oper_count
+          FROM health_med_service s
+          JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
+          JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
+          WHERE s.vn IN (${vnPlaceholders})
+            AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+          GROUP BY s.vn
+        `, kneeVns);
+        const operationMap = new Map<string, Record<string, unknown>>();
+        if (Array.isArray(operationRows)) {
+          for (const operationRow of operationRows as Record<string, unknown>[]) {
+            const vn = normalizeImportCellValue(operationRow.vn);
+            if (vn) operationMap.set(vn, operationRow);
+          }
+        }
+        for (const row of kneeRows) {
+          const vn = normalizeImportCellValue(row.vn);
+          const operationRow = operationMap.get(vn);
+          if (operationRow) Object.assign(row, operationRow);
+          row.knee_poultice_14d_count = row.has_knee_poultice === 'Y' ? 1 : 0;
+        }
+      }
+      return await attachSpecificFundStatusFields(connection, kneeRows);
     }
 
     if (fundType === 'instrument') {

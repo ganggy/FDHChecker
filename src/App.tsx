@@ -48,7 +48,7 @@ function App() {
     { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกัน' },
     { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
     { page: 'admin', icon: '📊', label: 'Dashboard' },
-    { page: 'specific', icon: '🎯', label: 'กองทุนพิเศษ' },
+    { page: 'specific', icon: '🎯', label: 'กองทุน/43 แฟ้ม' },
     { page: 'monitor', icon: '📈', label: 'มอนิเตอร์พิเศษ' },
     { page: 'fsMonitor', icon: '💰', label: 'มอนิเตอร์ FS' },
     { page: 'mophDmht', icon: '🧪', label: 'MOPH DMHT' },
@@ -60,7 +60,7 @@ function App() {
     { label: 'ส่งข้อมูล', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
     { label: 'ติดตาม', pages: ['workQueue', 'rejectTracking', 'repDeny'] },
     { label: 'บัญชี', pages: ['receivable', 'reconciliation', 'insuranceOverview', 'admin'] },
-    { label: 'กองทุน/MOPH', pages: ['specific', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide'] },
+    { label: 'กองทุน/43 แฟ้ม/MOPH', pages: ['specific', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide'] },
   ];
 
   const toolNavItemByPage = new Map(toolNavItems.map((item) => [item.page, item]));

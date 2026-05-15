@@ -227,14 +227,14 @@ export const evaluateBillingLogic = (item: any) => {
             || toBool(item?.has_knee_poultice)
             || hasText(item?.proc_name, /KNEE|เข่า/)
             || hasText(item?.service_name, /KNEE|เข่า/);
-        if (hasKneeService) {
+        if (hasKneeService || (age >= 40 && hasKneeDiag)) {
             if (age >= 40 && hasKneeDiag && toBool(item?.has_knee_oper)) {
-                fundNotes.push({ label: '🦵 พอกเข่า', kind: 'matched', group: 'other' });
+                fundNotes.push({ label: '🦵 พอกเข่า (43 แฟ้ม)', kind: 'matched', group: 'other' });
             } else {
                 addWarningFundNote(fundNotes, 'พอกเข่า', [
                     age >= 40 ? '' : ' อายุ 40 ปีขึ้นไป',
                     hasKneeDiag ? '' : ' Diagnosis M17/U57.53',
-                    toBool(item?.has_knee_oper) ? '' : ' หัตถการครบ 4 กิจกรรม',
+                    toBool(item?.has_knee_oper) ? '' : ' หัตถการ/กิจกรรม 43 แฟ้มยังไม่ครบ',
                 ].filter(Boolean), 'other');
             }
         }

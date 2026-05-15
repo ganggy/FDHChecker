@@ -24,6 +24,8 @@ interface Config {
     site_settings?: {
         hospital_name?: string;
         hospital_code?: string;
+        nhso_region?: string;
+        province?: string;
         specific_fund_visibility?: Record<string, boolean>;
         receivable_signers?: {
             director?: { name?: string; position?: string };
@@ -586,6 +588,22 @@ export const SettingsPage: React.FC = () => {
                                     type="text"
                                     value={mergedSiteSettings?.hospital_code || ''}
                                     onChange={(e) => setSiteSetting(['hospital_code'], e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>NHSO Region</label>
+                                <input
+                                    type="text"
+                                    value={mergedSiteSettings?.nhso_region || ''}
+                                    onChange={(e) => setSiteSetting(['nhso_region'], e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Province</label>
+                                <input
+                                    type="text"
+                                    value={mergedSiteSettings?.province || ''}
+                                    onChange={(e) => setSiteSetting(['province'], e.target.value)}
                                 />
                             </div>
                             <div className="form-group">

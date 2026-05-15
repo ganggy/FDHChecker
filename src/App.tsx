@@ -23,12 +23,16 @@ import { MophVaccineClaimPage } from './pages/MophVaccineClaimPage';
 import { GuidePage } from './pages/GuidePage';
 import { SettingsPage } from './pages/SettingsPage';
 import type { AppPage } from './utils/navigationState';
+import businessRules from './config/business_rules.json';
 import './App.css';
 
 function App() {
   const [currentPage, setCurrentPage] = useState<AppPage>('staff');
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
+  const siteSettings = (businessRules as { site_settings?: { hospital_name?: string; nhso_region?: string } }).site_settings || {};
+  const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
+  const regionLabel = siteSettings.nhso_region ? `เขต ${siteSettings.nhso_region}` : '';
 
   const primaryNavItems: Array<{ page: AppPage; icon: string; label: string; divider?: boolean }> = [
     { page: 'staff', icon: '📋', label: 'รายการ OPD' },
@@ -118,6 +122,7 @@ function App() {
           <div className="navbar-end">
             <div className="navbar-time navbar-meta-card">
               <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>ระบบตรวจสอบเบิกจ่าย v1.0</div>
+              <div>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</div>
               <div>{new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
             </div>
             <button

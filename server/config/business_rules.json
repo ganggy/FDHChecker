@@ -131,6 +131,8 @@
     "site_settings": {
         "hospital_name": "โรงพยาบาลโคกศรีสุพรรณ",
         "hospital_code": "11101",
+        "nhso_region": "8",
+        "province": "สกลนคร",
         "lab_costs": {
             "default": {
                 "enabled": true,

@@ -27,7 +27,7 @@
 | โลหิตจางเด็ก | KTB | Hb/Hct ตามช่วงอายุ 6-12 เดือน และ 3-6 ปี |
 | ยาเสริมธาตุเหล็กเด็ก (Ferrokid) | KTB | เฉพาะเด็กอายุ 6-12 เดือน |
 | Latent TB | NTIP/TB Data Hub | IGRA, specimen, lab; แยกค่าบริการเจาะเลือด/ส่ง specimen/lab |
-| ANC/ANC lab/ANC ultrasound/ANC dental | e-Claim/KTB | เขต 1-12 e-Claim, เขต 13 KTB ตามเอกสาร |
+| ANC/ANC lab/ANC ultrasound/ANC dental | e-Claim | โรงพยาบาลโคกศรีสุพรรณอยู่เขต 8 จึงใช้ e-Claim ตามเงื่อนไขเขต 1-12 |
 | Mental Health Counselling | e-Claim | age 12+, ST-5/9Q, individual counselling frequency limit |
 | Gender affirming hormone service | KTB/VMI | บันทึก KTB, ยา/ฮอร์โมนผ่าน VMI |
 | Autistic disorder TDAS | KTB | เด็กไทย 12-60 เดือน และบุคลากรผ่านอบรม |
@@ -39,4 +39,4 @@
 2. ถ้าเป็น `43 แฟ้ม` ให้เน้นข้อมูล Dx/procedure/แฟ้มมาตรฐาน ไม่ควรแสดงว่าเป็นกองทุนพิเศษ ADP
 3. ถ้าเป็น `MOPH Claim` ให้แยกหน้า/ปุ่มส่งออกจาก FDH เพราะ payload และ endpoint คนละชุด
 4. ถ้าเป็น `KTB` หรือ `NTIP` ให้หน้า FDHChecker ทำหน้าที่ “ตรวจความครบ/เตือน” เป็นหลัก ไม่ใช่ส่งเบิกแทนระบบกลาง
-5. ถ้าเอกสารระบุหลายช่องทาง ให้บันทึกเป็น mixed เช่น `e-Claim/KTB` พร้อม note เขต/เงื่อนไข
+5. ถ้าเอกสารระบุหลายช่องทาง ให้บันทึกตามเขตของหน่วยบริการก่อน เช่น โรงพยาบาลโคกศรีสุพรรณ เขต 8 ให้ใช้ `e-Claim` ในรายการที่เอกสารแยกเขต 1-12/13

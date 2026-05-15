@@ -15,14 +15,14 @@ interface FundGuide {
 const guides: FundGuide[] = [
     {
         id: 'anemia_screening',
-        title: 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (CBC / Hb-Hct + Z130 + 13001)',
+        title: 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (CBC / Hb-Hct + Z130/Z138 + 13001)',
         description: 'กองทุนคัดกรองโลหิตจางจากการขาดธาตุเหล็กตามช่วงอายุ โดยต้องดูว่าช่วงอายุใดต้องคู่กับ CBC หรือ Hb/Hct ให้ตรงกับ visit ที่รับบริการ',
         conditions: [
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130 ADP 13001',
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130 ADP 13001',
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130 ADP 13001'
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130/Z138 ADP 13001',
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130/Z138 ADP 13001',
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130/Z138 ADP 13001'
         ],
-        codes: ['ADP 13001', 'Lab CBC', 'Hb/Hct / Hemoglobin / Hematocrit', 'ICD-10: Z130'],
+        codes: ['ADP 13001', 'Lab CBC', 'Hb/Hct / Hemoglobin / Hematocrit', 'ICD-10: Z130/Z138'],
         payment: 'ให้ยึดตามกติกาโครงการคัดกรองโลหิตจางของหน่วยบริการและประกาศ สปสช. ล่าสุด',
         icon: '🩸',
         color: 'var(--danger)'
@@ -142,17 +142,31 @@ const guides: FundGuide[] = [
     },
     {
         id: 'hepc',
-        title: 'รักษาโรคไวรัสตับอักเสบซี (HepC)',
-        description: 'บริการคัดกรองและให้ยาต้านไวรัสสำหรับผู้ป่วยที่ติดเชื้อไวรัสตับอักเสบซีเรื้อรัง (HCV)',
+        title: 'คัดกรองไวรัสตับอักเสบซี (Anti-HCV)',
+        description: 'บริการคัดกรองไวรัสตับอักเสบซีสำหรับผู้ที่เกิดก่อน พ.ศ. 2535',
         conditions: [
-            'ผลตรวจ Anti-HCV เป็นบวก หรือ HCV RNA เป็นบวก',
-            'อายุ 15 ปีขึ้นไป (และกลุ่มเสี่ยงตามประกาศ)',
-            'ได้รับยาสูตรผสม เช่น Sofosbuvir/Velpatasvir'
+            'เกิดก่อน พ.ศ. 2535',
+            'Diagnosis Z11.5',
+            'มี Lab Anti-HCV'
         ],
-        codes: ['ICD-10: B18.2 (Chronic viral hepatitis C)', 'ค่าแล็บ HCV RNA'],
-        payment: 'ชดเชยค่ายาต้านไวรัสตามจริง (หลักหมื่นบาท/คอร์ส) และ ค่ายืนยันผล 1,500 บาท',
+        codes: ['ICD-10: Z11.5', 'Lab Anti-HCV'],
+        payment: 'ใช้ตาม Fee Schedule/ประกาศกองทุนปัจจุบัน',
         icon: '💊',
         color: 'var(--warning)'
+    },
+    {
+        id: 'hepb',
+        title: 'คัดกรองไวรัสตับอักเสบบี (HBsAg)',
+        description: 'บริการคัดกรองไวรัสตับอักเสบบีสำหรับผู้ที่เกิดก่อน พ.ศ. 2535',
+        conditions: [
+            'เกิดก่อน พ.ศ. 2535',
+            'Diagnosis Z11.5',
+            'มี Lab HBsAg'
+        ],
+        codes: ['ICD-10: Z11.5', 'Lab HBsAg'],
+        payment: 'ใช้ตาม Fee Schedule/ประกาศกองทุนปัจจุบัน',
+        icon: '🧫',
+        color: 'var(--info)'
     },
     {
         id: 'cxr',

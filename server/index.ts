@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
+import iconv from 'iconv-lite';
 import crypto from 'crypto';
 import { getVisitsCached } from './cacheManager.js';
 import {
@@ -15,6 +16,7 @@ import {
   getDrugPrices,
   getServiceADPCodes,
   getKidneyMonitorDetailed,
+  getFsMonitor,
   getUTFConnection,
   getAppSetting,
   setAppSetting,
@@ -22,12 +24,22 @@ import {
   getFdhStatusImportLogs,
   ensureRepstmTables,
   importRepstmRows,
+  importFdhClaimDetailRows,
+  getFdhClaimDetailBatches,
+  getFdhClaimDetailSummary,
+  getFdhClaimDetailRows,
   getRepstmImportBatches,
   getRepstmImportedRows,
   getRepDataRows,
   getReceivableCandidates,
   getReceivableBatches,
   getReceivableFilterOptions,
+  getMophDmhtCandidates,
+  getMophVaccineCandidates,
+  getMophClaimDashboardSummary,
+  getInsuranceOverview,
+  getValeImportStatus,
+  getVisitRepStmComparison,
   saveReceivableBatch,
   syncNhsoAuthenCodes,
   getAuthenSyncLogs,
@@ -35,7 +47,8 @@ import {
   getNhsoClosePrivilegeCandidates,
   getNhsoClosePrivilegeHistory,
   testNhsoClosePrivilegeToken,
-  submitNhsoClosePrivileges
+  submitNhsoClosePrivileges,
+  importFdhStatusForDateRange,
 } from './db.js';
 import businessRules from './config/business_rules.json';
 import { promises as fs } from 'fs';
@@ -56,8 +69,23 @@ const APP_SETTINGS_KEY = 'site_settings';
 const FDH_API_SETTINGS_KEY = 'fdh_api_settings';
 const NHSO_AUTHEN_SETTINGS_KEY = 'nhso_authen_settings';
 const NHSO_CLOSE_SETTINGS_KEY = 'nhso_close_settings';
+const NHSO_ECLAIM_SETTINGS_KEY = 'nhso_eclaim_settings';
+const MOPH_CLAIM_SETTINGS_KEY = 'moph_claim_settings';
+const MOPH_DMHT_ACTION_LIMIT = 20000;
 
-const isTruthyFlag = (value: unknown) => (
+// Global Playwright browser session for NHSO eclaim — kept alive between requests so
+// the JSESSIONID session cookie is never sent via server-side fetch (IP-binding workaround).
+type EclaimBrowserSession = {
+  browser: import('playwright').Browser;
+  context: import('playwright').BrowserContext;
+  page: import('playwright').Page;
+  ready: boolean;
+  repPageUrl: string;
+  createdAt: number;
+};
+let eclaimBrowserSession: EclaimBrowserSession | null = null;
+
+const isTruthyFlag= (value: unknown) => (
   value === true ||
   value === 1 ||
   value === '1' ||
@@ -105,6 +133,26 @@ const getDefaultNhsoCloseConfig = () => ({
   maxDays: 4,
 });
 
+const getDefaultNhsoEclaimConfig = () => ({
+  // Keycloak SSO token endpoint (grant_type=password, client_id=eclaim)
+  authUrl: 'https://iam.nhso.go.th/realms/nhso/protocol/openid-connect/token',
+  clientId: 'eclaim',
+  fileListUrl: 'https://eclaim.nhso.go.th/Client/backend/api/center/m-uploads/search',
+  downloadUrl: 'https://eclaim.nhso.go.th/Client/ec2/backend/api/transaction/rep-downloads/exec-download',
+  username: '',
+  password: '',
+});
+
+const getDefaultMophClaimConfig = () => ({
+  environment: 'prd',
+  tokenUrl: 'https://cvp1.moph.go.th/token',
+  apiBaseUrl: 'https://claim-nhso.moph.go.th',
+  uatApiBaseUrl: 'https://uat-moph-nhso.inet.co.th',
+  username: '',
+  password: '',
+  hcode: '',
+});
+
 const getResolvedHospitalCode = async (): Promise<string> => {
   const siteSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
   const appSettingsHcode = siteSettings && typeof siteSettings === 'object'
@@ -136,6 +184,26 @@ const getResolvedFdhApiConfig = async (overrides?: Record<string, unknown>) => {
     mergedConfig.hcode = resolvedHospitalCode;
   }
 
+  // Fallback: read API_FDH_User / API_FDH_Password from HosXP opdconfig
+  // when not configured in app settings
+  if (!String(mergedConfig.username || '').trim() || !String(mergedConfig.password || '').trim()) {
+    try {
+      const conn = await getUTFConnection();
+      const [rows] = await conn.query('SELECT API_FDH_User, API_FDH_Password FROM opdconfig LIMIT 1');
+      const conf = (rows as any)?.[0];
+      if (conf) {
+        if (!String(mergedConfig.username || '').trim() && conf.API_FDH_User) {
+          mergedConfig.username = String(conf.API_FDH_User).trim();
+        }
+        if (!String(mergedConfig.password || '').trim() && conf.API_FDH_Password) {
+          mergedConfig.password = String(conf.API_FDH_Password).trim();
+        }
+      }
+    } catch {
+      // opdconfig not available or columns don't exist — that's OK
+    }
+  }
+
   return mergedConfig;
 };
 
@@ -155,6 +223,56 @@ const getResolvedNhsoCloseConfig = async (overrides?: Record<string, unknown>) =
     ...(savedConfig || {}),
     ...(overrides || {}),
   } as Record<string, unknown>;
+};
+
+const getResolvedNhsoEclaimConfig = async (overrides?: Record<string, unknown>) => {
+  const savedConfig = await getAppSetting<Record<string, unknown>>(NHSO_ECLAIM_SETTINGS_KEY);
+  return {
+    ...getDefaultNhsoEclaimConfig(),
+    ...(savedConfig || {}),
+    ...(overrides || {}),
+  } as Record<string, unknown>;
+};
+
+const getResolvedMophClaimConfig = async (overrides?: Record<string, unknown>) => {
+  const savedConfig = await getAppSetting<Record<string, unknown>>(MOPH_CLAIM_SETTINGS_KEY);
+  const resolvedHospitalCode = await getResolvedHospitalCode();
+  const config = {
+    ...getDefaultMophClaimConfig(),
+    ...(savedConfig || {}),
+    ...(overrides || {}),
+  } as Record<string, unknown>;
+
+  if (!String(config.hcode || '').trim()) {
+    config.hcode = resolvedHospitalCode;
+  }
+
+  if (!String(config.username || '').trim() || !String(config.password || '').trim()) {
+    try {
+      const connection = await getUTFConnection();
+      try {
+        const [rows] = await connection.query(
+          `SELECT sys_name, sys_value
+           FROM sys_var
+           WHERE sys_name IN ('MOPH_Claim_User', 'MOPH_Claim_Password')`
+        );
+        for (const row of (Array.isArray(rows) ? rows : []) as Array<Record<string, unknown>>) {
+          if (row.sys_name === 'MOPH_Claim_User' && !String(config.username || '').trim()) {
+            config.username = String(row.sys_value || '').trim();
+          }
+          if (row.sys_name === 'MOPH_Claim_Password' && !String(config.password || '').trim()) {
+            config.password = String(row.sys_value || '').trim();
+          }
+        }
+      } finally {
+        connection.release();
+      }
+    } catch {
+      // sys_var may not exist on some installs. The UI can still pass settings later.
+    }
+  }
+
+  return config;
 };
 
 const getFdhTokenEndpoint = (tokenUrlInput: string) => {
@@ -186,6 +304,130 @@ const getPasswordHashCandidates = (password: string) => {
     sha256Upper,
     password
   ]));
+};
+
+const getMophClaimToken = async (config: Record<string, unknown>) => {
+  const username = String(config.username || '').trim();
+  const password = String(config.password || '');
+  const hcode = String(config.hcode || '').trim();
+  if (!username || !password || !hcode) {
+    throw new Error('ยังไม่ได้ตั้งค่า MOPH Claim user/password/hcode');
+  }
+
+  const passwordHash = crypto
+    .createHmac('sha256', '$jwt@moph#')
+    .update(password, 'utf8')
+    .digest('hex');
+  const tokenUrl = new URL(String(config.tokenUrl || 'https://cvp1.moph.go.th/token'));
+  tokenUrl.searchParams.set('Action', 'get_moph_access_token');
+  tokenUrl.searchParams.set('user', username);
+  tokenUrl.searchParams.set('password_hash', passwordHash);
+  tokenUrl.searchParams.set('hospital_code', hcode);
+
+  const response = await fetch(tokenUrl.toString(), { method: 'POST' });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`MOPH token ไม่สำเร็จ: ${text.slice(0, 300)}`);
+  }
+  const trimmed = text.trim();
+  if (trimmed.startsWith('{')) {
+    const json = JSON.parse(trimmed);
+    const token = String(json.access_token || json.token || json.jwt || json.data?.token || '').trim();
+    if (token) return token;
+    throw new Error(String(json.message_th || json.message || 'MOPH token ไม่สำเร็จ'));
+  }
+  return trimmed;
+};
+
+const getMophClaimApiBaseUrl = (config: Record<string, unknown>, testZone?: boolean) => {
+  const env = String(config.environment || '').toLowerCase();
+  if (testZone || env === 'uat' || env === 'test') {
+    return String(config.uatApiBaseUrl || 'https://uat-moph-nhso.inet.co.th').replace(/\/+$/, '');
+  }
+  return String(config.apiBaseUrl || 'https://claim-nhso.moph.go.th').replace(/\/+$/, '');
+};
+
+const postMophClaimJson = async (
+  url: string,
+  token: string,
+  payload: Record<string, unknown>,
+) => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+  let json: Record<string, unknown> = {};
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    json = { message: text };
+  }
+  return { ok: response.ok, status: response.status, json };
+};
+
+const normalizeMophRowType = (row: Record<string, unknown>) => {
+  const diag = String(row.diag || '').trim().toUpperCase();
+  return diag === 'HT' ? 'ht' : 'dm';
+};
+
+const normalizeMophVaccineType = (row: Record<string, unknown>) => {
+  const type = String(row.type || '').trim().toLowerCase();
+  return type === 'dt' ? 'dt' : 'epi';
+};
+
+const parseMophDiagnosis = (row: Record<string, unknown>) => {
+  const visitDateTime = formatMophVisitDateTime(row.visit_datetime || row.service_date);
+  return String(row.diag || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      const match = item.match(/^([A-Z0-9.]+)(?:\(([^)]+)\))?/i);
+      return {
+        dx_date_time: visitDateTime,
+        icd10: match?.[1] || item,
+        dx_type: match?.[2] || '1',
+      };
+    });
+};
+
+const formatMophVisitDateTime = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace('T', ' ');
+  const match = normalized.match(/^(\d{4}-\d{2}-\d{2})(?:\s+(\d{2}:\d{2}))?/);
+  if (match) {
+    return `${match[1]} ${match[2] || '00:00'}`;
+  }
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    const hours = String(parsed.getHours()).padStart(2, '0');
+    const minutes = String(parsed.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+  }
+  return normalized.slice(0, 16);
+};
+
+const shouldPersistMophResult = (statusNo: number, message: string) => {
+  const normalizedMessage = message.toLowerCase();
+  return (
+    statusNo === 200 ||
+    normalizedMessage.includes("don't have authen_code") ||
+    normalizedMessage.includes('dm patient unable to claim') ||
+    normalizedMessage.includes('dm patient received service less than 3 months') ||
+    normalizedMessage.includes('ht patient unable to claim') ||
+    normalizedMessage.includes('vaccine patient unable to claim') ||
+    normalizedMessage.includes('dt patient unable to claim') ||
+    normalizedMessage.includes('patient not new ht')
+  );
 };
 
 const extractTokenFromPayload = (payload: unknown): string | null => {
@@ -440,6 +682,7 @@ app.get('/api/hosxp/checks', async (req, res) => {
 
       const isBillable = !isIPD && (isOFC_LGO || (isUCS && isSpecialFund));
       const hasCloseEp = !!rec.has_close_ep;
+      const hasAuthenPp = !!rec.has_authen_pp;
 
       if (isBillable && !hasCloseEp) {
         issues.push('ยังไม่ปิดสิทธิ (EP)');
@@ -452,8 +695,13 @@ app.get('/api/hosxp/checks', async (req, res) => {
         status: isComplete ? 'ready' : 'pending',
         isBillable,
         issues: issues,
-        has_authen: rec.has_authen_pp ? 1 : 0,
+        has_authen: hasAuthenPp ? 1 : 0,
         has_close: hasCloseEp ? 1 : 0,
+        fdh_status_label: hasCloseEp
+          ? 'ปิดสิทธิแล้ว (EP)'
+          : hasAuthenPp
+            ? 'มี Authen (PP)'
+            : 'ยังไม่มีสถานะ FDH',
         _dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback'
       };
     });
@@ -1022,8 +1270,27 @@ app.post('/api/fdh/export-zip', async (req, res) => {
     // รายชื่อแฟ้มทั้งหมด 16 แฟ้ม (ตามมาตรฐานรหัส 16 แฟ้ม)
     const folderNames = ['INS', 'PAT', 'OPD', 'ORF', 'ODX', 'OOP', 'IPD', 'IRF', 'IDX', 'IOP', 'CHT', 'CHA', 'AER', 'ADP', 'LVD', 'DRU'];
 
+    const fileLayouts: Record<string, string[]> = {
+      INS: ['HN', 'INSCL', 'SUBTYPE', 'CID', 'HCODE', 'DATEEXP', 'HOSPMAIN', 'HOSPSUB', 'GOVCODE', 'GOVNAME', 'PERMITNO', 'DOCNO', 'OWNRPID', 'OWNNAME', 'AN', 'SEQ', 'SUBINSCL', 'RELINSCL', 'HTYPE'],
+      PAT: ['HCODE', 'HN', 'CHANGWAT', 'AMPHUR', 'DOB', 'SEX', 'MARRIAGE', 'OCCUPA', 'NATION', 'PERSON_ID', 'NAMEPAT', 'TITLE', 'FNAME', 'LNAME', 'IDTYPE'],
+      OPD: ['HN', 'CLINIC', 'DATEOPD', 'TIMEOPD', 'SEQ', 'UUC', 'DETAIL', 'BTEMP', 'SBP', 'DBP', 'PR', 'RR', 'OPTYPE', 'TYPEIN', 'TYPEOUT'],
+      ORF: ['HN', 'DATEOPD', 'CLINIC', 'REFER', 'REFERTYPE', 'SEQ', 'REFERDATE'],
+      ODX: ['HN', 'DATEDX', 'CLINIC', 'DIAG', 'DXTYPE', 'DRDX', 'PERSON_ID', 'SEQ'],
+      OOP: ['HN', 'DATEOPD', 'CLINIC', 'OPER', 'DROPID', 'PERSON_ID', 'SEQ', 'SERVPRICE'],
+      IPD: ['HN', 'AN', 'DATEADM', 'TIMEADM', 'DATEDSC', 'TIMEDSC', 'DISCHS', 'DISCHT', 'WARDDSC', 'DEPT', 'ADM_W', 'UUC', 'SVCTYPE'],
+      IRF: ['AN', 'REFER', 'REFERTYPE'],
+      IDX: ['AN', 'DIAG', 'DXTYPE', 'DRDX'],
+      IOP: ['AN', 'OPER', 'OPTYPE', 'DROPID', 'DATEIN', 'TIMEIN', 'DATEOUT', 'TIMEOUT'],
+      CHT: ['HN', 'AN', 'DATE', 'TOTAL', 'PAID', 'PTTYPE', 'PERSON_ID', 'SEQ', 'OPD_MEMO', 'INVOICE_NO', 'INVOICE_LT'],
+      CHA: ['HN', 'AN', 'DATE', 'CHRGITEM', 'AMOUNT', 'PERSON_ID', 'SEQ'],
+      AER: ['HN', 'AN', 'DATEOPD', 'AUTHAE', 'AEDATE', 'AETIME', 'AETYPE', 'REFER_NO', 'REFMAINI', 'IREFTYPE', 'REFMAINO', 'OREFTYPE', 'UCAE', 'EMTYPE', 'SEQ', 'AESTATUS', 'DALERT', 'TALERT'],
+      ADP: ['HN', 'AN', 'DATEOPD', 'BILLMAUD', 'TYPE', 'CODE', 'QTY', 'RATE', 'SEQ', 'CAGCODE', 'DOSE', 'CA_TYPE', 'SERIALNO', 'TOTCOPAY', 'USE_STATUS', 'TOTAL', 'QTYDAY', 'TMLTCODE', 'STATUS1', 'BI', 'GRAVIDA', 'GA_WEEK', 'DCIP', 'LMP', 'SP_ITEM'],
+      LVD: ['SEQLVD', 'AN', 'DATEOUT', 'TIMEOUT', 'DATEIN', 'TIMEIN', 'QTYDAY'],
+      DRU: ['HCODE', 'HN', 'AN', 'CLINIC', 'PERSON_ID', 'DATE_SERV', 'DID', 'DIDNAME', 'AMOUNT', 'DRUGPRIC', 'DRUGCOST', 'DIDSTD', 'UNIT', 'UNIT_PACK', 'SEQ', 'DRUGTYPE', 'DRUGREMARK', 'PA_NO', 'TOTCOPAY', 'USE_STATUS', 'TOTAL']
+    };
+
     // ฟังก์ชันสำหรับแปลงข้อมูลเป็นรูปแบบ Pipe Delimited (.txt)
-    // สำหรับส่ง FDH ใช้เฉพาะข้อมูลจริง ไม่มี header/BOM และ strip อักขระที่อาจทำให้ delimiter เพี้ยน
+    // ใช้ header และลำดับคอลัมน์ตายตัวตามตัวอย่างไฟล์ที่นำเข้าได้
     const normalizePipeValue = (value: unknown) => {
       if (value === null || value === undefined) return '';
       return String(value)
@@ -1034,17 +1301,24 @@ app.post('/api/fdh/export-zip', async (req, res) => {
     };
 
     const formatToPipe = (data: any, folder: string) => {
+      const columns = fileLayouts[folder] || [];
       const rows = (data as any)[folder] || [];
-      if (!rows || rows.length === 0) return '';
-      return rows
-        .map((row: any) => Object.values(row).map(normalizePipeValue).join('|'))
+      const header = columns.join('|');
+      if (!rows || rows.length === 0) {
+        return header;
+      }
+
+      const body = rows
+        .map((row: any) => columns.map((column) => normalizePipeValue(row?.[column])).join('|'))
         .join('\r\n');
+
+      return `${header}\r\n${body}`;
     };
 
     // ใส่ข้อมูลลงในแต่ละไฟล์
     folderNames.forEach(folder => {
       const content = formatToPipe(data, folder);
-      zip.addFile(`${folder}.txt`, Buffer.from(content, 'utf8'));
+      zip.addFile(`${folder}.TXT`, iconv.encode(content, 'cp874'));
     });
 
     // 3. ส่งไฟล์ ZIP กลับไปยัง Client
@@ -1314,6 +1588,202 @@ app.post('/api/hosxp/validate-detailed', async (req, res) => {
   }
 });
 
+// API ตรวจความพร้อมก่อนส่งเคลม (อ้างอิง checklist จาก PDF NHSO e-Claim + IPD audit)
+app.post('/api/hosxp/pre-submit-check', (req, res) => {
+  try {
+    const payload = (req.body || {}) as Record<string, unknown>;
+    const eclaim = (payload.eclaim || {}) as Record<string, unknown>;
+    const documents = (payload.documents || {}) as Record<string, unknown>;
+
+    const toText = (value: unknown) => String(value ?? '').trim();
+    const toBool = (value: unknown) => (
+      value === true
+      || value === 1
+      || value === '1'
+      || String(value ?? '').trim().toLowerCase() === 'true'
+      || String(value ?? '').trim().toUpperCase() === 'Y'
+    );
+
+    const checks: Array<{
+      code: string;
+      category: string;
+      severity: 'block' | 'warn';
+      passed: boolean;
+      message: string;
+      expected: string;
+      actual: unknown;
+    }> = [];
+
+    const addCheck = (
+      code: string,
+      category: string,
+      severity: 'block' | 'warn',
+      passed: boolean,
+      message: string,
+      expected: string,
+      actual: unknown,
+    ) => {
+      checks.push({ code, category, severity, passed, message, expected, actual });
+    };
+
+    const fileType = toText(eclaim.fileType).toLowerCase();
+    addCheck(
+      'EC001',
+      'eclaim',
+      'block',
+      fileType === 'txt' || fileType === 'dbf',
+      'ต้องระบุ fileType ให้ถูกต้อง',
+      'txt หรือ dbf',
+      eclaim.fileType,
+    );
+
+    const maininscl = toText(eclaim.maininscl).toUpperCase();
+    const allowedMaininscl = ['UCS', 'OFC', 'LGO', 'SSS'];
+    addCheck(
+      'EC002',
+      'eclaim',
+      'block',
+      allowedMaininscl.includes(maininscl),
+      'ต้องระบุ maininscl ตามสิทธิที่รองรับ',
+      'UCS/OFC/LGO/SSS',
+      eclaim.maininscl,
+    );
+
+    const dataTypes = Array.isArray(eclaim.dataTypes)
+      ? eclaim.dataTypes.map((item) => toText(item).toUpperCase()).filter(Boolean)
+      : [];
+    addCheck(
+      'EC003',
+      'eclaim',
+      'block',
+      dataTypes.length > 0 && dataTypes.every((item) => item === 'IP' || item === 'OP'),
+      'ต้องระบุ dataTypes อย่างน้อย 1 ค่า',
+      "array ของ 'IP' หรือ 'OP'",
+      eclaim.dataTypes,
+    );
+
+    addCheck(
+      'EC004',
+      'eclaim',
+      'block',
+      typeof eclaim.opRefer === 'boolean',
+      'ต้องระบุ opRefer',
+      'boolean',
+      eclaim.opRefer,
+    );
+
+    addCheck(
+      'EC005',
+      'eclaim',
+      'block',
+      typeof eclaim.importDup === 'boolean',
+      'ต้องระบุ importDup',
+      'boolean',
+      eclaim.importDup,
+    );
+
+    addCheck(
+      'EC006',
+      'eclaim',
+      'block',
+      typeof eclaim.assignToMe === 'boolean',
+      'ต้องระบุ assignToMe',
+      'boolean',
+      eclaim.assignToMe,
+    );
+
+    const hasAuthToken = toBool(eclaim.hasToken) || toText(eclaim.token).length > 0;
+    addCheck(
+      'EC007',
+      'eclaim',
+      'block',
+      hasAuthToken,
+      'ต้องมี token สำหรับ Authorization: Bearer <token>',
+      'hasToken=true หรือ token ไม่ว่าง',
+      eclaim.hasToken || eclaim.token || null,
+    );
+
+    const shouldCheckIpdDocs = dataTypes.includes('IP') || toBool(payload.ipdCase);
+    if (shouldCheckIpdDocs) {
+      addCheck(
+        'IPD001',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasDischargeSummary),
+        'ควรมี Discharge Summary ก่อนส่งเคลม IPD',
+        'hasDischargeSummary=true',
+        documents.hasDischargeSummary,
+      );
+
+      addCheck(
+        'IPD002',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasDiagnosisCoding),
+        'ควรระบุรหัสวินิจฉัยตาม ICD-10',
+        'hasDiagnosisCoding=true',
+        documents.hasDiagnosisCoding,
+      );
+
+      addCheck(
+        'IPD003',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasProcedureCoding),
+        'กรณีมีหัตถการ ควรระบุรหัสตาม ICD-9-CM',
+        'hasProcedureCoding=true',
+        documents.hasProcedureCoding,
+      );
+
+      addCheck(
+        'IPD004',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasKeyInvestigation),
+        'ควรมีผล Investigation สำคัญประกอบการรักษา',
+        'hasKeyInvestigation=true',
+        documents.hasKeyInvestigation,
+      );
+
+      addCheck(
+        'IPD005',
+        'ipd_document',
+        'warn',
+        toBool(documents.hasConsultOrOperativeReport),
+        'เคสซับซ้อนควรมี Consultation/Operative report',
+        'hasConsultOrOperativeReport=true',
+        documents.hasConsultOrOperativeReport,
+      );
+    }
+
+    const blockFailed = checks.filter((item) => item.severity === 'block' && !item.passed);
+    const warnFailed = checks.filter((item) => item.severity === 'warn' && !item.passed);
+    const passed = checks.filter((item) => item.passed).length;
+
+    res.json({
+      success: true,
+      readyToSubmit: blockFailed.length === 0,
+      summary: {
+        total: checks.length,
+        passed,
+        blockFailed: blockFailed.length,
+        warnFailed: warnFailed.length,
+      },
+      checks,
+      guidance: {
+        blocking: 'ต้องแก้ก่อนส่งเคลม',
+        warning: 'ควรทบทวนเพื่อลดความเสี่ยงถูกตีกลับ',
+      },
+    });
+  } catch (error) {
+    console.error('Error pre-submit check:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการตรวจ pre-submit',
+    });
+  }
+});
+
 // API สำหรับตรวจสอบสถานะฐานข้อมูล
 app.get('/api/hosxp/status', async (req, res) => {
   try {
@@ -1496,6 +1966,30 @@ app.get('/api/hosxp/kidney-monitor', async (req, res) => {
   } catch (error) {
     console.error('Error fetching kidney monitor data:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// API สำหรับมอนิเตอร์กองทุน FS จากรายการค่าใช้จ่ายจริง
+app.get('/api/hosxp/fs-monitor', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'Missing date parameters' });
+    }
+
+    console.log(`💰 Fetching FS monitor data from ${startDate} to ${endDate}`);
+    const result = await getFsMonitor(startDate as string, endDate as string);
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    console.error('Error fetching FS monitor data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      message: (error as Error).message,
+    });
   }
 });
 
@@ -1826,6 +2320,107 @@ app.get('/api/repstm/:dataType', async (req, res) => {
   }
 });
 
+app.post('/api/fdh/claim-detail/import', async (req, res) => {
+  try {
+    const { sourceFilename, sheetName, importedBy, notes, rows } = req.body as {
+      sourceFilename?: string;
+      sheetName?: string;
+      importedBy?: string;
+      notes?: string;
+      rows?: Record<string, unknown>[];
+    };
+
+    if (!sourceFilename || !Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาเลือกไฟล์ FDH ClaimDetail ที่มีข้อมูล' });
+    }
+
+    const result = await importFdhClaimDetailRows({
+      sourceFilename: String(sourceFilename).trim(),
+      sheetName: sheetName ? String(sheetName).trim() : undefined,
+      importedBy: importedBy ? String(importedBy).trim() : undefined,
+      notes: notes ? String(notes).trim() : undefined,
+      rows,
+    });
+
+    if (!result.success) {
+      throw result.error || new Error('Import FDH ClaimDetail failed');
+    }
+
+    return res.json({
+      success: true,
+      duplicate: result.duplicate,
+      batchId: result.batchId,
+      rowCount: result.rowCount,
+      opCount: result.opCount || 0,
+      ipCount: result.ipCount || 0,
+      message: result.message,
+    });
+  } catch (error) {
+    console.error('Error importing FDH ClaimDetail:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการนำเข้า FDH ClaimDetail' });
+  }
+});
+
+app.get('/api/fdh/claim-detail/batches', async (req, res) => {
+  try {
+    const limit = Number(req.query.limit || 20);
+    const data = await getFdhClaimDetailBatches(limit);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching FDH ClaimDetail batches:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัตินำเข้า FDH ClaimDetail' });
+  }
+});
+
+app.get('/api/fdh/claim-detail/summary', async (_req, res) => {
+  try {
+    const data = await getFdhClaimDetailSummary();
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching FDH ClaimDetail summary:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านยอดรวมนำเข้า FDH ClaimDetail' });
+  }
+});
+
+app.get('/api/fdh/claim-detail/rows', async (req, res) => {
+  try {
+    const data = await getFdhClaimDetailRows({
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      status: req.query.status ? String(req.query.status) : undefined,
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      search: req.query.search ? String(req.query.search) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching FDH ClaimDetail rows:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านข้อมูล FDH ClaimDetail' });
+  }
+});
+
+app.get('/api/receivables/reconciliation', async (req, res) => {
+  try {
+    const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
+    const pageSize = req.query.pageSize ? Math.min(500, Math.max(10, Number(req.query.pageSize))) : 100;
+    const result = await getVisitRepStmComparison({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      patientRight: req.query.patientRight ? String(req.query.patientRight) : undefined,
+      hosxpRight: req.query.hosxpRight ? String(req.query.hosxpRight) : undefined,
+      financeRight: req.query.financeRight ? String(req.query.financeRight) : undefined,
+      compareStatus: req.query.compareStatus ? String(req.query.compareStatus) : undefined,
+      page,
+      pageSize,
+    });
+    res.json({ success: true, ...result, page, pageSize });
+  } catch (error) {
+    console.error('Error fetching reconciliation data:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูลกระทบยอด REP/STM' });
+  }
+});
+
 app.get('/api/receivables/candidates', async (req, res) => {
   try {
     const data = await getReceivableCandidates({
@@ -1840,6 +2435,374 @@ app.get('/api/receivables/candidates', async (req, res) => {
   } catch (error) {
     console.error('Error fetching receivable candidates:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านข้อมูลตั้งลูกหนี้สิทธิ์' });
+  }
+});
+
+app.get('/api/moph-claim/dmht/candidates', async (req, res) => {
+  try {
+    const data = await getMophDmhtCandidates({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      diag: req.query.diag ? String(req.query.diag) : undefined,
+      ucOnly: isTruthyFlag(req.query.ucOnly),
+      authenOnly: isTruthyFlag(req.query.authenOnly),
+      search: req.query.search ? String(req.query.search) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    res.json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error('Error loading MOPH DMHT candidates:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.post('/api/moph-claim/dmht/check', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows)
+      ? (req.body.rows as Array<Record<string, unknown>>).slice(0, MOPH_DMHT_ACTION_LIMIT)
+      : [];
+    if (rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการที่เลือก' });
+
+    const config = await getResolvedMophClaimConfig(req.body?.config || {});
+    const token = await getMophClaimToken(config);
+    const apiBaseUrl = getMophClaimApiBaseUrl(config, isTruthyFlag(req.body?.testZone));
+    const hcode = String(config.hcode || '').trim();
+    const connection = await getUTFConnection();
+    const results: Record<string, unknown>[] = [];
+    try {
+      await connection.query(`CREATE TABLE IF NOT EXISTS mophclaim_send (
+        vn VARCHAR(25) NOT NULL,
+        type VARCHAR(10) NOT NULL,
+        senddate DATE NULL,
+        flag CHAR(1) NULL,
+        transaction_uid VARCHAR(100) NULL,
+        note VARCHAR(200) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (vn, type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      for (const row of rows) {
+        const type = normalizeMophRowType(row);
+        const payload = {
+          pid: String(row.cid || ''),
+          id_type: '1',
+          hcode,
+          visit_date_time: formatMophVisitDateTime(row.visit_datetime || row.service_date),
+        };
+        const result = await postMophClaimJson(`${apiBaseUrl}/api/v1/opd/${type}`, token, payload);
+        const json = result.json;
+        const statusNo = Number(json.code || json.status || result.status || 0);
+        const messageTh = String(json.message_th || '');
+        const messageEn = String(json.message || '');
+        const message = `${messageTh}${messageTh && messageEn ? '(' : ''}${messageEn}${messageTh && messageEn ? ')' : ''}`;
+        const transactionUid = String((json.data as Record<string, unknown> | undefined)?.transaction_uid || '');
+        let flag = '';
+        if (shouldPersistMophResult(statusNo, `${messageTh} ${messageEn}`)) {
+          flag = `${messageTh} ${messageEn}`.toLowerCase().includes('patient not new ht') ? 'C' : 'Y';
+          await connection.query(
+            `REPLACE INTO mophclaim_send (vn, type, senddate, flag, transaction_uid, note)
+             VALUES (?, ?, CURDATE(), ?, ?, ?)`,
+            [String(row.vn || ''), type.toUpperCase(), flag, transactionUid, flag === 'C' ? messageEn.slice(0, 200) : '']
+          );
+        }
+        results.push({ vn: row.vn, diag: type.toUpperCase(), statusNo, message, transaction_uid: transactionUid, flag });
+      }
+    } finally {
+      connection.release();
+    }
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('MOPH DMHT check error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.post('/api/moph-claim/dmht/send', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows)
+      ? (req.body.rows as Array<Record<string, unknown>>).slice(0, MOPH_DMHT_ACTION_LIMIT)
+      : [];
+    if (rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการที่เลือก' });
+
+    const config = await getResolvedMophClaimConfig(req.body?.config || {});
+    const token = await getMophClaimToken(config);
+    const apiBaseUrl = getMophClaimApiBaseUrl(config, isTruthyFlag(req.body?.testZone));
+    const hcode = String(config.hcode || '').trim();
+    const appSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
+    const hospitalName = String(appSettings?.hospital_name || '');
+    const connection = await getUTFConnection();
+    const results: Record<string, unknown>[] = [];
+    try {
+      await connection.query(`CREATE TABLE IF NOT EXISTS mophclaim_send (
+        vn VARCHAR(25) NOT NULL,
+        type VARCHAR(10) NOT NULL,
+        senddate DATE NULL,
+        flag CHAR(1) NULL,
+        transaction_uid VARCHAR(100) NULL,
+        note VARCHAR(200) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (vn, type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      for (const row of rows) {
+        const type = normalizeMophRowType(row);
+        const dx = type === 'dm' ? 'E119' : 'I10';
+        const claimServices: Record<string, unknown>[] = [];
+        if (type === 'dm' && String(row.result_hba1c || '').trim()) {
+          claimServices.push({ name: 'HbA1C', code: '32401', lab_result: String(row.result_hba1c) });
+        }
+        if (type === 'ht' && String(row.result_creatinine || '').trim()) {
+          claimServices.push({ name: 'Creatinine (Cr)', code: '32202', lab_result: String(row.result_creatinine) });
+        }
+        if (type === 'ht' && String(row.result_potassium || '').trim()) {
+          claimServices.push({ name: 'Potassium (K)', code: '32103', lab_result: String(row.result_potassium) });
+        }
+        if (claimServices.length === 0) {
+          results.push({ vn: row.vn, diag: type.toUpperCase(), statusNo: 0, message: 'ไม่มีผล Lab สำหรับส่ง', flag: '' });
+          continue;
+        }
+
+        const payload = {
+          seq: String(row.vn || ''),
+          hn: String(row.hn || ''),
+          pid: String(row.cid || ''),
+          id_type: '1',
+          title: String(row.pname || ''),
+          fname: String(row.fname || ''),
+          lname: String(row.lname || ''),
+          occupa: String(row.occupation || ''),
+          marriage: String(row.marrystatus || ''),
+          dob: String(row.dob || '').slice(0, 10),
+          sex: String(row.sex || ''),
+          nation: String(row.nation || ''),
+          uuc: '1',
+          hcode,
+          hospital_name: hospitalName,
+          visit_date_time: formatMophVisitDateTime(row.visit_datetime || row.service_date),
+          is_used_dm: type === 'dm' ? '1' : '0',
+          is_used_ht: type === 'ht' ? '1' : '0',
+          diagnosis: [{ dx_date_time: formatMophVisitDateTime(row.visit_datetime || row.service_date), icd10: dx, dx_type: '1' }],
+          claim_services: claimServices,
+        };
+
+        const result = await postMophClaimJson(`${apiBaseUrl}/api/v1/opd/service-admissions/dmht`, token, payload);
+        const json = result.json;
+        const statusNo = Number(json.code || json.status || result.status || 0);
+        const messageTh = String(json.message_th || '');
+        const messageEn = String(json.message || '');
+        const message = `${messageTh}${messageTh && messageEn ? '(' : ''}${messageEn}${messageTh && messageEn ? ')' : ''}`;
+        const transactionUid = String((json.data as Record<string, unknown> | undefined)?.transaction_uid || '');
+        let flag = '';
+        if (shouldPersistMophResult(statusNo, `${messageTh} ${messageEn}`)) {
+          flag = `${messageTh} ${messageEn}`.toLowerCase().includes('patient not new ht') ? 'C' : 'Y';
+          await connection.query(
+            `REPLACE INTO mophclaim_send (vn, type, senddate, flag, transaction_uid, note)
+             VALUES (?, ?, CURDATE(), ?, ?, ?)`,
+            [String(row.vn || ''), type.toUpperCase(), flag, transactionUid, flag === 'C' ? messageEn.slice(0, 200) : '']
+          );
+        }
+        results.push({ vn: row.vn, diag: type.toUpperCase(), statusNo, message, transaction_uid: transactionUid, flag });
+      }
+    } finally {
+      connection.release();
+    }
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('MOPH DMHT send error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.get('/api/moph-claim/vaccine/candidates', async (req, res) => {
+  try {
+    const types = String(req.query.types || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const data = await getMophVaccineCandidates({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      types,
+      ucOnly: isTruthyFlag(req.query.ucOnly),
+      authenOnly: isTruthyFlag(req.query.authenOnly),
+      errorFilter: req.query.errorFilter ? String(req.query.errorFilter) : undefined,
+      sendFilter: req.query.sendFilter ? String(req.query.sendFilter) : undefined,
+      search: req.query.search ? String(req.query.search) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    res.json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error('Error loading MOPH vaccine candidates:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.post('/api/moph-claim/vaccine/check', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows)
+      ? (req.body.rows as Array<Record<string, unknown>>).slice(0, MOPH_DMHT_ACTION_LIMIT)
+      : [];
+    if (rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการที่เลือก' });
+
+    const config = await getResolvedMophClaimConfig(req.body?.config || {});
+    const token = await getMophClaimToken(config);
+    const apiBaseUrl = getMophClaimApiBaseUrl(config, isTruthyFlag(req.body?.testZone));
+    const hcode = String(config.hcode || '').trim();
+    const connection = await getUTFConnection();
+    const results: Record<string, unknown>[] = [];
+    try {
+      await connection.query(`CREATE TABLE IF NOT EXISTS mophclaim_send (
+        vn VARCHAR(25) NOT NULL,
+        type VARCHAR(10) NOT NULL,
+        senddate DATE NULL,
+        flag CHAR(1) NULL,
+        transaction_uid VARCHAR(100) NULL,
+        note VARCHAR(200) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (vn, type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      for (const row of rows) {
+        const endpointType = normalizeMophVaccineType(row);
+        const vaccineCode = String(row.vaccine_code || '').trim();
+        const payload = {
+          pid: String(row.cid || ''),
+          id_type: '1',
+          hcode,
+          visit_date_time: formatMophVisitDateTime(row.visit_datetime || row.service_date),
+          vaccine_code: vaccineCode,
+          dob: String(row.dob || '').slice(0, 10),
+        };
+        const result = await postMophClaimJson(`${apiBaseUrl}/api/v1/opd/${endpointType}`, token, payload);
+        const json = result.json;
+        const statusNo = Number(json.code || json.status || result.status || 0);
+        const messageTh = String(json.message_th || '');
+        const messageEn = String(json.message || '');
+        const message = `${messageTh}${messageTh && messageEn ? '(' : ''}${messageEn}${messageTh && messageEn ? ')' : ''}`;
+        const transactionUid = String((json.data as Record<string, unknown> | undefined)?.transaction_uid || '');
+        let flag = '';
+        if (shouldPersistMophResult(statusNo, `${messageTh} ${messageEn}`)) {
+          flag = 'Y';
+          await connection.query(
+            `REPLACE INTO mophclaim_send (vn, type, senddate, flag, transaction_uid, note)
+             VALUES (?, ?, CURDATE(), ?, ?, ?)`,
+            [String(row.vn || ''), vaccineCode, flag, transactionUid, '']
+          );
+        }
+        results.push({ vn: row.vn, vaccine_code: vaccineCode, type: row.type, statusNo, message, transaction_uid: transactionUid, flag });
+      }
+    } finally {
+      connection.release();
+    }
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('MOPH vaccine check error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.post('/api/moph-claim/vaccine/send', async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows)
+      ? (req.body.rows as Array<Record<string, unknown>>).slice(0, MOPH_DMHT_ACTION_LIMIT)
+      : [];
+    if (rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการที่เลือก' });
+
+    const config = await getResolvedMophClaimConfig(req.body?.config || {});
+    const token = await getMophClaimToken(config);
+    const apiBaseUrl = getMophClaimApiBaseUrl(config, isTruthyFlag(req.body?.testZone));
+    const hcode = String(config.hcode || '').trim();
+    const appSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
+    const hospitalName = String(appSettings?.hospital_name || '');
+    const connection = await getUTFConnection();
+    const results: Record<string, unknown>[] = [];
+    try {
+      await connection.query(`CREATE TABLE IF NOT EXISTS mophclaim_send (
+        vn VARCHAR(25) NOT NULL,
+        type VARCHAR(10) NOT NULL,
+        senddate DATE NULL,
+        flag CHAR(1) NULL,
+        transaction_uid VARCHAR(100) NULL,
+        note VARCHAR(200) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (vn, type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      for (const row of rows) {
+        const endpointType = normalizeMophVaccineType(row);
+        const vaccineCode = String(row.vaccine_code || '').trim();
+        const noteParts = String(row.vaccine_note || '').split('#');
+        const diagnosis = parseMophDiagnosis(row);
+        const payload: Record<string, unknown> = {
+          seq: String(row.vn || ''),
+          hn: String(row.hn || ''),
+          pid: String(row.cid || ''),
+          id_type: '1',
+          title: String(row.pname || ''),
+          fname: String(row.fname || ''),
+          lname: String(row.lname || ''),
+          occupa: String(row.occupation || ''),
+          marriage: String(row.marrystatus || ''),
+          dob: String(row.dob || '').slice(0, 10),
+          sex: String(row.sex || ''),
+          nation: String(row.nation || ''),
+          uuc: '1',
+          hcode,
+          hospital_name: hospitalName,
+          visit_date_time: formatMophVisitDateTime(row.visit_datetime || row.service_date),
+          vaccine: [{
+            code: noteParts[0] || vaccineCode,
+            lot_number: noteParts[1] || String(row.lot || ''),
+            dose_quantity: noteParts[2] || String(row.dose || ''),
+            manufacturer: noteParts[3] || String(row.company || ''),
+            expiration_date: noteParts[4] || String(row.dateexp || '').slice(0, 10),
+            occurence_date_time: noteParts[5] || formatMophVisitDateTime(row.visit_datetime || row.service_date),
+            site_code: noteParts[6] || String(row.site || 'LA'),
+            route_code: noteParts[7] || String(row.drugusage || 'IM'),
+            license_no: noteParts[8] || String(row.doctorlicense || ''),
+            name: noteParts[9] || String(row.doctorname || ''),
+            note: '',
+          }],
+        };
+        if (String(row.type || '') === 'aP') {
+          payload.prenatal = {
+            gravida: String(row.preg_no || ''),
+            ga_week: String(row.ga || ''),
+          };
+        }
+        if (diagnosis.length > 0) {
+          payload.diagnosis = diagnosis;
+        }
+
+        const result = await postMophClaimJson(`${apiBaseUrl}/api/v1/opd/service-admissions/${endpointType}`, token, payload);
+        const json = result.json;
+        const statusNo = Number(json.code || json.status || result.status || 0);
+        const messageTh = String(json.message_th || '');
+        const messageEn = String(json.message || '');
+        const message = `${messageTh}${messageTh && messageEn ? '(' : ''}${messageEn}${messageTh && messageEn ? ')' : ''}`;
+        const transactionUid = String((json.data as Record<string, unknown> | undefined)?.transaction_uid || '');
+        let flag = '';
+        if (shouldPersistMophResult(statusNo, `${messageTh} ${messageEn}`)) {
+          flag = 'Y';
+          await connection.query(
+            `REPLACE INTO mophclaim_send (vn, type, senddate, flag, transaction_uid, note)
+             VALUES (?, ?, CURDATE(), ?, ?, ?)`,
+            [String(row.vn || ''), vaccineCode, flag, transactionUid, '']
+          );
+        }
+        results.push({ vn: row.vn, vaccine_code: vaccineCode, type: row.type, statusNo, message, transaction_uid: transactionUid, flag });
+      }
+    } finally {
+      connection.release();
+    }
+    res.json({ success: true, results });
+  } catch (error) {
+    console.error('MOPH vaccine send error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
   }
 });
 
@@ -1861,6 +2824,55 @@ app.get('/api/receivables/batches', async (req, res) => {
   } catch (error) {
     console.error('Error fetching receivable batches:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัติบัญชีลูกหนี้' });
+  }
+});
+
+app.get('/api/insurance/overview', async (req, res) => {
+  try {
+    const data = await getInsuranceOverview({
+      startDate: String(req.query.startDate || ''),
+      endDate: String(req.query.endDate || ''),
+      accountCode: String(req.query.accountCode || ''),
+      valeTargetFilename: String(req.query.valeTargetFilename || ''),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching insurance overview:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถโหลดรายงานภาพรวมงานประกันได้',
+    });
+  }
+});
+
+app.get('/api/insurance/vale-status', async (req, res) => {
+  try {
+    const data = await getValeImportStatus({
+      valeTargetFilename: String(req.query.valeTargetFilename || ''),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error refreshing Vale import status:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถอัปเดทข้อมูล Vale ได้',
+    });
+  }
+});
+
+app.get('/api/dashboard/moph-claim-summary', async (req, res) => {
+  try {
+    const data = await getMophClaimDashboardSummary({
+      startDate: String(req.query.startDate || ''),
+      endDate: String(req.query.endDate || ''),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching MOPH claim dashboard summary:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถโหลดสรุป MOPH Claim ได้',
+    });
   }
 });
 
@@ -2332,6 +3344,681 @@ app.post('/api/fdh/request-token', async (req, res) => {
   }
 });
 
+app.post('/api/fdh/import-status-by-date', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.body as { startDate?: string; endDate?: string };
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุ startDate และ endDate' });
+    }
+
+    const fdhConfig = await getResolvedFdhApiConfig();
+    const tokenUrl = String(fdhConfig.tokenUrl || '').trim();
+    const username = String(fdhConfig.username || '').trim();
+    const password = String(fdhConfig.password || '');
+    const hospitalCode = String(fdhConfig.hcode || '').trim();
+    const apiBaseUrl = String(fdhConfig.apiBaseUrl || 'https://fdh.moph.go.th').trim();
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า username/password สำหรับ FDH API (ตั้งค่าที่เมนู FDH API Settings)' });
+    }
+    if (!hospitalCode) {
+      return res.status(400).json({ success: false, error: 'ยังไม่พบ Hospital Code' });
+    }
+
+    // Get FDH token
+    const tokenEndpoint = getFdhTokenEndpoint(tokenUrl);
+    const passwordHashCandidates = getPasswordHashCandidates(password);
+    let fdhToken: string | null = null;
+
+    for (const passwordHash of passwordHashCandidates) {
+      if (fdhToken) break;
+      try {
+        const query = new URLSearchParams({
+          Action: 'get_moph_access_token',
+          user: username,
+          password_hash: passwordHash,
+          hospital_code: hospitalCode
+        }).toString();
+        const tokenRes = await fetch(`${tokenEndpoint}?${query}`, { method: 'POST' });
+        const rawText = await tokenRes.text();
+        let parsed: unknown = {};
+        try { parsed = JSON.parse(rawText); } catch { /* raw */ }
+        fdhToken = extractTokenFromPayload(parsed) || (rawText.trim().startsWith('{') ? null : rawText.trim() || null);
+      } catch { /* try next */ }
+    }
+
+    if (!fdhToken) {
+      return res.status(400).json({ success: false, error: 'ไม่สามารถขอ FDH token ได้ — กรุณาตรวจสอบ username/password ในการตั้งค่า FDH API' });
+    }
+
+    const summary = await importFdhStatusForDateRange({
+      token: fdhToken,
+      apiBaseUrl,
+      hospitalCode,
+      startDate,
+      endDate,
+    });
+
+    return res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error importing FDH status:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการนำเข้าสถานะ FDH' });
+  }
+});
+
+// ─── FDH track-vns (on-demand single/bulk VN tracking) ───────────────────────
+
+/** POST /api/fdh/track-vns — check FDH claim status for given list of VNs */
+app.post('/api/fdh/track-vns', async (req, res) => {
+  try {
+    const { vns } = req.body as { vns?: string[] };
+    if (!Array.isArray(vns) || vns.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุรายการ VN (vns[])' });
+    }
+    if (vns.length > 500) {
+      return res.status(400).json({ success: false, error: 'ตรวจสอบได้ครั้งละไม่เกิน 500 รายการ' });
+    }
+
+    const fdhConfig = await getResolvedFdhApiConfig();
+    const tokenUrl = String(fdhConfig.tokenUrl || '').trim();
+    const username = String(fdhConfig.username || '').trim();
+    const password = String(fdhConfig.password || '');
+    const hospitalCode = String(fdhConfig.hcode || '').trim();
+    const apiBaseUrl = String(fdhConfig.apiBaseUrl || 'https://fdh.moph.go.th').trim();
+
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'ยังไม่ได้ตั้งค่า username/password สำหรับ FDH API (ตั้งค่าที่เมนู FDH API Settings)',
+      });
+    }
+    if (!hospitalCode) {
+      return res.status(400).json({ success: false, error: 'ยังไม่พบ Hospital Code' });
+    }
+
+    // Get FDH token
+    const tokenEndpoint = getFdhTokenEndpoint(tokenUrl);
+    const passwordHashCandidates = getPasswordHashCandidates(password);
+    let fdhToken: string | null = null;
+
+    for (const passwordHash of passwordHashCandidates) {
+      if (fdhToken) break;
+      try {
+        const query = new URLSearchParams({
+          Action: 'get_moph_access_token',
+          user: username,
+          password_hash: passwordHash,
+          hospital_code: hospitalCode,
+        }).toString();
+        const tokenRes = await fetch(`${tokenEndpoint}?${query}`, { method: 'POST' });
+        const rawText = await tokenRes.text();
+        let parsed: unknown = {};
+        try { parsed = JSON.parse(rawText); } catch { /* raw */ }
+        fdhToken = extractTokenFromPayload(parsed) ||
+          (rawText.trim().startsWith('{') ? null : rawText.trim() || null);
+      } catch { /* try next */ }
+    }
+
+    if (!fdhToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'ไม่สามารถขอ FDH token ได้ — กรุณาตรวจสอบ username/password ในการตั้งค่า FDH API',
+      });
+    }
+
+    const { trackFdhStatusForVns } = await import('./db.js');
+    const summary = await trackFdhStatusForVns({ token: fdhToken, apiBaseUrl, hospitalCode, vns });
+
+    return res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error in /api/fdh/track-vns:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการตรวจสอบสถานะ FDH',
+    });
+  }
+});
+
+// ─── NHSO eclaim download endpoints ──────────────────────────────────────────
+
+/** GET /api/config/nhso-eclaim-settings */
+app.get('/api/config/nhso-eclaim-settings', async (_req, res) => {
+  try {
+    const data = await getResolvedNhsoEclaimConfig();
+    res.json({ success: true, data: { ...data, password: data.password ? '***' : '' } });
+  } catch (error) {
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/config/nhso-eclaim-settings */
+app.post('/api/config/nhso-eclaim-settings', async (req, res) => {
+  try {
+    const current = await getResolvedNhsoEclaimConfig();
+    const payload = {
+      ...current,
+      username: String(req.body?.username ?? current.username ?? ''),
+      password: req.body?.password && req.body.password !== '***'
+        ? String(req.body.password)
+        : String(current.password ?? ''),
+      authUrl: String(req.body?.authUrl ?? current.authUrl),
+      fileListUrl: String(req.body?.fileListUrl ?? current.fileListUrl),
+      downloadUrl: String(req.body?.downloadUrl ?? current.downloadUrl),
+    };
+    await setAppSetting(NHSO_ECLAIM_SETTINGS_KEY, payload);
+    res.json({ success: true, message: 'NHSO eclaim settings saved' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/nhso-eclaim/auth — get token from NHSO eclaim */
+/** GET /api/nhso-eclaim/browser-status — check if browser session is alive and ready */
+app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
+  if (!eclaimBrowserSession) return res.json({ alive: false, ready: false });
+  try {
+    const url = eclaimBrowserSession.page.url();
+    return res.json({ alive: true, ready: eclaimBrowserSession.ready, url, repPageUrl: eclaimBrowserSession.repPageUrl });
+  } catch {
+    eclaimBrowserSession = null;
+    return res.json({ alive: false, ready: false });
+  }
+});
+
+/** POST /api/nhso-eclaim/browser-close — close the alive browser session */
+app.post('/api/nhso-eclaim/browser-close', async (_req, res) => {
+  if (eclaimBrowserSession) {
+    try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
+    eclaimBrowserSession = null;
+  }
+  return res.json({ success: true });
+});
+
+/** POST /api/nhso-eclaim/browser-login — open Edge at MainWebAction.do, wait for login, keep browser alive */
+app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
+  // Close any existing session first
+  if (eclaimBrowserSession) {
+    try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
+    eclaimBrowserSession = null;
+  }
+
+  try {
+    const { chromium } = await import('playwright');
+    const edgePath64 = 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe';
+    const edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+    const fsSync = await import('fs');
+    const executablePath = fsSync.existsSync(edgePath64) ? edgePath64 : fsSync.existsSync(edgePath) ? edgePath : undefined;
+
+    const browser = await chromium.launch({ executablePath, headless: false, args: ['--start-maximized'] });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // Store session immediately (browser stays alive after this request returns)
+    eclaimBrowserSession = { browser, context, page, ready: false, repPageUrl: '', createdAt: Date.now() };
+
+    // Open old e-Claim system
+    await page.goto('https://eclaim.nhso.go.th/webComponent/main/MainWebAction.do', { waitUntil: 'domcontentloaded' });
+
+    // Wait up to 5 minutes for user to complete login via Keycloak OAuth
+    const deadline = Date.now() + 5 * 60 * 1000;
+    while (Date.now() < deadline) {
+      await page.waitForTimeout(1200);
+
+      // Check for JSESSIONID cookie
+      const cookies = await context.cookies().catch(() => [] as Awaited<ReturnType<typeof context.cookies>>);
+      const jsession = cookies.find((c) => c.name.toUpperCase() === 'JSESSIONID');
+      if (!jsession) continue;
+
+      // Verify we're on eclaim main page (not Keycloak or login form)
+      const currentUrl = page.url();
+      if (!currentUrl.includes('eclaim.nhso.go.th')) continue;
+      if (currentUrl.includes('iam.nhso.go.th') || currentUrl.includes('LoginAction.do?code=')) continue;
+
+      const isLoginForm = await page.evaluate(() =>
+        !!(document.querySelector('input[name="username"]') || document.querySelector('input[type="password"]'))
+      ).catch(() => true);
+      if (isLoginForm) continue;
+
+      // Login complete — mark session ready
+      eclaimBrowserSession.ready = true;
+
+      // Auto-navigate to REP page
+      try {
+        const repLink = await page.$('a[href*="rep" i], a[href*="REP"], a:text-matches("REP|ข้อมูลผลการตรวจสอบ", "i")');
+        if (repLink) {
+          await repLink.click();
+          await page.waitForTimeout(2000);
+          eclaimBrowserSession.repPageUrl = page.url();
+        }
+      } catch { /* link not found — user can navigate manually */ }
+
+      return res.json({ success: true, ready: true, repPageUrl: eclaimBrowserSession.repPageUrl });
+    }
+
+    // Timeout — close browser
+    try { await browser.close(); } catch { /* ignore */ }
+    eclaimBrowserSession = null;
+    return res.status(408).json({ success: false, error: 'หมดเวลา 5 นาที — กรุณา login ให้เสร็จก่อนหมดเวลา' });
+  } catch (error) {
+    if (eclaimBrowserSession) {
+      try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
+      eclaimBrowserSession = null;
+    }
+    console.error('browser-login error:', error);
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/nhso-eclaim/browser-search — navigate in the alive browser and scrape file list */
+app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
+  if (!eclaimBrowserSession?.ready) {
+    return res.status(400).json({ success: false, error: 'Browser ยังไม่พร้อม กรุณากด "เปิด Edge" และ Login ก่อน' });
+  }
+
+  const { periods: periodsBody, fileType = 'ALL' } = req.body as { periods?: string[]; fileType?: string };
+  const periods = Array.isArray(periodsBody) && periodsBody.length > 0 ? periodsBody : [];
+  if (periods.length === 0) return res.status(400).json({ success: false, error: 'กรุณาระบุงวด' });
+
+  const page = eclaimBrowserSession.page;
+  const allFiles: Record<string, unknown>[] = [];
+  const debugLog: { period: string; url: string; title: string; rowCount: number; htmlSnippet: string }[] = [];
+
+  // Convert YYYYMM (CE) → { year: พ.ศ., monthNum: 1-12, monthTh: Thai name }
+  const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  const parsePeriod = (period: string) => {
+    const y = parseInt(period.slice(0, 4), 10);
+    const m = parseInt(period.slice(4, 6), 10);
+    return { yearCE: y, yearBE: y + 543, monthNum: m, monthTh: thaiMonths[m - 1] };
+  };
+
+  // Generic table scraper — called after page is already loaded
+  const scrapeFilesFromPage = async (periodStr: string): Promise<Record<string, unknown>[]> => {
+    return page.evaluate((pStr) => {
+      const rows: Record<string, unknown>[] = [];
+      for (const table of document.querySelectorAll('table')) {
+        for (const tr of table.querySelectorAll('tr')) {
+          const tds = Array.from(tr.querySelectorAll('td'));
+          if (tds.length < 1) continue;
+          const cellTexts = tds.map((td) => td.textContent?.trim() || '');
+          const links = Array.from(tr.querySelectorAll('a'));
+          const dlLinks = links.filter((a) =>
+            /download|ดาวน์โหลด|\.zip|\.xlsx|\.xls|\.txt|\.ecd/i.test(
+              a.href + a.textContent + (a.getAttribute('onclick') || '')
+            )
+          );
+          if (dlLinks.length > 0) {
+            const a = dlLinks[0];
+            const filenameFromCell = cellTexts.find((t) => /\.\w{2,5}$/.test(t));
+            rows.push({
+              filename: filenameFromCell || a.textContent?.trim() || cellTexts[0] || 'file',
+              downloadHref: a.href || '',
+              downloadOnclick: a.getAttribute('onclick') || '',
+              cells: cellTexts,
+              period: pStr,
+            });
+          } else if (tds.some((td) => /REP|STM|INV|\.zip|\.xlsx|\.ecd/i.test(td.textContent || ''))) {
+            rows.push({
+              filename: cellTexts.find((t) => /\.\w{2,5}$/.test(t)) || cellTexts[0] || 'file',
+              allLinks: links.map((a) => ({ text: a.textContent?.trim(), href: a.href, onclick: a.getAttribute('onclick') })),
+              cells: cellTexts,
+              period: pStr,
+            });
+          }
+        }
+      }
+      return rows;
+    }, periodStr);
+  };
+
+  try {
+    for (const period of periods) {
+      const { yearBE, monthNum, monthTh } = parsePeriod(period);
+      let scraped: Record<string, unknown>[] = [];
+      let usedUrl = '';
+      let pageTitle = '';
+
+      // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ---
+      // This page shows .ecd files with "download excel" links — confirmed working from browser screenshots
+      const financeUrls = [
+        `https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do`,
+      ];
+
+      for (const url of financeUrls) {
+        try {
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await page.waitForTimeout(1500);
+          pageTitle = await page.title().catch(() => '');
+
+          // Select year (พ.ศ.) in the dropdown
+          const yearSelectHandle = await page.$('select[name*="year" i], select[name*="yr" i], select:first-of-type').catch(() => null);
+          if (yearSelectHandle) {
+            await yearSelectHandle.selectOption({ value: String(yearBE) }).catch(async () => {
+              await yearSelectHandle.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */});
+            });
+            await page.waitForTimeout(500);
+          }
+
+          // Select month dropdown
+          const monthSelectHandle = await page.$('select[name*="month" i], select[name*="mn" i], select:nth-of-type(2)').catch(() => null);
+          if (monthSelectHandle) {
+            await monthSelectHandle.selectOption({ value: String(monthNum) }).catch(async () => {
+              await monthSelectHandle.selectOption({ label: monthTh }).catch(() => {/* ignore */});
+            });
+            await page.waitForTimeout(500);
+          }
+
+          // Click submit button if available
+          const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา|Search", "i")').catch(() => null);
+          if (submitBtn) {
+            await submitBtn.click();
+            await page.waitForTimeout(2000);
+          }
+
+          scraped = await scrapeFilesFromPage(period);
+          usedUrl = url;
+          if (scraped.length > 0) break;
+        } catch { /* try next */ }
+      }
+
+      // --- Strategy 2: UC Statement page (statementUCSAction.do) ---
+      if (scraped.length === 0 && (fileType === 'ALL' || fileType === 'STM')) {
+        const stmUrl = 'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do';
+        try {
+          await page.goto(stmUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await page.waitForTimeout(1500);
+          pageTitle = await page.title().catch(() => '');
+
+          // Select ปีงบประมาณ (BE year)
+          const yearSel = await page.$('select[name*="year" i], select[id*="year" i]').catch(() => null);
+          if (yearSel) {
+            await yearSel.selectOption({ value: String(yearBE) }).catch(() =>
+              yearSel.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */})
+            );
+            await page.waitForTimeout(300);
+          }
+
+          // Select เดือน
+          const monthSel = await page.$('select[name*="month" i], select[id*="month" i]').catch(() => null);
+          if (monthSel) {
+            await monthSel.selectOption({ value: String(monthNum) }).catch(() =>
+              monthSel.selectOption({ label: monthTh }).catch(() => {/* ignore */})
+            );
+            await page.waitForTimeout(300);
+          }
+
+          // Click แสดงรายการ
+          const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา", "i")').catch(() => null);
+          if (submitBtn) {
+            await submitBtn.click();
+            await page.waitForTimeout(2000);
+          }
+
+          scraped = await scrapeFilesFromPage(period);
+          usedUrl = stmUrl;
+        } catch { /* ignore */ }
+      }
+
+      // --- Strategy 3: REP action — method=list works, method=search often fails ---
+      if (scraped.length === 0 && (fileType === 'ALL' || fileType === 'REP')) {
+        const repUrls = [
+          `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=list&period=${period}`,
+          `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=search&period=${period}`,
+          eclaimBrowserSession.repPageUrl || '',
+        ].filter(Boolean);
+
+        for (const url of repUrls) {
+          try {
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+            await page.waitForTimeout(1500);
+            pageTitle = await page.title().catch(() => '');
+
+            const isErrorPage = pageTitle.toLowerCase().includes('error') || await page.evaluate(() =>
+              (document.body?.textContent || '').includes('has no explicit mapping for /error')
+            ).catch(() => false);
+            if (isErrorPage) continue;
+
+            scraped = await scrapeFilesFromPage(period);
+            usedUrl = url;
+            if (scraped.length > 0) break;
+          } catch { /* try next */ }
+        }
+      }
+
+      allFiles.push(...scraped);
+
+      // Debug: snapshot of current page HTML
+      const htmlSnippet = await page.evaluate(() => document.body?.innerHTML?.slice(0, 3000) || '').catch(() => '');
+      debugLog.push({ period, url: usedUrl || 'none', title: pageTitle, rowCount: scraped.length, htmlSnippet });
+    }
+
+    return res.json({ success: true, data: allFiles, total: allFiles.length, debug: debugLog });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message, debug: debugLog });
+  }
+});
+
+/** POST /api/nhso-eclaim/browser-download — download a file via the alive browser, return base64 */
+app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
+  if (!eclaimBrowserSession?.ready) {
+    return res.status(400).json({ success: false, error: 'Browser ยังไม่พร้อม กรุณา login ก่อน' });
+  }
+
+  const { downloadHref, downloadOnclick, filename } = req.body as {
+    downloadHref?: string;
+    downloadOnclick?: string;
+    filename?: string;
+  };
+
+  const page = eclaimBrowserSession.page;
+
+  try {
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 60000 }),
+      (async () => {
+        if (downloadHref && /^https?:\/\//i.test(downloadHref)) {
+          await page.goto(downloadHref, { waitUntil: 'domcontentloaded' });
+        } else if (downloadOnclick) {
+          await page.evaluate((onclick) => { (new Function(onclick))(); }, downloadOnclick);
+        } else if (downloadHref) {
+          // relative URL — evaluate as JS or navigate
+          await page.evaluate((href) => { window.location.href = href; }, downloadHref);
+        }
+      })(),
+    ]);
+
+    const os = await import('os');
+    const pathMod = await import('path');
+    const suggestedName = filename || download.suggestedFilename() || 'eclaim-download';
+    const tempPath = pathMod.join(os.tmpdir(), suggestedName);
+    await download.saveAs(tempPath);
+
+    const fsSync = await import('fs');
+    const buffer = fsSync.readFileSync(tempPath);
+    const base64 = buffer.toString('base64');
+    try { fsSync.unlinkSync(tempPath); } catch { /* ignore */ }
+
+    return res.json({ success: true, base64, filename: suggestedName, contentType: 'application/octet-stream' });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.post('/api/nhso-eclaim/auth', async (req, res) => {
+  try {
+    const cfg = await getResolvedNhsoEclaimConfig();
+    const username = String(req.body?.username || cfg.username || '');
+    const password = String(req.body?.password || cfg.password || '');
+    const authUrl = String(cfg.authUrl);
+    const clientId = String(cfg.clientId || 'eclaim');
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า username/password สำหรับ NHSO eclaim' });
+    }
+
+    // Keycloak Resource Owner Password Credentials grant
+    // Pass URLSearchParams object directly so fetch sets Content-Type without ;charset=UTF-8
+    const formBody = new URLSearchParams({
+      grant_type: 'password',
+      client_id: clientId,
+      username,
+      password,
+    });
+
+    const authRes = await fetch(authUrl, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: formBody, // URLSearchParams → auto Content-Type: application/x-www-form-urlencoded
+    });
+    const authJson = await authRes.json() as Record<string, unknown>;
+
+    // Keycloak returns { access_token, token_type, ... } on success
+    const token = String(authJson?.access_token || authJson?.token || authJson?.accessToken || '').trim();
+    if (!token) {
+      const errMsg = String(authJson?.error_description || authJson?.error || JSON.stringify(authJson)).slice(0, 300);
+      return res.status(401).json({ success: false, error: `NHSO eclaim auth ไม่สำเร็จ: ${errMsg}` });
+    }
+    return res.json({ success: true, token, tokenType: authJson?.token_type || 'Bearer' });
+  } catch (error) {
+    console.error('NHSO eclaim auth error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+const extractEclaimFileArray = (json: unknown): unknown[] => {
+  if (Array.isArray(json)) return json;
+  const j = json as Record<string, unknown>;
+  if (Array.isArray(j?.data)) return j.data as unknown[];
+  if (Array.isArray(j?.files)) return j.files as unknown[];
+  if (Array.isArray(j?.content)) return j.content as unknown[];
+  if (Array.isArray(j?.result)) return j.result as unknown[];
+  if (Array.isArray(j?.items)) return j.items as unknown[];
+  if (Array.isArray(j?.list)) return j.list as unknown[];
+  return [];
+};
+
+/** GET /api/nhso-eclaim/file-list?period=202512&fileType=REP */
+app.get('/api/nhso-eclaim/file-list', async (req, res) => {
+  try {
+    const cfg = await getResolvedNhsoEclaimConfig();
+    const period = String(req.query.period || '').trim();
+    const fileType = String(req.query.fileType || '').trim().toUpperCase();
+    const token = String(req.query.token || '').trim();
+
+    if (!token && !req.query.sessionCookie) return res.status(400).json({ success: false, error: 'กรุณาส่ง token หรือ sessionCookie ก่อน' });
+
+    const sessionCookie = String(req.query.sessionCookie || '').trim();
+    // repUrl: a discovered URL from browser-login that we know works with this session
+    const repUrl = String(req.query.repUrl || '').trim();
+
+    // Build auth headers — Bearer token (new system) or Cookie session (old system)
+    const makeAuthHeaders = (extra: Record<string, string> = {}) => {
+      if (token) return { Authorization: `Bearer ${token}`, Accept: 'application/json', ...extra };
+      return {
+        Cookie: sessionCookie,
+        Accept: 'application/json, text/html, */*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+        Referer: 'https://eclaim.nhso.go.th/webComponent/main/MainWebAction.do',
+        ...extra,
+      };
+    };
+
+    // URL candidates: repUrl from browser first, then custom URL, then known patterns
+    const urlsToTry = [
+      repUrl, // discovered from browser session — most likely to work
+      String(cfg.fileListUrl),
+      'https://eclaim.nhso.go.th/Client/ec2/backend/api/center/m-uploads/search',
+      'https://eclaim.nhso.go.th/Client/backend/api/center/m-uploads/search',
+      // Old Java system REP action URLs — method=list works; method=search often fails
+      `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=list&period=${period}`,
+      `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=search&period=${period}&type=${fileType}`,
+      `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do`,
+    ].filter((u, i, arr) => u && arr.indexOf(u) === i);
+
+    const debugLog: { url: string; status: number; body: unknown }[] = [];
+
+    for (const baseUrl of urlsToTry) {
+      const searchUrl = new URL(baseUrl);
+      // Only add params if not already present in the URL
+      if (period && !searchUrl.searchParams.has('period') && !searchUrl.searchParams.has('repPeriod')) {
+        searchUrl.searchParams.set('period', period);
+      }
+      if (fileType && fileType !== 'ALL' && !searchUrl.searchParams.has('type') && !searchUrl.searchParams.has('fileType')) {
+        searchUrl.searchParams.set('type', fileType);
+      }
+
+      try {
+        const listRes = await fetch(searchUrl.toString(), {
+          headers: makeAuthHeaders(),
+        });
+        const statusCode = listRes.status;
+        const text = await listRes.text();
+        let listJson: unknown;
+        try { listJson = JSON.parse(text); } catch { listJson = text; }
+        debugLog.push({ url: searchUrl.toString(), status: statusCode, body: listJson });
+
+        if (listRes.ok) {
+          const files = extractEclaimFileArray(listJson);
+          if (files.length > 0) {
+            return res.json({ success: true, data: files, raw: listJson, url: searchUrl.toString(), statusCode, debug: debugLog });
+          }
+        }
+      } catch (fetchErr) {
+        debugLog.push({ url: baseUrl, status: 0, body: String(fetchErr) });
+      }
+    }
+
+    // All URLs returned empty — return last result with full debug info
+    const last = debugLog[debugLog.length - 1];
+    return res.json({ success: true, data: [], raw: last?.body ?? null, url: last?.url ?? '', statusCode: last?.status ?? 0, debug: debugLog });
+  } catch (error) {
+    console.error('NHSO eclaim file-list error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/nhso-eclaim/download — proxy download, return base64 */
+app.post('/api/nhso-eclaim/download', async (req, res) => {
+  try {
+    const cfg = await getResolvedNhsoEclaimConfig();
+    const { token, sessionCookie, filename, period, hcode, downloadPayload, downloadUrl } = req.body as {
+      token?: string; sessionCookie?: string; filename?: string; period?: string; hcode?: string;
+      downloadPayload?: Record<string, unknown>; downloadUrl?: string;
+    };
+
+    if (!token && !sessionCookie) return res.status(400).json({ success: false, error: 'กรุณาส่ง token หรือ sessionCookie' });
+
+    const targetUrl = downloadUrl || String(cfg.downloadUrl);
+    const body = downloadPayload || { filename, period, hcode };
+
+    const dlHeaders: Record<string, string> = token
+      ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/octet-stream, application/json, */*' }
+      : { Cookie: sessionCookie!, Accept: 'application/octet-stream, */*' };
+
+    const dlRes = await fetch(targetUrl, {
+      method: 'POST',
+      headers: dlHeaders,
+      body: token ? JSON.stringify(body) : new URLSearchParams(body as Record<string, string>).toString(),
+    });
+
+    if (!dlRes.ok) {
+      const errText = await dlRes.text();
+      return res.status(dlRes.status).json({ success: false, error: `NHSO eclaim download ไม่สำเร็จ: ${errText.slice(0, 300)}` });
+    }
+
+    const contentType = dlRes.headers.get('content-type') || 'application/octet-stream';
+    const buffer = Buffer.from(await dlRes.arrayBuffer());
+    return res.json({
+      success: true,
+      filename: filename || 'download.xlsx',
+      contentType,
+      base64: buffer.toString('base64'),
+    });
+  } catch (error) {
+    console.error('NHSO eclaim download error:', error);
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     const { testConnection } = await import('./db.js');
@@ -2350,6 +4037,113 @@ app.get('/api/health', async (req, res) => {
       error: 'Database connection test failed',
       timestamp: new Date().toISOString(),
     });
+  }
+});
+
+// ============================================================
+// Work Queue API Routes
+// ============================================================
+
+app.get('/api/work-queue', async (req: Request, res: Response) => {
+  try {
+    const { getWorkQueueItems } = await import('./db.js');
+    const { status, startDate, endDate, fund, search, limit } = req.query;
+    const items = await getWorkQueueItems({
+      status: status ? String(status) : undefined,
+      startDate: startDate ? String(startDate) : undefined,
+      endDate: endDate ? String(endDate) : undefined,
+      fund: fund ? String(fund) : undefined,
+      search: search ? String(search) : undefined,
+      limit: limit ? Number(limit) : 500,
+    });
+    res.json({ success: true, data: items, count: items.length });
+  } catch (error) {
+    console.error('GET /api/work-queue error:', error);
+    res.status(500).json({ success: false, error: 'โหลดข้อมูล Work Queue ไม่สำเร็จ' });
+  }
+});
+
+app.put('/api/work-queue/:vn', async (req: Request, res: Response) => {
+  try {
+    const { upsertWorkQueueItem } = await import('./db.js');
+    const vn = String(req.params.vn || '').trim();
+    if (!vn) return res.status(400).json({ success: false, error: 'VN ไม่ถูกต้อง' });
+    const { queueStatus, assignedTo, notes } = req.body as Record<string, string>;
+    const result = await upsertWorkQueueItem({ vn, queueStatus, assignedTo, notes });
+    return res.json(result);
+  } catch (error) {
+    console.error('PUT /api/work-queue error:', error);
+    return res.status(500).json({ success: false, error: 'อัปเดต Work Queue ไม่สำเร็จ' });
+  }
+});
+
+app.post('/api/work-queue/bulk', async (req: Request, res: Response) => {
+  try {
+    const { bulkUpsertWorkQueue } = await import('./db.js');
+    const { items } = req.body as { items: Array<Record<string, unknown>> };
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, error: 'ไม่พบรายการที่จะเพิ่ม' });
+    }
+    const mapped = items.map((item) => ({
+      vn: String(item.vn || item.vstId || ''),
+      hn: String(item.hn || ''),
+      patientName: String(item.patient_name || item.patientName || ''),
+      fund: String(item.maininscl || item.fund || ''),
+      serviceDate: String(item.vstdate || item.serviceDate || '').slice(0, 10),
+    }));
+    const result = await bulkUpsertWorkQueue(mapped);
+    return res.json(result);
+  } catch (error) {
+    console.error('POST /api/work-queue/bulk error:', error);
+    return res.status(500).json({ success: false, error: 'เพิ่ม Work Queue ไม่สำเร็จ' });
+  }
+});
+
+// ============================================================
+// Reject Tracking API Routes
+// ============================================================
+
+app.get('/api/reject-tracking', async (req: Request, res: Response) => {
+  try {
+    const { getRejectTrackingItems } = await import('./db.js');
+    const { startDate, endDate, errorcode, resolveStatus, fund, search, limit } = req.query;
+    const items = await getRejectTrackingItems({
+      startDate: startDate ? String(startDate) : undefined,
+      endDate: endDate ? String(endDate) : undefined,
+      errorcode: errorcode ? String(errorcode) : undefined,
+      resolveStatus: resolveStatus ? String(resolveStatus) : undefined,
+      fund: fund ? String(fund) : undefined,
+      search: search ? String(search) : undefined,
+      limit: limit ? Number(limit) : 500,
+    });
+    res.json({ success: true, data: items, count: items.length });
+  } catch (error) {
+    console.error('GET /api/reject-tracking error:', error);
+    res.status(500).json({ success: false, error: 'โหลดข้อมูล Reject Tracking ไม่สำเร็จ' });
+  }
+});
+
+app.post('/api/reject-tracking/note', async (req: Request, res: Response) => {
+  try {
+    const { upsertRejectNote } = await import('./db.js');
+    const { repDataId, tranId, vn, an, hn, errorcode, verifycode, resolveStatus, note, assignedTo } = req.body as Record<string, unknown>;
+    if (!resolveStatus) return res.status(400).json({ success: false, error: 'resolveStatus จำเป็น' });
+    const result = await upsertRejectNote({
+      repDataId: repDataId ? Number(repDataId) : undefined,
+      tranId: tranId ? String(tranId) : undefined,
+      vn: vn ? String(vn) : undefined,
+      an: an ? String(an) : undefined,
+      hn: hn ? String(hn) : undefined,
+      errorcode: errorcode ? String(errorcode) : undefined,
+      verifycode: verifycode ? String(verifycode) : undefined,
+      resolveStatus: String(resolveStatus),
+      note: note ? String(note) : undefined,
+      assignedTo: assignedTo ? String(assignedTo) : undefined,
+    });
+    return res.json(result);
+  } catch (error) {
+    console.error('POST /api/reject-tracking/note error:', error);
+    return res.status(500).json({ success: false, error: 'บันทึก Note ไม่สำเร็จ' });
   }
 });
 

@@ -57,6 +57,21 @@ interface ImportQueueItem {
   message?: string;
 }
 
+/** Sheet-name → ImportType map (from Auto4Rep.EXE analysis) */
+const SHEET_TYPE_MAP: Record<string, ImportType> = {
+  statement: 'STM', stm: 'STM',
+  eclaim: 'REP', repdata: 'REP', repeclaim: 'REP', individual: 'REP', detail: 'REP', rep: 'REP',
+  invoice: 'INV', inv: 'INV',
+};
+
+const detectTypeFromSheetName = (sheetName: string): ImportType | null => {
+  const normalized = sheetName.toLowerCase().replace(/[^a-z]/g, '');
+  for (const [key, type] of Object.entries(SHEET_TYPE_MAP)) {
+    if (normalized === key || normalized.startsWith(key)) return type;
+  }
+  return null;
+};
+
 const detectImportType = (fileName: string, headers: string[], rows: Record<string, unknown>[]): ImportType | null => {
   const normalizedName = fileName.toLowerCase();
   const normalizedHeaders = headers.map((header) => normalizeHeaderCell(header).toLowerCase());
@@ -67,11 +82,11 @@ const detectImportType = (fileName: string, headers: string[], rows: Record<stri
     return 'REP';
   }
 
-  if (/\bstm\b|stm_|_stm/.test(normalizedName) || bag.includes('statement') || bag.includes('stm')) {
+  if (/\bstm\b|stm_|_stm/.test(normalizedName) || bag.includes('statement') || bag.includes('stm') || bag.includes('stmt_period') || bag.includes('hospcode')) {
     return 'STM';
   }
 
-  if (/\binv\b|inv_|_inv|invoice/.test(normalizedName) || bag.includes('invoice') || bag.includes('เลขที่ใบแจ้งหนี้')) {
+  if (/\binv\b|inv_|_inv|invoice/.test(normalizedName) || bag.includes('invoice') || bag.includes('เลขที่ใบแจ้งหนี้') || bag.includes('invoiceno')) {
     return 'INV';
   }
 
@@ -108,13 +123,28 @@ const statusColorMap: Record<QueueStatus, string> = {
 
 const normalizeHeaderCell = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
-const isLikelyHeaderRow = (row: unknown[]) => {
+const isLikelyHeaderRow = (row: unknown[], hintType?: ImportType | null) => {
   const cells = row.map(normalizeHeaderCell).filter(Boolean);
-  if (cells.length < 4) return false;
+  if (cells.length < 3) return false;
   const joined = cells.join(' | ').toUpperCase();
-  const headerSignals = ['HN', 'AN', 'PID', 'TRAN_ID', 'ชื่อ - สกุล', 'ประเภทผู้ป่วย', 'วันเข้ารักษา', 'ชดเชยสุทธิ'];
-  const matchCount = headerSignals.filter((signal) => joined.includes(signal.toUpperCase())).length;
-  return matchCount >= 3;
+
+  // REP header signals
+  const repSignals = ['HN', 'AN', 'PID', 'TRAN_ID', 'ชื่อ - สกุล', 'ประเภทผู้ป่วย', 'วันเข้ารักษา', 'ชดเชยสุทธิ'];
+  if (repSignals.filter((s) => joined.includes(s.toUpperCase())).length >= 3) return true;
+
+  // STM header signals (STMT_PERIOD / PERIOD / HOSPCODE from Auto4Rep.EXE)
+  if (hintType !== 'INV') {
+    const stmSignals = ['PERIOD', 'STMT_PERIOD', 'HOSPCODE', 'HCODE', 'INCOME', 'MONEY', 'CLAIMTYPE', 'PAIDTYPE', 'REP_INCOME', 'REP_MONEY', 'ECLAIM_MONEY'];
+    if (stmSignals.filter((s) => joined.includes(s)).length >= 3) return true;
+  }
+
+  // INV header signals
+  if (hintType !== 'STM') {
+    const invSignals = ['INVOICE', 'INVOICENO', 'PERIOD', 'INCOME', 'MONEY', 'HOSPCODE', 'ECLAIM_MONEY'];
+    if (invSignals.filter((s) => joined.includes(s)).length >= 3) return true;
+  }
+
+  return false;
 };
 
 const buildHeadersFromRows = (headerRow: unknown[], nextRow?: unknown[]) => {
@@ -126,12 +156,29 @@ const buildHeadersFromRows = (headerRow: unknown[], nextRow?: unknown[]) => {
   });
 };
 
-const isLikelyDataRecord = (row: Record<string, unknown>) => {
+const isLikelyDataRecord = (row: Record<string, unknown>, hintType?: ImportType | null) => {
   const keys = Object.keys(row);
   const normalized = Object.fromEntries(
     keys.map((key) => [key.trim().toLowerCase(), normalizeHeaderCell(row[key])])
   ) as Record<string, string>;
 
+  if (hintType === 'STM') {
+    // STM rows: must have a 6-digit period (YYYYMM) or numeric income/money values
+    const hasPeriod = Object.values(normalized).some((v) => /^\d{6}$/.test(v));
+    const hasNumericField = Object.values(normalized).some((v) => /^\d+(\.\d+)?$/.test(v) && Number(v) > 0);
+    const filledCount = Object.values(normalized).filter(Boolean).length;
+    return (hasPeriod || hasNumericField) && filledCount >= 2;
+  }
+
+  if (hintType === 'INV') {
+    // INV rows: invoice number or period, plus a few filled cells
+    const hasInvoice = !!(normalized['invoiceno'] || normalized['invoice'] || normalized['เลขที่ใบแจ้งหนี้']);
+    const hasPeriod = Object.values(normalized).some((v) => /^\d{6}$/.test(v));
+    const filledCount = Object.values(normalized).filter(Boolean).length;
+    return (hasInvoice || hasPeriod) && filledCount >= 3;
+  }
+
+  // REP - original logic
   const hasTranId = !!(normalized['tran_id'] || normalized['tran_id pp\\n(รับจาก สปสช.)']);
   const hasHn = !!normalized['hn'];
   const hasPid = !!normalized['pid'];
@@ -143,7 +190,7 @@ const isLikelyDataRecord = (row: Record<string, unknown>) => {
   return signalCount >= 3;
 };
 
-const parseWorksheetRows = (worksheet: XLSX.WorkSheet) => {
+const parseWorksheetRows = (worksheet: XLSX.WorkSheet, hintType?: ImportType | null) => {
   const grid = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
     header: 1,
     defval: '',
@@ -155,7 +202,7 @@ const parseWorksheetRows = (worksheet: XLSX.WorkSheet) => {
     return { headers: [] as string[], rows: [] as Record<string, unknown>[] };
   }
 
-  const headerIndex = grid.findIndex((row) => Array.isArray(row) && isLikelyHeaderRow(row));
+  const headerIndex = grid.findIndex((row) => Array.isArray(row) && isLikelyHeaderRow(row, hintType));
   const resolvedHeaderIndex = headerIndex >= 0 ? headerIndex : 0;
   const headerRow = Array.isArray(grid[resolvedHeaderIndex]) ? grid[resolvedHeaderIndex] : [];
   const nextRow = Array.isArray(grid[resolvedHeaderIndex + 1]) ? grid[resolvedHeaderIndex + 1] : [];
@@ -177,23 +224,49 @@ const parseWorksheetRows = (worksheet: XLSX.WorkSheet) => {
       const values = Array.isArray(row) ? row : [];
       return Object.fromEntries(activeColumnIndexes.map(({ header, index }) => [header, values[index] ?? '']));
     })
-    .filter((row) => isLikelyDataRecord(row));
+    .filter((row) => isLikelyDataRecord(row, hintType));
 
   return { headers, rows };
 };
 
-const readWorkbook = async (file: File) => {
+interface ParsedSheet {
+  sheetName: string;
+  rows: Record<string, unknown>[];
+  headers: string[];
+  hintType: ImportType | null;
+}
+
+/** Scans all sheets in a workbook; returns one ParsedSheet per sheet that has data.
+ *  Priority sheet names (from Auto4Rep.EXE) are checked first. */
+const readWorkbook = async (file: File): Promise<ParsedSheet[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
-  const firstSheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[firstSheetName];
-  const parsed = parseWorksheetRows(worksheet);
 
-  return {
-    sheetName: firstSheetName,
-    rows: parsed.rows,
-    headers: parsed.headers,
-  };
+  const priorityNames = ['statement', 'eclaim', 'invoice', 'individual', 'detail', 'repdata', 'repeclaim'];
+  const ordered = [
+    ...workbook.SheetNames.filter((s) => priorityNames.some((p) => s.toLowerCase().replace(/[^a-z]/g, '') === p || s.toLowerCase().replace(/[^a-z]/g, '').startsWith(p))),
+    ...workbook.SheetNames.filter((s) => !priorityNames.some((p) => s.toLowerCase().replace(/[^a-z]/g, '') === p || s.toLowerCase().replace(/[^a-z]/g, '').startsWith(p))),
+  ];
+
+  const results: ParsedSheet[] = [];
+  for (const sheetName of ordered) {
+    const hintType = detectTypeFromSheetName(sheetName);
+    const parsed = parseWorksheetRows(workbook.Sheets[sheetName], hintType);
+    if (parsed.rows.length > 0) {
+      results.push({ sheetName, rows: parsed.rows, headers: parsed.headers, hintType });
+    }
+  }
+
+  // Fallback: try first sheet without a hint if nothing matched
+  if (results.length === 0 && workbook.SheetNames.length > 0) {
+    const firstSheet = workbook.SheetNames[0];
+    const parsed = parseWorksheetRows(workbook.Sheets[firstSheet], null);
+    if (parsed.rows.length > 0) {
+      results.push({ sheetName: firstSheet, rows: parsed.rows, headers: parsed.headers, hintType: null });
+    }
+  }
+
+  return results;
 };
 
 export const RepStmImportPage: React.FC = () => {
@@ -211,6 +284,47 @@ export const RepStmImportPage: React.FC = () => {
   const [rows, setRows] = useState<ImportedRow[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+
+  // NHSO eclaim download state
+  const today = new Date();
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  const todayStr = today.toISOString().slice(0, 10);
+  const [eclaimOpen, setEclaimOpen] = useState(false);
+  const [eclaimStartDate, setEclaimStartDate] = useState(firstOfMonth);
+  const [eclaimEndDate, setEclaimEndDate] = useState(todayStr);
+  const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
+  const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
+  const [eclaimBrowserReady, setEclaimBrowserReady] = useState(false);
+  const [eclaimLoading, setEclaimLoading] = useState(false);
+  const [eclaimError, setEclaimError] = useState<string | null>(null);
+  const [eclaimFiles, setEclaimFiles] = useState<Record<string, unknown>[]>([]);
+  const [eclaimSelected, setEclaimSelected] = useState<Set<string>>(new Set());
+  const [eclaimDownloading, setEclaimDownloading] = useState(false);
+  const [eclaimAutoDownload, setEclaimAutoDownload] = useState(false);
+  const [eclaimDebugLog, setEclaimDebugLog] = useState<{ period: string; url: string; title: string; rowCount: number; htmlSnippet: string }[]>([]);
+  const [eclaimShowDebug, setEclaimShowDebug] = useState(false);
+
+  /** Returns all YYYYMM periods between two ISO date strings (inclusive) */
+  const getPeriodsInRange = (startDate: string, endDate: string): string[] => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
+    const periods: string[] = [];
+    const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+    const last = new Date(end.getFullYear(), end.getMonth(), 1);
+    while (cur <= last) {
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, '0');
+      periods.push(`${y}${m}`);
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    return periods;
+  };
+
+  const eclaimPeriods = useMemo(
+    () => getPeriodsInRange(eclaimStartDate, eclaimEndDate),
+    [eclaimStartDate, eclaimEndDate]
+  );
 
   const activePreview = useMemo(
     () => queueItems.find((item) => item.id === activePreviewId) || queueItems.find((item) => item.status !== 'error') || null,
@@ -267,6 +381,14 @@ export const RepStmImportPage: React.FC = () => {
     void loadData(dataType);
   }, [dataType]);
 
+  // Probe saved settings once so the backend connection is warmed up for browser-based login.
+  useEffect(() => {
+    fetch('/api/config/nhso-eclaim-settings')
+      .then((r) => r.json())
+      .then(() => undefined)
+      .catch(() => {/* ignore */});
+  }, []);
+
   const resetQueue = () => {
     setQueueItems([]);
     setActivePreviewId(null);
@@ -276,6 +398,117 @@ export const RepStmImportPage: React.FC = () => {
 
   const updateQueueItem = (id: string, updater: (item: ImportQueueItem) => ImportQueueItem) => {
     setQueueItems((current) => current.map((item) => (item.id === id ? updater(item) : item)));
+  };
+
+  const handleBrowserLogin = async () => {
+    setEclaimError(null);
+    setEclaimBrowserReady(false);
+    setEclaimBrowserLoading(true);
+    try {
+      const res = await fetch('/api/nhso-eclaim/browser-login', { method: 'POST' });
+      const json = await res.json() as { success: boolean; ready?: boolean; repPageUrl?: string; error?: string };
+      if (!json.success) throw new Error(json.error || 'Login ไม่สำเร็จ');
+      setEclaimBrowserReady(true);
+    } catch (err) {
+      setEclaimError((err as Error).message);
+    } finally {
+      setEclaimBrowserLoading(false);
+    }
+  };
+
+  const handleBrowserClose = async () => {
+    await fetch('/api/nhso-eclaim/browser-close', { method: 'POST' }).catch(() => {/* ignore */});
+    setEclaimBrowserReady(false);
+  };
+
+  const handleEclaimSearch = async () => {
+    setEclaimError(null);
+    setEclaimFiles([]);
+    setEclaimSelected(new Set());
+    setEclaimDebugLog([]);
+
+    if (eclaimPeriods.length === 0) {
+      setEclaimError('ช่วงวันที่ไม่ถูกต้อง');
+      return;
+    }
+    if (!eclaimBrowserReady) {
+      setEclaimError('กรุณากด "เปิด Edge ให้ Login" ก่อน');
+      return;
+    }
+
+    try {
+      setEclaimLoading(true);
+      const res = await fetch('/api/nhso-eclaim/browser-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ periods: eclaimPeriods, fileType: eclaimFileType }),
+      });
+      const json = await res.json() as {
+        success: boolean; data?: Record<string, unknown>[]; debug?: typeof eclaimDebugLog; error?: string;
+      };
+      if (!json.success) throw new Error(json.error || 'ค้นหาไม่สำเร็จ');
+      if (json.debug) setEclaimDebugLog(json.debug);
+      const files = json.data || [];
+      setEclaimFiles(files);
+      if (files.length === 0) {
+        setEclaimError(`ไม่พบไฟล์สำหรับงวด ${eclaimPeriods.join(', ')} ประเภท ${eclaimFileType}`);
+        setEclaimShowDebug(true);
+      } else if (eclaimAutoDownload) {
+        // Auto-select all and download
+        const allKeys = new Set(files.map((f) => String(f.filename || f.fileName || f.name || '')).filter(Boolean));
+        setEclaimSelected(allKeys);
+        await handleEclaimDownloadFiles(files, allKeys);
+      }
+    } catch (err) {
+      setEclaimError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
+    } finally {
+      setEclaimLoading(false);
+    }
+  };
+
+  /** Core download logic — accepts files + selected set directly so it can be called from auto-download */
+  const handleEclaimDownloadFiles = async (filesToProcess: Record<string, unknown>[], selectedKeys: Set<string>) => {
+    if (selectedKeys.size === 0 || !eclaimBrowserReady) return;
+    setEclaimDownloading(true);
+    setEclaimError(null);
+    const filesToDownload = filesToProcess.filter((f) => {
+      const key = String(f.filename || f.fileName || f.name || '');
+      return selectedKeys.has(key);
+    });
+
+    const dataTransfer = new DataTransfer();
+    for (const fileObj of filesToDownload) {
+      const filename = String(fileObj.filename || fileObj.fileName || fileObj.name || 'download.xlsx');
+      try {
+        const dlRes = await fetch('/api/nhso-eclaim/browser-download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            downloadHref: String(fileObj.downloadHref || ''),
+            downloadOnclick: String(fileObj.downloadOnclick || ''),
+            filename,
+          }),
+        });
+        const dlJson = await dlRes.json() as { success: boolean; base64?: string; contentType?: string; error?: string };
+        if (!dlJson.success || !dlJson.base64) throw new Error(dlJson.error || `ดาวน์โหลด ${filename} ไม่สำเร็จ`);
+        const binaryStr = atob(dlJson.base64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+        const blob = new Blob([bytes], { type: dlJson.contentType || 'application/octet-stream' });
+        const dlFile = new File([blob], filename, { type: dlJson.contentType || 'application/octet-stream' });
+        dataTransfer.items.add(dlFile);
+      } catch (err) {
+        setEclaimError(err instanceof Error ? err.message : `ดาวน์โหลด ${filename} ไม่สำเร็จ`);
+      }
+    }
+    if (dataTransfer.files.length > 0) {
+      await handleFileChange(dataTransfer.files, true);
+    }
+    setEclaimDownloading(false);
+  };
+
+  const handleEclaimDownload = async () => {
+    await handleEclaimDownloadFiles(eclaimFiles, eclaimSelected);
   };
 
   const handleFileChange = async (files: FileList | null, append = false) => {
@@ -317,22 +550,61 @@ export const RepStmImportPage: React.FC = () => {
 
     for (const queueItem of initialQueue) {
       try {
-        const parsed = await readWorkbook(queueItem.file);
-        const detectedType = detectImportType(queueItem.fileName, parsed.headers, parsed.rows);
-        updateQueueItem(queueItem.id, (item) => ({
-          ...item,
-          sheetName: parsed.sheetName,
-          headers: parsed.headers,
-          rows: parsed.rows,
-          rowCount: parsed.rows.length,
-          detectedType: detectedType || undefined,
-          status: parsed.rows.length > 0 && detectedType ? 'ready' : 'error',
-          message: parsed.rows.length === 0
-            ? 'ไม่พบข้อมูลในไฟล์'
-            : detectedType
-              ? `ตรวจพบเป็น ${detectedType} พร้อมนำเข้า ${parsed.rows.length.toLocaleString()} แถว`
-              : 'ไม่สามารถระบุประเภทไฟล์ได้',
-        }));
+        const parsedSheets = await readWorkbook(queueItem.file);
+
+        if (parsedSheets.length === 0) {
+          updateQueueItem(queueItem.id, (item) => ({
+            ...item,
+            status: 'error',
+            message: 'ไม่พบข้อมูลในไฟล์',
+          }));
+          continue;
+        }
+
+        if (parsedSheets.length === 1) {
+          const { sheetName, rows, headers, hintType } = parsedSheets[0];
+          const detectedType = hintType || detectImportType(queueItem.fileName, headers, rows);
+          updateQueueItem(queueItem.id, (item) => ({
+            ...item,
+            sheetName,
+            headers,
+            rows,
+            rowCount: rows.length,
+            detectedType: detectedType || undefined,
+            status: rows.length > 0 && detectedType ? 'ready' : 'error',
+            message: rows.length === 0
+              ? 'ไม่พบข้อมูลในไฟล์'
+              : detectedType
+                ? `ตรวจพบเป็น ${detectedType} (Sheet: ${sheetName}) พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
+                : 'ไม่สามารถระบุประเภทไฟล์ได้',
+          }));
+        } else {
+          // Multiple relevant sheets – expand one file into multiple queue items
+          const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType }, i) => {
+            const detectedType = hintType || detectImportType(queueItem.fileName, headers, rows);
+            return {
+              id: `${queueItem.id}-sh${i}`,
+              file: queueItem.file,
+              fileName: `${queueItem.fileName} [${sheetName}]`,
+              relativePath: queueItem.relativePath,
+              sheetName,
+              headers,
+              rows,
+              rowCount: rows.length,
+              detectedType: detectedType || undefined,
+              status: (rows.length > 0 && detectedType ? 'ready' : 'error') as QueueStatus,
+              message: rows.length === 0
+                ? `Sheet "${sheetName}": ไม่พบข้อมูล`
+                : detectedType
+                  ? `ตรวจพบเป็น ${detectedType} พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
+                  : `Sheet "${sheetName}": ไม่สามารถระบุประเภท`,
+            };
+          });
+          setQueueItems((current) => {
+            const without = current.filter((item) => item.id !== queueItem.id);
+            return [...without, ...expandedItems];
+          });
+        }
       } catch (err) {
         updateQueueItem(queueItem.id, (item) => ({
           ...item,
@@ -523,6 +795,217 @@ export const RepStmImportPage: React.FC = () => {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* NHSO eclaim direct download */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-header" style={{ cursor: 'pointer' }} onClick={() => setEclaimOpen((v) => !v)}>
+          <div className="card-title">🌐 ดาวน์โหลด REP/STM/INV จาก NHSO eclaim โดยตรง</div>
+          <span style={{ fontSize: 18 }}>{eclaimOpen ? '▲' : '▼'}</span>
+        </div>
+        {eclaimOpen && (
+          <div className="card-body">
+            <div className="alert alert-info" style={{ marginBottom: 16 }}>
+              <span>ℹ️</span>
+              <span>
+                ดาวน์โหลดไฟล์ REP/STM/INV จาก <strong>eclaim.nhso.go.th</strong> โดยตรง (คล้าย Auto4Rep.EXE)
+                แล้วเพิ่มเข้าคิวนำเข้าอัตโนมัติ
+              </span>
+            </div>
+
+            {/* Step 1: Browser Login */}
+            <div style={{ background: 'var(--bg-secondary,#f0f4ff)', border: '1px solid var(--border-color,#c7d2fe)', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>📋 ขั้นตอนที่ 1 — Login ผ่าน Browser</div>
+              <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
+                <li>กดปุ่ม <strong>🌐 เปิด Edge ให้ Login</strong> — ระบบจะเปิด Edge ไปที่ eclaim.nhso.go.th อัตโนมัติ</li>
+                <li>Login ด้วย username/password ปกติ (ภายใน 5 นาที)</li>
+                <li>รอให้ระบบตรวจจับการ login สำเร็จ — <strong>อย่าปิด Browser</strong></li>
+              </ol>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleBrowserLogin}
+                  disabled={eclaimBrowserLoading}
+                  style={{ flexShrink: 0 }}
+                >
+                  {eclaimBrowserLoading
+                    ? '⏳ รอ Login... (Browser เปิดอยู่ — Login แล้วรอระบบตรวจจับ)'
+                    : '🌐 เปิด Edge ให้ Login'}
+                </button>
+                {eclaimBrowserReady && !eclaimBrowserLoading && (
+                  <>
+                    <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 13 }}>✅ Browser พร้อมแล้ว — กดค้นหาไฟล์ได้เลย</span>
+                    <button className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 10px' }} onClick={handleBrowserClose}>
+                      ❌ ปิด Browser
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">วันที่เริ่มต้น</label>
+                <input type="date" className="form-control" value={eclaimStartDate} onChange={(e) => setEclaimStartDate(e.target.value)} />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">วันที่สิ้นสุด</label>
+                <input type="date" className="form-control" value={eclaimEndDate} onChange={(e) => setEclaimEndDate(e.target.value)} />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">ประเภทไฟล์</label>
+                <select className="form-control" value={eclaimFileType} onChange={(e) => setEclaimFileType(e.target.value as typeof eclaimFileType)}>
+                  <option value="ALL">ทุกประเภท</option>
+                  <option value="REP">REP</option>
+                  <option value="STM">STM</option>
+                  <option value="INV">INV</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'flex-end' }}>
+              <div style={{ flex: 1 }}>
+                {eclaimPeriods.length > 0 && (
+                  <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                    งวดที่จะค้นหา ({eclaimPeriods.length} งวด):{' '}
+                    {eclaimPeriods.slice(0, 12).map((p) => (
+                      <span key={p} className="badge badge-info" style={{ marginRight: 4 }}>{p}</span>
+                    ))}
+                    {eclaimPeriods.length > 12 && <span style={{ fontSize: 11 }}>+{eclaimPeriods.length - 12} งวด</span>}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" onClick={handleEclaimSearch} disabled={eclaimLoading || eclaimDownloading || !eclaimBrowserReady}>
+                    {eclaimLoading ? '⟳ กำลังค้นหา...' : '🔍 ค้นหาไฟล์จาก NHSO eclaim'}
+                  </button>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={eclaimAutoDownload}
+                      onChange={(e) => setEclaimAutoDownload(e.target.checked)}
+                    />
+                    Auto Download (ดาวน์โหลดทุกไฟล์ที่พบอัตโนมัติ)
+                  </label>
+                  {eclaimFiles.length > 0 && (
+                    <button
+                      className="btn btn-success"
+                      onClick={handleEclaimDownload}
+                      disabled={eclaimDownloading || eclaimSelected.size === 0 || !eclaimBrowserReady}
+                    >
+                      {eclaimDownloading ? '⟳ กำลังดาวน์โหลด...' : `⬇️ ดาวน์โหลดและเพิ่มในคิว (${eclaimSelected.size} ไฟล์)`}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {eclaimError && (
+              <div className="alert alert-danger" style={{ marginBottom: 12 }}>
+                <span>⚠️</span><span>{eclaimError}</span>
+              </div>
+            )}
+
+            {/* Debug panel */}
+            {eclaimDebugLog.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: 11, padding: '2px 10px' }}
+                  onClick={() => setEclaimShowDebug((v) => !v)}
+                >
+                  🔧 {eclaimShowDebug ? 'ซ่อน' : 'แสดง'} Debug Info ({eclaimDebugLog.length} งวด)
+                </button>
+                {eclaimShowDebug && (
+                  <div style={{ marginTop: 8, background: '#1e1e2e', color: '#cdd6f4', borderRadius: 8, padding: 12, fontSize: 11, fontFamily: 'monospace', maxHeight: 400, overflowY: 'auto' }}>
+                    {eclaimDebugLog.map((d, i) => (
+                      <div key={i} style={{ marginBottom: 12, borderLeft: '2px solid #45475a', paddingLeft: 8 }}>
+                        <div>
+                          <span style={{ color: '#fab387' }}>งวด {d.period}</span>{' '}
+                          <span style={{ color: '#cba6f7' }}>rows={d.rowCount}</span>{' '}
+                          <span style={{ color: '#89b4fa' }}>{d.url}</span>
+                        </div>
+                        {d.title && <div style={{ color: '#f38ba8', fontSize: 10 }}>title: {d.title}</div>}
+                        {d.htmlSnippet && (
+                          <pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 120, overflowY: 'auto', fontSize: 10, color: '#cdd6f4' }}>
+                            {d.htmlSnippet.slice(0, 1200)}
+                          </pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {eclaimFiles.length > 0 && (
+              <div className="modal-table-wrap">
+                <table className="data-table long-id-table long-id-table--repstm-latest">
+                  <thead>
+                    <tr>
+                      <th>
+                        <input
+                          type="checkbox"
+                          checked={eclaimSelected.size === eclaimFiles.length && eclaimFiles.length > 0}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setEclaimSelected(new Set(eclaimFiles.map((f) => String(f.filename || f.fileName || f.name || ''))));
+                            } else {
+                              setEclaimSelected(new Set());
+                            }
+                          }}
+                        />
+                      </th>
+                      <th>ชื่อไฟล์</th>
+                      <th>งวด</th>
+                      <th>ข้อมูลเพิ่มเติม</th>
+                      <th>ดาวน์โหลด</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {eclaimFiles.map((file, idx) => {
+                      const key = String(file.filename || file.fileName || file.name || idx);
+                      const checked = eclaimSelected.has(key);
+                      const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+                      const href = String(file.downloadHref || '');
+                      const hasOnclick = Boolean(file.downloadOnclick);
+                      return (
+                        <tr key={key} onClick={() => setEclaimSelected((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(key)) next.delete(key); else next.add(key);
+                          return next;
+                        })} style={{ cursor: 'pointer', background: checked ? 'rgba(37,99,235,0.07)' : undefined }}>
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <input type="checkbox" checked={checked} onChange={() => setEclaimSelected((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(key)) next.delete(key); else next.add(key);
+                              return next;
+                            })} />
+                          </td>
+                          <td className="table-cell-nowrap" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={key}>{key}</td>
+                          <td className="table-cell-nowrap">{String(file.period || file._period || '-')}</td>
+                          <td className="table-cell-nowrap" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {cells.filter(Boolean).slice(0, 4).join(' | ') || '-'}
+                          </td>
+                          <td className="table-cell-nowrap">
+                            {href && <span style={{ fontSize: 10, color: '#2563eb' }}>🔗 มี URL</span>}
+                            {!href && hasOnclick && <span style={{ fontSize: 10, color: '#d97706' }}>⚡ onclick</span>}
+                            {!href && !hasOnclick && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>?</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {eclaimFiles.length === 0 && !eclaimLoading && eclaimBrowserReady && (
+              <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
+                ไม่พบไฟล์สำหรับงวด {eclaimPeriods.join(', ')} ประเภท {eclaimFileType}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="card repstm-status-card" style={{ marginBottom: 16 }}>
@@ -757,15 +1240,15 @@ export const RepStmImportPage: React.FC = () => {
                       if (isRepType) {
                         return (
                           <tr key={row.id}>
-                            <td className="table-cell-nowrap">{row.tran_id || '-'}</td>
-                            <td className="table-cell-nowrap">{row.rep_no || '-'}</td>
-                            <td className="table-cell-nowrap">{row.hn || '-'}</td>
-                            <td className="table-cell-nowrap">{row.vn || row.an || '-'}</td>
-                            <td>{row.patient_name || String(raw['ชื่อ-สกุล'] ?? '-')}</td>
+                            <td className="table-cell-nowrap workflow-id-cell">{row.tran_id || '-'}</td>
+                            <td className="table-cell-nowrap workflow-id-cell">{row.rep_no || '-'}</td>
+                            <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
+                            <td className="table-cell-nowrap workflow-id-cell">{row.vn || row.an || '-'}</td>
+                            <td className="workflow-person-cell">{row.patient_name || String(raw['ชื่อ-สกุล'] ?? '-')}</td>
                             <td className="table-cell-nowrap">{row.department || '-'}</td>
-                            <td className="table-cell-nowrap">{row.compensated != null ? Number(row.compensated).toLocaleString() : '-'}</td>
-                            <td className="table-cell-nowrap">{row.income != null ? Number(row.income).toLocaleString() : '-'}</td>
-                            <td className="table-cell-nowrap">{row.diff != null ? Number(row.diff).toLocaleString() : '-'}</td>
+                            <td className="table-cell-nowrap workflow-money-cell">{row.compensated != null ? Number(row.compensated).toLocaleString() : '-'}</td>
+                            <td className="table-cell-nowrap workflow-money-cell">{row.income != null ? Number(row.income).toLocaleString() : '-'}</td>
+                            <td className="table-cell-nowrap workflow-money-cell">{row.diff != null ? Number(row.diff).toLocaleString() : '-'}</td>
                           </tr>
                         );
                       }

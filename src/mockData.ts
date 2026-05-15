@@ -79,6 +79,9 @@ export interface CheckRecord {
   has_close?: number;
   authen_code?: string;
   close_code?: string;
+  pttype_eclaim_id?: string;
+  pttype_eclaim_name?: string;
+  fdh_status_label?: string;
 }
 
 export const mockChecks: CheckRecord[] = [

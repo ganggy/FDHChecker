@@ -564,7 +564,7 @@ export const RepDenyPage: React.FC = () => {
         <div className="card-body" style={{ padding: 0 }}>
           {visibleRows.length > 0 ? (
             <div className="modal-table-wrap repdeny-table-wrap">
-              <table className="data-table">
+              <table className="data-table workflow-readable-table repdeny-readable-table">
                 <thead>
                   <tr>
                     <th>REP</th>
@@ -586,10 +586,10 @@ export const RepDenyPage: React.FC = () => {
                     const codes = splitCodes(row.errorcode);
                     return (
                       <tr key={`${row.id}-${row.tran_id || row.vn || row.an || 'row'}`}>
-                        <td className="table-cell-nowrap">{row.rep_no || '-'}</td>
-                        <td className="table-cell-nowrap">{row.vn || row.an || '-'}</td>
-                        <td className="table-cell-nowrap">{row.hn || '-'}</td>
-                        <td>
+                        <td className="table-cell-nowrap workflow-id-cell">{row.rep_no || '-'}</td>
+                        <td className="table-cell-nowrap workflow-id-cell">{row.vn || row.an || '-'}</td>
+                        <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
+                        <td className="workflow-person-cell">
                           <div style={{ fontWeight: 700 }}>{row.patient_name || '-'}</div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.pid || '-'}</div>
                         </td>
@@ -604,11 +604,11 @@ export const RepDenyPage: React.FC = () => {
                             ))}
                           </div>
                         </td>
-                        <td className="table-cell-nowrap">{row.verifycode || '-'}</td>
-                        <td className="table-cell-nowrap">{row.projectcode || '-'}</td>
-                        <td className="table-cell-nowrap">{row.compensated != null ? Number(row.compensated).toLocaleString() : '-'}</td>
-                        <td className="table-cell-nowrap">{row.income != null ? Number(row.income).toLocaleString() : '-'}</td>
-                        <td className="table-cell-nowrap">{row.diff != null ? Number(row.diff).toLocaleString() : '-'}</td>
+                        <td className="table-cell-nowrap workflow-code-cell">{row.verifycode || '-'}</td>
+                        <td className="table-cell-nowrap workflow-code-cell">{row.projectcode || '-'}</td>
+                        <td className="table-cell-nowrap workflow-money-cell">{row.compensated != null ? Number(row.compensated).toLocaleString() : '-'}</td>
+                        <td className="table-cell-nowrap workflow-money-cell">{row.income != null ? Number(row.income).toLocaleString() : '-'}</td>
+                        <td className="table-cell-nowrap workflow-money-cell">{row.diff != null ? Number(row.diff).toLocaleString() : '-'}</td>
                       </tr>
                     );
                   })}

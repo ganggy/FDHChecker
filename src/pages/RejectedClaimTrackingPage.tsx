@@ -1,0 +1,378 @@
+import { useState, useEffect, useCallback } from 'react';
+import { formatLocalDateDaysAgo, formatLocalDateInput } from '../utils/dateUtils';
+
+const RESOLVE_STATUSES = [
+  { value: 'open', label: 'รอดำเนินการ', color: '#ef4444' },
+  { value: 'in_progress', label: 'กำลังดำเนินการ', color: '#f59e0b' },
+  { value: 'resubmit', label: 'ส่งใหม่แล้ว', color: '#3b82f6' },
+  { value: 'resolved', label: 'แก้ไขแล้ว', color: '#10b981' },
+];
+
+const resolveLabel = (status: string) =>
+  RESOLVE_STATUSES.find((s) => s.value === status)?.label || status;
+const resolveColor = (status: string) =>
+  RESOLVE_STATUSES.find((s) => s.value === status)?.color || '#6b7280';
+
+interface RejectItem {
+  rep_data_id: number;
+  rep_no?: string;
+  tran_id?: string;
+  hn?: string;
+  vn?: string;
+  an?: string;
+  pid?: string;
+  patient_name?: string;
+  department?: string;
+  admdate?: string;
+  maininscl?: string;
+  errorcode?: string;
+  verifycode?: string;
+  income?: number;
+  compensated?: number;
+  diff?: number;
+  note_id?: number;
+  resolve_status?: string;
+  note?: string;
+  assigned_to?: string;
+  resolved_at?: string;
+  note_updated_at?: string;
+}
+
+export default function RejectedClaimTrackingPage() {
+  const [startDate, setStartDate] = useState(() => formatLocalDateDaysAgo(90));
+  const [endDate, setEndDate] = useState(() => formatLocalDateInput());
+  const [resolveFilter, setResolveFilter] = useState('all');
+  const [errorcodeFilter, setErrorcodeFilter] = useState('');
+  const [fundFilter, setFundFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [items, setItems] = useState<RejectItem[]>([]);
+
+  // note editor
+  const [editItem, setEditItem] = useState<RejectItem | null>(null);
+  const [editResolveStatus, setEditResolveStatus] = useState('open');
+  const [editNote, setEditNote] = useState('');
+  const [editAssigned, setEditAssigned] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const loadItems = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      if (resolveFilter !== 'all') params.set('resolveStatus', resolveFilter);
+      if (errorcodeFilter.trim()) params.set('errorcode', errorcodeFilter.trim());
+      if (fundFilter !== 'all') params.set('fund', fundFilter);
+      if (search.trim()) params.set('search', search.trim());
+      params.set('limit', '500');
+      const resp = await fetch(`/api/reject-tracking?${params}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json();
+      setItems(Array.isArray(json.data) ? json.data : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
+    } finally {
+      setLoading(false);
+    }
+  }, [startDate, endDate, resolveFilter, errorcodeFilter, fundFilter, search]);
+
+  useEffect(() => {
+    loadItems();
+  }, [loadItems]);
+
+  const handleEditOpen = (item: RejectItem) => {
+    setEditItem(item);
+    setEditResolveStatus(item.resolve_status || 'open');
+    setEditNote(item.note || '');
+    setEditAssigned(item.assigned_to || '');
+  };
+
+  const handleEditSave = async () => {
+    if (!editItem) return;
+    setSaving(true);
+    try {
+      const resp = await fetch('/api/reject-tracking/note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repDataId: editItem.rep_data_id,
+          tranId: editItem.tran_id || undefined,
+          vn: editItem.vn || undefined,
+          an: editItem.an || undefined,
+          hn: editItem.hn || undefined,
+          errorcode: editItem.errorcode || undefined,
+          verifycode: editItem.verifycode || undefined,
+          resolveStatus: editResolveStatus,
+          note: editNote,
+          assignedTo: editAssigned,
+        }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const result = await resp.json() as { success?: boolean; error?: string };
+      if (!result.success) throw new Error(result.error || 'บันทึกไม่สำเร็จ');
+      setItems((prev) =>
+        prev.map((i) =>
+          i.rep_data_id === editItem.rep_data_id
+            ? { ...i, resolve_status: editResolveStatus, note: editNote, assigned_to: editAssigned }
+            : i
+        )
+      );
+      setEditItem(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Derived stats
+  const openCount = items.filter((i) => (i.resolve_status || 'open') === 'open').length;
+  const resolvedCount = items.filter((i) => i.resolve_status === 'resolved').length;
+  const inProgressCount = items.filter((i) => i.resolve_status === 'in_progress').length;
+
+  // Unique funds from items
+  const funds = Array.from(new Set(items.map((i) => i.maininscl || '').filter(Boolean))).sort();
+
+  return (
+    <div className="page-container workflow-page">
+      <div className="workflow-hero">
+        <div className="workflow-hero__content">
+          <div>
+            <h1 className="page-title workflow-hero__title">Rejected Claim Tracking</h1>
+            <p className="workflow-hero__description">ติดตามรายการเคลมที่ถูกตีกลับจาก สปสช. แยกตามสถานะการแก้ไข สาเหตุ และผู้รับผิดชอบ เพื่อให้การแก้ไขและส่งซ้ำตามได้ง่ายขึ้น</p>
+          </div>
+          <div className="workflow-hero__meta">
+            <span className="workflow-badge workflow-badge--accent">จัดการ reject รายเคส</span>
+            <span className="workflow-badge">{items.length} รายการในผลค้นหา</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="card workflow-panel">
+        <div className="card-body">
+          <div className="workflow-filter-grid">
+            <div className="form-group">
+              <label>วันที่เริ่มต้น</label>
+              <input type="date" className="form-control" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>วันที่สิ้นสุด</label>
+              <input type="date" className="form-control" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>สถานะการแก้ไข</label>
+              <select className="form-control" value={resolveFilter} onChange={(e) => setResolveFilter(e.target.value)}>
+                <option value="all">ทั้งหมด</option>
+                {RESOLVE_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>รหัสข้อผิดพลาด</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="เช่น ER101"
+                value={errorcodeFilter}
+                onChange={(e) => setErrorcodeFilter(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label>กองทุน</label>
+              <select className="form-control" value={fundFilter} onChange={(e) => setFundFilter(e.target.value)}>
+                <option value="all">ทั้งหมด</option>
+                {funds.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>ค้นหา</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="VN / HN / ชื่อ / TRAN_ID..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <div className="workflow-filter-actions">
+              <button className="btn btn-primary" onClick={loadItems} disabled={loading}>
+                {loading ? 'กำลังโหลด...' : '🔍 ค้นหา'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {error && <div className="alert alert-danger" style={{ marginTop: 12 }}>{error}</div>}
+
+      <div className="workflow-summary-grid">
+        <div className="workflow-stat" style={{ ['--stat-color' as string]: '#ef4444' }}>
+          <div className="workflow-stat__value">{openCount}</div>
+          <div className="workflow-stat__label">รอดำเนินการ</div>
+        </div>
+        <div className="workflow-stat" style={{ ['--stat-color' as string]: '#f59e0b' }}>
+          <div className="workflow-stat__value">{inProgressCount}</div>
+          <div className="workflow-stat__label">กำลังดำเนินการ</div>
+        </div>
+        <div className="workflow-stat" style={{ ['--stat-color' as string]: '#10b981' }}>
+          <div className="workflow-stat__value">{resolvedCount}</div>
+          <div className="workflow-stat__label">แก้ไขแล้ว</div>
+        </div>
+        <div className="workflow-stat" style={{ ['--stat-color' as string]: '#6366f1' }}>
+          <div className="workflow-stat__value">{items.length}</div>
+          <div className="workflow-stat__label">รายการทั้งหมด</div>
+        </div>
+      </div>
+
+      <div className="card workflow-panel workflow-table-card">
+        <div className="card-header">
+          <span className="workflow-table-title">รายการเคลมที่ถูกตีกลับ</span>
+          <span className="workflow-table-meta">จัดลำดับตามวันที่ล่าสุดและพร้อมบันทึกผลการแก้ไข</span>
+        </div>
+        <div className="card-body" style={{ padding: 0 }}>
+          <div className="modal-table-wrap">
+            <table className="data-table workflow-readable-table workflow-readable-table--reject">
+              <thead>
+                <tr>
+                  <th>REP No.</th>
+                  <th>VN/AN</th>
+                  <th>HN</th>
+                  <th>ชื่อ-สกุล</th>
+                  <th>กองทุน</th>
+                  <th>วันที่</th>
+                  <th>Error Code</th>
+                  <th>Verify Code</th>
+                  <th>ยอดต่าง</th>
+                  <th>สถานะ</th>
+                  <th>หมายเหตุ</th>
+                  <th>ผู้รับผิดชอบ</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.length === 0 ? (
+                  <tr>
+                    <td colSpan={13} style={{ textAlign: 'center', color: '#9ca3af', padding: 24 }}>
+                      {loading ? 'กำลังโหลด...' : 'ไม่พบข้อมูล'}
+                    </td>
+                  </tr>
+                ) : (
+                  items.map((item) => (
+                    <tr key={item.rep_data_id}>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.rep_no || '-'}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">
+                        {item.vn || item.an || '-'}
+                      </td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.hn || '-'}</td>
+                      <td className="workflow-person-cell">{item.patient_name || '-'}</td>
+                      <td>{item.maininscl || '-'}</td>
+                      <td className="table-cell-nowrap" style={{ fontSize: 12 }}>
+                        {item.admdate ? String(item.admdate).slice(0, 10) : '-'}
+                      </td>
+                      <td>
+                        {item.errorcode ? (
+                          <span className="badge badge-danger" style={{ fontSize: 11 }}>{item.errorcode}</span>
+                        ) : '-'}
+                      </td>
+                      <td className="workflow-code-cell">{item.verifycode || '-'}</td>
+                      <td className="workflow-money-cell">
+                        {item.diff != null ? (
+                          <span style={{ color: Number(item.diff) >= 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                            {Number(item.diff).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td>
+                        <span
+                          className="workflow-status-pill"
+                          style={{ ['--pill-color' as string]: resolveColor(item.resolve_status || 'open') }}
+                        >
+                          {resolveLabel(item.resolve_status || 'open')}
+                        </span>
+                      </td>
+                      <td className="workflow-note-cell">{item.note || '-'}</td>
+                      <td className="workflow-owner-cell">{item.assigned_to || '-'}</td>
+                      <td>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '3px 10px', fontSize: 12 }}
+                          onClick={() => handleEditOpen(item)}
+                        >
+                          บันทึก
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {editItem && (
+        <div
+          className="workflow-modal-backdrop"
+          onClick={(e) => { if (e.target === e.currentTarget) setEditItem(null); }}
+        >
+          <div className="workflow-modal">
+            <div className="workflow-modal__header">
+            <h3 className="workflow-modal__title">บันทึกการดำเนินการ</h3>
+            <p className="workflow-modal__subtitle">
+              {editItem.patient_name || ''} {editItem.vn ? `VN: ${editItem.vn}` : ''} {editItem.an ? `AN: ${editItem.an}` : ''}
+            </p>
+            </div>
+            <div className="workflow-modal__body">
+
+            {editItem.errorcode && (
+              <div className="alert alert-danger" style={{ marginBottom: 12, padding: '8px 12px', fontSize: 13 }}>
+                รหัสข้อผิดพลาด: <strong>{editItem.errorcode}</strong>
+                {editItem.verifycode && ` | Verify: ${editItem.verifycode}`}
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>สถานะการแก้ไข</label>
+              <select className="form-control" value={editResolveStatus} onChange={(e) => setEditResolveStatus(e.target.value)}>
+                {RESOLVE_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>ผู้รับผิดชอบ</label>
+              <input
+                type="text"
+                className="form-control"
+                value={editAssigned}
+                onChange={(e) => setEditAssigned(e.target.value)}
+                placeholder="ชื่อหรือแผนก"
+              />
+            </div>
+            <div className="form-group">
+              <label>หมายเหตุ / บันทึกการดำเนินการ</label>
+              <textarea
+                className="form-control"
+                rows={4}
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
+                placeholder="รายละเอียดการดำเนินการ เช่น แก้ ICD-10 เป็น J06 แล้วส่งใหม่..."
+              />
+            </div>
+            <div className="workflow-modal__actions">
+              <button className="btn btn-secondary" onClick={() => setEditItem(null)}>ยกเลิก</button>
+              <button className="btn btn-primary" onClick={handleEditSave} disabled={saving}>
+                {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+              </button>
+            </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

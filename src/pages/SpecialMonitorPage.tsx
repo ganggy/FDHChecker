@@ -459,7 +459,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
     };
 
     return (
-        <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>            {/* Header */}
+        <div style={{ padding: '20px', width: '100%', maxWidth: 'var(--content-max)', margin: '0 auto' }}>            {/* Header */}
             <div style={{ marginBottom: '30px' }}>
                 <h1 style={{ fontSize: '28px', fontWeight: 800, marginBottom: '10px' }}>
                     📊 รายการมอนิเตอร์พิเศษ (เวอร์ชันแก้ไขแล้ว)

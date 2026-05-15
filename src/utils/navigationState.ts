@@ -1,4 +1,4 @@
-export type AppPage = 'staff' | 'ipd' | 'admin' | 'fdh' | 'fdhImport' | 'nhsoClose' | 'repstm' | 'receivable' | 'repDeny' | 'specific' | 'monitor' | 'guide' | 'settings';
+export type AppPage = 'staff' | 'ipd' | 'admin' | 'fdh' | 'fdhImport' | 'fdhClaimDetail' | 'nhsoClose' | 'repstm' | 'receivable' | 'insuranceOverview' | 'repDeny' | 'specific' | 'fundFdh' | 'fund43' | 'fundKtb' | 'fundOther' | 'monitor' | 'fsMonitor' | 'mophDmht' | 'mophVaccine' | 'guide' | 'settings' | 'authenSync' | 'preValidator' | 'workQueue' | 'rejectTracking' | 'reconciliation';
 
 export interface DashboardNavigationPayload {
   source?: 'dashboard';

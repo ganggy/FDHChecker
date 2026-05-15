@@ -24,6 +24,8 @@ interface Config {
     site_settings?: {
         hospital_name?: string;
         hospital_code?: string;
+        nhso_region?: string;
+        province?: string;
         specific_fund_visibility?: Record<string, boolean>;
         receivable_signers?: {
             director?: { name?: string; position?: string };
@@ -84,11 +86,18 @@ const FALLBACK_FUND_DEFINITIONS = [
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
-    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130 + 13001' },
+    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
+    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
-    { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
+    { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)' },
+    { id: 'mental_health_counselling', name: 'ปรึกษาสุขภาพจิต', description: 'อายุ 12 ปีขึ้นไป + ST-5/9Q + counselling' },
+    { id: 'gender_affirming_hormone', name: 'ฮอร์โมนยืนยันเพศสภาพ', description: 'KTB/VMI + hormone protocol' },
+    { id: 'latent_tb_screening', name: 'คัดกรอง Latent TB', description: 'IGRA / NTIP/TB Data Hub' },
+    { id: 'osteoporosis_screening', name: 'คัดกรองกระดูกพรุน', description: 'หญิง 60 ปีขึ้นไป + FRAX/DXA/BMD' },
+    { id: 'autism_tdas_screening', name: 'คัดกรอง TDAS', description: 'เด็ก 12-60 เดือน + TDAS' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
-    { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'Hep C / HCV' },
+    { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + Anti-HCV' },
+    { id: 'hepb', name: 'ไวรัสตับอักเสบบี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + HBsAg' },
     { id: 'rehab', name: 'ฟื้นฟูสมรรถภาพ', description: 'งานฟื้นฟู / กายภาพ' },
     { id: 'crrt', name: 'ฟอกเลือด (CRRT)', description: 'ผู้ป่วยฟอกเลือด / ไต' },
     { id: 'robot', name: 'ผ่าตัดหุ่นยนต์', description: 'Robotic surgery' },
@@ -579,6 +588,22 @@ export const SettingsPage: React.FC = () => {
                                     type="text"
                                     value={mergedSiteSettings?.hospital_code || ''}
                                     onChange={(e) => setSiteSetting(['hospital_code'], e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>NHSO Region</label>
+                                <input
+                                    type="text"
+                                    value={mergedSiteSettings?.nhso_region || ''}
+                                    onChange={(e) => setSiteSetting(['nhso_region'], e.target.value)}
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label>Province</label>
+                                <input
+                                    type="text"
+                                    value={mergedSiteSettings?.province || ''}
+                                    onChange={(e) => setSiteSetting(['province'], e.target.value)}
                                 />
                             </div>
                             <div className="form-group">

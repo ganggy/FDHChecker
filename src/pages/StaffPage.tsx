@@ -116,15 +116,24 @@ export const StaffPage: React.FC = () => {
 
   // Export CSV
   const handleExportCSV = () => {
-    const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะข้อมูล,ราคา (บาท)';
+    const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,ECLAIM,สถานะ FDH,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะข้อมูล,ราคา (บาท)';
     const rows = filtered.map((item, index) => {
       const logic = evaluateBillingLogic(item);
+      const eclaimCode = String(item.pttype_eclaim_id || '').trim();
+      const eclaimName = String(item.pttype_eclaim_name || '').trim();
+      const eclaimLabel = eclaimCode
+        ? `${eclaimCode}${eclaimName ? `: ${eclaimName}` : ''}`
+        : '-';
+      const fdhLabel = item.fdh_status_label
+        || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
       return [
         index + 1,
         item.vn || '-',
         item.hn,
         item.patientName,
         item.fund || item.hipdata_code,
+        eclaimLabel,
+        fdhLabel,
         item.serviceDate,
         item.serviceType,
         item.pdx || item.main_diag || '-',
@@ -144,12 +153,21 @@ export const StaffPage: React.FC = () => {
   const handleExportExcel = () => {
     const dataForExcel = filtered.map((item, index) => {
       const logic = evaluateBillingLogic(item);
+      const eclaimCode = String(item.pttype_eclaim_id || '').trim();
+      const eclaimName = String(item.pttype_eclaim_name || '').trim();
+      const eclaimLabel = eclaimCode
+        ? `${eclaimCode}${eclaimName ? `: ${eclaimName}` : ''}`
+        : '-';
+      const fdhLabel = item.fdh_status_label
+        || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
       return {
         '#': index + 1,
         'VN': item.vn || '-',
         'HN': item.hn,
         'ชื่อผู้ป่วย': item.patientName,
         'สิทธิ์': item.fund || item.hipdata_code,
+        'ECLAIM': eclaimLabel,
+        'สถานะ FDH': fdhLabel,
         'วันที่รับบริการ': item.serviceDate,
         'ประเภท': item.serviceType,
         'DIAG': item.pdx || item.main_diag || '-',
@@ -166,8 +184,8 @@ export const StaffPage: React.FC = () => {
     // Auto-size columns slightly
     const colWidths = [
       { wch: 5 }, { wch: 15 }, { wch: 12 }, { wch: 30 },
-      { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 10 },
-      { wch: 15 }, { wch: 12 }, { wch: 12 }
+      { wch: 12 }, { wch: 24 }, { wch: 15 }, { wch: 15 },
+      { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 12 }
     ];
     worksheet['!cols'] = colWidths;
 

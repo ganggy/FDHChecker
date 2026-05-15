@@ -65,6 +65,23 @@ const hasDiagCode = (item: any, codes: string[]) => {
         item?.dx5,
     ].some((value) => targets.has(cleanDiag(value)));
 };
+const hasDiagPrefix = (item: any, prefixes: string | string[]) => {
+    const targets = (Array.isArray(prefixes) ? prefixes : [prefixes]).map((prefix) => cleanDiag(prefix));
+    return [
+        item?.pdx,
+        item?.main_diag,
+        item?.diag_code,
+        item?.dx0,
+        item?.dx1,
+        item?.dx2,
+        item?.dx3,
+        item?.dx4,
+        item?.dx5,
+    ].some((value) => {
+        const diag = cleanDiag(value);
+        return targets.some((target) => diag.startsWith(target));
+    });
+};
 const collectDiagValues = (item: any) => {
     const baseValues = [
         item?.pdx,
@@ -93,11 +110,6 @@ const collectDiagValues = (item: any) => {
     return Array.from(new Set(baseValues));
 };
 const hasDiagRegex = (item: any, regex: RegExp) => collectDiagValues(item).some((code) => regex.test(code));
-const hasText = (value: unknown, regex: RegExp) => regex.test(String(value ?? ''));
-const hasDiagPrefix = (item: any, prefix: string) => {
-    const normalizedPrefix = cleanDiag(prefix);
-    return collectDiagValues(item).some((code) => code.startsWith(normalizedPrefix));
-};
 const getAnemiaAgeBandLabel = (item: any) => {
     const band = getAnemiaRuleBand(item);
     if (band) return band.ageLabel;
@@ -222,12 +234,18 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '💊 Clopidogrel', kind: 'matched', group: 'drug' });
         }
 
-        const hasKneeService = toBool(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
-        if (hasKneeService) {
-            if (age >= 40) {
-                fundNotes.push({ label: '🦵 พอกเข่า', kind: 'matched', group: 'other' });
+        const hasKneeDiagM17 = toBool(item?.has_knee_diag_m17) || hasDiagPrefix(item, ['M17']);
+        const hasKneeDiagU5753 = toBool(item?.has_knee_diag_u5753) || hasDiagCode(item, ['U57.53', 'U5753']);
+        const hasKneeDiag = hasKneeDiagM17 && hasKneeDiagU5753;
+        if (age >= 40 && hasKneeDiag) {
+            if (age >= 40 && hasKneeDiag && toBool(item?.has_knee_oper)) {
+                fundNotes.push({ label: '🦵 พอกเข่า (43 แฟ้ม)', kind: 'matched', group: 'other' });
             } else {
-                addWarningFundNote(fundNotes, 'พอกเข่า', [' อายุ 40 ปีขึ้นไป'], 'other');
+                addWarningFundNote(fundNotes, 'พอกเข่า', [
+                    age >= 40 ? '' : ' อายุ 40 ปีขึ้นไป',
+                    hasKneeDiag ? '' : ' Diagnosis ต้องมีทั้ง M17 และ U57.53',
+                    toBool(item?.has_knee_oper) ? '' : ' หัตถการ/กิจกรรม 43 แฟ้มยังไม่ครบ',
+                ].filter(Boolean), 'other');
             }
         }
 
@@ -284,7 +302,7 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasAnemiaDiag, label: ' DX Z130' },
         ], hasAnemiaAge && (hasAnemiaLab || hasAnemiaDiag));
         if (hasAnemiaAge && hasAnemiaAdp && hasAnemiaLab && hasAnemiaDiag) {
-            const anemiaSummaryLabel = `🩸 ${getAnemiaRuleBand(item)?.fullCondition || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก Diagnosis Z130 ADP 13001'}`;
+            const anemiaSummaryLabel = `🩸 ${getAnemiaRuleBand(item)?.fullCondition || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก Diagnosis Z130/Z138 ADP 13001'}`;
             fundNotes.push({
                 label: anemiaSummaryLabel,
                 kind: 'matched',
@@ -309,11 +327,9 @@ export const evaluateBillingLogic = (item: any) => {
             addWarningFundNote(fundNotes, 'เสริมธาตุเหล็ก', ironNearMissing, 'drug');
         }
 
-        const ferrokidAgeYears = Number(item?.age_y ?? item?.age ?? -1);
         const ferrokidAgeMonths = Number(item?.age_month ?? -1);
         const hasFerrokidAge = toBool(item?.ferrokid_age_eligible)
-            || (ferrokidAgeMonths >= 2 && ferrokidAgeMonths <= 144)
-            || (ferrokidAgeYears >= 0 && ferrokidAgeYears <= 12);
+            || (ferrokidAgeMonths >= 6 && ferrokidAgeMonths <= 12);
         const hasFerrokidDiag = toBool(item?.has_ferrokid_diag) || hasDiagCode(item, ['Z130']);
         const hasFerrokidMed = toBool(item?.has_ferrokid_med) || toBool(item?.has_ferrokid);
         const ferrokidNearMissing = [

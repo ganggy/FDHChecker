@@ -45,6 +45,19 @@ export const FDHImportStatusPage: React.FC = () => {
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null);
   const [fdhSettings, setFdhSettings] = useState<FdhApiSettings | null>(null);
 
+  // Date-range import state
+  const today = new Date().toISOString().slice(0, 10);
+  const firstOfMonth = today.slice(0, 8) + '01';
+  const [dateRangeStart, setDateRangeStart] = useState(firstOfMonth);
+  const [dateRangeEnd, setDateRangeEnd] = useState(today);
+  const [dateRangeImporting, setDateRangeImporting] = useState(false);
+  const [dateRangeResult, setDateRangeResult] = useState<{
+    done: boolean;
+    success?: boolean;
+    summary?: { total: number; updated: number; skipped: number; errors: number; errorMessages: string[] };
+    error?: string;
+  }>({ done: false });
+
   const transactionUids = useMemo(
     () => transactionUidText.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
     [transactionUidText]
@@ -177,6 +190,31 @@ export const FDHImportStatusPage: React.FC = () => {
       setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการทดสอบการเชื่อมต่อ');
     } finally {
       setTestingConnection(false);
+    }
+  };
+
+  const handleDateRangeImport = async () => {
+    if (!dateRangeStart || !dateRangeEnd) {
+      setDateRangeResult({ done: true, success: false, error: 'กรุณาระบุช่วงวันที่' });
+      return;
+    }
+    try {
+      setDateRangeImporting(true);
+      setDateRangeResult({ done: false });
+      const res = await fetch('/api/fdh/import-status-by-date', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate: dateRangeStart, endDate: dateRangeEnd }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'เกิดข้อผิดพลาดในการนำเข้าสถานะ');
+      }
+      setDateRangeResult({ done: true, success: true, summary: json.summary });
+    } catch (err) {
+      setDateRangeResult({ done: true, success: false, error: err instanceof Error ? err.message : 'เกิดข้อผิดพลาด' });
+    } finally {
+      setDateRangeImporting(false);
     }
   };
 
@@ -319,7 +357,7 @@ export const FDHImportStatusPage: React.FC = () => {
         <div className="card-body" style={{ padding: 0 }}>
           {results.length > 0 ? (
             <div className="modal-table-wrap">
-              <table className="data-table">
+              <table className="data-table long-id-table long-id-table--fdh-import-result">
                 <thead>
                   <tr>
                     <th>#</th>
@@ -332,15 +370,15 @@ export const FDHImportStatusPage: React.FC = () => {
                 <tbody>
                   {results.map((item, index) => (
                     <tr key={`${item.transaction_uid}-${index}`}>
-                      <td>{index + 1}</td>
-                      <td className="table-cell-nowrap" style={{ fontFamily: 'monospace' }}>{item.transaction_uid}</td>
+                      <td className="table-index-cell">{index + 1}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.transaction_uid}</td>
                       <td>
                         <span className={`badge ${item.response_status === 200 ? 'badge-success' : item.response_status ? 'badge-warning' : 'badge-danger'}`}>
                           {item.response_status || '-'}
                         </span>
                       </td>
-                      <td>{item.response_message || '-'}</td>
-                      <td>{item.response_message_th || '-'}</td>
+                      <td className="long-message-cell">{item.response_message || '-'}</td>
+                      <td className="long-message-cell">{item.response_message_th || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -362,7 +400,7 @@ export const FDHImportStatusPage: React.FC = () => {
         <div className="card-body" style={{ padding: 0 }}>
           {logs.length > 0 ? (
             <div className="modal-table-wrap">
-              <table className="data-table">
+              <table className="data-table long-id-table long-id-table--fdh-import-history">
                 <thead>
                   <tr>
                     <th>#</th>
@@ -377,13 +415,13 @@ export const FDHImportStatusPage: React.FC = () => {
                 <tbody>
                   {logs.map((item, index) => (
                     <tr key={item.id}>
-                      <td>{index + 1}</td>
-                      <td className="table-cell-nowrap" style={{ fontFamily: 'monospace' }}>{item.transaction_uid}</td>
-                      <td className="table-cell-nowrap">{item.hcode}</td>
+                      <td className="table-index-cell">{index + 1}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.transaction_uid}</td>
+                      <td className="table-cell-nowrap workflow-code-cell">{item.hcode}</td>
                       <td><span className="badge badge-primary">{item.environment.toUpperCase()}</span></td>
                       <td><span className={`badge ${item.response_status === 200 ? 'badge-success' : 'badge-warning'}`}>{item.response_status || '-'}</span></td>
-                      <td>{item.response_message_th || item.response_message || '-'}</td>
-                      <td className="table-cell-nowrap">{item.imported_at}</td>
+                      <td className="long-message-cell">{item.response_message_th || item.response_message || '-'}</td>
+                      <td className="table-cell-nowrap workflow-code-cell">{item.imported_at}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -392,6 +430,77 @@ export const FDHImportStatusPage: React.FC = () => {
           ) : (
             <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>
               ยังไม่มีประวัติการนำเข้าสถานะ
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Date-range import section */}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-header">
+          <div className="card-title">🔽 นำเข้าสถานะ FDH ตามช่วงวันที่ (track_trans)</div>
+        </div>
+        <div className="card-body">
+          <div className="alert alert-info" style={{ marginBottom: 16 }}>
+            <span>ℹ️</span>
+            <span>
+              ดึงสถานะการเบิกจาก FDH (<code>track_trans</code>) สำหรับทุก VN ในช่วงวันที่ที่เลือก — ใช้ username/password จากการตั้งค่า FDH API โดยไม่ต้องป้อน token
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 16 }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">วันที่เริ่มต้น</label>
+              <input
+                type="date"
+                className="form-control"
+                value={dateRangeStart}
+                onChange={(e) => setDateRangeStart(e.target.value)}
+                disabled={dateRangeImporting}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">วันที่สิ้นสุด</label>
+              <input
+                type="date"
+                className="form-control"
+                value={dateRangeEnd}
+                onChange={(e) => setDateRangeEnd(e.target.value)}
+                disabled={dateRangeImporting}
+              />
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={handleDateRangeImport}
+              disabled={dateRangeImporting}
+              style={{ minWidth: 160 }}
+            >
+              {dateRangeImporting ? '⟳ กำลังนำเข้า...' : '🔽 นำเข้าสถานะ FDH'}
+            </button>
+          </div>
+
+          {dateRangeImporting && (
+            <div className="alert alert-info">
+              <span>⟳</span>
+              <span>กำลังดึงสถานะ FDH สำหรับช่วง {dateRangeStart} ถึง {dateRangeEnd} — อาจใช้เวลาสักครู่...</span>
+            </div>
+          )}
+
+          {dateRangeResult.done && dateRangeResult.success && dateRangeResult.summary && (
+            <div className="alert alert-success">
+              <span>✅</span>
+              <span>
+                นำเข้าสำเร็จ — ทั้งหมด <strong>{dateRangeResult.summary.total}</strong> รายการ,
+                อัปเดต <strong>{dateRangeResult.summary.updated}</strong>,
+                ข้าม <strong>{dateRangeResult.summary.skipped}</strong>,
+                ผิดพลาด <strong>{dateRangeResult.summary.errors}</strong>
+              </span>
+            </div>
+          )}
+
+          {dateRangeResult.done && !dateRangeResult.success && (
+            <div className="alert alert-danger">
+              <span>⚠️</span>
+              <span>{dateRangeResult.error || 'เกิดข้อผิดพลาด'}</span>
             </div>
           )}
         </div>

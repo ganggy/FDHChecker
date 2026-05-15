@@ -53,6 +53,11 @@ const ANEMIA_HBHCT_REGEX = 'HB/HCT|HBHCT|HB HCT|HB-HCT|HB|HGB|HEMOGLOBIN|HCT|HEM
 const SYPHILIS_SCREENING_REGEX = 'TREPONEMA|TREPONEMAL|PALLIDUM|SYPHILIS|ซิฟิลิส|TPHA|TPPA|VDRL|RPR';
 const HEP_C_SCREENING_REGEX = 'ANTI[- ]?HCV|HCV[ -]?(AB|ANTIBODY)|HEPATITIS C.*(AB|ANTIBODY)|ไวรัสตับอักเสบซี';
 const HEP_B_SCREENING_REGEX = 'HBS[- ]?AG|HBsAg|HEPATITIS B SURFACE ANTIGEN|HEPATITIS B ANTIGEN|ไวรัสตับอักเสบบี';
+const MENTAL_HEALTH_COUNSELLING_REGEX = 'MENTAL|COUNSELL?ING|ST[- ]?5|9Q|สุขภาพจิต|ปรึกษา.*สุขภาพจิต|ความเครียด|ซึมเศร้า';
+const GENDER_AFFIRMING_HORMONE_REGEX = 'GENDER|HORMONE|ESTRADIOL|ESTROGEN|TESTOSTERONE|เพศสภาพ|ฮอร์โมน';
+const LATENT_TB_SCREENING_REGEX = 'IGRA|INTERFERON|QUANTIFERON|T[- ]?SPOT|LATENT TB|วัณโรคระยะแฝง';
+const OSTEOPOROSIS_SCREENING_REGEX = 'FRAX|DXA|DEXA|BMD|BONE DENS|OSTEOPOROSIS|กระดูกพรุน|มวลกระดูก';
+const TDAS_SCREENING_REGEX = 'TDAS|AUTIS|ออทิส|ออทิสติก';
 const TELEMED_ADP_CODE = String((businessRules as any)?.adp_codes?.telmed || 'TELMED').trim().toUpperCase();
 const TELEMED_EXPORT_CODE = String((businessRules as any)?.project_codes?.ovstist_tele || '5').trim();
 
@@ -8257,6 +8262,126 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
             pt.birthday < '1992-01-01'
             OR ${buildDiagnosisMatchSql('o', 'v', ['Z115'])}
             OR ${buildServiceOrLabNameExistsSql('o', labRegex)}
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+    }
+
+    const pp2569Funds: Record<string, {
+      regex: string;
+      diagRegex?: string;
+      ageSql?: string;
+      sexSql?: string;
+      evidenceLabel: string;
+      channelNote: string;
+    }> = {
+      mental_health_counselling: {
+        regex: MENTAL_HEALTH_COUNSELLING_REGEX,
+        ageSql: 'v.age_y >= 12',
+        diagRegex: '^Z13|^Z71|^F',
+        evidenceLabel: 'ST-5/9Q หรือบริการให้คำปรึกษาสุขภาพจิต',
+        channelNote: 'e-Claim',
+      },
+      gender_affirming_hormone: {
+        regex: GENDER_AFFIRMING_HORMONE_REGEX,
+        diagRegex: '^F64|^Z76',
+        evidenceLabel: 'บริการ/แล็บ/ยา hormone ตาม protocol',
+        channelNote: 'KTB/VMI',
+      },
+      latent_tb_screening: {
+        regex: LATENT_TB_SCREENING_REGEX,
+        diagRegex: '^Z111|^Z115|^A15|^A16|^A17|^A18|^A19|^Z205',
+        evidenceLabel: 'IGRA หรือบริการคัดกรองวัณโรคระยะแฝง',
+        channelNote: 'NTIP/TB Data Hub',
+      },
+      osteoporosis_screening: {
+        regex: OSTEOPOROSIS_SCREENING_REGEX,
+        diagRegex: '^M80|^M81|^M82|^Z13',
+        ageSql: 'v.age_y >= 60',
+        sexSql: "COALESCE(v.sex, pt.sex) = '2'",
+        evidenceLabel: 'FRAX/DXA/BMD หรือบริการคัดกรองกระดูกพรุน',
+        channelNote: 'KTB',
+      },
+      autism_tdas_screening: {
+        regex: TDAS_SCREENING_REGEX,
+        diagRegex: '^F84|^R62|^Z13',
+        ageSql: 'TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 12 AND 60',
+        evidenceLabel: 'TDAS หรือบริการคัดกรองออทิสติก',
+        channelNote: 'KTB',
+      },
+    };
+
+    if (pp2569Funds[fundType]) {
+      const rule = pp2569Funds[fundType];
+      const ageSql = rule.ageSql || '1=1';
+      const sexSql = rule.sexSql || '1=1';
+      const diagCondition = rule.diagRegex
+        ? `EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '${rule.diagRegex}')`
+        : '0';
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          v.age_y as age_y,
+          TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) as age_month,
+          DATE_FORMAT(pt.birthday, '%Y-%m-%d') as birthday,
+          v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
+          CASE WHEN ${ageSql} THEN 'Y' ELSE 'N' END as age_eligible,
+          CASE WHEN ${sexSql} THEN 'Y' ELSE 'N' END as sex_eligible,
+          CASE WHEN ${diagCondition} THEN 'Y' ELSE 'N' END as has_specific_diag,
+          (
+            SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.icd10 SEPARATOR ', ')
+            FROM ovstdiag dx
+            WHERE dx.vn = o.vn
+              AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '${rule.diagRegex || '^$'}'
+          ) as specific_diags,
+          CASE WHEN ${buildServiceOrLabNameExistsSql('o', rule.regex)} THEN 'Y' ELSE 'N' END as has_specific_evidence,
+          (
+            SELECT GROUP_CONCAT(DISTINCT li.lab_items_name ORDER BY li.lab_items_name SEPARATOR ', ')
+            FROM lab_head h
+            JOIN lab_order lo ON h.lab_order_number = lo.lab_order_number
+            JOIN lab_items li ON lo.lab_items_code = li.lab_items_code
+            WHERE h.vn = o.vn
+              AND lo.lab_order_result IS NOT NULL
+              AND lo.lab_order_result <> ''
+              AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${rule.regex}'
+          ) as specific_lab_names,
+          (
+            SELECT GROUP_CONCAT(DISTINCT CONCAT(li.lab_items_name, ': ', lo.lab_order_result) ORDER BY li.lab_items_name SEPARATOR ', ')
+            FROM lab_head h
+            JOIN lab_order lo ON h.lab_order_number = lo.lab_order_number
+            JOIN lab_items li ON lo.lab_items_code = li.lab_items_code
+            WHERE h.vn = o.vn
+              AND lo.lab_order_result IS NOT NULL
+              AND lo.lab_order_result <> ''
+              AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${rule.regex}'
+          ) as specific_results,
+          (
+            SELECT GROUP_CONCAT(DISTINCT COALESCE(ndi.name, sd.name, oo.icode) ORDER BY COALESCE(ndi.name, sd.name, oo.icode) SEPARATOR ', ')
+            FROM opitemrece oo
+            LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+            LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+            WHERE oo.vn = o.vn
+              AND UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP '${rule.regex}'
+          ) as specific_service_names,
+          '${rule.evidenceLabel}' as specific_evidence_label,
+          '${rule.channelNote}' as specific_channel_note,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (
+            (${ageSql} AND ${sexSql} AND ${buildServiceOrLabNameExistsSql('o', rule.regex)})
+            OR ${diagCondition}
           )
         GROUP BY o.vn
         ORDER BY o.vstdate DESC

@@ -248,6 +248,49 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         conditions: ['อายุ 6-12 เดือน', 'Diagnosis Z130', 'มียา Ferrokid']
     },
     {
+        id: 'mental_health_counselling',
+        name: 'ปรึกษาสุขภาพจิต',
+        description: 'Mental Health Counselling รายบุคคล',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'e-Claim ตามประกาศ PPFS 2569',
+        conditions: ['อายุ 12 ปีขึ้นไป', 'มีการประเมิน ST-5/9Q', 'ให้คำปรึกษารายบุคคลไม่เกิน 3 ครั้งใน 14 วัน และไม่เกิน 6 ครั้ง/ปีงบประมาณ'],
+        caution: 'ไม่ควรรวมกับผู้ที่มี diagnosis จิตเวชเป็นบริการรักษา ให้ใช้เป็นบริการคัดกรอง/ให้คำปรึกษาตามเกณฑ์'
+    },
+    {
+        id: 'gender_affirming_hormone',
+        name: 'ฮอร์โมนยืนยันเพศสภาพ',
+        description: 'บริการฮอร์โมนเพื่อการยืนยันเพศสภาพ',
+        claimChannel: 'KTB/VMI',
+        recordingSystem: 'บันทึก KTB; รายการยา/ฮอร์โมนผ่าน VMI',
+        conditions: ['ผู้รับบริการตาม protocol 1-4', 'มี lab/บริการ/ยา hormone ตามความถี่ของ protocol', 'แยกบันทึกบริการกับการจ่ายยาให้ชัดเจน'],
+        caution: 'รายการยา/ฮอร์โมนไม่ใช่ FDH ปกติ ต้องตรวจช่องทาง VMI ประกอบ'
+    },
+    {
+        id: 'latent_tb_screening',
+        name: 'คัดกรอง Latent TB',
+        description: 'คัดกรองวัณโรคระยะแฝงด้วย IGRA',
+        claimChannel: 'NTIP/TB Data Hub',
+        recordingSystem: 'NTIP หรือ TB Data Hub ตามประกาศ',
+        conditions: ['มีบริการเจาะเลือด/ส่ง specimen/ตรวจ IGRA', 'กลุ่มเสี่ยงตามแนวทางวัณโรคระยะแฝง', 'แยกค่าบริการเก็บตัวอย่าง ส่งตรวจ และค่า lab IGRA'],
+        caution: 'ไม่ใช่ FDH/e-Claim ปกติ ต้องบันทึกระบบวัณโรคที่กำหนด'
+    },
+    {
+        id: 'osteoporosis_screening',
+        name: 'คัดกรองกระดูกพรุน',
+        description: 'คัดกรอง osteoporosis ด้วย FRAX/DXA/BMD',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตามประกาศ PPFS 2569',
+        conditions: ['หญิงหลังหมดประจำเดือน', 'อายุ 60 ปีขึ้นไป', 'ตรวจได้ทุก 5 ปี', 'มี FRAX/DXA/BMD หรือบริการคัดกรองกระดูกพรุน']
+    },
+    {
+        id: 'autism_tdas_screening',
+        name: 'คัดกรอง TDAS',
+        description: 'คัดกรอง Autistic disorder ด้วยเครื่องมือ TDAS',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตามประกาศ PPFS 2569',
+        conditions: ['เด็กไทยอายุ 12-60 เดือน', 'DSPM ล่าช้าหรือผิดปกติชัดเจน', 'ผู้ให้บริการผ่านอบรม TDAS']
+    },
+    {
         id: 'chemo',
         name: 'เคมีบำบัด',
         description: 'ผู้ป่วยเคมีบำบัด',

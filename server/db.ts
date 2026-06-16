@@ -7346,7 +7346,6 @@ export const getExportData = async (vns: string[]) => {
         o.hn AS HN,
         COALESCE(o.an, '') AS AN,
         DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
-        '' AS BILLMAUD,
         COALESCE(n.nhso_adp_type_id, '4') AS TYPE,
         COALESCE(n.nhso_adp_code, sd.nhso_adp_code, o.icode) AS CODE,
         o.qty AS QTY,
@@ -7363,11 +7362,9 @@ export const getExportData = async (vns: string[]) => {
         COALESCE(sd.tmlt_code, '') AS TMLTCODE,
         '' AS STATUS1,
         '' AS BI,
-        '' AS GRAVIDA,
-        '' AS GA_WEEK,
-        '' AS DCIP,
-        '' AS LMP,
-        '' AS SP_ITEM
+        COALESCE(o.main_dep, '') AS CLINIC,
+        '2' AS ITEMSRC,
+        '' AS PROVIDER
       FROM opitemrece o
       LEFT JOIN nondrugitems n ON o.icode = n.icode
       LEFT JOIN s_drugitems sd ON o.icode = sd.icode

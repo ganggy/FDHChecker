@@ -7372,6 +7372,8 @@ export const getExportData = async (vns: string[]) => {
         AND (
           (n.nhso_adp_code IS NOT NULL AND n.nhso_adp_code != '')
           OR
+          (n.nhso_adp_type_id IS NOT NULL AND n.nhso_adp_type_id != '')
+          OR
           (sd.nhso_adp_code IS NOT NULL AND sd.nhso_adp_code != '')
         )
     `, [vns]);

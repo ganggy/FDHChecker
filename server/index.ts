@@ -1317,10 +1317,18 @@ app.post('/api/fdh/export-zip', async (req, res) => {
       return includeHeader ? `${header}\r\n${body}` : body;
     };
 
+    const encodeExportText = (content: string) => {
+      const encoding = String(process.env.FDH_EXPORT_ENCODING || 'utf8').trim().toLowerCase();
+      if (encoding === 'cp874' || encoding === 'tis620') {
+        return iconv.encode(content, 'cp874');
+      }
+      return Buffer.from(content, 'utf8');
+    };
+
     // ใส่ข้อมูลลงในแต่ละไฟล์
     folderNames.forEach(folder => {
       const content = formatToPipe(data, folder);
-      zip.addFile(`${folder}.TXT`, iconv.encode(content, 'cp874'));
+      zip.addFile(`${folder}.TXT`, encodeExportText(content));
     });
 
     // 3. ส่งไฟล์ ZIP กลับไปยัง Client

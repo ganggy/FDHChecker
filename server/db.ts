@@ -7340,42 +7340,94 @@ export const getExportData = async (vns: string[]) => {
     `, [vns]);
 
     // 14. ADP (Additionals)
-    // รองรับทั้ง ADP จาก nondrugitems และ s_drugitems เพราะกองทุนพิเศษจำนวนมาก map ไว้ใน s_drugitems
+    // อิงแนว export เดิมของ HOSxP: ดึงรายการจาก opitemrece + s_drugitems
+    // แล้ว fallback TYPE/CODE ตามหมวด drg_chrgitem เพื่อไม่ให้ ADP ว่างเมื่อไม่ได้ map code ครบ
     const adp = await runQuery('ADP', `
       SELECT 
-        o.hn AS HN,
-        COALESCE(o.an, '') AS AN,
-        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
-        COALESCE(n.nhso_adp_type_id, '4') AS TYPE,
-        COALESCE(n.nhso_adp_code, sd.nhso_adp_code, o.icode) AS CODE,
-        o.qty AS QTY,
-        o.unitprice AS RATE,
-        o.vn AS SEQ,
+        base.HN,
+        base.AN,
+        base.DATEOPD,
+        base.TYPE,
+        base.CODE,
+        SUM(base.QTY) AS QTY,
+        base.RATE,
+        base.SEQ,
         '' AS CAGCODE,
         '' AS DOSE,
         '' AS CA_TYPE,
         '' AS SERIALNO,
-        '0.00' AS TOTCOPAY,
-        '' AS USE_STATUS,
-        o.sum_price AS TOTAL,
-        COALESCE(o.qty, 0) AS QTYDAY,
-        COALESCE(sd.tmlt_code, '') AS TMLTCODE,
+        SUM(base.TOTCOPAY) AS TOTCOPAY,
+        MAX(base.USE_STATUS) AS USE_STATUS,
+        SUM(base.TOTAL) AS TOTAL,
+        0 AS QTYDAY,
+        MAX(base.TMLTCODE) AS TMLTCODE,
         '' AS STATUS1,
-        '' AS BI,
-        COALESCE(o.main_dep, '') AS CLINIC,
+        MAX(base.BI) AS BI,
+        base.CLINIC,
         '2' AS ITEMSRC,
         '' AS PROVIDER
-      FROM opitemrece o
-      LEFT JOIN nondrugitems n ON o.icode = n.icode
-      LEFT JOIN s_drugitems sd ON o.icode = sd.icode
-      WHERE o.vn IN (?) 
-        AND (
-          (n.nhso_adp_code IS NOT NULL AND n.nhso_adp_code != '')
-          OR
-          (n.nhso_adp_type_id IS NOT NULL AND n.nhso_adp_type_id != '')
-          OR
-          (sd.nhso_adp_code IS NOT NULL AND sd.nhso_adp_code != '')
-        )
+      FROM (
+        SELECT
+          o.hn AS HN,
+          COALESCE(o.an, '') AS AN,
+          DATE_FORMAT(DATE_ADD(COALESCE(o.rxdate, ov.vstdate), INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
+          CASE
+            WHEN inc.drg_chrgitem_id = 1 THEN '10'
+            WHEN inc.drg_chrgitem_id = 5 THEN '11'
+            WHEN inc.drg_chrgitem_id = 13 THEN '12'
+            WHEN inc.drg_chrgitem_id = 6 THEN '14'
+            WHEN inc.drg_chrgitem_id = 7 THEN '15'
+            WHEN inc.drg_chrgitem_id = 8 THEN '16'
+            WHEN inc.drg_chrgitem_id = 12 THEN '17'
+            WHEN inc.drg_chrgitem_id = 10 THEN '18'
+            WHEN inc.drg_chrgitem_id = 11 THEN '19'
+            WHEN inc.drg_chrgitem_id = 14 THEN '20'
+            ELSE COALESCE(NULLIF(sd.nhso_adp_type_id, ''), NULLIF(n.nhso_adp_type_id, ''), '4')
+          END AS TYPE,
+          CASE
+            WHEN COALESCE(sd.nhso_adp_code, '') <> '' THEN sd.nhso_adp_code
+            WHEN COALESCE(n.nhso_adp_code, '') <> '' THEN n.nhso_adp_code
+            WHEN inc.drg_chrgitem_id = 9 THEN '51999'
+            WHEN inc.drg_chrgitem_id = 10 THEN '52999'
+            WHEN inc.drg_chrgitem_id = 11 THEN '72999'
+            WHEN inc.drg_chrgitem_id = 12 THEN '55999'
+            WHEN inc.drg_chrgitem_id = 14 THEN 'XXX14'
+            WHEN inc.drg_chrgitem_id = 19 THEN 'XXX19'
+            ELSE o.icode
+          END AS CODE,
+          CASE WHEN o.paidst IN ('03') THEN 0 ELSE COALESCE(o.qty, 0) END AS QTY,
+          COALESCE(o.unitprice, 0) AS RATE,
+          o.vn AS SEQ,
+          CASE WHEN o.paidst IN ('03') THEN COALESCE(o.sum_price, 0) ELSE 0 END AS TOTCOPAY,
+          COALESCE(o.sum_price, 0) AS TOTAL,
+          COALESCE(sd.tmlt_code, '') AS TMLTCODE,
+          CASE WHEN COALESCE(sd.nhso_adp_type_id, n.nhso_adp_type_id, '') = '11' THEN '2' ELSE '' END AS USE_STATUS,
+          '' AS BI,
+          COALESCE(ov.main_dep, '') AS CLINIC
+        FROM opitemrece o
+        JOIN ovst ov ON ov.vn = o.vn
+        LEFT JOIN income inc ON inc.income = o.income
+        LEFT JOIN s_drugitems sd ON o.icode = sd.icode
+        LEFT JOIN nondrugitems n ON o.icode = n.icode
+        WHERE o.vn IN (?)
+          AND (
+            COALESCE(o.sum_price, 0) <> 0
+            OR COALESCE(sd.nhso_adp_code, '') <> ''
+            OR COALESCE(n.nhso_adp_code, '') <> ''
+            OR COALESCE(sd.nhso_adp_type_id, '') <> ''
+            OR COALESCE(n.nhso_adp_type_id, '') <> ''
+          )
+      ) base
+      WHERE COALESCE(base.CODE, '') <> ''
+      GROUP BY
+        base.HN,
+        base.AN,
+        base.DATEOPD,
+        base.TYPE,
+        base.CODE,
+        base.RATE,
+        base.SEQ,
+        base.CLINIC
     `, [vns]);
 
     // 15. LVD (Leave Day)

@@ -1289,30 +1289,28 @@ app.post('/api/fdh/export-zip', async (req, res) => {
       DRU: ['HCODE', 'HN', 'AN', 'CLINIC', 'PERSON_ID', 'DATE_SERV', 'DID', 'DIDNAME', 'AMOUNT', 'DRUGPRIC', 'DRUGCOST', 'DIDSTD', 'UNIT', 'UNIT_PACK', 'SEQ', 'DRUGTYPE', 'DRUGREMARK', 'PA_NO', 'TOTCOPAY', 'USE_STATUS', 'TOTAL']
     };
 
-    // ฟังก์ชันสำหรับแปลงข้อมูลเป็นรูปแบบ Pipe Delimited (.txt)
-    // ใช้ header และลำดับคอลัมน์ตายตัวตามตัวอย่างไฟล์ที่นำเข้าได้
+    // FDH/eClaim 16 แฟ้มใช้ pipe-delimited data rows เท่านั้น
+    // ห้ามใส่ header row เพราะหน้าเว็บ FDH จะอ่านบรรทัดแรกเป็นข้อมูลจริง
     const normalizePipeValue = (value: unknown) => {
       if (value === null || value === undefined) return '';
       return String(value)
         .replace(/\r\n/g, ' ')
         .replace(/[\r\n]/g, ' ')
         .replace(/\|/g, ' ')
+        .replace(/"/g, '')
         .trim();
     };
 
     const formatToPipe = (data: any, folder: string) => {
       const columns = fileLayouts[folder] || [];
       const rows = (data as any)[folder] || [];
-      const header = columns.join('|');
       if (!rows || rows.length === 0) {
-        return header;
+        return '';
       }
 
-      const body = rows
+      return rows
         .map((row: any) => columns.map((column) => normalizePipeValue(row?.[column])).join('|'))
         .join('\r\n');
-
-      return `${header}\r\n${body}`;
     };
 
     // ใส่ข้อมูลลงในแต่ละไฟล์

@@ -7102,7 +7102,7 @@ export const getExportData = async (vns: string[]) => {
         COALESCE(pttype.pttype, '') AS SUBTYPE,
         COALESCE(pt.cid, '') AS CID,
         ? AS HCODE,
-        DATE_FORMAT(COALESCE(vp.expire_date, ovst.vstdate), '%Y%m%d') AS DATEEXP,
+        DATE_FORMAT(DATE_ADD(COALESCE(vp.expire_date, ovst.vstdate), INTERVAL 543 YEAR), '%Y%m%d') AS DATEEXP,
         COALESCE(NULLIF(ovst.hospmain, ''), ?) AS HOSPMAIN,
         COALESCE(NULLIF(ovst.hospsub, ''), COALESCE(NULLIF(ovst.hospmain, ''), ?)) AS HOSPSUB,
         '' AS GOVCODE,
@@ -7133,13 +7133,13 @@ export const getExportData = async (vns: string[]) => {
         pt.hn as HN,
         pt.chwpart as CHANGWAT,
         pt.amppart as AMPHUR,
-        DATE_FORMAT(pt.birthday, '%Y%m%d') as DOB,
+        DATE_FORMAT(DATE_ADD(pt.birthday, INTERVAL 543 YEAR), '%Y%m%d') as DOB,
         pt.sex as SEX,
         pt.marrystatus as MARRIAGE,
         pt.occupation as OCCUPA,
         pt.nationality as NATION,
         pt.cid as PERSON_ID,
-        CONCAT('"', CONCAT(COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, ''), ',', COALESCE(pt.pname, '')), '"') as NAMEPAT,
+        CONCAT(COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, ''), ',', COALESCE(pt.pname, '')) as NAMEPAT,
         pt.pname as TITLE,
         pt.fname as FNAME,
         pt.lname as LNAME,
@@ -7153,7 +7153,7 @@ export const getExportData = async (vns: string[]) => {
       SELECT 
         o.hn AS HN,
         o.main_dep AS CLINIC,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEOPD,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
         DATE_FORMAT(o.vsttime, '%H%i') AS TIMEOPD,
         o.vn AS SEQ,
         '1' AS UUC,
@@ -7175,12 +7175,12 @@ export const getExportData = async (vns: string[]) => {
     const orf = await runQuery('ORF', `
       SELECT 
         r.hn as HN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') as DATEOPD,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') as DATEOPD,
         o.main_dep as CLINIC,
         r.hospcode as REFER,
         COALESCE(r.refer_type, '1') as REFERTYPE,
         r.vn as SEQ,
-        DATE_FORMAT(r.refer_date, '%Y%m%d') as REFERDATE
+        DATE_FORMAT(DATE_ADD(r.refer_date, INTERVAL 543 YEAR), '%Y%m%d') as REFERDATE
       FROM referout r
       LEFT JOIN ovst o ON r.vn = o.vn
       WHERE r.vn IN (?)
@@ -7190,7 +7190,7 @@ export const getExportData = async (vns: string[]) => {
     const odx = await runQuery('ODX', `
       SELECT 
         o.hn AS HN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEDX,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEDX,
         COALESCE(o.main_dep, '') AS CLINIC,
         dx.icd10 AS DIAG,
         dx.diagtype AS DXTYPE,
@@ -7207,7 +7207,7 @@ export const getExportData = async (vns: string[]) => {
     const oop = await runQuery('OOP', `
       SELECT 
         ovst.hn AS HN,
-        DATE_FORMAT(ovst.vstdate, '%Y%m%d') AS DATEOPD,
+        DATE_FORMAT(DATE_ADD(ovst.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
         ovst.main_dep AS CLINIC,
         d.icd9 AS OPER,
         d.doctor AS DROPID,
@@ -7225,9 +7225,9 @@ export const getExportData = async (vns: string[]) => {
       SELECT 
         hn AS HN,
         an AS AN,
-        DATE_FORMAT(regdate, '%Y%m%d') AS DATEADM,
+        DATE_FORMAT(DATE_ADD(regdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEADM,
         DATE_FORMAT(regtime, '%H%i') AS TIMEADM,
-        DATE_FORMAT(dchdate, '%Y%m%d') AS DATEDSC,
+        DATE_FORMAT(DATE_ADD(dchdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEDSC,
         DATE_FORMAT(dchtime, '%H%i') AS TIMEDSC,
         dchstts AS DISCHS,
         dchtype AS DISCHT,
@@ -7282,7 +7282,7 @@ export const getExportData = async (vns: string[]) => {
       SELECT 
         o.hn AS HN,
         COALESCE(o.an, '') AS AN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATE,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATE,
         IFNULL(v.income, 0) AS TOTAL,
         IFNULL(v.rcpt_money, 0) AS PAID,
         o.pttype AS PTTYPE,
@@ -7301,15 +7301,17 @@ export const getExportData = async (vns: string[]) => {
     const cha = await runQuery('CHA', `
       SELECT 
         o.hn as HN,
-        o.an as AN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') as DATE,
-        o.income as CHRGITEM,
-        o.sum_price as AMOUNT,
+        COALESCE(o.an, '') as AN,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') as DATE,
+        LPAD(COALESCE(inc.drg_chrgitem_id, 18), 2, '0') as CHRGITEM,
+        SUM(o.sum_price) as AMOUNT,
         pt.cid as PERSON_ID,
         o.vn as SEQ
       FROM opitemrece o
       JOIN patient pt ON o.hn = pt.hn
+      LEFT JOIN income inc ON inc.income = o.income
       WHERE o.vn IN (?)
+      GROUP BY o.vn, o.hn, o.an, o.vstdate, pt.cid, CHRGITEM
     `, [vns]);
 
     // 13. AER (Accident/Emergency)
@@ -7317,9 +7319,9 @@ export const getExportData = async (vns: string[]) => {
       SELECT 
         hn AS HN,
         COALESCE(an, '') AS AN,
-        DATE_FORMAT(vstdate, '%Y%m%d') AS DATEOPD,
+        DATE_FORMAT(DATE_ADD(vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
         '' AS AUTHAE,
-        DATE_FORMAT(vstdate, '%Y%m%d') AS AEDATE,
+        DATE_FORMAT(DATE_ADD(vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS AEDATE,
         DATE_FORMAT(vsttime, '%H%i') AS AETIME,
         '1' AS AETYPE,
         '' AS REFER_NO,
@@ -7343,7 +7345,7 @@ export const getExportData = async (vns: string[]) => {
       SELECT 
         o.hn AS HN,
         COALESCE(o.an, '') AS AN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEOPD,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
         '' AS BILLMAUD,
         COALESCE(n.nhso_adp_type_id, '4') AS TYPE,
         COALESCE(n.nhso_adp_code, sd.nhso_adp_code, o.icode) AS CODE,
@@ -7382,9 +7384,9 @@ export const getExportData = async (vns: string[]) => {
       SELECT 
         '' AS SEQLVD,
         an AS AN,
-        DATE_FORMAT(out_datetime, '%Y%m%d') AS DATEOUT,
+        DATE_FORMAT(DATE_ADD(out_datetime, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOUT,
         DATE_FORMAT(out_datetime, '%H%i') AS TIMEOUT,
-        DATE_FORMAT(in_datetime, '%Y%m%d') AS DATEIN,
+        DATE_FORMAT(DATE_ADD(in_datetime, INTERVAL 543 YEAR), '%Y%m%d') AS DATEIN,
         DATE_FORMAT(in_datetime, '%H%i') AS TIMEIN,
         qty_day AS QTYDAY
       FROM ipt_leave
@@ -7399,7 +7401,7 @@ export const getExportData = async (vns: string[]) => {
         COALESCE(o.an, '') AS AN,
         o.main_dep AS CLINIC,
         COALESCE(pt.cid, '') AS PERSON_ID,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATE_SERV,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATE_SERV,
         o.icode AS DID,
         d.name AS DIDNAME,
         o.qty AS AMOUNT,

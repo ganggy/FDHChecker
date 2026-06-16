@@ -58,6 +58,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [previewData, setPreviewData] = useState<any>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+    const [exportWithHeader, setExportWithHeader] = useState(true);
 
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
@@ -229,7 +230,7 @@ export const FDHCheckerPage: React.FC = () => {
             const response = await fetch('/api/fdh/export-zip', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vns: vnsToExport })
+                body: JSON.stringify({ vns: vnsToExport, includeHeader: exportWithHeader })
             });
 
             if (response.ok) {
@@ -268,6 +269,24 @@ export const FDHCheckerPage: React.FC = () => {
                     <div style={{ display: 'flex', gap: 8 }}>
                         <button className="btn btn-success" onClick={handleExportCSV}>📥 CSV</button>
                         <button className="btn btn-warning" onClick={handleExportExcel}>📊 Excel</button>
+                        <label
+                            className="btn btn-secondary"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                cursor: 'pointer',
+                                userSelect: 'none'
+                            }}
+                            title="ให้ตรงกับตัวเลือก TXT มีหัวคอลัมน์ บนหน้า FDH"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={exportWithHeader}
+                                onChange={(e) => setExportWithHeader(e.target.checked)}
+                            />
+                            TXT มีหัวคอลัมน์
+                        </label>
                         <button
                             className="btn btn-info"
                             onClick={handlePreviewData}
@@ -391,7 +410,8 @@ export const FDHCheckerPage: React.FC = () => {
             {!loading && !error && (
                 <div className="card overflow-hidden">
                     <div style={{ overflowX: 'auto' }}>
-                        <table className="table">                            <thead>
+                        <table className="table">
+                            <thead>
                             <tr>
                                 <th style={{ width: 40, textAlign: 'center' }}>
                                     <input

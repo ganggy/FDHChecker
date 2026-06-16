@@ -1249,12 +1249,13 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
 app.post('/api/fdh/export-zip', async (req, res) => {
   try {
     const { vns } = req.body;
+    const includeHeader = req.body?.includeHeader !== false;
 
     if (!vns || !Array.isArray(vns) || vns.length === 0) {
       return res.status(400).json({ success: false, error: 'กรุณาระบุรายการที่ต้องการส่งออก' });
     }
 
-    console.log(`📦 Exporting ${vns.length} visits to FDH ZIP format...`);
+    console.log(`📦 Exporting ${vns.length} visits to FDH ZIP format (${includeHeader ? 'with header' : 'without header'})...`);
 
     // 1. ดึงข้อมูลจากฐานข้อมูล
     const data = await getExportData(vns);
@@ -1289,8 +1290,8 @@ app.post('/api/fdh/export-zip', async (req, res) => {
       DRU: ['HCODE', 'HN', 'AN', 'CLINIC', 'PERSON_ID', 'DATE_SERV', 'DID', 'DIDNAME', 'AMOUNT', 'DRUGPRIC', 'DRUGCOST', 'DIDSTD', 'UNIT', 'UNIT_PACK', 'SEQ', 'DRUGTYPE', 'DRUGREMARK', 'PA_NO', 'TOTCOPAY', 'USE_STATUS', 'TOTAL']
     };
 
-    // FDH/eClaim 16 แฟ้มใช้ pipe-delimited data rows เท่านั้น
-    // ห้ามใส่ header row เพราะหน้าเว็บ FDH จะอ่านบรรทัดแรกเป็นข้อมูลจริง
+    // FDH import page has two TXT modes. Default to "TXT มีหัวคอลัมน์" because
+    // it is the visible/default workflow used by the hospital import screen.
     const normalizePipeValue = (value: unknown) => {
       if (value === null || value === undefined) return '';
       return String(value)
@@ -1304,13 +1305,16 @@ app.post('/api/fdh/export-zip', async (req, res) => {
     const formatToPipe = (data: any, folder: string) => {
       const columns = fileLayouts[folder] || [];
       const rows = (data as any)[folder] || [];
+      const header = includeHeader ? columns.join('|') : '';
       if (!rows || rows.length === 0) {
-        return '';
+        return header;
       }
 
-      return rows
+      const body = rows
         .map((row: any) => columns.map((column) => normalizePipeValue(row?.[column])).join('|'))
         .join('\r\n');
+
+      return includeHeader ? `${header}\r\n${body}` : body;
     };
 
     // ใส่ข้อมูลลงในแต่ละไฟล์

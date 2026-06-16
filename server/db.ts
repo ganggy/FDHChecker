@@ -7152,46 +7152,76 @@ export const getExportData = async (vns: string[]) => {
     const opd = await runQuery('OPD', `
       SELECT 
         o.hn AS HN,
-        o.main_dep AS CLINIC,
+        COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
         DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
         DATE_FORMAT(o.vsttime, '%H%i') AS TIMEOPD,
         o.vn AS SEQ,
         '1' AS UUC,
         COALESCE(s.cc, '') AS DETAIL,
-        '' AS BTEMP,
-        '' AS SBP,
-        '' AS DBP,
-        '' AS PR,
-        '' AS RR,
+        NULLIF(s.temperature, 0) AS BTEMP,
+        NULLIF(s.bps, 0) AS SBP,
+        NULLIF(s.bpd, 0) AS DBP,
+        NULLIF(s.pulse, 0) AS PR,
+        NULLIF(s.rr, 0) AS RR,
         '' AS OPTYPE,
-        '1' AS TYPEIN,
-        '' AS TYPEOUT
+        COALESCE(oi.export_code, '1') AS TYPEIN,
+        COALESCE(oo.export_code, '') AS TYPEOUT
       FROM ovst o
       LEFT JOIN opdscreen s ON o.vn = s.vn
+      LEFT JOIN spclty sp ON sp.spclty = o.spclty
+      LEFT JOIN ovstist oi ON oi.ovstist = o.ovstist
+      LEFT JOIN ovstost oo ON oo.ovstost = o.ovstost
       WHERE o.vn IN (?)
     `, [vns]);
 
     // 4. ORF (Refer Out)
     const orf = await runQuery('ORF', `
       SELECT 
-        r.hn as HN,
-        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') as DATEOPD,
-        o.main_dep as CLINIC,
-        r.hospcode as REFER,
-        COALESCE(r.refer_type, '1') as REFERTYPE,
-        r.vn as SEQ,
-        DATE_FORMAT(DATE_ADD(r.refer_date, INTERVAL 543 YEAR), '%Y%m%d') as REFERDATE
-      FROM referout r
-      LEFT JOIN ovst o ON r.vn = o.vn
-      WHERE r.vn IN (?)
-    `, [vns]);
+        base.HN,
+        DATE_FORMAT(DATE_ADD(base.DATEOPD, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
+        base.CLINIC,
+        base.REFER,
+        base.REFERTYPE,
+        base.SEQ,
+        DATE_FORMAT(DATE_ADD(base.REFERDATE, INTERVAL 543 YEAR), '%Y%m%d') AS REFERDATE
+      FROM (
+        SELECT
+          o.hn AS HN,
+          COALESCE(ri.refer_date, o.vstdate) AS DATEOPD,
+          COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
+          COALESCE(ri.refer_hospcode, o.rfrilct, '') AS REFER,
+          '1' AS REFERTYPE,
+          o.vn AS SEQ,
+          COALESCE(ri.refer_date, o.vstdate) AS REFERDATE
+        FROM ovst o
+        LEFT JOIN ovstist ist ON ist.ovstist = o.ovstist
+        LEFT JOIN spclty sp ON sp.spclty = o.spclty
+        LEFT JOIN referin ri ON ri.vn = o.vn
+        WHERE o.vn IN (?) AND (ist.export_code = 3 OR ri.vn IS NOT NULL)
+        UNION ALL
+        SELECT
+          o.hn AS HN,
+          COALESCE(ro.refer_date, o.vstdate) AS DATEOPD,
+          COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
+          COALESCE(ro.refer_hospcode, o.rfrolct, '') AS REFER,
+          '2' AS REFERTYPE,
+          o.vn AS SEQ,
+          COALESCE(ro.refer_date, o.vstdate) AS REFERDATE
+        FROM ovst o
+        LEFT JOIN ovstost ost ON ost.ovstost = o.ovstost
+        LEFT JOIN spclty sp ON sp.spclty = o.spclty
+        LEFT JOIN referout ro ON ro.vn = o.vn
+        WHERE o.vn IN (?) AND (ost.export_code = 3 OR ro.vn IS NOT NULL)
+      ) base
+      WHERE COALESCE(base.REFER, '') <> ''
+    `, [vns, vns]);
 
     // 5. ODX (Diagnosis)
     const odx = await runQuery('ODX', `
       SELECT 
         o.hn AS HN,
         DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEDX,
-        COALESCE(o.main_dep, '') AS CLINIC,
+        COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
         dx.icd10 AS DIAG,
         dx.diagtype AS DXTYPE,
         dx.doctor AS DRDX,
@@ -7199,56 +7229,95 @@ export const getExportData = async (vns: string[]) => {
         dx.vn AS SEQ
       FROM ovstdiag dx
       JOIN ovst o ON dx.vn = o.vn
+      LEFT JOIN spclty sp ON sp.spclty = o.spclty
       LEFT JOIN patient pt ON o.hn = pt.hn
-      WHERE dx.vn IN (?)
+      WHERE dx.vn IN (?) AND dx.icd10 NOT REGEXP '^[0-9]'
     `, [vns]);
 
     // 6. OOP (Procedures)
     const oop = await runQuery('OOP', `
-      SELECT 
-        ovst.hn AS HN,
-        DATE_FORMAT(DATE_ADD(ovst.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
-        ovst.main_dep AS CLINIC,
-        d.icd9 AS OPER,
-        d.doctor AS DROPID,
-        COALESCE(pt.cid, '') AS PERSON_ID,
-        ovst.vn AS SEQ,
-        '' AS SERVPRICE
-      FROM doctor_operation d
-      JOIN ovst ON d.vn = ovst.vn
-      LEFT JOIN patient pt ON ovst.hn = pt.hn
-      WHERE d.vn IN (?)
-    `, [vns]);
+      SELECT * FROM (
+        SELECT 
+          o.hn AS HN,
+          DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
+          COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
+          dx.icd10 AS OPER,
+          dx.doctor AS DROPID,
+          COALESCE(pt.cid, '') AS PERSON_ID,
+          o.vn AS SEQ,
+          '' AS SERVPRICE
+        FROM ovstdiag dx
+        JOIN ovst o ON dx.vn = o.vn
+        LEFT JOIN spclty sp ON sp.spclty = o.spclty
+        LEFT JOIN patient pt ON o.hn = pt.hn
+        WHERE dx.vn IN (?) AND dx.icd10 REGEXP '^[0-9]'
+        UNION ALL
+        SELECT 
+          o.hn AS HN,
+          DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
+          COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
+          COALESCE(eoc.icd9cm, eoc.icd10tm, '') AS OPER,
+          dro.doctor AS DROPID,
+          COALESCE(pt.cid, '') AS PERSON_ID,
+          o.vn AS SEQ,
+          '' AS SERVPRICE
+        FROM doctor_operation dro
+        JOIN ovst o ON dro.vn = o.vn
+        LEFT JOIN er_oper_code eoc ON eoc.er_oper_code = dro.er_oper_code
+        LEFT JOIN spclty sp ON sp.spclty = o.spclty
+        LEFT JOIN patient pt ON o.hn = pt.hn
+        WHERE dro.vn IN (?) AND COALESCE(eoc.icd9cm, eoc.icd10tm, '') <> ''
+      ) base
+    `, [vns, vns]);
 
     // 7. IPD (Admission)
     const ipd = await runQuery('IPD', `
       SELECT 
-        hn AS HN,
-        an AS AN,
-        DATE_FORMAT(DATE_ADD(regdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEADM,
-        DATE_FORMAT(regtime, '%H%i') AS TIMEADM,
-        DATE_FORMAT(DATE_ADD(dchdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEDSC,
-        DATE_FORMAT(dchtime, '%H%i') AS TIMEDSC,
-        dchstts AS DISCHS,
-        dchtype AS DISCHT,
-        ward AS WARDDSC,
-        dept AS DEPT,
-        ward AS ADM_W,
+        i.hn AS HN,
+        i.an AS AN,
+        DATE_FORMAT(DATE_ADD(i.regdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEADM,
+        DATE_FORMAT(i.regtime, '%H%i') AS TIMEADM,
+        DATE_FORMAT(DATE_ADD(i.dchdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEDSC,
+        DATE_FORMAT(i.dchtime, '%H%i') AS TIMEDSC,
+        COALESCE(ds.nhso_dchstts, i.dchstts) AS DISCHS,
+        COALESCE(dt.nhso_dchtype, i.dchtype) AS DISCHT,
+        i.ward AS WARDDSC,
+        COALESCE(sp.nhso_code, '01') AS DEPT,
+        COALESCE(i.bw, 0) / 1000 AS ADM_W,
         '1' AS UUC,
-        '1' AS SVCTYPE
-      FROM ipt
-      WHERE vn IN (?)
+        CASE WHEN it.is_ambulatory = 'Y' THEN 'A' ELSE 'I' END AS SVCTYPE
+      FROM ipt i
+      LEFT JOIN dchstts ds ON ds.dchstts = i.dchstts
+      LEFT JOIN dchtype dt ON dt.dchtype = i.dchtype
+      LEFT JOIN spclty sp ON sp.spclty = i.spclty
+      LEFT JOIN ipt_type it ON it.ipt_type = i.ipt_type
+      WHERE i.vn IN (?)
     `, [vns]);
 
     // 8. IRF (Refer IPD)
     const irf = await runQuery('IRF', `
-      SELECT 
-        an as AN,
-        hospcode as REFER,
-        COALESCE(r.refer_type, '1') as REFERTYPE
-      FROM referout r
-      WHERE r.vn IN (?) AND r.an IS NOT NULL AND r.an != ''
-    `, [vns]);
+      SELECT AN, REFER, REFERTYPE
+      FROM (
+        SELECT
+          i.an AS AN,
+          COALESCE(ro.refer_hospcode, i.rfrolct, '') AS REFER,
+          '2' AS REFERTYPE
+        FROM ipt i
+        LEFT JOIN dchtype dt ON dt.dchtype = i.dchtype
+        LEFT JOIN referout ro ON ro.vn = i.an
+        WHERE i.vn IN (?) AND (dt.nhso_dchtype = 4 OR ro.vn IS NOT NULL)
+        UNION ALL
+        SELECT
+          i.an AS AN,
+          COALESCE(ri.refer_hospcode, i.rfrilct, '') AS REFER,
+          '1' AS REFERTYPE
+        FROM ipt i
+        LEFT JOIN ovstist ist ON ist.ovstist = i.ivstist
+        LEFT JOIN referin ri ON ri.vn = i.vn
+        WHERE i.vn IN (?) AND (ist.export_code = 3 OR ri.vn IS NOT NULL)
+      ) base
+      WHERE COALESCE(REFER, '') <> ''
+    `, [vns, vns]);
 
     // 9. IDX (Diagnosis IPD)
     const idx = await runQuery('IDX', `
@@ -7265,16 +7334,17 @@ export const getExportData = async (vns: string[]) => {
     // ใช้ iptoprt ให้สอดคล้องกับตารางที่ระบบใช้จริงในส่วน IPD chart review
     const iop = await runQuery('IOP', `
       SELECT 
-        an AS AN,
-        icd9 AS OPER,
-        '1' AS OPTYPE,
-        '' AS DROPID,
-        '' AS DATEIN,
-        '' AS TIMEIN,
-        '' AS DATEOUT,
-        '' AS TIMEOUT
-      FROM iptoprt
-      WHERE an IN (SELECT an FROM ipt WHERE vn IN (?))
+        op.an AS AN,
+        CONCAT_WS('+', op.icd9, NULLIF(op.ext_code, '')) AS OPER,
+        COALESCE(op.oper_type, '1') AS OPTYPE,
+        op.doctor AS DROPID,
+        DATE_FORMAT(DATE_ADD(COALESCE(op.opdate, i.regdate), INTERVAL 543 YEAR), '%Y%m%d') AS DATEIN,
+        DATE_FORMAT(COALESCE(op.optime, i.regtime), '%H%i') AS TIMEIN,
+        DATE_FORMAT(DATE_ADD(CASE WHEN op.enddate < op.opdate THEN op.opdate ELSE COALESCE(op.enddate, op.opdate, i.dchdate) END, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOUT,
+        DATE_FORMAT(COALESCE(op.endtime, op.optime, i.dchtime), '%H%i') AS TIMEOUT
+      FROM iptoprt op
+      JOIN ipt i ON i.an = op.an
+      WHERE i.vn IN (?) AND COALESCE(op.icd9, '') <> ''
     `, [vns]);
 
     // 11. CHT (Financial Summary)
@@ -7283,8 +7353,8 @@ export const getExportData = async (vns: string[]) => {
         o.hn AS HN,
         COALESCE(o.an, '') AS AN,
         DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATE,
-        IFNULL(v.income, 0) AS TOTAL,
-        IFNULL(v.rcpt_money, 0) AS PAID,
+        SUM(COALESCE(oo.sum_price, 0)) AS TOTAL,
+        SUM(CASE WHEN oo.paidst IN ('01', '03') THEN COALESCE(oo.sum_price, 0) ELSE 0 END) AS PAID,
         o.pttype AS PTTYPE,
         COALESCE(pt.cid, '') AS PERSON_ID,
         o.vn AS SEQ,
@@ -7292,9 +7362,10 @@ export const getExportData = async (vns: string[]) => {
         '' AS INVOICE_NO,
         '' AS INVOICE_LT
       FROM ovst o
-      LEFT JOIN vn_stat v ON o.vn = v.vn
+      LEFT JOIN opitemrece oo ON oo.vn = o.vn
       LEFT JOIN patient pt ON o.hn = pt.hn
       WHERE o.vn IN (?)
+      GROUP BY o.vn, o.hn, o.an, o.vstdate, o.pttype, pt.cid
     `, [vns]);
 
     // 12. CHA (Financial Details)
@@ -7302,41 +7373,47 @@ export const getExportData = async (vns: string[]) => {
       SELECT 
         o.hn as HN,
         COALESCE(o.an, '') as AN,
-        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') as DATE,
-        LPAD(COALESCE(inc.drg_chrgitem_id, 18), 2, '0') as CHRGITEM,
+        DATE_FORMAT(DATE_ADD(COALESCE(o.rxdate, ov.vstdate), INTERVAL 543 YEAR), '%Y%m%d') as DATE,
+        COALESCE(CASE WHEN o.paidst IN ('03') THEN drg.chrgitem_code2 ELSE drg.chrgitem_code1 END, LPAD(COALESCE(inc.drg_chrgitem_id, 18), 2, '0')) as CHRGITEM,
         SUM(o.sum_price) as AMOUNT,
         pt.cid as PERSON_ID,
         o.vn as SEQ
       FROM opitemrece o
+      JOIN ovst ov ON ov.vn = o.vn
       JOIN patient pt ON o.hn = pt.hn
       LEFT JOIN income inc ON inc.income = o.income
+      LEFT JOIN drg_chrgitem drg ON drg.drg_chrgitem_id = inc.drg_chrgitem_id
       WHERE o.vn IN (?)
-      GROUP BY o.vn, o.hn, o.an, o.vstdate, pt.cid, CHRGITEM
+      GROUP BY o.vn, o.hn, o.an, DATE, pt.cid, CHRGITEM
     `, [vns]);
 
     // 13. AER (Accident/Emergency)
     const aer = await runQuery('AER', `
-      SELECT 
-        hn AS HN,
-        COALESCE(an, '') AS AN,
-        DATE_FORMAT(DATE_ADD(vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
+      SELECT
+        o.hn AS HN,
+        COALESCE(o.an, '') AS AN,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATEOPD,
         '' AS AUTHAE,
-        DATE_FORMAT(DATE_ADD(vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS AEDATE,
-        DATE_FORMAT(vsttime, '%H%i') AS AETIME,
-        '1' AS AETYPE,
-        '' AS REFER_NO,
-        '' AS REFMAINI,
-        '' AS IREFTYPE,
-        '' AS REFMAINO,
-        '' AS OREFTYPE,
-        '' AS UCAE,
+        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS AEDATE,
+        DATE_FORMAT(o.vsttime, '%H%i') AS AETIME,
+        '' AS AETYPE,
+        CONCAT_WS(',', IF(ri.vn IS NOT NULL, CONCAT('In:', ri.docno), NULL), IF(ro.vn IS NOT NULL, CONCAT('Out:', ro.refer_number), NULL)) AS REFER_NO,
+        COALESCE(ri.refer_hospcode, '') AS REFMAINI,
+        CASE WHEN ri.vn IS NOT NULL THEN '1100' ELSE '' END AS IREFTYPE,
+        COALESCE(ro.refer_hospcode, '') AS REFMAINO,
+        CASE WHEN ro.vn IS NOT NULL THEN '1100' ELSE '' END AS OREFTYPE,
+        COALESCE(ept.ucae, '') AS UCAE,
         '' AS EMTYPE,
-        vn AS SEQ,
+        o.vn AS SEQ,
         '' AS AESTATUS,
         '' AS DALERT,
         '' AS TALERT
-      FROM er_regist
-      WHERE vn IN (?)
+      FROM ovst o
+      LEFT JOIN referin ri ON ri.vn = o.vn
+      LEFT JOIN referout ro ON ro.vn = o.vn
+      LEFT JOIN er_regist er ON er.vn = o.vn
+      LEFT JOIN er_pt_type ept ON ept.er_pt_type = er.er_pt_type
+      WHERE o.vn IN (?) AND (ri.vn IS NOT NULL OR ro.vn IS NOT NULL OR er.vn IS NOT NULL)
     `, [vns]);
 
     // 14. ADP (Additionals)
@@ -7446,33 +7523,70 @@ export const getExportData = async (vns: string[]) => {
 
     // 16. DRU (Drugs)
     const dru = await runQuery('DRU', `
-      SELECT 
+      SELECT
         ? AS HCODE,
-        o.hn AS HN,
-        COALESCE(o.an, '') AS AN,
-        o.main_dep AS CLINIC,
-        COALESCE(pt.cid, '') AS PERSON_ID,
-        DATE_FORMAT(DATE_ADD(o.vstdate, INTERVAL 543 YEAR), '%Y%m%d') AS DATE_SERV,
-        o.icode AS DID,
-        d.name AS DIDNAME,
-        o.qty AS AMOUNT,
-        o.unitprice AS DRUGPRIC,
-        IFNULL(d.unitcost, 0) AS DRUGCOST,
-        COALESCE(s.did, '') AS DIDSTD,
-        d.units AS UNIT,
+        base.HN,
+        base.AN,
+        base.CLINIC,
+        base.PERSON_ID,
+        DATE_FORMAT(DATE_ADD(MAX(base.RXDATE), INTERVAL 543 YEAR), '%Y%m%d') AS DATE_SERV,
+        base.DID,
+        base.DIDNAME,
+        SUM(base.QTY) AS AMOUNT,
+        base.DRUGPRIC,
+        base.DRUGCOST,
+        base.DIDSTD,
+        base.UNIT,
         '' AS UNIT_PACK,
-        o.vn AS SEQ,
+        base.SEQ,
         '' AS DRUGTYPE,
-        '' AS DRUGREMARK,
-        '' AS PA_NO,
-        '0.00' AS TOTCOPAY,
-        '1' AS USE_STATUS,
-        o.sum_price AS TOTAL
-      FROM opitemrece o
-      JOIN drugitems d ON o.icode = d.icode
-      LEFT JOIN s_drugitems s ON o.icode = s.icode
-      JOIN patient pt ON o.hn = pt.hn
-      WHERE o.vn IN (?)
+        MAX(base.DRUGREMARK) AS DRUGREMARK,
+        MAX(base.PA_NO) AS PA_NO,
+        SUM(base.TOTCOPAY) AS TOTCOPAY,
+        base.USE_STATUS,
+        SUM(base.TOTAL) AS TOTAL
+      FROM (
+        SELECT
+          o.hn AS HN,
+          COALESCE(o.an, '') AS AN,
+          COALESCE(sp.provis_code, ov.main_dep, '') AS CLINIC,
+          COALESCE(pt.cid, '') AS PERSON_ID,
+          COALESCE(o.rxdate, ov.vstdate) AS RXDATE,
+          o.icode AS DID,
+          CONCAT_WS(' ', d.name, d.strength) AS DIDNAME,
+          COALESCE(d.units, '') AS UNIT,
+          COALESCE(o.qty, 0) AS QTY,
+          COALESCE(o.unitprice, 0) AS DRUGPRIC,
+          COALESCE(o.cost, d.unitcost, 0) AS DRUGCOST,
+          COALESCE(s.did, d.did, '') AS DIDSTD,
+          CASE WHEN o.item_type = 'H' THEN '2' ELSE '1' END AS USE_STATUS,
+          CASE WHEN COALESCE(d.drugaccount, '') IN ('', '-') THEN 'EC' ELSE '' END AS DRUGREMARK,
+          '' AS PA_NO,
+          CASE WHEN o.paidst IN ('03') THEN COALESCE(o.sum_price, 0) ELSE 0 END AS TOTCOPAY,
+          COALESCE(o.sum_price, 0) AS TOTAL,
+          o.vn AS SEQ
+        FROM opitemrece o
+        JOIN ovst ov ON ov.vn = o.vn
+        JOIN drugitems d ON o.icode = d.icode
+        LEFT JOIN s_drugitems s ON o.icode = s.icode
+        LEFT JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN spclty sp ON sp.spclty = ov.spclty
+        WHERE o.vn IN (?)
+      ) base
+      GROUP BY
+        base.SEQ,
+        base.HN,
+        base.AN,
+        base.CLINIC,
+        base.PERSON_ID,
+        base.DID,
+        base.DIDNAME,
+        base.UNIT,
+        base.DRUGPRIC,
+        base.DRUGCOST,
+        base.DIDSTD,
+        base.USE_STATUS
+      HAVING SUM(base.TOTAL) <> 0
     `, [hcode, vns]);
 
     return {

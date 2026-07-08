@@ -20,7 +20,7 @@
 | ตรวจสอบเบิก FDH | FDH/e-Claim | ใช้สำหรับรายการ claim/export FDH และตรวจสถานะ FDH |
 | MOPH DMHT Lab | MOPH Claim | endpoint MOPH Claim `dmht`, ใช้ HbA1C/Potassium/Creatinine |
 | MOPH Vaccine EPI/dT/HPV/aP | MOPH Claim | endpoint MOPH Claim `epi`/`dt`, ตรวจ lot/dose/expire/vaccine code |
-| พอกเข่า | 43 แฟ้ม | อายุ 40+, Dx `M17`/`U57.53`, procedure พอกเข่า; ไม่ใช่กองทุนพิเศษ |
+| พอกเข่า | 43 แฟ้ม | อายุ 40+, Dx ทั้ง `M17` และ `U57.53`, procedure พอกเข่า; ไม่ใช่กองทุนพิเศษ |
 | Hepatitis C | KTB | เกิดก่อน พ.ศ. 2535, `Z11.5`, Anti-HCV; ตั้งแต่ 1 มิ.ย. 2568 บันทึกผ่าน KTB |
 | Hepatitis B | KTB | เกิดก่อน พ.ศ. 2535, `Z11.5`, HBsAg |
 | ซิฟิลิสประชาชนทั่วไปเพศชาย | KTB | lab Treponema/Syphilis/RPR/VDRL/TPHA/TPPA; แยกจาก ANC |

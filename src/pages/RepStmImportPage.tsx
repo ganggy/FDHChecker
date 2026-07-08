@@ -13,6 +13,9 @@ interface ImportBatch {
   imported_by?: string;
   row_count: number;
   notes?: string;
+  replaces_batch_id?: number | null;
+  completeness_score?: number;
+  distinct_record_count?: number;
   created_at: string;
 }
 
@@ -99,7 +102,7 @@ const statusLabelMap: Record<QueueStatus, string> = {
   ready: 'พร้อมนำเข้า',
   importing: 'กำลังนำเข้า',
   success: 'สำเร็จ',
-  duplicate: 'เข้าแล้ว',
+  duplicate: 'ข้าม/เข้าแล้ว',
   error: 'ผิดพลาด',
 };
 
@@ -629,6 +632,7 @@ export const RepStmImportPage: React.FC = () => {
       let importedCount = 0;
       let importedRows = 0;
       let duplicateCount = 0;
+      let replacedCount = 0;
       let failedCount = 0;
 
       for (const item of readyItems) {
@@ -658,7 +662,7 @@ export const RepStmImportPage: React.FC = () => {
             rows: item.rows,
           });
 
-          if (result.duplicate) {
+          if (result.duplicate || result.skipped) {
             duplicateCount += 1;
             updateQueueItem(item.id, (current) => ({
               ...current,
@@ -668,10 +672,11 @@ export const RepStmImportPage: React.FC = () => {
           } else {
             importedCount += 1;
             importedRows += Number(result.rowCount || 0);
+            if (result.replaced) replacedCount += 1;
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'success',
-              message: `นำเข้า ${item.detectedType} สำเร็จ ${Number(result.rowCount || 0).toLocaleString()} แถว`,
+              message: result.message || `นำเข้า ${item.detectedType} สำเร็จ ${Number(result.rowCount || 0).toLocaleString()} แถว`,
             }));
           }
         } catch (err) {
@@ -684,7 +689,7 @@ export const RepStmImportPage: React.FC = () => {
         }
       }
 
-      setSuccessMessage(`นำเข้าสำเร็จ ${importedCount.toLocaleString()} ไฟล์ รวม ${importedRows.toLocaleString()} แถว${duplicateCount > 0 ? `, เข้าแล้ว ${duplicateCount.toLocaleString()} ไฟล์` : ''}${failedCount > 0 ? `, ผิดพลาด ${failedCount.toLocaleString()} ไฟล์` : ''}`);
+      setSuccessMessage(`นำเข้าสำเร็จ ${importedCount.toLocaleString()} ไฟล์ รวม ${importedRows.toLocaleString()} แถว${replacedCount > 0 ? `, แทนชุดเดิม ${replacedCount.toLocaleString()} ไฟล์` : ''}${duplicateCount > 0 ? `, ข้าม/เข้าแล้ว ${duplicateCount.toLocaleString()} ไฟล์` : ''}${failedCount > 0 ? `, ผิดพลาด ${failedCount.toLocaleString()} ไฟล์` : ''}`);
       await loadData(dataType);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'นำเข้า REP/STM/INV ไม่สำเร็จ');
@@ -1153,7 +1158,7 @@ export const RepStmImportPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 1fr) minmax(420px, 1.5fr)', gap: 16 }}>
+      <div className="repstm-data-grid">
         <div className="card">
           <div className="card-header">
             <div className="card-title">ประวัติการนำเข้า</div>
@@ -1180,6 +1185,11 @@ export const RepStmImportPage: React.FC = () => {
                           <div className="repstm-file-subpath" title={batch.sheet_name || '-'}>
                             Sheet: {batch.sheet_name || '-'}
                           </div>
+                          {batch.replaces_batch_id ? (
+                            <div className="repstm-file-subpath">
+                              แทน batch #{batch.replaces_batch_id}
+                            </div>
+                          ) : null}
                         </td>
                         <td className="table-cell-nowrap">{batch.imported_by || '-'}</td>
                         <td className="table-cell-nowrap">{Number(batch.row_count || 0).toLocaleString()}</td>
@@ -1205,8 +1215,8 @@ export const RepStmImportPage: React.FC = () => {
           </div>
           <div className="card-body" style={{ padding: 0 }}>
             {rows.length > 0 ? (
-              <div className="modal-table-wrap">
-                <table className="data-table">
+              <div className="modal-table-wrap repstm-table-shell">
+                <table className="data-table long-id-table long-id-table--repstm-latest repstm-latest-data-table">
                   <thead>
                     {isRepType ? (
                       <tr>

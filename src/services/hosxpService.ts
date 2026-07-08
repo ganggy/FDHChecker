@@ -824,6 +824,104 @@ export const fetchReceivableReconciliation = async (params: {
   return json as ReconciliationResponse;
 };
 
+export interface Uuc1TrackingRow {
+  patient_type: string;
+  visit_key: string;
+  vn: string;
+  an: string;
+  hn: string;
+  cid: string | null;
+  patient_name: string;
+  pttype: string;
+  pttype_name: string;
+  hipdata_code: string;
+  service_date: string;
+  sent_amount: number;
+  rep_amount: number | null;
+  rep_no: string | null;
+  rep_imported_at: string | null;
+  rep_senddate: string | null;
+  rep_filename: string | null;
+  rep_errorcode: string | null;
+  rep_verifycode: string | null;
+  rep_projectcode: string | null;
+  stm_amount: number | null;
+  stm_paid_amount: number | null;
+  stm_imported_at: string | null;
+  stm_statement_no: string | null;
+  stm_filename: string | null;
+  inv_amount: number | null;
+  inv_imported_at: string | null;
+  diff_rep: number | null;
+  diff_stm: number | null;
+  days_to_rep: number | null;
+  days_to_stm: number | null;
+  followup_status: string;
+  followup_status_key: string;
+  followup_note: string;
+}
+
+export interface Uuc1TrackingSummary {
+  total_visits: number;
+  rep_received: number;
+  pending_rep: number;
+  pending_stm: number;
+  stm_received: number;
+  stm_zero: number;
+  rep_issue: number;
+  mismatch: number;
+  total_sent: number;
+  total_rep: number;
+  total_stm_paid: number;
+  last_rep_import_at: string | null;
+  last_stm_import_at: string | null;
+}
+
+export interface Uuc1TrackingResponse {
+  success: boolean;
+  data: Uuc1TrackingRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: Uuc1TrackingSummary;
+}
+
+export const fetchUuc1Tracking = async (params: {
+  startDate: string;
+  endDate: string;
+  patientType?: string;
+  patientRight?: string;
+  hosxpRight?: string;
+  financeRight?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<Uuc1TrackingResponse> => {
+  const query = new URLSearchParams();
+  query.set('startDate', params.startDate);
+  query.set('endDate', params.endDate);
+  if (params.patientType) query.set('patientType', params.patientType);
+  if (params.patientRight) query.set('patientRight', params.patientRight);
+  if (params.hosxpRight) query.set('hosxpRight', params.hosxpRight);
+  if (params.financeRight) query.set('financeRight', params.financeRight);
+  if (params.status) query.set('status', params.status);
+  if (params.search) query.set('search', params.search);
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+
+  const response = await fetch(`/api/uuc1-tracking?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดข้อมูลติดตาม UUC1 ได้');
+  }
+  return json as Uuc1TrackingResponse;
+};
+
 // ฟังก์ชันส่งข้อมูลไปที่ระบบ FDH
 export const submitToFDH = async (records: CheckRecord[]) => {
   try {

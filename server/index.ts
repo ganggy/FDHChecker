@@ -40,6 +40,7 @@ import {
   getInsuranceOverview,
   getValeImportStatus,
   getVisitRepStmComparison,
+  getUuc1RepStmTracking,
   saveReceivableBatch,
   syncNhsoAuthenCodes,
   getAuthenSyncLogs,
@@ -2288,6 +2289,9 @@ app.post('/api/repstm/import', async (req, res) => {
     res.json({
       success: true,
       duplicate: Boolean((result as Record<string, unknown>).duplicate),
+      skipped: Boolean((result as Record<string, unknown>).skipped),
+      replaced: Boolean((result as Record<string, unknown>).replaced),
+      replacedBatchId: (result as Record<string, unknown>).replacedBatchId || null,
       message: typeof (result as Record<string, unknown>).message === 'string'
         ? String((result as Record<string, unknown>).message)
         : `นำเข้า ${normalizedType} สำเร็จ`,
@@ -2428,6 +2432,27 @@ app.get('/api/receivables/reconciliation', async (req, res) => {
   } catch (error) {
     console.error('Error fetching reconciliation data:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูลกระทบยอด REP/STM' });
+  }
+});
+
+app.get('/api/uuc1-tracking', async (req, res) => {
+  try {
+    const result = await getUuc1RepStmTracking({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      patientRight: req.query.patientRight ? String(req.query.patientRight) : undefined,
+      hosxpRight: req.query.hosxpRight ? String(req.query.hosxpRight) : undefined,
+      financeRight: req.query.financeRight ? String(req.query.financeRight) : undefined,
+      status: req.query.status ? String(req.query.status) : undefined,
+      search: req.query.search ? String(req.query.search) : undefined,
+      page: req.query.page ? Number(req.query.page) : undefined,
+      pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Error fetching UUC1 tracking data:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูลติดตาม UUC1 REP/STM' });
   }
 });
 

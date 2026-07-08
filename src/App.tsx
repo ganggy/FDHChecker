@@ -15,6 +15,7 @@ import { AuthenSyncPage } from './pages/AuthenSyncPage';
 import PreSubmitValidatorPage from './pages/PreSubmitValidatorPage';
 import WorkQueuePage from './pages/WorkQueuePage';
 import RejectedClaimTrackingPage from './pages/RejectedClaimTrackingPage';
+import Uuc1TrackingPage from './pages/Uuc1TrackingPage';
 import { SpecificFundPage } from './pages/SpecificFundPage';
 import { SpecialMonitorPage } from './pages/SpecialMonitorPage';
 import { FsMonitorPage } from './pages/FsMonitorPage';
@@ -49,6 +50,7 @@ function App() {
     { page: 'preValidator', icon: '✅', label: 'Pre-submit' },
     { page: 'workQueue', icon: '📋', label: 'คิวงาน' },
     { page: 'rejectTracking', icon: '🔴', label: 'ติดตาม Reject' },
+    { page: 'uuc1Tracking', icon: '📌', label: 'ติดตาม UUC1' },
     { page: 'receivable', icon: '💼', label: 'บัญชีลูกหนี้' },
     { page: 'reconciliation', icon: '🔄', label: 'กระทบยอด REP/STM' },
     { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกัน' },
@@ -68,7 +70,7 @@ function App() {
 
   const toolNavGroups: Array<{ label: string; icon: string; pages: AppPage[] }> = [
     { label: 'ส่งข้อมูล', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
-    { label: 'ติดตาม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'repDeny'] },
+    { label: 'ติดตาม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
     { label: 'บัญชี', icon: '💼', pages: ['receivable', 'reconciliation', 'insuranceOverview', 'admin'] },
     { label: 'FDH/e-Claim', icon: '🏥', pages: ['fundFdh', 'monitor', 'fsMonitor'] },
     { label: '43 แฟ้ม', icon: '🗂️', pages: ['fund43'] },
@@ -223,6 +225,7 @@ function App() {
         {currentPage === 'preValidator' && <PreSubmitValidatorPage />}
         {currentPage === 'workQueue' && <WorkQueuePage />}
         {currentPage === 'rejectTracking' && <RejectedClaimTrackingPage />}
+        {currentPage === 'uuc1Tracking' && <Uuc1TrackingPage />}
         {currentPage === 'guide' && <GuidePage />}
         {currentPage === 'settings' && <SettingsPage />}
       </div>

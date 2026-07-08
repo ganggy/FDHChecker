@@ -447,12 +447,20 @@ const REPSTM_IMPORT_BATCH_TABLE_SQL = `
     data_type VARCHAR(16) NOT NULL,
     source_filename VARCHAR(255) NOT NULL,
     batch_hash VARCHAR(64) NULL,
+    logical_hash VARCHAR(64) NULL,
+    completeness_score BIGINT NOT NULL DEFAULT 0,
+    distinct_record_count INT NOT NULL DEFAULT 0,
+    column_count INT NOT NULL DEFAULT 0,
+    non_empty_cell_count INT NOT NULL DEFAULT 0,
+    replaces_batch_id BIGINT NULL,
     sheet_name VARCHAR(255) NULL,
     imported_by VARCHAR(128) NULL,
     row_count INT NOT NULL DEFAULT 0,
     notes TEXT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_data_type_batch_hash (data_type, batch_hash),
+    INDEX idx_data_type_logical_hash (data_type, logical_hash),
+    INDEX idx_replaces_batch_id (replaces_batch_id),
     INDEX idx_data_type_created_at (data_type, created_at),
     INDEX idx_created_at (created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -465,6 +473,7 @@ const REPSTM_IMPORT_ROW_TABLE_SQL = `
     data_type VARCHAR(16) NOT NULL,
     row_no INT NOT NULL,
     ref_key VARCHAR(191) NULL,
+    row_identity VARCHAR(191) NULL,
     hn VARCHAR(32) NULL,
     vn VARCHAR(32) NULL,
     an VARCHAR(32) NULL,
@@ -476,6 +485,8 @@ const REPSTM_IMPORT_ROW_TABLE_SQL = `
     INDEX idx_batch_id (batch_id),
     INDEX idx_data_type_created_at (data_type, created_at),
     INDEX idx_ref_key (ref_key),
+    INDEX idx_data_type_row_identity (data_type, row_identity),
+    INDEX idx_batch_row_identity (batch_id, row_identity),
     CONSTRAINT fk_repstm_import_row_batch
       FOREIGN KEY (batch_id) REFERENCES repstm_import_batch(id)
       ON DELETE CASCADE
@@ -842,7 +853,10 @@ export const ensureNhsoClosePrivilegeTable = async () => {
   }
 };
 
-export const ensureRepstmTables = async () => {
+let repstmTablesEnsured = false;
+let repstmTablesEnsurePromise: Promise<void> | null = null;
+
+const ensureRepstmTablesUncached = async () => {
   const connection = await getRepstmConnection();
   try {
     await connection.query(REPSTM_IMPORT_BATCH_TABLE_SQL);
@@ -1073,6 +1087,46 @@ export const ensureRepstmTables = async () => {
       `);
     }
 
+    const repstmBatchColumns: Array<[string, string]> = [
+      ['logical_hash', 'ADD COLUMN logical_hash VARCHAR(64) NULL AFTER batch_hash'],
+      ['completeness_score', 'ADD COLUMN completeness_score BIGINT NOT NULL DEFAULT 0 AFTER logical_hash'],
+      ['distinct_record_count', 'ADD COLUMN distinct_record_count INT NOT NULL DEFAULT 0 AFTER completeness_score'],
+      ['column_count', 'ADD COLUMN column_count INT NOT NULL DEFAULT 0 AFTER distinct_record_count'],
+      ['non_empty_cell_count', 'ADD COLUMN non_empty_cell_count INT NOT NULL DEFAULT 0 AFTER column_count'],
+      ['replaces_batch_id', 'ADD COLUMN replaces_batch_id BIGINT NULL AFTER non_empty_cell_count'],
+    ];
+    for (const [columnName, alterSql] of repstmBatchColumns) {
+      const [columnRows] = await connection.query(
+        `SELECT COUNT(*) AS count
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'repstm_import_batch'
+           AND COLUMN_NAME = ?`,
+        [columnName]
+      );
+      const exists = Array.isArray(columnRows)
+        && Number((columnRows[0] as Record<string, unknown>).count || 0) > 0;
+      if (!exists) {
+        await connection.query(`ALTER TABLE repstm_import_batch ${alterSql}`);
+      }
+    }
+
+    const [rowIdentityColumns] = await connection.query(
+      `SELECT COUNT(*) AS count
+       FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'repstm_import_row'
+         AND COLUMN_NAME = 'row_identity'`
+    );
+    const hasRowIdentityColumn = Array.isArray(rowIdentityColumns)
+      && Number((rowIdentityColumns[0] as Record<string, unknown>).count || 0) > 0;
+    if (!hasRowIdentityColumn) {
+      await connection.query(`
+        ALTER TABLE repstm_import_row
+        ADD COLUMN row_identity VARCHAR(191) NULL AFTER ref_key
+      `);
+    }
+
     const [batchHashIndexes] = await connection.query(
       `SELECT COUNT(*) AS count
        FROM information_schema.STATISTICS
@@ -1087,6 +1141,46 @@ export const ensureRepstmTables = async () => {
         ALTER TABLE repstm_import_batch
         ADD UNIQUE INDEX uk_data_type_batch_hash (data_type, batch_hash)
       `);
+    }
+
+    const repstmBatchIndexes: Array<[string, string]> = [
+      ['idx_data_type_logical_hash', 'ADD INDEX idx_data_type_logical_hash (data_type, logical_hash)'],
+      ['idx_replaces_batch_id', 'ADD INDEX idx_replaces_batch_id (replaces_batch_id)'],
+    ];
+    for (const [indexName, alterSql] of repstmBatchIndexes) {
+      const [indexRows] = await connection.query(
+        `SELECT COUNT(*) AS count
+         FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'repstm_import_batch'
+           AND INDEX_NAME = ?`,
+        [indexName]
+      );
+      const exists = Array.isArray(indexRows)
+        && Number((indexRows[0] as Record<string, unknown>).count || 0) > 0;
+      if (!exists) {
+        await connection.query(`ALTER TABLE repstm_import_batch ${alterSql}`);
+      }
+    }
+
+    const repstmRowIndexes: Array<[string, string]> = [
+      ['idx_data_type_row_identity', 'ADD INDEX idx_data_type_row_identity (data_type, row_identity)'],
+      ['idx_batch_row_identity', 'ADD INDEX idx_batch_row_identity (batch_id, row_identity)'],
+    ];
+    for (const [indexName, alterSql] of repstmRowIndexes) {
+      const [indexRows] = await connection.query(
+        `SELECT COUNT(*) AS count
+         FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'repstm_import_row'
+           AND INDEX_NAME = ?`,
+        [indexName]
+      );
+      const exists = Array.isArray(indexRows)
+        && Number((indexRows[0] as Record<string, unknown>).count || 0) > 0;
+      if (!exists) {
+        await connection.query(`ALTER TABLE repstm_import_row ${alterSql}`);
+      }
     }
 
     const [filenameUniqueIndexes] = await connection.query(
@@ -1115,6 +1209,20 @@ export const ensureRepstmTables = async () => {
   } finally {
     connection.release();
   }
+};
+
+export const ensureRepstmTables = async () => {
+  if (repstmTablesEnsured) return;
+  if (!repstmTablesEnsurePromise) {
+    repstmTablesEnsurePromise = ensureRepstmTablesUncached()
+      .then(() => {
+        repstmTablesEnsured = true;
+      })
+      .finally(() => {
+        repstmTablesEnsurePromise = null;
+      });
+  }
+  await repstmTablesEnsurePromise;
 };
 
 const parseStoredSettingValue = <T>(value: unknown): T | null => {
@@ -2892,6 +3000,440 @@ const pickRowValueAdvanced = (row: Record<string, unknown>, candidates: string[]
   return '';
 };
 
+type RepstmDataType = 'REP' | 'STM' | 'INV';
+
+type ImportCompletenessProfile = {
+  logicalHash: string;
+  rowCount: number;
+  distinctRecordCount: number;
+  columnCount: number;
+  nonEmptyCellCount: number;
+  completenessScore: number;
+  rowIdentities: Set<string>;
+};
+
+type RepstmImportDecision =
+  | { action: 'import' }
+  | { action: 'skip'; batchId: number; rowCount: number; message: string }
+  | { action: 'replace'; batchId: number; rowCount: number; message: string };
+
+const hashText = (value: string) => crypto.createHash('sha256').update(value, 'utf8').digest('hex');
+
+const normalizeLogicalToken = (value: unknown) => normalizeImportCellValue(value)
+  .normalize('NFKC')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const normalizeLogicalAmount = (value: string) => {
+  const amount = toAmountValue(value);
+  return amount == null ? '' : amount.toFixed(2);
+};
+
+const normalizeLogicalDateToken = (value: string) => {
+  const text = value.trim();
+  if (!text) return '';
+  const iso = text.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) {
+    return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  }
+  const dmy = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dmy) {
+    let year = Number(dmy[3]);
+    if (year > 2400) year -= 543;
+    return `${String(year).padStart(4, '0')}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  }
+  return text.toLowerCase();
+};
+
+const buildLogicalRowIdentity = (
+  dataType: RepstmDataType,
+  row: Record<string, unknown>,
+  rowIndex: number
+) => {
+  const tranId = normalizeLogicalToken(pickRowValueAdvanced(row, ['TRAN_ID', 'transaction_uid', 'tranid']));
+  const repNo = normalizeLogicalToken(pickRowValueAdvanced(row, ['REP No.', 'REP No', 'REP']));
+  const statementNo = normalizeLogicalToken(pickRowValueAdvanced(row, [
+    'STM No.', 'STM No', 'STM',
+    'INV No.', 'INV No', 'INV',
+    'invoice_no', 'เลขที่เอกสาร', 'เลขที่ใบแจ้งหนี้', 'document_no', 'docno'
+  ]));
+  const seqNo = normalizeLogicalToken(pickRowValueAdvanced(row, ['SEQ NO', 'SEQ_NO', 'SEQNO', 'SEQ', 'VN', 'visit_no', 'ลำดับที่', 'no']));
+  const hcode = normalizeLogicalToken(pickRowValueAdvanced(row, ['HOSPCODE', 'hcode']));
+  const hn = normalizeLogicalToken(pickRowValueAdvanced(row, ['HN']));
+  const an = normalizeLogicalToken(pickRowValueAdvanced(row, ['AN']));
+  const cid = normalizeCitizenId(pickRowValueAdvanced(row, ['PID', 'CID', 'เลขบัตรประชาชน']));
+  const serviceDate = normalizeLogicalDateToken(pickRowValueAdvanced(row, [
+    'วันเข้ารักษา', 'admdate', 'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่'
+  ]));
+  const amount = normalizeLogicalAmount(pickRowValueAdvanced(row, [
+    'ชดเชยสุทธิ', 'compensated', 'ชดเชยสุทธิรวม',
+    'amount', 'total', 'paid', 'paid_amount', 'ยอดชำระ', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount'
+  ]));
+
+  if (tranId) return `${dataType}:tran:${tranId}`;
+  if (dataType === 'REP' && (repNo || seqNo || hn || an || cid)) {
+    return [dataType, repNo, seqNo, hcode, hn, an, cid, serviceDate, amount].join('|');
+  }
+  if ((dataType === 'STM' || dataType === 'INV') && (statementNo || seqNo || hn || an || cid)) {
+    return [dataType, statementNo, seqNo, hcode, hn, an, cid, serviceDate, amount].join('|');
+  }
+
+  const normalizedEntries = Object.entries(row)
+    .map(([key, value]) => [normalizeLookupKey(key), normalizeImportCellValue(value)] as const)
+    .filter(([, value]) => value !== '')
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (normalizedEntries.length === 0) return `${dataType}:blank:${rowIndex}`;
+  return `${dataType}:row:${hashText(stableStringify(normalizedEntries))}`;
+};
+
+const buildImportCompletenessProfile = (
+  dataType: RepstmDataType,
+  rows: Record<string, unknown>[]
+): ImportCompletenessProfile => {
+  const rowIdentities = rows.map((row, index) => hashText(buildLogicalRowIdentity(dataType, row, index)));
+  const distinctIdentities = new Set(rowIdentities);
+  const columnSet = new Set<string>();
+  let nonEmptyCellCount = 0;
+
+  rows.forEach((row) => {
+    Object.entries(row).forEach(([key, value]) => {
+      const normalizedKey = normalizeLookupKey(key);
+      if (normalizedKey) columnSet.add(normalizedKey);
+      if (normalizeImportCellValue(value) !== '') nonEmptyCellCount += 1;
+    });
+  });
+
+  const sortedIdentities = [...rowIdentities].sort();
+  const logicalHash = hashText(stableStringify({ scope: dataType, identities: sortedIdentities }));
+  const distinctRecordCount = distinctIdentities.size;
+  const rowCount = rows.length;
+  const columnCount = columnSet.size;
+  const completenessScore = (distinctRecordCount * 1_000_000_000)
+    + (rowCount * 1_000_000)
+    + (nonEmptyCellCount * 100)
+    + columnCount;
+
+  return {
+    logicalHash,
+    rowCount,
+    distinctRecordCount,
+    columnCount,
+    nonEmptyCellCount,
+    completenessScore,
+    rowIdentities: distinctIdentities,
+  };
+};
+
+const isIdentitySuperset = (candidate: Set<string>, required: Set<string>) => {
+  for (const identity of required) {
+    if (!candidate.has(identity)) return false;
+  }
+  return true;
+};
+
+const parseImportRawData = (value: unknown): Record<string, unknown> | null => {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  return null;
+};
+
+const loadBatchCompletenessProfile = async (
+  connection: mysql.PoolConnection,
+  batchId: number,
+  dataType: RepstmDataType
+) => {
+  const [rows] = await connection.query(
+    `SELECT raw_data
+     FROM repstm_import_row
+     WHERE batch_id = ?
+     ORDER BY row_no`,
+    [batchId]
+  );
+  const rawRows = (Array.isArray(rows) ? rows : [])
+    .map((row) => parseImportRawData((row as Record<string, unknown>).raw_data))
+    .filter((row): row is Record<string, unknown> => Boolean(row));
+  return buildImportCompletenessProfile(dataType, rawRows);
+};
+
+const updateBatchCompletenessProfile = async (
+  connection: mysql.PoolConnection,
+  batchId: number,
+  profile: ImportCompletenessProfile
+) => {
+  await connection.query(
+    `UPDATE repstm_import_batch
+     SET logical_hash = ?,
+         completeness_score = ?,
+         distinct_record_count = ?,
+         column_count = ?,
+         non_empty_cell_count = ?
+     WHERE id = ?`,
+    [
+      profile.logicalHash,
+      profile.completenessScore,
+      profile.distinctRecordCount,
+      profile.columnCount,
+      profile.nonEmptyCellCount,
+      batchId,
+    ]
+  );
+};
+
+const backfillBatchRowIdentities = async (
+  connection: mysql.PoolConnection,
+  batchId: number,
+  dataType: RepstmDataType,
+  rows: Record<string, unknown>[]
+) => {
+  const batchSize = 500;
+  for (let start = 0; start < rows.length; start += batchSize) {
+    const slice = rows.slice(start, start + batchSize);
+    const params: unknown[] = [];
+    const cases = slice.map((row, offset) => {
+      const rowNo = start + offset + 1;
+      const rowIdentity = hashText(buildLogicalRowIdentity(dataType, row, start + offset));
+      params.push(rowIdentity, rowNo);
+      return 'WHEN row_no = ? THEN ?';
+    }).join(' ');
+    const caseParams: unknown[] = [];
+    for (let index = 0; index < params.length; index += 2) {
+      caseParams.push(params[index + 1], params[index]);
+    }
+    await connection.query(
+      `UPDATE repstm_import_row
+       SET row_identity = CASE ${cases} ELSE row_identity END
+       WHERE batch_id = ?
+         AND row_no IN (${slice.map(() => '?').join(',')})`,
+      [...caseParams, batchId, ...slice.map((_, offset) => start + offset + 1)]
+    );
+  }
+};
+
+const formatExistingBatchLabel = (batch: Record<string, unknown>) => {
+  const filename = String(batch.source_filename || '-');
+  const createdAt = String(batch.created_at || '-');
+  return `${filename} / ${createdAt}`;
+};
+
+const loadIndexedOverlapCounts = async (
+  connection: mysql.PoolConnection,
+  dataType: RepstmDataType,
+  rowIdentities: Set<string>
+) => {
+  const counts = new Map<number, number>();
+  const identities = [...rowIdentities];
+  const chunkSize = 800;
+  for (let start = 0; start < identities.length; start += chunkSize) {
+    const chunk = identities.slice(start, start + chunkSize);
+    if (chunk.length === 0) continue;
+    const [rows] = await connection.query(
+      `SELECT batch_id, COUNT(DISTINCT row_identity) AS match_count
+       FROM repstm_import_row
+       WHERE data_type = ?
+         AND row_identity IN (${chunk.map(() => '?').join(',')})
+       GROUP BY batch_id`,
+      [dataType, ...chunk]
+    );
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows as Record<string, unknown>[]) {
+      const batchId = Number(row.batch_id || 0);
+      const matchCount = Number(row.match_count || 0);
+      if (batchId > 0 && matchCount > 0) {
+        counts.set(batchId, (counts.get(batchId) || 0) + matchCount);
+      }
+    }
+  }
+  return counts;
+};
+
+const findRepstmImportDecision = async (
+  connection: mysql.PoolConnection,
+  dataType: RepstmDataType,
+  profile: ImportCompletenessProfile
+): Promise<RepstmImportDecision> => {
+  const indexedOverlapCounts = await loadIndexedOverlapCounts(connection, dataType, profile.rowIdentities);
+  if (indexedOverlapCounts.size > 0) {
+    const indexedBatchIds = [...indexedOverlapCounts.keys()];
+    const [indexedRows] = await connection.query(
+      `SELECT id, row_count, source_filename, created_at, logical_hash, completeness_score,
+              distinct_record_count, column_count, non_empty_cell_count
+       FROM repstm_import_batch
+       WHERE data_type = ?
+         AND id IN (${indexedBatchIds.map(() => '?').join(',')})`,
+      [dataType, ...indexedBatchIds]
+    );
+
+    let replaceCandidate: { batch: Record<string, unknown>; score: number; rowCount: number } | null = null;
+    if (Array.isArray(indexedRows)) {
+      for (const candidate of indexedRows as Record<string, unknown>[]) {
+        const batchId = Number(candidate.id || 0);
+        const matchCount = indexedOverlapCounts.get(batchId) || 0;
+        const existingDistinctCount = Number(candidate.distinct_record_count || candidate.row_count || 0);
+        const existingScore = Number(candidate.completeness_score || 0);
+        const sameLogicalSet = String(candidate.logical_hash || '') === profile.logicalHash
+          || (matchCount >= profile.distinctRecordCount && matchCount >= existingDistinctCount);
+
+        if (matchCount >= profile.distinctRecordCount && existingScore >= profile.completenessScore) {
+          return {
+            action: 'skip',
+            batchId,
+            rowCount: Number(candidate.row_count || 0),
+            message: sameLogicalSet
+              ? `ข้ามไฟล์นี้: เคยนำเข้าข้อมูลชุดเดียวกันแล้ว (${formatExistingBatchLabel(candidate)})`
+              : `ข้ามไฟล์นี้: มีข้อมูลชุดเดิมที่ครอบคลุมและสมบูรณ์กว่าแล้ว (${formatExistingBatchLabel(candidate)})`,
+          };
+        }
+
+        if (matchCount >= existingDistinctCount && profile.completenessScore > existingScore) {
+          if (!replaceCandidate || existingScore > replaceCandidate.score) {
+            replaceCandidate = {
+              batch: candidate,
+              score: existingScore,
+              rowCount: Number(candidate.row_count || 0),
+            };
+          }
+        }
+      }
+    }
+
+    if (replaceCandidate) {
+      return {
+        action: 'replace',
+        batchId: Number(replaceCandidate.batch.id || 0),
+        rowCount: replaceCandidate.rowCount,
+        message: `ไฟล์นี้สมบูรณ์กว่า batch เดิม จึงนำเข้าแทน (${formatExistingBatchLabel(replaceCandidate.batch)})`,
+      };
+    }
+  }
+
+  const [candidateRows] = await connection.query(
+    `SELECT b.id, b.row_count, b.source_filename, b.created_at, b.logical_hash, b.completeness_score,
+            distinct_record_count, column_count, non_empty_cell_count
+     FROM repstm_import_batch b
+     WHERE b.data_type = ?
+       AND (
+         b.logical_hash = ?
+         OR b.logical_hash IS NULL
+         OR b.completeness_score = 0
+         OR NOT EXISTS (
+           SELECT 1
+           FROM repstm_import_row rr
+           WHERE rr.batch_id = b.id
+             AND rr.row_identity IS NOT NULL
+           LIMIT 1
+         )
+       )
+     ORDER BY CASE WHEN b.logical_hash = ? THEN 0 ELSE 1 END, b.created_at DESC
+     LIMIT 100`,
+    [dataType, profile.logicalHash, profile.logicalHash]
+  );
+
+  if (!Array.isArray(candidateRows) || candidateRows.length === 0) return { action: 'import' };
+
+  let replaceCandidate: { batch: Record<string, unknown>; profile: ImportCompletenessProfile } | null = null;
+
+  for (const candidate of candidateRows as Record<string, unknown>[]) {
+    const batchId = Number(candidate.id || 0);
+    if (!Number.isFinite(batchId) || batchId <= 0) continue;
+
+    let existingProfile: ImportCompletenessProfile | null = null;
+    const storedLogicalHash = String(candidate.logical_hash || '');
+    const storedScore = Number(candidate.completeness_score || 0);
+    const storedDistinctCount = Number(candidate.distinct_record_count || 0);
+    const storedColumnCount = Number(candidate.column_count || 0);
+    const storedNonEmptyCount = Number(candidate.non_empty_cell_count || 0);
+
+    if (storedLogicalHash === profile.logicalHash && storedScore > 0) {
+      existingProfile = {
+        logicalHash: storedLogicalHash,
+        rowCount: Number(candidate.row_count || 0),
+        distinctRecordCount: storedDistinctCount,
+        columnCount: storedColumnCount,
+        nonEmptyCellCount: storedNonEmptyCount,
+        completenessScore: storedScore,
+        rowIdentities: profile.rowIdentities,
+      };
+    } else {
+      existingProfile = await loadBatchCompletenessProfile(connection, batchId, dataType);
+      if (existingProfile.rowCount > 0) {
+        const [identityRows] = await connection.query(
+          `SELECT COUNT(*) AS count
+           FROM repstm_import_row
+           WHERE batch_id = ?
+             AND row_identity IS NOT NULL`,
+          [batchId]
+        );
+        const hasIdentities = Array.isArray(identityRows)
+          && Number((identityRows[0] as Record<string, unknown>).count || 0) > 0;
+        if (!hasIdentities) {
+          const [rawRows] = await connection.query(
+            `SELECT raw_data
+             FROM repstm_import_row
+             WHERE batch_id = ?
+             ORDER BY row_no`,
+            [batchId]
+          );
+          const parsedRows = (Array.isArray(rawRows) ? rawRows : [])
+            .map((row) => parseImportRawData((row as Record<string, unknown>).raw_data))
+            .filter((row): row is Record<string, unknown> => Boolean(row));
+          await backfillBatchRowIdentities(connection, batchId, dataType, parsedRows);
+        }
+      }
+      if (
+        storedLogicalHash !== existingProfile.logicalHash
+        || storedScore !== existingProfile.completenessScore
+        || storedDistinctCount !== existingProfile.distinctRecordCount
+        || storedColumnCount !== existingProfile.columnCount
+        || storedNonEmptyCount !== existingProfile.nonEmptyCellCount
+      ) {
+        await updateBatchCompletenessProfile(connection, batchId, existingProfile);
+      }
+    }
+
+    const existingCoversNew = isIdentitySuperset(existingProfile.rowIdentities, profile.rowIdentities);
+    const newCoversExisting = isIdentitySuperset(profile.rowIdentities, existingProfile.rowIdentities);
+    const sameLogicalSet = existingProfile.logicalHash === profile.logicalHash || (existingCoversNew && newCoversExisting);
+
+    if (existingCoversNew && existingProfile.completenessScore >= profile.completenessScore) {
+      return {
+        action: 'skip',
+        batchId,
+        rowCount: existingProfile.rowCount,
+        message: sameLogicalSet
+          ? `ข้ามไฟล์นี้: เคยนำเข้าข้อมูลชุดเดียวกันแล้ว (${formatExistingBatchLabel(candidate)})`
+          : `ข้ามไฟล์นี้: มีข้อมูลชุดเดิมที่ครอบคลุมและสมบูรณ์กว่าแล้ว (${formatExistingBatchLabel(candidate)})`,
+      };
+    }
+
+    if (newCoversExisting && profile.completenessScore > existingProfile.completenessScore) {
+      if (!replaceCandidate || existingProfile.completenessScore > replaceCandidate.profile.completenessScore) {
+        replaceCandidate = { batch: candidate, profile: existingProfile };
+      }
+    }
+  }
+
+  if (replaceCandidate) {
+    return {
+      action: 'replace',
+      batchId: Number(replaceCandidate.batch.id || 0),
+      rowCount: replaceCandidate.profile.rowCount,
+      message: `ไฟล์นี้สมบูรณ์กว่า batch เดิม จึงนำเข้าแทน (${formatExistingBatchLabel(replaceCandidate.batch)})`,
+    };
+  }
+
+  return { action: 'import' };
+};
+
 const parseFlexibleDateTime = (value: string): string | null => {
   const text = value.trim();
   if (!text) return null;
@@ -3379,16 +3921,18 @@ const insertRepstmImportRows = async (
   const batchSize = 500;
   for (let start = 0; start < rows.length; start += batchSize) {
     const slice = rows.slice(start, start + batchSize);
-    const valuesSql = slice.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const valuesSql = slice.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
     const params: unknown[] = [];
 
     slice.forEach((row, offset) => {
       const summary = summarizeImportRow(row);
+      const rowIdentity = hashText(buildLogicalRowIdentity(dataType, row, start + offset));
       params.push(
         batchId,
         dataType,
         start + offset + 1,
         summary.refKey,
+        rowIdentity,
         summary.hn,
         summary.vn,
         summary.an,
@@ -3401,7 +3945,7 @@ const insertRepstmImportRows = async (
 
     await connection.query(
       `INSERT INTO repstm_import_row
-       (batch_id, data_type, row_no, ref_key, hn, vn, an, cid, amount, service_date, raw_data)
+       (batch_id, data_type, row_no, ref_key, row_identity, hn, vn, an, cid, amount, service_date, raw_data)
        VALUES ${valuesSql}`,
       params
     );
@@ -3423,6 +3967,7 @@ export const importRepstmRows = async (payload: {
     await connection.beginTransaction();
 
     const batchHash = buildBatchHash(payload.dataType, payload.rows);
+    const completenessProfile = buildImportCompletenessProfile(payload.dataType, payload.rows);
     const [duplicateRows] = await connection.query(
       `SELECT id, row_count, source_filename, created_at
        FROM repstm_import_batch
@@ -3443,13 +3988,34 @@ export const importRepstmRows = async (payload: {
       };
     }
 
+    const importDecision = await findRepstmImportDecision(connection, payload.dataType, completenessProfile);
+    if (importDecision.action === 'skip') {
+      await connection.rollback();
+      return {
+        success: true,
+        duplicate: true,
+        skipped: true,
+        batchId: importDecision.batchId,
+        rowCount: importDecision.rowCount,
+        message: importDecision.message,
+      };
+    }
+
     const [batchResult] = await connection.query(
-      `INSERT INTO repstm_import_batch (data_type, source_filename, batch_hash, sheet_name, imported_by, row_count, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO repstm_import_batch
+       (data_type, source_filename, batch_hash, logical_hash, completeness_score, distinct_record_count,
+        column_count, non_empty_cell_count, replaces_batch_id, sheet_name, imported_by, row_count, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.dataType,
         payload.sourceFilename,
         batchHash,
+        completenessProfile.logicalHash,
+        completenessProfile.completenessScore,
+        completenessProfile.distinctRecordCount,
+        completenessProfile.columnCount,
+        completenessProfile.nonEmptyCellCount,
+        importDecision.action === 'replace' ? importDecision.batchId : null,
         payload.sheetName || null,
         payload.importedBy || null,
         payload.rows.length,
@@ -3475,7 +4041,17 @@ export const importRepstmRows = async (payload: {
     }
 
     await connection.commit();
-    return { success: true, duplicate: false, batchId, rowCount: payload.rows.length };
+    return {
+      success: true,
+      duplicate: false,
+      replaced: importDecision.action === 'replace',
+      replacedBatchId: importDecision.action === 'replace' ? importDecision.batchId : null,
+      batchId,
+      rowCount: payload.rows.length,
+      message: importDecision.action === 'replace'
+        ? importDecision.message
+        : `นำเข้า ${payload.dataType} สำเร็จ`,
+    };
   } catch (error) {
     await connection.rollback();
     console.error('Error importing REP/STM/INV rows:', error);
@@ -4724,6 +5300,450 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   return { data, total, summary };
 };
 
+export interface Uuc1TrackingQueryParams {
+  startDate?: string;
+  endDate?: string;
+  patientType?: string;
+  patientRight?: string;
+  hosxpRight?: string;
+  financeRight?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface Uuc1TrackingRow {
+  patient_type: string;
+  visit_key: string;
+  vn: string;
+  an: string;
+  hn: string;
+  cid: string | null;
+  patient_name: string;
+  pttype: string;
+  pttype_name: string;
+  hipdata_code: string;
+  service_date: string;
+  sent_amount: number;
+  rep_amount: number | null;
+  rep_no: string | null;
+  rep_imported_at: string | null;
+  rep_senddate: string | null;
+  rep_filename: string | null;
+  rep_errorcode: string | null;
+  rep_verifycode: string | null;
+  rep_projectcode: string | null;
+  stm_amount: number | null;
+  stm_paid_amount: number | null;
+  stm_imported_at: string | null;
+  stm_statement_no: string | null;
+  stm_filename: string | null;
+  inv_amount: number | null;
+  inv_imported_at: string | null;
+  diff_rep: number | null;
+  diff_stm: number | null;
+  days_to_rep: number | null;
+  days_to_stm: number | null;
+  followup_status: string;
+  followup_status_key: string;
+  followup_note: string;
+}
+
+type RepTrackingEntry = {
+  rep_amount: number | null;
+  rep_no: string | null;
+  rep_imported_at: string | null;
+  rep_senddate: string | null;
+  rep_filename: string | null;
+  rep_errorcode: string | null;
+  rep_verifycode: string | null;
+  rep_projectcode: string | null;
+  tran_ids: string[];
+};
+
+type StatementTrackingEntry = {
+  amount: number | null;
+  paid_amount: number | null;
+  imported_at: string | null;
+  statement_no: string | null;
+  filename: string | null;
+};
+
+const formatTrackingDateTime = (value: unknown): string | null => {
+  if (value == null || value === '') return null;
+  const text = String(value);
+  if (!text || text === 'Invalid Date') return null;
+  return text.replace('T', ' ').slice(0, 19);
+};
+
+const toTrackingNumber = (value: unknown): number | null => {
+  if (value == null || value === '') return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+};
+
+const splitTrackingList = (value: unknown): string[] => {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const mergeTrackingText = (...values: Array<unknown>): string | null => {
+  const merged = new Set<string>();
+  values.forEach((value) => splitTrackingList(value).forEach((item) => merged.add(item)));
+  return merged.size > 0 ? Array.from(merged).join(', ') : null;
+};
+
+const latestTrackingDateTime = (...values: Array<unknown>): string | null => {
+  const dates = values
+    .map(formatTrackingDateTime)
+    .filter((value): value is string => Boolean(value))
+    .sort();
+  return dates.length > 0 ? dates[dates.length - 1] : null;
+};
+
+const trackingDayDiff = (start?: string | null, end?: string | null): number | null => {
+  if (!start || !end) return null;
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+  return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
+};
+
+export const getUuc1RepStmTracking = async (params: Uuc1TrackingQueryParams): Promise<{
+  data: Uuc1TrackingRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: {
+    total_visits: number;
+    rep_received: number;
+    pending_rep: number;
+    pending_stm: number;
+    stm_received: number;
+    stm_zero: number;
+    rep_issue: number;
+    mismatch: number;
+    total_sent: number;
+    total_rep: number;
+    total_stm_paid: number;
+    last_rep_import_at: string | null;
+    last_stm_import_at: string | null;
+  };
+}> => {
+  const today = new Date().toISOString().slice(0, 10);
+  const startDate = String(params.startDate || today.slice(0, 8) + '01').slice(0, 10);
+  const endDate = String(params.endDate || today).slice(0, 10);
+  const patientType = String(params.patientType || 'OPD').toUpperCase();
+  const page = Math.max(1, Number(params.page || 1));
+  const pageSize = Math.min(1000, Math.max(25, Number(params.pageSize || 200)));
+  const statusFilter = String(params.status || 'ALL').trim();
+  const search = String(params.search || '').trim().toLowerCase();
+  const scanLimit = 20000;
+
+  const baseRows = await getReceivableCandidates({
+    startDate,
+    endDate,
+    patientType,
+    patientRight: params.patientRight,
+    hosxpRight: params.hosxpRight,
+    financeRight: params.financeRight,
+    limit: scanLimit,
+  });
+
+  if (baseRows.length === 0) {
+    return {
+      data: [],
+      total: 0,
+      page,
+      pageSize,
+      summary: {
+        total_visits: 0,
+        rep_received: 0,
+        pending_rep: 0,
+        pending_stm: 0,
+        stm_received: 0,
+        stm_zero: 0,
+        rep_issue: 0,
+        mismatch: 0,
+        total_sent: 0,
+        total_rep: 0,
+        total_stm_paid: 0,
+        last_rep_import_at: null,
+        last_stm_import_at: null,
+      },
+    };
+  }
+
+  const vns = Array.from(new Set(baseRows.map((row) => String(row.vn || '').trim()).filter(Boolean)));
+  const ans = Array.from(new Set(baseRows.map((row) => String(row.an || '').trim()).filter(Boolean)));
+  const repMap = new Map<string, RepTrackingEntry>();
+  const repTranToVisit = new Map<string, string>();
+  const stmMap = new Map<string, StatementTrackingEntry>();
+  const invMap = new Map<string, StatementTrackingEntry>();
+
+  const repConnection = await getRepstmConnection();
+  try {
+    await ensureRepstmTables();
+
+    const repClauses: string[] = [];
+    const repParams: unknown[] = [];
+    if (vns.length > 0) {
+      repClauses.push(`rd.vn IN (${vns.map(() => '?').join(',')})`);
+      repParams.push(...vns);
+    }
+    if (ans.length > 0) {
+      repClauses.push(`rd.an IN (${ans.map(() => '?').join(',')})`);
+      repParams.push(...ans);
+    }
+
+    if (repClauses.length > 0) {
+      const [repRows] = await repConnection.query(
+        `SELECT
+           COALESCE(rd.vn, '') AS vn,
+           COALESCE(rd.an, '') AS an,
+           MAX(COALESCE(rd.compensated, rd.nhso, rd.agency, 0)) AS rep_amount,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(rd.rep_no, '')), '') ORDER BY rd.rep_no SEPARATOR ', ') AS rep_no,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(rd.tran_id, '')), '') ORDER BY rd.tran_id SEPARATOR ', ') AS tran_ids,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(rd.filename, '')), '') ORDER BY rd.filename SEPARATOR ', ') AS rep_filename,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(rd.errorcode, '')), '') ORDER BY rd.errorcode SEPARATOR ', ') AS rep_errorcode,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(rd.verifycode, '')), '') ORDER BY rd.verifycode SEPARATOR ', ') AS rep_verifycode,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(rd.projectcode, '')), '') ORDER BY rd.projectcode SEPARATOR ', ') AS rep_projectcode,
+           MAX(rd.senddate) AS rep_senddate,
+           MAX(b.created_at) AS rep_imported_at
+         FROM rep_data rd
+         LEFT JOIN repstm_import_batch b ON b.id = rd.batch_id
+         WHERE ${repClauses.join(' OR ')}
+         GROUP BY COALESCE(rd.vn, ''), COALESCE(rd.an, '')`,
+        repParams,
+      );
+
+      (Array.isArray(repRows) ? repRows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        const vn = String(rec.vn || '').trim();
+        const an = String(rec.an || '').trim();
+        const key = vn ? `VN:${vn}` : an ? `AN:${an}` : '';
+        if (!key) return;
+        const entry: RepTrackingEntry = {
+          rep_amount: toTrackingNumber(rec.rep_amount),
+          rep_no: mergeTrackingText(rec.rep_no),
+          rep_imported_at: formatTrackingDateTime(rec.rep_imported_at),
+          rep_senddate: formatTrackingDateTime(rec.rep_senddate),
+          rep_filename: mergeTrackingText(rec.rep_filename),
+          rep_errorcode: mergeTrackingText(rec.rep_errorcode),
+          rep_verifycode: mergeTrackingText(rec.rep_verifycode),
+          rep_projectcode: mergeTrackingText(rec.rep_projectcode),
+          tran_ids: splitTrackingList(rec.tran_ids),
+        };
+        repMap.set(key, entry);
+        entry.tran_ids.forEach((tranId) => repTranToVisit.set(tranId, vn || an));
+      });
+    }
+
+    const statementClauses: string[] = [];
+    const statementParams: unknown[] = [];
+    const repTranIds = Array.from(repTranToVisit.keys());
+    if (vns.length > 0) {
+      statementClauses.push(`s.matched_visit_code IN (${vns.map(() => '?').join(',')})`);
+      statementParams.push(...vns);
+      statementClauses.push(`s.vn IN (${vns.map(() => '?').join(',')})`);
+      statementParams.push(...vns);
+    }
+    if (ans.length > 0) {
+      statementClauses.push(`s.matched_visit_code IN (${ans.map(() => '?').join(',')})`);
+      statementParams.push(...ans);
+      statementClauses.push(`s.an IN (${ans.map(() => '?').join(',')})`);
+      statementParams.push(...ans);
+    }
+    if (repTranIds.length > 0) {
+      statementClauses.push(`s.tran_id IN (${repTranIds.map(() => '?').join(',')})`);
+      statementParams.push(...repTranIds);
+    }
+
+    const mergeStatementEntry = (map: Map<string, StatementTrackingEntry>, key: string, rec: Record<string, unknown>) => {
+      const current = map.get(key);
+      const nextAmount = toTrackingNumber(rec.total_amount);
+      const nextPaid = toTrackingNumber(rec.total_paid_amount);
+      if (!current) {
+        map.set(key, {
+          amount: nextAmount,
+          paid_amount: nextPaid,
+          imported_at: formatTrackingDateTime(rec.imported_at),
+          statement_no: mergeTrackingText(rec.statement_no),
+          filename: mergeTrackingText(rec.filename),
+        });
+        return;
+      }
+      current.amount = (current.amount ?? 0) + (nextAmount ?? 0);
+      current.paid_amount = (current.paid_amount ?? 0) + (nextPaid ?? 0);
+      current.imported_at = latestTrackingDateTime(current.imported_at, rec.imported_at);
+      current.statement_no = mergeTrackingText(current.statement_no, rec.statement_no);
+      current.filename = mergeTrackingText(current.filename, rec.filename);
+    };
+
+    if (statementClauses.length > 0) {
+      const [statementRows] = await repConnection.query(
+        `SELECT
+           COALESCE(s.matched_visit_code, s.vn, s.an, '') AS visit_code,
+           COALESCE(s.tran_id, '') AS tran_id,
+           s.data_type,
+           SUM(COALESCE(s.amount, 0)) AS total_amount,
+           SUM(COALESCE(s.paid_amount, s.amount, 0)) AS total_paid_amount,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(s.statement_no, '')), '') ORDER BY s.statement_no SEPARATOR ', ') AS statement_no,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(s.filename, '')), '') ORDER BY s.filename SEPARATOR ', ') AS filename,
+           MAX(b.created_at) AS imported_at
+         FROM repstm_statement_data s
+         LEFT JOIN repstm_import_batch b ON b.id = s.batch_id
+         WHERE s.data_type IN ('STM', 'INV')
+           AND (${statementClauses.join(' OR ')})
+         GROUP BY COALESCE(s.matched_visit_code, s.vn, s.an, ''), COALESCE(s.tran_id, ''), s.data_type`,
+        statementParams,
+      );
+
+      (Array.isArray(statementRows) ? statementRows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        const tranId = String(rec.tran_id || '').trim();
+        const visitCode = String(rec.visit_code || '').trim() || (tranId ? repTranToVisit.get(tranId) || '' : '');
+        const dataType = String(rec.data_type || '').toUpperCase();
+        if (!visitCode) return;
+        if (dataType === 'STM') {
+          mergeStatementEntry(stmMap, visitCode, rec);
+        } else if (dataType === 'INV') {
+          mergeStatementEntry(invMap, visitCode, rec);
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching UUC1 REP/STM tracking data:', error);
+  } finally {
+    repConnection.release();
+  }
+
+  const assembled: Uuc1TrackingRow[] = baseRows.map((base) => {
+    const patientTypeValue = String(base.patient_type || '');
+    const vn = String(base.vn || '').trim();
+    const an = String(base.an || '').trim();
+    const visitKey = an ? `AN:${an}` : `VN:${vn}`;
+    const lookupCode = vn || an;
+    const serviceDate = String(base.service_date || '').slice(0, 10);
+    const sentAmount = toReceivableNumber(base.claimable_amount);
+    const rep = repMap.get(visitKey) || null;
+    const stm = lookupCode ? stmMap.get(lookupCode) || null : null;
+    const inv = lookupCode ? invMap.get(lookupCode) || null : null;
+    const repAmount = rep?.rep_amount ?? null;
+    const stmPaidAmount = stm?.paid_amount ?? null;
+    const diffRep = repAmount == null ? null : Number((repAmount - sentAmount).toFixed(2));
+    const diffStm = stmPaidAmount == null ? null : Number((stmPaidAmount - sentAmount).toFixed(2));
+    const hasRepIssue = Boolean(rep?.rep_errorcode || rep?.rep_verifycode);
+
+    let followupStatusKey = 'paid';
+    let followupStatus = 'ได้รับ STM';
+    let followupNote = 'มี REP และ STM แล้ว';
+
+    if (!rep) {
+      followupStatusKey = 'pending_rep';
+      followupStatus = 'รอ REP';
+      followupNote = 'ยังไม่พบข้อมูล REP จากไฟล์ที่นำเข้า';
+    } else if (hasRepIssue) {
+      followupStatusKey = 'rep_issue';
+      followupStatus = 'ติด C/Deny';
+      followupNote = `พบรหัส ${mergeTrackingText(rep.rep_errorcode, rep.rep_verifycode) || 'C/Deny'} ใน REP`;
+    } else if (!stm) {
+      followupStatusKey = 'pending_stm';
+      followupStatus = 'รอ STM';
+      followupNote = 'มี REP แล้ว แต่ยังไม่พบ STM จากไฟล์ที่นำเข้า';
+    } else if ((stmPaidAmount ?? 0) === 0) {
+      followupStatusKey = 'stm_zero';
+      followupStatus = 'STM = 0';
+      followupNote = 'พบ STM แล้วแต่ยอดจ่ายเป็น 0';
+    } else if (diffStm != null && Math.abs(diffStm) >= 0.01) {
+      followupStatusKey = 'mismatch';
+      followupStatus = 'ยอดต่าง';
+      followupNote = 'ยอด STM ไม่ตรงกับยอดส่ง';
+    }
+
+    return {
+      patient_type: patientTypeValue,
+      visit_key: visitKey,
+      vn,
+      an,
+      hn: String(base.hn || ''),
+      cid: base.cid != null ? String(base.cid) : null,
+      patient_name: String(base.patient_name || ''),
+      pttype: String(base.pttype || ''),
+      pttype_name: String(base.pttype_name || ''),
+      hipdata_code: String(base.hipdata_code || ''),
+      service_date: serviceDate,
+      sent_amount: sentAmount,
+      rep_amount: repAmount,
+      rep_no: rep?.rep_no || null,
+      rep_imported_at: rep?.rep_imported_at || null,
+      rep_senddate: rep?.rep_senddate || null,
+      rep_filename: rep?.rep_filename || null,
+      rep_errorcode: rep?.rep_errorcode || null,
+      rep_verifycode: rep?.rep_verifycode || null,
+      rep_projectcode: rep?.rep_projectcode || null,
+      stm_amount: stm?.amount ?? null,
+      stm_paid_amount: stmPaidAmount,
+      stm_imported_at: stm?.imported_at || null,
+      stm_statement_no: stm?.statement_no || null,
+      stm_filename: stm?.filename || null,
+      inv_amount: inv?.amount ?? null,
+      inv_imported_at: inv?.imported_at || null,
+      diff_rep: diffRep,
+      diff_stm: diffStm,
+      days_to_rep: trackingDayDiff(serviceDate, rep?.rep_imported_at || null),
+      days_to_stm: trackingDayDiff(rep?.rep_imported_at || serviceDate, stm?.imported_at || null),
+      followup_status: followupStatus,
+      followup_status_key: followupStatusKey,
+      followup_note: followupNote,
+    };
+  });
+
+  const searched = search
+    ? assembled.filter((row) => [
+        row.vn,
+        row.an,
+        row.hn,
+        row.cid,
+        row.patient_name,
+        row.pttype,
+        row.pttype_name,
+        row.rep_no,
+        row.stm_statement_no,
+        row.followup_note,
+      ].some((value) => String(value || '').toLowerCase().includes(search)))
+    : assembled;
+
+  const filtered = statusFilter === 'ALL' || statusFilter === ''
+    ? searched
+    : searched.filter((row) => row.followup_status_key === statusFilter);
+
+  const summary = {
+    total_visits: filtered.length,
+    rep_received: filtered.filter((row) => Boolean(row.rep_no)).length,
+    pending_rep: filtered.filter((row) => row.followup_status_key === 'pending_rep').length,
+    pending_stm: filtered.filter((row) => row.followup_status_key === 'pending_stm').length,
+    stm_received: filtered.filter((row) => row.stm_imported_at != null).length,
+    stm_zero: filtered.filter((row) => row.followup_status_key === 'stm_zero').length,
+    rep_issue: filtered.filter((row) => row.followup_status_key === 'rep_issue').length,
+    mismatch: filtered.filter((row) => row.followup_status_key === 'mismatch').length,
+    total_sent: Math.round(filtered.reduce((sum, row) => sum + row.sent_amount, 0) * 100) / 100,
+    total_rep: Math.round(filtered.reduce((sum, row) => sum + (row.rep_amount ?? 0), 0) * 100) / 100,
+    total_stm_paid: Math.round(filtered.reduce((sum, row) => sum + (row.stm_paid_amount ?? 0), 0) * 100) / 100,
+    last_rep_import_at: latestTrackingDateTime(...filtered.map((row) => row.rep_imported_at)),
+    last_stm_import_at: latestTrackingDateTime(...filtered.map((row) => row.stm_imported_at)),
+  };
+
+  const total = filtered.length;
+  const offset = (page - 1) * pageSize;
+  const data = filtered.slice(offset, offset + pageSize);
+
+  return { data, total, page, pageSize, summary };
+};
+
 export const getInsuranceOverview = async (options: {
   startDate?: string;
   endDate?: string;
@@ -5779,11 +6799,13 @@ export const getRepstmImportBatches = async (
   dataType?: 'REP' | 'STM' | 'INV',
   limit = 20
 ): Promise<Record<string, unknown>[]> => {
+  await ensureRepstmTables();
   const connection = await getRepstmConnection();
   try {
-    await connection.query(REPSTM_IMPORT_BATCH_TABLE_SQL);
     const [rows] = await connection.query(
-      `SELECT id, data_type, source_filename, sheet_name, imported_by, row_count, notes, created_at
+      `SELECT id, data_type, source_filename, sheet_name, imported_by, row_count, notes,
+              logical_hash, completeness_score, distinct_record_count, column_count,
+              non_empty_cell_count, replaces_batch_id, created_at
        FROM repstm_import_batch
        WHERE (? IS NULL OR data_type = ?)
        ORDER BY created_at DESC
@@ -5803,9 +6825,9 @@ export const getRepstmImportedRows = async (
   dataType: 'REP' | 'STM' | 'INV',
   limit = 200
 ): Promise<Record<string, unknown>[]> => {
+  await ensureRepstmTables();
   const connection = await getRepstmConnection();
   try {
-    await connection.query(REPSTM_IMPORT_ROW_TABLE_SQL);
     const [rows] = await connection.query(
       `SELECT r.id, r.batch_id, r.data_type, r.row_no, r.ref_key, r.hn, r.vn, r.an, r.cid, r.amount, r.service_date, r.raw_data, r.created_at,
               b.source_filename, b.sheet_name

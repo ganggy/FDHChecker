@@ -922,6 +922,156 @@ export const fetchUuc1Tracking = async (params: {
   return json as Uuc1TrackingResponse;
 };
 
+export interface RepDailySummaryRow {
+  claim_date: string;
+  total_visits: number;
+  opd_visits: number;
+  ipd_visits: number;
+  uuc1_visits: number;
+  uuc2_visits: number;
+  opd_uuc1: number;
+  opd_uuc2: number;
+  ipd_uuc1: number;
+  ipd_uuc2: number;
+  rep_records: number;
+  rep_clean_cases: number;
+  rep_error_cases: number;
+  rep_amount: number;
+  stm_visits: number;
+  pending_stm_visits: number;
+  stm_zero_cases: number;
+  stm_records: number;
+  stm_amount: number;
+  stm_paid_amount: number;
+  latest_stm_import_at: string | null;
+  latest_stm_statement_no: string | null;
+  latest_rep_import_at: string | null;
+  latest_rep_senddate: string | null;
+}
+
+export interface RepDailySummary extends Omit<RepDailySummaryRow, 'claim_date'> {
+  days: number;
+  total_rep_amount: number;
+}
+
+export interface RepDailyRecommendedReport {
+  key: string;
+  title: string;
+  description: string;
+}
+
+export interface RepDailySummaryResponse {
+  success: boolean;
+  data: RepDailySummaryRow[];
+  summary: RepDailySummary;
+  recommended_reports: RepDailyRecommendedReport[];
+}
+
+export interface RepDailyVisitRow {
+  patient_type: 'OPD' | 'IPD';
+  visit_code: string;
+  vn: string | null;
+  an: string | null;
+  hn: string | null;
+  cid: string | null;
+  patient_name: string | null;
+  age: string | null;
+  pttype: string | null;
+  pttype_name: string | null;
+  department: string | null;
+  clinic: string | null;
+  service_date: string;
+  claimable_amount: number;
+  has_rep: boolean;
+  has_stm: boolean;
+  rep_amount: number | null;
+  stm_amount: number | null;
+  stm_paid_amount: number | null;
+  rep_records: number;
+  stm_records: number;
+  rep_issue: boolean;
+  stm_zero: boolean;
+  latest_rep_import_at: string | null;
+  latest_stm_import_at: string | null;
+  latest_stm_statement_no: string | null;
+}
+
+export interface RepDailyVisitDetail {
+  patient_type: 'OPD' | 'IPD';
+  visit_code: string;
+  patient: Record<string, unknown> | null;
+  diagnoses: Record<string, unknown>[];
+  procedures: Record<string, unknown>[];
+  receipts: Record<string, unknown>[];
+  labs: Record<string, unknown>[];
+  rep: Record<string, unknown>[];
+  stm: Record<string, unknown>[];
+}
+
+export const fetchRepDailySummary = async (params: {
+  startDate: string;
+  endDate: string;
+  patientType?: string;
+  claimStatus?: string;
+}): Promise<RepDailySummaryResponse> => {
+  const query = new URLSearchParams();
+  query.set('startDate', params.startDate);
+  query.set('endDate', params.endDate);
+  if (params.patientType) query.set('patientType', params.patientType);
+  if (params.claimStatus) query.set('claimStatus', params.claimStatus);
+
+  const response = await fetch(`/api/rep-daily-summary?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดสรุป REP รายวันได้');
+  }
+  return json as RepDailySummaryResponse;
+};
+
+export const fetchRepDailyVisits = async (params: {
+  claimDate: string;
+  patientType?: string;
+  claimStatus?: string;
+}): Promise<{ success: boolean; data: RepDailyVisitRow[]; summary: Record<string, number> }> => {
+  const query = new URLSearchParams();
+  query.set('claimDate', params.claimDate);
+  if (params.patientType) query.set('patientType', params.patientType);
+  if (params.claimStatus) query.set('claimStatus', params.claimStatus);
+
+  const response = await fetch(`/api/rep-daily-summary/visits?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดรายการ visit ของวันได้');
+  }
+  return json;
+};
+
+export const fetchRepDailyVisitDetail = async (params: {
+  patientType: string;
+  visitCode: string;
+}): Promise<RepDailyVisitDetail> => {
+  const query = new URLSearchParams();
+  query.set('patientType', params.patientType);
+  query.set('visitCode', params.visitCode);
+
+  const response = await fetch(`/api/rep-daily-summary/visit-detail?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดรายละเอียด visit ได้');
+  }
+  return json.data as RepDailyVisitDetail;
+};
+
 // ฟังก์ชันส่งข้อมูลไปที่ระบบ FDH
 export const submitToFDH = async (records: CheckRecord[]) => {
   try {

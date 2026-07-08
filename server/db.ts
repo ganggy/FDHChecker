@@ -5313,6 +5313,114 @@ export interface Uuc1TrackingQueryParams {
   pageSize?: number;
 }
 
+export interface RepDailySummaryQueryParams {
+  startDate?: string;
+  endDate?: string;
+  patientType?: 'ALL' | 'OPD' | 'IPD' | string;
+  claimStatus?: 'ALL' | 'UUC1' | 'UUC2' | string;
+}
+
+export interface RepDailySummaryRow {
+  claim_date: string;
+  total_visits: number;
+  opd_visits: number;
+  ipd_visits: number;
+  uuc1_visits: number;
+  uuc2_visits: number;
+  opd_uuc1: number;
+  opd_uuc2: number;
+  ipd_uuc1: number;
+  ipd_uuc2: number;
+  rep_records: number;
+  rep_clean_cases: number;
+  rep_error_cases: number;
+  rep_amount: number;
+  stm_visits: number;
+  pending_stm_visits: number;
+  stm_zero_cases: number;
+  stm_records: number;
+  stm_amount: number;
+  stm_paid_amount: number;
+  latest_stm_import_at: string | null;
+  latest_stm_statement_no: string | null;
+  latest_rep_import_at: string | null;
+  latest_rep_senddate: string | null;
+}
+
+type RepDailyBaseVisit = {
+  patientType: 'OPD' | 'IPD';
+  visitCode: string;
+  serviceDate: string;
+  expectedAmount: number;
+  hn?: string;
+  cid?: string;
+  patientName?: string;
+  age?: string;
+  pttype?: string;
+  pttypeName?: string;
+  department?: string;
+  clinic?: string;
+};
+
+type RepDailyRepEntry = {
+  amount: number;
+  records: number;
+  hasIssue: boolean;
+  tranIds: string[];
+  latestImportAt: string | null;
+  latestSenddate: string | null;
+};
+
+type RepDailyStmEntry = {
+  amount: number;
+  paidAmount: number;
+  invoiceAmount: number;
+  records: number;
+  latestImportAt: string | null;
+  latestStatementNo: string | null;
+};
+
+export interface RepDailyVisitRow {
+  patient_type: 'OPD' | 'IPD';
+  visit_code: string;
+  vn: string | null;
+  an: string | null;
+  hn: string | null;
+  cid: string | null;
+  patient_name: string | null;
+  age: string | null;
+  pttype: string | null;
+  pttype_name: string | null;
+  department: string | null;
+  clinic: string | null;
+  service_date: string;
+  claimable_amount: number;
+  has_rep: boolean;
+  has_stm: boolean;
+  rep_amount: number | null;
+  stm_amount: number | null;
+  stm_paid_amount: number | null;
+  rep_records: number;
+  stm_records: number;
+  rep_issue: boolean;
+  stm_zero: boolean;
+  latest_rep_import_at: string | null;
+  latest_stm_import_at: string | null;
+  latest_stm_statement_no: string | null;
+}
+
+export interface RepDailyVisitDetail {
+  patient_type: 'OPD' | 'IPD';
+  visit_code: string;
+  patient: Record<string, unknown> | null;
+  diagnoses: Record<string, unknown>[];
+  procedures: Record<string, unknown>[];
+  receipts: Record<string, unknown>[];
+  labs: Record<string, unknown>[];
+  rep: Record<string, unknown>[];
+  stm: Record<string, unknown>[];
+}
+
 export interface Uuc1TrackingRow {
   patient_type: string;
   visit_key: string;
@@ -5410,6 +5518,854 @@ const trackingDayDiff = (start?: string | null, end?: string | null): number | n
   const endDate = new Date(end);
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
   return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
+};
+
+const initRepDailyRow = (claimDate: string): RepDailySummaryRow => ({
+  claim_date: claimDate,
+  total_visits: 0,
+  opd_visits: 0,
+  ipd_visits: 0,
+  uuc1_visits: 0,
+  uuc2_visits: 0,
+  opd_uuc1: 0,
+  opd_uuc2: 0,
+  ipd_uuc1: 0,
+  ipd_uuc2: 0,
+  rep_records: 0,
+  rep_clean_cases: 0,
+  rep_error_cases: 0,
+  rep_amount: 0,
+  stm_visits: 0,
+  pending_stm_visits: 0,
+  stm_zero_cases: 0,
+  stm_records: 0,
+  stm_amount: 0,
+  stm_paid_amount: 0,
+  latest_stm_import_at: null,
+  latest_stm_statement_no: null,
+  latest_rep_import_at: null,
+  latest_rep_senddate: null,
+});
+
+const splitIntoChunks = <T,>(items: T[], chunkSize: number) => {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize));
+  }
+  return chunks;
+};
+
+const matchesRepDailyClaimStatus = (claimStatus: string, hasRep: boolean) => {
+  const normalized = String(claimStatus || 'ALL').toUpperCase();
+  if (normalized === 'UUC1' || normalized === 'REP' || normalized === 'HAS_REP') return hasRep;
+  if (normalized === 'UUC2' || normalized === 'NO_REP' || normalized === 'MISSING_REP') return !hasRep;
+  return true;
+};
+
+const loadRepEntriesForVisitCodes = async (
+  connection: mysql.PoolConnection,
+  vns: string[],
+  ans: string[]
+) => {
+  const repMap = new Map<string, RepDailyRepEntry>();
+  const mergeEntry = (key: string, rec: Record<string, unknown>) => {
+    if (!key) return;
+    const existing = repMap.get(key);
+    const amount = toReceivableNumber(rec.rep_amount);
+    const records = Math.max(1, toReceivableNumber(rec.rep_records));
+    const hasIssue = String(rec.issue_codes || '').trim() !== '';
+    const tranIds = String(rec.tran_ids || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const latestImportAt = formatTrackingDateTime(rec.latest_rep_import_at);
+    const latestSenddate = formatTrackingDateTime(rec.latest_rep_senddate);
+    if (!existing) {
+      repMap.set(key, { amount, records, hasIssue, tranIds, latestImportAt, latestSenddate });
+      return;
+    }
+    existing.amount += amount;
+    existing.records += records;
+    existing.hasIssue = existing.hasIssue || hasIssue;
+    existing.tranIds = Array.from(new Set([...existing.tranIds, ...tranIds]));
+    existing.latestImportAt = latestTrackingDateTime(existing.latestImportAt, latestImportAt);
+    existing.latestSenddate = latestTrackingDateTime(existing.latestSenddate, latestSenddate);
+  };
+
+  const queryRepChunk = async (fieldName: 'vn' | 'an', values: string[]) => {
+    for (const chunk of splitIntoChunks(values, 800)) {
+      if (chunk.length === 0) continue;
+      const [rows] = await connection.query(
+        `SELECT
+           COALESCE(${fieldName}, '') AS visit_code,
+           COUNT(DISTINCT record_uid) AS rep_records,
+           SUM(COALESCE(compensated, nhso, agency, 0)) AS rep_amount,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(CONCAT_WS('', errorcode, verifycode)), '') SEPARATOR ', ') AS issue_codes,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(tran_id, '')), '') SEPARATOR ',') AS tran_ids,
+           MAX(senddate) AS latest_rep_senddate,
+           MAX(b.created_at) AS latest_rep_import_at
+         FROM rep_data rd
+         LEFT JOIN repstm_import_batch b ON b.id = rd.batch_id
+         WHERE ${fieldName} IN (${chunk.map(() => '?').join(',')})
+         GROUP BY COALESCE(${fieldName}, '')`,
+        chunk
+      );
+
+      (Array.isArray(rows) ? rows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        mergeEntry(String(rec.visit_code || '').trim(), rec);
+      });
+    }
+  };
+
+  await queryRepChunk('vn', vns);
+  await queryRepChunk('an', ans);
+  return repMap;
+};
+
+const loadStmEntriesForVisitCodes = async (
+  connection: mysql.PoolConnection,
+  vns: string[],
+  ans: string[],
+  repMap: Map<string, RepDailyRepEntry>
+) => {
+  const stmMap = new Map<string, RepDailyStmEntry>();
+  const tranToVisit = new Map<string, string>();
+  const seenRecords = new Set<string>();
+
+  repMap.forEach((entry, visitCode) => {
+    entry.tranIds.forEach((tranId) => {
+      if (tranId) tranToVisit.set(tranId, visitCode);
+    });
+  });
+
+  const mergeEntry = (key: string, rec: Record<string, unknown>) => {
+    if (!key) return;
+    const recordKey = String(rec.record_key || '').trim();
+    if (recordKey && seenRecords.has(recordKey)) return;
+    if (recordKey) seenRecords.add(recordKey);
+    const existing = stmMap.get(key);
+    const latestStatementNo = String(rec.statement_no || '').trim() || null;
+    const latestImportAt = formatTrackingDateTime(rec.latest_stm_import_at);
+    const nextEntry: RepDailyStmEntry = {
+      amount: toReceivableNumber(rec.stm_amount),
+      paidAmount: toReceivableNumber(rec.stm_paid_amount),
+      invoiceAmount: toReceivableNumber(rec.invoice_amount),
+      records: 1,
+      latestImportAt,
+      latestStatementNo,
+    };
+
+    if (!existing) {
+      stmMap.set(key, nextEntry);
+      return;
+    }
+
+    existing.amount += nextEntry.amount;
+    existing.paidAmount += nextEntry.paidAmount;
+    existing.invoiceAmount += nextEntry.invoiceAmount;
+    existing.records += nextEntry.records;
+    existing.latestImportAt = latestTrackingDateTime(existing.latestImportAt, nextEntry.latestImportAt);
+    existing.latestStatementNo = nextEntry.latestStatementNo || existing.latestStatementNo;
+  };
+
+  const visitCodes = Array.from(new Set([...vns, ...ans]));
+  const tranIds = Array.from(tranToVisit.keys());
+
+  for (const chunk of splitIntoChunks(visitCodes, 500)) {
+    if (chunk.length === 0) continue;
+    const placeholders = chunk.map(() => '?').join(',');
+    const [rows] = await connection.query(
+      `SELECT
+         CONCAT(COALESCE(s.record_uid, ''), '#', s.id) AS record_key,
+         COALESCE(NULLIF(TRIM(s.matched_visit_code), ''), NULLIF(TRIM(s.vn), ''), NULLIF(TRIM(s.an), '')) AS visit_code,
+         s.statement_no,
+         COALESCE(s.amount, 0) AS stm_amount,
+         COALESCE(s.paid_amount, 0) AS stm_paid_amount,
+         COALESCE(s.invoice_amount, 0) AS invoice_amount,
+         b.created_at AS latest_stm_import_at
+       FROM repstm_statement_data s
+       LEFT JOIN repstm_import_batch b ON b.id = s.batch_id
+       WHERE s.data_type = 'STM'
+         AND (
+           s.matched_visit_code IN (${placeholders})
+           OR s.vn IN (${placeholders})
+           OR s.an IN (${placeholders})
+         )`,
+      [...chunk, ...chunk, ...chunk]
+    );
+
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const rec = row as Record<string, unknown>;
+      mergeEntry(String(rec.visit_code || '').trim(), rec);
+    });
+  }
+
+  for (const chunk of splitIntoChunks(tranIds, 500)) {
+    if (chunk.length === 0) continue;
+    const [rows] = await connection.query(
+      `SELECT
+         CONCAT(COALESCE(s.record_uid, ''), '#', s.id) AS record_key,
+         COALESCE(s.tran_id, '') AS tran_id,
+         s.statement_no,
+         COALESCE(s.amount, 0) AS stm_amount,
+         COALESCE(s.paid_amount, 0) AS stm_paid_amount,
+         COALESCE(s.invoice_amount, 0) AS invoice_amount,
+         b.created_at AS latest_stm_import_at
+       FROM repstm_statement_data s
+       LEFT JOIN repstm_import_batch b ON b.id = s.batch_id
+       WHERE s.data_type = 'STM'
+         AND s.tran_id IN (${chunk.map(() => '?').join(',')})`,
+      chunk
+    );
+
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      const rec = row as Record<string, unknown>;
+      const visitCode = tranToVisit.get(String(rec.tran_id || '').trim()) || '';
+      mergeEntry(visitCode, rec);
+    });
+  }
+
+  return stmMap;
+};
+
+export const getRepDailyClaimSummary = async (params: RepDailySummaryQueryParams): Promise<{
+  data: RepDailySummaryRow[];
+  summary: Omit<RepDailySummaryRow, 'claim_date'> & {
+    days: number;
+    total_rep_amount: number;
+    latest_rep_import_at: string | null;
+    latest_rep_senddate: string | null;
+  };
+  recommended_reports: Array<{ key: string; title: string; description: string }>;
+}> => {
+  const today = new Date().toISOString().slice(0, 10);
+  const startDate = String(params.startDate || today.slice(0, 8) + '01').slice(0, 10);
+  const endDate = String(params.endDate || today).slice(0, 10);
+  const patientType = String(params.patientType || 'ALL').toUpperCase();
+  const claimStatus = String(params.claimStatus || 'ALL').toUpperCase();
+  const hosConnection = await getUTFConnection();
+  const repConnection = await getRepstmConnection();
+
+  try {
+    await ensureRepstmTables();
+    const baseVisits: RepDailyBaseVisit[] = [];
+
+    if (patientType === 'ALL' || patientType === 'OPD') {
+      const [opdRows] = await hosConnection.query(
+        `SELECT
+           o.vn AS visit_code,
+           DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+           COALESCE(v.income, 0) AS expected_amount,
+           o.hn,
+           pt.cid,
+           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+           thaiage(pt.birthday, o.vstdate) AS age,
+           o.pttype,
+           ptt.name AS pttype_name,
+           k.department AS department,
+           sp.name AS clinic
+         FROM ovst o
+         LEFT JOIN vn_stat v ON v.vn = o.vn
+         LEFT JOIN patient pt ON pt.hn = o.hn
+         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+         LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+         LEFT JOIN spclty sp ON sp.spclty = o.spclty
+         WHERE o.vstdate BETWEEN ? AND ?
+           AND COALESCE(v.income, 0) > 0`,
+        [startDate, endDate]
+      );
+      (Array.isArray(opdRows) ? opdRows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        const visitCode = String(rec.visit_code || '').trim();
+        if (!visitCode) return;
+        baseVisits.push({
+          patientType: 'OPD',
+          visitCode,
+          serviceDate: String(rec.service_date || '').slice(0, 10),
+          expectedAmount: toReceivableNumber(rec.expected_amount),
+          hn: String(rec.hn || ''),
+          cid: String(rec.cid || ''),
+          patientName: String(rec.patient_name || ''),
+          age: String(rec.age || ''),
+          pttype: String(rec.pttype || ''),
+          pttypeName: String(rec.pttype_name || ''),
+          department: String(rec.department || ''),
+          clinic: String(rec.clinic || ''),
+        });
+      });
+    }
+
+    if (patientType === 'ALL' || patientType === 'IPD') {
+      const [ipdRows] = await hosConnection.query(
+        `SELECT
+           i.an AS visit_code,
+           DATE_FORMAT(COALESCE(i.dchdate, i.regdate), '%Y-%m-%d') AS service_date,
+           i.hn,
+           pt.cid,
+           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+           thaiage(pt.birthday, COALESCE(i.dchdate, i.regdate)) AS age,
+           i.pttype,
+           ptt.name AS pttype_name,
+           w.name AS department,
+           sp.name AS clinic,
+           CASE
+             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(a.income, 0)
+             ELSE GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0)
+           END AS expected_amount
+         FROM ipt i
+         LEFT JOIN an_stat a ON a.an = i.an
+         LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
+         LEFT JOIN patient pt ON pt.hn = i.hn
+         LEFT JOIN ward w ON w.ward = i.ward
+         LEFT JOIN spclty sp ON sp.spclty = i.spclty
+         WHERE COALESCE(i.dchdate, i.regdate) BETWEEN ? AND ?
+           AND (
+             CASE
+               WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(a.income, 0)
+               ELSE GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0)
+             END
+           ) > 0`,
+        [startDate, endDate]
+      );
+      (Array.isArray(ipdRows) ? ipdRows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        const visitCode = String(rec.visit_code || '').trim();
+        if (!visitCode) return;
+        baseVisits.push({
+          patientType: 'IPD',
+          visitCode,
+          serviceDate: String(rec.service_date || '').slice(0, 10),
+          expectedAmount: toReceivableNumber(rec.expected_amount),
+          hn: String(rec.hn || ''),
+          cid: String(rec.cid || ''),
+          patientName: String(rec.patient_name || ''),
+          age: String(rec.age || ''),
+          pttype: String(rec.pttype || ''),
+          pttypeName: String(rec.pttype_name || ''),
+          department: String(rec.department || ''),
+          clinic: String(rec.clinic || ''),
+        });
+      });
+    }
+
+    const vns = Array.from(new Set(baseVisits.filter((visit) => visit.patientType === 'OPD').map((visit) => visit.visitCode)));
+    const ans = Array.from(new Set(baseVisits.filter((visit) => visit.patientType === 'IPD').map((visit) => visit.visitCode)));
+    const repMap = await loadRepEntriesForVisitCodes(repConnection, vns, ans);
+    const stmMap = await loadStmEntriesForVisitCodes(repConnection, vns, ans, repMap);
+    const dailyMap = new Map<string, RepDailySummaryRow>();
+
+    baseVisits
+      .filter((visit) => matchesRepDailyClaimStatus(claimStatus, Boolean(repMap.get(visit.visitCode))))
+      .forEach((visit) => {
+      const claimDate = visit.serviceDate || 'ไม่ระบุ';
+      if (!dailyMap.has(claimDate)) dailyMap.set(claimDate, initRepDailyRow(claimDate));
+      const row = dailyMap.get(claimDate)!;
+      const rep = repMap.get(visit.visitCode) || null;
+      const stm = stmMap.get(visit.visitCode) || null;
+      row.total_visits += 1;
+      if (visit.patientType === 'OPD') row.opd_visits += 1;
+      if (visit.patientType === 'IPD') row.ipd_visits += 1;
+
+      if (rep) {
+        row.uuc1_visits += 1;
+        if (visit.patientType === 'OPD') row.opd_uuc1 += 1;
+        if (visit.patientType === 'IPD') row.ipd_uuc1 += 1;
+        row.rep_records += rep.records;
+        row.rep_amount += rep.amount;
+        if (rep.hasIssue) row.rep_error_cases += 1;
+        else row.rep_clean_cases += 1;
+        row.latest_rep_import_at = latestTrackingDateTime(row.latest_rep_import_at, rep.latestImportAt);
+        row.latest_rep_senddate = latestTrackingDateTime(row.latest_rep_senddate, rep.latestSenddate);
+      } else {
+        row.uuc2_visits += 1;
+        if (visit.patientType === 'OPD') row.opd_uuc2 += 1;
+        if (visit.patientType === 'IPD') row.ipd_uuc2 += 1;
+      }
+
+      if (stm) {
+        row.stm_visits += 1;
+        row.stm_records += stm.records;
+        row.stm_amount += stm.amount;
+        row.stm_paid_amount += stm.paidAmount;
+        if (Math.abs(stm.paidAmount) < 0.01) row.stm_zero_cases += 1;
+        row.latest_stm_import_at = latestTrackingDateTime(row.latest_stm_import_at, stm.latestImportAt);
+        row.latest_stm_statement_no = stm.latestStatementNo || row.latest_stm_statement_no;
+      } else if (rep) {
+        row.pending_stm_visits += 1;
+      }
+    });
+
+    const data = Array.from(dailyMap.values())
+      .sort((a, b) => a.claim_date.localeCompare(b.claim_date))
+      .map((row) => ({
+        ...row,
+        rep_amount: Math.round(row.rep_amount * 100) / 100,
+        stm_amount: Math.round(row.stm_amount * 100) / 100,
+        stm_paid_amount: Math.round(row.stm_paid_amount * 100) / 100,
+      }));
+
+    const summary = data.reduce((acc, row) => {
+      acc.total_visits += row.total_visits;
+      acc.opd_visits += row.opd_visits;
+      acc.ipd_visits += row.ipd_visits;
+      acc.uuc1_visits += row.uuc1_visits;
+      acc.uuc2_visits += row.uuc2_visits;
+      acc.opd_uuc1 += row.opd_uuc1;
+      acc.opd_uuc2 += row.opd_uuc2;
+      acc.ipd_uuc1 += row.ipd_uuc1;
+      acc.ipd_uuc2 += row.ipd_uuc2;
+      acc.rep_records += row.rep_records;
+      acc.rep_clean_cases += row.rep_clean_cases;
+      acc.rep_error_cases += row.rep_error_cases;
+      acc.rep_amount += row.rep_amount;
+      acc.stm_visits += row.stm_visits;
+      acc.pending_stm_visits += row.pending_stm_visits;
+      acc.stm_zero_cases += row.stm_zero_cases;
+      acc.stm_records += row.stm_records;
+      acc.stm_amount += row.stm_amount;
+      acc.stm_paid_amount += row.stm_paid_amount;
+      acc.latest_stm_import_at = latestTrackingDateTime(acc.latest_stm_import_at, row.latest_stm_import_at);
+      acc.latest_stm_statement_no = row.latest_stm_statement_no || acc.latest_stm_statement_no;
+      acc.latest_rep_import_at = latestTrackingDateTime(acc.latest_rep_import_at, row.latest_rep_import_at);
+      acc.latest_rep_senddate = latestTrackingDateTime(acc.latest_rep_senddate, row.latest_rep_senddate);
+      return acc;
+    }, {
+      total_visits: 0,
+      opd_visits: 0,
+      ipd_visits: 0,
+      uuc1_visits: 0,
+      uuc2_visits: 0,
+      opd_uuc1: 0,
+      opd_uuc2: 0,
+      ipd_uuc1: 0,
+      ipd_uuc2: 0,
+      rep_records: 0,
+      rep_clean_cases: 0,
+      rep_error_cases: 0,
+      rep_amount: 0,
+      stm_visits: 0,
+      pending_stm_visits: 0,
+      stm_zero_cases: 0,
+      stm_records: 0,
+      stm_amount: 0,
+      stm_paid_amount: 0,
+      latest_stm_import_at: null as string | null,
+      latest_stm_statement_no: null as string | null,
+      latest_rep_import_at: null as string | null,
+      latest_rep_senddate: null as string | null,
+      days: data.length,
+      total_rep_amount: 0,
+    });
+
+    summary.rep_amount = Math.round(summary.rep_amount * 100) / 100;
+    summary.stm_amount = Math.round(summary.stm_amount * 100) / 100;
+    summary.stm_paid_amount = Math.round(summary.stm_paid_amount * 100) / 100;
+    summary.total_rep_amount = summary.rep_amount;
+    summary.days = data.length;
+
+    return {
+      data,
+      summary,
+      recommended_reports: [
+        { key: 'daily', title: 'สรุปรายวัน', description: 'จำนวน visit ทั้งหมด, พบ REP, ยังไม่พบ REP และยอด REP แยกตามวัน' },
+        { key: 'missing_rep', title: 'รายการยังไม่พบ REP', description: 'ใช้ติดตาม UUC2/ยังไม่ส่งหรือไฟล์ REP ที่ยังไม่นำเข้า' },
+        { key: 'op_ip_split', title: 'ผู้ป่วยนอก/ผู้ป่วยใน', description: 'ดูสัดส่วน OPD/IPD ที่เข้า REP แล้วและที่ยังไม่พบ REP' },
+        { key: 'cdeny', title: 'C/Deny จาก REP', description: 'แยกเคสที่มี errorcode/verifycode เพื่อส่งต่อไปหน้าติดตาม Reject' },
+        { key: 'stm', title: 'ติดตาม STM', description: 'ดูจำนวน visit ที่ได้รับ STM แล้ว, รอ STM, STM จ่าย 0 และยอดรับ STM รายวัน' },
+        { key: 'money', title: 'ยอดเงิน REP/STM', description: 'ติดตามยอดชดเชย REP เทียบยอดตั้งและยอดรับ STM รายวัน' },
+      ],
+    };
+  } finally {
+    hosConnection.release();
+    repConnection.release();
+  }
+};
+
+export const getRepDailyVisitsForDate = async (params: {
+  claimDate: string;
+  patientType?: 'ALL' | 'OPD' | 'IPD' | string;
+  claimStatus?: 'ALL' | 'UUC1' | 'UUC2' | string;
+}): Promise<{ data: RepDailyVisitRow[]; summary: { total: number; opd: number; ipd: number; rep: number; stm: number; pending_stm: number; stm_zero: number } }> => {
+  const claimDate = String(params.claimDate || '').slice(0, 10);
+  const patientType = String(params.patientType || 'ALL').toUpperCase();
+  const claimStatus = String(params.claimStatus || 'ALL').toUpperCase();
+  if (!claimDate) {
+    return { data: [], summary: { total: 0, opd: 0, ipd: 0, rep: 0, stm: 0, pending_stm: 0, stm_zero: 0 } };
+  }
+
+  const hosConnection = await getUTFConnection();
+  const repConnection = await getRepstmConnection();
+  try {
+    await ensureRepstmTables();
+    const visits: RepDailyBaseVisit[] = [];
+
+    if (patientType === 'ALL' || patientType === 'OPD') {
+      const [rows] = await hosConnection.query(
+        `SELECT
+           o.vn AS visit_code,
+           DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+           COALESCE(v.income, 0) AS expected_amount,
+           o.hn,
+           pt.cid,
+           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+           thaiage(pt.birthday, o.vstdate) AS age,
+           o.pttype,
+           ptt.name AS pttype_name,
+           k.department AS department,
+           sp.name AS clinic
+         FROM ovst o
+         LEFT JOIN vn_stat v ON v.vn = o.vn
+         LEFT JOIN patient pt ON pt.hn = o.hn
+         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+         LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+         LEFT JOIN spclty sp ON sp.spclty = o.spclty
+         WHERE o.vstdate = ?
+           AND COALESCE(v.income, 0) > 0
+         ORDER BY o.vsttime, o.vn`,
+        [claimDate]
+      );
+      (Array.isArray(rows) ? rows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        const visitCode = String(rec.visit_code || '').trim();
+        if (!visitCode) return;
+        visits.push({
+          patientType: 'OPD',
+          visitCode,
+          serviceDate: String(rec.service_date || '').slice(0, 10),
+          expectedAmount: toReceivableNumber(rec.expected_amount),
+          hn: String(rec.hn || ''),
+          cid: String(rec.cid || ''),
+          patientName: String(rec.patient_name || ''),
+          age: String(rec.age || ''),
+          pttype: String(rec.pttype || ''),
+          pttypeName: String(rec.pttype_name || ''),
+          department: String(rec.department || ''),
+          clinic: String(rec.clinic || ''),
+        });
+      });
+    }
+
+    if (patientType === 'ALL' || patientType === 'IPD') {
+      const [rows] = await hosConnection.query(
+        `SELECT
+           i.an AS visit_code,
+           DATE_FORMAT(COALESCE(i.dchdate, i.regdate), '%Y-%m-%d') AS service_date,
+           i.hn,
+           pt.cid,
+           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+           thaiage(pt.birthday, COALESCE(i.dchdate, i.regdate)) AS age,
+           i.pttype,
+           ptt.name AS pttype_name,
+           w.name AS department,
+           sp.name AS clinic,
+           CASE
+             WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(a.income, 0)
+             ELSE GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0)
+           END AS expected_amount
+         FROM ipt i
+         LEFT JOIN an_stat a ON a.an = i.an
+         LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
+         LEFT JOIN patient pt ON pt.hn = i.hn
+         LEFT JOIN ward w ON w.ward = i.ward
+         LEFT JOIN spclty sp ON sp.spclty = i.spclty
+         WHERE COALESCE(i.dchdate, i.regdate) = ?
+           AND (
+             CASE
+               WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(a.income, 0)
+               ELSE GREATEST(COALESCE(a.income, 0) - COALESCE(a.rcpt_money, 0) - COALESCE(a.discount_money, 0), 0)
+             END
+           ) > 0
+         ORDER BY COALESCE(i.dchdate, i.regdate), i.an`,
+        [claimDate]
+      );
+      (Array.isArray(rows) ? rows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        const visitCode = String(rec.visit_code || '').trim();
+        if (!visitCode) return;
+        visits.push({
+          patientType: 'IPD',
+          visitCode,
+          serviceDate: String(rec.service_date || '').slice(0, 10),
+          expectedAmount: toReceivableNumber(rec.expected_amount),
+          hn: String(rec.hn || ''),
+          cid: String(rec.cid || ''),
+          patientName: String(rec.patient_name || ''),
+          age: String(rec.age || ''),
+          pttype: String(rec.pttype || ''),
+          pttypeName: String(rec.pttype_name || ''),
+          department: String(rec.department || ''),
+          clinic: String(rec.clinic || ''),
+        });
+      });
+    }
+
+    const vns = visits.filter((visit) => visit.patientType === 'OPD').map((visit) => visit.visitCode);
+    const ans = visits.filter((visit) => visit.patientType === 'IPD').map((visit) => visit.visitCode);
+    const repMap = await loadRepEntriesForVisitCodes(repConnection, vns, ans);
+    const stmMap = await loadStmEntriesForVisitCodes(repConnection, vns, ans, repMap);
+
+    const data = visits
+      .filter((visit) => matchesRepDailyClaimStatus(claimStatus, Boolean(repMap.get(visit.visitCode))))
+      .map((visit) => {
+      const rep = repMap.get(visit.visitCode) || null;
+      const stm = stmMap.get(visit.visitCode) || null;
+      const stmPaid = stm ? stm.paidAmount : null;
+      return {
+        patient_type: visit.patientType,
+        visit_code: visit.visitCode,
+        vn: visit.patientType === 'OPD' ? visit.visitCode : null,
+        an: visit.patientType === 'IPD' ? visit.visitCode : null,
+        hn: visit.hn || null,
+        cid: visit.cid || null,
+        patient_name: visit.patientName || null,
+        age: visit.age || null,
+        pttype: visit.pttype || null,
+        pttype_name: visit.pttypeName || null,
+        department: visit.department || null,
+        clinic: visit.clinic || null,
+        service_date: visit.serviceDate,
+        claimable_amount: Math.round(visit.expectedAmount * 100) / 100,
+        has_rep: Boolean(rep),
+        has_stm: Boolean(stm),
+        rep_amount: rep ? Math.round(rep.amount * 100) / 100 : null,
+        stm_amount: stm ? Math.round(stm.amount * 100) / 100 : null,
+        stm_paid_amount: stmPaid == null ? null : Math.round(stmPaid * 100) / 100,
+        rep_records: rep?.records || 0,
+        stm_records: stm?.records || 0,
+        rep_issue: Boolean(rep?.hasIssue),
+        stm_zero: stmPaid != null && Math.abs(stmPaid) < 0.01,
+        latest_rep_import_at: rep?.latestImportAt || null,
+        latest_stm_import_at: stm?.latestImportAt || null,
+        latest_stm_statement_no: stm?.latestStatementNo || null,
+      };
+    });
+
+    const summary = data.reduce((acc, row) => {
+      acc.total += 1;
+      if (row.patient_type === 'OPD') acc.opd += 1;
+      if (row.patient_type === 'IPD') acc.ipd += 1;
+      if (row.has_rep) acc.rep += 1;
+      if (row.has_stm) acc.stm += 1;
+      if (row.has_rep && !row.has_stm) acc.pending_stm += 1;
+      if (row.stm_zero) acc.stm_zero += 1;
+      return acc;
+    }, { total: 0, opd: 0, ipd: 0, rep: 0, stm: 0, pending_stm: 0, stm_zero: 0 });
+
+    return { data, summary };
+  } finally {
+    hosConnection.release();
+    repConnection.release();
+  }
+};
+
+export const getRepDailyVisitDetail = async (params: {
+  patientType: 'OPD' | 'IPD' | string;
+  visitCode: string;
+}): Promise<RepDailyVisitDetail | null> => {
+  const patientType = String(params.patientType || '').toUpperCase() as 'OPD' | 'IPD';
+  const visitCode = String(params.visitCode || '').trim();
+  if (!visitCode || !['OPD', 'IPD'].includes(patientType)) return null;
+
+  const hosConnection = await getUTFConnection();
+  const repConnection = await getRepstmConnection();
+  try {
+    await ensureRepstmTables();
+    let patientRows: Record<string, unknown>[] = [];
+    let diagnosisRows: Record<string, unknown>[] = [];
+    let procedureRows: Record<string, unknown>[] = [];
+    let receiptRows: Record<string, unknown>[] = [];
+    let labRows: Record<string, unknown>[] = [];
+
+    if (patientType === 'OPD') {
+      const [patient] = await hosConnection.query(
+        `SELECT
+           o.vn, NULL AS an, o.hn, pt.cid,
+           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+           thaiage(pt.birthday, o.vstdate) AS age,
+           DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+           TIME_FORMAT(o.vsttime, '%H:%i') AS service_time,
+           o.pttype, ptt.name AS pttype_name,
+           k.department AS department,
+           sp.name AS clinic,
+           os.cc, os.bps, os.bpd, os.bw, os.height, os.temperature, os.pulse
+         FROM ovst o
+         LEFT JOIN patient pt ON pt.hn = o.hn
+         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+         LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+         LEFT JOIN spclty sp ON sp.spclty = o.spclty
+         LEFT JOIN opdscreen os ON os.vn = o.vn
+         WHERE o.vn = ?
+         LIMIT 1`,
+        [visitCode]
+      );
+      patientRows = Array.isArray(patient) ? patient as Record<string, unknown>[] : [];
+
+      const [diags] = await hosConnection.query(
+        `SELECT d.diagtype, d.icd10, i.name AS code_name
+         FROM ovstdiag d
+         LEFT JOIN icd101 i ON i.code = d.icd10
+         WHERE d.vn = ?
+         ORDER BY d.diagtype, d.icd10`,
+        [visitCode]
+      );
+      diagnosisRows = Array.isArray(diags) ? diags as Record<string, unknown>[] : [];
+
+      const [procedures] = await hosConnection.query(
+        `SELECT o.icd9, i.name AS code_name, 'doctor_operation' AS source
+         FROM doctor_operation o
+         LEFT JOIN icd9cm1 i ON i.code = o.icd9
+         WHERE o.vn = ?
+         UNION ALL
+         SELECT eo.er_oper_code AS icd9, e.name AS code_name, 'er_regist_oper' AS source
+         FROM er_regist_oper eo
+         LEFT JOIN er_oper_code e ON e.er_oper_code = eo.er_oper_code
+         WHERE eo.vn = ?`,
+        [visitCode, visitCode]
+      );
+      procedureRows = Array.isArray(procedures) ? procedures as Record<string, unknown>[] : [];
+
+      const [labs] = await hosConnection.query(
+        `SELECT h.order_date, li.lab_items_name, lo.lab_order_result, li.lab_items_normal_value
+         FROM lab_head h
+         JOIN lab_order lo ON lo.lab_order_number = h.lab_order_number
+         JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+         WHERE h.vn = ?
+           AND lo.lab_order_result IS NOT NULL
+           AND lo.lab_order_result <> ''
+         ORDER BY h.order_date DESC, li.lab_items_name
+         LIMIT 200`,
+        [visitCode]
+      );
+      labRows = Array.isArray(labs) ? labs as Record<string, unknown>[] : [];
+    } else {
+      const [patient] = await hosConnection.query(
+        `SELECT
+           i.vn, i.an, i.hn, pt.cid,
+           CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+           thaiage(pt.birthday, COALESCE(i.dchdate, i.regdate)) AS age,
+           DATE_FORMAT(i.regdate, '%Y-%m-%d') AS admit_date,
+           TIME_FORMAT(i.regtime, '%H:%i') AS admit_time,
+           DATE_FORMAT(i.dchdate, '%Y-%m-%d') AS discharge_date,
+           TIME_FORMAT(i.dchtime, '%H:%i') AS discharge_time,
+           i.pttype, ptt.name AS pttype_name,
+           w.name AS department,
+           sp.name AS clinic
+         FROM ipt i
+         LEFT JOIN patient pt ON pt.hn = i.hn
+         LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
+         LEFT JOIN ward w ON w.ward = i.ward
+         LEFT JOIN spclty sp ON sp.spclty = i.spclty
+         WHERE i.an = ?
+         LIMIT 1`,
+        [visitCode]
+      );
+      patientRows = Array.isArray(patient) ? patient as Record<string, unknown>[] : [];
+
+      const [diags] = await hosConnection.query(
+        `SELECT d.diagtype, d.icd10, i.name AS code_name
+         FROM iptdiag d
+         LEFT JOIN icd101 i ON i.code = d.icd10
+         WHERE d.an = ?
+         ORDER BY d.diagtype, d.icd10`,
+        [visitCode]
+      );
+      diagnosisRows = Array.isArray(diags) ? diags as Record<string, unknown>[] : [];
+
+      const [procedures] = await hosConnection.query(
+        `SELECT o.icd9, i.name AS code_name, 'iptoprt' AS source
+         FROM iptoprt o
+         LEFT JOIN icd9cm1 i ON i.code = o.icd9
+         WHERE o.an = ?
+         ORDER BY o.icd9`,
+        [visitCode]
+      );
+      procedureRows = Array.isArray(procedures) ? procedures as Record<string, unknown>[] : [];
+
+      const [labs] = await hosConnection.query(
+        `SELECT h.order_date, li.lab_items_name, lo.lab_order_result, li.lab_items_normal_value
+         FROM lab_head h
+         JOIN lab_order lo ON lo.lab_order_number = h.lab_order_number
+         JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+         WHERE (h.vn = ? OR h.vn = (SELECT vn FROM ipt WHERE an = ? LIMIT 1))
+           AND lo.lab_order_result IS NOT NULL
+           AND lo.lab_order_result <> ''
+         ORDER BY h.order_date DESC, li.lab_items_name
+         LIMIT 200`,
+        [visitCode, visitCode]
+      );
+      labRows = Array.isArray(labs) ? labs as Record<string, unknown>[] : [];
+    }
+
+    const [receipts] = await hosConnection.query(
+      `SELECT
+         o.icode,
+         COALESCE(sd.name, di.name, ndi.name, o.icode) AS item_name,
+         inc.name AS income_name,
+         o.qty,
+         o.unitprice,
+         o.sum_price,
+         o.income,
+         COALESCE(sd.nhso_adp_code, '') AS nhso_adp_code,
+         COALESCE(sd.nhso_adp_type_id, '') AS nhso_adp_type_id,
+         COALESCE(di.ttmt_code, '') AS ttmt_code,
+         COALESCE(ndi.tmlt_code, '') AS tmlt_code
+       FROM opitemrece o
+       LEFT JOIN s_drugitems sd ON sd.icode = o.icode
+       LEFT JOIN drugitems di ON di.icode = o.icode
+       LEFT JOIN nondrugitems ndi ON ndi.icode = o.icode
+       LEFT JOIN income inc ON inc.income = o.income
+       WHERE ${patientType === 'OPD' ? 'o.vn = ?' : 'o.an = ?'}
+       ORDER BY o.income, o.icode
+       LIMIT 500`,
+      [visitCode]
+    );
+    receiptRows = Array.isArray(receipts) ? receipts as Record<string, unknown>[] : [];
+
+    const [repRows] = await repConnection.query(
+      `SELECT rep_no, tran_id, vn, an, patient_type, department, senddate, maininscl, subinscl,
+              errorcode, verifycode, projectcode, income, compensated, nhso, agency, filename, created_at
+       FROM rep_data
+       WHERE ${patientType === 'OPD' ? 'vn = ?' : 'an = ?'}
+       ORDER BY senddate DESC, id DESC
+       LIMIT 100`,
+      [visitCode]
+    );
+
+    const tranIds = (Array.isArray(repRows) ? repRows as Record<string, unknown>[] : [])
+      .map((row) => String(row.tran_id || '').trim())
+      .filter(Boolean);
+    const stmWhere = patientType === 'OPD'
+      ? `(s.vn = ? OR s.matched_visit_code = ?${tranIds.length ? ` OR s.tran_id IN (${tranIds.map(() => '?').join(',')})` : ''})`
+      : `(s.an = ? OR s.matched_visit_code = ?${tranIds.length ? ` OR s.tran_id IN (${tranIds.map(() => '?').join(',')})` : ''})`;
+    const [stmRows] = await repConnection.query(
+      `SELECT s.data_type, s.statement_no, s.tran_id, s.vn, s.an, s.patient_type, s.department,
+              s.service_datetime, s.senddate, s.maininscl, s.subinscl, s.errorcode, s.verifycode,
+              s.amount, s.paid_amount, s.invoice_amount, s.filename, s.matched_status, b.created_at
+       FROM repstm_statement_data s
+       LEFT JOIN repstm_import_batch b ON b.id = s.batch_id
+       WHERE s.data_type IN ('STM', 'INV')
+         AND ${stmWhere}
+       ORDER BY b.created_at DESC, s.id DESC
+       LIMIT 100`,
+      [visitCode, visitCode, ...tranIds]
+    );
+
+    return {
+      patient_type: patientType,
+      visit_code: visitCode,
+      patient: patientRows[0] || null,
+      diagnoses: diagnosisRows,
+      procedures: procedureRows,
+      receipts: receiptRows,
+      labs: labRows,
+      rep: Array.isArray(repRows) ? repRows as Record<string, unknown>[] : [],
+      stm: Array.isArray(stmRows) ? stmRows as Record<string, unknown>[] : [],
+    };
+  } finally {
+    hosConnection.release();
+    repConnection.release();
+  }
 };
 
 export const getUuc1RepStmTracking = async (params: Uuc1TrackingQueryParams): Promise<{

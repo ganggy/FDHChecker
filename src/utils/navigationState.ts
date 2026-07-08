@@ -1,4 +1,4 @@
-export type AppPage = 'staff' | 'ipd' | 'admin' | 'fdh' | 'fdhImport' | 'fdhClaimDetail' | 'nhsoClose' | 'repstm' | 'receivable' | 'insuranceOverview' | 'repDeny' | 'specific' | 'fundFdh' | 'fund43' | 'fundKtb' | 'fundOther' | 'monitor' | 'fsMonitor' | 'mophDmht' | 'mophVaccine' | 'guide' | 'settings' | 'authenSync' | 'preValidator' | 'workQueue' | 'rejectTracking' | 'reconciliation' | 'uuc1Tracking';
+export type AppPage = 'staff' | 'ipd' | 'admin' | 'fdh' | 'fdhImport' | 'fdhClaimDetail' | 'nhsoClose' | 'repstm' | 'receivable' | 'insuranceOverview' | 'repDeny' | 'specific' | 'fundFdh' | 'fund43' | 'fundKtb' | 'fundOther' | 'monitor' | 'fsMonitor' | 'mophDmht' | 'mophVaccine' | 'guide' | 'settings' | 'authenSync' | 'preValidator' | 'workQueue' | 'rejectTracking' | 'reconciliation' | 'repDailySummary' | 'uuc1Tracking';
 
 export interface DashboardNavigationPayload {
   source?: 'dashboard';

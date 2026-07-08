@@ -41,6 +41,9 @@ import {
   getValeImportStatus,
   getVisitRepStmComparison,
   getUuc1RepStmTracking,
+  getRepDailyClaimSummary,
+  getRepDailyVisitsForDate,
+  getRepDailyVisitDetail,
   saveReceivableBatch,
   syncNhsoAuthenCodes,
   getAuthenSyncLogs,
@@ -2421,6 +2424,7 @@ app.get('/api/receivables/reconciliation', async (req, res) => {
       startDate: req.query.startDate ? String(req.query.startDate) : undefined,
       endDate: req.query.endDate ? String(req.query.endDate) : undefined,
       patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      claimStatus: req.query.claimStatus ? String(req.query.claimStatus) : undefined,
       patientRight: req.query.patientRight ? String(req.query.patientRight) : undefined,
       hosxpRight: req.query.hosxpRight ? String(req.query.hosxpRight) : undefined,
       financeRight: req.query.financeRight ? String(req.query.financeRight) : undefined,
@@ -2453,6 +2457,50 @@ app.get('/api/uuc1-tracking', async (req, res) => {
   } catch (error) {
     console.error('Error fetching UUC1 tracking data:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูลติดตาม UUC1 REP/STM' });
+  }
+});
+
+app.get('/api/rep-daily-summary', async (req, res) => {
+  try {
+    const result = await getRepDailyClaimSummary({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Error fetching daily REP summary:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดสรุป REP รายวัน' });
+  }
+});
+
+app.get('/api/rep-daily-summary/visits', async (req, res) => {
+  try {
+    const result = await getRepDailyVisitsForDate({
+      claimDate: req.query.claimDate ? String(req.query.claimDate) : '',
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      claimStatus: req.query.claimStatus ? String(req.query.claimStatus) : undefined,
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Error fetching REP daily visits:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดรายการ visit ของวัน' });
+  }
+});
+
+app.get('/api/rep-daily-summary/visit-detail', async (req, res) => {
+  try {
+    const data = await getRepDailyVisitDetail({
+      patientType: req.query.patientType ? String(req.query.patientType) : '',
+      visitCode: req.query.visitCode ? String(req.query.visitCode) : '',
+    });
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'ไม่พบรายละเอียด visit' });
+    }
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching REP daily visit detail:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดรายละเอียด visit' });
   }
 });
 

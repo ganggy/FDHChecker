@@ -174,14 +174,25 @@ export const VisitReconciliationPage = () => {
       'ยอดตั้งลูกหนี้': r.claimable_amount,
       'ยอด REP': r.rep_amount ?? '',
       'เลขที่ REP': r.rep_no || '',
+      'Tran ID': r.rep_tran_id || '',
+      'REP SendDate': r.rep_senddate || '',
+      'REP Imported': r.rep_imported_at || '',
+      'REP Error': [r.rep_errorcode, r.rep_verifycode].filter(Boolean).join(' / '),
       'ยอด STM': r.stm_amount ?? '',
       'ชำระ STM': r.stm_paid_amount ?? '',
+      'เลขที่ STM': r.stm_statement_no || '',
+      'STM Imported': r.stm_imported_at || '',
+      'STM Error': [r.stm_errorcode, r.stm_verifycode].filter(Boolean).join(' / '),
       'ยอด INV': r.inv_amount ?? '',
       'เบิก INV': r.inv_invoice_amount ?? '',
       'ส่วนต่าง REP': r.diff_rep ?? '',
       'ส่วนต่าง STM': r.diff_stm ?? '',
+      'ส่วนต่างยอดรับ STM': r.diff_stm_paid ?? '',
       'ส่วนต่าง INV': r.diff_inv ?? '',
       'สถานะ': r.compare_status,
+      'ประเด็น': r.issue_status,
+      'วันถึง REP': r.days_to_rep ?? '',
+      'วันถึง STM': r.days_to_stm ?? '',
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Reconciliation');
@@ -340,7 +351,7 @@ export const VisitReconciliationPage = () => {
       {/* Summary Cards */}
       {summary && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-          <SummaryCard label="วิสิตทั้งหมด" value={summary.total_visits.toLocaleString('th-TH')} />
+          <SummaryCard label="visit ทั้งหมด" value={summary.total_visits.toLocaleString('th-TH')} />
           <SummaryCard label="ตรงกัน" value={summary.matched.toLocaleString('th-TH')} color="#15803d" />
           <SummaryCard label="ยอดต่าง" value={summary.mismatched.toLocaleString('th-TH')} color="#b91c1c" />
           <SummaryCard label="รอ REP" value={summary.pending_rep.toLocaleString('th-TH')} color="#b45309" />
@@ -349,7 +360,11 @@ export const VisitReconciliationPage = () => {
           <SummaryCard label="ยอดตั้งลูกหนี้รวม" value={`฿${formatMoney(summary.total_claimable)}`} color="#1e40af" />
           <SummaryCard label="ยอด REP รวม" value={`฿${formatMoney(summary.total_rep)}`} />
           <SummaryCard label="ยอด STM รวม" value={`฿${formatMoney(summary.total_stm)}`} />
+          <SummaryCard label="ยอดรับ STM รวม" value={`฿${formatMoney(summary.total_stm_paid)}`} color="#047857" />
           <SummaryCard label="ยอด INV รวม" value={`฿${formatMoney(summary.total_inv)}`} />
+          <SummaryCard label="REP C/Deny" value={summary.rep_issue.toLocaleString('th-TH')} color="#b91c1c" />
+          <SummaryCard label="STM = 0" value={summary.stm_zero.toLocaleString('th-TH')} color="#b91c1c" />
+          <SummaryCard label="รับขาด/รับเกิน" value={`${summary.underpaid.toLocaleString('th-TH')} / ${summary.overpaid.toLocaleString('th-TH')}`} color="#b45309" />
         </div>
       )}
 
@@ -398,11 +413,15 @@ export const VisitReconciliationPage = () => {
                   {th('ยอดตั้งลูกหนี้', 'claimable_amount', 'right')}
                   {th('ยอด REP', 'rep_amount', 'right')}
                   {th('ยอด STM', 'stm_amount', 'right')}
+                  {th('รับ STM', 'stm_paid_amount', 'right')}
                   {th('ยอด INV', 'inv_amount', 'right')}
                   {th('ส่วนต่าง REP', 'diff_rep', 'right')}
-                  {th('ส่วนต่าง STM', 'diff_stm', 'right')}
+                  {th('ต่างรับ STM', 'diff_stm_paid', 'right')}
                   {th('เลขที่ REP', 'rep_no')}
+                  {th('เลขที่ STM', 'stm_statement_no')}
+                  {th('ประเด็น', 'issue_status')}
                   {th('สถานะ', 'compare_status')}
+                  {th('วัน REP/STM', 'days_to_rep')}
                 </tr>
               </thead>
               <tbody>
@@ -439,20 +458,34 @@ export const VisitReconciliationPage = () => {
                       <td style={{ padding: '7px 10px', textAlign: 'right', color: row.has_stm ? '#166534' : '#9ca3af' }}>
                         {row.has_stm ? formatMoney(row.stm_amount) : '-'}
                       </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.has_stm ? '#166534' : '#9ca3af', fontWeight: row.stm_paid_amount != null ? 600 : undefined }}>
+                        {row.has_stm ? formatMoney(row.stm_paid_amount) : '-'}
+                      </td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', color: row.has_inv ? '#166534' : '#9ca3af' }}>
                         {row.has_inv ? formatMoney(row.inv_amount) : '-'}
                       </td>
                       <td style={{ padding: '7px 10px', textAlign: 'right', color: row.diff_rep == null ? '#9ca3af' : Math.abs(toNumber(row.diff_rep)) < 0.01 ? '#166534' : '#b91c1c', fontWeight: row.diff_rep != null ? 600 : undefined }}>
                         {formatMoneyNull(row.diff_rep)}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.diff_stm == null ? '#9ca3af' : Math.abs(toNumber(row.diff_stm)) < 0.01 ? '#166534' : '#b91c1c', fontWeight: row.diff_stm != null ? 600 : undefined }}>
-                        {formatMoneyNull(row.diff_stm)}
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.diff_stm_paid == null ? '#9ca3af' : Math.abs(toNumber(row.diff_stm_paid)) < 0.01 ? '#166534' : '#b91c1c', fontWeight: row.diff_stm_paid != null ? 600 : undefined }}>
+                        {formatMoneyNull(row.diff_stm_paid)}
                       </td>
                       <td style={{ padding: '7px 10px', fontSize: '0.76rem', color: '#6b7280', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {row.rep_no || '-'}
+                        <div>{row.rep_no || '-'}</div>
+                        {row.rep_senddate && <small>{row.rep_senddate}</small>}
+                      </td>
+                      <td style={{ padding: '7px 10px', fontSize: '0.76rem', color: '#6b7280', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div>{row.stm_statement_no || '-'}</div>
+                        {row.stm_imported_at && <small>{row.stm_imported_at}</small>}
+                      </td>
+                      <td style={{ padding: '7px 10px', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: row.issue_status === 'ปกติ' ? '#166534' : '#b91c1c', fontWeight: 600 }}>
+                        {row.issue_status || '-'}
                       </td>
                       <td style={{ padding: '7px 10px' }}>
                         <StatusBadge status={row.compare_status} />
+                      </td>
+                      <td style={{ padding: '7px 10px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                        {row.days_to_rep ?? '-'} / {row.days_to_stm ?? '-'}
                       </td>
                     </tr>
                   );

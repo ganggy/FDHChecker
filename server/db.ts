@@ -4995,17 +4995,32 @@ export interface ReconciliationRow {
   claimable_amount: number;
   rep_amount: number | null;
   rep_no: string | null;
+  rep_tran_id: string | null;
+  rep_senddate: string | null;
+  rep_imported_at: string | null;
+  rep_errorcode: string | null;
+  rep_verifycode: string | null;
   has_rep: boolean;
   stm_amount: number | null;
   stm_paid_amount: number | null;
+  stm_statement_no: string | null;
+  stm_imported_at: string | null;
+  stm_errorcode: string | null;
+  stm_verifycode: string | null;
   has_stm: boolean;
   inv_amount: number | null;
   inv_invoice_amount: number | null;
+  inv_statement_no: string | null;
+  inv_imported_at: string | null;
   has_inv: boolean;
   diff_rep: number | null;
   diff_stm: number | null;
+  diff_stm_paid: number | null;
   diff_inv: number | null;
   compare_status: string;
+  issue_status: string;
+  days_to_rep: number | null;
+  days_to_stm: number | null;
 }
 
 export const getVisitRepStmComparison = async (params: ReconciliationQueryParams): Promise<{
@@ -5021,7 +5036,12 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     total_claimable: number;
     total_rep: number;
     total_stm: number;
+    total_stm_paid: number;
     total_inv: number;
+    rep_issue: number;
+    stm_zero: number;
+    overpaid: number;
+    underpaid: number;
   };
 }> => {
   const today = new Date().toISOString().slice(0, 10);
@@ -5031,8 +5051,8 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   const pageSize = Math.min(500, Math.max(10, Number(params.pageSize || 100)));
   const compareStatusFilter = String(params.compareStatus || '').trim();
 
-  // Step 1: get total count and base rows for current page using DB-level pagination
-  // When compareStatus filter is active we must scan all rows (slower) but still cap at 5000 for safety
+  // Step 1: load the full candidate set for the selected period so summary and filters are consistent.
+  // The reconciliation page is an accounting page; correct totals are more important than page-only summaries.
   const candidateParams = {
     startDate,
     endDate,
@@ -5043,30 +5063,28 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   };
 
   const totalCount = await countReceivableCandidates(candidateParams);
+  const scanLimit = totalCount;
 
   if (totalCount === 0) {
     const emptySummary = {
       total_visits: 0, matched: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
-      no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_inv: 0,
+      no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_stm_paid: 0, total_inv: 0,
+      rep_issue: 0, stm_zero: 0, overpaid: 0, underpaid: 0,
     };
     return { data: [], total: 0, summary: emptySummary };
   }
 
-  // Fetch only current page from DB (no compareStatus pre-filter possible at this stage)
-  // If compareStatus filter is active, load up to 2000 rows to find enough matches
-  const fetchLimit = compareStatusFilter ? Math.min(totalCount, 2000) : pageSize;
-  const fetchOffset = compareStatusFilter ? 0 : (page - 1) * pageSize;
-
   const baseRows = await getReceivableCandidates({
     ...candidateParams,
-    limit: fetchLimit,
-    offset: fetchOffset,
+    limit: scanLimit,
+    offset: 0,
   });
 
   if (baseRows.length === 0) {
     const emptySummary = {
       total_visits: 0, matched: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
-      no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_inv: 0,
+      no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_stm_paid: 0, total_inv: 0,
+      rep_issue: 0, stm_zero: 0, overpaid: 0, underpaid: 0,
     };
     return { data: [], total: 0, summary: emptySummary };
   }
@@ -5078,10 +5096,25 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   const ans = Array.from(new Set(baseRows.map(r => String(r.an || '').trim()).filter(Boolean)));
 
   const repConnection = await getRepstmConnection();
-  const repMap = new Map<string, { rep_amount: number; rep_no: string }>();
+  const repMap = new Map<string, {
+    rep_amount: number;
+    rep_no: string;
+    tran_id: string;
+    senddate: string | null;
+    imported_at: string | null;
+    errorcode: string;
+    verifycode: string;
+  }>();
   const repTranToVisit = new Map<string, string>();
-  const stmMap = new Map<string, { stm_amount: number | null; stm_paid_amount: number | null }>();
-  const invMap = new Map<string, { inv_amount: number | null; inv_invoice_amount: number | null }>();
+  const stmMap = new Map<string, {
+    stm_amount: number | null;
+    stm_paid_amount: number | null;
+    statement_no: string;
+    imported_at: string | null;
+    errorcode: string;
+    verifycode: string;
+  }>();
+  const invMap = new Map<string, { inv_amount: number | null; inv_invoice_amount: number | null; statement_no: string; imported_at: string | null }>();
 
   try {
     await ensureRepstmTables();
@@ -5098,8 +5131,14 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
            COALESCE(vn, '') AS vn,
            COALESCE(an, '') AS an,
            MAX(COALESCE(compensated, nhso, agency, 0)) AS rep_amount,
-           GROUP_CONCAT(DISTINCT rep_no ORDER BY rep_no SEPARATOR ', ') AS rep_no
-         FROM rep_data
+           GROUP_CONCAT(DISTINCT rep_no ORDER BY rep_no SEPARATOR ', ') AS rep_no,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(tran_id, '')), '') SEPARATOR ',') AS tran_id,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(errorcode, '')), '') SEPARATOR ', ') AS errorcode,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(verifycode, '')), '') SEPARATOR ', ') AS verifycode,
+           MAX(senddate) AS senddate,
+           MAX(b.created_at) AS imported_at
+         FROM rep_data r
+         LEFT JOIN repstm_import_batch b ON b.id = r.batch_id
          WHERE ${repClauses.join(' OR ')}
          GROUP BY COALESCE(vn, ''), COALESCE(an, '')`,
         repParams
@@ -5108,28 +5147,20 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
         const rec = r as Record<string, unknown>;
         const vn = String(rec.vn || '').trim();
         const an = String(rec.an || '').trim();
-        const entry = { rep_amount: toNum(rec.rep_amount), rep_no: String(rec.rep_no || '') };
+        const entry = {
+          rep_amount: toNum(rec.rep_amount),
+          rep_no: String(rec.rep_no || ''),
+          tran_id: String(rec.tran_id || ''),
+          senddate: formatTrackingDateTime(rec.senddate),
+          imported_at: formatTrackingDateTime(rec.imported_at),
+          errorcode: String(rec.errorcode || ''),
+          verifycode: String(rec.verifycode || ''),
+        };
         if (vn) repMap.set(`VN:${vn}`, entry);
         if (an) repMap.set(`AN:${an}`, entry);
-      });
-
-      const [repTranRows] = await repConnection.query(
-        `SELECT
-           COALESCE(tran_id, '') AS tran_id,
-           COALESCE(vn, '') AS vn,
-           COALESCE(an, '') AS an
-         FROM rep_data
-         WHERE (${repClauses.join(' OR ')})
-           AND NULLIF(TRIM(COALESCE(tran_id, '')), '') IS NOT NULL`,
-        repParams
-      );
-      (Array.isArray(repTranRows) ? repTranRows : []).forEach((r) => {
-        const rec = r as Record<string, unknown>;
-        const tranId = String(rec.tran_id || '').trim();
-        const vn = String(rec.vn || '').trim();
-        const an = String(rec.an || '').trim();
-        if (!tranId) return;
-        repTranToVisit.set(tranId, vn || an || '');
+        entry.tran_id.split(',').map((item) => item.trim()).filter(Boolean).forEach((tranId) => {
+          repTranToVisit.set(tranId, vn || an || '');
+        });
       });
     }
 
@@ -5153,16 +5184,21 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     if (stmClauses.length > 0) {
       const [stmRows] = await repConnection.query(
         `SELECT
-           COALESCE(s.matched_visit_code, s.vn, s.an, '') AS visit_code,
+           COALESCE(NULLIF(TRIM(s.matched_visit_code), ''), NULLIF(TRIM(s.vn), ''), NULLIF(TRIM(s.an), ''), '') AS visit_code,
            COALESCE(s.tran_id, '') AS tran_id,
            s.data_type,
            SUM(COALESCE(s.amount, 0)) AS total_amount,
            SUM(COALESCE(s.paid_amount, 0)) AS total_paid_amount,
-           SUM(COALESCE(s.invoice_amount, 0)) AS total_invoice_amount
+           SUM(COALESCE(s.invoice_amount, 0)) AS total_invoice_amount,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(s.statement_no, '')), '') ORDER BY s.statement_no SEPARATOR ', ') AS statement_no,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(s.errorcode, '')), '') SEPARATOR ', ') AS errorcode,
+           GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(s.verifycode, '')), '') SEPARATOR ', ') AS verifycode,
+           MAX(b.created_at) AS imported_at
          FROM repstm_statement_data s
+         LEFT JOIN repstm_import_batch b ON b.id = s.batch_id
          WHERE s.data_type IN ('STM', 'INV')
            AND (${stmClauses.join(' OR ')})
-         GROUP BY COALESCE(s.matched_visit_code, s.vn, s.an, ''), COALESCE(s.tran_id, ''), s.data_type`,
+         GROUP BY COALESCE(NULLIF(TRIM(s.matched_visit_code), ''), NULLIF(TRIM(s.vn), ''), NULLIF(TRIM(s.an), ''), ''), COALESCE(s.tran_id, ''), s.data_type`,
         stmParams
       );
       (Array.isArray(stmRows) ? stmRows : []).forEach((r) => {
@@ -5172,9 +5208,45 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
         const dtype = String(rec.data_type || '').toUpperCase();
         if (!vc) return;
         if (dtype === 'STM') {
-          stmMap.set(vc, { stm_amount: toNumNull(rec.total_amount), stm_paid_amount: toNumNull(rec.total_paid_amount) });
+          const existing = stmMap.get(vc);
+          const next = {
+            stm_amount: toNumNull(rec.total_amount),
+            stm_paid_amount: toNumNull(rec.total_paid_amount),
+            statement_no: String(rec.statement_no || ''),
+            imported_at: formatTrackingDateTime(rec.imported_at),
+            errorcode: String(rec.errorcode || ''),
+            verifycode: String(rec.verifycode || ''),
+          };
+          if (existing) {
+            stmMap.set(vc, {
+              stm_amount: (existing.stm_amount ?? 0) + (next.stm_amount ?? 0),
+              stm_paid_amount: (existing.stm_paid_amount ?? 0) + (next.stm_paid_amount ?? 0),
+              statement_no: [existing.statement_no, next.statement_no].filter(Boolean).join(', '),
+              imported_at: latestTrackingDateTime(existing.imported_at, next.imported_at),
+              errorcode: [existing.errorcode, next.errorcode].filter(Boolean).join(', '),
+              verifycode: [existing.verifycode, next.verifycode].filter(Boolean).join(', '),
+            });
+          } else {
+            stmMap.set(vc, next);
+          }
         } else if (dtype === 'INV') {
-          invMap.set(vc, { inv_amount: toNumNull(rec.total_amount), inv_invoice_amount: toNumNull(rec.total_invoice_amount) });
+          const existing = invMap.get(vc);
+          const next = {
+            inv_amount: toNumNull(rec.total_amount),
+            inv_invoice_amount: toNumNull(rec.total_invoice_amount),
+            statement_no: String(rec.statement_no || ''),
+            imported_at: formatTrackingDateTime(rec.imported_at),
+          };
+          if (existing) {
+            invMap.set(vc, {
+              inv_amount: (existing.inv_amount ?? 0) + (next.inv_amount ?? 0),
+              inv_invoice_amount: (existing.inv_invoice_amount ?? 0) + (next.inv_invoice_amount ?? 0),
+              statement_no: [existing.statement_no, next.statement_no].filter(Boolean).join(', '),
+              imported_at: latestTrackingDateTime(existing.imported_at, next.imported_at),
+            });
+          } else {
+            invMap.set(vc, next);
+          }
         }
       });
     }
@@ -5197,10 +5269,12 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
 
     const repAmt = rep ? rep.rep_amount : null;
     const stmAmt = stm ? stm.stm_amount : null;
+    const stmPaidAmt = stm ? stm.stm_paid_amount : null;
     const invAmt = inv ? inv.inv_amount : null;
 
     const diffRep = repAmt != null ? repAmt - claimable : null;
     const diffStm = stmAmt != null ? stmAmt - claimable : null;
+    const diffStmPaid = stmPaidAmt != null ? stmPaidAmt - claimable : null;
     const diffInv = invAmt != null ? invAmt - claimable : null;
 
     const hasRep = repAmt != null;
@@ -5220,19 +5294,28 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     } else {
       // has both REP and STM/INV
       const repOk = diffRep != null && Math.abs(diffRep) < 0.01;
-      const stmOk = (stmAmt == null || (diffStm != null && Math.abs(diffStm) < 0.01));
+      const stmOk = (stmPaidAmt == null || (diffStmPaid != null && Math.abs(diffStmPaid) < 0.01));
       const invOk = (invAmt == null || (diffInv != null && Math.abs(diffInv) < 0.01));
       if (repOk && stmOk && invOk) compareStatus = 'ตรงกัน';
       else compareStatus = 'ยอดต่าง';
     }
     // Override: if claimable > 0 but no REP
     if (claimable > 0 && !hasRep) {
-      if (!hasStm && !hasInv) compareStatus = 'รอ REP';
-      else compareStatus = compareStatus === 'ตรงกัน' ? 'ตรงกัน' : 'รอ REP';
+      compareStatus = 'รอ REP';
     }
     if (claimable > 0 && hasRep && !hasStm && !hasInv) {
       compareStatus = 'รอ STM/INV';
     }
+    if (hasStm && stmPaidAmt != null && Math.abs(stmPaidAmt) < 0.01) {
+      compareStatus = 'ยอดต่าง';
+    }
+
+    const issueParts: string[] = [];
+    if (rep?.errorcode || rep?.verifycode) issueParts.push('REP C/Deny');
+    if (stm?.errorcode || stm?.verifycode) issueParts.push('STM C/Deny');
+    if (hasStm && stmPaidAmt != null && Math.abs(stmPaidAmt) < 0.01) issueParts.push('STM จ่าย 0');
+    if (diffStmPaid != null && Math.abs(diffStmPaid) >= 0.01) issueParts.push(diffStmPaid > 0 ? 'รับเกิน' : 'รับขาด');
+    const serviceDate = String(base.service_date || '');
 
     return {
       patient_type: String(base.patient_type || ''),
@@ -5249,17 +5332,32 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       claimable_amount: claimable,
       rep_amount: repAmt,
       rep_no: rep ? rep.rep_no || null : null,
+      rep_tran_id: rep ? rep.tran_id || null : null,
+      rep_senddate: rep ? rep.senddate : null,
+      rep_imported_at: rep ? rep.imported_at : null,
+      rep_errorcode: rep ? rep.errorcode || null : null,
+      rep_verifycode: rep ? rep.verifycode || null : null,
       has_rep: hasRep,
       stm_amount: stmAmt,
-      stm_paid_amount: stm ? stm.stm_paid_amount : null,
+      stm_paid_amount: stmPaidAmt,
+      stm_statement_no: stm ? stm.statement_no || null : null,
+      stm_imported_at: stm ? stm.imported_at : null,
+      stm_errorcode: stm ? stm.errorcode || null : null,
+      stm_verifycode: stm ? stm.verifycode || null : null,
       has_stm: hasStm,
       inv_amount: invAmt,
       inv_invoice_amount: inv ? inv.inv_invoice_amount : null,
+      inv_statement_no: inv ? inv.statement_no || null : null,
+      inv_imported_at: inv ? inv.imported_at : null,
       has_inv: hasInv,
       diff_rep: diffRep,
       diff_stm: diffStm,
+      diff_stm_paid: diffStmPaid,
       diff_inv: diffInv,
       compare_status: compareStatus,
+      issue_status: issueParts.length ? issueParts.join(', ') : 'ปกติ',
+      days_to_rep: trackingDayDiff(serviceDate, rep?.senddate || rep?.imported_at || null),
+      days_to_stm: trackingDayDiff(rep?.senddate || rep?.imported_at || serviceDate, stm?.imported_at || null),
     };
   });
 
@@ -5279,23 +5377,17 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     total_claimable: Math.round(filtered.reduce((s, r) => s + r.claimable_amount, 0) * 100) / 100,
     total_rep: Math.round(filtered.reduce((s, r) => s + (r.rep_amount ?? 0), 0) * 100) / 100,
     total_stm: Math.round(filtered.reduce((s, r) => s + (r.stm_amount ?? 0), 0) * 100) / 100,
+    total_stm_paid: Math.round(filtered.reduce((s, r) => s + (r.stm_paid_amount ?? 0), 0) * 100) / 100,
     total_inv: Math.round(filtered.reduce((s, r) => s + (r.inv_amount ?? 0), 0) * 100) / 100,
+    rep_issue: filtered.filter(r => Boolean(r.rep_errorcode || r.rep_verifycode)).length,
+    stm_zero: filtered.filter(r => r.stm_paid_amount != null && Math.abs(r.stm_paid_amount) < 0.01).length,
+    overpaid: filtered.filter(r => r.diff_stm_paid != null && r.diff_stm_paid > 0.01).length,
+    underpaid: filtered.filter(r => r.diff_stm_paid != null && r.diff_stm_paid < -0.01).length,
   };
 
-  // --- Step 7: Paginate ---
-  // When compareStatus filter is active: paginate the filtered in-memory set
-  // When no filter: data was already fetched page-by-page from DB, so return all assembled rows
-  let total: number;
-  let data: ReconciliationRow[];
-  if (compareStatusFilter) {
-    total = filtered.length;
-    const offset = (page - 1) * pageSize;
-    data = filtered.slice(offset, offset + pageSize);
-  } else {
-    // DB-level paging was used; total = full count from DB, data = the assembled page rows
-    total = totalCount;
-    data = filtered; // filtered may only differ from assembled if compareStatus filter applied
-  }
+  const total = filtered.length;
+  const offset = (page - 1) * pageSize;
+  const data = filtered.slice(offset, offset + pageSize);
 
   return { data, total, summary };
 };

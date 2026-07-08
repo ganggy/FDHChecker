@@ -755,17 +755,32 @@ export interface ReconciliationRow {
   claimable_amount: number;
   rep_amount: number | null;
   rep_no: string | null;
+  rep_tran_id: string | null;
+  rep_senddate: string | null;
+  rep_imported_at: string | null;
+  rep_errorcode: string | null;
+  rep_verifycode: string | null;
   has_rep: boolean;
   stm_amount: number | null;
   stm_paid_amount: number | null;
+  stm_statement_no: string | null;
+  stm_imported_at: string | null;
+  stm_errorcode: string | null;
+  stm_verifycode: string | null;
   has_stm: boolean;
   inv_amount: number | null;
   inv_invoice_amount: number | null;
+  inv_statement_no: string | null;
+  inv_imported_at: string | null;
   has_inv: boolean;
   diff_rep: number | null;
   diff_stm: number | null;
+  diff_stm_paid: number | null;
   diff_inv: number | null;
   compare_status: string;
+  issue_status: string;
+  days_to_rep: number | null;
+  days_to_stm: number | null;
 }
 
 export interface ReconciliationSummary {
@@ -778,7 +793,12 @@ export interface ReconciliationSummary {
   total_claimable: number;
   total_rep: number;
   total_stm: number;
+  total_stm_paid: number;
   total_inv: number;
+  rep_issue: number;
+  stm_zero: number;
+  overpaid: number;
+  underpaid: number;
 }
 
 export interface ReconciliationResponse {

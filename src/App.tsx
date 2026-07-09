@@ -25,6 +25,10 @@ import { MophDmhtClaimPage } from './pages/MophDmhtClaimPage';
 import { MophVaccineClaimPage } from './pages/MophVaccineClaimPage';
 import { GuidePage } from './pages/GuidePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { LoginPage } from './pages/LoginPage';
+import { MemberAdminPage } from './pages/MemberAdminPage';
+import { adminOnlyPages, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
+import { fetchMe, logout, type AuthSession } from './services/authService';
 import type { AppPage } from './utils/navigationState';
 import businessRules from './config/business_rules.json';
 import './App.css';
@@ -32,62 +36,48 @@ import './App.css';
 function App() {
   const [currentPage, setCurrentPage] = useState<AppPage>('staff');
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
   const siteSettings = (businessRules as { site_settings?: { hospital_name?: string; nhso_region?: string } }).site_settings || {};
   const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
   const regionLabel = siteSettings.nhso_region ? `เขต ${siteSettings.nhso_region}` : '';
-
-  const primaryNavItems: Array<{ page: AppPage; icon: string; label: string; divider?: boolean }> = [
-    { page: 'staff', icon: '📋', label: 'รายการ OPD' },
-    { page: 'ipd', icon: '🛏️', label: 'รายการ IPD' },
-    { page: 'fdh', icon: '🔍', label: 'ตรวจสอบเบิก FDH', divider: true },
-    { page: 'nhsoClose', icon: '🔐', label: 'ปิดสิทธิ NHSO' },
-  ];
-
-  const toolNavItems: Array<{ page: AppPage; icon: string; label: string; soft?: boolean }> = [
-    { page: 'fdhImport', icon: '📥', label: 'สถานะ FDH' },
-    { page: 'fdhClaimDetail', icon: '📄', label: 'ClaimDetail FDH' },
-    { page: 'repstm', icon: '🧾', label: 'REP/STM' },
-    { page: 'authenSync', icon: '🪪', label: 'Authen Code' },
-    { page: 'preValidator', icon: '✅', label: 'Pre-submit' },
-    { page: 'workQueue', icon: '📋', label: 'คิวงาน' },
-    { page: 'rejectTracking', icon: '🔴', label: 'ติดตาม Reject' },
-    { page: 'uuc1Tracking', icon: '📌', label: 'ติดตาม UUC1' },
-    { page: 'receivable', icon: '💼', label: 'บัญชีลูกหนี้' },
-    { page: 'reconciliation', icon: '🔄', label: 'กระทบยอด REP/STM' },
-    { page: 'repDailySummary', icon: '📊', label: 'สรุป REP รายวัน' },
-    { page: 'ppfsBenchmark', icon: '📈', label: 'เทียบยอด PPFS' },
-    { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกัน' },
-    { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
-    { page: 'admin', icon: '📊', label: 'Dashboard' },
-    { page: 'fundFdh', icon: '📤', label: 'FDH/e-Claim' },
-    { page: 'fund43', icon: '🗂️', label: '43 แฟ้ม' },
-    { page: 'fundKtb', icon: '🏦', label: 'KTB/NTIP' },
-    { page: 'fundOther', icon: '🧩', label: 'อื่นๆ' },
-    { page: 'specific', icon: '🎯', label: 'รวมทุกช่องทาง' },
-    { page: 'monitor', icon: '📈', label: 'มอนิเตอร์พิเศษ' },
-    { page: 'fsMonitor', icon: '💰', label: 'มอนิเตอร์ FS' },
-    { page: 'mophDmht', icon: '🧪', label: 'MOPH DMHT' },
-    { page: 'mophVaccine', icon: '💉', label: 'MOPH Vaccine' },
-    { page: 'guide', icon: '📚', label: 'คู่มือกองทุน', soft: true },
-  ];
-
-  const toolNavGroups: Array<{ label: string; icon: string; pages: AppPage[] }> = [
-    { label: 'ส่งข้อมูล', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
-    { label: 'ติดตาม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
-    { label: 'บัญชี', icon: '💼', pages: ['receivable', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'insuranceOverview', 'admin'] },
-    { label: 'FDH/e-Claim', icon: '🏥', pages: ['fundFdh', 'monitor', 'fsMonitor'] },
-    { label: '43 แฟ้ม', icon: '🗂️', pages: ['fund43'] },
-    { label: 'MOPH Claim', icon: '🧪', pages: ['mophDmht', 'mophVaccine'] },
-    { label: 'KTB/NTIP/อื่นๆ', icon: '🏦', pages: ['fundKtb', 'fundOther', 'specific', 'guide'] },
-  ];
-
+  const isAdmin = Boolean(authSession?.user.is_admin);
+  const allowedPages = isAdmin
+    ? [...primaryNavItems, ...toolNavItems].map((item) => item.page).concat(adminOnlyPages)
+    : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page));
+  const allowedPageSet = new Set<AppPage>(allowedPages);
+  const visiblePrimaryNavItems = primaryNavItems.filter((item) => allowedPageSet.has(item.page));
+  const visibleToolNavGroups = toolNavGroups
+    .map((group) => ({ ...group, pages: group.pages.filter((page) => allowedPageSet.has(page)) }))
+    .filter((group) => group.pages.length > 0);
   const toolNavItemByPage = new Map(toolNavItems.map((item) => [item.page, item]));
+
+  useEffect(() => {
+    fetchMe()
+      .then((session) => setAuthSession(session))
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  const canOpenPage = (page: AppPage) => allowedPageSet.has(page);
+
+  const firstAllowedPage = () => {
+    const firstPrimary = visiblePrimaryNavItems[0]?.page;
+    const firstTool = visibleToolNavGroups[0]?.pages[0];
+    return firstPrimary || firstTool || 'guide';
+  };
+
+  useEffect(() => {
+    if (authLoading || !authSession) return;
+    if (!canOpenPage(currentPage)) {
+      setCurrentPage(firstAllowedPage());
+    }
+  }, [authLoading, authSession, currentPage]);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
       const customEvent = event as CustomEvent<{ page?: AppPage }>;
-      if (customEvent.detail?.page) {
+      if (customEvent.detail?.page && canOpenPage(customEvent.detail.page)) {
         setCurrentPage(customEvent.detail.page);
       }
     };
@@ -109,9 +99,28 @@ function App() {
   }, []);
 
   const goToPage = (page: AppPage) => {
+    if (!canOpenPage(page)) return;
     setCurrentPage(page);
     setOpenNavGroup(null);
   };
+
+  const handleLogout = async () => {
+    await logout();
+    setAuthSession(null);
+    setCurrentPage('staff');
+  };
+
+  if (authLoading) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card auth-card--loading">กำลังตรวจสอบ session...</div>
+      </div>
+    );
+  }
+
+  if (!authSession) {
+    return <LoginPage onAuthenticated={setAuthSession} />;
+  }
 
   return (
     <div className="app-shell">
@@ -126,17 +135,26 @@ function App() {
           </div>
 
           <div className="navbar-end">
+            <div className="navbar-user navbar-meta-card">
+              <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>{authSession.user.display_name || authSession.user.username}</div>
+              <div>{authSession.user.group_name || (authSession.user.is_admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน')}</div>
+            </div>
             <div className="navbar-time navbar-meta-card">
               <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>ระบบตรวจสอบเบิกจ่าย v1.0</div>
               <div>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</div>
               <div>{new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
             </div>
-            <button
-              className={`nav-btn nav-icon-btn ${currentPage === 'settings' ? 'active' : ''}`}
-              onClick={() => goToPage('settings')}
-              title="ตั้งค่าระบบ"
-            >
-              <span style={{ fontSize: '1.4rem' }}>⚙️</span>
+            {canOpenPage('settings') && (
+              <button
+                className={`nav-btn nav-icon-btn ${currentPage === 'settings' ? 'active' : ''}`}
+                onClick={() => goToPage('settings')}
+                title="ตั้งค่าระบบ"
+              >
+                <span style={{ fontSize: '1.4rem' }}>⚙️</span>
+              </button>
+            )}
+            <button className="nav-btn nav-icon-btn" onClick={handleLogout} title="ออกจากระบบ">
+              <span style={{ fontSize: '1.15rem' }}>⏻</span>
             </button>
           </div>
         </div>
@@ -145,7 +163,7 @@ function App() {
           <div className="navbar-menu-group">
             <div className="navbar-group-label">งานประจำ</div>
             <div className="navbar-nav">
-              {primaryNavItems.map((item) => (
+              {visiblePrimaryNavItems.map((item) => (
                 <button
                   key={item.page}
                   className={`nav-btn ${item.divider ? 'nav-btn--divider' : ''} ${currentPage === item.page ? 'active' : ''}`}
@@ -161,7 +179,7 @@ function App() {
           <div className="navbar-menu-group navbar-menu-group--tools navbar-menu-group--compact" ref={navMenuRef}>
             <div className="navbar-group-label">เครื่องมือ</div>
             <div className="navbar-dropdown-row">
-              {toolNavGroups.map((group) => {
+              {visibleToolNavGroups.map((group) => {
                 const isGroupActive = group.pages.includes(currentPage);
                 const isOpen = openNavGroup === group.label;
                 return (
@@ -234,6 +252,7 @@ function App() {
         {currentPage === 'uuc1Tracking' && <Uuc1TrackingPage />}
         {currentPage === 'guide' && <GuidePage />}
         {currentPage === 'settings' && <SettingsPage />}
+        {currentPage === 'memberAdmin' && <MemberAdminPage />}
       </div>
     </div>
   );

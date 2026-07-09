@@ -2,6 +2,7 @@
 // ใช้ Node.js + Express
 
 import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
@@ -20,6 +21,14 @@ import {
   getUTFConnection,
   getAppSetting,
   setAppSetting,
+  ensureAuthTables,
+  getAuthUserByToken,
+  getMemberAdminData,
+  loginAppUser,
+  logoutAppUser,
+  registerAppUser,
+  saveMemberGroup,
+  updateMemberUser,
   saveFdhStatusImportLog,
   getFdhStatusImportLogs,
   ensureRepstmTables,
@@ -69,6 +78,57 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
+type AuthenticatedRequest = Request & {
+  authUser?: Awaited<ReturnType<typeof getAuthUserByToken>>;
+  authToken?: string;
+};
+
+const extractBearerToken = (req: Request) => {
+  const header = String(req.headers.authorization || '').trim();
+  if (header.toLowerCase().startsWith('bearer ')) return header.slice(7).trim();
+  return '';
+};
+
+const publicUserPayload = (user: NonNullable<Awaited<ReturnType<typeof getAuthUserByToken>>>) => ({
+  id: user.id,
+  username: user.username,
+  display_name: user.display_name,
+  group_id: user.group_id,
+  group_key: user.group_key,
+  group_name: user.group_name,
+  approved: Boolean(user.approved),
+  is_active: Boolean(user.is_active),
+  is_admin: Boolean(user.is_admin || user.group_is_admin),
+  menu_permissions: user.menu_permissions,
+  last_login_at: user.last_login_at,
+});
+
+const requireAuth = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const token = extractBearerToken(req);
+    const user = await getAuthUserByToken(token);
+    if (!user || !user.approved || !user.is_active) {
+      return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ' });
+    }
+    req.authToken = token;
+    req.authUser = user;
+    next();
+  } catch (error) {
+    console.error('Auth middleware error:', error);
+    res.status(500).json({ success: false, error: 'Cannot verify session' });
+  }
+};
+
+const requireAdmin = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  await requireAuth(req, res, () => {
+    const user = req.authUser;
+    if (!user || !(user.is_admin || user.group_is_admin)) {
+      return res.status(403).json({ success: false, error: 'ต้องเป็นผู้ดูแลระบบ' });
+    }
+    next();
+  });
+};
+
 const CONFIG_SETTING_KEY = 'business_rules';
 const APP_SETTINGS_KEY = 'site_settings';
 const FDH_API_SETTINGS_KEY = 'fdh_api_settings';
@@ -77,6 +137,10 @@ const NHSO_CLOSE_SETTINGS_KEY = 'nhso_close_settings';
 const NHSO_ECLAIM_SETTINGS_KEY = 'nhso_eclaim_settings';
 const MOPH_CLAIM_SETTINGS_KEY = 'moph_claim_settings';
 const MOPH_DMHT_ACTION_LIMIT = 20000;
+
+ensureAuthTables().catch((error) => {
+  console.error('Cannot prepare member auth tables:', error);
+});
 
 // Global Playwright browser session for NHSO eclaim — kept alive between requests so
 // the JSESSIONID session cookie is never sent via server-side fetch (IP-binding workaround).
@@ -156,6 +220,99 @@ const getDefaultMophClaimConfig = () => ({
   username: '',
   password: '',
   hcode: '',
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const username = String(req.body?.username || '');
+    const password = String(req.body?.password || '');
+    const result = await loginAppUser(username, password);
+    if (!result.success) {
+      return res.status(result.status || 400).json({ success: false, error: result.error });
+    }
+    res.json({ success: true, token: result.token, user: publicUserPayload(result.user) });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ success: false, error: 'Cannot login' });
+  }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const result = await registerAppUser({
+      username: String(req.body?.username || ''),
+      password: String(req.body?.password || ''),
+      displayName: String(req.body?.displayName || ''),
+    });
+    if (!result.success) {
+      return res.status(result.status || 400).json({ success: false, error: result.error });
+    }
+    res.json({ success: true, message: 'สมัครสมาชิกแล้ว กรุณารอ admin อนุมัติ' });
+  } catch (error) {
+    console.error('Register error:', error);
+    res.status(500).json({ success: false, error: 'Cannot register user' });
+  }
+});
+
+app.get('/api/auth/me', requireAuth, async (req: AuthenticatedRequest, res) => {
+  res.json({ success: true, user: publicUserPayload(req.authUser!) });
+});
+
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    await logoutAppUser(extractBearerToken(req));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ success: false, error: 'Cannot logout' });
+  }
+});
+
+app.get('/api/admin/members', requireAdmin, async (_req, res) => {
+  try {
+    const data = await getMemberAdminData();
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Member admin data error:', error);
+    res.status(500).json({ success: false, error: 'Cannot read member data' });
+  }
+});
+
+app.patch('/api/admin/members/:id', requireAdmin, async (req, res) => {
+  try {
+    const userId = Number(req.params.id || 0);
+    if (!userId) return res.status(400).json({ success: false, error: 'Invalid user id' });
+    const user = await updateMemberUser(userId, {
+      approved: typeof req.body?.approved === 'boolean' ? req.body.approved : undefined,
+      isActive: typeof req.body?.isActive === 'boolean' ? req.body.isActive : undefined,
+      isAdmin: typeof req.body?.isAdmin === 'boolean' ? req.body.isAdmin : undefined,
+      groupId: Object.prototype.hasOwnProperty.call(req.body || {}, 'groupId') ? Number(req.body.groupId || 0) || null : undefined,
+      displayName: typeof req.body?.displayName === 'string' ? req.body.displayName : undefined,
+    });
+    res.json({ success: true, user: user ? publicUserPayload(user) : null });
+  } catch (error) {
+    console.error('Update member error:', error);
+    res.status(500).json({ success: false, error: 'Cannot update member' });
+  }
+});
+
+app.post('/api/admin/groups', requireAdmin, async (req, res) => {
+  try {
+    const result = await saveMemberGroup({
+      id: req.body?.id ? Number(req.body.id) : null,
+      groupName: String(req.body?.groupName || ''),
+      isAdmin: Boolean(req.body?.isAdmin),
+      menuPermissions: Array.isArray(req.body?.menuPermissions) ? req.body.menuPermissions : [],
+    });
+    if (!result.success) {
+      return res.status(result.status || 400).json({ success: false, error: result.error });
+    }
+    const data = await getMemberAdminData();
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Save group error:', error);
+    res.status(500).json({ success: false, error: 'Cannot save group' });
+  }
 });
 
 const getResolvedHospitalCode = async (): Promise<string> => {

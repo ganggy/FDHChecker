@@ -342,6 +342,60 @@ const APP_SETTINGS_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const APP_USER_GROUP_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS app_user_group (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    group_key VARCHAR(64) NOT NULL UNIQUE,
+    group_name VARCHAR(128) NOT NULL,
+    is_admin TINYINT(1) NOT NULL DEFAULT 0,
+    menu_permissions JSON NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const APP_USER_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS app_user (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(64) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    display_name VARCHAR(128) NULL,
+    group_id BIGINT NULL,
+    approved TINYINT(1) NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    is_admin TINYINT(1) NOT NULL DEFAULT 0,
+    last_login_at DATETIME NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_group_id (group_id),
+    INDEX idx_approved_active (approved, is_active)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const APP_SESSION_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS app_session (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    user_id BIGINT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_expires_at (expires_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const DEFAULT_MENU_PAGES = [
+  'staff', 'ipd', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm',
+  'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
+  'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
+  'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'reconciliation',
+  'repDailySummary', 'ppfsBenchmark', 'uuc1Tracking'
+];
+
+const DEFAULT_STAFF_MENU_PAGES = [
+  'staff', 'ipd', 'fdh', 'nhsoClose', 'preValidator', 'workQueue', 'guide'
+];
+
 const FDH_STATUS_IMPORT_LOG_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS fdh_status_import_log (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -1271,6 +1325,317 @@ export const setAppSetting = async (settingKey: string, settingValue: unknown) =
   } catch (error) {
     console.error('Error writing app setting:', error);
     return { success: false };
+  } finally {
+    connection.release();
+  }
+};
+
+export type AppUserRecord = {
+  id: number;
+  username: string;
+  display_name: string | null;
+  group_id: number | null;
+  group_key: string | null;
+  group_name: string | null;
+  approved: number;
+  is_active: number;
+  is_admin: number;
+  group_is_admin: number;
+  menu_permissions: unknown;
+  last_login_at: string | null;
+  created_at: string | null;
+};
+
+const normalizeUsername = (username: unknown) => String(username || '').trim().toLowerCase();
+
+const normalizeMenuPermissions = (value: unknown): string[] => {
+  const raw = parseStoredSettingValue<string[] | { pages?: string[] }>(value);
+  const pages = Array.isArray(raw) ? raw : Array.isArray(raw?.pages) ? raw.pages : [];
+  const allowed = new Set(DEFAULT_MENU_PAGES);
+  return Array.from(new Set(pages.map((page) => String(page || '').trim()).filter((page) => allowed.has(page))));
+};
+
+const hashPassword = (password: string) => {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+};
+
+const verifyPassword = (password: string, storedHash: string) => {
+  const [algorithm, salt, hash] = String(storedHash || '').split('$');
+  if (algorithm !== 'scrypt' || !salt || !hash) return false;
+  const attempted = crypto.scryptSync(password, salt, 64);
+  const expected = Buffer.from(hash, 'hex');
+  return expected.length === attempted.length && crypto.timingSafeEqual(expected, attempted);
+};
+
+const tokenHash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
+
+export const ensureAuthTables = async () => {
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(APP_USER_GROUP_TABLE_SQL);
+    await connection.query(APP_USER_TABLE_SQL);
+    await connection.query(APP_SESSION_TABLE_SQL);
+
+    await connection.query(
+      `INSERT INTO app_user_group (group_key, group_name, is_admin, menu_permissions)
+       VALUES ('admin', 'ผู้ดูแลระบบ', 1, ?)
+       ON DUPLICATE KEY UPDATE group_name = VALUES(group_name), is_admin = 1, menu_permissions = VALUES(menu_permissions)`,
+      [JSON.stringify(DEFAULT_MENU_PAGES)]
+    );
+
+    await connection.query(
+      `INSERT INTO app_user_group (group_key, group_name, is_admin, menu_permissions)
+       VALUES ('staff', 'ผู้ใช้งานทั่วไป', 0, ?)
+       ON DUPLICATE KEY UPDATE group_name = VALUES(group_name)`,
+      [JSON.stringify(DEFAULT_STAFF_MENU_PAGES)]
+    );
+
+    const [adminGroupRows] = await connection.query('SELECT id FROM app_user_group WHERE group_key = ? LIMIT 1', ['admin']);
+    const adminGroupId = Array.isArray(adminGroupRows) && adminGroupRows.length > 0
+      ? Number((adminGroupRows[0] as any).id)
+      : null;
+
+    if (adminGroupId) {
+      await connection.query(
+        `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin)
+         VALUES (?, ?, ?, ?, 1, 1, 1)
+         ON DUPLICATE KEY UPDATE group_id = VALUES(group_id), approved = 1, is_active = 1, is_admin = 1, updated_at = CURRENT_TIMESTAMP`,
+        ['war12oc', hashPassword('.Aa0982641777'), 'war12oc', adminGroupId]
+      );
+    }
+
+    await connection.query('DELETE FROM app_session WHERE expires_at < NOW()');
+  } finally {
+    connection.release();
+  }
+};
+
+const mapAppUser = (row: any): AppUserRecord => ({
+  id: Number(row.id),
+  username: String(row.username || ''),
+  display_name: row.display_name == null ? null : String(row.display_name),
+  group_id: row.group_id == null ? null : Number(row.group_id),
+  group_key: row.group_key == null ? null : String(row.group_key),
+  group_name: row.group_name == null ? null : String(row.group_name),
+  approved: Number(row.approved || 0),
+  is_active: Number(row.is_active || 0),
+  is_admin: Number(row.is_admin || 0),
+  group_is_admin: Number(row.group_is_admin || 0),
+  menu_permissions: normalizeMenuPermissions(row.menu_permissions),
+  last_login_at: row.last_login_at == null ? null : String(row.last_login_at),
+  created_at: row.created_at == null ? null : String(row.created_at),
+});
+
+const getUserSelectSql = () => `
+  SELECT u.id, u.username, u.display_name, u.group_id, u.approved, u.is_active, u.is_admin,
+         u.last_login_at, u.created_at,
+         g.group_key, g.group_name, g.is_admin AS group_is_admin, g.menu_permissions
+  FROM app_user u
+  LEFT JOIN app_user_group g ON g.id = u.group_id
+`;
+
+export const getAppUserById = async (userId: number) => {
+  await ensureAuthTables();
+  const connection = await getRepstmConnection();
+  try {
+    const [rows] = await connection.query(`${getUserSelectSql()} WHERE u.id = ? LIMIT 1`, [userId]);
+    return Array.isArray(rows) && rows.length > 0 ? mapAppUser(rows[0]) : null;
+  } finally {
+    connection.release();
+  }
+};
+
+export const getAuthUserByToken = async (token: string) => {
+  if (!token) return null;
+  await ensureAuthTables();
+  const connection = await getRepstmConnection();
+  try {
+    const [rows] = await connection.query(
+      `${getUserSelectSql()}
+       JOIN app_session s ON s.user_id = u.id
+       WHERE s.token_hash = ? AND s.expires_at > NOW()
+       LIMIT 1`,
+      [tokenHash(token)]
+    );
+    return Array.isArray(rows) && rows.length > 0 ? mapAppUser(rows[0]) : null;
+  } finally {
+    connection.release();
+  }
+};
+
+export const loginAppUser = async (usernameInput: string, password: string) => {
+  await ensureAuthTables();
+  const username = normalizeUsername(usernameInput);
+  const connection = await getRepstmConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT u.*, g.group_key, g.group_name, g.is_admin AS group_is_admin, g.menu_permissions
+       FROM app_user u
+       LEFT JOIN app_user_group g ON g.id = u.group_id
+       WHERE u.username = ? LIMIT 1`,
+      [username]
+    );
+    const record = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
+    if (!record || !verifyPassword(password, String(record.password_hash || ''))) {
+      return { success: false, status: 401, error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' };
+    }
+    if (!Number(record.is_active || 0)) {
+      return { success: false, status: 403, error: 'บัญชีนี้ถูกปิดใช้งาน' };
+    }
+    if (!Number(record.approved || 0)) {
+      return { success: false, status: 403, error: 'บัญชียังรอผู้ดูแลระบบอนุมัติ' };
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    await connection.query(
+      'INSERT INTO app_session (token_hash, user_id, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 7 DAY))',
+      [tokenHash(token), Number(record.id)]
+    );
+    await connection.query('UPDATE app_user SET last_login_at = NOW() WHERE id = ?', [Number(record.id)]);
+    return { success: true, token, user: mapAppUser(record) };
+  } finally {
+    connection.release();
+  }
+};
+
+export const logoutAppUser = async (token: string) => {
+  if (!token) return { success: true };
+  await ensureAuthTables();
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query('DELETE FROM app_session WHERE token_hash = ?', [tokenHash(token)]);
+    return { success: true };
+  } finally {
+    connection.release();
+  }
+};
+
+export const registerAppUser = async (input: { username: string; password: string; displayName?: string }) => {
+  await ensureAuthTables();
+  const username = normalizeUsername(input.username);
+  if (!/^[a-z0-9._-]{3,64}$/.test(username)) {
+    return { success: false, status: 400, error: 'ชื่อผู้ใช้ต้องเป็น a-z, 0-9, จุด, ขีดกลาง หรือ underscore อย่างน้อย 3 ตัว' };
+  }
+  if (String(input.password || '').length < 8) {
+    return { success: false, status: 400, error: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' };
+  }
+
+  const connection = await getRepstmConnection();
+  try {
+    const [groupRows] = await connection.query('SELECT id FROM app_user_group WHERE group_key = ? LIMIT 1', ['staff']);
+    const groupId = Array.isArray(groupRows) && groupRows.length > 0 ? Number((groupRows[0] as any).id) : null;
+    await connection.query(
+      `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin)
+       VALUES (?, ?, ?, ?, 0, 1, 0)`,
+      [username, hashPassword(input.password), String(input.displayName || username).trim(), groupId]
+    );
+    return { success: true };
+  } catch (error: any) {
+    if (String(error?.code || '') === 'ER_DUP_ENTRY') {
+      return { success: false, status: 409, error: 'ชื่อผู้ใช้นี้มีอยู่แล้ว' };
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const getMemberAdminData = async () => {
+  await ensureAuthTables();
+  const connection = await getRepstmConnection();
+  try {
+    const [userRows] = await connection.query(`${getUserSelectSql()} ORDER BY u.approved ASC, u.created_at DESC`);
+    const [groupRows] = await connection.query(
+      'SELECT id, group_key, group_name, is_admin, menu_permissions, created_at, updated_at FROM app_user_group ORDER BY is_admin DESC, group_name ASC'
+    );
+    return {
+      users: (Array.isArray(userRows) ? userRows : []).map(mapAppUser),
+      groups: (Array.isArray(groupRows) ? groupRows : []).map((row: any) => ({
+        id: Number(row.id),
+        group_key: String(row.group_key || ''),
+        group_name: String(row.group_name || ''),
+        is_admin: Number(row.is_admin || 0),
+        menu_permissions: normalizeMenuPermissions(row.menu_permissions),
+        created_at: row.created_at == null ? null : String(row.created_at),
+        updated_at: row.updated_at == null ? null : String(row.updated_at),
+      })),
+      menu_pages: DEFAULT_MENU_PAGES,
+    };
+  } finally {
+    connection.release();
+  }
+};
+
+export const updateMemberUser = async (
+  userId: number,
+  input: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string }
+) => {
+  await ensureAuthTables();
+  const connection = await getRepstmConnection();
+  try {
+    const updates: string[] = [];
+    const values: unknown[] = [];
+    if (typeof input.approved === 'boolean') {
+      updates.push('approved = ?');
+      values.push(input.approved ? 1 : 0);
+    }
+    if (typeof input.isActive === 'boolean') {
+      updates.push('is_active = ?');
+      values.push(input.isActive ? 1 : 0);
+    }
+    if (typeof input.isAdmin === 'boolean') {
+      updates.push('is_admin = ?');
+      values.push(input.isAdmin ? 1 : 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'groupId')) {
+      updates.push('group_id = ?');
+      values.push(input.groupId || null);
+    }
+    if (typeof input.displayName === 'string') {
+      updates.push('display_name = ?');
+      values.push(input.displayName.trim() || null);
+    }
+    if (updates.length === 0) return getAppUserById(userId);
+    values.push(userId);
+    await connection.query(`UPDATE app_user SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
+    return getAppUserById(userId);
+  } finally {
+    connection.release();
+  }
+};
+
+export const saveMemberGroup = async (input: {
+  id?: number | null;
+  groupName: string;
+  isAdmin?: boolean;
+  menuPermissions: string[];
+}) => {
+  await ensureAuthTables();
+  const groupName = String(input.groupName || '').trim();
+  if (!groupName) {
+    return { success: false, status: 400, error: 'กรุณาระบุชื่อกลุ่ม' };
+  }
+  const permissions = normalizeMenuPermissions(input.isAdmin ? DEFAULT_MENU_PAGES : input.menuPermissions);
+  const connection = await getRepstmConnection();
+  try {
+    if (input.id) {
+      await connection.query(
+        `UPDATE app_user_group
+         SET group_name = ?, is_admin = ?, menu_permissions = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [groupName, input.isAdmin ? 1 : 0, JSON.stringify(permissions), input.id]
+      );
+    } else {
+      const groupKey = `group_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`;
+      await connection.query(
+        `INSERT INTO app_user_group (group_key, group_name, is_admin, menu_permissions)
+         VALUES (?, ?, ?, ?)`,
+        [groupKey, groupName, input.isAdmin ? 1 : 0, JSON.stringify(permissions)]
+      );
+    }
+    return { success: true };
   } finally {
     connection.release();
   }

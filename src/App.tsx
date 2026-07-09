@@ -11,6 +11,7 @@ import { ReceivablePage } from './pages/ReceivablePage';
 import { InsuranceOverviewPage } from './pages/InsuranceOverviewPage';
 import { VisitReconciliationPage } from './pages/VisitReconciliationPage';
 import RepDailySummaryPage from './pages/RepDailySummaryPage';
+import PpfsBenchmarkPage from './pages/PpfsBenchmarkPage';
 import { RepDenyPage } from './pages/RepDenyPage';
 import { AuthenSyncPage } from './pages/AuthenSyncPage';
 import PreSubmitValidatorPage from './pages/PreSubmitValidatorPage';
@@ -55,6 +56,7 @@ function App() {
     { page: 'receivable', icon: '💼', label: 'บัญชีลูกหนี้' },
     { page: 'reconciliation', icon: '🔄', label: 'กระทบยอด REP/STM' },
     { page: 'repDailySummary', icon: '📊', label: 'สรุป REP รายวัน' },
+    { page: 'ppfsBenchmark', icon: '📈', label: 'เทียบยอด PPFS' },
     { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกัน' },
     { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
     { page: 'admin', icon: '📊', label: 'Dashboard' },
@@ -73,7 +75,7 @@ function App() {
   const toolNavGroups: Array<{ label: string; icon: string; pages: AppPage[] }> = [
     { label: 'ส่งข้อมูล', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
     { label: 'ติดตาม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
-    { label: 'บัญชี', icon: '💼', pages: ['receivable', 'reconciliation', 'repDailySummary', 'insuranceOverview', 'admin'] },
+    { label: 'บัญชี', icon: '💼', pages: ['receivable', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'insuranceOverview', 'admin'] },
     { label: 'FDH/e-Claim', icon: '🏥', pages: ['fundFdh', 'monitor', 'fsMonitor'] },
     { label: '43 แฟ้ม', icon: '🗂️', pages: ['fund43'] },
     { label: 'MOPH Claim', icon: '🧪', pages: ['mophDmht', 'mophVaccine'] },
@@ -214,6 +216,7 @@ function App() {
         {currentPage === 'insuranceOverview' && <InsuranceOverviewPage />}
         {currentPage === 'reconciliation' && <VisitReconciliationPage />}
         {currentPage === 'repDailySummary' && <RepDailySummaryPage />}
+        {currentPage === 'ppfsBenchmark' && <PpfsBenchmarkPage />}
         {currentPage === 'repDeny' && <RepDenyPage />}
         {currentPage === 'admin' && <AdminDashboard />}
         {currentPage === 'specific' && <SpecificFundPage />}

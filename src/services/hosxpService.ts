@@ -1092,6 +1092,104 @@ export const fetchRepDailyVisitDetail = async (params: {
   return json.data as RepDailyVisitDetail;
 };
 
+export type PpfsMetric = 'SUM_PAID' | 'CNT_VISIT' | 'CNT_PID';
+
+export interface PpfsYearSummary {
+  fiscal_year: string;
+  nhso_metric_value: number;
+  nhso_paid: number;
+  nhso_visits: number;
+  nhso_people: number;
+  local_stm_cases: number;
+  local_stm_paid_amount: number;
+  local_stm_amount: number;
+  latest_local_import_at: string | null;
+  paid_gap_vs_local_stm: number | null;
+}
+
+export interface PpfsPgroupYearRow {
+  pgroup: string;
+  paid_2567: number;
+  paid_2568: number;
+  paid_2569: number;
+}
+
+export interface PpfsPivotRow {
+  group_name: string;
+  item_name: string;
+  pid_2567: number;
+  visit_2567: number;
+  paid_2567: number;
+  pid_2568: number;
+  visit_2568: number;
+  paid_2568: number;
+  pid_2569: number;
+  visit_2569: number;
+  paid_2569: number;
+}
+
+export interface PpfsAccessShareRow {
+  access_group: string;
+  value: number;
+}
+
+export interface PpfsMonthlyAccessSeries {
+  access_group: string;
+  values: number[];
+  total: number;
+  latest_value: number;
+}
+
+export interface PpfsNhsoReport {
+  fetched_at: string;
+  source_url: string;
+  hcode: string;
+  metric: PpfsMetric;
+  metric_label: string;
+  hospital: {
+    title: string;
+    hospital_name: string;
+    hcode: string;
+    region: string;
+    province: string;
+  };
+  kpi_cards: Array<{
+    fiscal_year: string;
+    display_value: string;
+    metric_label: string;
+    numeric_value: number | null;
+  }>;
+  year_summary: PpfsYearSummary[];
+  pgroup_yearly: PpfsPgroupYearRow[];
+  monthly_access: {
+    months: string[];
+    series: PpfsMonthlyAccessSeries[];
+  };
+  access_share: PpfsAccessShareRow[];
+  pivot_rows: PpfsPivotRow[];
+  top_items_2569: PpfsPivotRow[];
+  local_note: string;
+}
+
+export const fetchPpfsNhsoReport = async (params: {
+  hcode?: string;
+  metric?: PpfsMetric;
+}): Promise<PpfsNhsoReport> => {
+  const query = new URLSearchParams();
+  if (params.hcode) query.set('hcode', params.hcode);
+  if (params.metric) query.set('metric', params.metric);
+
+  const response = await fetch(`/api/ppfs/nhso-report?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดรายงาน PPFS จาก สปสช. ได้');
+  }
+  return json.data as PpfsNhsoReport;
+};
+
 // ฟังก์ชันส่งข้อมูลไปที่ระบบ FDH
 export const submitToFDH = async (records: CheckRecord[]) => {
   try {

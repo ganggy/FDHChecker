@@ -58,6 +58,7 @@ import businessRules from './config/business_rules.json';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getPpfsNhsoReport } from './ppfsReport.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2436,6 +2437,19 @@ app.get('/api/receivables/reconciliation', async (req, res) => {
   } catch (error) {
     console.error('Error fetching reconciliation data:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูลกระทบยอด REP/STM' });
+  }
+});
+
+app.get('/api/ppfs/nhso-report', async (req, res) => {
+  try {
+    const data = await getPpfsNhsoReport({
+      hcode: req.query.hcode ? String(req.query.hcode) : undefined,
+      metric: req.query.metric ? String(req.query.metric) : undefined,
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching NHSO PPFS report:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดรายงาน PPFS จาก สปสช.' });
   }
 });
 

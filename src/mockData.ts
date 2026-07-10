@@ -71,6 +71,7 @@ export interface CheckRecord {
   has_pal_adp?: number;
   has_telmed?: number;
   has_drugp?: number;
+  drug_count?: number;
   age_y?: number;
   age?: number;
   sex?: string;

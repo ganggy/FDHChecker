@@ -487,8 +487,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'drugp') {
             const hasDrugp = toFlag(item?.has_drugp);
+            const hasDrugItems = Number(item?.drug_count ?? 0) > 0;
             if (hasDrugp) subfunds.push('📦 EMS ส่งยา');
-            return buildStatusResult(subfunds, [hasDrugp ? '' : ' ADP DRUGP'].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
+            return buildStatusResult(subfunds, [
+                hasDrugp ? '' : ' ADP DRUGP',
+                hasDrugItems ? '' : ' รายการยา',
+            ].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
         }
 
         if (fundId === 'herb') {
@@ -1829,7 +1833,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         </>
                                     )}
                                     {activeFund === 'drugp' && (
-                                        <th style={{ width: 100, textAlign: 'center' }}>ADP Code</th>
+                                        <>
+                                            <th style={{ width: 100, textAlign: 'center' }}>ADP Code</th>
+                                            <th style={{ width: 100, textAlign: 'center' }}>รายการยา</th>
+                                        </>
                                     )}
                                     {activeFund === 'herb' && (
                                         <>
@@ -2050,9 +2057,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                 {activeFund === 'drugp' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {item.has_drugp === 'Y'
+                                                            {toFlag(item?.has_drugp)
                                                                 ? <span className="badge badge-primary">DRUGP</span>
                                                                 : <span className="badge badge-danger">✗ ขาด DRUGP</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {Number(item.drug_count ?? 0) > 0
+                                                                ? <span className="badge badge-success">{Number(item.drug_count).toLocaleString()} รายการ</span>
+                                                                : <span className="badge badge-danger">✗ ต้องมียา</span>}
                                                         </td>
                                                     </>
                                                 )}

@@ -161,6 +161,10 @@ const isTruthyFlag= (value: unknown) => (
   String(value ?? '').trim().toUpperCase() === 'Y'
 );
 
+const hasDrugpWithoutDrugItems = (record: Record<string, unknown>) => (
+  isTruthyFlag(record.has_drugp) && Number(record.drug_count ?? 0) <= 0
+);
+
 const readJsonConfigFile = async (filePath: string) => {
   const data = await fs.readFile(filePath, 'utf8');
   return JSON.parse(data);
@@ -803,6 +807,9 @@ app.get('/api/hosxp/checks', async (req, res) => {
         issues.push('ขาดข้อมูลราคา');
       }
       const rec = record as any;
+      if (hasDrugpWithoutDrugItems(rec)) {
+        issues.push('ส่งยาไปรษณีย์ (DRUGP) ต้องมีรายการยา');
+      }
       const isOFC_LGO = rec.hipdata_code === 'OFC' || rec.hipdata_code === 'LGO';
       const isUCS = rec.hipdata_code === 'UCS' || rec.hipdata_code === 'WEL';
       const mainDiag = String(rec.main_diag || '');
@@ -1315,6 +1322,7 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       if (item.has_knee_oper && (item.age_y || 0) < 40) issues.push('ER211: ตรวจพบการพอกเข่าแต่อายุไม่ถึงเกณฑ์ (40 ปี)');
       if (item.has_pal_diag && !item.has_pal_adp) issues.push('ER212: ตรวจพบวินิจฉัย Palliative แต่ขาดรายการเบิก');
       if (!item.has_pal_diag && item.has_pal_adp) issues.push('ER213: มีรายการเบิก Palliative แต่ขาดรหัสวินิจฉัยสภาวะ');
+      if (hasDrugpWithoutDrugItems(item)) issues.push('ER214: ส่งยาไปรษณีย์ (DRUGP) ต้องมีรายการยา');
 
       // Logic for status
       let status: 'ready' | 'pending' | 'rejected' = 'ready';

@@ -23,6 +23,7 @@ const ISSUE_FILE_MAP: Record<string, string[]> = {
   ER211: ['ADP'],
   ER212: ['ADP'],
   ER213: ['ADP'],
+  ER214: ['ADP', 'DRU'],
 };
 
 const FILE_LABELS: Record<string, string> = {
@@ -31,6 +32,7 @@ const FILE_LABELS: Record<string, string> = {
   OPD: 'OPD - ข้อมูลการตรวจ',
   ODX: 'ODX - การวินิจฉัย',
   ADP: 'ADP - บริการพิเศษ',
+  DRU: 'DRU - รายการยา',
   CHT: 'CHT - ค่าบริการ',
   CHA: 'CHA - ค่าบริการอื่น',
 };
@@ -56,9 +58,10 @@ const ISSUE_LABELS: Record<string, string> = {
   ER211: 'ADP: กองทุนพิเศษ - ตรวจสอบ',
   ER212: 'ADP: กองทุนพิเศษ - ตรวจสอบ',
   ER213: 'ADP: กองทุนพิเศษ - ตรวจสอบ',
+  ER214: 'DRUGP: ต้องมีรายการยา',
 };
 
-const isCritical = (code: string) => code.startsWith('ER1');
+const isCritical = (code: string) => code.startsWith('ER1') || code === 'ER214';
 const extractIssueCode = (issue: string) => issue.split(':')[0]?.trim() || issue.trim();
 
 interface VisitRow {

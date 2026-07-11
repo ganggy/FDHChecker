@@ -389,7 +389,7 @@ export const DEFAULT_MENU_PAGES = [
   'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'reconciliation',
-  'repDailySummary', 'ppfsBenchmark', 'uuc1Tracking'
+  'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking'
 ];
 
 const DEFAULT_STAFF_MENU_PAGES = [
@@ -1391,6 +1391,24 @@ export const ensureAuthTables = async () => {
        ON DUPLICATE KEY UPDATE group_name = VALUES(group_name)`,
       [JSON.stringify(DEFAULT_STAFF_MENU_PAGES)]
     );
+
+    const [staffGroupRows] = await connection.query(
+      'SELECT id, menu_permissions FROM app_user_group WHERE group_key = ? LIMIT 1',
+      ['staff']
+    );
+    const staffGroup = Array.isArray(staffGroupRows) && staffGroupRows.length > 0 ? (staffGroupRows[0] as any) : null;
+    if (staffGroup && normalizeMenuPermissions(staffGroup.menu_permissions).length === 0) {
+      await connection.query(
+        'UPDATE app_user_group SET menu_permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [JSON.stringify(DEFAULT_STAFF_MENU_PAGES), Number(staffGroup.id)]
+      );
+    }
+    if (staffGroup) {
+      await connection.query(
+        'UPDATE app_user SET group_id = ? WHERE group_id IS NULL AND is_admin = 0',
+        [Number(staffGroup.id)]
+      );
+    }
 
     const [adminGroupRows] = await connection.query('SELECT id FROM app_user_group WHERE group_key = ? LIMIT 1', ['admin']);
     const adminGroupId = Array.isArray(adminGroupRows) && adminGroupRows.length > 0
@@ -4682,21 +4700,61 @@ export const getFdhClaimDetailRows = async (options: {
   }
 };
 
-export const getRepDataRows = async (limit = 200): Promise<Record<string, unknown>[]> => {
+export const getRepDataRows = async (
+  limit = 200,
+  visit: { vn?: string; an?: string; hn?: string } = {}
+): Promise<Record<string, unknown>[]> => {
   const connection = await getRepstmConnection();
   try {
     await connection.query(REP_DATA_TABLE_SQL);
+    const visitConditions: string[] = [];
+    const visitParams: string[] = [];
+    if (visit.vn) { visitConditions.push('vn = ?'); visitParams.push(visit.vn); }
+    if (visit.an) { visitConditions.push('an = ?'); visitParams.push(visit.an); }
     const [rows] = await connection.query(
       `SELECT id, batch_id, rep_no, seq_no, tran_id, hcode, hn, vn, an, pid, patient_name, patient_type, department,
               admdate, dchdate, senddate, maininscl, subinscl, errorcode, verifycode, projectcode, filename,
               percentpay, income, compensated, nhso, agency, hc, ae, inst, op, ip, dmis, drug, ontop,
               diff, down_amount, up_amount, yymm, yearbudget, raw_data, created_at
        FROM rep_data
+       ${visitConditions.length ? `WHERE (${visitConditions.join(' OR ')})` : ''}
        ORDER BY created_at DESC, id DESC
        LIMIT ?`,
-      [limit]
+      [...visitParams, limit]
     );
-    return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+    const repRows = Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+    if (repRows.length === 0) return [];
+
+    // FDH ClaimDetail stores the latest claim state for each VN/AN. Attach it to
+    // every REP attempt so the C/Deny tracker can identify explicit unclaim cases.
+    const latestFdhByVisit = new Map<string, Record<string, unknown>>();
+    try {
+      await connection.query(FDH_CLAIM_DETAIL_ROW_TABLE_SQL);
+      const [fdhRows] = await connection.query(
+        `SELECT vn, an, claim_status, sent_at, created_at
+         FROM fdh_claim_detail_row
+         ORDER BY COALESCE(sent_at, created_at) DESC, id DESC`
+      );
+      for (const row of (Array.isArray(fdhRows) ? fdhRows : []) as Record<string, unknown>[]) {
+        const vn = String(row.vn || '').trim();
+        const an = String(row.an || '').trim();
+        if (vn && !latestFdhByVisit.has(`VN:${vn}`)) latestFdhByVisit.set(`VN:${vn}`, row);
+        if (an && !latestFdhByVisit.has(`AN:${an}`)) latestFdhByVisit.set(`AN:${an}`, row);
+      }
+    } catch (error) {
+      console.warn('Unable to attach FDH claim status to REP rows:', error);
+    }
+
+    return repRows.map((row) => {
+      const an = String(row.an || '').trim();
+      const vn = String(row.vn || '').trim();
+      const fdh = (an && latestFdhByVisit.get(`AN:${an}`)) || (vn && latestFdhByVisit.get(`VN:${vn}`));
+      return {
+        ...row,
+        latest_fdh_status: fdh?.claim_status || null,
+        latest_fdh_at: fdh?.sent_at || fdh?.created_at || null,
+      };
+    });
   } catch (error) {
     console.error('Error reading REP normalized rows:', error);
     return [];
@@ -5340,6 +5398,7 @@ export interface ReconciliationQueryParams {
   patientRight?: string;
   hosxpRight?: string;
   financeRight?: string;
+  paymentSource?: string;
   compareStatus?: string;
   page?: number;
   pageSize?: number;
@@ -5356,6 +5415,9 @@ export interface ReconciliationRow {
   pttype: string;
   pttype_name: string;
   hipdata_code: string;
+  account_group?: string;
+  payment_source?: string;
+  claim_summary?: string;
   service_date: string;
   claimable_amount: number;
   rep_amount: number | null;
@@ -5439,11 +5501,15 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     return { data: [], total: 0, summary: emptySummary };
   }
 
-  const baseRows = await getReceivableCandidates({
+  const allBaseRows = await getReceivableCandidates({
     ...candidateParams,
     limit: scanLimit,
     offset: 0,
   });
+  const paymentSourceFilter = String(params.paymentSource || '').trim().toUpperCase();
+  const baseRows = paymentSourceFilter
+    ? allBaseRows.filter((row) => String(row.payment_source || '').trim().toUpperCase() === paymentSourceFilter)
+    : allBaseRows;
 
   if (baseRows.length === 0) {
     const emptySummary = {
@@ -5693,6 +5759,9 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       pttype: String(base.pttype || ''),
       pttype_name: String(base.pttype_name || ''),
       hipdata_code: String(base.hipdata_code || ''),
+      account_group: String(base.account_group || ''),
+      payment_source: String(base.payment_source || ''),
+      claim_summary: String(base.claim_summary || ''),
       service_date: String(base.service_date || ''),
       claimable_amount: claimable,
       rep_amount: repAmt,
@@ -8236,20 +8305,26 @@ export const getRepstmImportBatches = async (
 
 export const getRepstmImportedRows = async (
   dataType: 'REP' | 'STM' | 'INV',
-  limit = 200
+  limit = 200,
+  visit: { vn?: string; an?: string; hn?: string } = {}
 ): Promise<Record<string, unknown>[]> => {
   await ensureRepstmTables();
   const connection = await getRepstmConnection();
   try {
+    const visitConditions: string[] = [];
+    const visitParams: string[] = [];
+    if (visit.vn) { visitConditions.push('r.vn = ?'); visitParams.push(visit.vn); }
+    if (visit.an) { visitConditions.push('r.an = ?'); visitParams.push(visit.an); }
     const [rows] = await connection.query(
       `SELECT r.id, r.batch_id, r.data_type, r.row_no, r.ref_key, r.hn, r.vn, r.an, r.cid, r.amount, r.service_date, r.raw_data, r.created_at,
               b.source_filename, b.sheet_name
        FROM repstm_import_row r
        JOIN repstm_import_batch b ON b.id = r.batch_id
        WHERE r.data_type = ?
+       ${visitConditions.length ? `AND (${visitConditions.join(' OR ')})` : ''}
        ORDER BY r.created_at DESC, r.id DESC
        LIMIT ?`,
-      [dataType, limit]
+      [dataType, ...visitParams, limit]
     );
     return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
   } catch (error) {
@@ -10216,10 +10291,164 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
     }
   }
 
+  type ImportedClaimStatus = {
+    claim_code: string;
+    claim_status: string;
+    upload_uid: string;
+    sent_at: string;
+  };
+  type ImportedRepStatus = {
+    rep_no: string;
+    rep_amount: number | null;
+    imported_at: string;
+    errorcode: string;
+    verifycode: string;
+    tran_ids: string[];
+  };
+  type ImportedStatementStatus = {
+    has_stm: boolean;
+    has_inv: boolean;
+    statement_no: string;
+    stm_amount: number | null;
+    stm_paid_amount: number | null;
+    imported_at: string;
+    errorcode: string;
+    verifycode: string;
+  };
+
+  const fdhImportMap = new Map<string, ImportedClaimStatus>();
+  const repImportMap = new Map<string, ImportedRepStatus>();
+  const statementImportMap = new Map<string, ImportedStatementStatus>();
+  let repConnection: mysql.PoolConnection | null = null;
+
+  try {
+    repConnection = await getRepstmConnection();
+    await ensureRepstmTables();
+
+    const visitClauses = [
+      `vn IN (${vnList})`,
+      `an IN (${vnList})`,
+    ];
+    const visitParams = [...uniqueVns, ...uniqueVns];
+
+    const [fdhImportedRows] = await repConnection.query(
+      `SELECT vn, an, claim_code, claim_status, upload_uid, sent_at
+       FROM fdh_claim_detail_row
+       WHERE ${visitClauses.join(' OR ')}
+       ORDER BY COALESCE(updated_at, created_at) ASC`,
+      visitParams
+    );
+    for (const importedRow of (Array.isArray(fdhImportedRows) ? fdhImportedRows : []) as Record<string, unknown>[]) {
+      const status = {
+        claim_code: normalizeImportCellValue(importedRow.claim_code),
+        claim_status: normalizeImportCellValue(importedRow.claim_status),
+        upload_uid: normalizeImportCellValue(importedRow.upload_uid),
+        sent_at: formatTrackingDateTime(importedRow.sent_at) || '',
+      };
+      const importedVn = normalizeImportCellValue(importedRow.vn);
+      const importedAn = normalizeImportCellValue(importedRow.an);
+      if (importedVn) fdhImportMap.set(importedVn, status);
+      if (importedAn) fdhImportMap.set(importedAn, status);
+    }
+
+    const [repImportedRows] = await repConnection.query(
+      `SELECT
+         COALESCE(vn, '') AS vn,
+         COALESCE(an, '') AS an,
+         GROUP_CONCAT(DISTINCT NULLIF(TRIM(rep_no), '') ORDER BY rep_no SEPARATOR ', ') AS rep_no,
+         MAX(COALESCE(compensated, nhso, agency)) AS rep_amount,
+         MAX(b.created_at) AS imported_at,
+         GROUP_CONCAT(DISTINCT NULLIF(TRIM(errorcode), '') SEPARATOR ', ') AS errorcode,
+         GROUP_CONCAT(DISTINCT NULLIF(TRIM(verifycode), '') SEPARATOR ', ') AS verifycode,
+         GROUP_CONCAT(DISTINCT NULLIF(TRIM(tran_id), '') SEPARATOR ',') AS tran_ids
+       FROM rep_data r
+       LEFT JOIN repstm_import_batch b ON b.id = r.batch_id
+       WHERE ${visitClauses.join(' OR ')}
+       GROUP BY COALESCE(vn, ''), COALESCE(an, '')`,
+      visitParams
+    );
+    const tranToVisit = new Map<string, string>();
+    for (const importedRow of (Array.isArray(repImportedRows) ? repImportedRows : []) as Record<string, unknown>[]) {
+      const importedVn = normalizeImportCellValue(importedRow.vn);
+      const importedAn = normalizeImportCellValue(importedRow.an);
+      const tranIds = normalizeImportCellValue(importedRow.tran_ids).split(',').map((value) => value.trim()).filter(Boolean);
+      const status = {
+        rep_no: normalizeImportCellValue(importedRow.rep_no),
+        rep_amount: importedRow.rep_amount == null ? null : Number(importedRow.rep_amount),
+        imported_at: formatTrackingDateTime(importedRow.imported_at) || '',
+        errorcode: normalizeImportCellValue(importedRow.errorcode),
+        verifycode: normalizeImportCellValue(importedRow.verifycode),
+        tran_ids: tranIds,
+      };
+      if (importedVn) repImportMap.set(importedVn, status);
+      if (importedAn) repImportMap.set(importedAn, status);
+      tranIds.forEach((tranId) => tranToVisit.set(tranId, importedVn || importedAn));
+    }
+
+    const tranIds = Array.from(tranToVisit.keys());
+    const statementClauses = [
+      `s.matched_visit_code IN (${vnList})`,
+      `s.vn IN (${vnList})`,
+      `s.an IN (${vnList})`,
+    ];
+    const statementParams: unknown[] = [...uniqueVns, ...uniqueVns, ...uniqueVns];
+    if (tranIds.length > 0) {
+      statementClauses.push(`s.tran_id IN (${tranIds.map(() => '?').join(',')})`);
+      statementParams.push(...tranIds);
+    }
+
+    const [statementRows] = await repConnection.query(
+      `SELECT
+         COALESCE(NULLIF(TRIM(s.matched_visit_code), ''), NULLIF(TRIM(s.vn), ''), NULLIF(TRIM(s.an), ''), '') AS visit_code,
+         COALESCE(s.tran_id, '') AS tran_id,
+         MAX(CASE WHEN s.data_type = 'STM' THEN 1 ELSE 0 END) AS has_stm,
+         MAX(CASE WHEN s.data_type = 'INV' THEN 1 ELSE 0 END) AS has_inv,
+         GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.statement_no), '') ORDER BY s.statement_no SEPARATOR ', ') AS statement_no,
+         SUM(CASE WHEN s.data_type = 'STM' THEN COALESCE(s.amount, 0) ELSE 0 END) AS stm_amount,
+         SUM(CASE WHEN s.data_type = 'STM' THEN COALESCE(s.paid_amount, 0) ELSE 0 END) AS stm_paid_amount,
+         MAX(b.created_at) AS imported_at,
+         GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.errorcode), '') SEPARATOR ', ') AS errorcode,
+         GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.verifycode), '') SEPARATOR ', ') AS verifycode
+       FROM repstm_statement_data s
+       LEFT JOIN repstm_import_batch b ON b.id = s.batch_id
+       WHERE s.data_type IN ('STM', 'INV') AND (${statementClauses.join(' OR ')})
+       GROUP BY visit_code, s.tran_id`,
+      statementParams
+    );
+    for (const importedRow of (Array.isArray(statementRows) ? statementRows : []) as Record<string, unknown>[]) {
+      const tranId = normalizeImportCellValue(importedRow.tran_id);
+      const visitCode = normalizeImportCellValue(importedRow.visit_code) || tranToVisit.get(tranId) || '';
+      if (!visitCode) continue;
+      const current = statementImportMap.get(visitCode);
+      const hasStm = Number(importedRow.has_stm || 0) > 0;
+      const hasInv = Number(importedRow.has_inv || 0) > 0;
+      const nextStmAmount = hasStm ? Number(importedRow.stm_amount || 0) : null;
+      const nextPaidAmount = hasStm ? Number(importedRow.stm_paid_amount || 0) : null;
+      statementImportMap.set(visitCode, {
+        has_stm: Boolean(current?.has_stm || hasStm),
+        has_inv: Boolean(current?.has_inv || hasInv),
+        statement_no: [current?.statement_no, normalizeImportCellValue(importedRow.statement_no)].filter(Boolean).join(', '),
+        stm_amount: current?.stm_amount == null ? nextStmAmount : current.stm_amount + (nextStmAmount || 0),
+        stm_paid_amount: current?.stm_paid_amount == null ? nextPaidAmount : current.stm_paid_amount + (nextPaidAmount || 0),
+        imported_at: latestTrackingDateTime(current?.imported_at || null, formatTrackingDateTime(importedRow.imported_at)) || '',
+        errorcode: [current?.errorcode, normalizeImportCellValue(importedRow.errorcode)].filter(Boolean).join(', '),
+        verifycode: [current?.verifycode, normalizeImportCellValue(importedRow.verifycode)].filter(Boolean).join(', '),
+      });
+    }
+  } catch (error) {
+    console.error('Error attaching imported FDH/REP/STM status to specific funds:', error);
+  } finally {
+    repConnection?.release();
+  }
+
   return rows.map((row) => {
     const vn = normalizeImportCellValue(row.vn);
+    const an = normalizeImportCellValue(row.an);
     const statusInfo = statusMap.get(vn);
     const fdhClaim = fdhClaimMap.get(vn);
+    const fdhImport = fdhImportMap.get(vn) || (an ? fdhImportMap.get(an) : undefined);
+    const repImport = repImportMap.get(vn) || (an ? repImportMap.get(an) : undefined);
+    const statementImport = statementImportMap.get(vn) || (an ? statementImportMap.get(an) : undefined);
     const authencode = normalizeImportCellValue(row.authencode) || statusInfo?.authencode || '';
     const closeCode = normalizeImportCellValue(row.close_code) || statusInfo?.closeCode || '';
     return {
@@ -10234,6 +10463,25 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
       fdh_stm_period: fdhClaim?.fdh_stm_period || '',
       fdh_act_amt: fdhClaim?.fdh_act_amt ?? null,
       fdh_settle_at: fdhClaim?.fdh_settle_at || '',
+      has_fdh_import: Boolean(fdhImport),
+      fdh_import_claim_code: fdhImport?.claim_code || '',
+      fdh_import_status: fdhImport?.claim_status || '',
+      fdh_import_upload_uid: fdhImport?.upload_uid || '',
+      fdh_import_sent_at: fdhImport?.sent_at || '',
+      has_rep_import: Boolean(repImport),
+      rep_no: repImport?.rep_no || '',
+      rep_amount: repImport?.rep_amount ?? null,
+      rep_imported_at: repImport?.imported_at || '',
+      rep_errorcode: repImport?.errorcode || '',
+      rep_verifycode: repImport?.verifycode || '',
+      has_stm_import: Boolean(statementImport?.has_stm),
+      has_inv_import: Boolean(statementImport?.has_inv),
+      stm_statement_no: statementImport?.statement_no || '',
+      stm_amount: statementImport?.stm_amount ?? null,
+      stm_paid_amount: statementImport?.stm_paid_amount ?? null,
+      stm_imported_at: statementImport?.imported_at || '',
+      stm_errorcode: statementImport?.errorcode || '',
+      stm_verifycode: statementImport?.verifycode || '',
     };
   });
 };

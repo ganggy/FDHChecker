@@ -1,5 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { fetchMophClaimDashboardSummary, type MophClaimDashboardSummary } from '../services/hosxpService';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  fetchMophClaimDashboardSummary,
+  fetchReceivableReconciliation,
+  type MophClaimDashboardSummary,
+  type ReconciliationSummary,
+} from '../services/hosxpService';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { navigateFromDashboard, type AppPage } from '../utils/navigationState';
 
@@ -158,36 +163,64 @@ const QueueCard: React.FC<QueueCardProps> = ({ title, count, value, color, note,
 
 export const AdminDashboard: React.FC = () => {
   const today = formatLocalDateInput();
-  const [startDate, setStartDate] = useState(today);
+  const firstDayOfMonth = `${today.slice(0, 8)}01`;
+  const [startDate, setStartDate] = useState(firstDayOfMonth);
   const [endDate, setEndDate] = useState(today);
   const [data, setData] = useState<EligibleVisit[]>([]);
   const [mophSummary, setMophSummary] = useState<MophClaimDashboardSummary>(emptyMophSummary);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mophError, setMophError] = useState<string | null>(null);
+  const [reconciliationSummary, setReconciliationSummary] = useState<ReconciliationSummary | null>(null);
+  const [reconciliationError, setReconciliationError] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
+      const requestId = ++requestIdRef.current;
       setLoading(true);
       setError(null);
+      setMophError(null);
+      setReconciliationError(null);
+      if (startDate > endDate) {
+        setError('วันที่เริ่มต้นต้องไม่มากกว่าวันที่สิ้นสุด');
+        setLoading(false);
+        return;
+      }
       try {
         const response = await fetch(`/api/hosxp/eligible-visits?startDate=${startDate}&endDate=${endDate}`);
         const result = await response.json();
+        if (requestId !== requestIdRef.current) return;
         if (result.success) {
-          setData(result.data);
+          setData(Array.isArray(result.data) ? result.data : []);
         } else {
           setError(result.error || 'Failed to fetch data');
         }
 
-        try {
-          setMophSummary(await fetchMophClaimDashboardSummary({ startDate, endDate }));
-        } catch {
+        const [mophResult, reconciliationResult] = await Promise.allSettled([
+          fetchMophClaimDashboardSummary({ startDate, endDate }),
+          fetchReceivableReconciliation({ startDate, endDate, patientType: 'ALL', page: 1, pageSize: 1 }),
+        ]);
+        if (requestId !== requestIdRef.current) return;
+        if (mophResult.status === 'fulfilled') setMophSummary(mophResult.value);
+        else {
           setMophSummary(emptyMophSummary);
+          setMophError('ไม่สามารถโหลดสถานะ MOPH ได้');
         }
+        if (reconciliationResult.status === 'fulfilled') setReconciliationSummary(reconciliationResult.value.summary);
+        else {
+          setReconciliationSummary(null);
+          setReconciliationError('ไม่สามารถโหลดข้อมูลกระทบยอด REP/STM ได้');
+        }
+        setLastUpdatedAt(new Date());
       } catch {
+        if (requestId !== requestIdRef.current) return;
         setError('Error connecting to server');
         setMophSummary(emptyMophSummary);
+        setReconciliationSummary(null);
       } finally {
-        setLoading(false);
+        if (requestId === requestIdRef.current) setLoading(false);
       }
     };
 
@@ -259,7 +292,9 @@ export const AdminDashboard: React.FC = () => {
         trendStats[date].nonBillable += price;
       }
 
-      if (item.isPotentialClaim && item.status !== 'ready') {
+      // Count special-fund opportunities only when they are outside the billable
+      // queue; otherwise the same visit would be counted again in pending value.
+      if (item.isPotentialClaim && !item.isBillable) {
         potentialClaimCount += 1;
         potentialClaimValue += price;
       }
@@ -325,32 +360,32 @@ export const AdminDashboard: React.FC = () => {
       },
     ];
 
-    const reconciliationRows = [
+    const reconciliationRows = reconciliationSummary ? [
       {
-        label: 'คาดว่าควรเบิกได้',
-        value: expectedClaimValue,
-        note: `${readyCount + pendingCount} รายการในกลุ่มที่ระบบมองว่าเบิกได้`,
+        label: 'ยอดเรียกเก็บ',
+        value: Number(reconciliationSummary.total_claimable || 0),
+        note: `${reconciliationSummary.total_visits.toLocaleString('th-TH')} visits ในข้อมูลกระทบยอด`,
         color: '#1d4ed8',
       },
       {
-        label: 'พร้อมส่งแล้ว',
-        value: readyBillableValue,
-        note: `${readyCount} รายการผ่าน validation ปัจจุบัน`,
+        label: 'ยอดตอบกลับ REP',
+        value: Number(reconciliationSummary.total_rep || 0),
+        note: `รอ REP ${reconciliationSummary.pending_rep.toLocaleString('th-TH')} visits`,
         color: '#059669',
       },
       {
-        label: 'ยังไม่พร้อมส่ง',
-        value: pendingBillableValue,
-        note: `${pendingCount} รายการยังติดปัญหาข้อมูล`,
-        color: '#d97706',
+        label: 'ยอดจ่ายจริง STM',
+        value: Number(reconciliationSummary.total_stm_paid || 0),
+        note: `รอ STM/INV ${reconciliationSummary.pending_stm.toLocaleString('th-TH')} visits`,
+        color: '#0f766e',
       },
       {
-        label: 'ช่องว่างรายได้',
-        value: leakageValue,
-        note: 'มูลค่าที่ยังเสี่ยงตกหล่นถ้ายังไม่ถูกแก้',
+        label: 'ยอดค้างรับตามข้อมูล',
+        value: Math.max(Number(reconciliationSummary.total_claimable || 0) - Number(reconciliationSummary.total_stm_paid || 0), 0),
+        note: `ยอดต่าง ${reconciliationSummary.mismatched.toLocaleString('th-TH')} · REP C/Deny ${reconciliationSummary.rep_issue.toLocaleString('th-TH')}`,
         color: '#7c3aed',
       },
-    ];
+    ] : [];
 
     const rejectRows = [
       {
@@ -388,7 +423,7 @@ export const AdminDashboard: React.FC = () => {
       reconciliationRows,
       rejectRows,
     };
-  }, [data]);
+  }, [data, reconciliationSummary]);
 
   const maxTrendValue = Math.max(...dashboard.trendRows.map(item => item.total), 1);
   const openStaff = (overrides?: {
@@ -455,6 +490,23 @@ export const AdminDashboard: React.FC = () => {
   const mophVaccineSent = toNumber(mophSummary.vaccine.sent);
   const mophVaccineClosed = toNumber(mophSummary.vaccine.closed);
   const latestMophSendDate = mophSummary.latestSendDate ? String(mophSummary.latestSendDate).slice(0, 10) : '-';
+  const setQuickRange = (range: 'today' | 'month' | 'previousMonth') => {
+    if (range === 'today') {
+      setStartDate(today);
+      setEndDate(today);
+      return;
+    }
+    if (range === 'month') {
+      setStartDate(firstDayOfMonth);
+      setEndDate(today);
+      return;
+    }
+    const current = new Date(`${today}T00:00:00`);
+    const previousStart = new Date(current.getFullYear(), current.getMonth() - 1, 1);
+    const previousEnd = new Date(current.getFullYear(), current.getMonth(), 0);
+    setStartDate(formatLocalDateInput(previousStart));
+    setEndDate(formatLocalDateInput(previousEnd));
+  };
 
   return (
     <div className="page-container">
@@ -464,12 +516,18 @@ export const AdminDashboard: React.FC = () => {
           <p className="page-subtitle" style={{ marginTop: 6 }}>
             สรุปภาพรวมงานเบิก, รายได้ที่พร้อมส่ง, งานค้างแก้ไข และจุดเสี่ยงที่ทำให้เงินตกหล่น
           </p>
+          {lastUpdatedAt && <div style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>อัปเดตล่าสุด {lastUpdatedAt.toLocaleString('th-TH')}</div>}
         </div>
 
         <div style={{ ...cardBase, padding: 14, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="form-group">
             <label className="form-label">จากวันที่</label>
             <input type="date" className="form-control" value={startDate} onChange={e => setStartDate(e.target.value)} />
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignSelf: 'flex-end', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-sm btn-outline" onClick={() => setQuickRange('today')}>วันนี้</button>
+            <button type="button" className="btn btn-sm btn-outline" onClick={() => setQuickRange('month')}>เดือนนี้</button>
+            <button type="button" className="btn btn-sm btn-outline" onClick={() => setQuickRange('previousMonth')}>เดือนก่อน</button>
           </div>
           <div className="form-group">
             <label className="form-label">ถึงวันที่</label>
@@ -541,6 +599,8 @@ export const AdminDashboard: React.FC = () => {
               <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700 }}>ล่าสุด {latestMophSendDate}</div>
             </div>
 
+            {mophError && <div className="alert alert-warning" style={{ marginBottom: 14 }}>⚠️ {mophError} — ตัวเลขส่วนนี้ไม่ใช่ศูนย์ยืนยัน</div>}
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
               <div style={{ padding: 16, borderRadius: 16, background: '#eff6ff', border: '1px solid #bfdbfe' }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#1d4ed8' }}>DM/HT MOPH</div>
@@ -587,7 +647,7 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginBottom: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 24 }}>
             <div style={{ ...cardBase, padding: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 18, flexWrap: 'wrap' }}>
                 <div>
@@ -653,8 +713,9 @@ export const AdminDashboard: React.FC = () => {
             <div style={{ ...cardBase, padding: 24 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 18 }}>
                 <div style={{ fontSize: 17, fontWeight: 800 }}>Reconciliation Snapshot</div>
-                <button className="btn btn-outline" onClick={() => openFDH('all')}>เปิดหน้า FDH</button>
+                <button className="btn btn-outline" onClick={() => navigateFromDashboard('reconciliation', { source: 'dashboard', contextLabel: 'เปิดข้อมูลกระทบยอดจริงจาก Executive Dashboard', startDate, endDate })}>เปิดหน้ากระทบยอด</button>
               </div>
+              {reconciliationError && <div className="alert alert-warning" style={{ marginBottom: 12 }}>⚠️ {reconciliationError}</div>}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {dashboard.reconciliationRows.map(row => (
                   <div key={row.label} style={{ padding: 14, borderRadius: 14, background: `${row.color}10`, border: `1px solid ${row.color}22` }}>
@@ -665,6 +726,9 @@ export const AdminDashboard: React.FC = () => {
                     <div style={{ fontSize: 12, color: '#64748b' }}>{row.note}</div>
                   </div>
                 ))}
+                {!reconciliationError && dashboard.reconciliationRows.length === 0 && (
+                  <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>ไม่มีข้อมูลกระทบยอดในช่วงวันที่เลือก</div>
+                )}
               </div>
             </div>
 
@@ -730,7 +794,8 @@ export const AdminDashboard: React.FC = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20, marginBottom: 24 }}>
             <div style={{ ...cardBase, padding: 24 }}>
-              <div style={{ fontSize: 17, fontWeight: 800, marginBottom: 18 }}>Top จุดคอขวดที่ทำให้เบิกไม่ได้</div>
+              <div style={{ fontSize: 17, fontWeight: 800 }}>Top จุดคอขวดที่ทำให้เบิกไม่ได้</div>
+              <div style={{ fontSize: 12, color: '#64748b', margin: '4px 0 18px' }}>หนึ่ง visit อาจมีหลายปัญหา มูลค่าระหว่างหัวข้อจึงไม่ควรนำมารวมกัน</div>
                 {dashboard.issueRows.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {dashboard.issueRows.map(issue => (

@@ -2493,9 +2493,17 @@ app.get('/api/repstm/:dataType', async (req, res) => {
     }
 
     const limit = Number(req.query.limit || 200);
+    const visit = {
+      vn: String(req.query.vn || '').trim() || undefined,
+      an: String(req.query.an || '').trim() || undefined,
+      hn: String(req.query.hn || '').trim() || undefined,
+    };
+    if (String(req.query.visitOnly || '') === 'true' && !visit.vn && !visit.an) {
+      return res.json({ success: true, data: [] });
+    }
     const data = dataType === 'REP'
-      ? await getRepDataRows(limit)
-      : await getRepstmImportedRows(dataType, limit);
+      ? await getRepDataRows(limit, visit)
+      : await getRepstmImportedRows(dataType, limit, visit);
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error fetching REP/STM/INV rows:', error);
@@ -2615,6 +2623,27 @@ app.get('/api/ppfs/nhso-report', async (req, res) => {
   } catch (error) {
     console.error('Error fetching NHSO PPFS report:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดรายงาน PPFS จาก สปสช.' });
+  }
+});
+
+app.get('/api/ppfs/visit-match', async (req, res) => {
+  try {
+    const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
+    const pageSize = req.query.pageSize ? Math.min(500, Math.max(10, Number(req.query.pageSize))) : 100;
+    const result = await getVisitRepStmComparison({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      hosxpRight: req.query.hosxpRight ? String(req.query.hosxpRight) : undefined,
+      compareStatus: req.query.compareStatus ? String(req.query.compareStatus) : undefined,
+      paymentSource: 'PPFS',
+      page,
+      pageSize,
+    });
+    res.json({ success: true, ...result, page, pageSize });
+  } catch (error) {
+    console.error('Error fetching PPFS visit match data:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการ match PPFS กับข้อมูล HOSxP' });
   }
 });
 

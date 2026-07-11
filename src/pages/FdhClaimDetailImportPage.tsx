@@ -42,6 +42,16 @@ interface ClaimDetailSummary {
   status_counts?: Array<{ claim_status: string; total: number }>;
 }
 
+interface ClaimDetailFileItem {
+  id: string;
+  fileName: string;
+  sheetName: string;
+  headers: string[];
+  rows: Record<string, unknown>[];
+  status: ImportStatus;
+  message: string;
+}
+
 const normalizeCell = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const numberTh = (value: unknown) => Number(value || 0).toLocaleString('th-TH');
 
@@ -92,10 +102,8 @@ const statusTone = (status: ImportStatus) => {
 
 export const FdhClaimDetailImportPage = () => {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [fileName, setFileName] = useState('');
-  const [sheetName, setSheetName] = useState('');
-  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
-  const [headers, setHeaders] = useState<string[]>([]);
+  const [fileItems, setFileItems] = useState<ClaimDetailFileItem[]>([]);
+  const [activeFileId, setActiveFileId] = useState('');
   const [status, setStatus] = useState<ImportStatus>('idle');
   const [message, setMessage] = useState('');
   const [importedBy, setImportedBy] = useState('เปรมศักดิ์ เทพวงสา');
@@ -103,6 +111,11 @@ export const FdhClaimDetailImportPage = () => {
   const [batches, setBatches] = useState<ClaimDetailBatch[]>([]);
   const [importedRows, setImportedRows] = useState<ClaimDetailRow[]>([]);
   const [dbSummary, setDbSummary] = useState<ClaimDetailSummary | null>(null);
+  const activeFile = fileItems.find((item) => item.id === activeFileId) || fileItems[0];
+  const sheetName = activeFile?.sheetName || '';
+  const rows = useMemo(() => activeFile?.rows || [], [activeFile]);
+  const headers = activeFile?.headers || [];
+  const readyFileCount = fileItems.filter((item) => item.status === 'ready').length;
 
   const summary = useMemo(() => {
     const statusCounts = rows.reduce<Record<string, number>>((acc, row) => {
@@ -133,39 +146,82 @@ export const FdhClaimDetailImportPage = () => {
     void loadHistory();
   }, []);
 
-  const handleFile = async (file: File) => {
-    try {
-      setStatus('parsing');
-      setMessage('');
-      const parsed = await parseClaimDetailWorkbook(file);
-      setFileName(file.name);
-      setSheetName(parsed.sheetName);
-      setHeaders(parsed.headers);
-      setRows(parsed.rows);
-      setStatus('ready');
-      setMessage(`อ่านไฟล์สำเร็จ ${parsed.rows.length.toLocaleString('th-TH')} รายการ`);
-    } catch (error) {
-      setStatus('error');
-      setMessage(error instanceof Error ? error.message : 'อ่านไฟล์ไม่สำเร็จ');
-      setRows([]);
-      setHeaders([]);
+  const handleFiles = async (files: FileList | null) => {
+    const selectedFiles = Array.from(files || []).filter((file) => /\.(xlsx|xls)$/i.test(file.name));
+    if (selectedFiles.length === 0) return;
+    setStatus('parsing');
+    setMessage(`กำลังอ่าน ${selectedFiles.length.toLocaleString('th-TH')} ไฟล์...`);
+    const parsedItems: ClaimDetailFileItem[] = [];
+    for (const [index, file] of selectedFiles.entries()) {
+      const id = `${file.name}-${file.size}-${file.lastModified}-${index}`;
+      try {
+        const parsed = await parseClaimDetailWorkbook(file);
+        parsedItems.push({
+          id,
+          fileName: file.name,
+          sheetName: parsed.sheetName,
+          headers: parsed.headers,
+          rows: parsed.rows,
+          status: 'ready',
+          message: `พร้อมนำเข้า ${parsed.rows.length.toLocaleString('th-TH')} รายการ`,
+        });
+      } catch (error) {
+        parsedItems.push({
+          id,
+          fileName: file.name,
+          sheetName: '',
+          headers: [],
+          rows: [],
+          status: 'error',
+          message: error instanceof Error ? error.message : 'อ่านไฟล์ไม่สำเร็จ',
+        });
+      }
     }
+    setFileItems(parsedItems);
+    setActiveFileId(parsedItems[0]?.id || '');
+    const readyCount = parsedItems.filter((item) => item.status === 'ready').length;
+    setStatus(readyCount > 0 ? 'ready' : 'error');
+    setMessage(`อ่านครบ ${parsedItems.length.toLocaleString('th-TH')} ไฟล์ พร้อมนำเข้า ${readyCount.toLocaleString('th-TH')} ไฟล์`);
   };
 
   const handleImport = async () => {
-    if (!fileName || rows.length === 0) return;
+    const readyItems = fileItems.filter((item) => item.status === 'ready');
+    if (readyItems.length === 0) return;
     try {
       setStatus('importing');
-      setMessage('กำลังนำเข้า FDH ClaimDetail...');
-      const response = await fetch('/api/fdh/claim-detail/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceFilename: fileName, sheetName, importedBy, notes, rows }),
-      });
-      const json = await response.json();
-      if (!response.ok || !json.success) throw new Error(json.error || 'นำเข้าไม่สำเร็จ');
-      setStatus(json.duplicate ? 'duplicate' : 'success');
-      setMessage(json.message || `นำเข้าสำเร็จ ${Number(json.rowCount || rows.length).toLocaleString('th-TH')} รายการ`);
+      setMessage(`กำลังนำเข้า ${readyItems.length.toLocaleString('th-TH')} ไฟล์...`);
+      let successCount = 0;
+      let duplicateCount = 0;
+      let errorCount = 0;
+      let importedRowsCount = 0;
+      for (const item of readyItems) {
+        setFileItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: 'importing', message: 'กำลังนำเข้า...' } : entry));
+        try {
+          const response = await fetch('/api/fdh/claim-detail/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sourceFilename: item.fileName, sheetName: item.sheetName, importedBy, notes, rows: item.rows }),
+          });
+          const json = await response.json();
+          if (!response.ok || !json.success) throw new Error(json.error || 'นำเข้าไม่สำเร็จ');
+          const nextStatus: ImportStatus = json.duplicate ? 'duplicate' : 'success';
+          if (json.duplicate) duplicateCount += 1;
+          else {
+            successCount += 1;
+            importedRowsCount += Number(json.rowCount || item.rows.length);
+          }
+          setFileItems((current) => current.map((entry) => entry.id === item.id
+            ? { ...entry, status: nextStatus, message: json.message || `นำเข้าสำเร็จ ${Number(json.rowCount || item.rows.length).toLocaleString('th-TH')} รายการ` }
+            : entry));
+        } catch (error) {
+          errorCount += 1;
+          setFileItems((current) => current.map((entry) => entry.id === item.id
+            ? { ...entry, status: 'error', message: error instanceof Error ? error.message : 'นำเข้าไม่สำเร็จ' }
+            : entry));
+        }
+      }
+      setStatus(errorCount > 0 ? 'error' : duplicateCount > 0 && successCount === 0 ? 'duplicate' : 'success');
+      setMessage(`นำเข้าสำเร็จ ${successCount.toLocaleString('th-TH')} ไฟล์ รวม ${importedRowsCount.toLocaleString('th-TH')} รายการ${duplicateCount ? `, ไฟล์ซ้ำ ${duplicateCount.toLocaleString('th-TH')}` : ''}${errorCount ? `, ผิดพลาด ${errorCount.toLocaleString('th-TH')}` : ''}`);
       await loadHistory();
     } catch (error) {
       setStatus('error');
@@ -185,20 +241,21 @@ export const FdhClaimDetailImportPage = () => {
           <input
             ref={inputRef}
             type="file"
+            multiple
             accept=".xlsx,.xls"
             style={{ display: 'none' }}
             onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void handleFile(file);
+              void handleFiles(event.target.files);
+              event.target.value = '';
             }}
           />
           <div className="workflow-filter-grid">
             <div className="form-group">
               <label>ไฟล์ FDH ClaimDetail</label>
               <button className="btn btn-primary" type="button" onClick={() => inputRef.current?.click()}>
-                เลือกไฟล์ Excel จาก FDH
+                เลือกหลายไฟล์ Excel จาก FDH
               </button>
-              <small>{fileName || 'รองรับไฟล์ 11101-NHSO-ClaimDetail.xlsx'}</small>
+              <small>{fileItems.length > 0 ? `เลือกแล้ว ${fileItems.length.toLocaleString('th-TH')} ไฟล์ พร้อมนำเข้า ${readyFileCount.toLocaleString('th-TH')} ไฟล์` : 'รองรับไฟล์ 11101-NHSO-ClaimDetail.xlsx'}</small>
               <small style={{ display: 'block', marginTop: 6, color: '#64748b' }}>
                 ระบบตรวจซ้ำจากเนื้อหาในไฟล์ ไม่ได้ดูแค่ชื่อไฟล์ หากชื่อเดิมแต่สถานะในไฟล์เปลี่ยน จะนำเข้าเป็นรอบใหม่ได้
               </small>
@@ -212,12 +269,27 @@ export const FdhClaimDetailImportPage = () => {
               <input className="form-control" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="เช่น รอบส่งเคลมปลายเดือน" />
             </div>
             <div className="workflow-filter-actions">
-              <button className="btn btn-success" onClick={handleImport} disabled={status !== 'ready' && status !== 'duplicate' && status !== 'success'}>
-                {status === 'importing' ? 'กำลังนำเข้า...' : 'นำเข้าไฟล์'}
+              <button className="btn btn-success" onClick={handleImport} disabled={status === 'importing' || readyFileCount === 0}>
+                {status === 'importing' ? 'กำลังนำเข้าหลายไฟล์...' : `นำเข้าทั้งหมด ${readyFileCount.toLocaleString('th-TH')} ไฟล์`}
               </button>
             </div>
           </div>
           {message && <div style={{ marginTop: 12 }}><span className={statusTone(status)}>{message}</span></div>}
+          {fileItems.length > 0 && (
+            <div className="modal-table-wrap" style={{ marginTop: 14 }}>
+              <table className="data-table workflow-readable-table">
+                <thead><tr><th>ไฟล์</th><th>Sheet</th><th>รายการ</th><th>ผลการอ่าน/นำเข้า</th></tr></thead>
+                <tbody>
+                  {fileItems.map((item) => (
+                    <tr key={item.id} onClick={() => setActiveFileId(item.id)} className="clickable-row" style={{ background: activeFile?.id === item.id ? 'rgba(37, 99, 235, 0.06)' : undefined }}>
+                      <td>{item.fileName}</td><td>{item.sheetName || '-'}</td><td>{numberTh(item.rows.length)}</td>
+                      <td><span className={statusTone(item.status)}>{item.message}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </section>
 

@@ -1793,3 +1793,150 @@
     grid-template-columns: 1fr;
   }
 }
+.repstm-visit-trigger {
+  border: 1px solid currentColor;
+  cursor: pointer;
+  font: inherit;
+}
+
+.repstm-visit-trigger:not(:disabled):hover {
+  filter: brightness(0.94);
+  text-decoration: underline;
+  transform: translateY(-1px);
+}
+
+.repstm-visit-trigger:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.repstm-visit-modal {
+  width: min(1100px, calc(100vw - 40px));
+  max-height: 88vh;
+  overflow: auto;
+}
+
+.repstm-visit-modal__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 14px;
+  background: var(--card-bg, #fff);
+  border-bottom: 1px solid var(--border-color, #dfe5ef);
+}
+
+.repstm-visit-modal__header h2,
+.repstm-visit-section h3 { margin: 0 0 6px; }
+.repstm-visit-section { margin-top: 20px; }
+.repstm-visit-modal__state,
+.repstm-visit-empty { padding: 20px; text-align: center; color: var(--text-muted); }
+.repstm-visit-modal__state--error { color: #b42318; }
+
+.repstm-visit-record {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border-color, #dfe5ef);
+  border-radius: 10px;
+  background: var(--border-color, #dfe5ef);
+}
+
+.repstm-visit-field {
+  min-width: 0;
+  padding: 10px 12px;
+  background: var(--card-bg, #fff);
+}
+
+.repstm-visit-field span { display: block; margin-bottom: 4px; color: var(--text-muted); font-size: 11px; }
+.repstm-visit-field strong { display: block; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; }
+
+.repstm-error-explanations {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: #fff7ed;
+}
+
+.repstm-error-explanation {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  background: #fff;
+  color: #7c2d12;
+  font-size: 12px;
+}
+
+.repstm-error-explanation span { color: #475569; }
+.repstm-error-explanation strong small,
+.repstm-error-explanation span small { display: block; margin-top: 4px; font-weight: 400; }
+.repstm-error-explanation span b { display: block; color: #7c2d12; }
+.repdeny-timeline { margin-top: 5px; min-width: 190px; }
+.repdeny-timeline summary { cursor: pointer; color: #2563eb; font-size: 11px; font-weight: 700; }
+.repdeny-timeline-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.repdeny-timeline-item { display: grid; gap: 2px; padding: 7px 8px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; font-size: 11px; white-space: normal; }
+
+/* Compact frequent-code picker: keep the tracker usable even with hundreds of codes. */
+.repdeny-list-card .card-body { max-height: 390px; overflow: hidden; }
+.repdeny-code-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px;
+  max-height: 390px;
+  padding: 10px;
+  overflow-y: auto;
+  align-content: start;
+}
+.repdeny-code-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "code badge" "description description" "count count";
+  align-items: center;
+  gap: 1px 8px;
+  min-height: 78px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #fff;
+}
+.repdeny-code-item .repdeny-code-name { grid-area: code; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repdeny-code-item .repdeny-code-count { grid-area: count; color: #64748b; font-size: 10px; }
+.repdeny-code-item .repdeny-code-description {
+  grid-area: description;
+  display: -webkit-box;
+  overflow: hidden;
+  color: #475569;
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.repdeny-code-item > .badge { grid-area: badge; }
+.repdeny-code-item.active { border-color: #60a5fa; background: #eff6ff; box-shadow: inset 3px 0 #2563eb; }
+
+.repdeny-filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.repdeny-filter-actions .btn { min-width: 142px; }
+
+@media (max-width: 640px) {
+  .repdeny-filter-actions { justify-content: stretch; }
+  .repdeny-filter-actions .btn { flex: 1; min-width: 0; }
+}

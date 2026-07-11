@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { DetailModal } from '../components/DetailModal';
+import { RepStmVisitModal } from '../components/RepStmVisitModal';
 import type { CheckRecord } from '../mockData';
 import businessRules from '../config/business_rules.json';
 import { FUND_DEFINITIONS, type FundDefinition } from '../config/fundDefinitions';
@@ -104,6 +105,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
+    const [repstmVisit, setRepstmVisit] = useState<any | null>(null);
     const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [fundVisibility, setFundVisibility] = useState<Record<string, boolean>>({});
@@ -330,6 +332,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     };
     /** Returns true when any FDH settlement field carries data, meaning this visit was already submitted to FDH */
     const hasFdhData = (item: any) =>
+        Boolean(item?.has_fdh_import) ||
         Boolean(String(item?.fdh_claim_status_message ?? '').trim()) ||
         Boolean(String(item?.fdh_stm_period ?? '').trim()) ||
         (item?.fdh_act_amt != null && item?.fdh_act_amt !== '') ||
@@ -353,6 +356,20 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 ? 'badge-info'
                 : 'badge-warning'
     );
+    const getImportedFdhLabel = (item: any) => item?.has_fdh_import
+        ? (String(item?.fdh_import_status ?? '').trim() || 'พบในไฟล์ FDH')
+        : 'ยังไม่พบไฟล์ FDH';
+    const getRepImportLabel = (item: any) => {
+        if (!item?.has_rep_import) return 'ยังไม่พบ REP';
+        const errorCode = String(item?.rep_errorcode ?? '').trim();
+        const verifyCode = String(item?.rep_verifycode ?? '').trim();
+        if (errorCode) return `REP C: ${errorCode}`;
+        if (verifyCode) return `REP D: ${verifyCode}`;
+        return 'REP';
+    };
+    const getStatementImportLabel = (item: any) => item?.has_stm_import
+        ? (Number(item?.stm_paid_amount ?? 0) === 0 ? 'STM จ่าย 0' : 'พบ STM')
+        : item?.has_inv_import ? 'พบ INV' : 'ยังไม่พบ STM/INV';
     const getAncLab1Requirements = (item: any, hasAncDiag: boolean) => {
         const isFemale = String(item?.sex ?? '').trim() === '2';
         return [
@@ -1148,6 +1165,15 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 'FDH Status': item.fdh_claim_status_message || '',
                 'Fdh_Stm_Period': item.fdh_stm_period || '',
                 'Fdh_Act_Amt': item.fdh_act_amt != null ? Number(item.fdh_act_amt) : '',
+                'FDH File Status': item.fdh_import_status || '',
+                'FDH Claim Code': item.fdh_import_claim_code || '',
+                'REP No': item.rep_no || '',
+                'REP Amount': item.rep_amount ?? '',
+                'REP Error': [item.rep_errorcode, item.rep_verifycode].filter(Boolean).join(' / '),
+                'STM/INV No': item.stm_statement_no || '',
+                'STM Amount': item.stm_amount ?? '',
+                'STM Paid': item.stm_paid_amount ?? '',
+                'STM Error': [item.stm_errorcode, item.stm_verifycode].filter(Boolean).join(' / '),
                 'Fdh_Settle_At': item.fdh_settle_at || '',
                 'สถานะ': status.status,
                 'บริการ': status.subfunds.join(' | ') || '',
@@ -1189,6 +1215,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
             return baseRow;
         });
+    // The label helpers are pure formatters declared in this component; export data is
+    // evaluated only when the user clicks export, so recreating this callback adds no value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const writeExportFile = useCallback((fundId: string, items: any[]) => {
@@ -1985,6 +2014,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     <th style={{ width: 110, textAlign: 'center' }}>Fdh_Stm_Period</th>
                                     <th style={{ width: 100, textAlign: 'right' }}>Fdh_Act_Amt</th>
                                     <th style={{ width: 120, textAlign: 'center' }}>Fdh_Settle_At</th>
+                                    <th style={{ width: 130, textAlign: 'center' }}>ไฟล์ FDH</th>
+                                    <th style={{ width: 110, textAlign: 'center' }}>REP</th>
+                                    <th style={{ width: 130, textAlign: 'center' }}>STM/INV</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2496,6 +2528,38 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <span style={{ fontSize: 11 }}>{item.fdh_settle_at || '-'}</span>
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    <span className={`badge ${item.has_fdh_import ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: 10 }} title={item.fdh_import_claim_code || ''}>
+                                                        {getImportedFdhLabel(item)}
+                                                    </span>
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    <button
+                                                        type="button"
+                                                        className={`badge repstm-visit-trigger ${item.has_rep_import ? ((item.rep_errorcode || item.rep_verifycode) ? 'badge-danger' : 'badge-success') : 'badge-warning'}`}
+                                                        style={{ fontSize: 10 }}
+                                                        title={item.has_rep_import ? `คลิกดู REP ${item.rep_no || ''}` : 'ยังไม่มีข้อมูล REP'}
+                                                        disabled={!item.has_rep_import}
+                                                        onClick={() => setRepstmVisit(item)}
+                                                    >
+                                                        {getRepImportLabel(item)}
+                                                    </button>
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    <button
+                                                        type="button"
+                                                        className={`badge repstm-visit-trigger ${item.has_stm_import ? (Number(item.stm_paid_amount ?? 0) === 0 ? 'badge-danger' : 'badge-success') : item.has_inv_import ? 'badge-info' : 'badge-warning'}`}
+                                                        style={{ fontSize: 10 }}
+                                                        title={(item.has_stm_import || item.has_inv_import) ? 'คลิกดู STM/INV ของ visit นี้' : 'ยังไม่มีข้อมูล STM/INV'}
+                                                        disabled={!item.has_stm_import && !item.has_inv_import}
+                                                        onClick={() => setRepstmVisit(item)}
+                                                    >
+                                                        {getStatementImportLabel(item)}
+                                                    </button>
+                                                    {item.has_stm_import && item.stm_paid_amount != null && (
+                                                        <div style={{ fontSize: 10, marginTop: 3 }}>{Number(item.stm_paid_amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
+                                                    )}
                                                 </td></tr>
                                         );
                                     })
@@ -2511,6 +2575,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
             {selectedRecord && (
                 <DetailModal record={selectedRecord} onClose={() => setSelectedRecord(null)} />
+            )}
+            {repstmVisit && (
+                <RepStmVisitModal
+                    visit={{ vn: repstmVisit.vn, an: repstmVisit.an, hn: repstmVisit.hn, patientName: repstmVisit.patientName }}
+                    onClose={() => setRepstmVisit(null)}
+                />
             )}
 
         </div>

@@ -233,10 +233,17 @@ export const validateCheckData = async (checkRecord: CheckRecord): Promise<{ val
 };
 
 // ฟังก์ชันเชื่อมต่อฐานข้อมูล rcmdb (สำหรับข้อมูล REP/STM/INV)
-export const fetchRcmdbData = async (dataType: 'REP' | 'STM' | 'INV', limit = 200) => {
+export const fetchRcmdbData = async (
+  dataType: 'REP' | 'STM' | 'INV',
+  limit = 200,
+  visit: { vn?: string | null; an?: string | null; hn?: string | null } = {},
+) => {
   try {
     const params = new URLSearchParams();
     params.set('limit', String(limit));
+    if (visit.vn || visit.an || visit.hn) params.set('visitOnly', 'true');
+    if (visit.vn) params.set('vn', visit.vn);
+    if (visit.an) params.set('an', visit.an);
 
     const response = await fetch(`/api/repstm/${dataType}?${params.toString()}`, {
       method: 'GET',
@@ -751,6 +758,9 @@ export interface ReconciliationRow {
   pttype: string;
   pttype_name: string;
   hipdata_code: string;
+  account_group?: string;
+  payment_source?: string;
+  claim_summary?: string;
   service_date: string;
   claimable_amount: number;
   rep_amount: number | null;
@@ -844,6 +854,36 @@ export const fetchReceivableReconciliation = async (params: {
   return json as ReconciliationResponse;
 };
 
+export const fetchPpfsVisitMatch = async (params: {
+  startDate: string;
+  endDate: string;
+  patientType?: string;
+  hosxpRight?: string;
+  compareStatus?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ReconciliationResponse> => {
+  const query = new URLSearchParams();
+  query.set('startDate', params.startDate);
+  query.set('endDate', params.endDate);
+  if (params.patientType) query.set('patientType', params.patientType);
+  if (params.hosxpRight) query.set('hosxpRight', params.hosxpRight);
+  if (params.compareStatus) query.set('compareStatus', params.compareStatus);
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+
+  const response = await fetch(`/api/ppfs/visit-match?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดข้อมูล match PPFS ได้');
+  }
+  return json as ReconciliationResponse;
+};
+
 export interface Uuc1TrackingRow {
   patient_type: string;
   visit_key: string;
@@ -855,6 +895,9 @@ export interface Uuc1TrackingRow {
   pttype: string;
   pttype_name: string;
   hipdata_code: string;
+  account_group?: string;
+  payment_source?: string;
+  claim_summary?: string;
   service_date: string;
   sent_amount: number;
   rep_amount: number | null;

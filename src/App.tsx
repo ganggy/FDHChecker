@@ -1,40 +1,47 @@
-import { useEffect, useRef, useState } from 'react';
-import { StaffPage } from './pages/StaffPage';
-import { IPDPage } from './pages/IPDPage';
-import { AdminDashboard } from './pages/AdminDashboard';
-import { FDHCheckerPage } from './pages/FDHCheckerPage';
-import { FDHImportStatusPage } from './pages/FDHImportStatusPage';
-import { FdhClaimDetailImportPage } from './pages/FdhClaimDetailImportPage';
-import { NhsoClosePage } from './pages/NhsoClosePage';
-import { RepStmImportPage } from './pages/RepStmImportPage';
-import { ReceivablePage } from './pages/ReceivablePage';
-import { InsuranceOverviewPage } from './pages/InsuranceOverviewPage';
-import { VisitReconciliationPage } from './pages/VisitReconciliationPage';
-import RepDailySummaryPage from './pages/RepDailySummaryPage';
-import PpfsBenchmarkPage from './pages/PpfsBenchmarkPage';
-import { RepDenyPage } from './pages/RepDenyPage';
-import { AuthenSyncPage } from './pages/AuthenSyncPage';
-import PreSubmitValidatorPage from './pages/PreSubmitValidatorPage';
-import WorkQueuePage from './pages/WorkQueuePage';
-import RejectedClaimTrackingPage from './pages/RejectedClaimTrackingPage';
-import Uuc1TrackingPage from './pages/Uuc1TrackingPage';
-import { SpecificFundPage } from './pages/SpecificFundPage';
-import { SpecialMonitorPage } from './pages/SpecialMonitorPage';
-import { FsMonitorPage } from './pages/FsMonitorPage';
-import { MophDmhtClaimPage } from './pages/MophDmhtClaimPage';
-import { MophVaccineClaimPage } from './pages/MophVaccineClaimPage';
-import { GuidePage } from './pages/GuidePage';
-import { SettingsPage } from './pages/SettingsPage';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { LoginPage } from './pages/LoginPage';
-import { MemberAdminPage } from './pages/MemberAdminPage';
 import { adminOnlyPages, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
 import { fetchMe, logout, type AuthSession } from './services/authService';
 import type { AppPage } from './utils/navigationState';
 import businessRules from './config/business_rules.json';
 import './App.css';
 
+const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
+  loader: () => Promise<T>,
+  name: K,
+) => lazy(async () => ({ default: (await loader())[name] as ComponentType<Record<string, never>> }));
+
+const StaffPage = lazyNamed(() => import('./pages/StaffPage'), 'StaffPage');
+const IPDPage = lazyNamed(() => import('./pages/IPDPage'), 'IPDPage');
+const AdminDashboard = lazyNamed(() => import('./pages/AdminDashboard'), 'AdminDashboard');
+const FDHCheckerPage = lazyNamed(() => import('./pages/FDHCheckerPage'), 'FDHCheckerPage');
+const FDHImportStatusPage = lazyNamed(() => import('./pages/FDHImportStatusPage'), 'FDHImportStatusPage');
+const FdhClaimDetailImportPage = lazyNamed(() => import('./pages/FdhClaimDetailImportPage'), 'FdhClaimDetailImportPage');
+const NhsoClosePage = lazyNamed(() => import('./pages/NhsoClosePage'), 'NhsoClosePage');
+const RepStmImportPage = lazyNamed(() => import('./pages/RepStmImportPage'), 'RepStmImportPage');
+const AuthenSyncPage = lazyNamed(() => import('./pages/AuthenSyncPage'), 'AuthenSyncPage');
+const ReceivablePage = lazyNamed(() => import('./pages/ReceivablePage'), 'ReceivablePage');
+const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewPage'), 'InsuranceOverviewPage');
+const VisitReconciliationPage = lazy(() => import('./pages/VisitReconciliationPage'));
+const RepDailySummaryPage = lazy(() => import('./pages/RepDailySummaryPage'));
+const PpfsBenchmarkPage = lazy(() => import('./pages/PpfsBenchmarkPage'));
+const PpfsVisitMatchPage = lazy(() => import('./pages/PpfsVisitMatchPage'));
+const RepDenyPage = lazyNamed(() => import('./pages/RepDenyPage'), 'RepDenyPage');
+const PreSubmitValidatorPage = lazy(() => import('./pages/PreSubmitValidatorPage'));
+const WorkQueuePage = lazy(() => import('./pages/WorkQueuePage'));
+const RejectedClaimTrackingPage = lazy(() => import('./pages/RejectedClaimTrackingPage'));
+const Uuc1TrackingPage = lazy(() => import('./pages/Uuc1TrackingPage'));
+const SpecificFundPage = lazy(() => import('./pages/SpecificFundPage').then((module) => ({ default: module.SpecificFundPage })));
+const SpecialMonitorPage = lazyNamed(() => import('./pages/SpecialMonitorPage'), 'SpecialMonitorPage');
+const FsMonitorPage = lazyNamed(() => import('./pages/FsMonitorPage'), 'FsMonitorPage');
+const MophDmhtClaimPage = lazyNamed(() => import('./pages/MophDmhtClaimPage'), 'MophDmhtClaimPage');
+const MophVaccineClaimPage = lazyNamed(() => import('./pages/MophVaccineClaimPage'), 'MophVaccineClaimPage');
+const GuidePage = lazyNamed(() => import('./pages/GuidePage'), 'GuidePage');
+const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage');
+const MemberAdminPage = lazyNamed(() => import('./pages/MemberAdminPage'), 'MemberAdminPage');
+
 function App() {
-  const [currentPage, setCurrentPage] = useState<AppPage>('staff');
+  const [requestedPage, setCurrentPage] = useState<AppPage>('staff');
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -43,10 +50,10 @@ function App() {
   const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
   const regionLabel = siteSettings.nhso_region ? `เขต ${siteSettings.nhso_region}` : '';
   const isAdmin = Boolean(authSession?.user.is_admin);
-  const allowedPages = isAdmin
+  const allowedPageSet = useMemo(() => new Set<AppPage>(isAdmin
     ? [...primaryNavItems, ...toolNavItems].map((item) => item.page).concat(adminOnlyPages)
-    : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page));
-  const allowedPageSet = new Set<AppPage>(allowedPages);
+    : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page))), [authSession, isAdmin]);
+  const hasAnyAllowedPage = allowedPageSet.size > 0;
   const visiblePrimaryNavItems = primaryNavItems.filter((item) => allowedPageSet.has(item.page));
   const visibleToolNavGroups = toolNavGroups
     .map((group) => ({ ...group, pages: group.pages.filter((page) => allowedPageSet.has(page)) }))
@@ -59,20 +66,10 @@ function App() {
       .finally(() => setAuthLoading(false));
   }, []);
 
-  const canOpenPage = (page: AppPage) => allowedPageSet.has(page);
+  const canOpenPage = useCallback((page: AppPage) => allowedPageSet.has(page), [allowedPageSet]);
 
-  const firstAllowedPage = () => {
-    const firstPrimary = visiblePrimaryNavItems[0]?.page;
-    const firstTool = visibleToolNavGroups[0]?.pages[0];
-    return firstPrimary || firstTool || 'guide';
-  };
-
-  useEffect(() => {
-    if (authLoading || !authSession) return;
-    if (!canOpenPage(currentPage)) {
-      setCurrentPage(firstAllowedPage());
-    }
-  }, [authLoading, authSession, currentPage]);
+  const firstAllowedPage = visiblePrimaryNavItems[0]?.page || visibleToolNavGroups[0]?.pages[0];
+  const currentPage = canOpenPage(requestedPage) ? requestedPage : firstAllowedPage;
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -84,7 +81,7 @@ function App() {
 
     window.addEventListener('fdh:navigate', handleNavigate as EventListener);
     return () => window.removeEventListener('fdh:navigate', handleNavigate as EventListener);
-  }, []);
+  }, [canOpenPage]);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -120,6 +117,23 @@ function App() {
 
   if (!authSession) {
     return <LoginPage onAuthenticated={setAuthSession} />;
+  }
+
+  if (!hasAnyAllowedPage) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <div className="brand-icon">🏥</div>
+            <div>
+              <h1>ยังไม่มีสิทธิ์เมนู</h1>
+              <p>บัญชีนี้ได้รับอนุมัติแล้ว แต่ยังไม่ได้ถูกกำหนดเมนูให้ใช้งาน กรุณาให้ admin ตั้งค่ากลุ่มหรือสิทธิ์เมนู</p>
+            </div>
+          </div>
+          <button className="auth-submit" type="button" onClick={handleLogout}>ออกจากระบบ</button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -222,6 +236,7 @@ function App() {
       </nav>
 
       <div className="app-main">
+        <Suspense fallback={<div className="page-loading" role="status">กำลังโหลดหน้าจอ...</div>}>
         {currentPage === 'staff' && <StaffPage />}
         {currentPage === 'ipd' && <IPDPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
@@ -235,6 +250,7 @@ function App() {
         {currentPage === 'reconciliation' && <VisitReconciliationPage />}
         {currentPage === 'repDailySummary' && <RepDailySummaryPage />}
         {currentPage === 'ppfsBenchmark' && <PpfsBenchmarkPage />}
+        {currentPage === 'ppfsVisitMatch' && <PpfsVisitMatchPage />}
         {currentPage === 'repDeny' && <RepDenyPage />}
         {currentPage === 'admin' && <AdminDashboard />}
         {currentPage === 'specific' && <SpecificFundPage />}
@@ -253,6 +269,7 @@ function App() {
         {currentPage === 'guide' && <GuidePage />}
         {currentPage === 'settings' && <SettingsPage />}
         {currentPage === 'memberAdmin' && <MemberAdminPage />}
+        </Suspense>
       </div>
     </div>
   );

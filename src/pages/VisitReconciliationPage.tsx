@@ -7,6 +7,7 @@ import {
   type ReconciliationSummary,
   type ReceivableFilterOptions,
 } from '../services/hosxpService';
+import { consumeDashboardNavigation } from '../utils/navigationState';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -88,8 +89,9 @@ const SummaryCard = ({
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
 
 export const VisitReconciliationPage = () => {
-  const [startDate, setStartDate] = useState(firstOfMonth());
-  const [endDate, setEndDate] = useState(todayIso());
+  const [dashboardNavigation] = useState(() => consumeDashboardNavigation('reconciliation'));
+  const [startDate, setStartDate] = useState(dashboardNavigation?.startDate || firstOfMonth());
+  const [endDate, setEndDate] = useState(dashboardNavigation?.endDate || todayIso());
   const [patientType, setPatientType] = useState('ALL');
   const [hosxpRight, setHosxpRight] = useState('ALL');
   const [compareStatus, setCompareStatus] = useState('');

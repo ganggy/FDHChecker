@@ -34,6 +34,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'reconciliation', icon: '🔄', label: 'กระทบยอด REP/STM' },
   { page: 'repDailySummary', icon: '📊', label: 'สรุป REP รายวัน' },
   { page: 'ppfsBenchmark', icon: '📈', label: 'เทียบยอด PPFS' },
+  { page: 'ppfsVisitMatch', icon: '🔎', label: 'Match PPFS' },
   { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกัน' },
   { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
   { page: 'admin', icon: '📊', label: 'Dashboard' },
@@ -51,13 +52,14 @@ export const toolNavItems: NavItem[] = [
 ];
 
 export const toolNavGroups: NavGroup[] = [
-  { label: 'ส่งข้อมูล', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
-  { label: 'ติดตาม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
-  { label: 'บัญชี', icon: '💼', pages: ['receivable', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'insuranceOverview', 'admin', 'memberAdmin'] },
+  { label: 'นำเข้า/ตรวจสอบ', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
+  { label: 'ติดตามเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
+  { label: 'การเงิน/บัญชี', icon: '💼', pages: ['receivable', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
   { label: 'FDH/e-Claim', icon: '🏥', pages: ['fundFdh', 'monitor', 'fsMonitor'] },
   { label: '43 แฟ้ม', icon: '🗂️', pages: ['fund43'] },
   { label: 'MOPH Claim', icon: '🧪', pages: ['mophDmht', 'mophVaccine'] },
   { label: 'KTB/NTIP/อื่นๆ', icon: '🏦', pages: ['fundKtb', 'fundOther', 'specific', 'guide'] },
+  { label: 'บริหารระบบ', icon: '⚙️', pages: ['admin', 'memberAdmin'] },
 ];
 
 export const allMenuItems: NavItem[] = [

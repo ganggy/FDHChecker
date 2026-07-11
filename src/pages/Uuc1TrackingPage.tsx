@@ -122,6 +122,8 @@ export const Uuc1TrackingPage = () => {
       .then(setFilterOptions)
       .catch(() => setFilterOptions({ hosxpRights: [], financeRights: [] }));
     void loadData(1);
+    // Initial load intentionally uses the default filters; later loads are user-triggered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadData(nextPage = 1) {

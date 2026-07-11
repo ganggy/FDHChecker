@@ -360,12 +360,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const getImportedFdhLabel = (item: any) => item?.has_fdh_import
         ? (String(item?.fdh_import_status ?? '').trim() || 'พบในไฟล์ FDH')
         : 'ยังไม่พบไฟล์ FDH';
+    const hasMeaningfulRepCode = (value: unknown) => {
+        const normalized = String(value ?? '').trim().toUpperCase();
+        return !['', '-', '--', '0', 'N/A', 'NA', 'NONE', 'NULL'].includes(normalized);
+    };
+    const hasRepCError = (item: any) => Boolean(item?.has_rep_import) && hasMeaningfulRepCode(item?.rep_errorcode);
+    const hasRepDenyError = (item: any) => Boolean(item?.has_rep_import) && hasMeaningfulRepCode(item?.rep_verifycode);
     const getRepImportLabel = (item: any) => {
         if (!item?.has_rep_import) return 'ยังไม่พบ REP';
         const errorCode = String(item?.rep_errorcode ?? '').trim();
         const verifyCode = String(item?.rep_verifycode ?? '').trim();
-        if (errorCode) return `REP C: ${errorCode}`;
-        if (verifyCode) return `REP D: ${verifyCode}`;
+        if (hasRepCError(item)) return `REP C: ${errorCode}`;
+        if (hasRepDenyError(item)) return `REP D: ${verifyCode}`;
         return 'REP';
     };
     const getStatementImportLabel = (item: any) => item?.has_stm_import
@@ -1146,7 +1152,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     // Show only visits that either match the fund or are close enough to warn what is missing.
     const actionableData = data.filter((item) => getStatus(item).status !== 'ยังไม่เข้าเงื่อนไข');
     const filteredData = showRepCOnly
-        ? actionableData.filter((item) => String(item?.rep_errorcode ?? '').trim() !== '')
+        ? actionableData.filter(hasRepCError)
         : showIncompleteOnly
             ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
             : actionableData;
@@ -2560,7 +2566,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <button
                                                         type="button"
-                                                        className={`badge repstm-visit-trigger ${item.has_rep_import ? ((item.rep_errorcode || item.rep_verifycode) ? 'badge-danger' : 'badge-success') : 'badge-warning'}`}
+                                                        className={`badge repstm-visit-trigger ${item.has_rep_import ? ((hasRepCError(item) || hasRepDenyError(item)) ? 'badge-danger' : 'badge-success') : 'badge-warning'}`}
                                                         style={{ fontSize: 10 }}
                                                         title={item.has_rep_import ? `คลิกดู REP ${item.rep_no || ''}` : 'ยังไม่มีข้อมูล REP'}
                                                         disabled={!item.has_rep_import}

@@ -10355,16 +10355,18 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
       `SELECT
          COALESCE(vn, '') AS vn,
          COALESCE(an, '') AS an,
+         r.batch_id,
          GROUP_CONCAT(DISTINCT NULLIF(TRIM(rep_no), '') ORDER BY rep_no SEPARATOR ', ') AS rep_no,
          MAX(COALESCE(compensated, nhso, agency)) AS rep_amount,
-         MAX(b.created_at) AS imported_at,
+         b.created_at AS imported_at,
          GROUP_CONCAT(DISTINCT NULLIF(TRIM(errorcode), '') SEPARATOR ', ') AS errorcode,
          GROUP_CONCAT(DISTINCT NULLIF(TRIM(verifycode), '') SEPARATOR ', ') AS verifycode,
          GROUP_CONCAT(DISTINCT NULLIF(TRIM(tran_id), '') SEPARATOR ',') AS tran_ids
        FROM rep_data r
        LEFT JOIN repstm_import_batch b ON b.id = r.batch_id
        WHERE ${visitClauses.join(' OR ')}
-       GROUP BY COALESCE(vn, ''), COALESCE(an, '')`,
+       GROUP BY COALESCE(vn, ''), COALESCE(an, ''), r.batch_id, b.created_at
+       ORDER BY b.created_at ASC, r.batch_id ASC`,
       visitParams
     );
     const tranToVisit = new Map<string, string>();

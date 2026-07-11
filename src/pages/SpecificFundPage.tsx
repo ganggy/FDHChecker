@@ -107,6 +107,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
     const [repstmVisit, setRepstmVisit] = useState<any | null>(null);
     const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
+    const [showRepCOnly, setShowRepCOnly] = useState(false);
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [fundVisibility, setFundVisibility] = useState<Record<string, boolean>>({});
     const [exportingFundId, setExportingFundId] = useState<string | null>(null);
@@ -1144,9 +1145,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
     // Show only visits that either match the fund or are close enough to warn what is missing.
     const actionableData = data.filter((item) => getStatus(item).status !== 'ยังไม่เข้าเงื่อนไข');
-    const filteredData = showIncompleteOnly
-        ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
-        : actionableData;
+    const filteredData = showRepCOnly
+        ? actionableData.filter((item) => String(item?.rep_errorcode ?? '').trim() !== '')
+        : showIncompleteOnly
+            ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
+            : actionableData;
 
     const buildExportRows = useCallback((items: any[], fundId: string): Array<Record<string, string | number>> => {
         const evaluateStatus = getStatusForFundRef.current;
@@ -1782,9 +1785,29 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         padding: '6px 12px',
                                         fontSize: '12px'
                                     }}
-                                    onClick={() => setShowIncompleteOnly(!showIncompleteOnly)}
+                                    onClick={() => {
+                                        setShowIncompleteOnly(!showIncompleteOnly);
+                                        setShowRepCOnly(false);
+                                    }}
                                 >
                                     {showIncompleteOnly ? '✓ เฉพาะไม่สมบูรณ์' : '○ ทั้งหมด'}
+                                </button>
+                                <button
+                                    className="btn"
+                                    style={{
+                                        background: showRepCOnly ? 'var(--danger)' : 'var(--surface-2)',
+                                        color: showRepCOnly ? 'white' : 'var(--text-primary)',
+                                        borderColor: showRepCOnly ? 'var(--danger)' : 'var(--border)',
+                                        padding: '6px 12px',
+                                        fontSize: '12px'
+                                    }}
+                                    onClick={() => {
+                                        setShowRepCOnly(!showRepCOnly);
+                                        setShowIncompleteOnly(false);
+                                    }}
+                                    title="แสดงเฉพาะรายการที่ REP มี Error Code (C)"
+                                >
+                                    {showRepCOnly ? '✓ เฉพาะติด C' : '○ เฉพาะติด C'}
                                 </button>
                                 <button 
                                     className="btn btn-success" 
@@ -2021,7 +2044,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                             </thead>
                             <tbody>
                                 {filteredData.length === 0 ? (
-                                    <tr><td colSpan={100} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>ไม่พบข้อมูล{showIncompleteOnly ? ' ไม่สมบูรณ์' : 'ในช่วงวันที่เลือก'}</td></tr>
+                                    <tr><td colSpan={100} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>ไม่พบข้อมูล{showRepCOnly ? ' ที่ติด C' : showIncompleteOnly ? ' ไม่สมบูรณ์' : 'ในช่วงวันที่เลือก'}</td></tr>
                                 ) : (filteredData.map((item, index) => {
                                         const st = getStatus(item);
                                         const sendStatusLabel = getEffectiveSendStatusLabel(item);

@@ -199,11 +199,11 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
     },
     {
         id: 'cholesterol_screening',
-        name: 'คัดกรองไขมัน',
-        description: 'คัดกรองไขมันในเลือด',
+        name: 'คัดกรองหัวใจหลอดเลือด',
+        description: 'ตรวจ Total Cholesterol และ HDL ตามเกณฑ์ปี 2568',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
-        conditions: ['อายุ 45-59 ปี', 'Lab Cholesterol หรือ HDL', 'Diagnosis Z136', 'ADP 12004']
+        conditions: ['อายุ 45-70 ปี', 'Lab Total Cholesterol และ HDL', 'Diagnosis Z136', 'ADP 12004']
     },
     {
         id: 'anemia_screening',

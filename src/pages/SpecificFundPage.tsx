@@ -31,7 +31,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก', description: 'Pap smear / Cervix screening' },
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
-    { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
+    { id: 'cholesterol_screening', name: 'คัดกรองหัวใจหลอดเลือด', description: 'Total Cholesterol และ HDL อายุ 45-70 ปี' },
     { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
     { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
@@ -633,12 +633,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             const hasAdp = toFlag(item?.has_chol_adp) || hasAnyCodeValue(item?.adp_names, ['12004']) || hasAnyCodeValue(item?.anc_adp_codes, ['12004']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
             const cholServiceEvidence = hasAge && (hasLab || hasDiag || hasAdp);
-            if (isMatched || cholServiceEvidence) subfunds.push('🧪 คัดกรองไขมัน');
+            if (isMatched || cholServiceEvidence) subfunds.push('❤️ คัดกรองหัวใจหลอดเลือด');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 12004', [
-                    { met: hasAge, label: ' อายุ 45-59 ปี' },
-                    { met: hasLab, label: ' Lab Cholesterol/HDL' },
+                    { met: hasAge, label: ' อายุ 45-70 ปี' },
+                    { met: hasLab, label: ' Lab Total Cholesterol และ HDL' },
                     { met: hasDiag, label: ' Diagnosis Z136' },
                 ], hasAge && (hasLab || hasDiag)),
                 undefined,

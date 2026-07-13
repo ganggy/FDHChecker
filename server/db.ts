@@ -311,7 +311,7 @@ const buildDiagnosisMatchSql = (alias: string, vnStatAlias: string, codes: strin
   )
 `;
 
-const buildCholLabExistsSql = (alias: string) => `
+const buildCholNamedLabExistsSql = (alias: string, nameRegex: string) => `
   (
     EXISTS (
       SELECT 1
@@ -319,7 +319,7 @@ const buildCholLabExistsSql = (alias: string) => `
       LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
       LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
       WHERE oo.vn = ${alias}.vn
-        AND UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP 'TOTAL CHOLESTEROL|CHOLESTEROL|HDL|HDL-C|HDL CHOLESTEROL'
+        AND UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP '${nameRegex}'
     )
     OR EXISTS (
       SELECT 1
@@ -329,8 +329,16 @@ const buildCholLabExistsSql = (alias: string) => `
       WHERE h.vn = ${alias}.vn
         AND lo.lab_order_result IS NOT NULL
         AND lo.lab_order_result <> ''
-        AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP 'TOTAL CHOLESTEROL|CHOLESTEROL|HDL|HDL-C|HDL CHOLESTEROL'
+        AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${nameRegex}'
     )
+  )
+`;
+
+// PPFS 2568 requires evidence for both Total Cholesterol and HDL, not either one.
+const buildCholLabExistsSql = (alias: string) => `
+  (
+    ${buildCholNamedLabExistsSql(alias, 'TOTAL.*CHOLESTEROL|CHOLESTEROL.*TOTAL|^CHOLESTEROL$')}
+    AND ${buildCholNamedLabExistsSql(alias, 'HDL|HIGH[[:space:]_-]*DENSITY[[:space:]_-]*LIPOPROTEIN')}
   )
 `;
 
@@ -2950,7 +2958,7 @@ export const getMophVaccineCandidates = async (params: MophVaccineQueryParams): 
       if (/^P41$/.test(code)) return 'aP';
       return 'EPI';
     };
-    const finalRows = rawItems.map((row) => {
+    const finalRows: Record<string, unknown>[] = rawItems.map((row): Record<string, unknown> => {
       const detail = detailByVn.get(String(row.vn || '')) || {};
       const merged = { ...row, ...detail };
       const type = classify(merged.vaccine_code);
@@ -4748,7 +4756,8 @@ export const getRepDataRows = async (
     return repRows.map((row) => {
       const an = String(row.an || '').trim();
       const vn = String(row.vn || '').trim();
-      const fdh = (an && latestFdhByVisit.get(`AN:${an}`)) || (vn && latestFdhByVisit.get(`VN:${vn}`));
+      const fdh = (an ? latestFdhByVisit.get(`AN:${an}`) : undefined)
+        ?? (vn ? latestFdhByVisit.get(`VN:${vn}`) : undefined);
       return {
         ...row,
         latest_fdh_status: fdh?.claim_status || null,
@@ -5395,6 +5404,7 @@ export interface ReconciliationQueryParams {
   startDate?: string;
   endDate?: string;
   patientType?: string;
+  claimStatus?: string;
   patientRight?: string;
   hosxpRight?: string;
   financeRight?: string;
@@ -8679,12 +8689,12 @@ export const getCheckData = async (
             THEN 1
           ELSE 0
         END as has_fpg,
-        CASE WHEN v.age_y BETWEEN 45 AND 59 THEN 1 ELSE 0 END as chol_age_eligible,
+        CASE WHEN v.age_y BETWEEN 45 AND 70 THEN 1 ELSE 0 END as chol_age_eligible,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1) THEN 1 ELSE 0 END as has_chol_adp,
         CASE WHEN ${buildCholLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_chol_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', CHOL_DX_CODES)} THEN 1 ELSE 0 END as has_chol_diag,
         CASE
-          WHEN v.age_y BETWEEN 45 AND 59
+          WHEN v.age_y BETWEEN 45 AND 70
             AND EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1)
             AND ${buildCholLabExistsSql('ovst')}
             AND ${buildDiagnosisMatchSql('ovst', 'v', CHOL_DX_CODES)}
@@ -9384,12 +9394,12 @@ export const getEligibleVisits = async (
             THEN 1
           ELSE 0
         END as has_fpg,
-        CASE WHEN v.age_y BETWEEN 45 AND 59 THEN 1 ELSE 0 END as chol_age_eligible,
+        CASE WHEN v.age_y BETWEEN 45 AND 70 THEN 1 ELSE 0 END as chol_age_eligible,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1) THEN 1 ELSE 0 END as has_chol_adp,
         CASE WHEN ${buildCholLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_chol_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', CHOL_DX_CODES)} THEN 1 ELSE 0 END as has_chol_diag,
         CASE
-          WHEN v.age_y BETWEEN 45 AND 59
+          WHEN v.age_y BETWEEN 45 AND 70
             AND EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12004' LIMIT 1)
             AND ${buildCholLabExistsSql('ovst')}
             AND ${buildDiagnosisMatchSql('ovst', 'v', CHOL_DX_CODES)}
@@ -11324,7 +11334,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           ptt.name as pttypename, ptt.hipdata_code,
           v.age_y as age,
           v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
-          CASE WHEN v.age_y BETWEEN 45 AND 59 THEN 'Y' ELSE 'N' END as age_eligible,
+          CASE WHEN v.age_y BETWEEN 45 AND 70 THEN 'Y' ELSE 'N' END as age_eligible,
           CASE WHEN ${buildDiagnosisMatchSql('o', 'v', CHOL_DX_CODES)} THEN 'Y' ELSE 'N' END as has_chol_diag,
           CASE WHEN ${buildCholLabExistsSql('o')} THEN 'Y' ELSE 'N' END as has_chol_lab,
           CASE WHEN EXISTS (
@@ -11341,7 +11351,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         WHERE o.vstdate BETWEEN ? AND ?
           AND (
             (
-              v.age_y BETWEEN 45 AND 59
+              v.age_y BETWEEN 45 AND 70
               AND ${buildDiagnosisMatchSql('o', 'v', CHOL_DX_CODES)}
               AND ${buildCholLabExistsSql('o')}
             )
@@ -12050,7 +12060,7 @@ const FS_PROJECT_ITEMS: FsProjectItem[] = [
   { code: '12001', label: 'คัดกรอง/ประเมินปัจจัยเสี่ยง อายุ 15-34 ปี', amount: 100 },
   { code: '12002', label: 'คัดกรอง/ประเมินปัจจัยเสี่ยง อายุ 35-59 ปี', amount: 150 },
   { code: '12003', label: 'คัดกรองเบาหวาน FPG อายุ 35-59 ปี', amount: 40 },
-  { code: '12004', label: 'คัดกรองไขมัน Cholesterol/HDL อายุ 45-59 ปี', amount: 160 },
+  { code: '12004', label: 'คัดกรองหัวใจและหลอดเลือด Total Cholesterol และ HDL อายุ 45-70 ปี', amount: 160 },
   { code: '13001', label: 'คัดกรองโลหิตจาง', amount: 65 },
   { code: '14001', label: 'เสริมธาตุเหล็ก Ferrofolic', amount: 80 },
   { code: '15001', label: 'ทาฟลูออไรด์', amount: 100 },

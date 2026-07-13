@@ -176,7 +176,7 @@
                 },
                 {
                     "key": "cholesterol_screening",
-                    "label": "คัดกรองไขมัน",
+                    "label": "คัดกรองหัวใจหลอดเลือด",
                     "adp_codes": [
                         "12004"
                     ],

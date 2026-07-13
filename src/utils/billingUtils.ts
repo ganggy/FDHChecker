@@ -269,14 +269,14 @@ export const evaluateBillingLogic = (item: any) => {
         const hasCholLab = toBool(item?.has_chol_lab);
         const hasCholDiag = toBool(item?.has_chol_diag) || hasDiagCode(item, ['Z136']);
         const cholNearMissing = getNearFundMissingParts(hasCholAdp, ' ADP 12004', [
-            { met: hasCholAge, label: ' อายุ 45-59 ปี' },
-            { met: hasCholLab, label: ' Lab Cholesterol/HDL' },
+            { met: hasCholAge, label: ' อายุ 45-70 ปี' },
+            { met: hasCholLab, label: ' Lab Total Cholesterol และ HDL' },
             { met: hasCholDiag, label: ' DX Z136' },
         ], hasCholAge && (hasCholLab || hasCholDiag));
         if (hasCholAge && hasCholAdp && hasCholLab && hasCholDiag) {
-            fundNotes.push({ label: '🧪 คัดกรองไขมัน', kind: 'matched', group: 'other' });
+            fundNotes.push({ label: '❤️ คัดกรองหัวใจหลอดเลือด', kind: 'matched', group: 'other' });
         } else {
-            addWarningFundNote(fundNotes, 'คัดกรองไขมัน', cholNearMissing);
+            addWarningFundNote(fundNotes, 'คัดกรองหัวใจหลอดเลือด', cholNearMissing);
         }
 
         const anemiaAgeYears = Number(item?.age_y ?? item?.age ?? -1);

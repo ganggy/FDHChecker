@@ -87,14 +87,14 @@ const guides: FundGuide[] = [
     },
     {
         id: 'lipid_screening',
-        title: 'คัดกรองไขมันในเลือด',
-        description: 'แนวทางคัดกรองไขมันในเลือดสำหรับกลุ่มเสี่ยงหรือประชาชนที่เข้าเกณฑ์โครงการ',
+        title: 'คัดกรองหัวใจและหลอดเลือด',
+        description: 'ปี 2568: อายุ 45-70 ปี ตรวจทั้ง Total Cholesterol และ HDL พร้อม Dx Z136 และ ADP 12004',
         conditions: [
             'กลุ่มอายุหรือกลุ่มเสี่ยงตามเกณฑ์คัดกรอง',
             'มีผลตรวจ lipid profile ที่เชื่อมกับ visit ถูกต้อง',
             'ลง diagnosis / code ให้ครบก่อนสรุปกองทุน'
         ],
-        codes: ['Lipid profile', 'คัดกรองไขมัน', 'รหัสโครงการตามประกาศ'],
+        codes: ['Total Cholesterol', 'HDL', 'Z136', 'ADP 12004'],
         payment: 'ใช้ตาม Fee Schedule และแนวทางคัดกรองของ สปสช.',
         icon: '🫀',
         color: 'var(--warning)'

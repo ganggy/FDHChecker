@@ -234,6 +234,9 @@ app.post('/api/auth/login', async (req, res) => {
     if (!result.success) {
       return res.status(result.status || 400).json({ success: false, error: result.error });
     }
+    if (!result.user || !result.token) {
+      return res.status(500).json({ success: false, error: 'Login result is incomplete' });
+    }
     res.json({ success: true, token: result.token, user: publicUserPayload(result.user) });
   } catch (error) {
     console.error('Login error:', error);
@@ -3926,12 +3929,12 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
   const scrapeFilesFromPage = async (periodStr: string): Promise<Record<string, unknown>[]> => {
     return page.evaluate((pStr) => {
       const rows: Record<string, unknown>[] = [];
-      for (const table of document.querySelectorAll('table')) {
-        for (const tr of table.querySelectorAll('tr')) {
-          const tds = Array.from(tr.querySelectorAll('td'));
+      for (const table of Array.from(document.querySelectorAll<HTMLTableElement>('table'))) {
+        for (const tr of Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'))) {
+          const tds = Array.from(tr.querySelectorAll<HTMLTableCellElement>('td'));
           if (tds.length < 1) continue;
           const cellTexts = tds.map((td) => td.textContent?.trim() || '');
-          const links = Array.from(tr.querySelectorAll('a'));
+          const links = Array.from(tr.querySelectorAll<HTMLAnchorElement>('a'));
           const dlLinks = links.filter((a) =>
             /download|ดาวน์โหลด|\.zip|\.xlsx|\.xls|\.txt|\.ecd/i.test(
               a.href + a.textContent + (a.getAttribute('onclick') || '')

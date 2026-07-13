@@ -3515,6 +3515,24 @@ const buildImportCompletenessProfile = (
   };
 };
 
+const deduplicateRepstmRows = (
+  dataType: RepstmDataType,
+  rows: Record<string, unknown>[]
+) => {
+  const uniqueRows = new Map<string, { row: Record<string, unknown>; score: number; order: number }>();
+  rows.forEach((row, index) => {
+    const identity = hashText(buildLogicalRowIdentity(dataType, row, index));
+    const score = Object.values(row).filter((value) => normalizeImportCellValue(value) !== '').length;
+    const current = uniqueRows.get(identity);
+    if (!current || score > current.score) {
+      uniqueRows.set(identity, { row, score, order: current?.order ?? index });
+    }
+  });
+  return Array.from(uniqueRows.values())
+    .sort((a, b) => a.order - b.order)
+    .map((entry) => entry.row);
+};
+
 const isIdentitySuperset = (candidate: Set<string>, required: Set<string>) => {
   for (const identity of required) {
     if (!candidate.has(identity)) return false;
@@ -4357,8 +4375,10 @@ export const importRepstmRows = async (payload: {
   try {
     await connection.beginTransaction();
 
-    const batchHash = buildBatchHash(payload.dataType, payload.rows);
-    const completenessProfile = buildImportCompletenessProfile(payload.dataType, payload.rows);
+    const uniqueRows = deduplicateRepstmRows(payload.dataType, payload.rows);
+    const removedDuplicateRows = payload.rows.length - uniqueRows.length;
+    const batchHash = buildBatchHash(payload.dataType, uniqueRows);
+    const completenessProfile = buildImportCompletenessProfile(payload.dataType, uniqueRows);
     const [duplicateRows] = await connection.query(
       `SELECT id, row_count, source_filename, created_at
        FROM repstm_import_batch
@@ -4374,7 +4394,7 @@ export const importRepstmRows = async (payload: {
         success: true,
         duplicate: true,
         batchId: Number(existing.id || 0),
-        rowCount: Number(existing.row_count || payload.rows.length),
+        rowCount: Number(existing.row_count || uniqueRows.length),
         message: `ข้อมูลชุดนี้ถูกนำเข้าแล้วเมื่อ ${String(existing.created_at || '-')} (ตรวจจากเนื้อหาไฟล์)`,
       };
     }
@@ -4409,25 +4429,25 @@ export const importRepstmRows = async (payload: {
         importDecision.action === 'replace' ? importDecision.batchId : null,
         payload.sheetName || null,
         payload.importedBy || null,
-        payload.rows.length,
+        uniqueRows.length,
         payload.notes || null,
       ]
     );
 
     const batchId = Number((batchResult as mysql.ResultSetHeader).insertId);
 
-    await insertRepstmImportRows(connection, batchId, payload.dataType, payload.rows);
+    await insertRepstmImportRows(connection, batchId, payload.dataType, uniqueRows);
 
     if (payload.dataType === 'REP') {
       await importRepDataRows(connection, hosConnection, batchId, {
         sourceFilename: payload.sourceFilename,
-        rows: payload.rows,
+        rows: uniqueRows,
       });
     } else if (payload.dataType === 'STM' || payload.dataType === 'INV') {
       await importStatementDataRows(connection, hosConnection, batchId, {
         dataType: payload.dataType,
         sourceFilename: payload.sourceFilename,
-        rows: payload.rows,
+        rows: uniqueRows,
       });
     }
 
@@ -4438,10 +4458,11 @@ export const importRepstmRows = async (payload: {
       replaced: importDecision.action === 'replace',
       replacedBatchId: importDecision.action === 'replace' ? importDecision.batchId : null,
       batchId,
-      rowCount: payload.rows.length,
+      rowCount: uniqueRows.length,
+      removedDuplicateRows,
       message: importDecision.action === 'replace'
-        ? importDecision.message
-        : `นำเข้า ${payload.dataType} สำเร็จ`,
+        ? `${importDecision.message}${removedDuplicateRows > 0 ? ` · ตัดแถวซ้ำ ${removedDuplicateRows} แถว` : ''}`
+        : `นำเข้า ${payload.dataType} สำเร็จ${removedDuplicateRows > 0 ? ` · ตัดแถวซ้ำ ${removedDuplicateRows} แถว` : ''}`,
     };
   } catch (error) {
     await connection.rollback();
@@ -5392,6 +5413,72 @@ export const getReceivableBatches = async (limit = 50): Promise<Record<string, u
     return Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
   } catch (error) {
     console.error('Error reading receivable batches:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const getStatementVisitRows = async (
+  dataType: 'STM' | 'INV',
+  limit = 200,
+  visit: { vn?: string; an?: string; hn?: string } = {}
+): Promise<Record<string, unknown>[]> => {
+  await ensureRepstmTables();
+  const connection = await getRepstmConnection();
+  try {
+    const visitConditions: string[] = [];
+    const visitParams: string[] = [];
+    if (visit.vn) { visitConditions.push('s.vn = ?'); visitParams.push(visit.vn); }
+    if (visit.an) { visitConditions.push('s.an = ?'); visitParams.push(visit.an); }
+    const [rows] = await connection.query(
+      `SELECT s.id, s.batch_id, s.data_type, s.record_uid, s.statement_no, s.tran_id,
+              s.hn, s.vn, s.an, s.pid, s.patient_name, s.patient_type, s.department,
+              s.service_datetime AS service_date, s.senddate, s.maininscl, s.subinscl,
+              s.errorcode, s.verifycode, s.amount, s.paid_amount, s.invoice_amount,
+              s.filename, s.filename AS source_filename, s.matched_visit_code, s.matched_status,
+              s.raw_data, s.created_at
+       FROM repstm_statement_data s
+       JOIN repstm_import_batch b ON b.id = s.batch_id
+       WHERE s.data_type = ?
+         AND NOT EXISTS (
+           SELECT 1
+           FROM repstm_import_batch replacement
+           WHERE replacement.replaces_batch_id = b.id
+         )
+         ${visitConditions.length ? `AND (${visitConditions.join(' OR ')})` : ''}
+       ORDER BY s.created_at DESC, s.id DESC
+       LIMIT ?`,
+      [dataType, ...visitParams, limit]
+    );
+    if (!Array.isArray(rows)) return [];
+
+    const seen = new Set<string>();
+    return (rows as Record<string, unknown>[]).filter((row) => {
+      const tranId = normalizeImportCellValue(row.tran_id);
+      const statementNo = normalizeImportCellValue(row.statement_no);
+      const visitCode = normalizeImportCellValue(row.an || row.vn || row.matched_visit_code || row.hn);
+      const identity = tranId
+        ? `${dataType}:TRAN:${tranId}`
+        : statementNo
+          ? `${dataType}:STATEMENT:${statementNo}:${visitCode}`
+          : [
+              dataType,
+              visitCode,
+              normalizeImportCellValue(row.service_date),
+              normalizeImportCellValue(row.amount),
+              normalizeImportCellValue(row.paid_amount),
+              normalizeImportCellValue(row.invoice_amount),
+              normalizeImportCellValue(row.errorcode),
+              normalizeImportCellValue(row.verifycode),
+              normalizeImportCellValue(row.filename),
+            ].join('|');
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    });
+  } catch (error) {
+    console.error('Error reading normalized STM/INV visit rows:', error);
     return [];
   } finally {
     connection.release();
@@ -8326,17 +8413,31 @@ export const getRepstmImportedRows = async (
     if (visit.vn) { visitConditions.push('r.vn = ?'); visitParams.push(visit.vn); }
     if (visit.an) { visitConditions.push('r.an = ?'); visitParams.push(visit.an); }
     const [rows] = await connection.query(
-      `SELECT r.id, r.batch_id, r.data_type, r.row_no, r.ref_key, r.hn, r.vn, r.an, r.cid, r.amount, r.service_date, r.raw_data, r.created_at,
+      `SELECT r.id, r.batch_id, r.data_type, r.row_no, r.ref_key, r.row_identity, r.hn, r.vn, r.an, r.cid, r.amount, r.service_date, r.raw_data, r.created_at,
               b.source_filename, b.sheet_name
        FROM repstm_import_row r
        JOIN repstm_import_batch b ON b.id = r.batch_id
        WHERE r.data_type = ?
+       AND NOT EXISTS (
+         SELECT 1
+         FROM repstm_import_batch replacement
+         WHERE replacement.replaces_batch_id = b.id
+       )
        ${visitConditions.length ? `AND (${visitConditions.join(' OR ')})` : ''}
        ORDER BY r.created_at DESC, r.id DESC
        LIMIT ?`,
       [dataType, ...visitParams, limit]
     );
-    return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+    if (!Array.isArray(rows)) return [];
+    const seen = new Set<string>();
+    return (rows as Record<string, unknown>[]).filter((row) => {
+      const storedIdentity = String(row.row_identity || '').trim();
+      const raw = parseImportRawData(row.raw_data) || {};
+      const identity = storedIdentity || hashText(buildLogicalRowIdentity(dataType, raw, Number(row.row_no || 0)));
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    });
   } catch (error) {
     console.error('Error reading REP/STM/INV imported rows:', error);
     return [];

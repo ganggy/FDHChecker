@@ -40,6 +40,7 @@ import {
   getRepstmImportBatches,
   getRepstmImportedRows,
   getRepDataRows,
+  getStatementVisitRows,
   getReceivableCandidates,
   getReceivableBatches,
   getReceivableFilterOptions,
@@ -2506,7 +2507,9 @@ app.get('/api/repstm/:dataType', async (req, res) => {
     }
     const data = dataType === 'REP'
       ? await getRepDataRows(limit, visit)
-      : await getRepstmImportedRows(dataType, limit, visit);
+      : String(req.query.visitOnly || '') === 'true'
+        ? await getStatementVisitRows(dataType, limit, visit)
+        : await getRepstmImportedRows(dataType, limit, visit);
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error fetching REP/STM/INV rows:', error);

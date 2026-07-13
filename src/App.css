@@ -1940,3 +1940,105 @@
   .repdeny-filter-actions { justify-content: stretch; }
   .repdeny-filter-actions .btn { flex: 1; min-width: 0; }
 }
+
+/* IPD FDH -> REP -> INV/STM monitor */
+.ipd-claim-monitor { display: flex; flex-direction: column; gap: 16px; }
+.ipd-monitor-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #eff6ff 0%, #eef2ff 50%, #ecfeff 100%);
+  border: 1px solid #bfdbfe;
+}
+.ipd-monitor-hero__actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.ipd-monitor-filter-card .card-body { padding: 14px 16px; }
+.ipd-monitor-filter-grid {
+  display: grid;
+  grid-template-columns: 145px 145px minmax(220px, 1fr) 180px 150px auto;
+  gap: 12px;
+  align-items: end;
+}
+.ipd-monitor-filter-grid .form-group { margin: 0; }
+.ipd-monitor-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(135px, 1fr));
+  gap: 12px;
+}
+.ipd-monitor-kpi {
+  min-height: 118px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-top: 4px solid var(--ipd-kpi, #64748b);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .06);
+}
+.ipd-monitor-kpi span { color: #64748b; font-size: 12px; font-weight: 700; }
+.ipd-monitor-kpi strong { color: var(--ipd-kpi, #334155); font-size: 28px; line-height: 1.1; }
+.ipd-monitor-kpi small { color: #94a3b8; }
+.ipd-monitor-kpi--slate { --ipd-kpi: #475569; }
+.ipd-monitor-kpi--blue { --ipd-kpi: #2563eb; }
+.ipd-monitor-kpi--violet { --ipd-kpi: #7c3aed; }
+.ipd-monitor-kpi--cyan { --ipd-kpi: #0891b2; }
+.ipd-monitor-kpi--green { --ipd-kpi: #16a34a; }
+.ipd-monitor-kpi--emerald { --ipd-kpi: #059669; }
+.ipd-monitor-kpi--rose { --ipd-kpi: #e11d48; }
+.ipd-monitor-pipeline { overflow: hidden; }
+.ipd-monitor-pipeline .card-header { display: flex; justify-content: space-between; align-items: center; }
+.ipd-monitor-pipeline .card-header span { color: #64748b; font-size: 12px; }
+.ipd-monitor-stage-grid { display: grid; grid-template-columns: repeat(7, 1fr); padding: 14px; gap: 8px; }
+.ipd-monitor-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #334155;
+  text-align: left;
+  cursor: pointer;
+}
+.ipd-monitor-stage:hover, .ipd-monitor-stage.is-active { border-color: #3b82f6; background: #eff6ff; color: #1d4ed8; }
+.ipd-monitor-stage__number { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #dbeafe; color: #1d4ed8; font-weight: 800; }
+.ipd-monitor-stage strong { font-size: 18px; }
+.ipd-monitor-money-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.ipd-monitor-money-grid .card { padding: 16px; display: flex; flex-direction: column; gap: 5px; }
+.ipd-monitor-money-grid span { color: #64748b; font-size: 12px; }
+.ipd-monitor-money-grid strong { color: #0f766e; font-size: 20px; }
+.ipd-monitor-money-grid .is-negative { color: #dc2626; }
+.ipd-monitor-money-grid .is-positive { color: #16a34a; }
+.ipd-monitor-import-health { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.ipd-monitor-import-health > div { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; padding: 12px 16px; border-radius: 10px; border: 1px solid #cbd5e1; background: #f8fafc; }
+.ipd-monitor-import-health strong { grid-row: 1 / 3; align-self: center; color: #1d4ed8; font-size: 18px; }
+.ipd-monitor-import-health span { color: #334155; font-size: 12px; }
+.ipd-monitor-import-health small { color: #94a3b8; }
+.ipd-monitor-table-card { overflow: hidden; }
+.insurance-status--info { background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; }
+.ipd-monitor-table { min-width: 1650px; }
+.ipd-monitor-table th { white-space: nowrap; }
+.ipd-monitor-table td { vertical-align: top; }
+.ipd-monitor-table td > small { display: block; margin-top: 5px; max-width: 210px; color: #64748b; line-height: 1.35; white-space: normal; }
+.ipd-monitor-id { color: #2563eb; }
+.ipd-monitor-money { color: #0f766e; font-weight: 800; text-align: right; white-space: nowrap; }
+.btn-sm { padding: 5px 9px; font-size: 11px; white-space: nowrap; }
+
+@media (max-width: 1280px) {
+  .ipd-monitor-kpi-grid { grid-template-columns: repeat(4, 1fr); }
+  .ipd-monitor-stage-grid { grid-template-columns: repeat(4, 1fr); }
+  .ipd-monitor-filter-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .ipd-monitor-hero { align-items: flex-start; flex-direction: column; }
+  .ipd-monitor-filter-grid, .ipd-monitor-kpi-grid, .ipd-monitor-stage-grid, .ipd-monitor-money-grid, .ipd-monitor-import-health { grid-template-columns: 1fr; }
+}

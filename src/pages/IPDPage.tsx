@@ -544,6 +544,9 @@ export const IPDPage: React.FC = () => {
                 <div>
                     <h1 className="page-title">🛏️ รายการผู้ป่วยใน (IPD Monitoring)</h1>
                     <p className="page-subtitle">แสดงรายการผู้ป่วยใน พร้อมตัวชี้วัดสำคัญ (DRG, RW, วันนอน) เพื่อการตรวจสอบการเบิกจ่าย</p>
+                    <button className="btn btn-primary" type="button" style={{ marginTop: 10 }} onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'ipdClaimMonitor' } }))}>
+                        📡 เปิด Monitor FDH / REP / STM / INV
+                    </button>
                 </div>
 
                 {/* Dashboard Summary Cards */}

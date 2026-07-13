@@ -17,6 +17,7 @@ export type NavGroup = {
 export const primaryNavItems: NavItem[] = [
   { page: 'staff', icon: '📋', label: 'รายการ OPD' },
   { page: 'ipd', icon: '🛏️', label: 'รายการ IPD' },
+  { page: 'ipdClaimMonitor', icon: '📡', label: 'Monitor IPD Claim' },
   { page: 'fdh', icon: '🔍', label: 'ตรวจสอบเบิก FDH', divider: true },
   { page: 'nhsoClose', icon: '🔐', label: 'ปิดสิทธิ NHSO' },
 ];

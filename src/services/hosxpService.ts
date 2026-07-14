@@ -302,6 +302,8 @@ export const saveAppSettings = async (settings: Record<string, unknown>) => {
 export const importRepstmData = async (payload: {
   dataType: 'REP' | 'STM' | 'INV';
   sourceFilename: string;
+  fileSize?: number;
+  fileHash?: string;
   sheetName?: string;
   importedBy?: string;
   notes?: string;
@@ -336,6 +338,31 @@ export const importRepstmData = async (payload: {
     throw new Error('ไม่สามารถนำเข้า REP/STM/INV ได้');
   }
   return json;
+};
+
+export interface RepstmPreflightResult {
+  filename: string;
+  status: 'new' | 'exact' | 'name_match' | 'changed' | 'content_match';
+  batchId?: number | null;
+  dataType?: 'REP' | 'STM' | 'INV' | null;
+  importedFilename?: string | null;
+  importedAt?: string | null;
+  rowCount?: number;
+}
+
+export const preflightRepstmFiles = async (
+  files: Array<{ filename: string; size: number; hash: string }>
+): Promise<RepstmPreflightResult[]> => {
+  const response = await fetch('/api/repstm/preflight', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files }),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ตรวจสอบรายการไฟล์เดิมไม่สำเร็จ');
+  }
+  return Array.isArray(json.data) ? json.data : [];
 };
 
 export const fetchRepstmBatches = async (dataType?: 'REP' | 'STM' | 'INV', limit = 20) => {

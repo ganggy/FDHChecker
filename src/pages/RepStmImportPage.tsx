@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { fetchRcmdbData, fetchRepstmBatches, importRepstmData } from '../services/hosxpService';
+import { fetchRcmdbData, fetchRepstmBatches, importRepstmData, preflightRepstmFiles } from '../services/hosxpService';
 import { navigateFromDashboard } from '../utils/navigationState';
 
 type ImportType = 'REP' | 'STM' | 'INV';
@@ -50,6 +50,8 @@ interface ImportQueueItem {
   id: string;
   file: File;
   fileName: string;
+  fileHash?: string;
+  fileSize?: number;
   relativePath?: string;
   detectedType?: ImportType;
   sheetName: string;
@@ -86,7 +88,7 @@ const detectTypeFromFileName = (fileName: string): ImportType | null => {
   const name = fileName.trim().toLowerCase();
   if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice/.test(name)) return 'INV';
   if (/(^|[_\s.-])stm(?=[_\s.-]|$)|statement/.test(name)) return 'STM';
-  if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata|^eclaim[_-]/.test(name)) return 'REP';
+  if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata|^eclaim[_-]|(^|[_\s.-])(ofc|csmbs)(?=[_\s.-]|$)/.test(name)) return 'REP';
   return null;
 };
 
@@ -99,27 +101,29 @@ const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
 ].join('|');
 
 const detectImportType = (fileName: string, headers: string[], rows: Record<string, unknown>[]): ImportType | null => {
-  const explicitFileType = detectTypeFromFileName(fileName);
-  if (explicitFileType) return explicitFileType;
   const normalizedName = fileName.toLowerCase();
   const normalizedHeaders = headers.map((header) => normalizeHeaderCell(header).toLowerCase());
   const firstRowKeys = Object.keys(rows[0] || {}).map((key) => normalizeHeaderCell(key).toLowerCase());
   const bag = `${normalizedName} | ${normalizedHeaders.join(' | ')} | ${firstRowKeys.join(' | ')}`;
 
-  if (/\brep\b|rep_|_rep|repdata/.test(normalizedName) || (bag.includes('tran_id') && bag.includes('ชดเชยสุทธิ'))) {
-    return 'REP';
-  }
-
-  if (/\bstm\b|stm_|_stm/.test(normalizedName) || bag.includes('statement') || bag.includes('stm') || bag.includes('stmt_period') || bag.includes('hospcode')) {
-    return 'STM';
-  }
-
-  if (/\binv\b|inv_|_inv|invoice/.test(normalizedName) || bag.includes('invoice') || bag.includes('เลขที่ใบแจ้งหนี้') || bag.includes('invoiceno')) {
+  if (bag.includes('invoice') || bag.includes('เลขที่ใบแจ้งหนี้') || bag.includes('invoiceno')) {
     return 'INV';
   }
 
-  if (bag.includes('tran_id') && bag.includes('hn') && bag.includes('an')) return 'REP';
-  return null;
+  const repSignalCount = ['tran_id', 'hn', 'an', 'pid', 'ชื่อ - สกุล', 'วันเข้ารักษา', 'ชดเชยสุทธิ', 'พึงรับ']
+    .filter((signal) => bag.includes(signal)).length;
+  if (repSignalCount >= 3) return 'REP';
+
+  if (bag.includes('statement') || bag.includes('stmt_period') || bag.includes('stm_period') || bag.includes('hospcode')) {
+    return 'STM';
+  }
+
+  return detectTypeFromFileName(fileName);
+};
+
+const calculateFileSha256 = async (file: File) => {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
 const statusLabelMap: Record<QueueStatus, string> = {
@@ -651,7 +655,7 @@ export const RepStmImportPage: React.FC = () => {
     await handleEclaimDownloadFiles(eclaimFiles, eclaimSelected);
   };
 
-  const handleFileChange = async (files: FileList | null, append = false): Promise<ImportQueueItem[]> => {
+  const handleFileChange = async (files: FileList | null, append = false, bypassPreflight = false): Promise<ImportQueueItem[]> => {
     if (!append) {
       resetQueue();
     } else {
@@ -667,10 +671,11 @@ export const RepStmImportPage: React.FC = () => {
       setError(`ได้รับไฟล์จาก eClaim แล้ว แต่รูปแบบยังไม่ใช่ Excel/CSV${receivedNames ? ` (${receivedNames})` : ''}`);
       return [];
     }
-    const initialQueue = selectedFiles.map((file, index) => ({
+    const initialQueue: ImportQueueItem[] = selectedFiles.map((file, index) => ({
       id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
       file,
       fileName: file.name,
+      fileSize: file.size,
       relativePath: 'webkitRelativePath' in file ? (file as File & { webkitRelativePath?: string }).webkitRelativePath : '',
       sheetName: '',
       headers: [],
@@ -693,8 +698,64 @@ export const RepStmImportPage: React.FC = () => {
       setActivePreviewId(initialQueue[0].id);
     }
 
+    const hashById = new Map<string, string>();
+    let nextHashIndex = 0;
+    const hashNext = async () => {
+      while (nextHashIndex < initialQueue.length) {
+        const queueItem = initialQueue[nextHashIndex++];
+        const hash = await calculateFileSha256(queueItem.file);
+        hashById.set(queueItem.id, hash);
+        updateQueueItem(queueItem.id, (item) => ({ ...item, fileHash: hash, fileSize: queueItem.file.size }));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, initialQueue.length) }, () => hashNext()));
+
+    const preflightByName = new Map<string, Awaited<ReturnType<typeof preflightRepstmFiles>>[number]>();
+    if (!bypassPreflight) {
+      try {
+        const preflight = await preflightRepstmFiles(initialQueue.map((item) => ({
+          filename: item.file.name,
+          size: item.file.size,
+          hash: hashById.get(item.id) || '',
+        })));
+        preflight.forEach((result) => preflightByName.set(result.filename.toLowerCase(), result));
+      } catch (preflightError) {
+        console.warn('REP/STM preflight unavailable; continuing with full validation', preflightError);
+      }
+    }
+
     const parsedItems: ImportQueueItem[] = [];
+    const parseQueue: ImportQueueItem[] = [];
     for (const queueItem of initialQueue) {
+      queueItem.fileHash = hashById.get(queueItem.id);
+      const preflight = preflightByName.get(queueItem.file.name.toLowerCase());
+      if (preflight && ['exact', 'name_match', 'content_match'].includes(preflight.status)) {
+        const reason = preflight.status === 'name_match'
+          ? 'พบชื่อไฟล์นี้ในประวัติเดิม'
+          : preflight.status === 'content_match'
+            ? `เนื้อหาไฟล์ตรงกับ ${preflight.importedFilename || 'ไฟล์ที่เคยนำเข้า'}`
+            : 'ชื่อและเนื้อหาไฟล์ตรงกับรายการเดิม';
+        const skippedItem: ImportQueueItem = {
+          ...queueItem,
+          detectedType: preflight.dataType || undefined,
+          rowCount: Number(preflight.rowCount || 0),
+          status: 'duplicate',
+          message: `${reason} · ข้ามก่อนเปิด Excel`,
+        };
+        parsedItems.push(skippedItem);
+        updateQueueItem(queueItem.id, () => skippedItem);
+      } else {
+        if (preflight?.status === 'changed') {
+          updateQueueItem(queueItem.id, (item) => ({ ...item, message: 'ชื่อเดิมแต่เนื้อหาเปลี่ยน กำลังตรวจไฟล์แก้ไข' }));
+        }
+        parseQueue.push(queueItem);
+      }
+    }
+
+    let nextParseIndex = 0;
+    const parseNext = async () => {
+      while (nextParseIndex < parseQueue.length) {
+        const queueItem = parseQueue[nextParseIndex++];
       try {
         const parsedSheets = await readWorkbook(queueItem.file);
 
@@ -741,7 +802,7 @@ export const RepStmImportPage: React.FC = () => {
             return {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,
-              fileName: `${queueItem.fileName} [${sheetName}]`,
+              fileName: queueItem.fileName,
               relativePath: queueItem.relativePath,
               sheetName,
               headers,
@@ -774,7 +835,9 @@ export const RepStmImportPage: React.FC = () => {
           ...failedItem,
         }));
       }
-    }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, parseQueue.length) }, () => parseNext()));
     return parsedItems;
   };
 
@@ -823,6 +886,8 @@ export const RepStmImportPage: React.FC = () => {
           const result = await importRepstmData({
             dataType: item.detectedType,
             sourceFilename: item.fileName,
+            fileSize: item.fileSize ?? item.file.size,
+            fileHash: item.fileHash,
             sheetName: item.sheetName,
             importedBy: importedBy.trim() || undefined,
             notes: notes.trim() || undefined,
@@ -871,6 +936,21 @@ export const RepStmImportPage: React.FC = () => {
   };
 
   const handleImport = async (forceReimport = false) => {
+    if (forceReimport && duplicateItems.some((item) => item.rows.length === 0)) {
+      const transfer = new DataTransfer();
+      const seen = new Set<string>();
+      duplicateItems.forEach((item) => {
+        const key = `${item.file.name}|${item.file.size}|${item.file.lastModified}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          transfer.items.add(item.file);
+        }
+      });
+      const reparsed = await handleFileChange(transfer.files, false, true);
+      const reparsedReady = reparsed.filter((item) => item.status === 'ready');
+      await importQueueItems(reparsedReady, true, true);
+      return;
+    }
     const targetItems = forceReimport ? duplicateItems : readyItems;
     await importQueueItems(targetItems, forceReimport, true);
   };
@@ -889,7 +969,7 @@ export const RepStmImportPage: React.FC = () => {
           <div className="alert alert-info repstm-alert" style={{ marginBottom: 16 }}>
             <span>ℹ️</span>
             <span>
-              รองรับการนำเข้าไฟล์ตาราง <code>.xlsx</code>, <code>.xls</code> และ <code>.csv</code> โดยตัดหัวรายงานออกก่อน และสำหรับ <code>REP</code> จะ map ลงตารางมาตรฐานในฐาน <code>repstminv</code> เพิ่มให้อัตโนมัติ
+              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จากไฟล์ <code>.xlsx</code>, <code>.xls</code> และ <code>.csv</code> ระบบจะตรวจชื่อ ขนาด และ SHA-256 ก่อนเปิด Excel แล้ว map REP/STM/INV ลงฐาน <code>repstminv</code> อัตโนมัติ
             </span>
           </div>
 

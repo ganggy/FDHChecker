@@ -38,6 +38,7 @@ import {
   getFdhClaimDetailSummary,
   getFdhClaimDetailRows,
   getRepstmImportBatches,
+  preflightRepstmImportFiles,
   getRepstmImportedRows,
   getRepDataRows,
   getStatementVisitRows,
@@ -2477,9 +2478,11 @@ app.get('/api/fdh/import-status/logs', async (req, res) => {
 
 app.post('/api/repstm/import', async (req, res) => {
   try {
-    const { dataType, sourceFilename, sheetName, importedBy, notes, rows, forceReimport } = req.body as {
+    const { dataType, sourceFilename, fileSize, fileHash, sheetName, importedBy, notes, rows, forceReimport } = req.body as {
       dataType?: 'REP' | 'STM' | 'INV';
       sourceFilename?: string;
+      fileSize?: number;
+      fileHash?: string;
       sheetName?: string;
       importedBy?: string;
       notes?: string;
@@ -2513,6 +2516,8 @@ app.post('/api/repstm/import', async (req, res) => {
     const result = await importRepstmRows({
       dataType: normalizedType,
       sourceFilename: String(sourceFilename).trim(),
+      fileSize: Number.isFinite(fileSize) ? Number(fileSize) : undefined,
+      fileHash: /^[a-f0-9]{64}$/i.test(String(fileHash || '')) ? String(fileHash).toLowerCase() : undefined,
       sheetName: sheetName ? String(sheetName).trim() : undefined,
       importedBy: importedBy ? String(importedBy).trim() : undefined,
       notes: notes ? String(notes).trim() : undefined,
@@ -2540,6 +2545,24 @@ app.post('/api/repstm/import', async (req, res) => {
   } catch (error) {
     console.error('Error importing REP/STM/INV:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการนำเข้า REP/STM/INV' });
+  }
+});
+
+app.post('/api/repstm/preflight', async (req, res) => {
+  try {
+    const files = Array.isArray(req.body?.files) ? req.body.files : [];
+    if (files.length === 0 || files.length > 1000) {
+      return res.status(400).json({ success: false, error: 'กรุณาส่งรายการไฟล์ 1-1,000 ไฟล์' });
+    }
+    const data = await preflightRepstmImportFiles(files.map((file: Record<string, unknown>) => ({
+      filename: String(file?.filename || ''),
+      size: Number(file?.size),
+      hash: String(file?.hash || ''),
+    })));
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error checking REP/STM/INV import files:', error);
+    res.status(500).json({ success: false, error: 'ตรวจสอบไฟล์ที่เคยนำเข้าไม่สำเร็จ' });
   }
 });
 

@@ -508,6 +508,8 @@ const REPSTM_IMPORT_BATCH_TABLE_SQL = `
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     data_type VARCHAR(16) NOT NULL,
     source_filename VARCHAR(255) NOT NULL,
+    file_size BIGINT NULL,
+    file_hash VARCHAR(64) NULL,
     batch_hash VARCHAR(64) NULL,
     logical_hash VARCHAR(64) NULL,
     completeness_score BIGINT NOT NULL DEFAULT 0,
@@ -522,6 +524,8 @@ const REPSTM_IMPORT_BATCH_TABLE_SQL = `
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_data_type_batch_hash (data_type, batch_hash),
     INDEX idx_data_type_logical_hash (data_type, logical_hash),
+    INDEX idx_file_hash (file_hash),
+    INDEX idx_source_filename (source_filename),
     INDEX idx_replaces_batch_id (replaces_batch_id),
     INDEX idx_data_type_created_at (data_type, created_at),
     INDEX idx_created_at (created_at)
@@ -1150,6 +1154,8 @@ const ensureRepstmTablesUncached = async () => {
     }
 
     const repstmBatchColumns: Array<[string, string]> = [
+      ['file_size', 'ADD COLUMN file_size BIGINT NULL AFTER source_filename'],
+      ['file_hash', 'ADD COLUMN file_hash VARCHAR(64) NULL AFTER file_size'],
       ['logical_hash', 'ADD COLUMN logical_hash VARCHAR(64) NULL AFTER batch_hash'],
       ['completeness_score', 'ADD COLUMN completeness_score BIGINT NOT NULL DEFAULT 0 AFTER logical_hash'],
       ['distinct_record_count', 'ADD COLUMN distinct_record_count INT NOT NULL DEFAULT 0 AFTER completeness_score'],
@@ -1206,6 +1212,8 @@ const ensureRepstmTablesUncached = async () => {
     }
 
     const repstmBatchIndexes: Array<[string, string]> = [
+      ['idx_file_hash', 'ADD INDEX idx_file_hash (file_hash)'],
+      ['idx_source_filename', 'ADD INDEX idx_source_filename (source_filename)'],
       ['idx_data_type_logical_hash', 'ADD INDEX idx_data_type_logical_hash (data_type, logical_hash)'],
       ['idx_replaces_batch_id', 'ADD INDEX idx_replaces_batch_id (replaces_batch_id)'],
     ];
@@ -3348,15 +3356,12 @@ const stableStringify = (value: unknown): string => {
 };
 
 const buildRowsHash = (scope: string, rows: Record<string, unknown>[]) => {
-  const normalizedRows = rows.map((row) => {
+  const serializedRows = rows.map((row) => {
     const normalizedEntries = Object.entries(row).map(([key, value]) => [key.trim(), normalizeImportCellValue(value)]);
-    return Object.fromEntries(normalizedEntries.sort(([a], [b]) => a.localeCompare(b)));
-  }).sort((a, b) => stableStringify(a).localeCompare(stableStringify(b)));
-  const payload = stableStringify({
-    scope,
-    rowCount: normalizedRows.length,
-    rows: normalizedRows,
-  });
+    return stableStringify(Object.fromEntries(normalizedEntries.sort(([a], [b]) => a.localeCompare(b))));
+  }).sort((a, b) => a.localeCompare(b));
+  const normalizedRows = serializedRows.map((row) => JSON.parse(row) as Record<string, string>);
+  const payload = stableStringify({ scope, rowCount: normalizedRows.length, rows: normalizedRows });
   return crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
 };
 
@@ -4067,6 +4072,46 @@ const importRepDataRows = async (
   const visitCodeCache = new Map<string, string>();
   const incomeCache = new Map<string, number | null>();
 
+  const opVisitCodes = new Set<string>();
+  const ipVisitCodes = new Set<string>();
+  payload.rows.forEach((row) => {
+    const rawAn = pickRowValueAdvanced(row, ['AN']).trim();
+    const patientType = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย']);
+    const department = resolveDepartment(patientType, rawAn);
+    const seqNo = normalizeImportCellValue(pickRowValueAdvanced(row, ['SEQ NO', 'SEQ_NO', 'SEQNO', 'SEQ', 'ลำดับที่', 'no']));
+    if (department === 'IP') {
+      const an = rawAn || seqNo;
+      if (an) ipVisitCodes.add(an);
+    } else if (seqNo) {
+      opVisitCodes.add(seqNo);
+    }
+  });
+
+  const prefetchIncome = async (department: 'OP' | 'IP', visitCodes: Set<string>) => {
+    const codes = [...visitCodes];
+    const column = department === 'IP' ? 'an' : 'vn';
+    const table = department === 'IP' ? 'an_stat' : 'vn_stat';
+    for (let offset = 0; offset < codes.length; offset += 500) {
+      const chunk = codes.slice(offset, offset + 500);
+      const [incomeRows] = await hosConnection.query(
+        `SELECT ${column} AS visit_code,
+                ROUND(IFNULL(income, 0) - IFNULL(discount_money, 0) - IFNULL(rcpt_money, 0), 2) AS income
+         FROM ${table}
+         WHERE ${column} IN (${chunk.map(() => '?').join(',')})`,
+        chunk
+      );
+      if (Array.isArray(incomeRows)) {
+        (incomeRows as Record<string, unknown>[]).forEach((incomeRow) => {
+          const visitCode = normalizeImportCellValue(incomeRow.visit_code);
+          const cacheKey = department === 'IP' ? `IP||${visitCode}` : `OP|${visitCode}|`;
+          incomeCache.set(cacheKey, toAmountValue(normalizeImportCellValue(incomeRow.income)));
+        });
+      }
+    }
+  };
+  await prefetchIncome('OP', opVisitCodes);
+  await prefetchIncome('IP', ipVisitCodes);
+
   for (let index = 0; index < payload.rows.length; index += 1) {
     const row = payload.rows[index];
     const repNo = pickRowValueAdvanced(row, ['REP No.', 'REP No', 'REP']);
@@ -4082,13 +4127,16 @@ const importRepDataRows = async (
     const admdate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันเข้ารักษา', 'admdate']));
     const dchdate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันจำหน่าย', 'dchdate']));
     const senddate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['senddate', 'วันส่งข้อมูล']));
-    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก']);
-    const subinscl = pickRowValueAdvanced(row, ['subinscl', 'สิทธิย่อย']);
+    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก', 'กองทุนหลัก', 'fund', 'fund_code']);
+    const subinscl = pickRowValueAdvanced(row, ['subinscl', 'สิทธิย่อย', 'กองทุนย่อย']);
     const errorcode = pickRowValueAdvanced(row, ['errorcode', 'error code']);
     const verifycode = pickRowValueAdvanced(row, ['verifycode', 'verify code']);
-    const projectcode = pickRowValueAdvanced(row, ['projectcode', 'project code']);
+    const projectcode = pickRowValueAdvanced(row, ['projectcode', 'project code', 'projcode', 'proj']);
     const percentpay = resolvePercentPay(pickRowValueAdvanced(row, ['percentpay', '%จ่าย', 'ร้อยละ']));
-    const compensated = toAmountValue(pickRowValueAdvanced(row, ['ชดเชยสุทธิ', 'compensated', 'ชดเชยสุทธิรวม']));
+    const compensated = toAmountValue(pickRowValueAdvanced(row, [
+      'ชดเชยสุทธิ', 'compensated', 'ชดเชยสุทธิรวม', 'พึงรับ', 'พึงรับทั้งหมด',
+      'ยอดชดเชยทั้งสิ้น', 'จ่ายชดเชย', 'ยอดชดเชยหลังหักเงินเดือน'
+    ]));
     const nhso = toAmountValue(pickRowValueAdvanced(row, ['ชดเชยสุทธิ สปสช.', 'nhso']));
     const agency = toAmountValue(pickRowValueAdvanced(row, ['ชดเชยสุทธิ ต้นสังกัด', 'agency']));
     const hc = toAmountValue(pickRowValueAdvanced(row, ['HC']));
@@ -4205,26 +4253,37 @@ const importStatementDataRows = async (
     const statementNo = pickRowValueAdvanced(row, [
       'STM No.', 'STM No', 'STM',
       'INV No.', 'INV No', 'INV',
+      'REP No.', 'REP No', 'REP',
       'invoice_no', 'เลขที่เอกสาร', 'เลขที่ใบแจ้งหนี้', 'document_no', 'docno'
     ]);
     const tranId = pickRowValueAdvanced(row, ['TRAN_ID', 'transaction_uid', 'tranid']);
     const fallbackSiteSettings = (businessRules as Record<string, unknown>)?.site_settings as Record<string, unknown> | undefined;
     const hcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode']) || String(fallbackSiteSettings?.hospital_code || '');
     const hn = pickRowValueAdvanced(row, ['HN']);
-    const rawVn = pickRowValueAdvanced(row, ['VN', 'SEQ', 'seq', 'visit_no']);
+    const rawVn = pickRowValueAdvanced(row, ['VN', 'SEQ', 'SEQ NO', 'SEQ_NO', 'SEQNO', 'visit_no']);
     const rawAn = pickRowValueAdvanced(row, ['AN']);
     const pid = pickRowValueAdvanced(row, ['PID', 'CID']);
     const patientName = pickRowValueAdvanced(row, ['ชื่อ-สกุล', 'ชื่อ - สกุล', 'ชื่อสกุล']);
     const patientType = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย']);
-    const serviceDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, ['service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่']));
+    const serviceDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, [
+      'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่',
+      'วันเข้ารักษา', 'วันจำหน่าย', 'admdate', 'dchdate'
+    ]));
     const senddate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['senddate', 'วันส่งข้อมูล']));
-    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก']);
+    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก', 'กองทุนหลัก', 'fund', 'fund_code']);
     const subinscl = pickRowValueAdvanced(row, ['subinscl', 'สิทธิย่อย']);
     const errorcode = pickRowValueAdvanced(row, ['errorcode', 'error code']);
     const verifycode = pickRowValueAdvanced(row, ['verifycode', 'verify code']);
-    const amount = toAmountValue(pickRowValueAdvanced(row, ['amount', 'total', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount']));
-    const paidAmount = toAmountValue(pickRowValueAdvanced(row, ['paid', 'paid_amount', 'ยอดชำระ']));
-    const invoiceAmount = toAmountValue(pickRowValueAdvanced(row, ['invoice_amount', 'inv_amount', 'ยอดเรียกเก็บ']));
+    const amount = toAmountValue(pickRowValueAdvanced(row, [
+      'amount', 'total', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount', 'พึงรับ', 'พึงรับทั้งหมด',
+      'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ', 'จ่ายชดเชย', 'ยอดชดเชยหลังหักเงินเดือน'
+    ]));
+    const paidAmount = toAmountValue(pickRowValueAdvanced(row, [
+      'paid', 'paid_amount', 'ยอดชำระ', 'พึงรับ', 'พึงรับทั้งหมด', 'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ'
+    ]));
+    const invoiceAmount = toAmountValue(pickRowValueAdvanced(row, [
+      'invoice_amount', 'inv_amount', 'ยอดเรียกเก็บ', 'เรียกเก็บ', 'เรียกเก็บ (1)', 'เบิกได้'
+    ]));
 
     const department = resolveDepartment(patientType, rawAn);
     const visitLookupKey = [department, hn.trim(), serviceDateTime || '', normalizeCitizenId(pid), rawAn.trim(), rawVn.trim()].join('|');
@@ -4364,6 +4423,8 @@ const insertRepstmImportRows = async (
 export const importRepstmRows = async (payload: {
   dataType: 'REP' | 'STM' | 'INV';
   sourceFilename: string;
+  fileSize?: number;
+  fileHash?: string;
   sheetName?: string;
   importedBy?: string;
   notes?: string;
@@ -4437,12 +4498,14 @@ export const importRepstmRows = async (payload: {
 
     const [batchResult] = await connection.query(
       `INSERT INTO repstm_import_batch
-       (data_type, source_filename, batch_hash, logical_hash, completeness_score, distinct_record_count,
+       (data_type, source_filename, file_size, file_hash, batch_hash, logical_hash, completeness_score, distinct_record_count,
         column_count, non_empty_cell_count, replaces_batch_id, sheet_name, imported_by, row_count, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.dataType,
         payload.sourceFilename,
+        Number.isFinite(payload.fileSize) ? Math.max(0, Math.trunc(Number(payload.fileSize))) : null,
+        /^[a-f0-9]{64}$/i.test(payload.fileHash || '') ? String(payload.fileHash).toLowerCase() : null,
         batchHash,
         completenessProfile.logicalHash,
         completenessProfile.completenessScore,
@@ -8496,6 +8559,73 @@ export const getRepstmImportBatches = async (
   } catch (error) {
     console.error('Error reading REP/STM/INV batches:', error);
     return [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const preflightRepstmImportFiles = async (
+  files: Array<{ filename: string; size?: number; hash?: string }>
+): Promise<Record<string, unknown>[]> => {
+  await ensureRepstmTables();
+  const normalizedFiles = files
+    .map((file) => ({
+      filename: String(file.filename || '').trim(),
+      size: Number.isFinite(file.size) ? Math.max(0, Math.trunc(Number(file.size))) : null,
+      hash: /^[a-f0-9]{64}$/i.test(String(file.hash || '')) ? String(file.hash).toLowerCase() : null,
+    }))
+    .filter((file) => file.filename)
+    .slice(0, 1000);
+  if (normalizedFiles.length === 0) return [];
+
+  const names = [...new Set(normalizedFiles.map((file) => file.filename))];
+  const hashes = [...new Set(normalizedFiles.map((file) => file.hash).filter(Boolean))] as string[];
+  const namePlaceholders = names.map(() => '?').join(',');
+  const hashCondition = hashes.length > 0
+    ? ` OR file_hash IN (${hashes.map(() => '?').join(',')})`
+    : '';
+  const connection = await getRepstmConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT id, data_type, source_filename, file_size, file_hash, row_count, created_at
+       FROM repstm_import_batch
+       WHERE SUBSTRING_INDEX(source_filename, ' [', 1) IN (${namePlaceholders})${hashCondition}
+       ORDER BY id DESC`,
+      [...names, ...hashes]
+    );
+    const batches = Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+
+    return normalizedFiles.map((file) => {
+      const sameName = batches.filter((batch) =>
+        String(batch.source_filename || '').split(' [')[0].toLowerCase() === file.filename.toLowerCase()
+      );
+      const exact = file.hash
+        ? sameName.find((batch) => String(batch.file_hash || '').toLowerCase() === file.hash)
+        : null;
+      const legacy = sameName.find((batch) => !batch.file_hash);
+      const sameContent = file.hash
+        ? batches.find((batch) => String(batch.file_hash || '').toLowerCase() === file.hash)
+        : null;
+      const matched = exact || legacy || sameName[0] || sameContent || null;
+      const status = exact
+        ? 'exact'
+        : legacy
+          ? 'name_match'
+          : sameName.length > 0
+            ? 'changed'
+            : sameContent
+              ? 'content_match'
+              : 'new';
+      return {
+        filename: file.filename,
+        status,
+        batchId: matched ? Number(matched.id || 0) : null,
+        dataType: matched ? String(matched.data_type || '') : null,
+        importedFilename: matched ? String(matched.source_filename || '') : null,
+        importedAt: matched?.created_at || null,
+        rowCount: matched ? Number(matched.row_count || 0) : 0,
+      };
+    });
   } finally {
     connection.release();
   }

@@ -306,6 +306,7 @@ export const importRepstmData = async (payload: {
   importedBy?: string;
   notes?: string;
   rows: Record<string, unknown>[];
+  forceReimport?: boolean;
 }) => {
   const response = await fetch('/api/repstm/import', {
     method: 'POST',

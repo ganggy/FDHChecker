@@ -10,7 +10,7 @@ Write-Host "╚═════════════════════�
 Write-Host "`n"
 
 # Set working directory
-$projectPath = "d:\react\fdh_rect"
+$projectPath = $PSScriptRoot
 Set-Location $projectPath
 
 Write-Host "📁 Working Directory: $projectPath`n" -ForegroundColor Cyan
@@ -26,11 +26,13 @@ if (!(Test-Path "package.json")) {
 Write-Host "✅ Found package.json`n" -ForegroundColor Green
 
 # Check and install dependencies if needed
-if (!(Test-Path "node_modules")) {
-    Write-Host "📦 node_modules not found - Installing dependencies..." -ForegroundColor Yellow
+$requiredPackages = @('react', 'vite', 'tsx', 'express', 'mysql2')
+$missingPackages = $requiredPackages | Where-Object { !(Test-Path (Join-Path 'node_modules' $_)) }
+if ($missingPackages.Count -gt 0) {
+    Write-Host "📦 Dependencies ไม่ครบ - Installing dependencies..." -ForegroundColor Yellow
     Write-Host "This may take 2-3 minutes on first run`n" -ForegroundColor Yellow
     
-    npm install
+    npm ci --no-audit --no-fund
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host "`n❌ npm install failed" -ForegroundColor Red

@@ -60,6 +60,13 @@ interface ImportQueueItem {
   message?: string;
 }
 
+type EclaimPipelineStatus = 'downloading' | 'downloaded' | 'importing' | 'success' | 'duplicate' | 'error';
+
+interface EclaimPipelineState {
+  status: EclaimPipelineStatus;
+  message: string;
+}
+
 /** Sheet-name → ImportType map (from Auto4Rep.EXE analysis) */
 const SHEET_TYPE_MAP: Record<string, ImportType> = {
   statement: 'STM', stm: 'STM',
@@ -75,7 +82,25 @@ const detectTypeFromSheetName = (sheetName: string): ImportType | null => {
   return null;
 };
 
+const detectTypeFromFileName = (fileName: string): ImportType | null => {
+  const name = fileName.trim().toLowerCase();
+  if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice/.test(name)) return 'INV';
+  if (/(^|[_\s.-])stm(?=[_\s.-]|$)|statement/.test(name)) return 'STM';
+  if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata|^eclaim[_-]/.test(name)) return 'REP';
+  return null;
+};
+
+const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
+  String(file.period || file._period || ''),
+  String(file.filename || file.fileName || file.name || ''),
+  String(file.downloadHref || ''),
+  String(file.downloadOnclick || ''),
+  String(index),
+].join('|');
+
 const detectImportType = (fileName: string, headers: string[], rows: Record<string, unknown>[]): ImportType | null => {
+  const explicitFileType = detectTypeFromFileName(fileName);
+  if (explicitFileType) return explicitFileType;
   const normalizedName = fileName.toLowerCase();
   const normalizedHeaders = headers.map((header) => normalizeHeaderCell(header).toLowerCase());
   const firstRowKeys = Object.keys(rows[0] || {}).map((key) => normalizeHeaderCell(key).toLowerCase());
@@ -209,17 +234,22 @@ const parseWorksheetRows = (worksheet: XLSX.WorkSheet, hintType?: ImportType | n
   const resolvedHeaderIndex = headerIndex >= 0 ? headerIndex : 0;
   const headerRow = Array.isArray(grid[resolvedHeaderIndex]) ? grid[resolvedHeaderIndex] : [];
   const nextRow = Array.isArray(grid[resolvedHeaderIndex + 1]) ? grid[resolvedHeaderIndex + 1] : [];
-  const mergedHeaders = buildHeadersFromRows(headerRow, nextRow);
-  const activeColumnIndexes = mergedHeaders
+  const singleHeaders = buildHeadersFromRows(headerRow);
+  const singleRecord = Object.fromEntries(singleHeaders.map((header, index) => [header, nextRow[index] ?? '']));
+  const nextRowIsData = isLikelyDataRecord(singleRecord, hintType);
+  const headersWithIndexes = nextRowIsData
+    ? singleHeaders
+    : buildHeadersFromRows(headerRow, nextRow);
+  const dataStartIndex = resolvedHeaderIndex + (nextRowIsData ? 1 : 2);
+  const activeColumnIndexes = headersWithIndexes
     .map((header, index) => ({ header, index }))
     .filter(({ header, index }) => {
       if (!header || header.startsWith('column_')) return false;
-      return grid.slice(resolvedHeaderIndex + 2).some((row) => Array.isArray(row) && normalizeHeaderCell(row[index]));
+      return grid.slice(dataStartIndex).some((row) => Array.isArray(row) && normalizeHeaderCell(row[index]));
     });
 
   const headers = activeColumnIndexes.map(({ header }) => header);
 
-  const dataStartIndex = resolvedHeaderIndex + 2;
   const rows = grid
     .slice(dataStartIndex)
     .filter((row) => Array.isArray(row) && row.some((cell) => normalizeHeaderCell(cell)))
@@ -244,6 +274,7 @@ interface ParsedSheet {
 const readWorkbook = async (file: File): Promise<ParsedSheet[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
+  const fileHint = detectTypeFromFileName(file.name);
 
   const priorityNames = ['statement', 'eclaim', 'invoice', 'individual', 'detail', 'repdata', 'repeclaim'];
   const ordered = [
@@ -253,12 +284,21 @@ const readWorkbook = async (file: File): Promise<ParsedSheet[]> => {
 
   const results: ParsedSheet[] = [];
   for (const sheetName of ordered) {
-    const hintType = detectTypeFromSheetName(sheetName);
+    const hintType = detectTypeFromSheetName(sheetName) || fileHint;
     const parsed = parseWorksheetRows(workbook.Sheets[sheetName], hintType);
     if (parsed.rows.length > 0) {
       results.push({ sheetName, rows: parsed.rows, headers: parsed.headers, hintType });
     }
   }
+
+  const primaryResults = results.filter(({ sheetName, hintType }) => {
+    const compact = sheetName.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (hintType === 'REP') return /^(detail|individual|repdata|repeclaim)$/.test(compact) || compact.includes('รายละเอียด');
+    if (hintType === 'STM') return compact.includes('รายละเอียด') || compact === 'พึงรับ' || compact === 'statement';
+    if (hintType === 'INV') return compact.includes('invoice') || compact.includes('รายละเอียด') || compact === 'inv';
+    return false;
+  });
+  if (primaryResults.length > 0) return primaryResults;
 
   // Fallback: try first sheet without a hint if nothing matched
   if (results.length === 0 && workbook.SheetNames.length > 0) {
@@ -298,12 +338,18 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
   const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
   const [eclaimBrowserReady, setEclaimBrowserReady] = useState(false);
+  const [eclaimBrowserAlive, setEclaimBrowserAlive] = useState(false);
+  const [eclaimBrowserPhase, setEclaimBrowserPhase] = useState('closed');
+  const [eclaimBrowserMessage, setEclaimBrowserMessage] = useState('ยังไม่ได้เริ่ม Login ThaID');
+  const [eclaimScreenshotVersion, setEclaimScreenshotVersion] = useState(0);
   const [eclaimLoading, setEclaimLoading] = useState(false);
   const [eclaimError, setEclaimError] = useState<string | null>(null);
   const [eclaimFiles, setEclaimFiles] = useState<Record<string, unknown>[]>([]);
   const [eclaimSelected, setEclaimSelected] = useState<Set<string>>(new Set());
   const [eclaimDownloading, setEclaimDownloading] = useState(false);
-  const [eclaimAutoDownload, setEclaimAutoDownload] = useState(false);
+  const [eclaimAutoDownload, setEclaimAutoDownload] = useState(true);
+  const [eclaimAutoImport, setEclaimAutoImport] = useState(true);
+  const [eclaimPipeline, setEclaimPipeline] = useState<Record<string, EclaimPipelineState>>({});
   const [eclaimDebugLog, setEclaimDebugLog] = useState<{ period: string; url: string; title: string; rowCount: number; htmlSnippet: string }[]>([]);
   const [eclaimShowDebug, setEclaimShowDebug] = useState(false);
 
@@ -392,6 +438,32 @@ export const RepStmImportPage: React.FC = () => {
       .catch(() => {/* ignore */});
   }, []);
 
+  useEffect(() => {
+    if (!eclaimOpen) return;
+    let active = true;
+    const pollStatus = async () => {
+      try {
+        const response = await fetch('/api/nhso-eclaim/browser-status', { cache: 'no-store' });
+        const status = await response.json() as {
+          alive?: boolean; ready?: boolean; phase?: string; message?: string; error?: string | null;
+        };
+        if (!active) return;
+        setEclaimBrowserAlive(Boolean(status.alive));
+        setEclaimBrowserReady(Boolean(status.ready));
+        setEclaimBrowserPhase(String(status.phase || 'closed'));
+        setEclaimBrowserMessage(String(status.message || ''));
+        if (status.error) setEclaimError(status.error);
+        if (status.ready || ['closed', 'expired', 'error'].includes(String(status.phase || ''))) {
+          setEclaimBrowserLoading(false);
+        }
+        if (status.alive && !status.ready) setEclaimScreenshotVersion(Date.now());
+      } catch { /* backend may be restarting */ }
+    };
+    void pollStatus();
+    const timer = window.setInterval(() => void pollStatus(), 1500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [eclaimOpen]);
+
   const resetQueue = () => {
     setQueueItems([]);
     setActivePreviewId(null);
@@ -409,25 +481,45 @@ export const RepStmImportPage: React.FC = () => {
     setEclaimBrowserLoading(true);
     try {
       const res = await fetch('/api/nhso-eclaim/browser-login', { method: 'POST' });
-      const json = await res.json() as { success: boolean; ready?: boolean; repPageUrl?: string; error?: string };
+      const json = await res.json() as { success: boolean; ready?: boolean; phase?: string; message?: string; error?: string };
       if (!json.success) throw new Error(json.error || 'Login ไม่สำเร็จ');
-      setEclaimBrowserReady(true);
+      setEclaimBrowserAlive(true);
+      setEclaimBrowserPhase(String(json.phase || 'waiting_thaid'));
+      setEclaimBrowserMessage(String(json.message || 'สแกน QR ด้วยแอป ThaID'));
+      setEclaimScreenshotVersion(Date.now());
     } catch (err) {
       setEclaimError((err as Error).message);
-    } finally {
       setEclaimBrowserLoading(false);
+    }
+  };
+
+  const handleThaIdSelect = async () => {
+    setEclaimError(null);
+    try {
+      const response = await fetch('/api/nhso-eclaim/browser-thaid', { method: 'POST' });
+      const json = await response.json() as { success?: boolean; message?: string; error?: string };
+      setEclaimBrowserMessage(String(json.message || 'กรุณาสแกน QR ด้วยแอป ThaID'));
+      if (!response.ok) throw new Error(json.error || 'เปิดหน้า ThaID ไม่สำเร็จ');
+      setEclaimScreenshotVersion(Date.now());
+    } catch (err) {
+      setEclaimError(err instanceof Error ? err.message : 'เปิดหน้า ThaID ไม่สำเร็จ');
     }
   };
 
   const handleBrowserClose = async () => {
     await fetch('/api/nhso-eclaim/browser-close', { method: 'POST' }).catch(() => {/* ignore */});
     setEclaimBrowserReady(false);
+    setEclaimBrowserAlive(false);
+    setEclaimBrowserPhase('closed');
+    setEclaimBrowserMessage('ปิด Browser แล้ว');
+    setEclaimBrowserLoading(false);
   };
 
   const handleEclaimSearch = async () => {
     setEclaimError(null);
     setEclaimFiles([]);
     setEclaimSelected(new Set());
+    setEclaimPipeline({});
     setEclaimDebugLog([]);
 
     if (eclaimPeriods.length === 0) {
@@ -435,7 +527,7 @@ export const RepStmImportPage: React.FC = () => {
       return;
     }
     if (!eclaimBrowserReady) {
-      setEclaimError('กรุณากด "เปิด Edge ให้ Login" ก่อน');
+      setEclaimError('กรุณา Login และยืนยันตัวตนด้วย ThaID ก่อน');
       return;
     }
 
@@ -458,7 +550,7 @@ export const RepStmImportPage: React.FC = () => {
         setEclaimShowDebug(true);
       } else if (eclaimAutoDownload) {
         // Auto-select all and download
-        const allKeys = new Set(files.map((f) => String(f.filename || f.fileName || f.name || '')).filter(Boolean));
+        const allKeys = new Set(files.map((file, index) => getEclaimFileKey(file, index)));
         setEclaimSelected(allKeys);
         await handleEclaimDownloadFiles(files, allKeys);
       }
@@ -474,13 +566,19 @@ export const RepStmImportPage: React.FC = () => {
     if (selectedKeys.size === 0 || !eclaimBrowserReady) return;
     setEclaimDownloading(true);
     setEclaimError(null);
-    const filesToDownload = filesToProcess.filter((f) => {
-      const key = String(f.filename || f.fileName || f.name || '');
-      return selectedKeys.has(key);
+    const filesToDownload = filesToProcess
+      .map((file, index) => ({ file, key: getEclaimFileKey(file, index) }))
+      .filter(({ key }) => selectedKeys.has(key));
+    setEclaimPipeline((current) => {
+      const next = { ...current };
+      filesToDownload.forEach(({ key }) => { next[key] = { status: 'downloading', message: 'กำลังดาวน์โหลด Excel' }; });
+      return next;
     });
 
     const dataTransfer = new DataTransfer();
-    for (const fileObj of filesToDownload) {
+    const downloadedKeysByName = new Map<string, string[]>();
+    const downloadErrors: string[] = [];
+    for (const { file: fileObj, key } of filesToDownload) {
       const filename = String(fileObj.filename || fileObj.fileName || fileObj.name || 'download.xlsx');
       try {
         const dlRes = await fetch('/api/nhso-eclaim/browser-download', {
@@ -489,24 +587,63 @@ export const RepStmImportPage: React.FC = () => {
           body: JSON.stringify({
             downloadHref: String(fileObj.downloadHref || ''),
             downloadOnclick: String(fileObj.downloadOnclick || ''),
+            downloadLabel: String(fileObj.downloadLabel || ''),
+            sourcePage: String(fileObj.sourcePage || ''),
             filename,
           }),
         });
-        const dlJson = await dlRes.json() as { success: boolean; base64?: string; contentType?: string; error?: string };
+        const dlJson = await dlRes.json() as { success: boolean; base64?: string; filename?: string; contentType?: string; error?: string };
         if (!dlJson.success || !dlJson.base64) throw new Error(dlJson.error || `ดาวน์โหลด ${filename} ไม่สำเร็จ`);
         const binaryStr = atob(dlJson.base64);
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
         const blob = new Blob([bytes], { type: dlJson.contentType || 'application/octet-stream' });
-        const dlFile = new File([blob], filename, { type: dlJson.contentType || 'application/octet-stream' });
+        const downloadedFilename = dlJson.filename || filename;
+        const dlFile = new File([blob], downloadedFilename, { type: dlJson.contentType || 'application/octet-stream' });
         dataTransfer.items.add(dlFile);
+        downloadedKeysByName.set(downloadedFilename, [...(downloadedKeysByName.get(downloadedFilename) || []), key]);
+        setEclaimPipeline((current) => ({
+          ...current,
+          [key]: { status: 'downloaded', message: 'ดาวน์โหลด Excel แล้ว รอตรวจและนำเข้า' },
+        }));
       } catch (err) {
-        setEclaimError(err instanceof Error ? err.message : `ดาวน์โหลด ${filename} ไม่สำเร็จ`);
+        const message = err instanceof Error ? err.message : `ดาวน์โหลด ${filename} ไม่สำเร็จ`;
+        downloadErrors.push(message);
+        setEclaimPipeline((current) => ({ ...current, [key]: { status: 'error', message } }));
       }
     }
     if (dataTransfer.files.length > 0) {
-      await handleFileChange(dataTransfer.files, true);
+      const parsedItems = await handleFileChange(dataTransfer.files, true);
+      const readyForImport = parsedItems.filter((item) => item.status === 'ready' && item.detectedType);
+      const parseFailures = parsedItems.filter((item) => item.status === 'error');
+
+      parseFailures.forEach((item) => {
+        (downloadedKeysByName.get(item.file.name) || []).forEach((key) => {
+          setEclaimPipeline((current) => ({
+            ...current,
+            [key]: { status: 'error', message: item.message || 'อ่านไฟล์ไม่สำเร็จ' },
+          }));
+        });
+      });
+
+      if (eclaimAutoImport && readyForImport.length > 0) {
+        readyForImport.forEach((item) => {
+          (downloadedKeysByName.get(item.file.name) || []).forEach((key) => {
+            setEclaimPipeline((current) => ({
+              ...current,
+              [key]: { status: 'importing', message: `กำลังนำเข้า ${item.detectedType}` },
+            }));
+          });
+        });
+        const outcomes = await importQueueItems(readyForImport, false, false);
+        Object.entries(outcomes).forEach(([downloadedFilename, outcome]) => {
+          (downloadedKeysByName.get(downloadedFilename) || []).forEach((key) => {
+            setEclaimPipeline((current) => ({ ...current, [key]: outcome }));
+          });
+        });
+      }
     }
+    if (downloadErrors.length > 0) setEclaimError(downloadErrors.join(' | '));
     setEclaimDownloading(false);
   };
 
@@ -514,7 +651,7 @@ export const RepStmImportPage: React.FC = () => {
     await handleEclaimDownloadFiles(eclaimFiles, eclaimSelected);
   };
 
-  const handleFileChange = async (files: FileList | null, append = false) => {
+  const handleFileChange = async (files: FileList | null, append = false): Promise<ImportQueueItem[]> => {
     if (!append) {
       resetQueue();
     } else {
@@ -522,9 +659,14 @@ export const RepStmImportPage: React.FC = () => {
       setSuccessMessage(null);
     }
 
-    if (!files || files.length === 0) return;
+    if (!files || files.length === 0) return [];
 
     const selectedFiles = Array.from(files).filter((file) => /\.(xlsx|xls|csv)$/i.test(file.name));
+    if (selectedFiles.length === 0) {
+      const receivedNames = Array.from(files).map((file) => file.name).filter(Boolean).join(', ');
+      setError(`ได้รับไฟล์จาก eClaim แล้ว แต่รูปแบบยังไม่ใช่ Excel/CSV${receivedNames ? ` (${receivedNames})` : ''}`);
+      return [];
+    }
     const initialQueue = selectedFiles.map((file, index) => ({
       id: `${file.name}-${file.size}-${file.lastModified}-${index}`,
       file,
@@ -551,15 +693,21 @@ export const RepStmImportPage: React.FC = () => {
       setActivePreviewId(initialQueue[0].id);
     }
 
+    const parsedItems: ImportQueueItem[] = [];
     for (const queueItem of initialQueue) {
       try {
         const parsedSheets = await readWorkbook(queueItem.file);
 
         if (parsedSheets.length === 0) {
-          updateQueueItem(queueItem.id, (item) => ({
-            ...item,
+          const failedItem: ImportQueueItem = {
+            ...queueItem,
             status: 'error',
             message: 'ไม่พบข้อมูลในไฟล์',
+          };
+          parsedItems.push(failedItem);
+          updateQueueItem(queueItem.id, (item) => ({
+            ...item,
+            ...failedItem,
           }));
           continue;
         }
@@ -567,8 +715,8 @@ export const RepStmImportPage: React.FC = () => {
         if (parsedSheets.length === 1) {
           const { sheetName, rows, headers, hintType } = parsedSheets[0];
           const detectedType = hintType || detectImportType(queueItem.fileName, headers, rows);
-          updateQueueItem(queueItem.id, (item) => ({
-            ...item,
+          const parsedItem: ImportQueueItem = {
+            ...queueItem,
             sheetName,
             headers,
             rows,
@@ -580,6 +728,11 @@ export const RepStmImportPage: React.FC = () => {
               : detectedType
                 ? `ตรวจพบเป็น ${detectedType} (Sheet: ${sheetName}) พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
                 : 'ไม่สามารถระบุประเภทไฟล์ได้',
+          };
+          parsedItems.push(parsedItem);
+          updateQueueItem(queueItem.id, (item) => ({
+            ...item,
+            ...parsedItem,
           }));
         } else {
           // Multiple relevant sheets – expand one file into multiple queue items
@@ -603,27 +756,40 @@ export const RepStmImportPage: React.FC = () => {
                   : `Sheet "${sheetName}": ไม่สามารถระบุประเภท`,
             };
           });
+          parsedItems.push(...expandedItems);
           setQueueItems((current) => {
             const without = current.filter((item) => item.id !== queueItem.id);
             return [...without, ...expandedItems];
           });
         }
       } catch (err) {
-        updateQueueItem(queueItem.id, (item) => ({
-          ...item,
+        const failedItem: ImportQueueItem = {
+          ...queueItem,
           status: 'error',
           message: err instanceof Error ? err.message : 'อ่านไฟล์ไม่สำเร็จ',
+        };
+        parsedItems.push(failedItem);
+        updateQueueItem(queueItem.id, (item) => ({
+          ...item,
+          ...failedItem,
         }));
       }
     }
+    return parsedItems;
   };
 
-  const handleImport = async () => {
-    if (readyItems.length === 0) {
-      setError('ยังไม่มีไฟล์ที่พร้อมนำเข้า');
-      return;
+  const importQueueItems = async (
+    targetItems: ImportQueueItem[],
+    forceReimport = false,
+    requireConfirmation = false,
+  ): Promise<Record<string, EclaimPipelineState>> => {
+    if (targetItems.length === 0) {
+      setError(forceReimport ? 'ไม่มีไฟล์ที่ถูกข้ามให้ทำรายการนำเข้าซ้ำ' : 'ยังไม่มีไฟล์ที่พร้อมนำเข้า');
+      return {};
     }
+    if (forceReimport && requireConfirmation && !window.confirm(`ยืนยันนำเข้าซ้ำ ${targetItems.length.toLocaleString()} ไฟล์ และแทนข้อมูล batch เดิม?`)) return {};
 
+    const outcomes: Record<string, EclaimPipelineState> = {};
     try {
       setImporting(true);
       setError(null);
@@ -635,7 +801,7 @@ export const RepStmImportPage: React.FC = () => {
       let replacedCount = 0;
       let failedCount = 0;
 
-      for (const item of readyItems) {
+      for (const item of targetItems) {
         if (!item.detectedType) {
           updateQueueItem(item.id, (current) => ({
             ...current,
@@ -643,6 +809,7 @@ export const RepStmImportPage: React.FC = () => {
             message: 'ไม่สามารถระบุประเภทไฟล์ได้',
           }));
           failedCount += 1;
+          outcomes[item.file.name] = { status: 'error', message: 'ระบุประเภทไฟล์ไม่ได้' };
           continue;
         }
 
@@ -660,10 +827,12 @@ export const RepStmImportPage: React.FC = () => {
             importedBy: importedBy.trim() || undefined,
             notes: notes.trim() || undefined,
             rows: item.rows,
+            forceReimport,
           });
 
           if (result.duplicate || result.skipped) {
             duplicateCount += 1;
+            outcomes[item.file.name] = { status: 'duplicate', message: result.message || 'มีข้อมูลชุดนี้แล้ว' };
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'duplicate',
@@ -673,6 +842,7 @@ export const RepStmImportPage: React.FC = () => {
             importedCount += 1;
             importedRows += Number(result.rowCount || 0);
             if (result.replaced) replacedCount += 1;
+            outcomes[item.file.name] = { status: 'success', message: result.message || `นำเข้า ${item.detectedType} แล้ว` };
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'success',
@@ -681,6 +851,7 @@ export const RepStmImportPage: React.FC = () => {
           }
         } catch (err) {
           failedCount += 1;
+          outcomes[item.file.name] = { status: 'error', message: err instanceof Error ? err.message : 'นำเข้าไม่สำเร็จ' };
           updateQueueItem(item.id, (current) => ({
             ...current,
             status: 'error',
@@ -689,13 +860,19 @@ export const RepStmImportPage: React.FC = () => {
         }
       }
 
-      setSuccessMessage(`นำเข้าสำเร็จ ${importedCount.toLocaleString()} ไฟล์ รวม ${importedRows.toLocaleString()} แถว${replacedCount > 0 ? `, แทนชุดเดิม ${replacedCount.toLocaleString()} ไฟล์` : ''}${duplicateCount > 0 ? `, ข้าม/เข้าแล้ว ${duplicateCount.toLocaleString()} ไฟล์` : ''}${failedCount > 0 ? `, ผิดพลาด ${failedCount.toLocaleString()} ไฟล์` : ''}`);
+      setSuccessMessage(`${forceReimport ? 'นำเข้าซ้ำ' : 'นำเข้า'}สำเร็จ ${importedCount.toLocaleString()} ไฟล์ รวม ${importedRows.toLocaleString()} แถว${replacedCount > 0 ? `, แทนชุดเดิม ${replacedCount.toLocaleString()} ไฟล์` : ''}${duplicateCount > 0 ? `, ข้าม/เข้าแล้ว ${duplicateCount.toLocaleString()} ไฟล์` : ''}${failedCount > 0 ? `, ผิดพลาด ${failedCount.toLocaleString()} ไฟล์` : ''}`);
       await loadData(dataType);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'นำเข้า REP/STM/INV ไม่สำเร็จ');
     } finally {
       setImporting(false);
     }
+    return outcomes;
+  };
+
+  const handleImport = async (forceReimport = false) => {
+    const targetItems = forceReimport ? duplicateItems : readyItems;
+    await importQueueItems(targetItems, forceReimport, true);
   };
 
   return (
@@ -774,9 +951,14 @@ export const RepStmImportPage: React.FC = () => {
           </div>
 
           <div className="repstm-toolbar">
-            <button className="btn btn-primary" onClick={handleImport} disabled={importing || readyItems.length === 0}>
+            <button className="btn btn-primary" onClick={() => void handleImport(false)} disabled={importing || readyItems.length === 0}>
               {importing ? 'กำลังนำเข้าหลายไฟล์...' : `นำเข้า ${dataType} ทั้งหมด`}
             </button>
+            {duplicateItems.length > 0 && (
+              <button className="btn btn-warning" onClick={() => void handleImport(true)} disabled={importing}>
+                นำเข้าซ้ำ ({duplicateItems.length.toLocaleString()} ไฟล์)
+              </button>
+            )}
             <button
               className="btn btn-secondary"
               onClick={() => fileInputRef.current?.click()}
@@ -818,15 +1000,15 @@ export const RepStmImportPage: React.FC = () => {
               </span>
             </div>
 
-            {/* Step 1: Browser Login */}
+            {/* Step 1: ThaID Login */}
             <div style={{ background: 'var(--bg-secondary,#f0f4ff)', border: '1px solid var(--border-color,#c7d2fe)', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>📋 ขั้นตอนที่ 1 — Login ผ่าน Browser</div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>📋 ขั้นตอนที่ 1 — Login ด้วย ThaID</div>
               <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-                <li>กดปุ่ม <strong>🌐 เปิด Edge ให้ Login</strong> — ระบบจะเปิด Edge ไปที่ eclaim.nhso.go.th อัตโนมัติ</li>
-                <li>Login ด้วย username/password ปกติ (ภายใน 5 นาที)</li>
-                <li>รอให้ระบบตรวจจับการ login สำเร็จ — <strong>อย่าปิด Browser</strong></li>
+                <li>กด <strong>เริ่ม Login ThaID</strong> เพื่อเปิด Browser บน Server</li>
+                <li>สแกน QR ที่แสดงด้านล่างและยืนยันในแอป ThaID</li>
+                <li>เมื่อสถานะเป็น “พร้อมแล้ว” สามารถดาวน์โหลดได้ตลอดจนกว่า session จะหมดอายุ</li>
               </ol>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   className="btn btn-primary"
                   onClick={handleBrowserLogin}
@@ -834,18 +1016,35 @@ export const RepStmImportPage: React.FC = () => {
                   style={{ flexShrink: 0 }}
                 >
                   {eclaimBrowserLoading
-                    ? '⏳ รอ Login... (Browser เปิดอยู่ — Login แล้วรอระบบตรวจจับ)'
-                    : '🌐 เปิด Edge ให้ Login'}
+                    ? '⏳ กำลังรอการยืนยัน ThaID...'
+                    : '🔐 เริ่ม Login ThaID'}
                 </button>
+                {eclaimBrowserAlive && !eclaimBrowserReady && (
+                  <button className="btn btn-secondary" onClick={() => void handleThaIdSelect()}>
+                    เลือก ThaID / แสดง QR
+                  </button>
+                )}
                 {eclaimBrowserReady && !eclaimBrowserLoading && (
                   <>
-                    <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 13 }}>✅ Browser พร้อมแล้ว — กดค้นหาไฟล์ได้เลย</span>
+                    <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 13 }}>✅ ThaID พร้อมแล้ว — ดาวน์โหลดไฟล์ได้เลย</span>
                     <button className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 10px' }} onClick={handleBrowserClose}>
                       ❌ ปิด Browser
                     </button>
                   </>
                 )}
               </div>
+              <div style={{ marginTop: 8, color: eclaimBrowserReady ? '#15803d' : '#92400e', fontWeight: 600 }}>
+                สถานะ: {eclaimBrowserMessage} <span style={{ opacity: 0.65 }}>({eclaimBrowserPhase})</span>
+              </div>
+              {eclaimBrowserAlive && !eclaimBrowserReady && (
+                <div style={{ marginTop: 10, maxWidth: 900 }}>
+                  <img
+                    src={`/api/nhso-eclaim/browser-screenshot?t=${eclaimScreenshotVersion}`}
+                    alt="หน้าจอ Login ThaID จาก eClaim"
+                    style={{ display: 'block', width: '100%', maxHeight: 620, objectFit: 'contain', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8 }}
+                  />
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
@@ -881,7 +1080,7 @@ export const RepStmImportPage: React.FC = () => {
                 )}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <button className="btn btn-primary" onClick={handleEclaimSearch} disabled={eclaimLoading || eclaimDownloading || !eclaimBrowserReady}>
-                    {eclaimLoading ? '⟳ กำลังค้นหา...' : '🔍 ค้นหาไฟล์จาก NHSO eclaim'}
+                    {eclaimLoading ? '⟳ กำลังค้นหา...' : '🔍 ดาวน์โหลดไฟล์ใหม่จาก NHSO eClaim'}
                   </button>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
                     <input
@@ -889,7 +1088,15 @@ export const RepStmImportPage: React.FC = () => {
                       checked={eclaimAutoDownload}
                       onChange={(e) => setEclaimAutoDownload(e.target.checked)}
                     />
-                    Auto Download (ดาวน์โหลดทุกไฟล์ที่พบอัตโนมัติ)
+                    ดาวน์โหลดทุกไฟล์ที่พบอัตโนมัติ
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={eclaimAutoImport}
+                      onChange={(e) => setEclaimAutoImport(e.target.checked)}
+                    />
+                    ตรวจซ้ำและนำเข้า REP/STM/INV ทันที
                   </label>
                   {eclaimFiles.length > 0 && (
                     <button
@@ -897,7 +1104,9 @@ export const RepStmImportPage: React.FC = () => {
                       onClick={handleEclaimDownload}
                       disabled={eclaimDownloading || eclaimSelected.size === 0 || !eclaimBrowserReady}
                     >
-                      {eclaimDownloading ? '⟳ กำลังดาวน์โหลด...' : `⬇️ ดาวน์โหลดและเพิ่มในคิว (${eclaimSelected.size} ไฟล์)`}
+                      {eclaimDownloading
+                        ? (importing ? '⟳ กำลังนำเข้าข้อมูล...' : '⟳ กำลังดาวน์โหลด/ตรวจไฟล์...')
+                        : `⬇️ ดาวน์โหลด${eclaimAutoImport ? 'และนำเข้า' : 'เข้าคิว'} (${eclaimSelected.size} ไฟล์)`}
                     </button>
                   )}
                 </div>
@@ -953,7 +1162,7 @@ export const RepStmImportPage: React.FC = () => {
                           checked={eclaimSelected.size === eclaimFiles.length && eclaimFiles.length > 0}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setEclaimSelected(new Set(eclaimFiles.map((f) => String(f.filename || f.fileName || f.name || ''))));
+                              setEclaimSelected(new Set(eclaimFiles.map((file, index) => getEclaimFileKey(file, index))));
                             } else {
                               setEclaimSelected(new Set());
                             }
@@ -962,17 +1171,20 @@ export const RepStmImportPage: React.FC = () => {
                       </th>
                       <th>ชื่อไฟล์</th>
                       <th>งวด</th>
+                      <th>สิทธิ/แหล่งข้อมูล</th>
                       <th>ข้อมูลเพิ่มเติม</th>
-                      <th>ดาวน์โหลด</th>
+                      <th>สถานะ Pipeline</th>
                     </tr>
                   </thead>
                   <tbody>
                     {eclaimFiles.map((file, idx) => {
-                      const key = String(file.filename || file.fileName || file.name || idx);
+                      const key = getEclaimFileKey(file, idx);
+                      const displayName = String(file.filename || file.fileName || file.name || idx);
                       const checked = eclaimSelected.has(key);
                       const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
                       const href = String(file.downloadHref || '');
                       const hasOnclick = Boolean(file.downloadOnclick);
+                      const pipeline = eclaimPipeline[key];
                       return (
                         <tr key={key} onClick={() => setEclaimSelected((prev) => {
                           const next = new Set(prev);
@@ -986,15 +1198,40 @@ export const RepStmImportPage: React.FC = () => {
                               return next;
                             })} />
                           </td>
-                          <td className="table-cell-nowrap" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={key}>{key}</td>
+                          <td className="table-cell-nowrap" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={displayName}>{displayName}</td>
                           <td className="table-cell-nowrap">{String(file.period || file._period || '-')}</td>
+                          <td className="table-cell-nowrap">{String(file.fund || file.detectedType || '-')}</td>
                           <td className="table-cell-nowrap" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {cells.filter(Boolean).slice(0, 4).join(' | ') || '-'}
                           </td>
                           <td className="table-cell-nowrap">
-                            {href && <span style={{ fontSize: 10, color: '#2563eb' }}>🔗 มี URL</span>}
-                            {!href && hasOnclick && <span style={{ fontSize: 10, color: '#d97706' }}>⚡ onclick</span>}
-                            {!href && !hasOnclick && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>?</span>}
+                            {pipeline ? (
+                              <span
+                                title={pipeline.message}
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: pipeline.status === 'success' ? '#15803d'
+                                    : pipeline.status === 'duplicate' ? '#0369a1'
+                                      : pipeline.status === 'error' ? '#b91c1c'
+                                        : pipeline.status === 'importing' ? '#7c3aed'
+                                          : '#d97706',
+                                }}
+                              >
+                                {pipeline.status === 'success' && '✅ นำเข้าแล้ว'}
+                                {pipeline.status === 'duplicate' && '☑️ มีข้อมูลแล้ว'}
+                                {pipeline.status === 'error' && '❌ ผิดพลาด'}
+                                {pipeline.status === 'importing' && '⟳ กำลังนำเข้า'}
+                                {pipeline.status === 'downloading' && '⬇️ กำลังดาวน์โหลด'}
+                                {pipeline.status === 'downloaded' && '📥 ดาวน์โหลดแล้ว'}
+                              </span>
+                            ) : (
+                              <>
+                                {href && <span style={{ fontSize: 10, color: '#2563eb' }}>🔗 พร้อมดาวน์โหลด</span>}
+                                {!href && hasOnclick && <span style={{ fontSize: 10, color: '#d97706' }}>⚡ พร้อมดาวน์โหลด</span>}
+                                {!href && !hasOnclick && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>?</span>}
+                              </>
+                            )}
                           </td>
                         </tr>
                       );

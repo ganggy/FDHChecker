@@ -3673,6 +3673,16 @@ textarea:focus {
   margin-top: 8px;
 }
 
+.receivable-stale-warning {
+  margin-top: 14px;
+  padding: 13px 16px;
+  border: 1px solid #f59e0b;
+  border-radius: 14px;
+  background: #fffbeb;
+  color: #92400e;
+  font-weight: 700;
+}
+
 .receivable-btn {
   position: relative;
   min-height: 46px;
@@ -3831,6 +3841,9 @@ textarea:focus {
   text-align: left;
   padding: 12px;
   white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .receivable-table td {
@@ -3842,6 +3855,67 @@ textarea:focus {
 
 .receivable-table tr.is-selected td {
   background: rgba(236, 253, 245, 0.72);
+}
+
+.receivable-table tr.row-review td {
+  background: rgba(255, 251, 235, 0.72);
+}
+
+.receivable-table tr.row-review.is-selected td {
+  background: rgba(254, 243, 199, 0.82);
+}
+
+.receivable-result-counts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.receivable-review-badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.receivable-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.receivable-status--ready {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.receivable-status--review {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.receivable-issue-text {
+  display: block;
+  min-width: 170px;
+  max-width: 240px;
+  margin-top: 6px;
+  color: #9a3412;
+  line-height: 1.4;
+}
+
+.receivable-table input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: #0f766e;
+  cursor: pointer;
+}
+
+.receivable-table input[type='checkbox']:disabled {
+  cursor: not-allowed;
 }
 
 .claim-summary {
@@ -4029,7 +4103,7 @@ textarea:focus {
 
 .history-item {
   display: grid;
-  grid-template-columns: 80px 1fr 140px 160px;
+  grid-template-columns: minmax(190px, 0.8fr) 1fr 140px 160px;
   gap: 10px;
   align-items: center;
   padding: 12px;
@@ -4087,6 +4161,14 @@ textarea:focus {
 
   .history-item {
     grid-template-columns: 1fr;
+  }
+
+  .receivable-actions .receivable-btn {
+    flex: 1 1 155px;
+  }
+
+  .receivable-result-counts {
+    justify-content: flex-start;
   }
 }
 

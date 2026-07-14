@@ -4368,6 +4368,7 @@ export const importRepstmRows = async (payload: {
   importedBy?: string;
   notes?: string;
   rows: Record<string, unknown>[];
+  forceReimport?: boolean;
 }) => {
   await ensureRepstmTables();
   const connection = await getRepstmConnection();
@@ -4377,17 +4378,20 @@ export const importRepstmRows = async (payload: {
 
     const uniqueRows = deduplicateRepstmRows(payload.dataType, payload.rows);
     const removedDuplicateRows = payload.rows.length - uniqueRows.length;
-    const batchHash = buildBatchHash(payload.dataType, uniqueRows);
+    const originalBatchHash = buildBatchHash(payload.dataType, uniqueRows);
+    const batchHash = payload.forceReimport
+      ? hashText(`${originalBatchHash}:force:${Date.now()}:${crypto.randomBytes(8).toString('hex')}`)
+      : originalBatchHash;
     const completenessProfile = buildImportCompletenessProfile(payload.dataType, uniqueRows);
     const [duplicateRows] = await connection.query(
       `SELECT id, row_count, source_filename, created_at
        FROM repstm_import_batch
        WHERE data_type = ? AND batch_hash = ?
        LIMIT 1`,
-      [payload.dataType, batchHash]
+      [payload.dataType, originalBatchHash]
     );
 
-    if (Array.isArray(duplicateRows) && duplicateRows.length > 0) {
+    if (!payload.forceReimport && Array.isArray(duplicateRows) && duplicateRows.length > 0) {
       await connection.rollback();
       const existing = duplicateRows[0] as Record<string, unknown>;
       return {
@@ -4399,8 +4403,27 @@ export const importRepstmRows = async (payload: {
       };
     }
 
-    const importDecision = await findRepstmImportDecision(connection, payload.dataType, completenessProfile);
-    if (importDecision.action === 'skip') {
+    const detectedDecision = await findRepstmImportDecision(connection, payload.dataType, completenessProfile);
+    const exactDuplicate = Array.isArray(duplicateRows) && duplicateRows.length > 0
+      ? duplicateRows[0] as Record<string, unknown>
+      : null;
+    let importDecision: RepstmImportDecision = detectedDecision;
+    if (payload.forceReimport) {
+      // Prefer the latest active logical batch. This keeps repeated force-imports as
+      // one replacement chain instead of creating several visible replacements of
+      // the original batch.
+      const activeBatch = detectedDecision.action !== 'import' ? detectedDecision : null;
+      const previousBatchId = Number(activeBatch?.batchId || exactDuplicate?.id || 0);
+      importDecision = previousBatchId > 0
+        ? {
+            action: 'replace',
+            batchId: previousBatchId,
+            rowCount: Number(activeBatch?.rowCount || exactDuplicate?.row_count || 0),
+            message: `นำเข้าซ้ำโดยผู้ใช้และแทน batch เดิม #${previousBatchId}`,
+          }
+        : { action: 'import' };
+    }
+    if (!payload.forceReimport && importDecision.action === 'skip') {
       await connection.rollback();
       return {
         success: true,
@@ -4430,7 +4453,9 @@ export const importRepstmRows = async (payload: {
         payload.sheetName || null,
         payload.importedBy || null,
         uniqueRows.length,
-        payload.notes || null,
+        payload.forceReimport
+          ? `[FORCE REIMPORT]${payload.notes ? ` ${payload.notes}` : ''}`
+          : payload.notes || null,
       ]
     );
 
@@ -4460,6 +4485,7 @@ export const importRepstmRows = async (payload: {
       batchId,
       rowCount: uniqueRows.length,
       removedDuplicateRows,
+      forced: Boolean(payload.forceReimport),
       message: importDecision.action === 'replace'
         ? `${importDecision.message}${removedDuplicateRows > 0 ? ` · ตัดแถวซ้ำ ${removedDuplicateRows} แถว` : ''}`
         : `นำเข้า ${payload.dataType} สำเร็จ${removedDuplicateRows > 0 ? ` · ตัดแถวซ้ำ ${removedDuplicateRows} แถว` : ''}`,
@@ -4863,9 +4889,13 @@ const buildFinanceRightFilterSql = (fieldAlias: string, params: unknown[], finan
 const findReceivableMapping = (pttype?: unknown, hipdataCode?: unknown): ReceivableRightMapping | null => {
   const code = String(pttype || '').trim().toUpperCase();
   const hipdata = String(hipdataCode || '').trim().toUpperCase();
-  return RECEIVABLE_RIGHT_MAPPINGS.find((item) => item.hosxp_code.toUpperCase() === code)
-    || RECEIVABLE_RIGHT_MAPPINGS.find((item) => item.hipdata_code.toUpperCase() === hipdata)
-    || null;
+  const exactMapping = RECEIVABLE_RIGHT_MAPPINGS.find((item) => item.hosxp_code.toUpperCase() === code);
+  if (exactMapping) return exactMapping;
+  // A HOSxP right is the accounting rule key. Falling back from an unknown
+  // HOSxP code to the first row with the same HIPDATA code can silently choose
+  // the wrong finance/debtor account because many local rights share HIPDATA.
+  if (code) return null;
+  return RECEIVABLE_RIGHT_MAPPINGS.find((item) => item.hipdata_code.toUpperCase() === hipdata) || null;
 };
 
 const isWholeVisitReceivableHipdata = (hipdataCode?: unknown) => {
@@ -4947,19 +4977,19 @@ const enrichReceivableRow = (row: Record<string, unknown>) => {
   const isIpd = String(row.patient_type || '').toUpperCase() === 'IPD';
   const account = resolveReceivableAccount(row, mapping, isIpd);
   const totalIncome = toReceivableNumber(row.total_income);
-  const claimableAmount = isIpd
-    ? (isWholeVisitReceivableHipdata(row.hipdata_code) ? totalIncome : toReceivableNumber(row.claimable_amount))
-    : totalIncome;
-  const isWholeVisit = !isIpd || isWholeVisitReceivableHipdata(row.hipdata_code);
+  const isWholeVisit = isWholeVisitReceivableHipdata(row.hipdata_code);
+  const claimableAmount = isWholeVisit
+    ? totalIncome
+    : toReceivableNumber(row.claimable_amount);
   const hipdata = String(row.hipdata_code || '').trim().toUpperCase();
 
   return {
     ...row,
     claimable_amount: claimableAmount,
     item_count: isWholeVisit ? Math.max(toReceivableNumber(row.item_count), 1) : row.item_count,
-    claim_summary: isIpd
-      ? (isWholeVisitReceivableHipdata(row.hipdata_code) ? `เบิกได้ทั้ง Visit (${hipdata})` : row.claim_summary)
-      : `ยอดรวมใบสั่งยา/ใบเสร็จ Visit (${hipdata})`,
+    claim_summary: isWholeVisit
+      ? `เบิกได้ทั้ง Visit (${hipdata})`
+      : row.claim_summary,
     hosxp_right_code: row.pttype || '',
     hosxp_right_name: row.pttype_name || '',
     finance_right_code: mapping?.finance_code || '',
@@ -5390,10 +5420,12 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
       if (Array.isArray(ipdRows)) resultRows.push(...(ipdRows as Record<string, unknown>[]));   
     }
 
-    return resultRows.map(enrichReceivableRow);
+    return resultRows
+      .map(enrichReceivableRow)
+      .filter((row) => toReceivableNumber(row.claimable_amount) > 0);
   } catch (error) {
     console.error('Error reading receivable candidates:', error);
-    return [];
+    throw error;
   } finally {
     connection.release();
   }
@@ -8311,12 +8343,80 @@ export const getValeImportStatus = async (options: {
 };
 
 export const saveReceivableBatch = async (payload: ReceivableBatchPayload) => {
-  const connection = await getRepstmConnection();
+  let connection: Awaited<ReturnType<typeof getRepstmConnection>> | null = null;
+  let transactionStarted = false;
   try {
+    const startDate = String(payload.startDate || '').slice(0, 10);
+    const endDate = String(payload.endDate || '').slice(0, 10);
+    const patientType = String(payload.patientType || 'ALL').toUpperCase();
+    const requestedItems = Array.isArray(payload.items) ? payload.items : [];
+    const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+    const isValidIsoDate = (value: string) => {
+      if (!isoDatePattern.test(value)) return false;
+      const parsed = new Date(`${value}T00:00:00Z`);
+      return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+    };
+
+    if (!isValidIsoDate(startDate) || !isValidIsoDate(endDate) || startDate > endDate) {
+      return { success: false, statusCode: 400, error: 'ช่วงวันที่ไม่ถูกต้อง' };
+    }
+    if (!['ALL', 'OPD', 'IPD'].includes(patientType)) {
+      return { success: false, statusCode: 400, error: 'ประเภทผู้ป่วยไม่ถูกต้อง' };
+    }
+    if (requestedItems.length === 0) {
+      return { success: false, statusCode: 400, error: 'กรุณาเลือกรายการก่อนบันทึก' };
+    }
+    if (requestedItems.length > 10_000) {
+      return { success: false, statusCode: 400, error: 'จำนวนรายการต่อชุดต้องไม่เกิน 10,000 รายการ' };
+    }
+
+    // Recalculate from HOSxP immediately before saving. Client-provided money and
+    // account codes are display data only and must never be trusted for accounting.
+    const currentCandidates = await getReceivableCandidates({
+      startDate,
+      endDate,
+      patientType,
+      patientRight: payload.patientRight,
+      hosxpRight: payload.hosxpRight,
+      financeRight: payload.financeRight,
+    });
+    const candidateKey = (item: Record<string, unknown>) => {
+      const type = String(item.patient_type || item.patientType || '').trim().toUpperCase();
+      const visit = type === 'IPD'
+        ? String(item.an || '').trim()
+        : String(item.vn || '').trim();
+      return `${type}:${visit}`;
+    };
+    const candidateMap = new Map(currentCandidates.map((item) => [candidateKey(item), item]));
+    const seen = new Set<string>();
+    const items: Record<string, unknown>[] = [];
+
+    for (const requestedItem of requestedItems) {
+      const key = candidateKey(requestedItem);
+      if (!key || key.endsWith(':')) {
+        return { success: false, statusCode: 400, error: 'พบรายการที่ไม่มี VN/AN' };
+      }
+      if (seen.has(key)) {
+        return { success: false, statusCode: 400, error: `พบรายการซ้ำ ${key}` };
+      }
+      seen.add(key);
+      const current = candidateMap.get(key);
+      if (!current) {
+        return { success: false, statusCode: 409, error: `ข้อมูล ${key} เปลี่ยนแปลงหรือไม่อยู่ในเงื่อนไขแล้ว กรุณาดึงข้อมูลใหม่` };
+      }
+      const missingAccounts = [current.finance_right_code, current.debtor_code, current.revenue_code]
+        .some((value) => !String(value || '').trim());
+      if (toReceivableNumber(current.claimable_amount) <= 0 || missingAccounts) {
+        return { success: false, statusCode: 422, error: `รายการ ${key} ยังไม่พร้อมตั้งลูกหนี้ กรุณาตรวจสอบสิทธิ์และรหัสบัญชี` };
+      }
+      items.push(current);
+    }
+
+    connection = await getRepstmConnection();
     await ensureRepstmTables();
     await connection.beginTransaction();
+    transactionStarted = true;
     const batchNo = `AR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-    const items = Array.isArray(payload.items) ? payload.items : [];
     const totalReceivable = items.reduce((sum, item) => sum + toReceivableNumber(item.claimable_amount), 0);
 
     const [insertResult] = await connection.query(
@@ -8325,11 +8425,11 @@ export const saveReceivableBatch = async (payload: ReceivableBatchPayload) => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         batchNo,
-        String(payload.patientType || 'ALL').toUpperCase(),
-        String(payload.startDate || '').slice(0, 10),
-        String(payload.endDate || payload.startDate || '').slice(0, 10),
+        patientType,
+        startDate,
+        endDate,
         payload.createdBy || null,
-        payload.notes || null,
+        String(payload.notes || '').trim().slice(0, 2000) || null,
         items.length,
         totalReceivable,
       ]
@@ -8364,13 +8464,14 @@ export const saveReceivableBatch = async (payload: ReceivableBatchPayload) => {
     }
 
     await connection.commit();
+    transactionStarted = false;
     return { success: true, batchId, batchNo, itemCount: items.length, totalReceivable };
   } catch (error) {
-    await connection.rollback();
+    if (connection && transactionStarted) await connection.rollback();
     console.error('Error saving receivable batch:', error);
-    return { success: false, error };
+    return { success: false, statusCode: 500, error: 'ไม่สามารถบันทึกชุดบัญชีลูกหนี้ได้ กรุณาลองใหม่' };
   } finally {
-    connection.release();
+    connection?.release();
   }
 };
 

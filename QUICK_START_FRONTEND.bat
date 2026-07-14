@@ -3,6 +3,7 @@ REM FDH Rect - Start Frontend Development Server
 REM ============================================
 
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 echo.
 echo ╔════════════════════════════════════════════════════════════════╗
@@ -22,15 +23,16 @@ if errorlevel 1 (
 REM Check if in correct directory
 if not exist "package.json" (
     echo ❌ package.json not found
-    echo Please run this file from d:\react\fdh_rect
+    echo Please run this file from the project directory
     pause
     exit /b 1
 )
 
-REM Install dependencies if node_modules doesn't exist
-if not exist "node_modules" (
+REM Install dependencies if required packages are missing
+node -e "for (const p of ['react','vite']) require.resolve(p)" >nul 2>nul
+if errorlevel 1 (
     echo 📦 Installing dependencies...
-    call npm install
+    call npm ci --no-audit --no-fund
     if errorlevel 1 (
         echo ❌ npm install failed
         pause
@@ -41,7 +43,7 @@ if not exist "node_modules" (
 echo.
 echo ✅ Starting Vite Development Server...
 echo.
-echo 📌 Backend: http://localhost:3001 (Already running)
+echo 📌 Backend: http://localhost:3506 (Already running)
 echo 📌 Frontend: http://localhost:3507 (Starting...)
 echo.
 echo Waiting for build to complete (30-60 seconds)...

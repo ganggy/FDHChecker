@@ -9,6 +9,7 @@ Start-Sleep -Seconds 2
 
 # Start the server
 Write-Host "🚀 Starting backend server with increased connection pool (30)..." -ForegroundColor Green
+Set-Location $PSScriptRoot
 npm run server
 
 Write-Host "✅ Backend server started!" -ForegroundColor Green

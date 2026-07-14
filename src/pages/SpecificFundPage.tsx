@@ -2037,15 +2037,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         🏷️ SUBFUNDS TAGS
                                     </th>
                                     <th style={{ width: 90, textAlign: 'center' }}>สถานะ</th>
-                                    <th style={{ width: 140, textAlign: 'center' }}>สถานะการส่งเบิก</th>
-                                    <th style={{ width: 150, textAlign: 'center' }}>สถานะ FDH</th>
-                                    <th style={{ width: 110, textAlign: 'center' }}>FDH Status</th>
-                                    <th style={{ width: 110, textAlign: 'center' }}>Fdh_Stm_Period</th>
-                                    <th style={{ width: 100, textAlign: 'right' }}>Fdh_Act_Amt</th>
-                                    <th style={{ width: 120, textAlign: 'center' }}>Fdh_Settle_At</th>
-                                    <th style={{ width: 130, textAlign: 'center' }}>ไฟล์ FDH</th>
-                                    <th style={{ width: 110, textAlign: 'center' }}>REP</th>
-                                    <th style={{ width: 130, textAlign: 'center' }}>STM/INV</th>
+                                    <th style={{ width: 120, textAlign: 'center' }}>สถานะส่งเบิก</th>
+                                    <th style={{ width: 130, textAlign: 'center' }}>สถานะ FDH</th>
+                                    <th style={{ width: 100, textAlign: 'center' }}>FDH Status</th>
+                                    <th style={{ width: 110, textAlign: 'center' }}>ไฟล์ FDH</th>
+                                    <th style={{ width: 90, textAlign: 'center' }}>REP</th>
+                                    <th style={{ width: 110, textAlign: 'center' }}>STM/INV</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -2546,17 +2543,6 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     {item.fdh_claim_status_message
                                                         ? <span className="badge badge-info" style={{ fontSize: 10 }}>{item.fdh_claim_status_message}</span>
                                                         : <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>-</span>}
-                                                </td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                                                    <span style={{ fontSize: 11 }}>{item.fdh_stm_period || '-'}</span>
-                                                </td>
-                                                <td style={{ textAlign: 'right', padding: '6px 8px' }}>
-                                                    {item.fdh_act_amt != null && item.fdh_act_amt !== ''
-                                                        ? <strong style={{ color: 'var(--teal)', fontSize: 11 }}>{Number(item.fdh_act_amt).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
-                                                        : <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>-</span>}
-                                                </td>
-                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                                                    <span style={{ fontSize: 11 }}>{item.fdh_settle_at || '-'}</span>
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <span className={`badge ${item.has_fdh_import ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: 10 }} title={item.fdh_import_claim_code || ''}>

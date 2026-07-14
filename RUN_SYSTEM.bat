@@ -17,10 +17,10 @@ echo.
 echo ========================================
 echo Starting Backend Server...
 echo ========================================
-cd /d d:\react\fdh_rect\server
+cd /d "%~dp0"
 
 REM Start backend in a new window
-start "FDH BACKEND - PORT 3506" cmd /k npm run dev
+start "FDH BACKEND - PORT 3506" cmd /k npm run server
 
 REM Wait a few seconds for backend to start
 timeout /t 3 /nobreak
@@ -29,7 +29,7 @@ echo.
 echo ========================================
 echo Starting Frontend Server...
 echo ========================================
-cd /d d:\react\fdh_rect
+cd /d "%~dp0"
 
 REM Start frontend in a new window
 start "FDH FRONTEND - PORT 3507" cmd /k npm run dev

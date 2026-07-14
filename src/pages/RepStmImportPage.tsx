@@ -86,9 +86,9 @@ const detectTypeFromSheetName = (sheetName: string): ImportType | null => {
 
 const detectTypeFromFileName = (fileName: string): ImportType | null => {
   const name = fileName.trim().toLowerCase();
-  if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice/.test(name)) return 'INV';
+  if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice|^eclaim[_-]|(^|[_\s.-])(ofc|csmbs)(?=[_\s.-]|$)/.test(name)) return 'INV';
   if (/(^|[_\s.-])stm(?=[_\s.-]|$)|statement/.test(name)) return 'STM';
-  if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata|^eclaim[_-]|(^|[_\s.-])(ofc|csmbs)(?=[_\s.-]|$)/.test(name)) return 'REP';
+  if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata/.test(name)) return 'REP';
   return null;
 };
 
@@ -101,6 +101,8 @@ const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
 ].join('|');
 
 const detectImportType = (fileName: string, headers: string[], rows: Record<string, unknown>[]): ImportType | null => {
+  const explicitFileType = detectTypeFromFileName(fileName);
+  if (explicitFileType === 'STM' || explicitFileType === 'INV') return explicitFileType;
   const normalizedName = fileName.toLowerCase();
   const normalizedHeaders = headers.map((header) => normalizeHeaderCell(header).toLowerCase());
   const firstRowKeys = Object.keys(rows[0] || {}).map((key) => normalizeHeaderCell(key).toLowerCase());
@@ -204,10 +206,17 @@ const isLikelyDataRecord = (row: Record<string, unknown>, hintType?: ImportType 
 
   if (hintType === 'INV') {
     // INV rows: invoice number or period, plus a few filled cells
-    const hasInvoice = !!(normalized['invoiceno'] || normalized['invoice'] || normalized['เลขที่ใบแจ้งหนี้']);
+    const hasInvoice = !!(normalized['invoiceno'] || normalized['invoice_no'] || normalized['invoice no'] || normalized['invoice'] || normalized['เลขที่ใบแจ้งหนี้']);
     const hasPeriod = Object.values(normalized).some((v) => /^\d{6}$/.test(v));
     const filledCount = Object.values(normalized).filter(Boolean).length;
-    return (hasInvoice || hasPeriod) && filledCount >= 3;
+    const patientSignals = [normalized['tran_id'], normalized['hn'], normalized['an'], normalized['pid'], normalized['ชื่อ - สกุล'], normalized['วันเข้ารักษา']]
+      .filter(Boolean).length;
+    const hasNetAmount = Object.entries(normalized).some(([field, value]) =>
+      /ชดเชยสุทธิ|ยอดรับสุทธิ|ยอดเงิน|paid|amount/i.test(field)
+      && Number(value.replace(/,/g, '')) !== 0
+      && Number.isFinite(Number(value.replace(/,/g, '')))
+    );
+    return (hasInvoice || hasPeriod || patientSignals >= 3 || hasNetAmount) && filledCount >= 3;
   }
 
   // REP - original logic
@@ -288,7 +297,8 @@ const readWorkbook = async (file: File): Promise<ParsedSheet[]> => {
 
   const results: ParsedSheet[] = [];
   for (const sheetName of ordered) {
-    const hintType = detectTypeFromSheetName(sheetName) || fileHint;
+    // ชนิดจากไฟล์มีความน่าเชื่อถือกว่าชื่อชีต Detail ซึ่งพบได้ทั้ง REP และ INV
+    const hintType = fileHint || detectTypeFromSheetName(sheetName);
     const parsed = parseWorksheetRows(workbook.Sheets[sheetName], hintType);
     if (parsed.rows.length > 0) {
       results.push({ sheetName, rows: parsed.rows, headers: parsed.headers, hintType });
@@ -299,7 +309,7 @@ const readWorkbook = async (file: File): Promise<ParsedSheet[]> => {
     const compact = sheetName.toLowerCase().replace(/\s+/g, ' ').trim();
     if (hintType === 'REP') return /^(detail|individual|repdata|repeclaim)$/.test(compact) || compact.includes('รายละเอียด');
     if (hintType === 'STM') return compact.includes('รายละเอียด') || compact === 'พึงรับ' || compact === 'statement';
-    if (hintType === 'INV') return compact.includes('invoice') || compact.includes('รายละเอียด') || compact === 'inv';
+    if (hintType === 'INV') return /^(detail|individual|eclaim|inv|invoice)$/.test(compact) || compact.includes('รายละเอียด');
     return false;
   });
   if (primaryResults.length > 0) return primaryResults;
@@ -339,7 +349,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimOpen, setEclaimOpen] = useState(false);
   const [eclaimStartDate, setEclaimStartDate] = useState(firstOfMonth);
   const [eclaimEndDate, setEclaimEndDate] = useState(todayStr);
-  const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
+  const [eclaimFileType, setEclaimFileType] = useState<'STM' | 'INV' | 'ALL'>('ALL');
   const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
   const [eclaimBrowserReady, setEclaimBrowserReady] = useState(false);
   const [eclaimBrowserAlive, setEclaimBrowserAlive] = useState(false);
@@ -729,7 +739,9 @@ export const RepStmImportPage: React.FC = () => {
     for (const queueItem of initialQueue) {
       queueItem.fileHash = hashById.get(queueItem.id);
       const preflight = preflightByName.get(queueItem.file.name.toLowerCase());
-      if (preflight && ['exact', 'name_match', 'content_match'].includes(preflight.status)) {
+      const expectedType = detectTypeFromFileName(queueItem.file.name);
+      const preflightTypeMatches = !expectedType || !preflight?.dataType || preflight.dataType === expectedType;
+      if (preflight && preflightTypeMatches && ['exact', 'name_match', 'content_match'].includes(preflight.status)) {
         const reason = preflight.status === 'name_match'
           ? 'พบชื่อไฟล์นี้ในประวัติเดิม'
           : preflight.status === 'content_match'
@@ -1067,7 +1079,7 @@ export const RepStmImportPage: React.FC = () => {
       {/* NHSO eclaim direct download */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header" style={{ cursor: 'pointer' }} onClick={() => setEclaimOpen((v) => !v)}>
-          <div className="card-title">🌐 ดาวน์โหลด REP/STM/INV จาก NHSO eclaim โดยตรง</div>
+          <div className="card-title">🌐 ดาวน์โหลด STM/INV จาก NHSO eclaim โดยตรง</div>
           <span style={{ fontSize: 18 }}>{eclaimOpen ? '▲' : '▼'}</span>
         </div>
         {eclaimOpen && (
@@ -1075,7 +1087,7 @@ export const RepStmImportPage: React.FC = () => {
             <div className="alert alert-info" style={{ marginBottom: 16 }}>
               <span>ℹ️</span>
               <span>
-                ดาวน์โหลดไฟล์ REP/STM/INV จาก <strong>eclaim.nhso.go.th</strong> โดยตรง (คล้าย Auto4Rep.EXE)
+                ดาวน์โหลดไฟล์ STM/INV จาก <strong>eclaim.nhso.go.th</strong> โดยตรง (คล้าย Auto4Rep.EXE)
                 แล้วเพิ่มเข้าคิวนำเข้าอัตโนมัติ
               </span>
             </div>
@@ -1140,7 +1152,6 @@ export const RepStmImportPage: React.FC = () => {
                 <label className="form-label">ประเภทไฟล์</label>
                 <select className="form-control" value={eclaimFileType} onChange={(e) => setEclaimFileType(e.target.value as typeof eclaimFileType)}>
                   <option value="ALL">ทุกประเภท</option>
-                  <option value="REP">REP</option>
                   <option value="STM">STM</option>
                   <option value="INV">INV</option>
                 </select>
@@ -1176,7 +1187,7 @@ export const RepStmImportPage: React.FC = () => {
                       checked={eclaimAutoImport}
                       onChange={(e) => setEclaimAutoImport(e.target.checked)}
                     />
-                    ตรวจซ้ำและนำเข้า REP/STM/INV ทันที
+                    ตรวจซ้ำและนำเข้า STM/INV ทันที
                   </label>
                   {eclaimFiles.length > 0 && (
                     <button

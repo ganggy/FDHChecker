@@ -4545,6 +4545,18 @@ export const importRepstmRows = async (payload: {
       });
     }
 
+    // ไฟล์ eclaim ใน workflow นี้คือ INV หากเคยถูกเวอร์ชันเดิมจัดเป็น REP
+    // ให้ลบ batch ที่จำแนกผิดหลังสร้าง INV สำเร็จ เพื่อไม่ให้นับยอดซ้ำสองประเภท
+    if (payload.dataType === 'INV' && /^eclaim[_-]/i.test(payload.sourceFilename)) {
+      await connection.query(
+        `DELETE FROM repstm_import_batch
+         WHERE data_type = 'REP'
+           AND source_filename = ?
+           AND id <> ?`,
+        [payload.sourceFilename, batchId]
+      );
+    }
+
     await connection.commit();
     return {
       success: true,

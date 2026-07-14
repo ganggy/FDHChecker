@@ -4182,7 +4182,9 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
           if (scraped.length > 0) break;
         } catch { /* try next */ }
       }
-      if (fileType === 'ALL' || fileType === 'REP' || fileType === 'INV') periodFiles.push(...scraped);
+      if (fileType === 'ALL' || fileType === 'INV') {
+        periodFiles.push(...scraped.map((file) => ({ ...file, detectedType: 'INV' })));
+      }
       scraped = [];
 
       // --- Strategy 2: UC + ข้าราชการ Statement pages ---
@@ -4222,10 +4224,10 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         }
       }
 
-      // --- Strategy 3: REP ทุกสิทธิที่พบใน eClaim ---
+      // --- Strategy 3: INV ทุกสิทธิที่พบในหน้า validation ของ eClaim ---
       // หน้าตรวจสอบแยกสิทธิใช้ maininscl ต่างกัน จึงต้องเปิดครบทุกหน้า
       // ห้ามหยุดที่หน้าที่พบไฟล์หน้าแรก มิฉะนั้นไฟล์ของสิทธิอื่นจะตกหล่น
-      if (fileType === 'ALL' || fileType === 'REP') {
+      if (fileType === 'ALL' || fileType === 'INV') {
         const insuranceCodes = ['ucs', 'ofc', 'lgo', 'bkk'];
         const repSources = [
           ...insuranceCodes.map((fund) => ({
@@ -4286,7 +4288,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             const sourceFiles = await scrapeFilesFromPage(period);
             periodFiles.push(...sourceFiles.map((file) => ({
               ...file,
-              detectedType: 'REP',
+              detectedType: 'INV',
               fund: source.fund,
               sourcePage: file.sourcePage || source.url,
             })));

@@ -4274,16 +4274,22 @@ const importStatementDataRows = async (
     const subinscl = pickRowValueAdvanced(row, ['subinscl', 'สิทธิย่อย']);
     const errorcode = pickRowValueAdvanced(row, ['errorcode', 'error code']);
     const verifycode = pickRowValueAdvanced(row, ['verifycode', 'verify code']);
-    const amount = toAmountValue(pickRowValueAdvanced(row, [
+    const parsedAmount = toAmountValue(pickRowValueAdvanced(row, [
       'amount', 'total', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount', 'พึงรับ', 'พึงรับทั้งหมด',
       'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ', 'จ่ายชดเชย', 'ยอดชดเชยหลังหักเงินเดือน'
     ]));
-    const paidAmount = toAmountValue(pickRowValueAdvanced(row, [
-      'paid', 'paid_amount', 'ยอดชำระ', 'พึงรับ', 'พึงรับทั้งหมด', 'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ'
+    const parsedPaidAmount = toAmountValue(pickRowValueAdvanced(row, [
+      'paid', 'paid_amount', 'ยอดชำระ', 'ยอดรับสุทธิ', 'ยอดเงินสุทธิ', 'net_paid', 'net_amount',
+      'พึงรับ', 'พึงรับทั้งหมด', 'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ'
     ]));
     const invoiceAmount = toAmountValue(pickRowValueAdvanced(row, [
       'invoice_amount', 'inv_amount', 'ยอดเรียกเก็บ', 'เรียกเก็บ', 'เรียกเก็บ (1)', 'เบิกได้'
     ]));
+    // INV เป็นหลักฐานการรับเงินจริง: ยอดเงินที่พบถือเป็นยอดรับสุทธิและปิดกระบวนการได้
+    const paidAmount = payload.dataType === 'INV'
+      ? (parsedPaidAmount ?? parsedAmount ?? invoiceAmount)
+      : parsedPaidAmount;
+    const amount = payload.dataType === 'INV' ? paidAmount : parsedAmount;
 
     const department = resolveDepartment(patientType, rawAn);
     const visitLookupKey = [department, hn.trim(), serviceDateTime || '', normalizeCitizenId(pid), rawAn.trim(), rawVn.trim()].join('|');
@@ -5648,6 +5654,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   summary: {
     total_visits: number;
     matched: number;
+    completed_inv: number;
     mismatched: number;
     pending_rep: number;
     pending_stm: number;
@@ -5686,7 +5693,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
 
   if (totalCount === 0) {
     const emptySummary = {
-      total_visits: 0, matched: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
+      total_visits: 0, matched: 0, completed_inv: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
       no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_stm_paid: 0, total_inv: 0,
       rep_issue: 0, stm_zero: 0, overpaid: 0, underpaid: 0,
     };
@@ -5705,7 +5712,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
 
   if (baseRows.length === 0) {
     const emptySummary = {
-      total_visits: 0, matched: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
+      total_visits: 0, matched: 0, completed_inv: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
       no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_stm_paid: 0, total_inv: 0,
       rep_issue: 0, stm_zero: 0, overpaid: 0, underpaid: 0,
     };
@@ -5812,6 +5819,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
            s.data_type,
            SUM(COALESCE(s.amount, 0)) AS total_amount,
            SUM(COALESCE(s.paid_amount, 0)) AS total_paid_amount,
+           SUM(CASE WHEN s.data_type = 'INV' THEN COALESCE(s.paid_amount, s.amount, s.invoice_amount, 0) ELSE 0 END) AS total_net_received,
            SUM(COALESCE(s.invoice_amount, 0)) AS total_invoice_amount,
            GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(s.statement_no, '')), '') ORDER BY s.statement_no SEPARATOR ', ') AS statement_no,
            GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(s.errorcode, '')), '') SEPARATOR ', ') AS errorcode,
@@ -5855,7 +5863,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
         } else if (dtype === 'INV') {
           const existing = invMap.get(vc);
           const next = {
-            inv_amount: toNumNull(rec.total_amount),
+            inv_amount: toNumNull(rec.total_net_received),
             inv_invoice_amount: toNumNull(rec.total_invoice_amount),
             statement_no: String(rec.statement_no || ''),
             imported_at: formatTrackingDateTime(rec.imported_at),
@@ -5903,6 +5911,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     const hasRep = repAmt != null;
     const hasStm = stmAmt != null;
     const hasInv = invAmt != null;
+    const invCompleted = invAmt != null && invAmt > 0;
 
     let compareStatus: string;
     if (!hasRep && !hasStm && !hasInv) {
@@ -5922,15 +5931,13 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       if (repOk && stmOk && invOk) compareStatus = 'ตรงกัน';
       else compareStatus = 'ยอดต่าง';
     }
-    // Override: if claimable > 0 but no REP
-    if (claimable > 0 && !hasRep) {
-      compareStatus = 'รอ REP';
-    }
-    if (claimable > 0 && hasRep && !hasStm && !hasInv) {
-      compareStatus = 'รอ STM/INV';
-    }
-    if (hasStm && stmPaidAmt != null && Math.abs(stmPaidAmt) < 0.01) {
-      compareStatus = 'ยอดต่าง';
+    if (invCompleted) {
+      compareStatus = 'เสร็จสิ้น (INV)';
+    } else {
+      // ยังไม่ถือว่าเสร็จจนกว่าจะพบยอดรับสุทธิ INV มากกว่า 0
+      if (claimable > 0 && !hasRep) compareStatus = 'รอ REP';
+      if (claimable > 0 && hasRep && !hasStm && !hasInv) compareStatus = 'รอ STM/INV';
+      if (hasStm && stmPaidAmt != null && Math.abs(stmPaidAmt) < 0.01) compareStatus = 'ยอดต่าง';
     }
 
     const issueParts: string[] = [];
@@ -5996,6 +6003,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   const summary = {
     total_visits: filtered.length,
     matched: filtered.filter(r => r.compare_status === 'ตรงกัน').length,
+    completed_inv: filtered.filter(r => r.compare_status === 'เสร็จสิ้น (INV)').length,
     mismatched: filtered.filter(r => r.compare_status === 'ยอดต่าง').length,
     pending_rep: filtered.filter(r => r.compare_status === 'รอ REP').length,
     pending_stm: filtered.filter(r => r.compare_status === 'รอ STM/INV').length,
@@ -7308,15 +7316,21 @@ export const getUuc1RepStmTracking = async (params: Uuc1TrackingQueryParams): Pr
     const inv = lookupCode ? invMap.get(lookupCode) || null : null;
     const repAmount = rep?.rep_amount ?? null;
     const stmPaidAmount = stm?.paid_amount ?? null;
+    const invNetReceived = inv?.paid_amount ?? inv?.amount ?? null;
     const diffRep = repAmount == null ? null : Number((repAmount - sentAmount).toFixed(2));
-    const diffStm = stmPaidAmount == null ? null : Number((stmPaidAmount - sentAmount).toFixed(2));
+    const effectiveNetReceived = invNetReceived ?? stmPaidAmount;
+    const diffStm = effectiveNetReceived == null ? null : Number((effectiveNetReceived - sentAmount).toFixed(2));
     const hasRepIssue = Boolean(rep?.rep_errorcode || rep?.rep_verifycode);
 
     let followupStatusKey = 'paid';
     let followupStatus = 'ได้รับ STM';
     let followupNote = 'มี REP และ STM แล้ว';
 
-    if (!rep) {
+    if (invNetReceived != null && invNetReceived > 0) {
+      followupStatusKey = 'paid';
+      followupStatus = 'เสร็จสิ้น (INV)';
+      followupNote = `ได้รับยอดสุทธิจาก INV ${invNetReceived.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`;
+    } else if (!rep) {
       followupStatusKey = 'pending_rep';
       followupStatus = 'รอ REP';
       followupNote = 'ยังไม่พบข้อมูล REP จากไฟล์ที่นำเข้า';
@@ -7364,12 +7378,12 @@ export const getUuc1RepStmTracking = async (params: Uuc1TrackingQueryParams): Pr
       stm_imported_at: stm?.imported_at || null,
       stm_statement_no: stm?.statement_no || null,
       stm_filename: stm?.filename || null,
-      inv_amount: inv?.amount ?? null,
+      inv_amount: invNetReceived,
       inv_imported_at: inv?.imported_at || null,
       diff_rep: diffRep,
       diff_stm: diffStm,
       days_to_rep: trackingDayDiff(serviceDate, rep?.rep_imported_at || null),
-      days_to_stm: trackingDayDiff(rep?.rep_imported_at || serviceDate, stm?.imported_at || null),
+      days_to_stm: trackingDayDiff(rep?.rep_imported_at || serviceDate, inv?.imported_at || stm?.imported_at || null),
       followup_status: followupStatus,
       followup_status_key: followupStatusKey,
       followup_note: followupNote,
@@ -7400,15 +7414,15 @@ export const getUuc1RepStmTracking = async (params: Uuc1TrackingQueryParams): Pr
     rep_received: filtered.filter((row) => Boolean(row.rep_no)).length,
     pending_rep: filtered.filter((row) => row.followup_status_key === 'pending_rep').length,
     pending_stm: filtered.filter((row) => row.followup_status_key === 'pending_stm').length,
-    stm_received: filtered.filter((row) => row.stm_imported_at != null).length,
+    stm_received: filtered.filter((row) => row.stm_imported_at != null || row.inv_imported_at != null).length,
     stm_zero: filtered.filter((row) => row.followup_status_key === 'stm_zero').length,
     rep_issue: filtered.filter((row) => row.followup_status_key === 'rep_issue').length,
     mismatch: filtered.filter((row) => row.followup_status_key === 'mismatch').length,
     total_sent: Math.round(filtered.reduce((sum, row) => sum + row.sent_amount, 0) * 100) / 100,
     total_rep: Math.round(filtered.reduce((sum, row) => sum + (row.rep_amount ?? 0), 0) * 100) / 100,
-    total_stm_paid: Math.round(filtered.reduce((sum, row) => sum + (row.stm_paid_amount ?? 0), 0) * 100) / 100,
+    total_stm_paid: Math.round(filtered.reduce((sum, row) => sum + (row.inv_amount ?? row.stm_paid_amount ?? 0), 0) * 100) / 100,
     last_rep_import_at: latestTrackingDateTime(...filtered.map((row) => row.rep_imported_at)),
-    last_stm_import_at: latestTrackingDateTime(...filtered.map((row) => row.stm_imported_at)),
+    last_stm_import_at: latestTrackingDateTime(...filtered.map((row) => row.inv_imported_at || row.stm_imported_at)),
   };
 
   const total = filtered.length;
@@ -10653,6 +10667,7 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
     statement_no: string;
     stm_amount: number | null;
     stm_paid_amount: number | null;
+    inv_net_amount: number | null;
     imported_at: string;
     errorcode: string;
     verifycode: string;
@@ -10750,6 +10765,7 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
          GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.statement_no), '') ORDER BY s.statement_no SEPARATOR ', ') AS statement_no,
          SUM(CASE WHEN s.data_type = 'STM' THEN COALESCE(s.amount, 0) ELSE 0 END) AS stm_amount,
          SUM(CASE WHEN s.data_type = 'STM' THEN COALESCE(s.paid_amount, 0) ELSE 0 END) AS stm_paid_amount,
+         SUM(CASE WHEN s.data_type = 'INV' THEN COALESCE(s.paid_amount, s.amount, s.invoice_amount, 0) ELSE 0 END) AS inv_net_amount,
          MAX(b.created_at) AS imported_at,
          GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.errorcode), '') SEPARATOR ', ') AS errorcode,
          GROUP_CONCAT(DISTINCT NULLIF(TRIM(s.verifycode), '') SEPARATOR ', ') AS verifycode
@@ -10768,12 +10784,14 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
       const hasInv = Number(importedRow.has_inv || 0) > 0;
       const nextStmAmount = hasStm ? Number(importedRow.stm_amount || 0) : null;
       const nextPaidAmount = hasStm ? Number(importedRow.stm_paid_amount || 0) : null;
+      const nextInvAmount = hasInv ? Number(importedRow.inv_net_amount || 0) : null;
       statementImportMap.set(visitCode, {
         has_stm: Boolean(current?.has_stm || hasStm),
         has_inv: Boolean(current?.has_inv || hasInv),
         statement_no: [current?.statement_no, normalizeImportCellValue(importedRow.statement_no)].filter(Boolean).join(', '),
         stm_amount: current?.stm_amount == null ? nextStmAmount : current.stm_amount + (nextStmAmount || 0),
         stm_paid_amount: current?.stm_paid_amount == null ? nextPaidAmount : current.stm_paid_amount + (nextPaidAmount || 0),
+        inv_net_amount: current?.inv_net_amount == null ? nextInvAmount : current.inv_net_amount + (nextInvAmount || 0),
         imported_at: latestTrackingDateTime(current?.imported_at || null, formatTrackingDateTime(importedRow.imported_at)) || '',
         errorcode: [current?.errorcode, normalizeImportCellValue(importedRow.errorcode)].filter(Boolean).join(', '),
         verifycode: [current?.verifycode, normalizeImportCellValue(importedRow.verifycode)].filter(Boolean).join(', '),
@@ -10823,6 +10841,7 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
       stm_statement_no: statementImport?.statement_no || '',
       stm_amount: statementImport?.stm_amount ?? null,
       stm_paid_amount: statementImport?.stm_paid_amount ?? null,
+      inv_net_amount: statementImport?.inv_net_amount ?? null,
       stm_imported_at: statementImport?.imported_at || '',
       stm_errorcode: statementImport?.errorcode || '',
       stm_verifycode: statementImport?.verifycode || '',

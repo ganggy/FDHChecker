@@ -35,7 +35,7 @@ const detailFields: Record<DataType, Array<[string, string]>> = {
     ['errorcode', 'Error/C'], ['verifycode', 'Verify/Deny'], ['service_date', 'วันที่บริการ'], ['source_filename', 'ไฟล์ต้นทาง'],
   ],
   INV: [
-    ['invoice_no', 'Invoice No.'], ['inv_no', 'INV No.'], ['amount', 'ยอดเงิน'], ['service_date', 'วันที่บริการ'],
+    ['invoice_no', 'Invoice No.'], ['inv_no', 'INV No.'], ['paid_amount', 'ยอดรับสุทธิ'], ['amount', 'ยอดเงิน INV'], ['service_date', 'วันที่บริการ'],
     ['source_filename', 'ไฟล์ต้นทาง'],
   ],
 };

@@ -254,7 +254,7 @@ export const PpfsVisitMatchPage = () => {
       {summary && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
           <SummaryCard label="Visit PPFS" value={formatCount(summary.total_visits)} />
-          <SummaryCard label="ครบ/ตรงกัน" value={formatCount(summary.matched)} tone="#15803d" />
+          <SummaryCard label="ครบ/ตรงกัน" value={formatCount(summary.matched + (summary.completed_inv || 0))} tone="#15803d" />
           <SummaryCard label="ยอดต่าง" value={formatCount(summary.mismatched)} tone="#b91c1c" />
           <SummaryCard label="รอ REP" value={formatCount(summary.pending_rep)} tone="#b45309" />
           <SummaryCard label="รอ STM/INV" value={formatCount(summary.pending_stm)} tone="#7c3aed" />

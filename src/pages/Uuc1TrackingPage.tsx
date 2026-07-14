@@ -281,7 +281,7 @@ export const Uuc1TrackingPage = () => {
         <StatCard label="ได้รับ REP" value={(summary?.rep_received || 0).toLocaleString('th-TH')} sub={`ยอด REP ${formatMoney(summary?.total_rep || 0)} บาท`} tone="green" />
         <StatCard label="รอ REP" value={(summary?.pending_rep || 0).toLocaleString('th-TH')} tone="amber" />
         <StatCard label="รอ STM" value={(summary?.pending_stm || 0).toLocaleString('th-TH')} tone="purple" />
-        <StatCard label="STM = 0" value={(summary?.stm_zero || 0).toLocaleString('th-TH')} sub={`ยอดรับ STM ${formatMoney(summary?.total_stm_paid || 0)} บาท`} tone="red" />
+        <StatCard label="STM = 0" value={(summary?.stm_zero || 0).toLocaleString('th-TH')} sub={`ยอดรับสุทธิ STM/INV ${formatMoney(summary?.total_stm_paid || 0)} บาท`} tone="red" />
         <StatCard label="ติด C/Deny / ยอดต่าง" value={`${(summary?.rep_issue || 0).toLocaleString('th-TH')} / ${(summary?.mismatch || 0).toLocaleString('th-TH')}`} tone="amber" />
       </section>
 
@@ -314,9 +314,9 @@ export const Uuc1TrackingPage = () => {
                 <th>เลข REP</th>
                 <th>นำเข้า REP</th>
                 <th className="text-right">ยอด REP</th>
-                <th>นำเข้า STM</th>
+                <th>นำเข้า STM/INV</th>
                 <th className="text-right">ยอด STM</th>
-                <th className="text-right">รับ STM</th>
+                <th className="text-right">รับสุทธิ</th>
                 <th className="text-right">ต่าง REP</th>
                 <th className="text-right">ต่าง STM</th>
                 <th>วันรอ</th>
@@ -345,11 +345,11 @@ export const Uuc1TrackingPage = () => {
                   </td>
                   <td className="uuc1-money">{moneyOrDash(row.rep_amount)}</td>
                   <td>
-                    <div>{formatDateTime(row.stm_imported_at)}</div>
+                    <div>{formatDateTime(row.inv_imported_at || row.stm_imported_at)}</div>
                     {row.stm_statement_no && <small>{row.stm_statement_no}</small>}
                   </td>
                   <td className="uuc1-money">{moneyOrDash(row.stm_amount)}</td>
-                  <td className="uuc1-money">{moneyOrDash(row.stm_paid_amount)}</td>
+                  <td className="uuc1-money">{moneyOrDash(row.inv_amount ?? row.stm_paid_amount)}</td>
                   <td className={diffClass(row.diff_rep)}>{moneyOrDash(row.diff_rep)}</td>
                   <td className={diffClass(row.diff_stm)}>{moneyOrDash(row.diff_stm)}</td>
                   <td className="uuc1-wait-cell">

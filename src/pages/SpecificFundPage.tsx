@@ -374,7 +374,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (hasRepDenyError(item)) return `REP D: ${verifyCode}`;
         return 'REP';
     };
-    const getStatementImportLabel = (item: any) => item?.has_stm_import
+    const getStatementImportLabel = (item: any) => Number(item?.inv_net_amount ?? 0) > 0
+        ? 'เสร็จสิ้น (INV)'
+        : item?.has_stm_import
         ? (Number(item?.stm_paid_amount ?? 0) === 0 ? 'STM จ่าย 0' : 'พบ STM')
         : item?.has_inv_import ? 'พบ INV' : 'ยังไม่พบ STM/INV';
     const getAncLab1Requirements = (item: any, hasAncDiag: boolean) => {
@@ -2564,7 +2566,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <button
                                                         type="button"
-                                                        className={`badge repstm-visit-trigger ${item.has_stm_import ? (Number(item.stm_paid_amount ?? 0) === 0 ? 'badge-danger' : 'badge-success') : item.has_inv_import ? 'badge-info' : 'badge-warning'}`}
+                                                        className={`badge repstm-visit-trigger ${Number(item.inv_net_amount ?? 0) > 0 ? 'badge-success' : item.has_stm_import ? (Number(item.stm_paid_amount ?? 0) === 0 ? 'badge-danger' : 'badge-success') : item.has_inv_import ? 'badge-info' : 'badge-warning'}`}
                                                         style={{ fontSize: 10 }}
                                                         title={(item.has_stm_import || item.has_inv_import) ? 'คลิกดู STM/INV ของ visit นี้' : 'ยังไม่มีข้อมูล STM/INV'}
                                                         disabled={!item.has_stm_import && !item.has_inv_import}
@@ -2574,6 +2576,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     </button>
                                                     {item.has_stm_import && item.stm_paid_amount != null && (
                                                         <div style={{ fontSize: 10, marginTop: 3 }}>{Number(item.stm_paid_amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
+                                                    )}
+                                                    {Number(item.inv_net_amount ?? 0) > 0 && (
+                                                        <div style={{ fontSize: 10, marginTop: 3, color: '#047857', fontWeight: 700 }}>สุทธิ {Number(item.inv_net_amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
                                                     )}
                                                 </td></tr>
                                         );

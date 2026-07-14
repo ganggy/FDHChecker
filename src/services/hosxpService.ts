@@ -824,6 +824,7 @@ export interface ReconciliationRow {
 export interface ReconciliationSummary {
   total_visits: number;
   matched: number;
+  completed_inv: number;
   mismatched: number;
   pending_rep: number;
   pending_stm: number;

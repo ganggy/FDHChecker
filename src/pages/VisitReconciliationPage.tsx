@@ -31,6 +31,7 @@ const formatMoneyNull = (value: unknown) => {
 
 const COMPARE_STATUS_OPTIONS = [
   { value: '', label: 'ทั้งหมด' },
+  { value: 'เสร็จสิ้น (INV)', label: 'เสร็จสิ้น (มีเงิน INV)' },
   { value: 'ตรงกัน', label: 'ตรงกัน' },
   { value: 'ยอดต่าง', label: 'ยอดต่าง' },
   { value: 'รอ REP', label: 'รอ REP' },
@@ -39,6 +40,7 @@ const COMPARE_STATUS_OPTIONS = [
 ];
 
 const STATUS_COLOR: Record<string, string> = {
+  'เสร็จสิ้น (INV)': '#047857',
   'ตรงกัน': '#15803d',
   'ยอดต่าง': '#b91c1c',
   'รอ REP': '#b45309',
@@ -47,6 +49,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 const STATUS_BG: Record<string, string> = {
+  'เสร็จสิ้น (INV)': '#d1fae5',
   'ตรงกัน': '#dcfce7',
   'ยอดต่าง': '#fee2e2',
   'รอ REP': '#fef3c7',
@@ -185,7 +188,7 @@ export const VisitReconciliationPage = () => {
       'เลขที่ STM': r.stm_statement_no || '',
       'STM Imported': r.stm_imported_at || '',
       'STM Error': [r.stm_errorcode, r.stm_verifycode].filter(Boolean).join(' / '),
-      'ยอด INV': r.inv_amount ?? '',
+      'ยอดรับสุทธิ INV': r.inv_amount ?? '',
       'เบิก INV': r.inv_invoice_amount ?? '',
       'ส่วนต่าง REP': r.diff_rep ?? '',
       'ส่วนต่าง STM': r.diff_stm ?? '',
@@ -354,6 +357,7 @@ export const VisitReconciliationPage = () => {
       {summary && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
           <SummaryCard label="visit ทั้งหมด" value={summary.total_visits.toLocaleString('th-TH')} />
+          <SummaryCard label="เสร็จสิ้นจาก INV" value={(summary.completed_inv || 0).toLocaleString('th-TH')} color="#047857" />
           <SummaryCard label="ตรงกัน" value={summary.matched.toLocaleString('th-TH')} color="#15803d" />
           <SummaryCard label="ยอดต่าง" value={summary.mismatched.toLocaleString('th-TH')} color="#b91c1c" />
           <SummaryCard label="รอ REP" value={summary.pending_rep.toLocaleString('th-TH')} color="#b45309" />
@@ -416,7 +420,7 @@ export const VisitReconciliationPage = () => {
                   {th('ยอด REP', 'rep_amount', 'right')}
                   {th('ยอด STM', 'stm_amount', 'right')}
                   {th('รับ STM', 'stm_paid_amount', 'right')}
-                  {th('ยอด INV', 'inv_amount', 'right')}
+                  {th('รับสุทธิ INV', 'inv_amount', 'right')}
                   {th('ส่วนต่าง REP', 'diff_rep', 'right')}
                   {th('ต่างรับ STM', 'diff_stm_paid', 'right')}
                   {th('เลขที่ REP', 'rep_no')}

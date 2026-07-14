@@ -40,14 +40,76 @@ const detailFields: Record<DataType, Array<[string, string]>> = {
   ],
 };
 
-const normalizeRow = (row: Record<string, unknown>) => {
+const normalizeLookupKey = (value: string) => value
+  .normalize('NFKC')
+  .toLowerCase()
+  .replace(/\s+/g, '')
+  .replace(/[._\-\\/()[\]{}:%]/g, '');
+
+const pickRawValue = (raw: Record<string, unknown>, candidates: string[]) => {
+  const entries = Object.entries(raw).map(([key, value]) => ({
+    normalizedKey: normalizeLookupKey(key),
+    value,
+  }));
+
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeLookupKey(candidate);
+    const exact = entries.find((entry) => entry.normalizedKey === normalizedCandidate);
+    if (exact && exact.value != null && String(exact.value).trim() !== '') return exact.value;
+  }
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeLookupKey(candidate);
+    const fuzzy = entries.find((entry) => entry.normalizedKey.includes(normalizedCandidate));
+    if (fuzzy && fuzzy.value != null && String(fuzzy.value).trim() !== '') return fuzzy.value;
+  }
+  return null;
+};
+
+const parseAmount = (value: unknown) => {
+  if (value == null || String(value).trim() === '' || String(value).trim() === '-') return null;
+  const parsed = Number(String(value).replace(/,/g, '').trim());
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeRow = (row: Record<string, unknown>, type: DataType) => {
   let raw: Record<string, unknown> = {};
   if (typeof row.raw_data === 'string') {
     try { raw = JSON.parse(row.raw_data) as Record<string, unknown>; } catch { raw = {}; }
   } else if (row.raw_data && typeof row.raw_data === 'object') {
     raw = row.raw_data as Record<string, unknown>;
   }
-  return { ...raw, ...row };
+  const normalized = { ...raw, ...row };
+  const hasValue = (key: string) => normalized[key] != null && String(normalized[key]).trim() !== '';
+  const setFallback = (key: string, candidates: string[], numeric = false) => {
+    if (hasValue(key)) return;
+    const rawValue = pickRawValue(raw, candidates);
+    const fallback = numeric ? parseAmount(rawValue) : rawValue;
+    if (fallback != null && String(fallback).trim() !== '') normalized[key] = fallback;
+  };
+
+  if (type === 'STM') {
+    const paymentCandidates = [
+      'ยอดชดเชยทั้งสิ้น', 'ยอดชดเชยสุทธิ', 'จ่ายชดเชยหลังหัก พรบ.และเงินเดือน',
+      'ยอดชดเชยหลังหักเงินเดือน', 'พึงรับทั้งหมด', 'พึงรับ', 'จ่ายชดเชย', 'ยอดเงิน', 'amount',
+    ];
+    setFallback('amount', paymentCandidates, true);
+    setFallback('paid_amount', paymentCandidates, true);
+    setFallback('service_date', ['วันเข้ารักษา', 'วันที่รับบริการ', 'service_date', 'date_serv']);
+  }
+
+  if (type === 'INV') {
+    const paymentCandidates = [
+      'ชดเชยสุทธิ', 'ยอดรับสุทธิ', 'ยอดเงินสุทธิ', 'ยอดชดเชยหลังหักเงินเดือน',
+      'ยอดชดเชยทั้งสิ้น', 'จ่ายชดเชย', 'พึงรับทั้งหมด', 'พึงรับ', 'amount',
+    ];
+    setFallback('amount', paymentCandidates, true);
+    setFallback('paid_amount', paymentCandidates, true);
+    setFallback('invoice_amount', ['ยอดเรียกเก็บ', 'เรียกเก็บ (1)', 'เรียกเก็บ', 'invoice_amount'], true);
+    setFallback('service_date', ['วันเข้ารักษา', 'วันที่รับบริการ', 'service_date', 'date_serv']);
+    setFallback('invoice_no', ['INVOICE NO', 'INVOICE', 'เลขที่ใบแจ้งหนี้']);
+  }
+
+  return normalized;
 };
 
 const splitCodes = (value: unknown) => String(value ?? '')
@@ -117,7 +179,7 @@ export const RepStmVisitModal = ({ visit, onClose }: Props) => {
             {data[type].length === 0 ? (
               <div className="repstm-visit-empty">ไม่พบข้อมูล {type} ของ visit นี้</div>
             ) : data[type].map((sourceRow, index) => {
-              const row = normalizeRow(sourceRow);
+              const row = normalizeRow(sourceRow, type);
               const errorCodes = type === 'REP' ? splitCodes(row.errorcode) : [];
               const verifyCodes = type === 'REP' ? splitCodes(row.verifycode) : [];
               return (

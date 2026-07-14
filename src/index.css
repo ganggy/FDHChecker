@@ -29,8 +29,8 @@
   --surface-2: #f1f5f9;
 
   --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
 
   --border: #e2e8f0;
   --border-light: #f1f5f9;
@@ -140,7 +140,7 @@
 .fs-filter-card label {
   display: grid;
   gap: 8px;
-  color: #94a3b8;
+  color: #64748b;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -320,12 +320,12 @@
 }
 
 .fs-muted {
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .fs-empty {
   padding: 28px;
-  color: #94a3b8;
+  color: #64748b;
   text-align: center;
 }
 
@@ -399,13 +399,7 @@ body {
 }
 
 .app-main::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 22%),
-    radial-gradient(circle at top, rgba(255,255,255,0.5), transparent 40%);
-  pointer-events: none;
+  content: none;
 }
 
 .sidebar-brand {
@@ -1038,7 +1032,7 @@ p {
 .fund-status-kicker {
   font-size: 8px;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: #64748b;
   font-weight: 700;
   letter-spacing: 0.05em;
   margin-top: 1px;
@@ -4092,7 +4086,7 @@ textarea:focus {
 
 .empty-cell {
   text-align: center;
-  color: #94a3b8;
+  color: #64748b;
   padding: 42px !important;
 }
 
@@ -4112,7 +4106,20 @@ textarea:focus {
 }
 
 .muted-text {
-  color: #94a3b8;
+  color: #64748b;
+}
+
+/* Keep supporting text readable and visually consistent across every page. */
+.app-main :where(.form-label, .page-subtitle, .text-muted, .muted, .muted-text, .fs-muted),
+.modal-content :where(.form-label, .page-subtitle, .text-muted, .muted, .muted-text, .fs-muted) {
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
 }
 
 .receivable-print-section {

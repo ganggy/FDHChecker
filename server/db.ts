@@ -3561,6 +3561,109 @@ const parseImportRawData = (value: unknown): Record<string, unknown> | null => {
   return null;
 };
 
+type LegacyStatementAmountRepairSummary = {
+  scanned: number;
+  updated: number;
+};
+
+let legacyStatementAmountRepairComplete = false;
+let legacyStatementAmountRepairPromise: Promise<LegacyStatementAmountRepairSummary> | null = null;
+
+const runLegacyStatementAmountRepair = async (): Promise<LegacyStatementAmountRepairSummary> => {
+  const connection = await getRepstmConnection();
+  const summary: LegacyStatementAmountRepairSummary = { scanned: 0, updated: 0 };
+  const batchSize = 1000;
+  let lastId = 0;
+
+  try {
+    while (true) {
+      const [rows] = await connection.query(
+        `SELECT id, data_type, amount, paid_amount, invoice_amount, raw_data
+         FROM repstm_statement_data
+         WHERE id > ?
+           AND data_type IN ('STM', 'INV')
+           AND (
+             amount IS NULL
+             OR paid_amount IS NULL
+             OR (data_type = 'INV' AND invoice_amount IS NULL)
+           )
+         ORDER BY id
+         LIMIT ?`,
+        [lastId, batchSize]
+      );
+      const batch = (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
+      if (batch.length === 0) break;
+
+      summary.scanned += batch.length;
+      lastId = Number(batch[batch.length - 1].id || lastId);
+      const repairs: Array<{ id: number; amount: number | null; paidAmount: number | null; invoiceAmount: number | null }> = [];
+
+      for (const row of batch) {
+        const raw = parseImportRawData(row.raw_data);
+        if (!raw) continue;
+        const dataType = String(row.data_type || '').toUpperCase();
+        const paymentCandidates = dataType === 'INV'
+          ? [
+              'ชดเชยสุทธิ', 'ยอดรับสุทธิ', 'ยอดเงินสุทธิ', 'ยอดชดเชยหลังหักเงินเดือน',
+              'ยอดชดเชยทั้งสิ้น', 'จ่ายชดเชย', 'พึงรับทั้งหมด', 'พึงรับ', 'amount',
+            ]
+          : [
+              'ยอดชดเชยทั้งสิ้น', 'ยอดชดเชยสุทธิ', 'จ่ายชดเชยหลังหัก พรบ.และเงินเดือน',
+              'ยอดชดเชยหลังหักเงินเดือน', 'พึงรับทั้งหมด', 'พึงรับ', 'จ่ายชดเชย', 'ยอดเงิน', 'amount',
+            ];
+        const paymentAmount = toAmountValue(pickRowValueAdvanced(raw, paymentCandidates));
+        const invoiceAmount = dataType === 'INV'
+          ? toAmountValue(pickRowValueAdvanced(raw, ['ยอดเรียกเก็บ', 'เรียกเก็บ (1)', 'เรียกเก็บ', 'invoice_amount', 'inv_amount']))
+          : null;
+        const nextAmount = row.amount == null ? paymentAmount : null;
+        const nextPaidAmount = row.paid_amount == null ? paymentAmount : null;
+        const nextInvoiceAmount = dataType === 'INV' && row.invoice_amount == null ? invoiceAmount : null;
+        if (nextAmount == null && nextPaidAmount == null && nextInvoiceAmount == null) continue;
+        repairs.push({
+          id: Number(row.id),
+          amount: nextAmount,
+          paidAmount: nextPaidAmount,
+          invoiceAmount: nextInvoiceAmount,
+        });
+      }
+
+      if (repairs.length > 0) {
+        const derivedRows = repairs.map(() =>
+          'SELECT CAST(? AS UNSIGNED) AS id, CAST(? AS DECIMAL(15,2)) AS amount, CAST(? AS DECIMAL(15,2)) AS paid_amount, CAST(? AS DECIMAL(15,2)) AS invoice_amount'
+        ).join(' UNION ALL ');
+        const params = repairs.flatMap((repair) => [repair.id, repair.amount, repair.paidAmount, repair.invoiceAmount]);
+        const [result] = await connection.query(
+          `UPDATE repstm_statement_data s
+           JOIN (${derivedRows}) repair ON repair.id = s.id
+           SET s.amount = COALESCE(s.amount, repair.amount),
+               s.paid_amount = COALESCE(s.paid_amount, repair.paid_amount),
+               s.invoice_amount = COALESCE(s.invoice_amount, repair.invoice_amount)`,
+          params
+        );
+        summary.updated += Number((result as mysql.ResultSetHeader).affectedRows || 0);
+      }
+    }
+    return summary;
+  } finally {
+    connection.release();
+  }
+};
+
+export const repairLegacyStatementAmounts = async (): Promise<LegacyStatementAmountRepairSummary> => {
+  if (legacyStatementAmountRepairComplete) return { scanned: 0, updated: 0 };
+  if (!legacyStatementAmountRepairPromise) {
+    legacyStatementAmountRepairPromise = runLegacyStatementAmountRepair()
+      .then((summary) => {
+        legacyStatementAmountRepairComplete = true;
+        return summary;
+      })
+      .finally(() => {
+        legacyStatementAmountRepairPromise = null;
+      });
+  }
+  return legacyStatementAmountRepairPromise;
+};
+
 const loadBatchCompletenessProfile = async (
   connection: mysql.PoolConnection,
   batchId: number,
@@ -5538,6 +5641,7 @@ export const getStatementVisitRows = async (
   visit: { vn?: string; an?: string; hn?: string } = {}
 ): Promise<Record<string, unknown>[]> => {
   await ensureRepstmTables();
+  await repairLegacyStatementAmounts();
   const connection = await getRepstmConnection();
   try {
     const visitConditions: string[] = [];
@@ -5682,6 +5786,8 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     underpaid: number;
   };
 }> => {
+  await ensureRepstmTables();
+  await repairLegacyStatementAmounts();
   const today = new Date().toISOString().slice(0, 10);
   const startDate = String(params.startDate || today).slice(0, 10);
   const endDate = String(params.endDate || startDate).slice(0, 10);
@@ -5759,8 +5865,6 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   const invMap = new Map<string, { inv_amount: number | null; inv_invoice_amount: number | null; statement_no: string; imported_at: string | null }>();
 
   try {
-    await ensureRepstmTables();
-
     // --- Step 2: Attach REP data ---
     const repClauses: string[] = [];
     const repParams: unknown[] = [];
@@ -5920,7 +6024,8 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     const diffStmPaid = stmPaidAmt != null ? stmPaidAmt - claimable : null;
     const diffInv = invAmt != null ? invAmt - claimable : null;
 
-    const hasRep = repAmt != null;
+    // แถวประกอบ เช่น Data Drug อาจมี TRAN_ID แต่ไม่มี REP No. จึงยังไม่ถือว่าได้รับ REP หลัก
+    const hasRep = Boolean(rep?.rep_no);
     const hasStm = stmAmt != null;
     const hasInv = invAmt != null;
     const invCompleted = invAmt != null && invAmt > 0;

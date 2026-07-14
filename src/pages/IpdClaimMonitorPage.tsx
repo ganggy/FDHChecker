@@ -114,10 +114,13 @@ const formatDateTime = (value?: string | null) => {
 
 const resolveStage = (row: IpdOverviewRow & ReconciliationRow): Pick<MonitorRow, 'stageKey' | 'stageLabel' | 'stageNote'> => {
   const hasRep = Boolean(row.has_rep || row.rep_no);
+  const invAmount = Number(row.inv_amount || 0);
+  const invCompleted = Boolean(row.has_inv && Number.isFinite(invAmount) && invAmount > 0);
   const repIssue = meaningfulCode(row.rep_errorcode || row.errorcode) || meaningfulCode(row.rep_verifycode);
   const stmIssue = meaningfulCode(row.stm_errorcode) || meaningfulCode(row.stm_verifycode)
     || (row.has_stm === true && row.stm_paid_amount != null && Math.abs(Number(row.stm_paid_amount)) < 0.01);
 
+  if (invCompleted) return { stageKey: 'complete', stageLabel: 'ครบกระบวนการ (INV)', stageNote: `ได้รับยอดสุทธิ INV ${money(invAmount)} บาท` };
   if (!row.fdh_found) return { stageKey: 'pending_fdh', stageLabel: 'รอ FDH', stageNote: row.fdh_followup_note || 'ยังไม่พบรายการใน FDH' };
   if (!hasRep) return { stageKey: 'pending_rep', stageLabel: 'รอ REP', stageNote: 'พบ FDH แล้ว แต่ยังไม่พบ REP' };
   if (repIssue) return { stageKey: 'rep_issue', stageLabel: 'REP ติด C/Deny', stageNote: [row.rep_errorcode || row.errorcode, row.rep_verifycode].filter(meaningfulCode).join(' / ') };

@@ -397,7 +397,7 @@ export const DEFAULT_MENU_PAGES = [
   'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'reconciliation',
-  'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking'
+  'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking', 'ucOutsideCup'
 ];
 
 const DEFAULT_STAFF_MENU_PAGES = [
@@ -518,6 +518,7 @@ const REPSTM_IMPORT_BATCH_TABLE_SQL = `
     non_empty_cell_count INT NOT NULL DEFAULT 0,
     replaces_batch_id BIGINT NULL,
     sheet_name VARCHAR(255) NULL,
+    is_subfile TINYINT(1) NOT NULL DEFAULT 0,
     imported_by VARCHAR(128) NULL,
     row_count INT NOT NULL DEFAULT 0,
     notes TEXT NULL,
@@ -1162,6 +1163,7 @@ const ensureRepstmTablesUncached = async () => {
       ['column_count', 'ADD COLUMN column_count INT NOT NULL DEFAULT 0 AFTER distinct_record_count'],
       ['non_empty_cell_count', 'ADD COLUMN non_empty_cell_count INT NOT NULL DEFAULT 0 AFTER column_count'],
       ['replaces_batch_id', 'ADD COLUMN replaces_batch_id BIGINT NULL AFTER non_empty_cell_count'],
+      ['is_subfile', 'ADD COLUMN is_subfile TINYINT(1) NOT NULL DEFAULT 0 AFTER sheet_name'],
     ];
     for (const [columnName, alterSql] of repstmBatchColumns) {
       const [columnRows] = await connection.query(
@@ -4535,6 +4537,7 @@ export const importRepstmRows = async (payload: {
   fileSize?: number;
   fileHash?: string;
   sheetName?: string;
+  isSubfile?: boolean;
   importedBy?: string;
   notes?: string;
   rows: Record<string, unknown>[];
@@ -4548,7 +4551,10 @@ export const importRepstmRows = async (payload: {
 
     const uniqueRows = deduplicateRepstmRows(payload.dataType, payload.rows);
     const removedDuplicateRows = payload.rows.length - uniqueRows.length;
-    const originalBatchHash = buildBatchHash(payload.dataType, uniqueRows);
+    const contentBatchHash = buildBatchHash(payload.dataType, uniqueRows);
+    const originalBatchHash = payload.isSubfile
+      ? hashText(`${payload.dataType}:SUBFILE:${payload.sheetName || ''}:${contentBatchHash}`)
+      : contentBatchHash;
     const batchHash = payload.forceReimport
       ? hashText(`${originalBatchHash}:force:${Date.now()}:${crypto.randomBytes(8).toString('hex')}`)
       : originalBatchHash;
@@ -4573,7 +4579,9 @@ export const importRepstmRows = async (payload: {
       };
     }
 
-    const detectedDecision = await findRepstmImportDecision(connection, payload.dataType, completenessProfile);
+    const detectedDecision: RepstmImportDecision = payload.isSubfile
+      ? { action: 'import' }
+      : await findRepstmImportDecision(connection, payload.dataType, completenessProfile);
     const exactDuplicate = Array.isArray(duplicateRows) && duplicateRows.length > 0
       ? duplicateRows[0] as Record<string, unknown>
       : null;
@@ -4608,8 +4616,8 @@ export const importRepstmRows = async (payload: {
     const [batchResult] = await connection.query(
       `INSERT INTO repstm_import_batch
        (data_type, source_filename, file_size, file_hash, batch_hash, logical_hash, completeness_score, distinct_record_count,
-        column_count, non_empty_cell_count, replaces_batch_id, sheet_name, imported_by, row_count, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        column_count, non_empty_cell_count, replaces_batch_id, sheet_name, is_subfile, imported_by, row_count, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.dataType,
         payload.sourceFilename,
@@ -4623,6 +4631,7 @@ export const importRepstmRows = async (payload: {
         completenessProfile.nonEmptyCellCount,
         importDecision.action === 'replace' ? importDecision.batchId : null,
         payload.sheetName || null,
+        payload.isSubfile ? 1 : 0,
         payload.importedBy || null,
         uniqueRows.length,
         payload.forceReimport
@@ -4635,12 +4644,12 @@ export const importRepstmRows = async (payload: {
 
     await insertRepstmImportRows(connection, batchId, payload.dataType, uniqueRows);
 
-    if (payload.dataType === 'REP') {
+    if (!payload.isSubfile && payload.dataType === 'REP') {
       await importRepDataRows(connection, hosConnection, batchId, {
         sourceFilename: payload.sourceFilename,
         rows: uniqueRows,
       });
-    } else if (payload.dataType === 'STM' || payload.dataType === 'INV') {
+    } else if (!payload.isSubfile && (payload.dataType === 'STM' || payload.dataType === 'INV')) {
       await importStatementDataRows(connection, hosConnection, batchId, {
         dataType: payload.dataType,
         sourceFilename: payload.sourceFilename,
@@ -4648,12 +4657,12 @@ export const importRepstmRows = async (payload: {
       });
     }
 
-    // ไฟล์ eclaim ใน workflow นี้คือ INV หากเคยถูกเวอร์ชันเดิมจัดเป็น REP
-    // ให้ลบ batch ที่จำแนกผิดหลังสร้าง INV สำเร็จ เพื่อไม่ให้นับยอดซ้ำสองประเภท
-    if (payload.dataType === 'INV' && /^eclaim[_-]/i.test(payload.sourceFilename)) {
+    // ไฟล์ eclaim_* จาก BMS/NHSO เป็น REP ระดับ visit หากเวอร์ชันเดิมเคยจัดเป็น INV
+    // ให้ลบ batch ที่จำแนกผิดหลังสร้าง REP สำเร็จ เพื่อไม่ให้นับยอดซ้ำสองประเภท
+    if (!payload.isSubfile && payload.dataType === 'REP' && /^eclaim[_-]/i.test(payload.sourceFilename)) {
       await connection.query(
         `DELETE FROM repstm_import_batch
-         WHERE data_type = 'REP'
+         WHERE data_type = 'INV'
            AND source_filename = ?
            AND id <> ?`,
         [payload.sourceFilename, batchId]
@@ -4672,7 +4681,7 @@ export const importRepstmRows = async (payload: {
       forced: Boolean(payload.forceReimport),
       message: importDecision.action === 'replace'
         ? `${importDecision.message}${removedDuplicateRows > 0 ? ` · ตัดแถวซ้ำ ${removedDuplicateRows} แถว` : ''}`
-        : `นำเข้า ${payload.dataType} สำเร็จ${removedDuplicateRows > 0 ? ` · ตัดแถวซ้ำ ${removedDuplicateRows} แถว` : ''}`,
+        : `นำเข้า ${payload.dataType}${payload.isSubfile ? ` Sub file (${payload.sheetName || 'ข้อมูลประกอบ'})` : ''} สำเร็จ${removedDuplicateRows > 0 ? ` · ตัดแถวซ้ำ ${removedDuplicateRows} แถว` : ''}`,
     };
   } catch (error) {
     await connection.rollback();
@@ -5161,7 +5170,7 @@ const enrichReceivableRow = (row: Record<string, unknown>) => {
   const isIpd = String(row.patient_type || '').toUpperCase() === 'IPD';
   const account = resolveReceivableAccount(row, mapping, isIpd);
   const totalIncome = toReceivableNumber(row.total_income);
-  const isWholeVisit = isWholeVisitReceivableHipdata(row.hipdata_code);
+  const isWholeVisit = isWholeVisitReceivableHipdata(row.hipdata_code) || mapping?.finance_code === '07';
   const claimableAmount = isWholeVisit
     ? totalIncome
     : toReceivableNumber(row.claimable_amount);
@@ -5505,7 +5514,9 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
              o.pttype,
              ptt.name AS pttype_name,
              ptt.hipdata_code,
+             COALESCE(o.hospmain, '') AS hospmain,
              DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+             DATE_FORMAT(CONCAT(o.vstdate, ' ', COALESCE(o.vsttime, '00:00:00')), '%Y-%m-%d %H:%i:%s') AS service_datetime,
              COALESCE(v.income, 0) AS total_income,
              CASE
                WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(v.income, 0)
@@ -5570,7 +5581,9 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            i.pttype,
            ptt.name AS pttype_name,
            ptt.hipdata_code,
+           COALESCE(ov.hospmain, '') AS hospmain,
            DATE_FORMAT(COALESCE(i.dchdate, i.regdate), '%Y-%m-%d') AS service_date,
+           DATE_FORMAT(CONCAT(COALESCE(i.regdate, i.dchdate), ' ', COALESCE(i.regtime, '00:00:00')), '%Y-%m-%d %H:%i:%s') AS service_datetime,
            COALESCE(a.income, 0) AS total_income,
            CASE
              WHEN UPPER(COALESCE(ptt.hipdata_code, '')) IN ('OFC', 'LGO') THEN COALESCE(a.income, 0)
@@ -5585,6 +5598,7 @@ export const getReceivableCandidates = async (params: ReceivableQueryParams): Pr
            NULL AS receipt_amount,
            NULL AS receipt_date
          FROM ipt i
+         LEFT JOIN ovst ov ON ov.vn = i.vn
          LEFT JOIN patient pt ON pt.hn = i.hn
          LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
          LEFT JOIN an_stat a ON a.an = i.an
@@ -5714,6 +5728,8 @@ export interface ReconciliationQueryParams {
   financeRight?: string;
   paymentSource?: string;
   compareStatus?: string;
+  hmain?: string;
+  search?: string;
   page?: number;
   pageSize?: number;
 }
@@ -5729,6 +5745,8 @@ export interface ReconciliationRow {
   pttype: string;
   pttype_name: string;
   hipdata_code: string;
+  hospmain: string;
+  service_datetime: string | null;
   account_group?: string;
   payment_source?: string;
   claim_summary?: string;
@@ -5754,6 +5772,9 @@ export interface ReconciliationRow {
   inv_statement_no: string | null;
   inv_imported_at: string | null;
   has_inv: boolean;
+  fdh_status: string | null;
+  fdh_claim_code: string | null;
+  fdh_sent_at: string | null;
   diff_rep: number | null;
   diff_stm: number | null;
   diff_stm_paid: number | null;
@@ -5767,6 +5788,15 @@ export interface ReconciliationRow {
 export const getVisitRepStmComparison = async (params: ReconciliationQueryParams): Promise<{
   data: ReconciliationRow[];
   total: number;
+  group_summary: Array<{
+    hmain: string;
+    visits: number;
+    claimable_amount: number;
+    rep_amount: number;
+    stm_paid_amount: number;
+    inv_amount: number;
+    outstanding_amount: number;
+  }>;
   summary: {
     total_visits: number;
     matched: number;
@@ -5815,7 +5845,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_stm_paid: 0, total_inv: 0,
       rep_issue: 0, stm_zero: 0, overpaid: 0, underpaid: 0,
     };
-    return { data: [], total: 0, summary: emptySummary };
+    return { data: [], total: 0, summary: emptySummary, group_summary: [] };
   }
 
   const allBaseRows = await getReceivableCandidates({
@@ -5834,7 +5864,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_stm_paid: 0, total_inv: 0,
       rep_issue: 0, stm_zero: 0, overpaid: 0, underpaid: 0,
     };
-    return { data: [], total: 0, summary: emptySummary };
+    return { data: [], total: 0, summary: emptySummary, group_summary: [] };
   }
 
   const toNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
@@ -5863,6 +5893,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     verifycode: string;
   }>();
   const invMap = new Map<string, { inv_amount: number | null; inv_invoice_amount: number | null; statement_no: string; imported_at: string | null }>();
+  const fdhMap = new Map<string, { status: string | null; claim_code: string | null; sent_at: string | null }>();
 
   try {
     // --- Step 2: Attach REP data ---
@@ -5906,6 +5937,58 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
         if (an) repMap.set(`AN:${an}`, entry);
         entry.tran_id.split(',').map((item) => item.trim()).filter(Boolean).forEach((tranId) => {
           repTranToVisit.set(tranId, vn || an || '');
+        });
+      });
+    }
+
+    // --- Attach the latest FDH status for the same visit only ---
+    const fdhClauses: string[] = [];
+    const fdhParams: unknown[] = [];
+    if (vns.length > 0) { fdhClauses.push(`d.vn IN (${vns.map(() => '?').join(',')})`); fdhParams.push(...vns); }
+    if (ans.length > 0) { fdhClauses.push(`d.an IN (${ans.map(() => '?').join(',')})`); fdhParams.push(...ans); }
+    if (fdhClauses.length > 0) {
+      const [fdhRows] = await repConnection.query(
+        `SELECT d.vn, d.an, d.claim_status, d.claim_code, d.sent_at
+         FROM fdh_claim_detail_row d
+         JOIN (
+           SELECT COALESCE(NULLIF(an, ''), NULLIF(vn, '')) AS visit_code, MAX(id) AS latest_id
+           FROM fdh_claim_detail_row
+           WHERE ${fdhClauses.map((clause) => clause.replaceAll('d.', '')).join(' OR ')}
+           GROUP BY COALESCE(NULLIF(an, ''), NULLIF(vn, ''))
+         ) latest ON latest.latest_id = d.id`,
+        fdhParams
+      );
+      (Array.isArray(fdhRows) ? fdhRows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        const entry = {
+          status: String(rec.claim_status || '').trim() || null,
+          claim_code: String(rec.claim_code || '').trim() || null,
+          sent_at: formatTrackingDateTime(rec.sent_at),
+        };
+        const vn = String(rec.vn || '').trim();
+        const an = String(rec.an || '').trim();
+        if (vn) fdhMap.set(`VN:${vn}`, entry);
+        if (an) fdhMap.set(`AN:${an}`, entry);
+      });
+    }
+
+    if (vns.length > 0) {
+      const [apiRows] = await repConnection.query(
+        `SELECT s.vn, s.fdh_reservation_status, s.fdh_claim_status_message,
+                s.transaction_uid, s.fdh_reservation_datetime, s.updated_at
+         FROM fdh_claim_status s
+         JOIN (SELECT vn, MAX(id) AS latest_id FROM fdh_claim_status
+               WHERE vn IN (${vns.map(() => '?').join(',')}) GROUP BY vn) latest ON latest.latest_id = s.id`,
+        vns
+      );
+      (Array.isArray(apiRows) ? apiRows : []).forEach((row) => {
+        const rec = row as Record<string, unknown>;
+        const vn = String(rec.vn || '').trim();
+        if (!vn || fdhMap.has(`VN:${vn}`)) return;
+        fdhMap.set(`VN:${vn}`, {
+          status: String(rec.fdh_reservation_status || rec.fdh_claim_status_message || '').trim() || null,
+          claim_code: String(rec.transaction_uid || '').trim() || null,
+          sent_at: formatTrackingDateTime(rec.fdh_reservation_datetime || rec.updated_at),
         });
       });
     }
@@ -6013,6 +6096,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     const rep = (vn && repMap.get(`VN:${vn}`)) || (an && repMap.get(`AN:${an}`)) || null;
     const stm = (vn && stmMap.get(vn)) || (an && stmMap.get(an)) || null;
     const inv = (vn && invMap.get(vn)) || (an && invMap.get(an)) || null;
+    const fdh = (vn && fdhMap.get(`VN:${vn}`)) || (an && fdhMap.get(`AN:${an}`)) || null;
 
     const repAmt = rep ? rep.rep_amount : null;
     const stmAmt = stm ? stm.stm_amount : null;
@@ -6075,6 +6159,8 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       pttype: String(base.pttype || ''),
       pttype_name: String(base.pttype_name || ''),
       hipdata_code: String(base.hipdata_code || ''),
+      hospmain: String(base.hospmain || ''),
+      service_datetime: base.service_datetime ? String(base.service_datetime) : null,
       account_group: String(base.account_group || ''),
       payment_source: String(base.payment_source || ''),
       claim_summary: String(base.claim_summary || ''),
@@ -6100,6 +6186,9 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       inv_statement_no: inv ? inv.statement_no || null : null,
       inv_imported_at: inv ? inv.imported_at : null,
       has_inv: hasInv,
+      fdh_status: fdh?.status || null,
+      fdh_claim_code: fdh?.claim_code || null,
+      fdh_sent_at: fdh?.sent_at || null,
       diff_rep: diffRep,
       diff_stm: diffStm,
       diff_stm_paid: diffStmPaid,
@@ -6112,9 +6201,17 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   });
 
   // --- Step 5: Filter by compareStatus if requested ---
-  const filtered = compareStatusFilter
+  const statusFiltered = compareStatusFilter
     ? assembled.filter(r => r.compare_status === compareStatusFilter)
     : assembled;
+  const hmainFilter = String(params.hmain || '').trim();
+  const searchFilter = String(params.search || '').trim().toLowerCase();
+  const filtered = statusFiltered.filter((row) => {
+    if (hmainFilter && row.hospmain !== hmainFilter) return false;
+    if (!searchFilter) return true;
+    return [row.vn, row.an, row.hn, row.cid, row.patient_name, row.hospmain, row.rep_no, row.stm_statement_no, row.inv_statement_no]
+      .some((value) => String(value || '').toLowerCase().includes(searchFilter));
+  });
 
   // --- Step 6: Summary ---
   const summary = {
@@ -6137,10 +6234,75 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   };
 
   const total = filtered.length;
+  const groupMap = new Map<string, {
+    hmain: string; visits: number; claimable_amount: number; rep_amount: number;
+    stm_paid_amount: number; inv_amount: number; outstanding_amount: number;
+  }>();
+  filtered.forEach((row) => {
+    const hmain = row.hospmain || 'ไม่ระบุ HMAIN';
+    const group = groupMap.get(hmain) || {
+      hmain, visits: 0, claimable_amount: 0, rep_amount: 0,
+      stm_paid_amount: 0, inv_amount: 0, outstanding_amount: 0,
+    };
+    group.visits += 1;
+    group.claimable_amount += row.claimable_amount;
+    group.rep_amount += row.rep_amount || 0;
+    group.stm_paid_amount += row.stm_paid_amount || 0;
+    group.inv_amount += row.inv_amount || 0;
+    group.outstanding_amount += Math.max(row.claimable_amount - (row.stm_paid_amount || row.inv_amount || 0), 0);
+    groupMap.set(hmain, group);
+  });
+  const group_summary = Array.from(groupMap.values())
+    .map((group) => ({
+      ...group,
+      claimable_amount: Math.round(group.claimable_amount * 100) / 100,
+      rep_amount: Math.round(group.rep_amount * 100) / 100,
+      stm_paid_amount: Math.round(group.stm_paid_amount * 100) / 100,
+      inv_amount: Math.round(group.inv_amount * 100) / 100,
+      outstanding_amount: Math.round(group.outstanding_amount * 100) / 100,
+    }))
+    .sort((a, b) => b.claimable_amount - a.claimable_amount);
   const offset = (page - 1) * pageSize;
   const data = filtered.slice(offset, offset + pageSize);
 
-  return { data, total, summary };
+  return { data, total, summary, group_summary };
+};
+
+export const getUcOutsideCupDashboard = async (params: ReconciliationQueryParams) => {
+  const result = await getVisitRepStmComparison({
+    ...params,
+    financeRight: '07',
+  });
+
+  const hmainCodes = Array.from(new Set(result.group_summary.map((item) => item.hmain)
+    .filter((code) => code && code !== 'ไม่ระบุ HMAIN')));
+  const hospitalNames = new Map<string, string>();
+  if (hmainCodes.length > 0) {
+    const connection = await getUTFConnection();
+    try {
+      const [rows] = await connection.query(
+        `SELECT hoscode, name FROM hospital WHERE hoscode IN (${hmainCodes.map(() => '?').join(',')})`,
+        hmainCodes
+      );
+      (Array.isArray(rows) ? rows : []).forEach((row) => {
+        const record = row as Record<string, unknown>;
+        hospitalNames.set(String(record.hoscode || '').trim(), String(record.name || '').trim());
+      });
+    } catch (error) {
+      console.warn('Unable to load HMAIN hospital names:', error);
+    } finally {
+      connection.release();
+    }
+  }
+
+  return {
+    ...result,
+    data: result.data.map((row) => ({ ...row, hmain_name: hospitalNames.get(row.hospmain) || '' })),
+    group_summary: result.group_summary.map((group) => ({
+      ...group,
+      hmain_name: hospitalNames.get(group.hmain) || '',
+    })),
+  };
 };
 
 export interface Uuc1TrackingQueryParams {
@@ -8677,7 +8839,7 @@ export const getRepstmImportBatches = async (
   const connection = await getRepstmConnection();
   try {
     const [rows] = await connection.query(
-      `SELECT id, data_type, source_filename, sheet_name, imported_by, row_count, notes,
+      `SELECT id, data_type, source_filename, sheet_name, is_subfile, imported_by, row_count, notes,
               logical_hash, completeness_score, distinct_record_count, column_count,
               non_empty_cell_count, replaces_batch_id, created_at
        FROM repstm_import_batch
@@ -9448,6 +9610,45 @@ export const getDrugPrices = async (vn: string): Promise<Record<string, unknown>
   } catch (error) {
     console.error('Error fetching drug prices:', error);
     return [];
+  } finally {
+    connection.release();
+  }
+};
+
+// รายการค่าใช้จ่ายทั้งหมดของ visit สำหรับตรวจสอบกับใบสั่งยา/ยอดเรียกเก็บ
+// ใช้ LEFT JOIN เพื่อไม่ให้เวชภัณฑ์ ค่าบริการ หรือรายการที่ยังไม่ผูก drugitems หายไป
+export const getVisitChargeItems = async (vn: string): Promise<Record<string, unknown>[]> => {
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT
+         oo.icode,
+         COALESCE(NULLIF(sd.name, ''), NULLIF(di.name, ''), NULLIF(ndi.name, ''), oo.icode) AS drugName,
+         COALESCE(inc.name, '') AS incomeName,
+         CASE
+           WHEN di.icode IS NOT NULL OR sd.icode IS NOT NULL THEN 'ยา'
+           WHEN ndi.icode IS NOT NULL THEN 'เวชภัณฑ์/ค่าบริการ'
+           ELSE 'รายการอื่น'
+         END AS itemType,
+         COALESCE(oo.qty, 0) AS qty,
+         COALESCE(oo.unitprice, 0) AS unitPrice,
+         COALESCE(oo.sum_price, oo.qty * oo.unitprice, 0) AS price,
+         COALESCE(sd.nhso_adp_code, '') AS adp_code,
+         COALESCE(sd.ttmt_code, di.ttmt_code, '') AS nhso_code,
+         CASE WHEN COALESCE(sd.nhso_adp_code, '') <> '' THEN 1 ELSE 0 END AS has_adp_mapping
+       FROM opitemrece oo
+       LEFT JOIN income inc ON inc.income = oo.income
+       LEFT JOIN drugitems di ON di.icode = oo.icode
+       LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+       LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+       WHERE oo.vn = ?
+       ORDER BY oo.income, oo.icode`,
+      [vn]
+    );
+    return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
+  } catch (error) {
+    console.error('Error fetching visit charge items:', error);
+    throw error;
   } finally {
     connection.release();
   }
@@ -10612,6 +10813,16 @@ export const getExportData = async (vns: string[]) => {
 export const getDiagsAndProcedures = async (vn: string) => {
   const connection = await getUTFConnection();
   try {
+    const [clinicalRows] = await connection.query(`
+      SELECT
+        COALESCE(os.cc, '') AS cc,
+        COALESCE(os.hpi, '') AS hpi
+      FROM ovst o
+      LEFT JOIN opdscreen os ON os.vn = o.vn
+      WHERE o.vn = ?
+      LIMIT 1
+    `, [vn]);
+
     const [diags] = await connection.query(`
       SELECT 
         d.icd10 as code,
@@ -10645,12 +10856,13 @@ export const getDiagsAndProcedures = async (vn: string) => {
     `, [vn, vn]);
 
     return {
+      clinical: Array.isArray(clinicalRows) ? clinicalRows[0] || { cc: '', hpi: '' } : { cc: '', hpi: '' },
       diagnoses: Array.isArray(diags) ? diags : [],
       procedures: Array.isArray(procs) ? procs : []
     };
   } catch (error) {
     console.error('Error fetching diags and procs:', error);
-    return { diagnoses: [], procedures: [] };
+    return { clinical: { cc: '', hpi: '' }, diagnoses: [], procedures: [] };
   } finally {
     connection.release();
   }

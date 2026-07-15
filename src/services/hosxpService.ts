@@ -68,6 +68,12 @@ export const fetchReceiptData = async (vn: string) => {
 };
 
 // ฟังก์ชันดึงข้อมูลการวินิจฉัยและหัตถการ
+export interface VisitClinicalData {
+  clinical: { cc?: string; hpi?: string };
+  diagnoses: Array<{ code?: string; name?: string; type?: string; category?: string }>;
+  procedures: Array<{ code?: string; name?: string; type?: string; category?: string }>;
+}
+
 export const fetchDiagsAndProceduresData = async (vn: string) => {
   try {
     const response = await fetch(`/api/hosxp/visit/${vn}/diags`, {
@@ -82,7 +88,7 @@ export const fetchDiagsAndProceduresData = async (vn: string) => {
     }
 
     const data = await response.json();
-    return data;
+    return data as { success: boolean; data: VisitClinicalData };
   } catch (error) {
     console.error('Error fetching diags and procedures data:', error);
     throw error;
@@ -305,6 +311,7 @@ export const importRepstmData = async (payload: {
   fileSize?: number;
   fileHash?: string;
   sheetName?: string;
+  isSubfile?: boolean;
   importedBy?: string;
   notes?: string;
   rows: Record<string, unknown>[];
@@ -338,6 +345,15 @@ export const importRepstmData = async (payload: {
     throw new Error('ไม่สามารถนำเข้า REP/STM/INV ได้');
   }
   return json;
+};
+
+export const fetchVisitChargeItems = async (vn: string) => {
+  const response = await fetch(`/api/hosxp/visit-items/${encodeURIComponent(vn)}`);
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'ไม่สามารถอ่านรายการค่าใช้จ่ายของ visit ได้');
+  }
+  return response.json();
 };
 
 export interface RepstmPreflightResult {
@@ -786,6 +802,9 @@ export interface ReconciliationRow {
   pttype: string;
   pttype_name: string;
   hipdata_code: string;
+  hospmain: string;
+  hmain_name?: string;
+  service_datetime: string | null;
   account_group?: string;
   payment_source?: string;
   claim_summary?: string;
@@ -811,6 +830,9 @@ export interface ReconciliationRow {
   inv_statement_no: string | null;
   inv_imported_at: string | null;
   has_inv: boolean;
+  fdh_status: string | null;
+  fdh_claim_code: string | null;
+  fdh_sent_at: string | null;
   diff_rep: number | null;
   diff_stm: number | null;
   diff_stm_paid: number | null;
@@ -952,6 +974,43 @@ export interface Uuc1TrackingRow {
   followup_status_key: string;
   followup_note: string;
 }
+
+export interface UcOutsideCupGroup {
+  hmain: string;
+  hmain_name?: string;
+  visits: number;
+  claimable_amount: number;
+  rep_amount: number;
+  stm_paid_amount: number;
+  inv_amount: number;
+  outstanding_amount: number;
+}
+
+export interface UcOutsideCupResponse extends ReconciliationResponse {
+  group_summary: UcOutsideCupGroup[];
+}
+
+export const fetchUcOutsideCupDashboard = async (params: {
+  startDate: string;
+  endDate: string;
+  patientType?: string;
+  compareStatus?: string;
+  hmain?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<UcOutsideCupResponse> => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== '') query.set(key, String(value));
+  });
+  const response = await fetch(`/api/uc-outside-cup/dashboard?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถโหลดข้อมูล UC นอก CUP ในจังหวัดได้');
+  }
+  return json as UcOutsideCupResponse;
+};
 
 export interface Uuc1TrackingSummary {
   total_visits: number;

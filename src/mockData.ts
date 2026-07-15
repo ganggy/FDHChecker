@@ -26,6 +26,8 @@ export interface PrescriptionItem {
   nhso_code?: string;
   nhso_name?: string;
   has_adp_mapping?: number;
+  itemType?: string;
+  incomeName?: string;
 }
 
 export interface CheckRecord {

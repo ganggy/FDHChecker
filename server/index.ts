@@ -15,6 +15,7 @@ import {
   getExportData,
   getReceiptItems,
   getDrugPrices,
+  getVisitChargeItems,
   getServiceADPCodes,
   getKidneyMonitorDetailed,
   getFsMonitor,
@@ -51,6 +52,7 @@ import {
   getInsuranceOverview,
   getValeImportStatus,
   getVisitRepStmComparison,
+  getUcOutsideCupDashboard,
   getUuc1RepStmTracking,
   getRepDailyClaimSummary,
   getRepDailyVisitsForDate,
@@ -1114,6 +1116,17 @@ app.get('/api/hosxp/prescriptions/:vn', async (req, res) => {
     console.error('Error fetching prescriptions:', error);
     // Return empty array on error, don't use mock fallback
     res.status(500).json([]);
+  }
+});
+
+app.get('/api/hosxp/visit-items/:vn', async (req, res) => {
+  try {
+    const { vn } = req.params;
+    const items = await getVisitChargeItems(vn);
+    res.json(items);
+  } catch (error) {
+    console.error('Error fetching visit charge items:', error);
+    res.status(500).json({ error: 'ไม่สามารถอ่านรายการค่าใช้จ่ายของ visit ได้' });
   }
 });
 
@@ -2478,12 +2491,13 @@ app.get('/api/fdh/import-status/logs', async (req, res) => {
 
 app.post('/api/repstm/import', async (req, res) => {
   try {
-    const { dataType, sourceFilename, fileSize, fileHash, sheetName, importedBy, notes, rows, forceReimport } = req.body as {
+    const { dataType, sourceFilename, fileSize, fileHash, sheetName, isSubfile, importedBy, notes, rows, forceReimport } = req.body as {
       dataType?: 'REP' | 'STM' | 'INV';
       sourceFilename?: string;
       fileSize?: number;
       fileHash?: string;
       sheetName?: string;
+      isSubfile?: boolean;
       importedBy?: string;
       notes?: string;
       rows?: Record<string, unknown>[];
@@ -2519,6 +2533,7 @@ app.post('/api/repstm/import', async (req, res) => {
       fileSize: Number.isFinite(fileSize) ? Number(fileSize) : undefined,
       fileHash: /^[a-f0-9]{64}$/i.test(String(fileHash || '')) ? String(fileHash).toLowerCase() : undefined,
       sheetName: sheetName ? String(sheetName).trim() : undefined,
+      isSubfile: isSubfile === true,
       importedBy: importedBy ? String(importedBy).trim() : undefined,
       notes: notes ? String(notes).trim() : undefined,
       rows: sanitizedRows,
@@ -2705,6 +2720,27 @@ app.get('/api/receivables/reconciliation', async (req, res) => {
   } catch (error) {
     console.error('Error fetching reconciliation data:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูลกระทบยอด REP/STM' });
+  }
+});
+
+app.get('/api/uc-outside-cup/dashboard', async (req, res) => {
+  try {
+    const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
+    const pageSize = req.query.pageSize ? Math.min(500, Math.max(10, Number(req.query.pageSize))) : 100;
+    const result = await getUcOutsideCupDashboard({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      patientType: req.query.patientType ? String(req.query.patientType) : undefined,
+      compareStatus: req.query.compareStatus ? String(req.query.compareStatus) : undefined,
+      hmain: req.query.hmain ? String(req.query.hmain) : undefined,
+      search: req.query.search ? String(req.query.search) : undefined,
+      page,
+      pageSize,
+    });
+    res.json({ success: true, ...result, page, pageSize });
+  } catch (error) {
+    console.error('Error fetching UC outside CUP dashboard:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูล UC นอก CUP ในจังหวัด' });
   }
 });
 

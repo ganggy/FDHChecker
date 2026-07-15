@@ -2042,3 +2042,72 @@
   .ipd-monitor-hero { align-items: flex-start; flex-direction: column; }
   .ipd-monitor-filter-grid, .ipd-monitor-kpi-grid, .ipd-monitor-stage-grid, .ipd-monitor-money-grid, .ipd-monitor-import-health { grid-template-columns: 1fr; }
 }
+
+/* UC outside CUP accounting dashboard */
+.uc-cup-page { display: grid; gap: 16px; }
+.uc-cup-hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 26px 30px; border: 1px solid #bfdbfe; border-radius: 18px; background: linear-gradient(135deg, #eff6ff 0%, #fff 55%, #ecfdf5 100%); }
+.uc-cup-hero h1 { margin: 5px 0 7px; color: #0f172a; font-size: 28px; }
+.uc-cup-hero p, .uc-cup-groups header p, .uc-cup-visits header p { margin: 0; color: #64748b; }
+.uc-cup-eyebrow { color: #2563eb; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.uc-cup-year { min-width: 170px; }
+.uc-cup-year label, .uc-cup-filters label { display: grid; gap: 6px; color: #475569; font-size: 12px; font-weight: 700; }
+.uc-cup-year select, .uc-cup-filters input, .uc-cup-filters select { min-height: 40px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 9px; background: white; color: #0f172a; }
+.uc-cup-filters { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)) minmax(220px, 1.7fr) auto; align-items: end; gap: 12px; padding: 16px; }
+.uc-cup-kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.uc-cup-kpis article { display: grid; gap: 4px; padding: 17px; border: 1px solid #dbeafe; border-radius: 13px; background: #fff; box-shadow: 0 5px 16px rgb(15 23 42 / 5%); }
+.uc-cup-kpis span { color: #64748b; font-size: 12px; }
+.uc-cup-kpis strong { color: #0f766e; font-size: 22px; }
+.uc-cup-kpis small { color: #94a3b8; }
+.uc-cup-kpis .is-warning { border-color: #fed7aa; background: #fffaf5; }
+.uc-cup-kpis .is-warning strong { color: #c2410c; }
+.uc-cup-groups, .uc-cup-visits { overflow: hidden; }
+.uc-cup-groups > header, .uc-cup-visits > header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #e2e8f0; }
+.uc-cup-groups h2, .uc-cup-visits h2 { margin: 0 0 3px; color: #0f172a; font-size: 17px; }
+.uc-cup-groups header > span, .uc-cup-visits header > span { padding: 4px 9px; border-radius: 999px; background: #eff6ff; color: #2563eb; font-size: 12px; font-weight: 700; }
+.uc-cup-page .data-table { min-width: 1120px; }
+.uc-cup-page td small { display: block; margin-top: 3px; color: #94a3b8; }
+.uc-cup-page .money { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.uc-cup-page .money.is-paid { color: #047857; font-weight: 700; }
+.uc-cup-page .money.is-due { color: #b45309; font-weight: 800; }
+.uc-cup-chip { max-width: 130px; padding: 4px 8px; overflow: hidden; border: 1px solid #cbd5e1; border-radius: 999px; background: #f8fafc; color: #64748b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.uc-cup-chip.is-ok { border-color: #86efac; background: #f0fdf4; color: #15803d; }
+.uc-cup-chip.is-error { border-color: #fca5a5; background: #fef2f2; color: #dc2626; }
+.uc-cup-status { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.uc-cup-status.is-ok { background: #dcfce7; color: #15803d; }.uc-cup-status.is-wait { background: #fef3c7; color: #b45309; }.uc-cup-status.is-error { background: #fee2e2; color: #b91c1c; }
+.uc-cup-pagination { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 13px; border-top: 1px solid #e2e8f0; }
+.uc-cup-pagination button { padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; cursor: pointer; }.uc-cup-pagination button:disabled { opacity: .45; cursor: default; }
+.uc-cup-modal-backdrop { position: fixed; z-index: 1000; inset: 0; display: grid; place-items: center; padding: 24px; background: rgb(15 23 42 / 55%); }
+.uc-cup-modal { width: min(1000px, 96vw); max-height: 88vh; overflow: auto; border-radius: 16px; background: white; box-shadow: 0 24px 60px rgb(15 23 42 / 30%); }
+.uc-cup-modal > header { position: sticky; z-index: 1; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 15px 18px; border-bottom: 1px solid #e2e8f0; background: white; }.uc-cup-modal h3 { margin: 0; }.uc-cup-modal header button { border: 0; background: transparent; cursor: pointer; }
+.uc-cup-modal__body { padding: 18px; }.uc-cup-evidence { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }.uc-cup-evidence article { padding: 15px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; }.uc-cup-evidence h4 { margin: 0 0 8px; color: #2563eb; }.uc-cup-evidence p { margin: 7px 0 0; color: #64748b; }
+.uc-cup-page .uc-cup-prescription-table { width: 100%; min-width: 0; table-layout: fixed; }
+.uc-cup-prescription-wrap { width: 100%; overflow-x: auto; }
+.uc-cup-prescription-table th:nth-child(1) { width: 15%; }.uc-cup-prescription-table th:nth-child(2) { width: 45%; }.uc-cup-prescription-table th:nth-child(3) { width: 10%; }.uc-cup-prescription-table th:nth-child(4), .uc-cup-prescription-table th:nth-child(5) { width: 15%; }
+.uc-cup-prescription-table th:nth-child(3), .uc-cup-prescription-qty { text-align: center; }
+.uc-cup-prescription-table th:nth-child(4), .uc-cup-prescription-table th:nth-child(5) { text-align: right; }
+.uc-cup-prescription-code { color: #1d4ed8; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.uc-cup-prescription-name { overflow-wrap: anywhere; color: #0f172a; font-weight: 600; }
+.uc-cup-prescription-name small { display: block; margin-top: 3px; color: #64748b; font-size: 10px; font-weight: 500; }
+.uc-cup-prescription-total { color: #0f766e; font-weight: 800; }
+.uc-cup-prescription-table tfoot th { border-top: 2px solid #cbd5e1; background: #f8fafc; }
+.uc-cup-visit-review { display: grid; gap: 18px; }
+.uc-cup-visit-review > section { overflow: hidden; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+.uc-cup-visit-review > section > h4 { margin: 0; padding: 11px 14px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; color: #1e3a8a; }
+.uc-cup-clinical dl { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 0; padding: 14px; }
+.uc-cup-clinical dl > div { padding: 11px 13px; border-radius: 9px; background: #eff6ff; }
+.uc-cup-clinical dt { color: #2563eb; font-size: 11px; font-weight: 800; }
+.uc-cup-clinical dd { margin: 4px 0 0; color: #0f172a; line-height: 1.5; white-space: pre-wrap; }
+.uc-cup-code-list { display: grid; gap: 8px; padding: 12px; }
+.uc-cup-code-list article { display: grid; grid-template-columns: 80px 100px 1fr; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; }
+.uc-cup-code-list span { padding: 3px 7px; border-radius: 999px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 700; text-align: center; }
+.uc-cup-code-list span.is-primary { background: #dbeafe; color: #1d4ed8; }
+.uc-cup-code-list strong { color: #1d4ed8; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.uc-cup-code-list p { margin: 0; color: #334155; }
+.uc-cup-empty { margin: 0; padding: 18px; color: #94a3b8; text-align: center; }
+@media (max-width: 1280px) { .uc-cup-filters { grid-template-columns: repeat(3, 1fr); }.uc-cup-kpis { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 760px) { .uc-cup-hero { align-items: stretch; flex-direction: column; }.uc-cup-filters, .uc-cup-kpis, .uc-cup-evidence, .uc-cup-clinical dl { grid-template-columns: 1fr; }.uc-cup-code-list article { grid-template-columns: 70px 90px 1fr; }.uc-cup-page .uc-cup-prescription-table { min-width: 680px; } }
+
+.repstm-subfile-option { display: flex; align-items: flex-start; gap: 10px; max-width: 820px; margin-top: 12px; padding: 12px 14px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; cursor: pointer; }
+.repstm-subfile-option input { width: 17px; height: 17px; margin-top: 2px; accent-color: #2563eb; }
+.repstm-subfile-option span { display: grid; gap: 3px; color: #1e3a8a; }
+.repstm-subfile-option small { color: #64748b; line-height: 1.45; }

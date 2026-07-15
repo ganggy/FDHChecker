@@ -10,6 +10,7 @@ interface ImportBatch {
   data_type: ImportType;
   source_filename: string;
   sheet_name?: string;
+  is_subfile?: number | boolean;
   imported_by?: string;
   row_count: number;
   notes?: string;
@@ -55,6 +56,7 @@ interface ImportQueueItem {
   relativePath?: string;
   detectedType?: ImportType;
   sheetName: string;
+  isSubfile?: boolean;
   headers: string[];
   rows: Record<string, unknown>[];
   rowCount: number;
@@ -86,7 +88,9 @@ const detectTypeFromSheetName = (sheetName: string): ImportType | null => {
 
 const detectTypeFromFileName = (fileName: string): ImportType | null => {
   const name = fileName.trim().toLowerCase();
-  if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice|^eclaim[_-]|(^|[_\s.-])(ofc|csmbs)(?=[_\s.-]|$)/.test(name)) return 'INV';
+  // ไฟล์ผลตอบกลับจาก BMS/NHSO ใช้ชื่อ eclaim_* แต่มีข้อมูลระดับ visit แบบ REP
+  if (/^eclaim[_-]/.test(name)) return 'REP';
+  if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice/.test(name)) return 'INV';
   if (/(^|[_\s.-])stm(?=[_\s.-]|$)|statement/.test(name)) return 'STM';
   if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata/.test(name)) return 'REP';
   return null;
@@ -101,13 +105,11 @@ const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
 ].join('|');
 
 const detectImportType = (fileName: string, headers: string[], rows: Record<string, unknown>[]): ImportType | null => {
-  const explicitFileType = detectTypeFromFileName(fileName);
-  if (explicitFileType === 'STM' || explicitFileType === 'INV') return explicitFileType;
-  const normalizedName = fileName.toLowerCase();
   const normalizedHeaders = headers.map((header) => normalizeHeaderCell(header).toLowerCase());
   const firstRowKeys = Object.keys(rows[0] || {}).map((key) => normalizeHeaderCell(key).toLowerCase());
-  const bag = `${normalizedName} | ${normalizedHeaders.join(' | ')} | ${firstRowKeys.join(' | ')}`;
+  const bag = `${normalizedHeaders.join(' | ')} | ${firstRowKeys.join(' | ')}`;
 
+  // ใช้โครงสร้างข้อมูลภายในไฟล์ก่อนชื่อไฟล์ เพื่อไม่ให้ REP/INV ปะปนกัน
   if (bag.includes('invoice') || bag.includes('เลขที่ใบแจ้งหนี้') || bag.includes('invoiceno')) {
     return 'INV';
   }
@@ -120,6 +122,7 @@ const detectImportType = (fileName: string, headers: string[], rows: Record<stri
     return 'STM';
   }
 
+  // ชื่อไฟล์เป็น fallback เมื่อหัวตารางไม่มีสัญญาณเฉพาะเพียงพอ
   return detectTypeFromFileName(fileName);
 };
 
@@ -280,11 +283,12 @@ interface ParsedSheet {
   rows: Record<string, unknown>[];
   headers: string[];
   hintType: ImportType | null;
+  isSubfile: boolean;
 }
 
 /** Scans all sheets in a workbook; returns one ParsedSheet per sheet that has data.
  *  Priority sheet names (from Auto4Rep.EXE) are checked first. */
-const readWorkbook = async (file: File): Promise<ParsedSheet[]> => {
+const readWorkbook = async (file: File, includeSubfiles = false): Promise<ParsedSheet[]> => {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   const fileHint = detectTypeFromFileName(file.name);
@@ -297,29 +301,44 @@ const readWorkbook = async (file: File): Promise<ParsedSheet[]> => {
 
   const results: ParsedSheet[] = [];
   for (const sheetName of ordered) {
-    // ชนิดจากไฟล์มีความน่าเชื่อถือกว่าชื่อชีต Detail ซึ่งพบได้ทั้ง REP และ INV
+    // ใช้ชนิดจากชื่อไฟล์เป็น hint สำหรับหา header เท่านั้น แล้วตรวจชนิดจริงจาก header อีกครั้ง
     const hintType = fileHint || detectTypeFromSheetName(sheetName);
     const parsed = parseWorksheetRows(workbook.Sheets[sheetName], hintType);
     if (parsed.rows.length > 0) {
-      results.push({ sheetName, rows: parsed.rows, headers: parsed.headers, hintType });
+      results.push({ sheetName, rows: parsed.rows, headers: parsed.headers, hintType, isSubfile: false });
     }
   }
 
-  const primaryResults = results.filter(({ sheetName, hintType }) => {
+  const isSupplementarySheet = (sheetName: string, hintType: ImportType | null) => {
     const compact = sheetName.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (hintType === 'REP') return /^(detail|individual|repdata|repeclaim)$/.test(compact) || compact.includes('รายละเอียด');
+    if (/^data\b/.test(compact)) return true;
+    if (hintType === 'STM' && (compact.includes('อุทธรณ์') || compact.includes('ผู้พิการ d1'))) return true;
+    return false;
+  };
+  const classifiedResults = results.map((item) => ({
+    ...item,
+    isSubfile: isSupplementarySheet(item.sheetName, item.hintType),
+  }));
+  const primaryResults = classifiedResults.filter(({ sheetName, hintType, isSubfile }) => {
+    if (isSubfile) return false;
+    const compact = sheetName.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (hintType === 'REP') return /^(detail|individual|eclaim|repdata|repeclaim)$/.test(compact) || compact.includes('รายละเอียด');
     if (hintType === 'STM') return compact.includes('รายละเอียด') || compact === 'พึงรับ' || compact === 'statement';
     if (hintType === 'INV') return /^(detail|individual|eclaim|inv|invoice)$/.test(compact) || compact.includes('รายละเอียด');
     return false;
   });
-  if (primaryResults.length > 0) return primaryResults;
+  if (primaryResults.length > 0) {
+    return includeSubfiles
+      ? [...primaryResults, ...classifiedResults.filter((item) => item.isSubfile)]
+      : primaryResults;
+  }
 
   // Fallback: try first sheet without a hint if nothing matched
   if (results.length === 0 && workbook.SheetNames.length > 0) {
     const firstSheet = workbook.SheetNames[0];
     const parsed = parseWorksheetRows(workbook.Sheets[firstSheet], null);
     if (parsed.rows.length > 0) {
-      results.push({ sheetName: firstSheet, rows: parsed.rows, headers: parsed.headers, hintType: null });
+      results.push({ sheetName: firstSheet, rows: parsed.rows, headers: parsed.headers, hintType: null, isSubfile: false });
     }
   }
 
@@ -330,6 +349,7 @@ export const RepStmImportPage: React.FC = () => {
   const [dataType, setDataType] = useState<ImportType>('REP');
   const [importedBy, setImportedBy] = useState('เปรมศักดิ์ เทพวงสา');
   const [notes, setNotes] = useState('');
+  const [includeSubfiles, setIncludeSubfiles] = useState(false);
   const [queueItems, setQueueItems] = useState<ImportQueueItem[]>([]);
   const [activePreviewId, setActivePreviewId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -721,7 +741,7 @@ export const RepStmImportPage: React.FC = () => {
     await Promise.all(Array.from({ length: Math.min(4, initialQueue.length) }, () => hashNext()));
 
     const preflightByName = new Map<string, Awaited<ReturnType<typeof preflightRepstmFiles>>[number]>();
-    if (!bypassPreflight) {
+    if (!bypassPreflight && !includeSubfiles) {
       try {
         const preflight = await preflightRepstmFiles(initialQueue.map((item) => ({
           filename: item.file.name,
@@ -769,7 +789,7 @@ export const RepStmImportPage: React.FC = () => {
       while (nextParseIndex < parseQueue.length) {
         const queueItem = parseQueue[nextParseIndex++];
       try {
-        const parsedSheets = await readWorkbook(queueItem.file);
+        const parsedSheets = await readWorkbook(queueItem.file, includeSubfiles);
 
         if (parsedSheets.length === 0) {
           const failedItem: ImportQueueItem = {
@@ -786,11 +806,14 @@ export const RepStmImportPage: React.FC = () => {
         }
 
         if (parsedSheets.length === 1) {
-          const { sheetName, rows, headers, hintType } = parsedSheets[0];
-          const detectedType = hintType || detectImportType(queueItem.fileName, headers, rows);
+          const { sheetName, rows, headers, hintType, isSubfile } = parsedSheets[0];
+          const detectedType = isSubfile
+            ? hintType || detectImportType(queueItem.fileName, headers, rows)
+            : detectImportType(queueItem.fileName, headers, rows) || hintType;
           const parsedItem: ImportQueueItem = {
             ...queueItem,
             sheetName,
+            isSubfile,
             headers,
             rows,
             rowCount: rows.length,
@@ -809,14 +832,17 @@ export const RepStmImportPage: React.FC = () => {
           }));
         } else {
           // Multiple relevant sheets – expand one file into multiple queue items
-          const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType }, i) => {
-            const detectedType = hintType || detectImportType(queueItem.fileName, headers, rows);
+          const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType, isSubfile }, i) => {
+            const detectedType = isSubfile
+              ? hintType || detectImportType(queueItem.fileName, headers, rows)
+              : detectImportType(queueItem.fileName, headers, rows) || hintType;
             return {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,
               fileName: queueItem.fileName,
               relativePath: queueItem.relativePath,
               sheetName,
+              isSubfile,
               headers,
               rows,
               rowCount: rows.length,
@@ -825,7 +851,7 @@ export const RepStmImportPage: React.FC = () => {
               message: rows.length === 0
                 ? `Sheet "${sheetName}": ไม่พบข้อมูล`
                 : detectedType
-                  ? `ตรวจพบเป็น ${detectedType} พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
+                  ? `${isSubfile ? 'Sub file ข้อมูลประกอบ' : `ตรวจพบเป็น ${detectedType}`} พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
                   : `Sheet "${sheetName}": ไม่สามารถระบุประเภท`,
             };
           });
@@ -901,6 +927,7 @@ export const RepStmImportPage: React.FC = () => {
             fileSize: item.fileSize ?? item.file.size,
             fileHash: item.fileHash,
             sheetName: item.sheetName,
+            isSubfile: Boolean(item.isSubfile),
             importedBy: importedBy.trim() || undefined,
             notes: notes.trim() || undefined,
             rows: item.rows,
@@ -1040,6 +1067,20 @@ export const RepStmImportPage: React.FC = () => {
             <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
               ระบบจะพยายามตรวจชนิดไฟล์ให้เองจากชื่อไฟล์และหัวตาราง รองรับการเลือกทีละหลายไฟล์ และการเลือกทั้งโฟลเดอร์ เช่น <code>C:\TEMP\REP</code>
             </div>
+            <label className="repstm-subfile-option">
+              <input
+                type="checkbox"
+                checked={includeSubfiles}
+                onChange={(event) => {
+                  setIncludeSubfiles(event.target.checked);
+                  resetQueue();
+                }}
+              />
+              <span>
+                <strong>รวม Sub file / ชีตข้อมูลประกอบ</strong>
+                <small>เช่น Data Drug, Data Instrument, Data sheet 0, ข้อมูลอุทธรณ์ และผู้พิการ D1 — เก็บเพื่อตรวจสอบ แต่ไม่นำยอดไปบวกซ้ำกับไฟล์หลัก</small>
+              </span>
+            </label>
           </div>
 
           <div className="repstm-toolbar">
@@ -1382,6 +1423,7 @@ export const RepStmImportPage: React.FC = () => {
                     <th>ไฟล์</th>
                     <th>ประเภท</th>
                     <th>Sheet</th>
+                    <th>บทบาท</th>
                     <th>แถวข้อมูล</th>
                     <th>สถานะ</th>
                     <th>Progress</th>
@@ -1401,6 +1443,7 @@ export const RepStmImportPage: React.FC = () => {
                       </td>
                       <td className="table-cell-nowrap">{item.detectedType || '-'}</td>
                       <td className="table-cell-nowrap">{item.sheetName || '-'}</td>
+                      <td className="table-cell-nowrap"><span className={`badge ${item.isSubfile ? 'badge-warning' : 'badge-primary'}`}>{item.isSubfile ? 'Sub file' : 'ไฟล์หลัก'}</span></td>
                       <td className="table-cell-nowrap">{item.rowCount.toLocaleString()}</td>
                       <td className="table-cell-nowrap">
                         <span className={`badge ${item.status === 'success' ? 'badge-success' : item.status === 'duplicate' ? 'badge-info' : item.status === 'error' ? 'badge-danger' : item.status === 'importing' ? 'badge-warning' : 'badge-primary'}`}>
@@ -1511,7 +1554,7 @@ export const RepStmImportPage: React.FC = () => {
                         <td>
                           <div className="repstm-file-name" title={batch.source_filename}>{batch.source_filename}</div>
                           <div className="repstm-file-subpath" title={batch.sheet_name || '-'}>
-                            Sheet: {batch.sheet_name || '-'}
+                            Sheet: {batch.sheet_name || '-'} {batch.is_subfile ? <span className="badge badge-warning">Sub file</span> : null}
                           </div>
                           {batch.replaces_batch_id ? (
                             <div className="repstm-file-subpath">

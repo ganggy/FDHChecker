@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import businessRules from './config/business_rules.json';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
+import { fetchWithTimeout } from './httpClient.js';
 
 dotenv.config();
 
@@ -1434,12 +1435,30 @@ export const ensureAuthTables = async () => {
       : null;
 
     if (adminGroupId) {
-      await connection.query(
-        `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin)
-         VALUES (?, ?, ?, ?, 1, 1, 1)
-         ON DUPLICATE KEY UPDATE group_id = VALUES(group_id), approved = 1, is_active = 1, is_admin = 1, updated_at = CURRENT_TIMESTAMP`,
-        ['war12oc', hashPassword('.Aa0982641777'), 'war12oc', adminGroupId]
+      const [adminCountRows] = await connection.query(
+        `SELECT COUNT(*) AS total
+         FROM app_user u
+         LEFT JOIN app_user_group g ON g.id = u.group_id
+         WHERE u.is_active = 1 AND u.approved = 1 AND (u.is_admin = 1 OR g.is_admin = 1)`
       );
+      const adminCount = Array.isArray(adminCountRows) && adminCountRows.length > 0
+        ? Number((adminCountRows[0] as Record<string, unknown>).total || 0)
+        : 0;
+      const bootstrapUsername = normalizeUsername(process.env.APP_BOOTSTRAP_ADMIN_USERNAME);
+      const bootstrapPassword = String(process.env.APP_BOOTSTRAP_ADMIN_PASSWORD || '');
+
+      if (adminCount === 0 && bootstrapUsername && bootstrapPassword.length >= 12) {
+        await connection.query(
+          `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin)
+           VALUES (?, ?, ?, ?, 1, 1, 1)
+           ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), group_id = VALUES(group_id),
+             approved = 1, is_active = 1, is_admin = 1, updated_at = CURRENT_TIMESTAMP`,
+          [bootstrapUsername, hashPassword(bootstrapPassword), bootstrapUsername, adminGroupId]
+        );
+        console.warn('Bootstrap admin created. Remove APP_BOOTSTRAP_ADMIN_USERNAME and APP_BOOTSTRAP_ADMIN_PASSWORD before restarting.');
+      } else if (adminCount === 0) {
+        console.warn('No active admin exists. Set one-time APP_BOOTSTRAP_ADMIN_USERNAME and APP_BOOTSTRAP_ADMIN_PASSWORD (12+ characters).');
+      }
     }
 
     await connection.query('DELETE FROM app_session WHERE expires_at < NOW()');
@@ -1543,6 +1562,46 @@ export const logoutAppUser = async (token: string) => {
   try {
     await connection.query('DELETE FROM app_session WHERE token_hash = ?', [tokenHash(token)]);
     return { success: true };
+  } finally {
+    connection.release();
+  }
+};
+
+export const changeAppUserPassword = async (
+  userId: number,
+  currentPassword: string,
+  newPassword: string,
+) => {
+  if (newPassword.length < 12) {
+    return { success: false, status: 400, error: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 12 ตัวอักษร' };
+  }
+  if (currentPassword === newPassword) {
+    return { success: false, status: 400, error: 'รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านเดิม' };
+  }
+
+  const connection = await getRepstmConnection();
+  try {
+    const [rows] = await connection.query(
+      'SELECT password_hash FROM app_user WHERE id = ? AND is_active = 1 LIMIT 1',
+      [userId]
+    );
+    const record = Array.isArray(rows) && rows.length > 0 ? rows[0] as Record<string, unknown> : null;
+    if (!record || !verifyPassword(currentPassword, String(record.password_hash || ''))) {
+      return { success: false, status: 401, error: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' };
+    }
+
+    await connection.beginTransaction();
+    await connection.query(
+      'UPDATE app_user SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [hashPassword(newPassword), userId]
+    );
+    // Revoke every other session after a password change. The current request also logs out on success.
+    await connection.query('DELETE FROM app_session WHERE user_id = ?', [userId]);
+    await connection.commit();
+    return { success: true };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
   } finally {
     connection.release();
   }
@@ -2019,7 +2078,7 @@ const callNhsoClosePrivilegeApi = async (baseUrl: string, token: string, payload
   } | null = null;
 
   for (const extraHeaders of headerOptions) {
-    const response = await fetch(requestUrl, {
+    const response = await fetchWithTimeout(requestUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3143,7 +3202,7 @@ const callNhsoAuthenApi = async (baseUrl: string, token: string, cid: string, se
 
   let lastPayload: unknown = null;
   for (const headers of headerOptions) {
-    const response = await fetch(requestUrl, { method: 'GET', headers });
+    const response = await fetchWithTimeout(requestUrl, { method: 'GET', headers });
     const text = await response.text();
     let payload: unknown = text;
     try {
@@ -6281,12 +6340,14 @@ export const getUcOutsideCupDashboard = async (params: ReconciliationQueryParams
     const connection = await getUTFConnection();
     try {
       const [rows] = await connection.query(
-        `SELECT hoscode, name FROM hospital WHERE hoscode IN (${hmainCodes.map(() => '?').join(',')})`,
+        `SELECT hospcode, name
+         FROM hospcode
+         WHERE hospcode IN (${hmainCodes.map(() => '?').join(',')})`,
         hmainCodes
       );
       (Array.isArray(rows) ? rows : []).forEach((row) => {
         const record = row as Record<string, unknown>;
-        hospitalNames.set(String(record.hoscode || '').trim(), String(record.name || '').trim());
+        hospitalNames.set(String(record.hospcode || '').trim(), String(record.name || '').trim());
       });
     } catch (error) {
       console.warn('Unable to load HMAIN hospital names:', error);
@@ -9506,8 +9567,7 @@ export const getCheckData = async (
     return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
   } catch (error) {
     console.error('Error fetching check data from HOSxP:', error);
-    // Return empty array to fallback to mock data in index.ts
-    return [];
+    throw error;
   }
 };
 
@@ -9813,7 +9873,7 @@ export const getPatientData = async (hn: string) => {
     return (rows as Record<string, unknown>[])?.length ? (rows as Record<string, unknown>[])[0] : null;
   } catch (error) {
     console.error('Error fetching patient data:', error);
-    return null;
+    throw error;
   } finally {
     connection.release();
   }
@@ -9828,7 +9888,6 @@ export const testConnection = async () => {
     return true;
   } catch (error) {
     console.error('❌ Failed to connect to HOSxP database:', error);
-    console.log('⚠️ Will use mock data instead');
     return false;
   } finally {
     connection.release();
@@ -11255,7 +11314,7 @@ export const importFdhStatusForDateRange = async (options: {
       const vn = normalizeImportCellValue(row.vn);
       if (!vn) { summary.skipped += 1; continue; }
       try {
-        const res = await fetch(trackUrl, {
+        const res = await fetchWithTimeout(trackUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -11321,7 +11380,7 @@ export const trackFdhStatusForVns = async (options: {
       if (!vn?.trim()) { summary.skipped += 1; continue; }
       let httpStatus = 0;
       try {
-        const apiRes = await fetch(trackUrl, {
+        const apiRes = await fetchWithTimeout(trackUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${options.token}` },
           body: JSON.stringify({ seq: vn }),

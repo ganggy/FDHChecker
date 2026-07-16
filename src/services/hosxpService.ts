@@ -1,14 +1,6 @@
 // บริการเชื่อมต่อฐานข้อมูล HOSxP
 import type { CheckRecord } from '../mockData';
 
-// การตั้งค่าการเชื่อมต่อ HOSxP
-export const HOSXP_CONFIG = {
-  host: '192.168.2.254',
-  user: 'opd',
-  password: 'opd',
-  database: 'hos',
-};
-
 // ฟังก์ชันเชื่อมต่อและดึงข้อมูล HOSxP
 export const fetchHOSxPData = async (
   fundType?: string,

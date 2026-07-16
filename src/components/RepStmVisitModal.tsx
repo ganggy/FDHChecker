@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchAppSettings, fetchRcmdbData } from '../services/hosxpService';
+import { loadRepErrorCatalog, type RepErrorCatalogEntry } from '../services/repErrorCatalogService';
 
 type VisitRef = {
   vn?: string | null;
@@ -16,7 +17,6 @@ type Props = {
 type DataType = 'REP' | 'STM' | 'INV';
 type VisitData = Record<DataType, Record<string, unknown>[]>;
 type CodeNotes = Record<string, string>;
-type CatalogEntry = { type: string; description: string; guide: string };
 
 const displayValue = (value: unknown) => {
   if (value == null || value === '') return '-';
@@ -117,7 +117,7 @@ const splitCodes = (value: unknown) => String(value ?? '')
   .map((code) => code.trim().toUpperCase())
   .filter(Boolean);
 
-const getErrorExplanation = (row: Record<string, unknown>, code: string, notes: CodeNotes, catalog: Record<string, CatalogEntry>) => {
+const getErrorExplanation = (row: Record<string, unknown>, code: string, notes: CodeNotes, catalog: Record<string, RepErrorCatalogEntry>) => {
   const normalizedCode = code.replace(/\s+/g, '');
   const catalogCode = catalog[normalizedCode] ? normalizedCode : /^C\d+$/.test(normalizedCode) ? normalizedCode.slice(1) : normalizedCode;
   const specific = notes[code] || notes[normalizedCode] || notes[catalogCode];
@@ -138,7 +138,7 @@ export const RepStmVisitModal = ({ visit, onClose }: Props) => {
   const [loading, setLoading] = useState(hasVisitKey);
   const [error, setError] = useState(hasVisitKey ? '' : 'visit นี้ไม่มี VN หรือ AN จึงไม่สามารถจับคู่ REP/STM/INV อย่างปลอดภัยได้');
   const [codeNotes, setCodeNotes] = useState<CodeNotes>({});
-  const [errorCatalog, setErrorCatalog] = useState<Record<string, CatalogEntry>>({});
+  const [errorCatalog, setErrorCatalog] = useState<Record<string, RepErrorCatalogEntry>>({});
 
   useEffect(() => {
     let active = true;
@@ -153,8 +153,8 @@ export const RepStmVisitModal = ({ visit, onClose }: Props) => {
     fetchAppSettings<{ rep_deny_notes?: { codeNotes?: CodeNotes } }>()
       .then((settings) => { if (active) setCodeNotes(settings.data?.rep_deny_notes?.codeNotes || {}); })
       .catch(() => {});
-    import('../config/repErrorCatalog.json')
-      .then((module) => { if (active) setErrorCatalog(module.default as Record<string, CatalogEntry>); })
+    loadRepErrorCatalog()
+      .then((catalog) => { if (active) setErrorCatalog(catalog); })
       .catch(() => {});
     return () => { active = false; };
   }, [hasVisitKey, visit]);

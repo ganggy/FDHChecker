@@ -1,6 +1,7 @@
 import type mysql from 'mysql2/promise';
 import businessRules from './config/business_rules.json';
 import { ensureRepstmTables, getRepstmConnection } from './db.js';
+import { fetchWithTimeout } from './httpClient.js';
 
 type PpfsMetric = 'SUM_PAID' | 'CNT_VISIT' | 'CNT_PID';
 
@@ -272,12 +273,12 @@ export const getPpfsNhsoReport = async (options: { hcode?: string; metric?: stri
   const metric = (toText(options.metric || 'SUM_PAID').toUpperCase() as PpfsMetric);
   const safeMetric: PpfsMetric = metric in PPFS_METRICS ? metric : 'SUM_PAID';
   const url = `https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=${encodeURIComponent(hcode)}&metric=${encodeURIComponent(safeMetric)}`;
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     headers: {
       'User-Agent': 'FDHChecker/1.0 PPFS benchmark',
       Accept: 'text/html,application/xhtml+xml',
     },
-  });
+  }, 30_000);
   if (!response.ok) {
     throw new Error(`NHSO PPFS report HTTP ${response.status}`);
   }

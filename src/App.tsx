@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { LoginPage } from './pages/LoginPage';
 import { adminOnlyPages, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
-import { fetchMe, logout, type AuthSession } from './services/authService';
+import { changePassword, fetchMe, logout, type AuthSession } from './services/authService';
 import type { AppPage } from './utils/navigationState';
 import businessRules from './config/business_rules.json';
 import './App.css';
@@ -47,6 +47,12 @@ function App() {
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
   const siteSettings = (businessRules as { site_settings?: { hospital_name?: string; nhso_region?: string } }).site_settings || {};
   const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
@@ -66,6 +72,15 @@ function App() {
     fetchMe()
       .then((session) => setAuthSession(session))
       .finally(() => setAuthLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setAuthSession(null);
+      setCurrentPage('staff');
+    };
+    window.addEventListener('fdh:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('fdh:unauthorized', handleUnauthorized);
   }, []);
 
   const canOpenPage = useCallback((page: AppPage) => allowedPageSet.has(page), [allowedPageSet]);
@@ -107,6 +122,38 @@ function App() {
     await logout();
     setAuthSession(null);
     setCurrentPage('staff');
+  };
+
+  const closePasswordDialog = () => {
+    if (passwordSaving) return;
+    setPasswordDialogOpen(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    if (newPassword.length < 12) {
+      setPasswordError('รหัสผ่านใหม่ต้องมีอย่างน้อย 12 ตัวอักษร');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('ยืนยันรหัสผ่านใหม่ไม่ตรงกัน');
+      return;
+    }
+    try {
+      setPasswordSaving(true);
+      await changePassword(currentPassword, newPassword);
+      setPasswordDialogOpen(false);
+      setAuthSession(null);
+      setCurrentPage('staff');
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : 'เปลี่ยนรหัสผ่านไม่สำเร็จ');
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   if (authLoading) {
@@ -160,6 +207,9 @@ function App() {
               <div>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</div>
               <div>{new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
             </div>
+            <button className="nav-btn nav-icon-btn" onClick={() => setPasswordDialogOpen(true)} title="เปลี่ยนรหัสผ่าน">
+              <span style={{ fontSize: '1.15rem' }}>🔑</span>
+            </button>
             {canOpenPage('settings') && (
               <button
                 className={`nav-btn nav-icon-btn ${currentPage === 'settings' ? 'active' : ''}`}
@@ -275,6 +325,30 @@ function App() {
         {currentPage === 'memberAdmin' && <MemberAdminPage />}
         </Suspense>
       </div>
+      {passwordDialogOpen && (
+        <div className="password-dialog-backdrop" role="presentation" onMouseDown={closePasswordDialog}>
+          <section className="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header>
+              <div>
+                <h2 id="password-dialog-title">เปลี่ยนรหัสผ่าน</h2>
+                <p>ระบบจะออกจากทุกอุปกรณ์หลังเปลี่ยนสำเร็จ</p>
+              </div>
+              <button type="button" onClick={closePasswordDialog} aria-label="ปิด">✕</button>
+            </header>
+            <div className="password-dialog-body">
+              <label>รหัสผ่านปัจจุบัน<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+              <label>รหัสผ่านใหม่<input type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+              <label>ยืนยันรหัสผ่านใหม่<input type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} /></label>
+              <small>อย่างน้อย 12 ตัวอักษร และต้องไม่ซ้ำกับรหัสผ่านเดิม</small>
+              {passwordError && <div className="alert alert-danger">{passwordError}</div>}
+            </div>
+            <footer>
+              <button type="button" className="btn" onClick={closePasswordDialog} disabled={passwordSaving}>ยกเลิก</button>
+              <button type="button" className="btn btn-primary" onClick={() => void handleChangePassword()} disabled={passwordSaving || !currentPassword || !newPassword || !confirmPassword}>{passwordSaving ? 'กำลังบันทึก…' : 'เปลี่ยนรหัสผ่าน'}</button>
+            </footer>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

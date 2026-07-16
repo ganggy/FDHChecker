@@ -15,6 +15,7 @@ import {
   getExportData,
   getReceiptItems,
   getDrugPrices,
+  getPatientData,
   getVisitChargeItems,
   getServiceADPCodes,
   getKidneyMonitorDetailed,
@@ -27,6 +28,7 @@ import {
   getMemberAdminData,
   loginAppUser,
   logoutAppUser,
+  changeAppUserPassword,
   registerAppUser,
   saveMemberGroup,
   updateMemberUser,
@@ -72,6 +74,16 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getPpfsNhsoReport } from './ppfsReport.js';
+import { fetchWithTimeout } from './httpClient.js';
+import {
+  anonymousApiWriteGuard,
+  apiErrorHandler,
+  apiNotFoundHandler,
+  dateRangeGuard,
+  jsonBodyParserMiddleware,
+  requestTracingMiddleware,
+} from './requestSafety.js';
+import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -79,8 +91,40 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: '25mb' }));
+app.disable('x-powered-by');
+if (String(process.env.TRUST_PROXY || '') === '1') app.set('trust proxy', 1);
+
+const configuredCorsOrigins = String(process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const developmentCorsOrigins = String(process.env.NODE_ENV || '').toLowerCase() === 'production'
+  ? []
+  : ['http://localhost:3507', 'http://127.0.0.1:3507'];
+const allowedCorsOrigins = new Set([...configuredCorsOrigins, ...developmentCorsOrigins]);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedCorsOrigins.has(origin)) return callback(null, true);
+    return callback(null, false);
+  },
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 600,
+}));
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+app.use(requestTracingMiddleware);
+
+// Reject anonymous write payloads before parsing them. Full token validation still happens below.
+app.use('/api', anonymousApiWriteGuard);
+app.use(jsonBodyParserMiddleware);
 
 type AuthenticatedRequest = Request & {
   authUser?: Awaited<ReturnType<typeof getAuthUserByToken>>;
@@ -124,14 +168,57 @@ const requireAuth = async (req: AuthenticatedRequest, res: Response, next: NextF
 };
 
 const requireAdmin = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  await requireAuth(req, res, () => {
+  const verifyAdmin = () => {
     const user = req.authUser;
     if (!user || !(user.is_admin || user.group_is_admin)) {
       return res.status(403).json({ success: false, error: 'ต้องเป็นผู้ดูแลระบบ' });
     }
     next();
-  });
+  };
+  if (req.authUser) {
+    verifyAdmin();
+    return;
+  }
+  await requireAuth(req, res, verifyAdmin);
 };
+
+type RateLimitEntry = { count: number; resetAt: number };
+const createRateLimiter = (options: { windowMs: number; max: number; message: string }) => {
+  const entries = new Map<string, RateLimitEntry>();
+  return (req: Request, res: Response, next: NextFunction) => {
+    const now = Date.now();
+    const key = String(req.ip || req.socket.remoteAddress || 'unknown');
+    const current = entries.get(key);
+    const entry = !current || current.resetAt <= now
+      ? { count: 0, resetAt: now + options.windowMs }
+      : current;
+    entry.count += 1;
+    entries.set(key, entry);
+    if (entries.size > 5000) {
+      for (const [entryKey, value] of entries) {
+        if (value.resetAt <= now) entries.delete(entryKey);
+      }
+    }
+    res.setHeader('X-RateLimit-Limit', String(options.max));
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, options.max - entry.count)));
+    if (entry.count > options.max) {
+      res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
+      return res.status(429).json({ success: false, error: options.message });
+    }
+    next();
+  };
+};
+
+const loginRateLimit = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: 'เข้าสู่ระบบผิดพลาดหลายครั้งเกินไป กรุณารอ 15 นาที',
+});
+const registerRateLimit = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: 'สมัครสมาชิกหลายครั้งเกินไป กรุณารอ 1 ชั่วโมง',
+});
 
 const CONFIG_SETTING_KEY = 'business_rules';
 const APP_SETTINGS_KEY = 'site_settings';
@@ -293,7 +380,21 @@ const getDefaultMophClaimConfig = () => ({
   hcode: '',
 });
 
-app.post('/api/auth/login', async (req, res) => {
+const SECRET_PLACEHOLDER = '***';
+const maskConfigSecrets = (config: Record<string, unknown>, fields: string[]) => {
+  const masked = { ...config };
+  fields.forEach((field) => {
+    masked[field] = String(config[field] || '') ? SECRET_PLACEHOLDER : '';
+  });
+  return masked;
+};
+
+const preserveSecret = (incoming: unknown, current: unknown) => {
+  if (incoming == null || incoming === '' || incoming === SECRET_PLACEHOLDER) return String(current || '');
+  return String(incoming);
+};
+
+app.post('/api/auth/login', loginRateLimit, async (req, res) => {
   try {
     const username = String(req.body?.username || '');
     const password = String(req.body?.password || '');
@@ -311,7 +412,7 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', registerRateLimit, async (req, res) => {
   try {
     const result = await registerAppUser({
       username: String(req.body?.username || ''),
@@ -332,13 +433,30 @@ app.get('/api/auth/me', requireAuth, async (req: AuthenticatedRequest, res) => {
   res.json({ success: true, user: publicUserPayload(req.authUser!) });
 });
 
-app.post('/api/auth/logout', async (req, res) => {
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
   try {
     await logoutAppUser(extractBearerToken(req));
     res.json({ success: true });
   } catch (error) {
     console.error('Logout error:', error);
     res.status(500).json({ success: false, error: 'Cannot logout' });
+  }
+});
+
+app.post('/api/auth/change-password', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const result = await changeAppUserPassword(
+      Number(req.authUser?.id || 0),
+      String(req.body?.currentPassword || ''),
+      String(req.body?.newPassword || ''),
+    );
+    if (!result.success) {
+      return res.status(result.status || 400).json({ success: false, error: result.error });
+    }
+    res.json({ success: true, message: 'เปลี่ยนรหัสผ่านแล้ว กรุณาเข้าสู่ระบบใหม่' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ success: false, error: 'Cannot change password' });
   }
 });
 
@@ -388,6 +506,65 @@ app.post('/api/admin/groups', requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, error: 'Cannot save group' });
   }
 });
+
+// All API routes declared below this point require an approved, active user.
+// Health remains public for PM2/reverse-proxy readiness checks and contains no infrastructure details.
+app.use('/api', (req: AuthenticatedRequest, res, next) => {
+  if (req.path === '/health') return next();
+  return void requireAuth(req, res, next);
+});
+
+// Configuration may be read by authenticated workflow pages, but only admins may change it.
+app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  return void requireAdmin(req, res, next);
+});
+
+type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean };
+const apiPageRules: ApiPageRule[] = [
+  { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
+  { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },
+  { pattern: /^\/config\/fdh-api-settings(\/|$)/, pages: ['settings', 'fdhImport'] },
+  { pattern: /^\/config\/nhso-authen-settings(\/|$)/, pages: ['settings', 'authenSync'] },
+  { pattern: /^\/config\/nhso-close-settings(\/|$)/, pages: ['settings', 'nhsoClose'] },
+  { pattern: /^\/config\/nhso-eclaim-settings(\/|$)/, pages: ['settings', 'repstm'] },
+  { pattern: /^\/nhso\/authen(\/|$)/, pages: ['authenSync'] },
+  { pattern: /^\/nhso\/close(\/|$)/, pages: ['nhsoClose'] },
+  { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
+  { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
+  { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/receivable(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
+  { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
+  { pattern: /^\/rep-(daily|deny)(\/|$)/, pages: ['repDailySummary', 'repDeny'] },
+  { pattern: /^\/uuc1(\/|$)/, pages: ['uuc1Tracking'] },
+  { pattern: /^\/ppfs(\/|$)/, pages: ['ppfsBenchmark', 'ppfsVisitMatch'] },
+  { pattern: /^\/work-queue(\/|$)/, pages: ['workQueue'] },
+  { pattern: /^\/reject-tracking(\/|$)/, pages: ['rejectTracking'] },
+  { pattern: /^\/moph\/dmht(\/|$)/, pages: ['mophDmht'] },
+  { pattern: /^\/moph\/vaccine(\/|$)/, pages: ['mophVaccine'] },
+  { pattern: /^\/insurance(\/|$)/, pages: ['insuranceOverview', 'receivable'] },
+  { pattern: /^\/fdh\/claim-detail(\/|$)/, pages: ['fdhClaimDetail', 'reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/fdh\/import-status(\/|$)/, pages: ['fdhImport', 'fdh', 'reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/fdh(\/|$)/, pages: ['fdh', 'fundFdh', 'fdhImport', 'staff', 'ipd'] },
+  { pattern: /^\/hosxp\/ipd(\/|$)/, pages: ['ipd', 'ipdClaimMonitor'] },
+  { pattern: /^\/hosxp(\/|$)/, pages: ['staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup'] },
+];
+
+app.use('/api', (req: AuthenticatedRequest, res, next) => {
+  if (req.path === '/health') return next();
+  const user = req.authUser;
+  if (!user) return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ' });
+  if (user.is_admin || user.group_is_admin) return next();
+  const rule = apiPageRules.find((item) => item.pattern.test(req.path));
+  if (!rule) return next();
+  if (rule.adminOnly) return res.status(403).json({ success: false, error: 'ต้องเป็นผู้ดูแลระบบ' });
+  const permissions = new Set(Array.isArray(user.menu_permissions) ? user.menu_permissions.map(String) : []);
+  if (rule.pages?.some((page) => permissions.has(page))) return next();
+  return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์ใช้งานส่วนนี้' });
+});
+
+// Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
+app.use('/api', dateRangeGuard);
 
 const getResolvedHospitalCode = async (): Promise<string> => {
   const siteSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
@@ -560,7 +737,7 @@ const getMophClaimToken = async (config: Record<string, unknown>) => {
   tokenUrl.searchParams.set('password_hash', passwordHash);
   tokenUrl.searchParams.set('hospital_code', hcode);
 
-  const response = await fetch(tokenUrl.toString(), { method: 'POST' });
+  const response = await fetchWithTimeout(tokenUrl.toString(), { method: 'POST' });
   const text = await response.text();
   if (!response.ok) {
     throw new Error(`MOPH token ไม่สำเร็จ: ${text.slice(0, 300)}`);
@@ -588,7 +765,7 @@ const postMophClaimJson = async (
   token: string,
   payload: Record<string, unknown>,
 ) => {
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -700,106 +877,9 @@ testDatabaseConnection().then(result => {
     console.log(`🔄 Using REAL DATABASE DATA as primary source`);
   } else {
     console.error('❌ HOSxP Database Connection Failed:', result.error);
-    console.log('🔄 Will use mock data as fallback');
+    console.error('⛔ HOSxP-dependent APIs will report service unavailable until the connection recovers');
   }
 });
-
-// Mock data for fallback
-const getMockData = () => [
-  {
-    id: 1,
-    hn: '123456',
-    vn: '2601234',
-    patientName: 'นายสมชาย ใจดี',
-    fund: 'UCS',
-    serviceDate: '2026-03-15',
-    serviceType: 'OPD',
-    price: 1200,
-    status: 'สมบูรณ์',
-    issues: [],
-    details: {
-      drugCode: 'D001',
-      procedureCode: 'P001',
-      rightCode: 'R001',
-      standardPrice: 1200,
-      notes: 'ข้อมูลครบถ้วน',
-    },
-  },
-  {
-    id: 2,
-    hn: '234567',
-    vn: '2601235',
-    patientName: 'นางสาวสายใจ รักดี',
-    fund: 'SSS',
-    serviceDate: '2026-03-15',
-    serviceType: 'IPD',
-    price: 3500,
-    status: 'ไม่สมบูรณ์',
-    issues: ['ขาดรหัสหัตถการ', 'ราคาไม่ตรงมาตรฐาน'],
-    details: {
-      drugCode: 'D002',
-      procedureCode: '',
-      rightCode: 'R002',
-      standardPrice: 3500,
-      notes: 'มีปัญหาต้องแก้',
-    },
-  }, {
-    id: 3,
-    hn: '345678',
-    vn: '2601236',
-    patientName: 'เด็กชายภูผา กล้าหาญ',
-    fund: 'UCS',
-    serviceDate: '2026-03-15',
-    serviceType: 'OPD',
-    price: 800,
-    status: 'สมบูรณ์',
-    issues: [],
-    details: {
-      drugCode: 'D003',
-      procedureCode: 'P003',
-      rightCode: 'R003',
-      standardPrice: 800,
-      notes: 'ข้อมูลครบถ้วน',
-    },
-  },
-  {
-    id: 4,
-    hn: '456789',
-    vn: '2601237',
-    patientName: 'นายมงคล สุขสันต์',
-    fund: 'OFC',
-    serviceDate: '2026-03-15',
-    serviceType: 'IPD',
-    price: 5200,
-    status: 'ไม่สมบูรณ์',
-    issues: ['ขาดรหัสหัตถการ'],
-    details: {
-      drugCode: 'D004',
-      procedureCode: '',
-      rightCode: 'R004',
-      standardPrice: 5200,
-      notes: 'มีปัญหาต้องแก้',
-    },
-  }, {
-    id: 5,
-    hn: '567890',
-    vn: '2601238',
-    patientName: 'นางนิยม เรียบร้อย',
-    fund: 'LGO',
-    serviceDate: '2026-03-15',
-    serviceType: 'OPD',
-    price: 950,
-    status: 'สมบูรณ์',
-    issues: [],
-    details: {
-      drugCode: 'D005',
-      procedureCode: 'P005',
-      rightCode: 'R005',
-      standardPrice: 950,
-      notes: 'ข้อมูลครบถ้วน',
-    },
-  },
-];
 
 // API สำหรับดึงข้อมูลตรวจสอบจาก HOSxP - ใช้ข้อมูลจริงเป็นหลัก
 app.get('/api/hosxp/checks', async (req, res) => {
@@ -815,12 +895,9 @@ app.get('/api/hosxp/checks', async (req, res) => {
       endDate as string | undefined
     );
 
-    let usingRealData = false;
-
     // ตรวจสอบว่าได้ข้อมูลจริงหรือไม่
     if (Array.isArray(data) && data.length > 0) {
       console.log(`✅ SUCCESS: Got ${data.length} REAL records from HOSxP database`);
-      usingRealData = true;
     } else {
       console.log(`⚠️ No real data available - trying database connection test...`);
 
@@ -831,26 +908,15 @@ app.get('/api/hosxp/checks', async (req, res) => {
         console.log('✅ Database connected with data - empty result likely due to date/fund filters');
         // ถ้าฐานข้อมูลเชื่อมต่อได้แต่ไม่มีข้อมูลในช่วงที่กรอง ให้ return array ว่าง
         data = [];
-        usingRealData = true;
       } else {
-        console.log(`❌ Database connection failed: ${dbStatus.error || 'Unknown error'}`);
-        console.log('🔄 Falling back to mock data...');
-
-        // ===== ขั้นตอนที่ 2: ใช้ Mock Data เป็น Fallback =====
-        data = getMockData();
-
-        // กรองข้อมูล mock ตามเงื่อนไข
-        if (startDate && endDate) {
-          data = data.filter((item: Record<string, unknown>) => {
-            const itemDate = item.serviceDate as string;
-            return itemDate >= (startDate as string) && itemDate <= (endDate as string);
-          });
-        }
-        if (fund && fund !== 'ทั้งหมด') {
-          data = data.filter((item: Record<string, unknown>) => item.fund === fund);
-        }
-
-        usingRealData = false;
+        console.error(`❌ Database connection failed: ${dbStatus.error || 'Unknown error'}`);
+        return res.status(503).json({
+          success: false,
+          dataSource: 'HOSxP-Database',
+          totalRecords: 0,
+          data: [],
+          error: 'ไม่สามารถเชื่อมต่อฐานข้อมูล HOSxP ได้ กรุณาลองใหม่ภายหลัง',
+        });
       }
     }
     // ===== ขั้นตอนที่ 3: เพิ่มสถานะให้ทุกรายการ =====
@@ -941,14 +1007,14 @@ app.get('/api/hosxp/checks', async (req, res) => {
           : hasAuthenPp
             ? 'มี Authen (PP)'
             : 'ยังไม่มีสถานะ FDH',
-        _dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback'
+        _dataSource: 'HOSxP-Database'
       };
     });
 
     // ===== ขั้นตอนที่ 4: ส่งผลลัพธ์พร้อมข้อมูลการทำงาน =====
     const responseData = {
       success: true,
-      dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback',
+      dataSource: 'HOSxP-Database',
       totalRecords: dataWithStatus.length,
       filters: {
         fund: fund || 'ทั้งหมด',
@@ -957,45 +1023,16 @@ app.get('/api/hosxp/checks', async (req, res) => {
       },
       data: dataWithStatus,
       timestamp: new Date().toISOString()
-    }; console.log(`✅ RESPONSE: ${dataWithStatus.length} records from ${usingRealData ? 'REAL DATABASE' : 'MOCK DATA'}`);
+    }; console.log(`✅ RESPONSE: ${dataWithStatus.length} records from HOSxP database`);
     res.json(responseData);
   } catch (error) {
     console.error('Error fetching checks:', error);
-    // Fallback to mock data on error
-    const { fund, startDate, endDate } = req.query;
-    let data = getMockData();
-    if (startDate && endDate) {
-      data = data.filter((item: Record<string, unknown>) => {
-        const itemDate = item.serviceDate as string;
-        return itemDate >= (startDate as string) && itemDate <= (endDate as string);
-      });
-    }
-    if (fund) {
-      data = data.filter((item: Record<string, unknown>) => item.fund === fund);
-    }
-
-    // Add status field for fallback data too
-    const dataWithStatus = data.map((record: Record<string, unknown>) => {
-      const hasHN = record.hn && String(record.hn).trim().length > 0;
-      const hasPatientName = record.patientName && String(record.patientName).trim().length > 0;
-      const hasPrice = record.price && Number(record.price) > 0;
-      const hasFund = record.fund && String(record.fund).trim().length > 0;
-      const isComplete = hasHN && hasPatientName && hasPrice && hasFund;
-
-      return {
-        ...record,
-        status: isComplete ? 'สมบูรณ์' : 'ไม่สมบูรณ์',
-        issues: !isComplete ? ['ข้อมูลไม่ครบถ้วน'] : [],
-        _dataSource: 'Error-Fallback'
-      };
-    });
-
-    res.json({
+    res.status(503).json({
       success: false,
-      dataSource: 'Error-Fallback',
-      totalRecords: dataWithStatus.length,
-      data: dataWithStatus,
-      error: 'Database connection failed'
+      dataSource: 'HOSxP-Database',
+      totalRecords: 0,
+      data: [],
+      error: 'ไม่สามารถอ่านข้อมูล HOSxP ได้ กรุณาลองใหม่ภายหลัง',
     });
   }
 });
@@ -1137,98 +1174,7 @@ app.get('/api/hosxp/services/:vn', async (req, res) => {
     console.log(`🏥 Fetching REAL ADP services for VN: ${vn}`);
 
     // Always try to fetch from database first
-    let services = await getServiceADPCodes(vn);
-
-    // Only use mock data if database query returns empty or error
-    if (!Array.isArray(services) || services.length === 0) {
-      console.log(`⚠️ No real ADP service data for VN: ${vn}, using mock as fallback`);
-      const mockServiceSets = {
-        '690350441149': [
-          {
-            icode: 'IPD001',
-            income: '02',
-            income_name: 'ค่าบริการแพทย์',
-            adp_code: 'ADP001',
-            adp_name: 'การตรวจรักษาโดยแพทย์เฉพาะทาง',
-            adp_price: 500,
-            can_claim: 1,
-          },
-          {
-            icode: 'LAB001',
-            income: '03',
-            income_name: 'ค่าตรวจวิเคราะห์',
-            adp_code: 'ADP002',
-            adp_name: 'การตรวจวิเคราะห์ทางห้องปฏิบัติการ',
-            adp_price: 200,
-            can_claim: 1,
-          },
-          {
-            icode: 'XRAY001',
-            income: '04',
-            income_name: 'ค่าเอกซเรย์',
-            adp_code: null,
-            adp_name: null,
-            adp_price: 0,
-            can_claim: 0,
-          }
-        ],
-        '690351541353': [
-          {
-            icode: 'OPD001',
-            income: '01',
-            income_name: 'ค่าบริการ OPD',
-            adp_code: 'ADP001',
-            adp_name: 'การตรวจรักษาผู้ป่วยนอก',
-            adp_price: 300,
-            can_claim: 1,
-          }
-        ],
-        '690351555432': [
-          {
-            icode: 'OPD002',
-            income: '01',
-            income_name: 'ค่าบริการผู้ป่วยนอก',
-            adp_code: 'ADP003',
-            adp_name: 'การตรวจรักษาทั่วไป',
-            adp_price: 200,
-            can_claim: 1,
-          },
-          {
-            icode: 'DRUG001',
-            income: '05',
-            income_name: 'ค่าจ่ายยา',
-            adp_code: null,
-            adp_name: null,
-            adp_price: 0,
-            can_claim: 0,
-          }
-        ],
-        '2601234': [
-          {
-            icode: 'IPD002',
-            income: '02',
-            income_name: 'ค่าบริการผู้ป่วยใน',
-            adp_code: 'ADP004',
-            adp_name: 'การรักษาผู้ป่วยใน',
-            adp_price: 800,
-            can_claim: 1,
-          }
-        ],
-        'default': [
-          {
-            icode: 'OPD001',
-            income: '01',
-            income_name: 'ค่าบริการ OPD',
-            adp_code: 'ADP001',
-            adp_name: 'การตรวจรักษาผู้ป่วยนอก',
-            adp_price: 300,
-            can_claim: 1,
-          }
-        ]
-      };
-
-      services = mockServiceSets[vn as keyof typeof mockServiceSets] || mockServiceSets.default;
-    }
+    const services = await getServiceADPCodes(vn);
 
     console.log(`✅ Returning ${services.length} ADP service items`);
     res.json(services);
@@ -1239,23 +1185,21 @@ app.get('/api/hosxp/services/:vn', async (req, res) => {
 });
 
 // API สำหรับดึงข้อมูลผู้ป่วย
-app.get('/api/hosxp/patients/:hn', (req, res) => {
+app.get('/api/hosxp/patients/:hn', async (req, res) => {
   try {
     const { hn } = req.params;
-    const patient = getMockData().find(r => r.hn === hn);
+    const patient = await getPatientData(hn);
 
     if (!patient) {
       return res.status(404).json({ error: 'Patient not found' });
     }
 
     res.json({
-      hn: patient.hn,
-      patientName: patient.patientName,
-      fund: patient.fund,
+      ...patient,
     });
   } catch (error) {
     console.error('Error fetching patient:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    res.status(503).json({ success: false, error: 'ไม่สามารถอ่านข้อมูลผู้ป่วยจาก HOSxP ได้' });
   }
 });
 
@@ -1357,10 +1301,8 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       fund as string
     );
 
-    const usingRealData = true; // getVisitsCached handles fallback internally
-
     if (!Array.isArray(data) || data.length === 0) {
-      console.log(`⚠️ No eligible visits found for the given criteria, even with cache/fallback.`);
+      console.log(`⚠️ No eligible visits found for the given criteria.`);
       data = []; // Ensure data is an empty array if nothing found
     } else {
       console.log(`✅ Found ${data.length} eligible visits (from cache or database).`);
@@ -1478,13 +1420,13 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         status,
         isPotentialClaim: isSpecialFund,
         isBillable,
-        _dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback' // getVisitsCached will indicate source
+        _dataSource: 'HOSxP-Database'
       };
     });
 
     res.json({
       success: true,
-      dataSource: usingRealData ? 'HOSxP-Database' : 'Mock-Fallback',
+      dataSource: 'HOSxP-Database',
       totalRecords: enrichedData.length,
       data: enrichedData,
       timestamp: new Date().toISOString()
@@ -1660,24 +1602,11 @@ app.get('/api/hosxp/funds', async (req, res) => {
 
       res.json(funds);
     } else {
-      // Fallback to mock funds
-      const mockFunds = [
-        { id: 'UCS', name: 'กองทุนหลักประกันสุขภาพถ้วนหน้า (UCS)' },
-        { id: 'SSS', name: 'กองทุนประกันสังคม (SSS)' },
-        { id: 'OFC', name: 'กองทุนข้าราชการ (OFC)' },
-        { id: 'LGO', name: 'กองทุน อปท.' },
-      ];
-      res.json(mockFunds);
+      res.json([]);
     }
   } catch (error) {
     console.error('Error fetching funds:', error);
-    const mockFunds = [
-      { id: 'UCS', name: 'กองทุนหลักประกันสุขภาพถ้วนหน้า (UCS)' },
-      { id: 'SSS', name: 'กองทุนประกันสังคม (SSS)' },
-      { id: 'OFC', name: 'กองทุนข้าราชการ (OFC)' },
-      { id: 'LGO', name: 'กองทุน อปท.' },
-    ];
-    res.json(mockFunds);
+    res.status(503).json({ success: false, error: 'ไม่สามารถอ่านรายการกองทุนจาก HOSxP ได้' });
   }
 });
 
@@ -2058,14 +1987,15 @@ app.get('/api/hosxp/status', async (req, res) => {
         error: dbStatus.error || null,
       },
       server: {
-        status: 'running', mode: dbStatus.isConnected ? 'real-data' : 'mock-fallback',
+        status: dbStatus.isConnected ? 'running' : 'degraded',
+        mode: dbStatus.isConnected ? 'real-data' : 'database-unavailable',
         timestamp: new Date().toISOString(),
       },
     });
   } catch {
     res.status(500).json({
       database: { connected: false, error: 'Connection test failed' },
-      server: { status: 'error', mode: 'mock-fallback' },
+      server: { status: 'error', mode: 'database-unavailable' },
     });
   }
 });
@@ -2135,10 +2065,10 @@ app.get('/api/test/ovstost-values', async (req, res) => {
     // ดึงค่า ovstost ที่มีในระบบพร้อมจำนวน
     const mysql = await import('mysql2/promise');
     const pool = mysql.default.createPool({
-      host: process.env.HOSXP_HOST || '192.168.2.254',
-      user: process.env.HOSXP_USER || 'opd',
-      password: process.env.HOSXP_PASSWORD || 'opd',
-      database: process.env.HOSXP_DB || 'hos',
+      host: process.env.HOSXP_HOST,
+      user: process.env.HOSXP_USER,
+      password: process.env.HOSXP_PASSWORD,
+      database: process.env.HOSXP_DB,
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0
@@ -2408,7 +2338,7 @@ app.post('/api/fdh/import-status', async (req, res) => {
       };
 
       try {
-        const response = await fetch(endpoint, {
+        const response = await fetchWithTimeout(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -3403,7 +3333,7 @@ app.get('/api/config/fdh-api-settings', async (req, res) => {
     const resolvedConfig = await getResolvedFdhApiConfig();
     res.json({
       success: true,
-      data: resolvedConfig,
+      data: maskConfigSecrets(resolvedConfig, ['password']),
       source: config ? 'database' : 'default'
     });
   } catch (error) {
@@ -3415,9 +3345,12 @@ app.get('/api/config/fdh-api-settings', async (req, res) => {
 app.post('/api/config/fdh-api-settings', async (req, res) => {
   try {
     const resolvedHospitalCode = await getResolvedHospitalCode();
+    const current = await getResolvedFdhApiConfig();
     const payload = {
       ...getDefaultFdhApiConfig(),
+      ...current,
       ...(req.body || {}),
+      password: preserveSecret(req.body?.password, current.password),
       hcode: resolvedHospitalCode || String((req.body || {}).hcode || '')
     };
     await setAppSetting(FDH_API_SETTINGS_KEY, payload);
@@ -3431,7 +3364,7 @@ app.post('/api/config/fdh-api-settings', async (req, res) => {
 app.get('/api/config/nhso-authen-settings', async (_req, res) => {
   try {
     const data = await getResolvedNhsoAuthenConfig();
-    res.json({ success: true, data });
+    res.json({ success: true, data: maskConfigSecrets(data, ['token']) });
   } catch (error) {
     console.error('Error reading NHSO authen settings:', error);
     res.status(500).json({ success: false, error: 'Cannot read NHSO authen settings' });
@@ -3444,7 +3377,7 @@ app.post('/api/config/nhso-authen-settings', async (req, res) => {
     const payload = {
       ...current,
       environment: req.body?.environment === 'uat' ? 'uat' : 'prd',
-      token: String(req.body?.token || current.token || ''),
+      token: preserveSecret(req.body?.token, current.token),
       apiBaseUrl: String(req.body?.apiBaseUrl || current.apiBaseUrl || ''),
       maxDays: Number(req.body?.maxDays || current.maxDays || 4),
     };
@@ -3502,7 +3435,7 @@ app.get('/api/nhso/authen/logs', async (req, res) => {
 app.get('/api/config/nhso-close-settings', async (_req, res) => {
   try {
     const data = await getResolvedNhsoCloseConfig();
-    res.json({ success: true, data });
+    res.json({ success: true, data: maskConfigSecrets(data, ['token', 'recorderPid']) });
   } catch (error) {
     console.error('Error reading NHSO close settings:', error);
     res.status(500).json({ success: false, error: 'Cannot read NHSO close settings' });
@@ -3515,11 +3448,11 @@ app.post('/api/config/nhso-close-settings', async (req, res) => {
     const payload = {
       ...current,
       environment: req.body?.environment === 'uat' ? 'uat' : 'prd',
-      token: String(req.body?.token || current.token || ''),
+      token: preserveSecret(req.body?.token, current.token),
       apiBaseUrl: String(req.body?.apiBaseUrl || current.apiBaseUrl || ''),
       sourceId: String(req.body?.sourceId || current.sourceId || 'KSPAPI'),
       claimServiceCode: String(req.body?.claimServiceCode || current.claimServiceCode || 'PG0060001'),
-      recorderPid: String(req.body?.recorderPid || current.recorderPid || ''),
+      recorderPid: preserveSecret(req.body?.recorderPid, current.recorderPid),
       maxDays: Number(req.body?.maxDays || current.maxDays || 4),
     };
     await setAppSetting(NHSO_CLOSE_SETTINGS_KEY, payload);
@@ -3729,7 +3662,7 @@ app.post('/api/fdh/request-token', async (req, res) => {
 
     for (const attempt of attempts) {
       try {
-        const response = await fetch(attempt.url, attempt.init);
+        const response = await fetchWithTimeout(attempt.url, attempt.init);
         const rawText = await response.text();
         let parsedPayload: unknown = {};
         try {
@@ -3818,7 +3751,7 @@ app.post('/api/fdh/import-status-by-date', async (req, res) => {
           password_hash: passwordHash,
           hospital_code: hospitalCode
         }).toString();
-        const tokenRes = await fetch(`${tokenEndpoint}?${query}`, { method: 'POST' });
+        const tokenRes = await fetchWithTimeout(`${tokenEndpoint}?${query}`, { method: 'POST' });
         const rawText = await tokenRes.text();
         let parsed: unknown = {};
         try { parsed = JSON.parse(rawText); } catch { /* raw */ }
@@ -3889,7 +3822,7 @@ app.post('/api/fdh/track-vns', async (req, res) => {
           password_hash: passwordHash,
           hospital_code: hospitalCode,
         }).toString();
-        const tokenRes = await fetch(`${tokenEndpoint}?${query}`, { method: 'POST' });
+        const tokenRes = await fetchWithTimeout(`${tokenEndpoint}?${query}`, { method: 'POST' });
         const rawText = await tokenRes.text();
         let parsed: unknown = {};
         try { parsed = JSON.parse(rawText); } catch { /* raw */ }
@@ -3924,7 +3857,7 @@ app.post('/api/fdh/track-vns', async (req, res) => {
 app.get('/api/config/nhso-eclaim-settings', async (_req, res) => {
   try {
     const data = await getResolvedNhsoEclaimConfig();
-    res.json({ success: true, data: { ...data, password: data.password ? '***' : '' } });
+    res.json({ success: true, data: maskConfigSecrets(data, ['password']) });
   } catch (error) {
     res.status(500).json({ success: false, error: (error as Error).message });
   }
@@ -3937,9 +3870,7 @@ app.post('/api/config/nhso-eclaim-settings', async (req, res) => {
     const payload = {
       ...current,
       username: String(req.body?.username ?? current.username ?? ''),
-      password: req.body?.password && req.body.password !== '***'
-        ? String(req.body.password)
-        : String(current.password ?? ''),
+      password: preserveSecret(req.body?.password, current.password),
       authUrl: String(req.body?.authUrl ?? current.authUrl),
       fileListUrl: String(req.body?.fileListUrl ?? current.fileListUrl),
       downloadUrl: String(req.body?.downloadUrl ?? current.downloadUrl),
@@ -4553,7 +4484,7 @@ app.post('/api/nhso-eclaim/auth', async (req, res) => {
       password,
     });
 
-    const authRes = await fetch(authUrl, {
+    const authRes = await fetchWithTimeout(authUrl, {
       method: 'POST',
       headers: { Accept: 'application/json' },
       body: formBody, // URLSearchParams → auto Content-Type: application/x-www-form-urlencoded
@@ -4636,7 +4567,7 @@ app.get('/api/nhso-eclaim/file-list', async (req, res) => {
       }
 
       try {
-        const listRes = await fetch(searchUrl.toString(), {
+        const listRes = await fetchWithTimeout(searchUrl.toString(), {
           headers: makeAuthHeaders(),
         });
         const statusCode = listRes.status;
@@ -4683,7 +4614,7 @@ app.post('/api/nhso-eclaim/download', async (req, res) => {
       ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/octet-stream, application/json, */*' }
       : { Cookie: sessionCookie!, Accept: 'application/octet-stream, */*' };
 
-    const dlRes = await fetch(targetUrl, {
+    const dlRes = await fetchWithTimeout(targetUrl, {
       method: 'POST',
       headers: dlHeaders,
       body: token ? JSON.stringify(body) : new URLSearchParams(body as Record<string, string>).toString(),
@@ -4715,126 +4646,23 @@ app.get('/api/health', async (req, res) => {
 
     res.json({
       status: 'ok',
-      database: isConnected ? 'HOSxP-Connected' : 'mock-fallback',
-      host: process.env.HOSXP_HOST || '192.168.2.254', database_name: process.env.HOSXP_DB || 'hos',
+      database: isConnected ? 'connected' : 'unavailable',
       timestamp: new Date().toISOString(),
     });
   } catch {
     res.json({
       status: 'ok',
-      database: 'mock-fallback',
+      database: 'unavailable',
       error: 'Database connection test failed',
       timestamp: new Date().toISOString(),
     });
   }
 });
 
-// ============================================================
-// Work Queue API Routes
-// ============================================================
+app.use('/api', claimTrackingRouter);
 
-app.get('/api/work-queue', async (req: Request, res: Response) => {
-  try {
-    const { getWorkQueueItems } = await import('./db.js');
-    const { status, startDate, endDate, fund, search, limit } = req.query;
-    const items = await getWorkQueueItems({
-      status: status ? String(status) : undefined,
-      startDate: startDate ? String(startDate) : undefined,
-      endDate: endDate ? String(endDate) : undefined,
-      fund: fund ? String(fund) : undefined,
-      search: search ? String(search) : undefined,
-      limit: limit ? Number(limit) : 500,
-    });
-    res.json({ success: true, data: items, count: items.length });
-  } catch (error) {
-    console.error('GET /api/work-queue error:', error);
-    res.status(500).json({ success: false, error: 'โหลดข้อมูล Work Queue ไม่สำเร็จ' });
-  }
-});
-
-app.put('/api/work-queue/:vn', async (req: Request, res: Response) => {
-  try {
-    const { upsertWorkQueueItem } = await import('./db.js');
-    const vn = String(req.params.vn || '').trim();
-    if (!vn) return res.status(400).json({ success: false, error: 'VN ไม่ถูกต้อง' });
-    const { queueStatus, assignedTo, notes } = req.body as Record<string, string>;
-    const result = await upsertWorkQueueItem({ vn, queueStatus, assignedTo, notes });
-    return res.json(result);
-  } catch (error) {
-    console.error('PUT /api/work-queue error:', error);
-    return res.status(500).json({ success: false, error: 'อัปเดต Work Queue ไม่สำเร็จ' });
-  }
-});
-
-app.post('/api/work-queue/bulk', async (req: Request, res: Response) => {
-  try {
-    const { bulkUpsertWorkQueue } = await import('./db.js');
-    const { items } = req.body as { items: Array<Record<string, unknown>> };
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ success: false, error: 'ไม่พบรายการที่จะเพิ่ม' });
-    }
-    const mapped = items.map((item) => ({
-      vn: String(item.vn || item.vstId || ''),
-      hn: String(item.hn || ''),
-      patientName: String(item.patient_name || item.patientName || ''),
-      fund: String(item.maininscl || item.fund || ''),
-      serviceDate: String(item.vstdate || item.serviceDate || '').slice(0, 10),
-    }));
-    const result = await bulkUpsertWorkQueue(mapped);
-    return res.json(result);
-  } catch (error) {
-    console.error('POST /api/work-queue/bulk error:', error);
-    return res.status(500).json({ success: false, error: 'เพิ่ม Work Queue ไม่สำเร็จ' });
-  }
-});
-
-// ============================================================
-// Reject Tracking API Routes
-// ============================================================
-
-app.get('/api/reject-tracking', async (req: Request, res: Response) => {
-  try {
-    const { getRejectTrackingItems } = await import('./db.js');
-    const { startDate, endDate, errorcode, resolveStatus, fund, search, limit } = req.query;
-    const items = await getRejectTrackingItems({
-      startDate: startDate ? String(startDate) : undefined,
-      endDate: endDate ? String(endDate) : undefined,
-      errorcode: errorcode ? String(errorcode) : undefined,
-      resolveStatus: resolveStatus ? String(resolveStatus) : undefined,
-      fund: fund ? String(fund) : undefined,
-      search: search ? String(search) : undefined,
-      limit: limit ? Number(limit) : 500,
-    });
-    res.json({ success: true, data: items, count: items.length });
-  } catch (error) {
-    console.error('GET /api/reject-tracking error:', error);
-    res.status(500).json({ success: false, error: 'โหลดข้อมูล Reject Tracking ไม่สำเร็จ' });
-  }
-});
-
-app.post('/api/reject-tracking/note', async (req: Request, res: Response) => {
-  try {
-    const { upsertRejectNote } = await import('./db.js');
-    const { repDataId, tranId, vn, an, hn, errorcode, verifycode, resolveStatus, note, assignedTo } = req.body as Record<string, unknown>;
-    if (!resolveStatus) return res.status(400).json({ success: false, error: 'resolveStatus จำเป็น' });
-    const result = await upsertRejectNote({
-      repDataId: repDataId ? Number(repDataId) : undefined,
-      tranId: tranId ? String(tranId) : undefined,
-      vn: vn ? String(vn) : undefined,
-      an: an ? String(an) : undefined,
-      hn: hn ? String(hn) : undefined,
-      errorcode: errorcode ? String(errorcode) : undefined,
-      verifycode: verifycode ? String(verifycode) : undefined,
-      resolveStatus: String(resolveStatus),
-      note: note ? String(note) : undefined,
-      assignedTo: assignedTo ? String(assignedTo) : undefined,
-    });
-    return res.json(result);
-  } catch (error) {
-    console.error('POST /api/reject-tracking/note error:', error);
-    return res.status(500).json({ success: false, error: 'บันทึก Note ไม่สำเร็จ' });
-  }
-});
+app.use('/api', apiNotFoundHandler);
+app.use(apiErrorHandler);
 
 const PORT = Number(process.env.PORT) || 3506;
 app.listen(PORT, '0.0.0.0', () => {

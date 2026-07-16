@@ -2107,6 +2107,44 @@
 @media (max-width: 1280px) { .uc-cup-filters { grid-template-columns: repeat(3, 1fr); }.uc-cup-kpis { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 760px) { .uc-cup-hero { align-items: stretch; flex-direction: column; }.uc-cup-filters, .uc-cup-kpis, .uc-cup-evidence, .uc-cup-clinical dl { grid-template-columns: 1fr; }.uc-cup-code-list article { grid-template-columns: 70px 90px 1fr; }.uc-cup-page .uc-cup-prescription-table { min-width: 680px; } }
 
+.password-dialog-backdrop {
+  position: fixed;
+  z-index: 3000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.password-dialog {
+  width: min(460px, 96vw);
+  overflow: hidden;
+  border: 1px solid #dbeafe;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.32);
+}
+
+.password-dialog > header,
+.password-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+}
+
+.password-dialog > header { border-bottom: 1px solid #e2e8f0; }
+.password-dialog > footer { justify-content: flex-end; border-top: 1px solid #e2e8f0; }
+.password-dialog h2 { margin: 0; color: #0f172a; font-size: 18px; }
+.password-dialog header p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
+.password-dialog header > button { border: 0; background: transparent; cursor: pointer; }
+.password-dialog-body { display: grid; gap: 12px; padding: 18px; }
+.password-dialog-body label { display: grid; gap: 6px; color: #334155; font-size: 12px; font-weight: 700; }
+.password-dialog-body input { min-height: 42px; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 9px; }
+.password-dialog-body > small { color: #64748b; }
+
 .repstm-subfile-option { display: flex; align-items: flex-start; gap: 10px; max-width: 820px; margin-top: 12px; padding: 12px 14px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; cursor: pointer; }
 .repstm-subfile-option input { width: 17px; height: 17px; margin-top: 2px; accent-color: #2563eb; }
 .repstm-subfile-option span { display: grid; gap: 3px; color: #1e3a8a; }

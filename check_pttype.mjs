@@ -1,10 +1,11 @@
 import mysql from 'mysql2/promise';
+import 'dotenv/config';
 
 const pool = mysql.createPool({
-  host: '192.168.2.254',
-  user: 'opd',
-  password: 'opd',
-  database: 'hos'
+  host: process.env.HOSXP_HOST,
+  user: process.env.HOSXP_USER,
+  password: process.env.HOSXP_PASSWORD,
+  database: process.env.HOSXP_DB,
 });
 
 async function checkPttype() {

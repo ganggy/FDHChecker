@@ -93,6 +93,18 @@ export const logout = async () => {
   localStorage.removeItem(AUTH_TOKEN_KEY);
 };
 
+export const changePassword = async (currentPassword: string, newPassword: string) => {
+  const data = await jsonOrThrow<{ success: true; message: string }>(
+    await fetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    })
+  );
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+  return data;
+};
+
 export const fetchMemberAdminData = async () => {
   const data = await jsonOrThrow<{ success: true; data: MemberAdminData }>(
     await fetch('/api/admin/members', { headers: authHeaders() })

@@ -1,8 +1,9 @@
 {  "compilerOptions": {
     "ignoreDeprecations": "5.0",
-    "target": "ES2020",
+    "target": "ES2021",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM"],
+    "lib": ["ES2021", "DOM"],
+    "types": ["node"],
     "module": "ES2020",
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -13,6 +14,6 @@
     "isolatedModules": true,
     "moduleResolution": "node",
     "outDir": "./dist"
-  },  "include": ["index.ts", "db.ts"],
-  "exclude": ["dist", "node_modules", "index_old.ts", "index_fast.ts"]
+  },  "include": ["index.ts", "requestSafety.test.ts"],
+  "exclude": ["dist", "node_modules"]
 }

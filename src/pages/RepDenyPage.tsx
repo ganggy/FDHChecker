@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchAppSettings, fetchRcmdbData, saveAppSettings } from '../services/hosxpService';
+import { loadRepErrorCatalog, type RepErrorCatalogEntry } from '../services/repErrorCatalogService';
 import { formatLocalDateStamp } from '../utils/dateUtils';
 
 type RepCategory = 'all' | 'c' | 'deny' | 'other';
@@ -53,12 +54,6 @@ interface CodeSummary {
   sampleRows: RepRow[];
   description?: string;
   guide?: string;
-}
-
-interface ErrorCatalogEntry {
-  type: string;
-  description: string;
-  guide: string;
 }
 
 interface RepDenyNotes {
@@ -170,7 +165,7 @@ const splitCodes = (value?: string) =>
     .map((part) => part.trim().toUpperCase().replace(/\s+/g, ''))
     .filter((code) => Boolean(code) && !['-', 'NULL', 'N/A', '0'].includes(code));
 
-const findCatalogEntry = (catalog: Record<string, ErrorCatalogEntry>, code: string) => {
+const findCatalogEntry = (catalog: Record<string, RepErrorCatalogEntry>, code: string) => {
   const normalized = code.toUpperCase().replace(/\s+/g, '');
   return catalog[normalized] || (/^C\d+$/.test(normalized) ? catalog[normalized.slice(1)] : undefined);
 };
@@ -215,7 +210,7 @@ export const RepDenyPage: React.FC = () => {
   const [notes, setNotes] = useState<RepDenyNotes>({});
   const [notesDraft, setNotesDraft] = useState('');
   const [lastSaved, setLastSaved] = useState<string | null>(null);
-  const [errorCatalog, setErrorCatalog] = useState<Record<string, ErrorCatalogEntry>>({});
+  const [errorCatalog, setErrorCatalog] = useState<Record<string, RepErrorCatalogEntry>>({});
 
   const loadData = async () => {
     setLoading(true);
@@ -240,8 +235,8 @@ export const RepDenyPage: React.FC = () => {
 
   useEffect(() => {
     void loadData();
-    import('../config/repErrorCatalog.json')
-      .then((module) => setErrorCatalog(module.default as Record<string, ErrorCatalogEntry>))
+    loadRepErrorCatalog()
+      .then(setErrorCatalog)
       .catch(() => setErrorCatalog({}));
   }, []);
 

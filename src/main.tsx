@@ -4,6 +4,8 @@ import './index.css'
 import App from './App.tsx'
 import ErrorBoundary from './ErrorBoundary.tsx'
 
+const AUTH_TOKEN_KEY = 'fdh-auth-token';
+
 const installApiFallbackFetch = () => {
   const nativeFetch = window.fetch.bind(window);
   const candidatePorts = ['3506', '3001'];
@@ -41,14 +43,31 @@ const installApiFallbackFetch = () => {
         ? input.toString()
         : input.url;
 
-    const isApiPath = requestUrl.startsWith('/api/');
+    const parsedRequestUrl = new URL(requestUrl, window.location.origin);
+    const isApiPath = parsedRequestUrl.pathname.startsWith('/api/');
     if (!isApiPath) {
       return nativeFetch(input, init);
     }
 
+    const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+    const token = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    const authorizedInit: RequestInit = { ...init, headers };
+
+    const handleUnauthorized = (response: Response) => {
+      const isPublicAuthRequest = ['/api/auth/login', '/api/auth/register'].includes(parsedRequestUrl.pathname);
+      if (response.status === 401 && !isPublicAuthRequest && localStorage.getItem(AUTH_TOKEN_KEY)) {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+        window.dispatchEvent(new CustomEvent('fdh:unauthorized'));
+      }
+      return response;
+    };
+
     let firstResponse: Response | null = null;
     try {
-      firstResponse = await nativeFetch(input, init);
+      firstResponse = await nativeFetch(input, authorizedInit);
     } catch (error) {
       if (isAbortError(error)) {
         throw error;
@@ -68,21 +87,21 @@ const installApiFallbackFetch = () => {
       looksLikeWrongServerHtml;
 
     if (!shouldTryFallback && firstResponse) {
-      return firstResponse;
+      return handleUnauthorized(firstResponse);
     }
 
     const candidates = buildApiCandidates(requestUrl);
     let fallbackResponse: Response | null = null;
     for (const candidateUrl of candidates) {
       try {
-        const response = await nativeFetch(candidateUrl, init);
+        const response = await nativeFetch(candidateUrl, authorizedInit);
         if (response.ok) {
-          return response;
+          return handleUnauthorized(response);
         }
         fallbackResponse = response;
         const fallbackContentType = response.headers.get('content-type') || '';
         if (!fallbackContentType.toLowerCase().includes('text/html')) {
-          return response;
+          return handleUnauthorized(response);
         }
       } catch (error) {
         if (isAbortError(error)) {
@@ -93,10 +112,10 @@ const installApiFallbackFetch = () => {
     }
 
     if (firstResponse) {
-      return firstResponse;
+      return handleUnauthorized(firstResponse);
     }
     if (fallbackResponse) {
-      return fallbackResponse;
+      return handleUnauthorized(fallbackResponse);
     }
 
     throw new Error('ไม่สามารถเชื่อมต่อ API ได้');

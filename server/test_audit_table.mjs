@@ -1,7 +1,8 @@
 import mysql from 'mysql2/promise';
+import 'dotenv/config';
 
 async function setupAuditTable() {
-    const conn = await mysql.createConnection({ host: '192.168.2.254', user: 'opd', password: 'opd', database: 'hos' });
+    const conn = await mysql.createConnection({ host: process.env.HOSXP_HOST, user: process.env.HOSXP_USER, password: process.env.HOSXP_PASSWORD, database: process.env.HOSXP_DB });
     try {
         await conn.query(`
         CREATE TABLE IF NOT EXISTS z_fdh_audit_log (

@@ -220,7 +220,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
             const analysis = getAnalysis(item);
             // Filter by active monitor type
             if (activeMonitor === 'kidney') {
-                // Only show kidney records (main_dep='060' ห้องไตเทียม)
+                // Backend returns only department 060 visits with dialysis evidence.
                 if (!('insuranceGroup' in item && 'dialysisFee' in item)) return false;
             }
     

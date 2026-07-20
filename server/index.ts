@@ -6,7 +6,6 @@ import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
-import iconv from 'iconv-lite';
 import crypto from 'crypto';
 import { getVisitsCached } from './cacheManager.js';
 import {
@@ -23,6 +22,7 @@ import {
   getUTFConnection,
   getAppSetting,
   setAppSetting,
+  setAppSettingsBundle,
   ensureAuthTables,
   getAuthUserByToken,
   getMemberAdminData,
@@ -33,6 +33,8 @@ import {
   saveMemberGroup,
   updateMemberUser,
   saveFdhStatusImportLog,
+  saveFdhSubmissionLog,
+  getFdhSubmissionLogs,
   getFdhStatusImportLogs,
   ensureRepstmTables,
   importRepstmRows,
@@ -84,6 +86,15 @@ import {
   requestTracingMiddleware,
 } from './requestSafety.js';
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
+import { validateApVaccineEligibility } from './mophVaccineRules.js';
+import {
+  buildFdhFiles,
+  normalizeFdhProfile,
+  projectFdhData,
+  selectFdhUploadFiles,
+  uploadFdhFiles,
+  validateFdhData,
+} from './fdhExport.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -223,6 +234,7 @@ const registerRateLimit = createRateLimiter({
 const CONFIG_SETTING_KEY = 'business_rules';
 const APP_SETTINGS_KEY = 'site_settings';
 const FDH_API_SETTINGS_KEY = 'fdh_api_settings';
+const SYSTEM_SETTINGS_META_KEY = 'system_settings_meta';
 const NHSO_AUTHEN_SETTINGS_KEY = 'nhso_authen_settings';
 const NHSO_CLOSE_SETTINGS_KEY = 'nhso_close_settings';
 const NHSO_ECLAIM_SETTINGS_KEY = 'nhso_eclaim_settings';
@@ -394,6 +406,82 @@ const preserveSecret = (incoming: unknown, current: unknown) => {
   return String(incoming);
 };
 
+const isPlainRecord = (value: unknown): value is Record<string, unknown> => (
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+);
+
+const validateNonNegativeCostTree = (value: unknown, path: string): string | null => {
+  if (isPlainRecord(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      const error = validateNonNegativeCostTree(child, `${path}.${key}`);
+      if (error) return error;
+    }
+    return null;
+  }
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0
+    ? null
+    : `ต้นทุน ${path} ต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป`;
+};
+
+const validateBusinessRulesConfig = (value: unknown) => {
+  if (!isPlainRecord(value)) return 'Business rules ต้องเป็น JSON object';
+  if (value.costs != null && !isPlainRecord(value.costs)) return 'ข้อมูลต้นทุนไม่ถูกต้อง';
+  if (isPlainRecord(value.costs)) {
+    for (const [key, raw] of Object.entries(value.costs)) {
+      const error = validateNonNegativeCostTree(raw, key);
+      if (error) return error;
+    }
+  }
+  return null;
+};
+
+const validateSiteSettings = (value: unknown) => {
+  if (!isPlainRecord(value)) return 'Site settings ต้องเป็น JSON object';
+  const hospitalCode = String(value.hospital_code || '').trim();
+  if (hospitalCode && !/^\d{5}$/.test(hospitalCode)) return 'รหัสหน่วยบริการต้องเป็นตัวเลข 5 หลัก';
+  return null;
+};
+
+const validateConfiguredUrl = (value: unknown, label: string, requireHttps: boolean) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) throw new Error(`${label} ห้ามเป็นค่าว่าง`);
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error(`${label} ไม่ใช่ URL ที่ถูกต้อง`);
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`${label} ต้องใช้ http หรือ https เท่านั้น`);
+  }
+  if (requireHttps && parsed.protocol !== 'https:') {
+    throw new Error(`${label} ของ Production ต้องใช้ https`);
+  }
+  return parsed.toString();
+};
+
+const buildFdhApiSettingsPayload = async (incoming: Record<string, unknown>) => {
+  const resolvedHospitalCode = await getResolvedHospitalCode();
+  const current = await getResolvedFdhApiConfig();
+  const environment = incoming.environment === 'uat' ? 'uat' : 'prd';
+  const merged = {
+    ...getDefaultFdhApiConfig(),
+    ...current,
+    ...incoming,
+    environment,
+    password: preserveSecret(incoming.password, current.password),
+    hcode: resolvedHospitalCode || String(incoming.hcode || ''),
+  } as Record<string, unknown>;
+  const requireHttps = environment === 'prd';
+  merged.tokenUrl = validateConfiguredUrl(merged.tokenUrl, 'URL Token', requireHttps);
+  merged.apiBaseUrl = validateConfiguredUrl(merged.apiBaseUrl, 'API Base URL', requireHttps);
+  merged.upload16Url = validateConfiguredUrl(merged.upload16Url, 'URL ส่งข้อมูล 16 แฟ้ม', requireHttps);
+  merged.preScreenUrl = validateConfiguredUrl(merged.preScreenUrl, 'URL PreScreen', requireHttps);
+  merged.username = String(merged.username || '').trim().slice(0, 191);
+  return merged;
+};
+
 app.post('/api/auth/login', loginRateLimit, async (req, res) => {
   try {
     const username = String(req.body?.username || '');
@@ -523,6 +611,7 @@ app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
 type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean };
 const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
+  { pattern: /^\/config\/system-settings(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/fdh-api-settings(\/|$)/, pages: ['settings', 'fdhImport'] },
   { pattern: /^\/config\/nhso-authen-settings(\/|$)/, pages: ['settings', 'authenSync'] },
@@ -715,7 +804,6 @@ const getPasswordHashCandidates = (password: string) => {
   return Array.from(new Set([
     sha256Lower,
     sha256Upper,
-    password
   ]));
 };
 
@@ -793,6 +881,34 @@ const normalizeMophVaccineType = (row: Record<string, unknown>) => {
   return type === 'dt' ? 'dt' : 'epi';
 };
 
+const findInvalidApVaccineRow = (rows: Array<Record<string, unknown>>) => {
+  for (const row of rows) {
+    const error = validateApVaccineEligibility({
+      vaccineCode: row.vaccine_code,
+      serviceDate: row.service_date || row.visit_datetime,
+      pregNo: row.preg_no,
+      ga: row.ga,
+    });
+    if (error) return { row, error };
+  }
+  return null;
+};
+
+const sendApVaccineValidationError = (
+  res: Response,
+  invalid: ReturnType<typeof findInvalidApVaccineRow>,
+) => {
+  if (!invalid) return false;
+  const vn = String(invalid.row.vn || '').trim();
+  const message = invalid.error.replace(/^Error:/, '');
+  res.status(400).json({
+    success: false,
+    error: `${vn ? `VN ${vn}: ` : ''}${message}`,
+    code: 'AP_VACCINE_ELIGIBILITY_FAILED',
+  });
+  return true;
+};
+
 const parseMophDiagnosis = (row: Record<string, unknown>) => {
   const visitDateTime = formatMophVisitDateTime(row.visit_datetime || row.service_date);
   return String(row.diag || '')
@@ -851,8 +967,10 @@ const extractTokenFromPayload = (payload: unknown): string | null => {
     directPayload.access_token,
     directPayload.token,
     directPayload.jwt,
+    directPayload.JWT,
     directPayload.jwt_token,
-    directPayload.id_token
+    directPayload.id_token,
+    directPayload.Token,
   ];
 
   for (const candidate of directCandidates) {
@@ -862,11 +980,46 @@ const extractTokenFromPayload = (payload: unknown): string | null => {
   }
 
   const nestedData = directPayload.data;
+  if (typeof nestedData === 'string' && nestedData.trim()) return nestedData.trim();
   if (nestedData && typeof nestedData === 'object') {
     return extractTokenFromPayload(nestedData);
   }
 
   return null;
+};
+
+const requestFdhAccessToken = async (config: Record<string, unknown>) => {
+  const tokenEndpoint = getFdhTokenEndpoint(String(config.tokenUrl || ''));
+  const username = String(config.username || '').trim();
+  const password = String(config.password || '');
+  const hospitalCode = String(config.hcode || '').trim();
+  if (!tokenEndpoint) throw new Error('ยังไม่ได้ตั้งค่า Token URL');
+  if (!username || !password) throw new Error('ยังไม่ได้ตั้งค่า username/password สำหรับ FDH API');
+  if (!/^\d{5}$/.test(hospitalCode)) throw new Error('Hospital Code (HCODE) ต้องเป็นตัวเลข 5 หลัก');
+
+  const failures: string[] = [];
+  for (const passwordHash of getPasswordHashCandidates(password)) {
+    const query = new URLSearchParams({
+      Action: 'get_moph_access_token',
+      user: username,
+      password_hash: passwordHash,
+      hospital_code: hospitalCode,
+    });
+    try {
+      const response = await fetchWithTimeout(`${tokenEndpoint}?${query}`, { method: 'POST' });
+      const rawText = await response.text();
+      let payload: unknown = {};
+      try { payload = rawText ? JSON.parse(rawText) : {}; } catch { payload = {}; }
+      const token = extractTokenFromPayload(payload)
+        || (!rawText.trim().startsWith('{') && rawText.trim() ? rawText.trim() : null);
+      if (response.ok && token) return token;
+      const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+      failures.push(String(record.Message || record.message || `HTTP ${response.status}`));
+    } catch (error) {
+      failures.push((error as Error).message);
+    }
+  }
+  throw new Error(`ไม่สามารถขอ FDH token ได้: ${failures.filter(Boolean).join('; ').slice(0, 300)}`);
 };
 
 // Enhanced connection test on startup
@@ -1408,6 +1561,7 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
 
       if (isBillable && !hasCloseEp) {
         issues.push('ER108: ยังไม่ปิดสิทธิ NHSO (EP)');
+        if (status === 'ready') status = 'pending';
       }
 
       return {
@@ -1438,146 +1592,180 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
 });
 
 
-// API สำหรับส่งออกข้อมูล 16 แฟ้ม เป็นไฟล์ ZIP (MOPH 16 Folders)
+const MAX_FDH_VISITS_PER_REQUEST = 1_000;
+const MAX_FDH_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+const normalizeFdhExportRequest = (body: Record<string, unknown>) => {
+  const rawVns = Array.isArray(body.vns) ? body.vns : [];
+  const vns = Array.from(new Set(rawVns.map((item) => String(item || '').trim()).filter(Boolean)));
+  if (!vns.length) throw new Error('กรุณาระบุรายการที่ต้องการส่งออก');
+  if (vns.length > MAX_FDH_VISITS_PER_REQUEST) throw new Error(`ส่งได้ครั้งละไม่เกิน ${MAX_FDH_VISITS_PER_REQUEST.toLocaleString('th-TH')} visits`);
+  if (vns.some((vn) => !/^[A-Za-z0-9._/-]{1,25}$/.test(vn))) throw new Error('พบ VN ที่มีรูปแบบไม่ถูกต้อง');
+  const stringMap = (input: unknown, maxLength: number) => Object.fromEntries(
+    Object.entries(input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {})
+      .slice(0, MAX_FDH_VISITS_PER_REQUEST)
+      .map(([key, value]) => [String(key).slice(0, 25), String(value || '').trim().slice(0, maxLength)]),
+  );
+  const rawProfile = String(body.profile || 'standard').trim().toLowerCase();
+  if (!['standard', 'fwf-migrants'].includes(rawProfile)) throw new Error('profile ต้องเป็น standard หรือ fwf-migrants');
+  return {
+    vns,
+    profile: normalizeFdhProfile(rawProfile),
+    fcodeByHn: stringMap(body.fcodeByHn, 16),
+    uucByVn: stringMap(body.uucByVn, 1),
+  };
+};
+
+const prepareFdhExport = async (body: Record<string, unknown>) => {
+  const request = normalizeFdhExportRequest(body);
+  const config = await getResolvedFdhApiConfig();
+  const hcode = String(config.hcode || '').trim();
+  const rawData = await getExportData(request.vns, request);
+  if (!rawData) throw new Error('ไม่สามารถดึงข้อมูล 16 แฟ้มจากฐานข้อมูลได้');
+  const data = projectFdhData(rawData, request.profile);
+  const validation = validateFdhData(data, request.profile, hcode);
+  const estimatedBytes = buildFdhFiles(data, request.profile, true, process.env.FDH_EXPORT_ENCODING)
+    .reduce((sum, file) => sum + file.content.length, 0);
+  if (estimatedBytes > MAX_FDH_UPLOAD_BYTES) {
+    validation.errors.push({
+      severity: 'error',
+      code: 'MAX_UPLOAD_SIZE',
+      message: `ข้อมูลรวม ${(estimatedBytes / 1024 / 1024).toFixed(2)} MB เกินขนาดสูงสุด 50 MB`,
+    });
+    validation.valid = false;
+  }
+  return { ...request, config, hcode, data, validation };
+};
+
+const fdhPayloadSucceeded = (payload: unknown) => {
+  if (!payload || typeof payload !== 'object') return true;
+  const record = payload as Record<string, unknown>;
+  if (record.success === false) return false;
+  const rawStatus = record.MessageCode ?? record.messageCode ?? record.statusCode ?? record.status;
+  if (rawStatus == null || rawStatus === '') return true;
+  if (typeof rawStatus === 'string' && ['success', 'ok'].includes(rawStatus.toLowerCase())) return true;
+  const numeric = Number(rawStatus);
+  return Number.isFinite(numeric) ? numeric === 0 || (numeric >= 200 && numeric < 300) : true;
+};
+
+// Preflight และ Preview ใช้ schema/validator เดียวกับการส่ง API จริง
+app.post('/api/fdh/preflight', async (req, res) => {
+  try {
+    const prepared = await prepareFdhExport(req.body || {});
+    res.status(prepared.validation.valid ? 200 : 422).json({
+      success: prepared.validation.valid,
+      profile: prepared.profile,
+      validation: prepared.validation,
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.post('/api/fdh/view-data', async (req, res) => {
+  try {
+    const prepared = await prepareFdhExport(req.body || {});
+    res.json({ success: true, profile: prepared.profile, data: prepared.data, validation: prepared.validation });
+  } catch (error) {
+    console.error('Error viewing FDH data:', error);
+    res.status(400).json({ success: false, error: (error as Error).message });
+  }
+});
+
 app.post('/api/fdh/export-zip', async (req, res) => {
   try {
-    const { vns } = req.body;
+    const prepared = await prepareFdhExport(req.body || {});
+    if (!prepared.validation.valid) {
+      return res.status(422).json({ success: false, error: 'ข้อมูลยังไม่ผ่าน Preflight', validation: prepared.validation });
+    }
     const includeHeader = req.body?.includeHeader !== false;
-
-    if (!vns || !Array.isArray(vns) || vns.length === 0) {
-      return res.status(400).json({ success: false, error: 'กรุณาระบุรายการที่ต้องการส่งออก' });
-    }
-
-    console.log(`📦 Exporting ${vns.length} visits to FDH ZIP format (${includeHeader ? 'with header' : 'without header'})...`);
-
-    // 1. ดึงข้อมูลจากฐานข้อมูล
-    const data = await getExportData(vns);
-
-    if (!data) {
-      console.error('❌ getExportData returned null for VNs:', vns);
-      return res.status(500).json({ success: false, error: 'ไม่สามารถดึงข้อมูลจากฐานข้อมูลได้' });
-    }
-
-    // 2. สร้างไฟล์ ZIP
+    const files = buildFdhFiles(prepared.data, prepared.profile, includeHeader, process.env.FDH_EXPORT_ENCODING);
     const zip = new AdmZip();
-
-    // รายชื่อแฟ้มทั้งหมด 16 แฟ้ม (ตามมาตรฐานรหัส 16 แฟ้ม)
-    const folderNames = ['INS', 'PAT', 'OPD', 'ORF', 'ODX', 'OOP', 'IPD', 'IRF', 'IDX', 'IOP', 'CHT', 'CHA', 'AER', 'ADP', 'LVD', 'DRU'];
-
-    const fileLayouts: Record<string, string[]> = {
-      INS: ['HN', 'INSCL', 'SUBTYPE', 'CID', 'DATEIN', 'DATEEXP', 'HOSPMAIN', 'HOSPSUB', 'GOVCODE', 'GOVNAME', 'PERMITNO', 'DOCNO', 'OWNRPID', 'OWNNAME', 'AN', 'SEQ', 'SUBINSCL', 'RELINSCL', 'HTYPE'],
-      PAT: ['HCODE', 'HN', 'CHANGWAT', 'AMPHUR', 'DOB', 'SEX', 'MARRIAGE', 'OCCUPA', 'NATION', 'PERSON_ID', 'NAMEPAT', 'TITLE', 'FNAME', 'LNAME', 'IDTYPE'],
-      OPD: ['HN', 'CLINIC', 'DATEOPD', 'TIMEOPD', 'SEQ', 'UUC', 'DETAIL', 'BTEMP', 'SBP', 'DBP', 'PR', 'RR', 'OPTYPE', 'TYPEIN', 'TYPEOUT'],
-      ORF: ['HN', 'DATEOPD', 'CLINIC', 'REFER', 'REFERTYPE', 'SEQ'],
-      ODX: ['HN', 'DATEDX', 'CLINIC', 'DIAG', 'DXTYPE', 'DRDX', 'PERSON_ID', 'SEQ'],
-      OOP: ['HN', 'DATEOPD', 'CLINIC', 'OPER', 'DROPID', 'PERSON_ID', 'SEQ', 'SERVPRICE'],
-      IPD: ['HN', 'AN', 'DATEADM', 'TIMEADM', 'DATEDSC', 'TIMEDSC', 'DISCHS', 'DISCHT', 'WARDDSC', 'DEPT', 'ADM_W', 'UUC', 'SVCTYPE'],
-      IRF: ['AN', 'REFER', 'REFERTYPE'],
-      IDX: ['AN', 'DIAG', 'DXTYPE', 'DRDX'],
-      IOP: ['AN', 'OPER', 'OPTYPE', 'DROPID', 'DATEIN', 'TIMEIN', 'DATEOUT', 'TIMEOUT'],
-      CHT: ['HN', 'AN', 'DATE', 'TOTAL', 'PAID', 'PTTYPE', 'PERSON_ID', 'SEQ', 'OPD_MEMO', 'INVOICE_NO', 'INVOICE_LT'],
-      CHA: ['HN', 'AN', 'DATE', 'CHRGITEM', 'AMOUNT', 'PERSON_ID', 'SEQ'],
-      AER: ['HN', 'AN', 'DATEOPD', 'AUTHAE', 'AEDATE', 'AETIME', 'AETYPE', 'REFER_NO', 'REFMAINI', 'IREFTYPE', 'REFMAINO', 'OREFTYPE', 'UCAE', 'EMTYPE', 'SEQ', 'AESTATUS', 'DALERT', 'TALERT'],
-      ADP: ['HN', 'AN', 'DATEOPD', 'TYPE', 'CODE', 'QTY', 'RATE', 'SEQ', 'CAGCODE', 'DOSE', 'CA_TYPE', 'SERIALNO', 'TOTCOPAY', 'USE_STATUS', 'TOTAL', 'QTYDAY', 'TMLTCODE', 'STATUS1', 'BI', 'CLINIC', 'ITEMSRC', 'PROVIDER'],
-      LVD: ['SEQLVD', 'AN', 'DATEOUT', 'TIMEOUT', 'DATEIN', 'TIMEIN', 'QTYDAY'],
-      DRU: ['HCODE', 'HN', 'AN', 'CLINIC', 'PERSON_ID', 'DATE_SERV', 'DID', 'DIDNAME', 'AMOUNT', 'DRUGPRIC', 'DRUGCOST', 'DIDSTD', 'UNIT', 'UNIT_PACK', 'SEQ', 'DRUGTYPE', 'DRUGREMARK', 'PA_NO', 'TOTCOPAY', 'USE_STATUS', 'TOTAL']
-    };
-
-    // FDH import page has two TXT modes. Default to "TXT มีหัวคอลัมน์" because
-    // it is the visible/default workflow used by the hospital import screen.
-    const normalizePipeValue = (value: unknown) => {
-      if (value === null || value === undefined) return '';
-      return String(value)
-        .replace(/\r\n/g, ' ')
-        .replace(/[\r\n]/g, ' ')
-        .replace(/\|/g, ' ')
-        .replace(/"/g, '')
-        .trim();
-    };
-
-    const formatToPipe = (data: any, folder: string) => {
-      const columns = fileLayouts[folder] || [];
-      const rows = (data as any)[folder] || [];
-      const header = includeHeader ? columns.join('|') : '';
-      if (!rows || rows.length === 0) {
-        return header;
-      }
-
-      const body = rows
-        .map((row: any) => columns.map((column) => normalizePipeValue(row?.[column])).join('|'))
-        .join('\r\n');
-
-      return includeHeader ? `${header}\r\n${body}` : body;
-    };
-
-    const encodeExportText = (content: string) => {
-      const encoding = String(process.env.FDH_EXPORT_ENCODING || 'utf8').trim().toLowerCase();
-      if (encoding === 'cp874' || encoding === 'tis620') {
-        return iconv.encode(content, 'cp874');
-      }
-      return Buffer.from(content, 'utf8');
-    };
-
-    // ใส่ข้อมูลลงในแต่ละไฟล์
-    folderNames.forEach(folder => {
-      const content = formatToPipe(data, folder);
-      zip.addFile(`${folder}.TXT`, encodeExportText(content));
-    });
-
-    // 3. ส่งไฟล์ ZIP กลับไปยัง Client
+    files.forEach((file) => zip.addFile(file.filename, file.content));
     const zipBuffer = zip.toBuffer();
-    const filename = `FDH_Export_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
-
+    const filename = `FDH_${prepared.profile}_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
     res.send(zipBuffer);
-
-    console.log(`✅ Exported ZIP successfully: ${filename} (${zipBuffer.length} bytes)`);
-
   } catch (error) {
-    console.error('Error exporting ZIP:', error);
-    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการสร้างไฟล์ ZIP' });
+    console.error('Error exporting FDH ZIP:', error);
+    res.status(400).json({ success: false, error: (error as Error).message });
   }
 });
 
-// API สำหรับดูข้อมูล 16 แฟ้ม (Preview JSON)
-app.post('/api/fdh/view-data', async (req, res) => {
+// ส่ง multipart/form-data: type=txt และ file ซ้ำตามจำนวนแฟ้ม ไป FDH v1/v2 จริง
+app.post('/api/fdh/submit', async (req, res) => {
+  const batchUid = crypto.randomUUID();
   try {
-    const { vns } = req.body;
-    if (!vns || !Array.isArray(vns) || vns.length === 0) {
-      return res.status(400).json({ success: false, error: 'กรุณาระบุรายการที่ต้องการดูข้อมูล' });
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({ success: false, error: 'ต้องยืนยันการส่งข้อมูลก่อน (confirm=true)' });
+    }
+    const prepared = await prepareFdhExport(req.body || {});
+    if (!prepared.validation.valid) {
+      return res.status(422).json({ success: false, error: 'ข้อมูลยังไม่ผ่าน Preflight จึงไม่ถูกส่งไป FDH', validation: prepared.validation });
     }
 
-    const data = await getExportData(vns);
-    if (!data) {
-      return res.status(500).json({ success: false, error: 'ไม่สามารถดึงข้อมูลจากฐานข้อมูลได้' });
-    }
+    const environment = String(prepared.config.environment || 'prd').toLowerCase() === 'uat' ? 'uat' : 'prd';
+    const uploadUrl = validateConfiguredUrl(prepared.config.upload16Url, 'URL ส่งข้อมูล 16 แฟ้ม', true);
+    const uploadHost = new URL(uploadUrl).hostname.toLowerCase();
+    const allowedHosts = environment === 'prd' ? ['fdh.moph.go.th'] : ['uat-fdh.inet.co.th'];
+    if (!allowedHosts.includes(uploadHost)) throw new Error(`URL ส่งข้อมูลไม่ตรงกับ environment ${environment.toUpperCase()}`);
 
-    res.json({ success: true, data });
-  } catch (error) {
-    console.error('Error viewing data:', error);
-    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการดึงข้อมูลแสดงผล' });
-  }
-});
+    // คู่มือกำหนด v1 ไม่มี header และ v2 มี header
+    const includeHeader = /\/api\/v1\//i.test(uploadUrl) ? false : true;
+    const files = selectFdhUploadFiles(buildFdhFiles(
+      prepared.data,
+      prepared.profile,
+      includeHeader,
+      process.env.FDH_EXPORT_ENCODING,
+    ));
+    const totalBytes = files.reduce((sum, file) => sum + file.content.length, 0);
+    if (files.length > 16) throw new Error('จำนวนแฟ้มเกิน 16 แฟ้ม');
+    if (totalBytes > MAX_FDH_UPLOAD_BYTES) throw new Error('ขนาดข้อมูลรวมเกิน 50 MB');
 
-
-// API สำหรับส่งข้อมูลไปยังระบบ FDH
-app.post('/api/fdh/submit', (req, res) => {
-  try {
-    const { records, submittedAt } = req.body;
-
-    console.log(`📤 Submitting ${records.length} records to FDH`);
-
-    res.json({
-      success: true,
-      message: 'Data submitted to FDH successfully',
-      submittedRecords: records.length,
-      submittedAt,
-      timestamp: new Date().toISOString(),
+    const token = await requestFdhAccessToken(prepared.config);
+    const upstream = await uploadFdhFiles(uploadUrl, token, files);
+    const success = upstream.ok && fdhPayloadSucceeded(upstream.payload);
+    const requestDigest = crypto.createHash('sha256').update(JSON.stringify({
+      vns: [...prepared.vns].sort(),
+      profile: prepared.profile,
+      counts: prepared.validation.counts,
+    })).digest('hex');
+    await saveFdhSubmissionLog({
+      batchUid,
+      profile: prepared.profile,
+      hcode: prepared.hcode,
+      environment,
+      requestCount: prepared.vns.length,
+      recordCount: prepared.validation.totalRows,
+      requestDigest,
+      responseStatus: upstream.status,
+      success,
+      responsePayload: upstream.payload,
+    });
+    return res.status(success ? 200 : 502).json({
+      success,
+      batchUid,
+      profile: prepared.profile,
+      submittedVisits: prepared.vns.length,
+      submittedFiles: files.map((file) => ({ name: file.filename, rows: file.rowCount, bytes: file.content.length })),
+      validation: prepared.validation,
+      upstreamStatus: upstream.status,
+      upstream: upstream.payload,
+      message: success ? 'FDH รับคำขอแล้ว' : 'FDH ปฏิเสธคำขอหรือส่งผลลัพธ์ผิดพลาด',
     });
   } catch (error) {
-    console.error('Error submitting to FDH:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('Error submitting data to FDH:', { batchUid, error: (error as Error).message });
+    res.status(400).json({ success: false, batchUid, error: (error as Error).message });
+  }
+});
+
+app.get('/api/fdh/submission-logs', async (req, res) => {
+  try {
+    const logs = await getFdhSubmissionLogs(Number(req.query.limit || 50));
+    res.json({ success: true, data: logs });
+  } catch (error) {
+    res.status(500).json({ success: false, error: (error as Error).message });
   }
 });
 
@@ -3012,6 +3200,7 @@ app.post('/api/moph-claim/vaccine/check', async (req, res) => {
       ? (req.body.rows as Array<Record<string, unknown>>).slice(0, MOPH_DMHT_ACTION_LIMIT)
       : [];
     if (rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการที่เลือก' });
+    if (sendApVaccineValidationError(res, findInvalidApVaccineRow(rows))) return;
 
     const config = await getResolvedMophClaimConfig(req.body?.config || {});
     const token = await getMophClaimToken(config);
@@ -3077,6 +3266,7 @@ app.post('/api/moph-claim/vaccine/send', async (req, res) => {
       ? (req.body.rows as Array<Record<string, unknown>>).slice(0, MOPH_DMHT_ACTION_LIMIT)
       : [];
     if (rows.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการที่เลือก' });
+    if (sendApVaccineValidationError(res, findInvalidApVaccineRow(rows))) return;
 
     const config = await getResolvedMophClaimConfig(req.body?.config || {});
     const token = await getMophClaimToken(config);
@@ -3135,7 +3325,7 @@ app.post('/api/moph-claim/vaccine/send', async (req, res) => {
             note: '',
           }],
         };
-        if (String(row.type || '') === 'aP') {
+        if (vaccineCode.toUpperCase() === 'P41') {
           payload.prenatal = {
             gravida: String(row.preg_no || ''),
             ga_week: String(row.ga || ''),
@@ -3275,11 +3465,11 @@ app.get('/api/config/business-rules/frontend', async (req, res) => {
 app.post('/api/config/business-rules/backend', async (req, res) => {
   try {
     const newConfig = req.body;
-    const configPath = path.join(__dirname, 'config', 'business_rules.json');
+    const validationError = validateBusinessRulesConfig(newConfig);
+    if (validationError) return res.status(400).json({ success: false, error: validationError });
     await setAppSetting(CONFIG_SETTING_KEY, newConfig);
-    await fs.writeFile(configPath, JSON.stringify(newConfig, null, 4), 'utf8');
-    console.log('✅ Backend business rules updated via API');
-    res.json({ success: true, message: 'Backend configuration updated successfully' });
+    console.log('✅ Business rules updated in database via backend compatibility endpoint');
+    res.json({ success: true, message: 'Business rules updated successfully', source: 'database' });
   } catch (error) {
     console.error('Error updating backend config:', error);
     res.status(500).json({ success: false, error: 'Cannot update backend configuration' });
@@ -3290,11 +3480,11 @@ app.post('/api/config/business-rules/backend', async (req, res) => {
 app.post('/api/config/business-rules/frontend', async (req, res) => {
   try {
     const newConfig = req.body;
-    const configPath = path.join(__dirname, '..', 'src', 'config', 'business_rules.json');
+    const validationError = validateBusinessRulesConfig(newConfig);
+    if (validationError) return res.status(400).json({ success: false, error: validationError });
     await setAppSetting(CONFIG_SETTING_KEY, newConfig);
-    await fs.writeFile(configPath, JSON.stringify(newConfig, null, 4), 'utf8');
-    console.log('✅ Frontend business rules updated via API');
-    res.json({ success: true, message: 'Frontend configuration updated successfully' });
+    console.log('✅ Business rules updated in database via frontend compatibility endpoint');
+    res.json({ success: true, message: 'Business rules updated successfully', source: 'database' });
   } catch (error) {
     console.error('Error updating frontend config:', error);
     res.status(500).json({ success: false, error: 'Cannot update frontend configuration' });
@@ -3318,6 +3508,8 @@ app.get('/api/config/app-settings', async (req, res) => {
 app.post('/api/config/app-settings', async (req, res) => {
   try {
     const newSettings = req.body;
+    const validationError = validateSiteSettings(newSettings);
+    if (validationError) return res.status(400).json({ success: false, error: validationError });
     await setAppSetting(APP_SETTINGS_KEY, newSettings);
     console.log('✅ App settings updated via API');
     res.json({ success: true, message: 'App settings updated successfully' });
@@ -3344,20 +3536,68 @@ app.get('/api/config/fdh-api-settings', async (req, res) => {
 
 app.post('/api/config/fdh-api-settings', async (req, res) => {
   try {
-    const resolvedHospitalCode = await getResolvedHospitalCode();
-    const current = await getResolvedFdhApiConfig();
-    const payload = {
-      ...getDefaultFdhApiConfig(),
-      ...current,
-      ...(req.body || {}),
-      password: preserveSecret(req.body?.password, current.password),
-      hcode: resolvedHospitalCode || String((req.body || {}).hcode || '')
-    };
+    if (!isPlainRecord(req.body)) return res.status(400).json({ success: false, error: 'FDH API settings ต้องเป็น JSON object' });
+    const payload = await buildFdhApiSettingsPayload(req.body);
     await setAppSetting(FDH_API_SETTINGS_KEY, payload);
     res.json({ success: true, message: 'FDH API settings updated successfully' });
   } catch (error) {
     console.error('Error updating FDH API settings:', error);
-    res.status(500).json({ success: false, error: 'Cannot update FDH API settings' });
+    const message = error instanceof Error ? error.message : 'Cannot update FDH API settings';
+    const status = message.includes('URL') || message.includes('Production') ? 400 : 500;
+    res.status(status).json({ success: false, error: message });
+  }
+});
+
+app.get('/api/config/system-settings/status', async (_req, res) => {
+  try {
+    const meta = await getAppSetting<Record<string, unknown>>(SYSTEM_SETTINGS_META_KEY);
+    res.json({ success: true, data: meta || null });
+  } catch (error) {
+    console.error('Error reading system settings status:', error);
+    res.status(500).json({ success: false, error: 'Cannot read system settings status' });
+  }
+});
+
+app.post('/api/config/system-settings', async (req: AuthenticatedRequest, res) => {
+  try {
+    const businessRulesConfig = req.body?.businessRules;
+    const siteSettings = req.body?.siteSettings;
+    const fdhApiInput = req.body?.fdhApiSettings;
+    const businessRulesError = validateBusinessRulesConfig(businessRulesConfig);
+    if (businessRulesError) return res.status(400).json({ success: false, error: businessRulesError });
+    const siteSettingsError = validateSiteSettings(siteSettings);
+    if (siteSettingsError) return res.status(400).json({ success: false, error: siteSettingsError });
+    if (!isPlainRecord(fdhApiInput)) {
+      return res.status(400).json({ success: false, error: 'FDH API settings ต้องเป็น JSON object' });
+    }
+
+    const fdhApiSettingsPayload = await buildFdhApiSettingsPayload(fdhApiInput);
+    const sanitizedBusinessRules = { ...businessRulesConfig };
+    delete sanitizedBusinessRules._source;
+    const canonicalBusinessRules = {
+      ...sanitizedBusinessRules,
+      site_settings: siteSettings,
+    };
+    const changedAt = new Date().toISOString();
+    const meta = {
+      updatedAt: changedAt,
+      updatedBy: {
+        id: Number(req.authUser?.id || 0),
+        username: String(req.authUser?.username || ''),
+      },
+    };
+    await setAppSettingsBundle([
+      { settingKey: CONFIG_SETTING_KEY, settingValue: canonicalBusinessRules },
+      { settingKey: APP_SETTINGS_KEY, settingValue: siteSettings },
+      { settingKey: FDH_API_SETTINGS_KEY, settingValue: fdhApiSettingsPayload },
+      { settingKey: SYSTEM_SETTINGS_META_KEY, settingValue: meta },
+    ]);
+    res.json({ success: true, message: 'System settings updated successfully', data: meta });
+  } catch (error) {
+    console.error('Error updating system settings:', error);
+    const message = error instanceof Error ? error.message : 'Cannot update system settings';
+    const status = message.includes('URL') || message.includes('Production') ? 400 : 500;
+    res.status(status).json({ success: false, error: message });
   }
 });
 

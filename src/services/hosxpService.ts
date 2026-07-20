@@ -643,6 +643,8 @@ export interface MophVaccineCandidate {
   epi?: string | null;
   preg_no?: number | string | null;
   ga?: number | string | null;
+  ap_rule_label?: string | null;
+  ap_rule_effective_date?: string | null;
   vaccine_name?: string | null;
   vaccine_note?: string | null;
   dose?: number | string | null;

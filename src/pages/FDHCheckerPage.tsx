@@ -47,6 +47,24 @@ interface EligibleVisit {
     age_y: number;
 }
 
+type FdhExportProfile = 'standard' | 'fwf-migrants';
+
+interface FdhValidationIssue {
+    code: string;
+    file?: string;
+    row?: number;
+    field?: string;
+    message: string;
+}
+
+interface FdhValidationResult {
+    valid: boolean;
+    errors: FdhValidationIssue[];
+    warnings: FdhValidationIssue[];
+    counts: Record<string, number>;
+    totalRows: number;
+}
+
 export const FDHCheckerPage: React.FC = () => {
     const [data, setData] = useState<EligibleVisit[]>([]);
     const [loading, setLoading] = useState(false);
@@ -59,6 +77,10 @@ export const FDHCheckerPage: React.FC = () => {
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
     const [exportWithHeader, setExportWithHeader] = useState(true);
+    const [exportProfile, setExportProfile] = useState<FdhExportProfile>('standard');
+    const [fcodeByHn, setFcodeByHn] = useState<Record<string, string>>({});
+    const [previewValidation, setPreviewValidation] = useState<FdhValidationResult | null>(null);
+    const [submitting, setSubmitting] = useState(false);
 
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
@@ -130,10 +152,22 @@ export const FDHCheckerPage: React.FC = () => {
         );
     };
 
+    const getReadyVns = () => selectedVns.length > 0
+        ? selectedVns
+        : filtered.filter(i => i.status === 'ready').map(i => i.vn).filter(Boolean);
+
+    const buildFdhPayload = (vns: string[]) => ({
+        vns,
+        profile: exportProfile,
+        fcodeByHn,
+        uucByVn: Object.fromEntries(vns.map((vn) => {
+            const visit = data.find((item) => item.vn === vn);
+            return [vn, visit && evaluateBillingLogic(visit).isUUC1 ? '1' : '2'];
+        })),
+    });
+
     const handlePreviewData = async () => {
-        const vnsToPreview = selectedVns.length > 0
-            ? selectedVns
-            : filtered.filter(i => i.status === 'ready').map(i => i.vn).filter(Boolean);
+        const vnsToPreview = getReadyVns();
 
         if (vnsToPreview.length === 0) return alert('ไม่มีรายการพร้อมส่ง (Ready) สำหรับดูข้อมูล');
 
@@ -142,12 +176,13 @@ export const FDHCheckerPage: React.FC = () => {
             const response = await fetch('/api/fdh/view-data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vns: vnsToPreview })
+                body: JSON.stringify(buildFdhPayload(vnsToPreview))
             });
 
             const result = await response.json();
             if (result.success) {
                 setPreviewData(result.data);
+                setPreviewValidation(result.validation || null);
                 setIsPreviewOpen(true);
             } else {
                 alert(`Error: ${result.error || 'Failed to fetch preview data'}`);
@@ -219,9 +254,7 @@ export const FDHCheckerPage: React.FC = () => {
 
     const handleExportZip = async () => {
         // If no rows selected, export all ready records in current filtered view
-        const vnsToExport = selectedVns.length > 0
-            ? selectedVns
-            : filtered.filter(i => i.status === 'ready').map(i => i.vn).filter(Boolean);
+        const vnsToExport = getReadyVns();
 
         if (vnsToExport.length === 0) return alert('ไม่มีรายการพร้อมส่ง (Ready) สำหรับส่งออก');
 
@@ -230,7 +263,7 @@ export const FDHCheckerPage: React.FC = () => {
             const response = await fetch('/api/fdh/export-zip', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vns: vnsToExport, includeHeader: exportWithHeader })
+                body: JSON.stringify({ ...buildFdhPayload(vnsToExport), includeHeader: exportWithHeader })
             });
 
             if (response.ok) {
@@ -250,6 +283,32 @@ export const FDHCheckerPage: React.FC = () => {
             alert('Error connecting to server for export');
         } finally {
             setExporting(false);
+        }
+    };
+
+    const handleSubmitFdhApi = async () => {
+        const vnsToSubmit = getReadyVns();
+        if (vnsToSubmit.length === 0) return alert('ไม่มีรายการพร้อมส่งสำหรับส่ง FDH API');
+        if (!window.confirm(`ยืนยันส่ง ${vnsToSubmit.length} visit ไป FDH API จริง?`)) return;
+        setSubmitting(true);
+        try {
+            const response = await fetch('/api/fdh/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...buildFdhPayload(vnsToSubmit), confirm: true }),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                setPreviewValidation(result.validation || previewValidation);
+                const firstIssues = result.validation?.errors?.slice(0, 5).map((issue: FdhValidationIssue) => issue.message).join('\n');
+                return alert(`${result.error || result.message || 'FDH API ปฏิเสธข้อมูล'}${firstIssues ? `\n\n${firstIssues}` : ''}`);
+            }
+            alert(`ส่ง FDH สำเร็จ\nBatch: ${result.batchUid}\n${result.submittedVisits} visits / ${result.submittedFiles?.length || 0} files`);
+            setIsPreviewOpen(false);
+        } catch {
+            alert('เชื่อมต่อเซิร์ฟเวอร์เพื่อส่ง FDH API ไม่สำเร็จ');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -350,6 +409,20 @@ export const FDHCheckerPage: React.FC = () => {
                 <div className="card-body" style={{ padding: '14px 16px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, alignItems: 'end' }}>
                         <div className="form-group">
+                            <label className="form-label">มาตรฐานส่งออก</label>
+                            <select
+                                className="form-control"
+                                value={exportProfile}
+                                onChange={(event) => {
+                                    setExportProfile(event.target.value as FdhExportProfile);
+                                    setPreviewValidation(null);
+                                }}
+                            >
+                                <option value="standard">FDH 16 แฟ้มทั่วไป</option>
+                                <option value="fwf-migrants">FWF Migrants (แรงงานต่างด้าว)</option>
+                            </select>
+                        </div>
+                        <div className="form-group">
                             <label className="form-label">🔍 สถานะความพร้อม</label>
                             <select
                                 className="form-control"
@@ -423,6 +496,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 </th>
                                 <th style={{ width: 40 }}>#</th>
                                 <th>VN / HN</th>
+                                {exportProfile === 'fwf-migrants' && <th style={{ minWidth: 150 }}>FCode (FDH-Migrants)</th>}
                                 <th>ชื่อผู้ป่วย</th>
                                 <th style={{ minWidth: 100 }}>📅 วันที่รับบริการ</th>
                                 <th>สิทธิ์</th>
@@ -467,6 +541,22 @@ export const FDHCheckerPage: React.FC = () => {
                                                     <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 13 }}>{item.vn}</div>
                                                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>HN: {item.hn}</div>
                                                 </td>
+                                                {exportProfile === 'fwf-migrants' && (
+                                                    <td>
+                                                        <input
+                                                            className="form-control"
+                                                            value={fcodeByHn[item.hn] || ''}
+                                                            onChange={(event) => setFcodeByHn((current) => ({
+                                                                ...current,
+                                                                [item.hn]: event.target.value.trim(),
+                                                            }))}
+                                                            placeholder="กรอก FCode"
+                                                            maxLength={16}
+                                                            aria-label={`FCode ของ HN ${item.hn}`}
+                                                            style={{ minWidth: 140, padding: '6px 8px' }}
+                                                        />
+                                                    </td>
+                                                )}
                                                 <td>
                                                     <div style={{ fontSize: 14, fontWeight: 600 }}>{item.patientName}</div>
                                                 </td>
@@ -575,7 +665,7 @@ export const FDHCheckerPage: React.FC = () => {
                                     })
                                 ) : (
                                     <tr>
-                                        <td colSpan={12} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
+                                        <td colSpan={exportProfile === 'fwf-migrants' ? 13 : 12} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
                                             ไม่พบข้อมูล Visit ในช่วงวันที่เลือก
                                         </td>
                                     </tr>
@@ -589,8 +679,11 @@ export const FDHCheckerPage: React.FC = () => {
                 isOpen={isPreviewOpen}
                 onClose={() => setIsPreviewOpen(false)}
                 data={previewData}
+                validation={previewValidation}
                 onDownload={handleExportZip}
                 isDownloading={exporting}
+                onSubmit={handleSubmitFdhApi}
+                isSubmitting={submitting}
             />
         </div>
     );

@@ -4,6 +4,9 @@ import crypto from 'crypto';
 import businessRules from './config/business_rules.json';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
 import { fetchWithTimeout } from './httpClient.js';
+import { getApVaccineRule, validateApVaccineEligibility } from './mophVaccineRules.js';
+import type { FdhExportProfile } from './fdhExport.js';
+import { isDialysisMonitorVisit } from './kidneyMonitorRules.js';
 
 dotenv.config();
 
@@ -419,6 +422,26 @@ const FDH_STATUS_IMPORT_LOG_TABLE_SQL = `
     imported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_transaction_uid (transaction_uid),
     INDEX idx_imported_at (imported_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const FDH_SUBMISSION_LOG_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS fdh_submission_log (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    batch_uid VARCHAR(64) NOT NULL,
+    profile VARCHAR(32) NOT NULL,
+    hcode VARCHAR(32) NOT NULL,
+    environment VARCHAR(16) NOT NULL,
+    request_count INT NOT NULL DEFAULT 0,
+    record_count INT NOT NULL DEFAULT 0,
+    request_digest CHAR(64) NOT NULL,
+    response_status INT NULL,
+    success TINYINT(1) NOT NULL DEFAULT 0,
+    response_payload JSON NOT NULL,
+    submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_batch_uid (batch_uid),
+    INDEX idx_submitted_at (submitted_at),
+    INDEX idx_success (success)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
@@ -1343,7 +1366,33 @@ export const setAppSetting = async (settingKey: string, settingValue: unknown) =
     return { success: true };
   } catch (error) {
     console.error('Error writing app setting:', error);
-    return { success: false };
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const setAppSettingsBundle = async (
+  settings: Array<{ settingKey: string; settingValue: unknown }>
+) => {
+  const connection = await getUTFConnection();
+  try {
+    await connection.query(APP_SETTINGS_TABLE_SQL);
+    await connection.beginTransaction();
+    for (const setting of settings) {
+      await connection.query(
+        `INSERT INTO app_settings (setting_key, setting_value)
+         VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP`,
+        [setting.settingKey, JSON.stringify(setting.settingValue)]
+      );
+    }
+    await connection.commit();
+    return { success: true };
+  } catch (error) {
+    await connection.rollback().catch(() => undefined);
+    console.error('Error writing app settings bundle:', error);
+    throw error;
   } finally {
     connection.release();
   }
@@ -1787,6 +1836,68 @@ export const getFdhStatusImportLogs = async (limit = 50): Promise<Record<string,
     return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
   } catch (error) {
     console.error('Error reading FDH status import logs:', error);
+    return [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const saveFdhSubmissionLog = async (entry: {
+  batchUid: string;
+  profile: string;
+  hcode: string;
+  environment: string;
+  requestCount: number;
+  recordCount: number;
+  requestDigest: string;
+  responseStatus?: number | null;
+  success: boolean;
+  responsePayload: unknown;
+}) => {
+  const connection = await getUTFConnection();
+  try {
+    await connection.query(FDH_SUBMISSION_LOG_TABLE_SQL);
+    await connection.query(
+      `INSERT INTO fdh_submission_log
+       (batch_uid, profile, hcode, environment, request_count, record_count, request_digest, response_status, success, response_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        entry.batchUid,
+        entry.profile,
+        entry.hcode,
+        entry.environment,
+        entry.requestCount,
+        entry.recordCount,
+        entry.requestDigest,
+        entry.responseStatus ?? null,
+        entry.success ? 1 : 0,
+        JSON.stringify(entry.responsePayload ?? {}),
+      ],
+    );
+    return { success: true };
+  } catch (error) {
+    console.error('Error saving FDH submission log:', error);
+    return { success: false };
+  } finally {
+    connection.release();
+  }
+};
+
+export const getFdhSubmissionLogs = async (limit = 50): Promise<Record<string, unknown>[]> => {
+  const connection = await getUTFConnection();
+  try {
+    await connection.query(FDH_SUBMISSION_LOG_TABLE_SQL);
+    const [rows] = await connection.query(
+      `SELECT id, batch_uid, profile, hcode, environment, request_count, record_count,
+              request_digest, response_status, success, response_payload, submitted_at
+       FROM fdh_submission_log
+       ORDER BY submitted_at DESC
+       LIMIT ?`,
+      [Math.max(1, Math.min(200, Math.trunc(limit) || 50))],
+    );
+    return Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+  } catch (error) {
+    console.error('Error reading FDH submission logs:', error);
     return [];
   } finally {
     connection.release();
@@ -3038,6 +3149,13 @@ export const getMophVaccineCandidates = async (params: MophVaccineQueryParams): 
       const lot = String(merged.lot || '');
       const dose = Number(merged.dose || 0);
       const authencode = String(merged.authencode || '');
+      const apEligibilityError = validateApVaccineEligibility({
+        vaccineCode: code,
+        serviceDate,
+        pregNo: merged.preg_no,
+        ga: merged.ga,
+      });
+      const apRule = code === 'P41' ? getApVaccineRule(serviceDate) : null;
       let errorname = '';
       if (!lot) errorname = 'Error:ไม่พบ Lot No.';
       else if (!dose) errorname = 'Error:ไม่พบ Dose';
@@ -3047,11 +3165,18 @@ export const getMophVaccineCandidates = async (params: MophVaccineQueryParams): 
       else if (['310', '311', '320'].includes(code)) errorname = 'Error:วัคซีน HPV ต้องใช้ตาม QuickWin เท่านั้น';
       else if (/^HPV/.test(code) && serviceDate < '2023-11-01') errorname = 'Warn:รหัส HPVxxx ต้องเริ่มให้ตั้งแต่ 1 พฤศจิกายน 2566';
       else if (/^HPV/.test(code) && (ageY < 11 || ageY > 20)) errorname = 'Warn:รหัส HPVxxx ไม่อยู่กลุ่มอายุ 11-20 ปี';
-      else if (code === 'P41' && !merged.preg_no) errorname = 'Error:ไม่ระบุครรภ์ที่';
-      else if (code === 'P41' && !merged.ga) errorname = 'Error:ไม่ระบุอายุครรภ์';
-      else if (code === 'P41' && (Number(merged.ga) < 27 || Number(merged.ga) > 36)) errorname = 'Error:อายุครรภ์ต้อง 27-36 สัปดาห์';
+      else if (apEligibilityError) errorname = apEligibilityError;
       else if (!authencode) errorname = 'Warn:ไม่พบรหัส AuthenCode';
-      return { ...merged, epi: merged.source_type, type, errorname, ready: errorname === '', missing_reason: errorname };
+      return {
+        ...merged,
+        epi: merged.source_type,
+        type,
+        errorname,
+        ready: errorname === '',
+        missing_reason: errorname,
+        ap_rule_label: apRule?.label || '',
+        ap_rule_effective_date: apRule?.effectiveDate || '',
+      };
     }).filter((row) => {
       const type = String(row.type || '');
       const ageY = Number(row.age_y || 0);
@@ -10320,8 +10445,14 @@ export const getEligibleVisits = async (
   }
 };
 
+export interface FdhExportOptions {
+  profile?: FdhExportProfile;
+  fcodeByHn?: Record<string, string>;
+  uucByVn?: Record<string, string>;
+}
+
 // ฟังก์ชันดึงข้อมูลแบบละเอียดสำหรับส่งออก 16 แฟ้ม (FDH)
-export const getExportData = async (vns: string[]) => {
+export const getExportData = async (vns: string[], options: FdhExportOptions = {}) => {
   if (!vns || vns.length === 0) return null;
 
   const connection = await getUTFConnection();
@@ -10338,7 +10469,10 @@ export const getExportData = async (vns: string[]) => {
       console.warn('⚠️ Could not fetch hospitalcode from opdconfig, using default:', hcode);
     }
 
-    console.log(`📦 Generating 16-folder export data for ${vns.length} visits (HCODE: ${hcode})...`);
+    const profile = options.profile === 'fwf-migrants' ? 'fwf-migrants' : 'standard';
+    const fcodeByHn = options.fcodeByHn || {};
+    const uucByVn = options.uucByVn || {};
+    console.log(`📦 Generating 16-file export data for ${vns.length} visits (HCODE: ${hcode}, profile: ${profile})...`);
 
     // Helper to wrap queries for debugging
     const runQuery = async (name: string, query: string, params: any[]) => {
@@ -10358,13 +10492,14 @@ export const getExportData = async (vns: string[]) => {
         COALESCE(pttype.hipdata_code, '') AS INSCL,
         COALESCE(pttype.pttype, '') AS SUBTYPE,
         COALESCE(pt.cid, '') AS CID,
+        ? AS HCODE,
         DATE_FORMAT(ovst.vstdate, '%Y%m%d') AS DATEIN,
         DATE_FORMAT(COALESCE(vp.expire_date, ovst.vstdate), '%Y%m%d') AS DATEEXP,
         COALESCE(NULLIF(ovst.hospmain, ''), ?) AS HOSPMAIN,
         COALESCE(NULLIF(ovst.hospsub, ''), COALESCE(NULLIF(ovst.hospmain, ''), ?)) AS HOSPSUB,
         '' AS GOVCODE,
         '' AS GOVNAME,
-        COALESCE(auth.claim_code, '') AS PERMITNO,
+        COALESCE(NULLIF(auth.claim_code, ''), NULLIF(vp.auth_code, ''), NULLIF(ncp.nhso_authen_code, ''), '') AS PERMITNO,
         '' AS DOCNO,
         '' AS OWNRPID,
         '' AS OWNNAME,
@@ -10380,8 +10515,14 @@ export const getExportData = async (vns: string[]) => {
       LEFT JOIN (
         SELECT vn, MAX(claim_code) AS claim_code FROM authenhos GROUP BY vn
       ) auth ON ovst.vn = auth.vn
+      LEFT JOIN (
+        SELECT vn, MAX(NULLIF(nhso_authen_code, '')) AS nhso_authen_code
+        FROM nhso_confirm_privilege
+        WHERE nhso_status = 'Y'
+        GROUP BY vn
+      ) ncp ON ovst.vn = ncp.vn
       WHERE ovst.vn IN (?)
-    `, [hcode, hcode, vns]);
+    `, [hcode, hcode, hcode, vns]);
 
     // 2. PAT (Patient)
     const pat = await runQuery('PAT', `
@@ -10394,13 +10535,19 @@ export const getExportData = async (vns: string[]) => {
         pt.sex as SEX,
         pt.marrystatus as MARRIAGE,
         pt.occupation as OCCUPA,
-        pt.nationality as NATION,
-        pt.cid as PERSON_ID,
+        LPAD(COALESCE(pt.nationality, ''), 3, '0') as NATION,
+        CASE
+          WHEN COALESCE(pt.nationality, '') <> '99' AND COALESCE(pt.passport_no, '') <> '' THEN pt.passport_no
+          ELSE pt.cid
+        END as PERSON_ID,
         CONCAT(COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, ''), ',', COALESCE(pt.pname, '')) as NAMEPAT,
         pt.pname as TITLE,
         pt.fname as FNAME,
         pt.lname as LNAME,
-        '1' as IDTYPE
+        CASE
+          WHEN COALESCE(pt.nationality, '') <> '99' AND COALESCE(pt.passport_no, '') <> '' THEN '2'
+          ELSE '1'
+        END as IDTYPE
       FROM patient pt
       WHERE pt.hn IN (SELECT hn FROM ovst WHERE vn IN (?))
     `, [hcode, vns]);
@@ -10420,7 +10567,13 @@ export const getExportData = async (vns: string[]) => {
         NULLIF(s.bpd, 0) AS DBP,
         NULLIF(s.pulse, 0) AS PR,
         NULLIF(s.rr, 0) AS RR,
-        '' AS OPTYPE,
+        CASE
+          WHEN ri.vn IS NOT NULL THEN '0'
+          WHEN ro.vn IS NOT NULL THEN '1'
+          WHEN UPPER(COALESCE(ept.ucae, '')) = 'A' THEN '2'
+          WHEN UPPER(COALESCE(ept.ucae, '')) = 'E' THEN '3'
+          ELSE ''
+        END AS OPTYPE,
         COALESCE(oi.export_code, '1') AS TYPEIN,
         COALESCE(oo.export_code, '') AS TYPEOUT
       FROM ovst o
@@ -10428,6 +10581,10 @@ export const getExportData = async (vns: string[]) => {
       LEFT JOIN spclty sp ON sp.spclty = o.spclty
       LEFT JOIN ovstist oi ON oi.ovstist = o.ovstist
       LEFT JOIN ovstost oo ON oo.ovstost = o.ovstost
+      LEFT JOIN referin ri ON ri.vn = o.vn
+      LEFT JOIN referout ro ON ro.vn = o.vn
+      LEFT JOIN er_regist er ON er.vn = o.vn
+      LEFT JOIN er_pt_type ept ON ept.er_pt_type = er.er_pt_type
       WHERE o.vn IN (?)
     `, [vns]);
 
@@ -10439,7 +10596,8 @@ export const getExportData = async (vns: string[]) => {
         base.CLINIC,
         base.REFER,
         base.REFERTYPE,
-        base.SEQ
+        base.SEQ,
+        DATE_FORMAT(base.REFERDATE, '%Y%m%d') AS REFERDATE
       FROM (
         SELECT
           o.hn AS HN,
@@ -10447,7 +10605,8 @@ export const getExportData = async (vns: string[]) => {
           COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
           COALESCE(ri.refer_hospcode, o.rfrilct, '') AS REFER,
           '1' AS REFERTYPE,
-          o.vn AS SEQ
+          o.vn AS SEQ,
+          COALESCE(ri.refer_date, o.vstdate) AS REFERDATE
         FROM ovst o
         LEFT JOIN ovstist ist ON ist.ovstist = o.ovstist
         LEFT JOIN spclty sp ON sp.spclty = o.spclty
@@ -10460,7 +10619,8 @@ export const getExportData = async (vns: string[]) => {
           COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
           COALESCE(ro.refer_hospcode, o.rfrolct, '') AS REFER,
           '2' AS REFERTYPE,
-          o.vn AS SEQ
+          o.vn AS SEQ,
+          COALESCE(ro.refer_date, o.vstdate) AS REFERDATE
         FROM ovst o
         LEFT JOIN ovstost ost ON ost.ovstost = o.ovstost
         LEFT JOIN spclty sp ON sp.spclty = o.spclty
@@ -10558,7 +10718,7 @@ export const getExportData = async (vns: string[]) => {
           '2' AS REFERTYPE
         FROM ipt i
         LEFT JOIN dchtype dt ON dt.dchtype = i.dchtype
-        LEFT JOIN referout ro ON ro.vn = i.an
+        LEFT JOIN referout ro ON ro.vn = i.vn
         WHERE i.vn IN (?) AND (dt.nhso_dchtype = 4 OR ro.vn IS NOT NULL)
         UNION ALL
         SELECT
@@ -10589,7 +10749,7 @@ export const getExportData = async (vns: string[]) => {
     const iop = await runQuery('IOP', `
       SELECT 
         op.an AS AN,
-        CONCAT_WS('+', op.icd9, NULLIF(op.ext_code, '')) AS OPER,
+        op.icd9 AS OPER,
         COALESCE(op.oper_type, '1') AS OPTYPE,
         op.doctor AS DROPID,
         DATE_FORMAT(COALESCE(op.opdate, i.regdate), '%Y%m%d') AS DATEIN,
@@ -10606,21 +10766,25 @@ export const getExportData = async (vns: string[]) => {
       SELECT 
         o.hn AS HN,
         COALESCE(o.an, '') AS AN,
-        DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATE,
+        DATE_FORMAT(COALESCE(i.dchdate, o.vstdate), '%Y%m%d') AS DATE,
         SUM(COALESCE(oo.sum_price, 0)) AS TOTAL,
         SUM(CASE WHEN oo.paidst IN ('01', '03') THEN COALESCE(oo.sum_price, 0) ELSE 0 END) AS PAID,
         o.pttype AS PTTYPE,
         COALESCE(pt.cid, '') AS PERSON_ID,
         o.vn AS SEQ,
         '' AS OPD_MEMO,
-        '' AS INVOICE_NO,
+        COALESCE(
+          MAX(NULLIF(oo.finance_number, '')),
+          CONCAT(?, '-', COALESCE(NULLIF(o.an, ''), o.vn))
+        ) AS INVOICE_NO,
         '' AS INVOICE_LT
       FROM ovst o
       LEFT JOIN opitemrece oo ON oo.vn = o.vn
+      LEFT JOIN ipt i ON i.vn = o.vn
       LEFT JOIN patient pt ON o.hn = pt.hn
       WHERE o.vn IN (?)
-      GROUP BY o.vn, o.hn, o.an, o.vstdate, o.pttype, pt.cid
-    `, [vns]);
+      GROUP BY o.vn, o.hn, o.an, o.vstdate, i.dchdate, o.pttype, pt.cid
+    `, [hcode, vns]);
 
     // 12. CHA (Financial Details)
     const cha = await runQuery('CHA', `
@@ -10656,7 +10820,7 @@ export const getExportData = async (vns: string[]) => {
         CASE WHEN ri.vn IS NOT NULL THEN '1100' ELSE '' END AS IREFTYPE,
         COALESCE(ro.refer_hospcode, '') AS REFMAINO,
         CASE WHEN ro.vn IS NOT NULL THEN '1100' ELSE '' END AS OREFTYPE,
-        COALESCE(ept.ucae, '') AS UCAE,
+        CASE WHEN ri.vn IS NOT NULL OR ro.vn IS NOT NULL THEN '' ELSE COALESCE(ept.ucae, '') END AS UCAE,
         '' AS EMTYPE,
         o.vn AS SEQ,
         '' AS AESTATUS,
@@ -10696,7 +10860,13 @@ export const getExportData = async (vns: string[]) => {
         MAX(base.BI) AS BI,
         base.CLINIC,
         '2' AS ITEMSRC,
-        '' AS PROVIDER
+        MAX(base.PROVIDER) AS PROVIDER,
+        MAX(base.ICODE) AS _ICODE,
+        '' AS GRAVIDA,
+        '' AS GA_WEEK,
+        '' AS \`DCIP/E_screen\`,
+        '' AS LMP,
+        '' AS SP_ITEM
       FROM (
         SELECT
           o.hn AS HN,
@@ -10724,7 +10894,8 @@ export const getExportData = async (vns: string[]) => {
             WHEN inc.drg_chrgitem_id = 12 THEN '55999'
             WHEN inc.drg_chrgitem_id = 14 THEN 'XXX14'
             WHEN inc.drg_chrgitem_id = 19 THEN 'XXX19'
-            ELSE o.icode
+            WHEN inc.drg_chrgitem_id IN (1, 5, 6, 7, 8, 13) THEN o.icode
+            ELSE CONCAT('UNMAPPED:', o.icode)
           END AS CODE,
           CASE WHEN o.paidst IN ('03') THEN 0 ELSE COALESCE(o.qty, 0) END AS QTY,
           COALESCE(o.unitprice, 0) AS RATE,
@@ -10734,7 +10905,9 @@ export const getExportData = async (vns: string[]) => {
           COALESCE(sd.tmlt_code, '') AS TMLTCODE,
           CASE WHEN COALESCE(sd.nhso_adp_type_id, n.nhso_adp_type_id, '') = '11' THEN '2' ELSE '' END AS USE_STATUS,
           '' AS BI,
-          COALESCE(ov.main_dep, '') AS CLINIC
+          COALESCE(ov.main_dep, '') AS CLINIC,
+          COALESCE(o.doctor, '') AS PROVIDER,
+          o.icode AS ICODE
         FROM opitemrece o
         JOIN ovst ov ON ov.vn = o.vn
         LEFT JOIN income inc ON inc.income = o.income
@@ -10742,7 +10915,7 @@ export const getExportData = async (vns: string[]) => {
         LEFT JOIN nondrugitems n ON o.icode = n.icode
         WHERE o.vn IN (?)
           AND (
-            COALESCE(o.sum_price, 0) <> 0
+            ${profile === 'fwf-migrants' ? 'COALESCE(o.sum_price, 0) <> 0' : 'inc.drg_chrgitem_id IN (1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19)'}
             OR COALESCE(sd.nhso_adp_code, '') <> ''
             OR COALESCE(n.nhso_adp_code, '') <> ''
             OR COALESCE(sd.nhso_adp_type_id, '') <> ''
@@ -10758,22 +10931,65 @@ export const getExportData = async (vns: string[]) => {
         base.CODE,
         base.RATE,
         base.SEQ,
-        base.CLINIC
+        base.CLINIC,
+        base.ICODE
     `, [vns]);
 
-    // 15. LVD (Leave Day)
-    const lvd = await runQuery('LVD', `
-      SELECT 
-        '' AS SEQLVD,
-        an AS AN,
-        DATE_FORMAT(out_datetime, '%Y%m%d') AS DATEOUT,
-        DATE_FORMAT(out_datetime, '%H%i') AS TIMEOUT,
-        DATE_FORMAT(in_datetime, '%Y%m%d') AS DATEIN,
-        DATE_FORMAT(in_datetime, '%H%i') AS TIMEIN,
-        qty_day AS QTYDAY
-      FROM ipt_leave
-      WHERE an IN (SELECT an FROM ipt WHERE vn IN (?))
+    // ข้อมูลครรภ์สำหรับฟิลด์ ADP ที่เพิ่มในคู่มือรุ่นปัจจุบัน
+    const anc = await runQuery('ADP-ANC', `
+      SELECT
+        pas.vn AS SEQ,
+        MAX(COALESCE(pa.preg_no, '')) AS GRAVIDA,
+        MAX(COALESCE(pas.pa_week, pa.ga, '')) AS GA_WEEK,
+        MAX(CASE
+          WHEN UPPER(TRIM(COALESCE(pa.thalasseima_wife_dcip_result, ''))) IN ('28', 'POSITIVE', 'Y', '+') THEN '28'
+          WHEN UPPER(TRIM(COALESCE(pa.thalasseima_wife_dcip_result, ''))) IN ('29', 'NEGATIVE', 'N', '-') THEN '29'
+          ELSE ''
+        END) AS DCIP_E_SCREEN,
+        MAX(DATE_FORMAT(pa.lmp, '%Y%m%d')) AS LMP
+      FROM person_anc_service pas
+      JOIN person_anc pa ON pa.person_anc_id = pas.person_anc_id
+      WHERE pas.vn IN (?)
+      GROUP BY pas.vn
     `, [vns]);
+
+    // FWF Migrants ใช้รหัสบริการจาก catalog fwf_item เท่านั้น ไม่ fallback เป็น icode
+    const fwfMappings = profile === 'fwf-migrants'
+      ? await runQuery('FWF-MAPPING', `
+          SELECT
+            o.icode AS ICODE,
+            MAX(COALESCE(fi.fwf_item_code, '')) AS FWF_CODE
+          FROM opitemrece o
+          LEFT JOIN drugitems d ON d.icode = o.icode
+          LEFT JOIN s_drugitems sd ON sd.icode = o.icode
+          LEFT JOIN nondrugitems n ON n.icode = o.icode
+          LEFT JOIN fwf_item fi ON fi.fwf_item_id = COALESCE(NULLIF(d.fwf_item_id, 0), NULLIF(sd.fwf_item_id, 0), NULLIF(n.fwf_item_id, 0))
+          WHERE o.vn IN (?)
+          GROUP BY o.icode
+        `, [vns])
+      : [];
+
+    // 15. LVD (Leave Day)
+    const lvdTableRows = await runQuery('LVD-TABLE', `
+      SELECT COUNT(*) AS table_count
+      FROM information_schema.tables
+      WHERE table_schema = DATABASE() AND table_name = 'ipt_leave'
+    `, []);
+    const hasLvdTable = Number((lvdTableRows as Record<string, unknown>[])?.[0]?.table_count || 0) > 0;
+    const lvd = hasLvdTable
+      ? await runQuery('LVD', `
+          SELECT
+            '' AS SEQLVD,
+            an AS AN,
+            DATE_FORMAT(out_datetime, '%Y%m%d') AS DATEOUT,
+            DATE_FORMAT(out_datetime, '%H%i') AS TIMEOUT,
+            DATE_FORMAT(in_datetime, '%Y%m%d') AS DATEIN,
+            DATE_FORMAT(in_datetime, '%H%i') AS TIMEIN,
+            qty_day AS QTYDAY
+          FROM ipt_leave
+          WHERE an IN (SELECT an FROM ipt WHERE vn IN (?))
+        `, [vns])
+      : [];
 
     // 16. DRU (Drugs)
     const dru = await runQuery('DRU', `
@@ -10791,14 +11007,17 @@ export const getExportData = async (vns: string[]) => {
         base.DRUGCOST,
         base.DIDSTD,
         base.UNIT,
-        '' AS UNIT_PACK,
+        MAX(base.UNIT_PACK) AS UNIT_PACK,
         base.SEQ,
         '' AS DRUGTYPE,
         MAX(base.DRUGREMARK) AS DRUGREMARK,
         MAX(base.PA_NO) AS PA_NO,
         SUM(base.TOTCOPAY) AS TOTCOPAY,
         base.USE_STATUS,
-        SUM(base.TOTAL) AS TOTAL
+        SUM(base.TOTAL) AS TOTAL,
+        MAX(base.SIGCODE) AS SIGCODE,
+        MAX(base.SIGTEXT) AS SIGTEXT,
+        MAX(base.PROVIDER) AS PROVIDER
       FROM (
         SELECT
           o.hn AS HN,
@@ -10809,20 +11028,29 @@ export const getExportData = async (vns: string[]) => {
           o.icode AS DID,
           CONCAT_WS(' ', d.name, d.strength) AS DIDNAME,
           COALESCE(d.units, '') AS UNIT,
+          COALESCE(d.packqty, '') AS UNIT_PACK,
           COALESCE(o.qty, 0) AS QTY,
           COALESCE(o.unitprice, 0) AS DRUGPRIC,
           COALESCE(o.cost, d.unitcost, 0) AS DRUGCOST,
           COALESCE(s.did, d.did, '') AS DIDSTD,
-          CASE WHEN o.item_type = 'H' THEN '2' ELSE '1' END AS USE_STATUS,
+          CASE
+            WHEN COALESCE(d.continuous, '') = 'Y' AND o.item_type = 'H' THEN '4'
+            WHEN o.item_type = 'H' THEN '2'
+            ELSE '1'
+          END AS USE_STATUS,
           CASE WHEN COALESCE(d.drugaccount, '') IN ('', '-') THEN 'EC' ELSE '' END AS DRUGREMARK,
           '' AS PA_NO,
           CASE WHEN o.paidst IN ('03') THEN COALESCE(o.sum_price, 0) ELSE 0 END AS TOTCOPAY,
           COALESCE(o.sum_price, 0) AS TOTAL,
-          o.vn AS SEQ
+          o.vn AS SEQ,
+          COALESCE(NULLIF(du.opi_usage_code, ''), NULLIF(du.code, ''), NULLIF(o.drugusage, ''), '') AS SIGCODE,
+          CONCAT_WS(' ', NULLIF(du.name1, ''), NULLIF(du.name2, ''), NULLIF(du.name3, '')) AS SIGTEXT,
+          COALESCE(o.doctor, '') AS PROVIDER
         FROM opitemrece o
         JOIN ovst ov ON ov.vn = o.vn
         JOIN drugitems d ON o.icode = d.icode
         LEFT JOIN s_drugitems s ON o.icode = s.icode
+        LEFT JOIN drugusage du ON du.drugusage = o.drugusage
         LEFT JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN spclty sp ON sp.spclty = ov.spclty
         WHERE o.vn IN (?)
@@ -10843,22 +11071,69 @@ export const getExportData = async (vns: string[]) => {
       HAVING SUM(base.TOTAL) <> 0
     `, [hcode, vns]);
 
+    const normalizedIns = (ins as Record<string, unknown>[]).map((row) => {
+      if (profile !== 'fwf-migrants') return row;
+      const hn = String(row.HN || '').trim();
+      return {
+        ...row,
+        INSCL: 'FWF',
+        CID: String(fcodeByHn[hn] || '').trim(),
+        HCODE: hcode,
+      };
+    });
+    const normalizedOpd = (opd as Record<string, unknown>[]).map((row) => ({
+      ...row,
+      UUC: ['1', '2'].includes(String(uucByVn[String(row.SEQ || '')] || ''))
+        ? String(uucByVn[String(row.SEQ || '')])
+        : row.UUC,
+    }));
+    const normalizedIpd = (ipd as Record<string, unknown>[]).map((row) => {
+      const sourceVn = vns.find((vn) => String((ins as Record<string, unknown>[]).find((item) => String(item.AN || '') === String(row.AN || ''))?.SEQ || '') === vn);
+      return {
+        ...row,
+        UUC: sourceVn && ['1', '2'].includes(String(uucByVn[sourceVn] || '')) ? String(uucByVn[sourceVn]) : row.UUC,
+      };
+    });
+    const ancBySeq = new Map((anc as Record<string, unknown>[]).map((row) => [String(row.SEQ || ''), row]));
+    const fwfCodeByIcode = new Map((fwfMappings as Record<string, unknown>[]).map((row) => [String(row.ICODE || ''), String(row.FWF_CODE || '')]));
+    const normalizedAdp = (adp as Record<string, unknown>[]).map((row) => {
+      const ancRow = ancBySeq.get(String(row.SEQ || '')) || {};
+      return {
+        ...row,
+        CODE: profile === 'fwf-migrants'
+          ? (fwfCodeByIcode.get(String(row._ICODE || '')) || `UNMAPPED:${String(row._ICODE || '')}`)
+          : row.CODE,
+        GRAVIDA: ancRow.GRAVIDA || '',
+        GA_WEEK: ancRow.GA_WEEK || '',
+        'DCIP/E_screen': ancRow.DCIP_E_SCREEN || '',
+        LMP: ancRow.LMP || '',
+        SP_ITEM: '',
+      };
+    });
+    const leaveSequence = new Map<string, number>();
+    const normalizedLvd = (lvd as Record<string, unknown>[]).map((row) => {
+      const an = String(row.AN || '');
+      const sequence = (leaveSequence.get(an) || 0) + 1;
+      leaveSequence.set(an, sequence);
+      return { ...row, SEQLVD: String(sequence).padStart(3, '0') };
+    });
+
     return {
-      INS: ins as any[],
+      INS: normalizedIns,
       PAT: pat as any[],
-      OPD: opd as any[],
+      OPD: normalizedOpd,
       ORF: orf as any[],
       ODX: odx as any[],
       OOP: oop as any[],
-      IPD: ipd as any[],
+      IPD: normalizedIpd,
       IRF: irf as any[],
       IDX: idx as any[],
       IOP: iop as any[],
       CHT: cht as any[],
       CHA: cha as any[],
       AER: aer as any[],
-      ADP: adp as any[],
-      LVD: lvd as any[],
+      ADP: normalizedAdp,
+      LVD: normalizedLvd,
       DRU: dru as any[]
     };
   } catch (error) {
@@ -12533,7 +12808,8 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
 
     console.log(`🔍 getKidneyMonitorDetailed: startDate=${startDate}, endDate=${endDate}`);
 
-    // Step 1: Get dialysis visits — ใช้ main_dep='060' (ห้องไตเทียม) เป็นเกณฑ์หลัก
+    // Step 1: Get candidates from the dialysis unit. A visit is retained only
+    // when it also has N185/Z49 diagnosis or a real dialysis service item.
     // ไม่มี LIMIT — ดึงข้อมูลทั้งหมดตามช่วงวันที่
     const patientQuery = `
       SELECT DISTINCT
@@ -12543,6 +12819,26 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
         COALESCE(pttype.hipdata_code, ovst.pttype, 'UNKNOWN') AS hipdata_code,
         COALESCE(pttype.name, CONCAT('Type:', COALESCE(ovst.pttype, 'NULL'))) AS pttypeName,
         ovst.pttype AS raw_pttype,
+        ovst.main_dep AS mainDepartment,
+        EXISTS (
+          SELECT 1
+          FROM ovstdiag dx
+          WHERE dx.vn = ovst.vn
+            AND REPLACE(UPPER(COALESCE(dx.icd10, '')), '.', '') REGEXP '^(N185|Z49)'
+        ) AS hasDialysisDiagnosis,
+        EXISTS (
+          SELECT 1
+          FROM opitemrece dialysis_oe
+          LEFT JOIN nondrugitems dialysis_ndi ON dialysis_ndi.icode = dialysis_oe.icode
+          LEFT JOIN s_drugitems dialysis_sd ON dialysis_sd.icode = dialysis_oe.icode
+          WHERE dialysis_oe.vn = ovst.vn
+            AND (
+              COALESCE(dialysis_ndi.name, dialysis_sd.name, '') LIKE '%ล้างไต%'
+              OR COALESCE(dialysis_ndi.name, dialysis_sd.name, '') LIKE '%ฟอกไต%'
+              OR COALESCE(dialysis_ndi.name, dialysis_sd.name, '') LIKE '%ฟอกเลือด%'
+              OR LOWER(COALESCE(dialysis_ndi.name, dialysis_sd.name, '')) LIKE '%dialysi%'
+            )
+        ) AS hasDialysisService,
         DATE_FORMAT(ovst.vstdate, '%Y-%m-%d') AS serviceDate
       FROM ovst
       LEFT JOIN patient pt ON ovst.hn = pt.hn
@@ -12551,12 +12847,17 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
         ovst.vstdate >= ? AND ovst.vstdate < DATE_ADD(?, INTERVAL 1 DAY)
         AND ovst.main_dep = '060'
       ORDER BY ovst.vstdate DESC
-    `;    const [visits] = await connection.query(patientQuery, [startDate, endDate]);
-    const totalCount = (visits as any[]).length;
+    `;    const [candidateVisits] = await connection.query(patientQuery, [startDate, endDate]);
+    const visits = (candidateVisits as any[]).filter(isDialysisMonitorVisit);
+    const excludedCount = (candidateVisits as any[]).length - visits.length;
+    const totalCount = visits.length;
     console.log(`🏥 Found ${totalCount} patient visits for kidney monitor (${startDate} to ${endDate})`);
+    if (excludedCount > 0) {
+      console.log(`🧹 Excluded ${excludedCount} department-060 visits without dialysis evidence`);
+    }
     // Process visits sequentially (not all at once) to avoid connection pool exhaustion
     const detailedData: any[] = [];
-    for (const row of (visits as any[])) {
+    for (const row of visits) {
       console.log('📅 Processing row:', { hn: row.hn, vn: row.vn, serviceDate: row.serviceDate });
       const pttypeName = row.pttypeName || '';      const hipdataCode = row.hipdata_code || '';      // Determine insurance group based on both pttypeName and hipdata_code
       const insuranceType = pttypeName;
@@ -12633,9 +12934,10 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
           AND NOT EXISTS (SELECT 1 FROM drugitems WHERE icode = oe.icode)
           AND COALESCE(ndi.name, sd.name, oe.icode) NOT LIKE '%ค่า%'
           AND COALESCE(ndi.name, sd.name, oe.icode) NOT LIKE '%บริการ%'
-          AND COALESCE(ndi.name, sd.name, oe.icode) NOT LIKE '%ค่าล้างไต%'
-          AND COALESCE(ndi.name, sd.name, oe.icode) NOT LIKE '%ialysi%'
           AND COALESCE(ndi.name, sd.name, oe.icode) NOT LIKE '%ล้างไต%'
+          AND COALESCE(ndi.name, sd.name, oe.icode) NOT LIKE '%ฟอกไต%'
+          AND COALESCE(ndi.name, sd.name, oe.icode) NOT LIKE '%ฟอกเลือด%'
+          AND COALESCE(ndi.name, sd.name, oe.icode) NOT LIKE '%ialysi%'
         ORDER BY oe.icode
       `;
 
@@ -12667,17 +12969,26 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
           COALESCE(oe.unitprice, 0) as unitprice,
           -- Cost calculation: use 1380 for dialysis room if it's a dialysis service, otherwise use 40% fallback
           CASE 
-            WHEN COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ล้างไต%' OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ialysi%'
+            WHEN COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ล้างไต%'
+              OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ฟอกไต%'
+              OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ฟอกเลือด%'
+              OR LOWER(COALESCE(ndi.name, sd.name, oe.icode)) LIKE '%dialysi%'
               THEN ${businessRules.costs.dialysis_fixed}  -- Fixed dialysis room cost
             ELSE COALESCE(oe.unitprice * oe.qty, 0) * ${businessRules.costs.fallback_margin}  -- Fallback margin for other services
           END as total_cost,
           CASE 
-            WHEN COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ล้างไต%' OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ialysi%'
+            WHEN COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ล้างไต%'
+              OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ฟอกไต%'
+              OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ฟอกเลือด%'
+              OR LOWER(COALESCE(ndi.name, sd.name, oe.icode)) LIKE '%dialysi%'
               THEN 0  -- Fixed cost, not estimated
             ELSE 1  -- Estimated using fallback margin
           END as cost_is_estimated,
           CASE 
-            WHEN COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ล้างไต%' OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ialysi%'
+            WHEN COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ล้างไต%'
+              OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ฟอกไต%'
+              OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ฟอกเลือด%'
+              OR LOWER(COALESCE(ndi.name, sd.name, oe.icode)) LIKE '%dialysi%'
               THEN 1
             ELSE 0
           END as is_dialysis
@@ -12689,7 +13000,9 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
           AND (COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ค่า%'
             OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%บริการ%'
             OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ialysi%'
-            OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ล้างไต%')
+            OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ล้างไต%'
+            OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ฟอกไต%'
+            OR COALESCE(ndi.name, sd.name, oe.icode) LIKE '%ฟอกเลือด%')
       `;
 
       const [dialysisItems] = await connection.query(dialysisQuery, [row.vn]);      let dialysisServicePrice = 0;

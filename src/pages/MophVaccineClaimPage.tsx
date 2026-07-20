@@ -224,6 +224,7 @@ export const MophVaccineClaimPage = () => {
       บริษัท: row.company || '',
       PregNo: row.preg_no || '',
       GA: row.ga || '',
+      เกณฑ์_aP: row.ap_rule_label || '',
       พร้อมส่ง: row.ready ? 'Y' : 'N',
       ErrorName: row.errorname || '',
       สถานะ_MOPH: mophLabel(row.moph),
@@ -252,6 +253,11 @@ export const MophVaccineClaimPage = () => {
             <span className="workflow-badge">{summary.errors} Error</span>
           </div>
         </div>
+      </div>
+
+      <div className="alert alert-info" style={{ marginBottom: 16 }}>
+        <strong>เกณฑ์วัคซีน aP (P41):</strong> Visit ตั้งแต่ 5 มิ.ย. 2569 ใช้ GA ตั้งแต่ 16 สัปดาห์ขึ้นไป
+        ส่วน Visit ก่อนวันดังกล่าวยังใช้ GA 27–36 สัปดาห์ และเริ่มบันทึกขอรับการชดเชยผ่าน MOPH Claim ได้ตั้งแต่เดือน ก.ค. 2569
       </div>
 
       <div className="card workflow-panel">
@@ -407,8 +413,11 @@ export const MophVaccineClaimPage = () => {
                     <td>{row.dose || '-'}</td>
                     <td className="workflow-code-cell">{row.lot || '-'}</td>
                     <td>{formatDate(row.dateexp)}</td>
-                    <td>{row.preg_no || row.ga ? `ครรภ์ ${row.preg_no || '-'} / GA ${row.ga || '-'}` : '-'}</td>
-                    <td className="workflow-note-cell">{row.note || row.errorname || row.missing_reason || mophLabel(row.moph)}</td>
+                    <td>
+                      {row.preg_no || row.ga ? `ครรภ์ ${row.preg_no || '-'} / GA ${row.ga || '-'}` : '-'}
+                      {row.ap_rule_label && <div className="text-muted">{row.ap_rule_label}</div>}
+                    </td>
+                    <td className="workflow-note-cell">{row.errorname || row.missing_reason || row.note || mophLabel(row.moph)}</td>
                   </tr>
                 );
               })}

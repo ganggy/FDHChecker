@@ -46,6 +46,30 @@ npm run check
 
 คำสั่งนี้รัน automated tests, ตรวจ TypeScript backend, ESLint และ production build
 
+## FDH 16 แฟ้ม API
+
+ทุก endpoint ต้องส่ง App access token ใน `Authorization: Bearer ...` และรับ JSON ยกเว้นผลลัพธ์ ZIP
+
+- `POST /api/fdh/preflight` ตรวจ schema, required fields, ความสัมพันธ์ข้ามแฟ้ม และยอด CHT/CHA โดยไม่ส่งออกภายนอก
+- `POST /api/fdh/view-data` แสดงข้อมูล 16 แฟ้มพร้อมผล preflight
+- `POST /api/fdh/export-zip` ส่งออกไฟล์ `.txt` ทั้ง 16 แฟ้ม (ต้องผ่าน preflight)
+- `POST /api/fdh/submit` ขอ FDH token และส่ง `multipart/form-data` ไป FDH จริง (ต้องผ่าน preflight และกำหนด `confirm: true`)
+- `GET /api/fdh/submission-logs?limit=50` อ่าน audit log ของการส่ง API
+
+ตัวอย่าง request body:
+
+```json
+{
+  "vns": ["690720004252"],
+  "profile": "fwf-migrants",
+  "fcodeByHn": { "000024977": "FCODE_FROM_FDH" },
+  "uucByVn": { "690720004252": "1" },
+  "confirm": true
+}
+```
+
+`profile` รองรับ `standard` และ `fwf-migrants` โดย v1 จะส่ง TXT ไม่มี header ส่วน v2 จะส่ง TXT มี header อัตโนมัติตาม URL ที่ตั้งค่าไว้ ระบบไม่ส่งข้อมูลเมื่อมี FCode, invoice, auth code, catalog mapping หรือความสัมพันธ์ระหว่างแฟ้มไม่ครบ
+
 ## การตั้งค่า
 
 ใช้ [.env.example](./.env.example) เป็นแม่แบบ ห้าม commit `.env`, password หรือ token จริงเข้า Git

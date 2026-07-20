@@ -43,6 +43,7 @@ import {
   getFdhClaimDetailSummary,
   getFdhClaimDetailRows,
   getRepstmImportBatches,
+  getRepstmImportBatchDetail,
   preflightRepstmImportFiles,
   getRepstmImportedRows,
   getRepDataRows,
@@ -95,6 +96,7 @@ import {
   uploadFdhFiles,
   validateFdhData,
 } from './fdhExport.js';
+import { analyzeRepstmArchive } from './repstmArchive.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2607,6 +2609,33 @@ app.get('/api/fdh/import-status/logs', async (req, res) => {
   }
 });
 
+app.post(
+  '/api/repstm/analyze-archive',
+  express.raw({ type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'], limit: '50mb' }),
+  async (req, res) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ success: false, error: 'ไม่พบข้อมูลไฟล์ ZIP' });
+      }
+      const encodedName = String(req.headers['x-source-filename'] || 'archive.zip');
+      let sourceFilename = 'archive.zip';
+      try {
+        sourceFilename = decodeURIComponent(encodedName).trim() || 'archive.zip';
+      } catch {
+        sourceFilename = encodedName.trim() || 'archive.zip';
+      }
+      if (!/\.zip$/i.test(sourceFilename)) {
+        return res.status(400).json({ success: false, error: 'รองรับเฉพาะไฟล์ ZIP' });
+      }
+      const analysis = analyzeRepstmArchive(req.body, sourceFilename);
+      res.json({ success: true, data: analysis });
+    } catch (error) {
+      console.error('Error analyzing REP/STM ZIP:', error);
+      res.status(422).json({ success: false, error: (error as Error).message || 'อ่าน ZIP ไม่สำเร็จ' });
+    }
+  },
+);
+
 app.post('/api/repstm/import', async (req, res) => {
   try {
     const { dataType, sourceFilename, fileSize, fileHash, sheetName, isSubfile, importedBy, notes, rows, forceReimport } = req.body as {
@@ -2708,6 +2737,21 @@ app.get('/api/repstm/batches', async (req, res) => {
   } catch (error) {
     console.error('Error fetching REP/STM/INV batches:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัติการนำเข้า REP/STM/INV' });
+  }
+});
+
+app.get('/api/repstm/batches/:batchId', async (req, res) => {
+  try {
+    const batchId = Number(req.params.batchId);
+    if (!Number.isInteger(batchId) || batchId <= 0) {
+      return res.status(400).json({ success: false, error: 'หมายเลข batch ไม่ถูกต้อง' });
+    }
+    const data = await getRepstmImportBatchDetail(batchId, Number(req.query.limit || 2000));
+    if (!data) return res.status(404).json({ success: false, error: 'ไม่พบ batch ที่ต้องการ' });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching REP/STM batch detail:', error);
+    res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านรายละเอียด batch' });
   }
 });
 

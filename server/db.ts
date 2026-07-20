@@ -9043,6 +9043,49 @@ export const getRepstmImportBatches = async (
   }
 };
 
+export const getRepstmImportBatchDetail = async (
+  batchId: number,
+  limit = 2000,
+): Promise<{ batch: Record<string, unknown>; rows: Record<string, unknown>[] } | null> => {
+  await ensureRepstmTables();
+  const connection = await getRepstmConnection();
+  try {
+    const [batchRows] = await connection.query(
+      `SELECT id, data_type, source_filename, file_size, file_hash, sheet_name, is_subfile,
+              imported_by, row_count, notes, logical_hash, completeness_score,
+              distinct_record_count, column_count, non_empty_cell_count, replaces_batch_id, created_at
+       FROM repstm_import_batch
+       WHERE id = ?
+       LIMIT 1`,
+      [batchId],
+    );
+    if (!Array.isArray(batchRows) || batchRows.length === 0) return null;
+
+    const safeLimit = Math.max(1, Math.min(5000, Math.trunc(limit) || 2000));
+    const [rowResults] = await connection.query(
+      `SELECT id, batch_id, data_type, row_no, ref_key, row_identity, hn, vn, an, cid,
+              amount, service_date, raw_data, created_at
+       FROM repstm_import_row
+       WHERE batch_id = ?
+       ORDER BY row_no ASC, id ASC
+       LIMIT ?`,
+      [batchId, safeLimit],
+    );
+    const rows = Array.isArray(rowResults)
+      ? (rowResults as Record<string, unknown>[]).map((row) => ({
+          ...row,
+          raw_data: parseImportRawData(row.raw_data) || {},
+        }))
+      : [];
+    return { batch: batchRows[0] as Record<string, unknown>, rows };
+  } catch (error) {
+    console.error('Error reading REP/STM/INV batch detail:', error);
+    return null;
+  } finally {
+    connection.release();
+  }
+};
+
 export const preflightRepstmImportFiles = async (
   files: Array<{ filename: string; size?: number; hash?: string }>
 ): Promise<Record<string, unknown>[]> => {

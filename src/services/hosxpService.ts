@@ -392,6 +392,64 @@ export const fetchRepstmBatches = async (dataType?: 'REP' | 'STM' | 'INV', limit
   return json.data || [];
 };
 
+export interface RepstmArchiveDataset {
+  id: string;
+  entryName: string;
+  importerId: string;
+  importerLabel: string;
+  detectedType: 'REP' | 'STM' | 'INV';
+  sheetName: string;
+  headers: string[];
+  rows: Record<string, unknown>[];
+  summary: Record<string, unknown>;
+}
+
+export interface RepstmArchiveAnalysis {
+  archiveName: string;
+  entries: Array<{ name: string; size: number; kind: string }>;
+  datasets: RepstmArchiveDataset[];
+  summaries: Record<string, unknown>[];
+  ignoredEntries: string[];
+}
+
+export const analyzeRepstmArchiveFile = async (file: File): Promise<RepstmArchiveAnalysis> => {
+  const response = await fetch('/api/repstm/analyze-archive', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/zip',
+      'X-Source-Filename': encodeURIComponent(file.name),
+    },
+    body: file,
+  });
+  const json = await response.json().catch(() => null) as { success?: boolean; data?: RepstmArchiveAnalysis; error?: string } | null;
+  if (!response.ok || !json?.success || !json.data) {
+    throw new Error(json?.error || 'ไม่สามารถวิเคราะห์ไฟล์ ZIP ได้');
+  }
+  return json.data;
+};
+
+export const fetchRepstmBatchDetail = async (batchId: number, limit = 2000) => {
+  const response = await fetch(`/api/repstm/batches/${encodeURIComponent(String(batchId))}?limit=${encodeURIComponent(String(limit))}`);
+  const json = await response.json().catch(() => null);
+  if (!response.ok || !json?.success) {
+    throw new Error(json?.error || 'ไม่สามารถอ่านรายละเอียด batch ได้');
+  }
+  return json.data as { batch: Record<string, unknown>; rows: ImportedRepstmBatchRow[] };
+};
+
+export interface ImportedRepstmBatchRow {
+  id: number;
+  row_no: number;
+  ref_key?: string | null;
+  hn?: string | null;
+  vn?: string | null;
+  an?: string | null;
+  cid?: string | null;
+  amount?: number | null;
+  service_date?: string | null;
+  raw_data: Record<string, unknown>;
+}
+
 export interface ReceivableCandidate {
   patient_type: 'OPD' | 'IPD' | string;
   vn?: string | null;

@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { fetchRcmdbData, fetchRepstmBatches, importRepstmData, preflightRepstmFiles } from '../services/hosxpService';
+import {
+  analyzeRepstmArchiveFile,
+  fetchRcmdbData,
+  fetchRepstmBatchDetail,
+  fetchRepstmBatches,
+  importRepstmData,
+  preflightRepstmFiles,
+} from '../services/hosxpService';
 import { navigateFromDashboard } from '../utils/navigationState';
+import { RepStmImportDetail } from '../components/RepStmImportDetail';
 
 type ImportType = 'REP' | 'STM' | 'INV';
 
@@ -62,6 +70,23 @@ interface ImportQueueItem {
   rowCount: number;
   status: QueueStatus;
   message?: string;
+  importerId?: string;
+  importerLabel?: string;
+  summary?: Record<string, unknown>;
+  archiveSummaries?: Record<string, unknown>[];
+  archiveEntries?: Array<{ name: string; size: number; kind: string }>;
+  sourceEntryName?: string;
+}
+
+interface DetailViewState {
+  title: string;
+  subtitle?: string;
+  importerType?: ImportType;
+  importerLabel?: string;
+  headers: string[];
+  rows: Record<string, unknown>[];
+  summaries?: Record<string, unknown>[];
+  archiveEntries?: Array<{ name: string; size: number; kind: string }>;
 }
 
 type EclaimPipelineStatus = 'downloading' | 'downloaded' | 'importing' | 'success' | 'duplicate' | 'error';
@@ -91,7 +116,7 @@ const detectTypeFromFileName = (fileName: string): ImportType | null => {
   // ไฟล์ผลตอบกลับจาก BMS/NHSO ใช้ชื่อ eclaim_* แต่มีข้อมูลระดับ visit แบบ REP
   if (/^eclaim[_-]/.test(name)) return 'REP';
   if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice/.test(name)) return 'INV';
-  if (/(^|[_\s.-])stm(?=[_\s.-]|$)|statement/.test(name)) return 'STM';
+  if (/cocdstm|(^|[_\s.-])stm(?=[_\s.-]|$)|statement/.test(name)) return 'STM';
   if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata/.test(name)) return 'REP';
   return null;
 };
@@ -159,6 +184,19 @@ const statusColorMap: Record<QueueStatus, string> = {
 };
 
 const normalizeHeaderCell = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+const collectRowHeaders = (rows: Record<string, unknown>[], preferred: string[] = []) => {
+  const seen = new Set<string>();
+  const headers: string[] = [];
+  [...preferred, ...rows.slice(0, 100).flatMap((row) => Object.keys(row))].forEach((header) => {
+    const normalized = String(header || '').trim();
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      headers.push(normalized);
+    }
+  });
+  return headers;
+};
 
 const isLikelyHeaderRow = (row: unknown[], hintType?: ImportType | null) => {
   const cells = row.map(normalizeHeaderCell).filter(Boolean);
@@ -284,6 +322,12 @@ interface ParsedSheet {
   headers: string[];
   hintType: ImportType | null;
   isSubfile: boolean;
+  importerId?: string;
+  importerLabel?: string;
+  summary?: Record<string, unknown>;
+  archiveSummaries?: Record<string, unknown>[];
+  archiveEntries?: Array<{ name: string; size: number; kind: string }>;
+  sourceEntryName?: string;
 }
 
 /** Scans all sheets in a workbook; returns one ParsedSheet per sheet that has data.
@@ -345,6 +389,24 @@ const readWorkbook = async (file: File, includeSubfiles = false): Promise<Parsed
   return results;
 };
 
+const readImportSource = async (file: File, includeSubfiles = false): Promise<ParsedSheet[]> => {
+  if (!/\.zip$/i.test(file.name)) return readWorkbook(file, includeSubfiles);
+  const archive = await analyzeRepstmArchiveFile(file);
+  return archive.datasets.map((dataset) => ({
+    sheetName: dataset.sheetName,
+    rows: dataset.rows,
+    headers: dataset.headers,
+    hintType: dataset.detectedType,
+    isSubfile: false,
+    importerId: dataset.importerId,
+    importerLabel: dataset.importerLabel,
+    summary: dataset.summary,
+    archiveSummaries: archive.summaries,
+    archiveEntries: archive.entries,
+    sourceEntryName: dataset.entryName,
+  }));
+};
+
 export const RepStmImportPage: React.FC = () => {
   const [dataType, setDataType] = useState<ImportType>('REP');
   const [importedBy, setImportedBy] = useState('เปรมศักดิ์ เทพวงสา');
@@ -359,6 +421,9 @@ export const RepStmImportPage: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [batches, setBatches] = useState<ImportBatch[]>([]);
   const [rows, setRows] = useState<ImportedRow[]>([]);
+  const [detailView, setDetailView] = useState<DetailViewState | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -507,6 +572,62 @@ export const RepStmImportPage: React.FC = () => {
 
   const updateQueueItem = (id: string, updater: (item: ImportQueueItem) => ImportQueueItem) => {
     setQueueItems((current) => current.map((item) => (item.id === id ? updater(item) : item)));
+  };
+
+  const changeQueueImporter = (id: string, importerType: ImportType) => {
+    updateQueueItem(id, (item) => ({
+      ...item,
+      detectedType: importerType,
+      status: item.rows.length > 0 && item.status !== 'importing' && item.status !== 'success' ? 'ready' : item.status,
+      message: item.rows.length > 0
+        ? `เลือกตัวนำเข้า ${importerType} โดยผู้ใช้ · ${item.rows.length.toLocaleString()} แถวพร้อมนำเข้า`
+        : item.message,
+    }));
+  };
+
+  const openQueueDetail = (item: ImportQueueItem) => {
+    setDetailLoading(false);
+    setDetailError(null);
+    setDetailView({
+      title: item.fileName,
+      subtitle: [item.relativePath, item.sheetName].filter(Boolean).join(' · '),
+      importerType: item.detectedType,
+      importerLabel: item.importerLabel,
+      headers: collectRowHeaders(item.rows, item.headers),
+      rows: item.rows,
+      summaries: item.archiveSummaries || (item.summary ? [item.summary] : []),
+      archiveEntries: item.archiveEntries,
+    });
+  };
+
+  const openBatchDetail = async (batch: ImportBatch) => {
+    setDetailLoading(true);
+    setDetailError(null);
+    setDetailView({
+      title: batch.source_filename,
+      subtitle: `Batch #${batch.id} · ${batch.sheet_name || 'ข้อมูลนำเข้า'}`,
+      importerType: batch.data_type,
+      headers: [],
+      rows: [],
+    });
+    try {
+      const detail = await fetchRepstmBatchDetail(batch.id);
+      const detailRows = detail.rows.map((row) => ({
+        'ลำดับ': row.row_no,
+        ...(row.raw_data && typeof row.raw_data === 'object' ? row.raw_data : {}),
+      }));
+      setDetailView({
+        title: String(detail.batch.source_filename || batch.source_filename),
+        subtitle: `Batch #${batch.id} · ${String(detail.batch.sheet_name || batch.sheet_name || 'ข้อมูลนำเข้า')} · นำเข้าโดย ${String(detail.batch.imported_by || batch.imported_by || '-')}`,
+        importerType: String(detail.batch.data_type || batch.data_type) as ImportType,
+        headers: collectRowHeaders(detailRows),
+        rows: detailRows,
+      });
+    } catch (err) {
+      setDetailError(err instanceof Error ? err.message : 'อ่านรายละเอียด batch ไม่สำเร็จ');
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
   const handleBrowserLogin = async () => {
@@ -695,10 +816,10 @@ export const RepStmImportPage: React.FC = () => {
 
     if (!files || files.length === 0) return [];
 
-    const selectedFiles = Array.from(files).filter((file) => /\.(xlsx|xls|csv)$/i.test(file.name));
+    const selectedFiles = Array.from(files).filter((file) => /\.(xlsx|xls|csv|zip)$/i.test(file.name));
     if (selectedFiles.length === 0) {
       const receivedNames = Array.from(files).map((file) => file.name).filter(Boolean).join(', ');
-      setError(`ได้รับไฟล์จาก eClaim แล้ว แต่รูปแบบยังไม่ใช่ Excel/CSV${receivedNames ? ` (${receivedNames})` : ''}`);
+      setError(`รูปแบบไฟล์ยังไม่รองรับ ต้องเป็น Excel, CSV หรือ ZIP/XML จากระบบจ่ายเงิน${receivedNames ? ` (${receivedNames})` : ''}`);
       return [];
     }
     const initialQueue: ImportQueueItem[] = selectedFiles.map((file, index) => ({
@@ -789,7 +910,7 @@ export const RepStmImportPage: React.FC = () => {
       while (nextParseIndex < parseQueue.length) {
         const queueItem = parseQueue[nextParseIndex++];
       try {
-        const parsedSheets = await readWorkbook(queueItem.file, includeSubfiles);
+        const parsedSheets = await readImportSource(queueItem.file, includeSubfiles);
 
         if (parsedSheets.length === 0) {
           const failedItem: ImportQueueItem = {
@@ -806,7 +927,7 @@ export const RepStmImportPage: React.FC = () => {
         }
 
         if (parsedSheets.length === 1) {
-          const { sheetName, rows, headers, hintType, isSubfile } = parsedSheets[0];
+          const { sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName } = parsedSheets[0];
           const detectedType = isSubfile
             ? hintType || detectImportType(queueItem.fileName, headers, rows)
             : detectImportType(queueItem.fileName, headers, rows) || hintType;
@@ -818,6 +939,12 @@ export const RepStmImportPage: React.FC = () => {
             rows,
             rowCount: rows.length,
             detectedType: detectedType || undefined,
+            importerId,
+            importerLabel,
+            summary,
+            archiveSummaries,
+            archiveEntries,
+            relativePath: sourceEntryName || queueItem.relativePath,
             status: rows.length > 0 && detectedType ? 'ready' : 'error',
             message: rows.length === 0
               ? 'ไม่พบข้อมูลในไฟล์'
@@ -832,7 +959,7 @@ export const RepStmImportPage: React.FC = () => {
           }));
         } else {
           // Multiple relevant sheets – expand one file into multiple queue items
-          const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType, isSubfile }, i) => {
+          const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName }, i) => {
             const detectedType = isSubfile
               ? hintType || detectImportType(queueItem.fileName, headers, rows)
               : detectImportType(queueItem.fileName, headers, rows) || hintType;
@@ -840,13 +967,18 @@ export const RepStmImportPage: React.FC = () => {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,
               fileName: queueItem.fileName,
-              relativePath: queueItem.relativePath,
+              relativePath: sourceEntryName || queueItem.relativePath,
               sheetName,
               isSubfile,
               headers,
               rows,
               rowCount: rows.length,
               detectedType: detectedType || undefined,
+              importerId,
+              importerLabel,
+              summary,
+              archiveSummaries,
+              archiveEntries,
               status: (rows.length > 0 && detectedType ? 'ready' : 'error') as QueueStatus,
               message: rows.length === 0
                 ? `Sheet "${sheetName}": ไม่พบข้อมูล`
@@ -923,13 +1055,15 @@ export const RepStmImportPage: React.FC = () => {
         try {
           const result = await importRepstmData({
             dataType: item.detectedType,
-            sourceFilename: item.fileName,
+            sourceFilename: item.archiveEntries?.length
+              ? `${item.fileName} [${item.relativePath || item.sheetName}]`
+              : item.fileName,
             fileSize: item.fileSize ?? item.file.size,
             fileHash: item.fileHash,
             sheetName: item.sheetName,
             isSubfile: Boolean(item.isSubfile),
             importedBy: importedBy.trim() || undefined,
-            notes: notes.trim() || undefined,
+            notes: [item.importerLabel ? `Importer: ${item.importerLabel}` : '', notes.trim()].filter(Boolean).join(' · ') || undefined,
             rows: item.rows,
             forceReimport,
           });
@@ -1008,7 +1142,7 @@ export const RepStmImportPage: React.FC = () => {
           <div className="alert alert-info repstm-alert" style={{ marginBottom: 16 }}>
             <span>ℹ️</span>
             <span>
-              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จากไฟล์ <code>.xlsx</code>, <code>.xls</code> และ <code>.csv</code> ระบบจะตรวจชื่อ ขนาด และ SHA-256 ก่อนเปิด Excel แล้ว map REP/STM/INV ลงฐาน <code>repstminv</code> อัตโนมัติ
+              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และ SHA-256 แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
             </span>
           </div>
 
@@ -1046,7 +1180,7 @@ export const RepStmImportPage: React.FC = () => {
               style={{ display: 'none' }}
               type="file"
               multiple
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls,.csv,.zip,application/zip"
               onChange={(e) => {
                 void handleFileChange(e.target.files);
                 if (e.target) e.target.value = '';
@@ -1058,14 +1192,14 @@ export const RepStmImportPage: React.FC = () => {
               type="file"
               multiple
               {...({ webkitdirectory: '', directory: '' } as unknown as React.InputHTMLAttributes<HTMLInputElement>)}
-              accept=".xlsx,.xls,.csv"
+              accept=".xlsx,.xls,.csv,.zip,application/zip"
               onChange={(e) => {
                 void handleFileChange(e.target.files);
                 if (e.target) e.target.value = '';
               }}
             />
             <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              ระบบจะพยายามตรวจชนิดไฟล์ให้เองจากชื่อไฟล์และหัวตาราง รองรับการเลือกทีละหลายไฟล์ และการเลือกทั้งโฟลเดอร์ เช่น <code>C:\TEMP\REP</code>
+              ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\REP</code>
             </div>
             <label className="repstm-subfile-option">
               <input
@@ -1085,7 +1219,7 @@ export const RepStmImportPage: React.FC = () => {
 
           <div className="repstm-toolbar">
             <button className="btn btn-primary" onClick={() => void handleImport(false)} disabled={importing || readyItems.length === 0}>
-              {importing ? 'กำลังนำเข้าหลายไฟล์...' : `นำเข้า ${dataType} ทั้งหมด`}
+              {importing ? 'กำลังนำเข้าหลายไฟล์...' : `นำเข้ารายการที่พร้อม (${readyItems.length.toLocaleString()})`}
             </button>
             {duplicateItems.length > 0 && (
               <button className="btn btn-warning" onClick={() => void handleImport(true)} disabled={importing}>
@@ -1421,13 +1555,14 @@ export const RepStmImportPage: React.FC = () => {
                 <thead>
                   <tr>
                     <th>ไฟล์</th>
-                    <th>ประเภท</th>
+                    <th>ตัวนำเข้า</th>
                     <th>Sheet</th>
                     <th>บทบาท</th>
                     <th>แถวข้อมูล</th>
                     <th>สถานะ</th>
                     <th>Progress</th>
                     <th>ข้อความ</th>
+                    <th>รายละเอียด</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1441,7 +1576,21 @@ export const RepStmImportPage: React.FC = () => {
                         <div className="repstm-file-name" title={item.fileName}>{item.fileName}</div>
                         <div className="repstm-file-subpath" title={item.relativePath || '-'}>{item.relativePath || '-'}</div>
                       </td>
-                      <td className="table-cell-nowrap">{item.detectedType || '-'}</td>
+                      <td className="table-cell-nowrap" onClick={(event) => event.stopPropagation()}>
+                        <select
+                          className="form-control repstm-importer-select"
+                          value={item.detectedType || ''}
+                          disabled={item.status === 'importing' || item.status === 'success'}
+                          onChange={(event) => changeQueueImporter(item.id, event.target.value as ImportType)}
+                          aria-label={`เลือกตัวนำเข้าสำหรับ ${item.fileName}`}
+                        >
+                          <option value="" disabled>เลือกตัวนำเข้า</option>
+                          <option value="REP">REP</option>
+                          <option value="STM">STM</option>
+                          <option value="INV">INV</option>
+                        </select>
+                        {item.importerLabel ? <div className="repstm-importer-hint">แนะนำ: {item.importerLabel}</div> : null}
+                      </td>
                       <td className="table-cell-nowrap">{item.sheetName || '-'}</td>
                       <td className="table-cell-nowrap"><span className={`badge ${item.isSubfile ? 'badge-warning' : 'badge-primary'}`}>{item.isSubfile ? 'Sub file' : 'ไฟล์หลัก'}</span></td>
                       <td className="table-cell-nowrap">{item.rowCount.toLocaleString()}</td>
@@ -1464,6 +1613,11 @@ export const RepStmImportPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="repstm-message-cell">{item.message || '-'}</td>
+                      <td className="table-cell-nowrap" onClick={(event) => event.stopPropagation()}>
+                        <button className="btn btn-secondary repstm-detail-button" type="button" disabled={item.rows.length === 0} onClick={() => openQueueDetail(item)}>
+                          ดูข้อมูล
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1492,9 +1646,14 @@ export const RepStmImportPage: React.FC = () => {
       )}
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header">
-          <div className="card-title">ตัวอย่างข้อมูลก่อนนำเข้า</div>
-          <span className="badge badge-primary">{previewRows.length.toLocaleString()} แถว</span>
+          <div className="card-header">
+            <div className="card-title">ตัวอย่างข้อมูลก่อนนำเข้า</div>
+            <div className="repstm-preview-actions">
+              <span className="badge badge-primary">{previewRows.length.toLocaleString()} แถว</span>
+              {activePreview && activePreview.rows.length > 0 ? (
+                <button className="btn btn-secondary repstm-detail-button" type="button" onClick={() => openQueueDetail(activePreview)}>ดูข้อมูลทั้งหมด</button>
+              ) : null}
+            </div>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           {previewRows.length > 0 ? (
@@ -1546,6 +1705,7 @@ export const RepStmImportPage: React.FC = () => {
                       <th>แถว</th>
                       <th>หมายเหตุ</th>
                       <th>เวลา</th>
+                      <th>รายละเอียด</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1566,6 +1726,9 @@ export const RepStmImportPage: React.FC = () => {
                         <td className="table-cell-nowrap">{Number(batch.row_count || 0).toLocaleString()}</td>
                         <td className="repstm-message-cell">{batch.notes || '-'}</td>
                         <td className="table-cell-nowrap">{String(batch.created_at || '-')}</td>
+                        <td className="table-cell-nowrap">
+                          <button className="btn btn-secondary repstm-detail-button" type="button" onClick={() => void openBatchDetail(batch)}>ดูข้อมูล</button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1657,6 +1820,21 @@ export const RepStmImportPage: React.FC = () => {
           </div>
         </div>
       </div>
+      {detailView ? (
+          <RepStmImportDetail
+            title={detailView.title}
+            subtitle={detailView.subtitle}
+            importerType={detailView.importerType}
+            importerLabel={detailView.importerLabel}
+            headers={detailView.headers}
+            rows={detailView.rows}
+            summaries={detailView.summaries}
+            archiveEntries={detailView.archiveEntries}
+            loading={detailLoading}
+            error={detailError}
+            onClose={() => { setDetailView(null); setDetailError(null); }}
+          />
+      ) : null}
     </div>
   );
 };

@@ -11925,9 +11925,19 @@ export const trackFdhStatusForVns = async (options: {
   return summary;
 };
 
-export const getSpecificFundData = async (fundType: string, startDate: string, endDate: string) => {
+export const getSpecificFundData = async (
+  fundType: string,
+  startDate: string,
+  endDate: string,
+  options: { includeTracking?: boolean; throwOnError?: boolean } = {},
+) => {
   const connection = await getUTFConnection();
   try {
+    const finalizeRows = (rows: Record<string, unknown>[]) => (
+      options.includeTracking === false
+        ? Promise.resolve(rows)
+        : attachSpecificFundStatusFields(connection, rows)
+    );
     if (fundType === 'palliative') {
       const [rows] = await connection.query(`
         SELECT 
@@ -11950,7 +11960,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'telemedicine') {
@@ -11972,7 +11982,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'drugp') {
@@ -11999,7 +12009,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'herb') {
@@ -12025,7 +12035,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'knee') {
@@ -12124,7 +12134,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           row.knee_poultice_14d_count = row.has_knee_poultice === 'Y' ? 1 : 0;
         }
       }
-      return await attachSpecificFundStatusFields(connection, kneeRows);
+      return await finalizeRows(kneeRows);
     }
 
     if (fundType === 'instrument') {
@@ -12149,7 +12159,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
 
@@ -12185,7 +12195,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
           )          GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     // Family Planning — Z30.x + ADP codes starting with FP (FP002_1, FP002_2, FP003_1, FP003_2, FP003_4 ...)
@@ -12219,7 +12229,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }    // Antenatal Care (combined) — Z34/Z35 + ANC ADP codes
     if (fundType === 'anc') {
       const ancVisitCode = '30011';
@@ -12264,7 +12274,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     // Postpartum — Z39.x + ADP 30015
@@ -12298,7 +12308,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'clopidogrel') {
@@ -12339,7 +12349,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'hepc' || fundType === 'hepb') {
@@ -12404,7 +12414,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     const pp2569Funds: Record<string, {
@@ -12524,7 +12534,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'fpg_screening') {
@@ -12568,7 +12578,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'cholesterol_screening') {
@@ -12611,7 +12621,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'anemia_screening') {
@@ -12707,7 +12717,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'syphilis_screening_male') {
@@ -12762,7 +12772,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'iron_supplement') {
@@ -12830,7 +12840,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     if (fundType === 'ferrokid_child') {
@@ -12867,7 +12877,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     // ANC Funds Mapping
@@ -12945,7 +12955,7 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
               GROUP BY o.vn
               ORDER BY o.vstdate DESC
           `, [startDate, endDate]);
-        return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+        return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     // Other PP Funds Mapping
@@ -13022,13 +13032,14 @@ export const getSpecificFundData = async (fundType: string, startDate: string, e
             GROUP BY o.vn
             ORDER BY o.vstdate DESC
         `, [startDate, endDate]);
-        return await attachSpecificFundStatusFields(connection, rows as Record<string, unknown>[]);
+        return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
     // สามารถเพิ่มเงื่อนไขกองทุนอื่นๆ ต่อไปได้ที่นี่
     return [];
   } catch (error) {
     console.error('Error fetching specific fund data:', error);
+    if (options.throwOnError) throw error;
     return [];
   } finally {
     connection.release();

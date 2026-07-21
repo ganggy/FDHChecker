@@ -1,0 +1,309 @@
+import { getSpecificFundData } from './db.js';
+import { pushLineMessages, type LineMessage } from './lineMessaging.js';
+
+type FundRow = Record<string, unknown>;
+
+export type FundError = {
+  hn: string;
+  serviceDate: string;
+  missing: string[];
+};
+
+export type FundErrorSection = {
+  id: string;
+  name: string;
+  checked: number;
+  errors: FundError[];
+  queryError?: string;
+};
+
+type FundSpec = { id: string; name: string };
+
+export const REPORT_FUNDS: FundSpec[] = [
+  { id: 'palliative', name: 'Palliative Care' },
+  { id: 'telemedicine', name: 'Telemedicine' },
+  { id: 'drugp', name: 'ส่งยาไปรษณีย์' },
+  { id: 'herb', name: 'สมุนไพร / ยาไทย' },
+  { id: 'knee', name: 'ยาพอกเข่า (43 แฟ้ม)' },
+  { id: 'instrument', name: 'อวัยวะเทียม' },
+  { id: 'preg_test', name: 'ตรวจครรภ์ (UPT)' },
+  { id: 'anc', name: 'ANC Visit' },
+  { id: 'anc_ultrasound', name: 'ANC Ultrasound' },
+  { id: 'anc_lab_1', name: 'ANC Lab 1' },
+  { id: 'anc_lab_2', name: 'ANC Lab 2' },
+  { id: 'anc_dental_exam', name: 'ANC ตรวจฟัน' },
+  { id: 'anc_dental_clean', name: 'ANC ขัดทำความสะอาดฟัน' },
+  { id: 'postnatal_care', name: 'ดูแลหลังคลอด' },
+  { id: 'postnatal_supplements', name: 'เสริมธาตุเหล็กหลังคลอด' },
+  { id: 'fluoride', name: 'เคลือบฟลูออไรด์' },
+  { id: 'fp', name: 'วางแผนครอบครัว' },
+  { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด' },
+  { id: 'condom', name: 'ถุงยางอนามัย' },
+  { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก' },
+  { id: 'fpg_screening', name: 'คัดกรองเบาหวาน' },
+  { id: 'cholesterol_screening', name: 'คัดกรองหัวใจหลอดเลือด' },
+  { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง' },
+  { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)' },
+  { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก' },
+  { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)' },
+  { id: 'mental_health_counselling', name: 'ปรึกษาสุขภาพจิต' },
+  { id: 'gender_affirming_hormone', name: 'ฮอร์โมนยืนยันเพศสภาพ' },
+  { id: 'latent_tb_screening', name: 'คัดกรอง Latent TB' },
+  { id: 'osteoporosis_screening', name: 'คัดกรองกระดูกพรุน' },
+  { id: 'autism_tdas_screening', name: 'คัดกรองออทิสติก TDAS' },
+  { id: 'clopidogrel', name: 'ยา Clopidogrel' },
+];
+
+const flag = (value: unknown) => value === true || value === 1 || value === '1' || value === 'Y' || value === 'y';
+const text = (value: unknown) => String(value ?? '').trim();
+const present = (value: unknown) => text(value) !== '';
+const cleanCode = (value: unknown) => text(value).replace(/\./g, '').toUpperCase();
+const codes = (row: FundRow) => [
+  row.pdx, row.main_diag, row.diag_code, row.dx0, row.dx1, row.dx2, row.dx3, row.dx4, row.dx5,
+  row.z515_code, row.z718_code, row.fp_diags, row.anc_diags, row.pp_diags, row.preg_diags,
+].flatMap((value) => text(value).split(/[^A-Za-z0-9.]+/)).map(cleanCode).filter(Boolean);
+const hasCode = (row: FundRow, wanted: string[]) => {
+  const available = new Set(codes(row));
+  return wanted.some((value) => available.has(cleanCode(value)));
+};
+const hasPrefix = (row: FundRow, prefix: string) => codes(row).some((value) => value.startsWith(cleanCode(prefix)));
+const hasListedCode = (value: unknown, wanted: string[]) => {
+  const available = new Set(text(value).split(',').map(cleanCode).filter(Boolean));
+  return wanted.some((code) => available.has(cleanCode(code)));
+};
+const requireValue = (missing: string[], met: boolean, label: string) => { if (!met) missing.push(label); };
+
+export const getFundMissingConditions = (fundId: string, row: FundRow) => {
+  const missing: string[] = [];
+  const age = Number(row.age_y ?? row.age ?? -1);
+  const ageMonths = Number(row.age_month ?? -1);
+  const female = text(row.sex) === '2';
+  const male = text(row.sex) === '1';
+  const hip = `${text(row.hipdata_code)} ${text(row.fund)} ${text(row.hipdata_desc)}`.toUpperCase();
+  const ucs = ['UCS', 'UC', 'WEL', 'UNK'].some((code) => hip.includes(code));
+  const ancDiag = flag(row.has_anc_diag) || hasPrefix(row, 'Z34') || hasPrefix(row, 'Z35') || present(row.anc_diags);
+  const fpDiag = flag(row.has_fp_diag) || hasPrefix(row, 'Z30');
+  const ppDiag = flag(row.has_pp_diag) || hasCode(row, ['Z390', 'Z391', 'Z392']);
+
+  switch (fundId) {
+    case 'palliative':
+      requireValue(missing, ucs, 'สิทธิ UCS');
+      requireValue(missing, flag(row.has_pal_diag) || hasCode(row, ['Z515', 'Z718']), 'Diagnosis Z515/Z718');
+      requireValue(missing, flag(row.has_pal_adp) || flag(row.has_30001) || flag(row.has_cons01) || flag(row.has_eva001), 'ADP 30001/Cons01/Eva001');
+      break;
+    case 'telemedicine':
+      requireValue(missing, ucs, 'สิทธิ UCS');
+      requireValue(missing, flag(row.has_telmed) || text(row.ovstist_export_code) === '5', 'ADP/Export TELMED');
+      break;
+    case 'drugp':
+      requireValue(missing, ucs, 'สิทธิ UCS');
+      requireValue(missing, flag(row.has_drugp), 'ADP DRUGP');
+      requireValue(missing, Number(row.drug_count ?? 0) > 0, 'รายการยา');
+      break;
+    case 'herb':
+      requireValue(missing, ucs || hip.includes('WEL'), 'สิทธิ UCS/WEL');
+      requireValue(missing, Number(row.herb_total_price ?? 0) > 0 || flag(row.has_herb), 'รายการสมุนไพร/ยอดราคา');
+      break;
+    case 'knee':
+      requireValue(missing, flag(row.knee_age_eligible) || age >= 40, 'อายุ 40 ปีขึ้นไป');
+      requireValue(missing, (flag(row.has_knee_diag_m17) || hasPrefix(row, 'M17')) && (flag(row.has_knee_diag_u5753) || hasCode(row, ['U5753'])), 'Diagnosis M17 และ U57.53');
+      requireValue(missing, flag(row.has_knee_massage_thigh), 'หัตถการ 872-78-11');
+      requireValue(missing, flag(row.has_knee_massage_knee), 'หัตถการ 873-78-11');
+      requireValue(missing, flag(row.has_knee_massage_lower_leg), 'หัตถการ 874-78-11');
+      requireValue(missing, flag(row.has_knee_poultice), 'หัตถการ 873-78-35');
+      requireValue(missing, Number(row.knee_poultice_14d_count ?? 0) <= 5, 'เกิน 5 ครั้งใน 2 สัปดาห์');
+      break;
+    case 'instrument': requireValue(missing, Number(row.instrument_price ?? 0) > 0 || flag(row.has_instrument), 'อุปกรณ์/ยอดอวัยวะเทียม'); break;
+    case 'cacervix':
+      requireValue(missing, flag(row.has_cx_diag) || present(row.ca_diags), 'Diagnosis/บริการคัดกรอง');
+      requireValue(missing, flag(row.has_cx_adp) || present(row.ca_adp_codes), 'ADP คัดกรอง');
+      break;
+    case 'fp':
+      requireValue(missing, fpDiag, 'Diagnosis Z30x');
+      requireValue(missing, flag(row.has_fp_adp) || present(row.fp_adp_codes), 'ADP/หัตถการ FP');
+      break;
+    case 'anc':
+      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
+      requireValue(missing, flag(row.has_anc_visit) || hasListedCode(row.anc_adp_codes, ['30011']), 'ADP 30011');
+      break;
+    case 'anc_ultrasound':
+      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
+      requireValue(missing, flag(row.has_anc_us) || hasListedCode(row.anc_adp_codes, ['30010']), 'ADP 30010');
+      requireValue(missing, flag(row.has_anc_us_proc), 'Ultrasound ANC');
+      break;
+    case 'anc_lab_1':
+      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
+      requireValue(missing, flag(row.has_anc_lab1) || hasListedCode(row.anc_adp_codes, ['30012']), 'ADP 30012');
+      for (const [key, label] of [['anc_lab1_cbc','CBC'],['anc_lab1_dcip','DCIP'],['anc_lab1_abo','ABO group'],['anc_lab1_rh','Rh grouping'],['anc_lab1_hbsag','HBsAg'],['anc_lab1_syphilis','Treponema Pallidum Ab'],['anc_lab1_hiv','HIV-Ab Screening']] as const) requireValue(missing, flag(row[key]), label);
+      break;
+    case 'anc_lab_2':
+      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
+      requireValue(missing, flag(row.has_anc_lab2) || hasListedCode(row.anc_adp_codes, ['30013']), 'ADP 30013');
+      for (const [key, label] of [['anc_lab2_hiv','Anti-HIV ANC 2'],['anc_lab2_syphilis','Treponema Pallidum Ab ANC 2'],['anc_lab2_cbc','CBC']] as const) requireValue(missing, flag(row[key]), label);
+      break;
+    case 'anc_dental_exam':
+    case 'anc_dental_clean': {
+      const exam = fundId === 'anc_dental_exam';
+      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35'); requireValue(missing, hasPrefix(row, 'K'), 'Diagnosis K*');
+      requireValue(missing, flag(row[exam ? 'has_anc_dental_exam' : 'has_anc_dental_clean']) || hasListedCode(row.anc_adp_codes, [exam ? '30008' : '30009']), `ADP ${exam ? '30008' : '30009'}`);
+      break;
+    }
+    case 'preg_test':
+      requireValue(missing, flag(row.has_preg_lab) || present(row.preg_lab_name) || present(row.preg_result), 'Lab UPT/31101');
+      requireValue(missing, flag(row.has_preg_diag) || hasCode(row, ['Z320', 'Z321']) || present(row.preg_diags), 'Diagnosis Z320/Z321');
+      requireValue(missing, flag(row.has_preg_item) || flag(row.has_upt) || flag(row.has_specific_adp), 'ADP 30014');
+      break;
+    case 'postnatal_care': requireValue(missing, ppDiag, 'Diagnosis Z390/Z391/Z392'); requireValue(missing, flag(row.has_post_care), 'ADP 30015'); break;
+    case 'postnatal_supplements':
+      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, flag(row.has_post_supp_diag) || hasCode(row, ['Z391', 'Z392']), 'Diagnosis Z391/Z392');
+      requireValue(missing, flag(row.has_post_supp), 'ADP 30016'); requireValue(missing, flag(row.has_post_iron_med), 'ยาเสริมธาตุเหล็ก'); break;
+    case 'fluoride': requireValue(missing, flag(row.has_specific_adp) || hasListedCode(row.anc_adp_codes, ['15001']), 'ADP 15001'); break;
+    case 'contraceptive_pill':
+      requireValue(missing, hasCode(row, ['Z304']), 'Diagnosis Z304');
+      requireValue(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_1', 'FP003_2']), 'ADP FP003_1/FP003_2'); break;
+    case 'condom': requireValue(missing, fpDiag, 'Diagnosis Z30x'); requireValue(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_4']), 'ADP FP003_4'); break;
+    case 'fpg_screening':
+      requireValue(missing, flag(row.age_eligible), 'อายุ 35-59 ปี'); requireValue(missing, flag(row.has_fpg_lab), 'Lab FPG'); requireValue(missing, flag(row.has_fpg_diag) || hasCode(row, ['Z131','Z133','Z136']), 'Diagnosis Z131/Z133/Z136'); requireValue(missing, flag(row.has_fpg_adp), 'ADP 12003'); break;
+    case 'cholesterol_screening':
+      requireValue(missing, flag(row.age_eligible), 'อายุ 45-70 ปี'); requireValue(missing, flag(row.has_chol_lab), 'Lab Total Cholesterol และ HDL'); requireValue(missing, flag(row.has_chol_diag) || hasCode(row, ['Z136']), 'Diagnosis Z136'); requireValue(missing, flag(row.has_chol_adp), 'ADP 12004'); break;
+    case 'anemia_screening': {
+      const ageEligible = flag(row.age_eligible) || (age >= 13 && age <= 24) || (ageMonths >= 6 && ageMonths <= 12) || (age >= 3 && age <= 6);
+      const labOk = age >= 13 && age <= 24 ? flag(row.has_anemia_cbc) : flag(row.has_anemia_hbhct);
+      requireValue(missing, ageEligible, 'ช่วงอายุตามเกณฑ์'); requireValue(missing, labOk, age >= 13 ? 'Lab CBC' : 'Lab Hb/Hct'); requireValue(missing, flag(row.has_anemia_diag) || hasCode(row, ['Z130','Z138']), 'Diagnosis Z130/Z138'); requireValue(missing, flag(row.has_anemia_adp), 'ADP 13001'); break;
+    }
+    case 'syphilis_screening_male': requireValue(missing, male, 'เพศชาย'); requireValue(missing, flag(row.has_syphilis_lab) || present(row.syphilis_lab_names) || present(row.syphilis_service_names), 'Lab Treponema/Syphilis'); break;
+    case 'iron_supplement': requireValue(missing, flag(row.age_eligible) || (female && age >= 13 && age <= 45), 'หญิงอายุ 13-45 ปี'); requireValue(missing, flag(row.has_iron_diag) || hasCode(row, ['Z130']), 'Diagnosis Z130'); requireValue(missing, flag(row.has_iron_adp), 'ADP 14001'); requireValue(missing, flag(row.has_iron_med), 'ยาเสริมธาตุเหล็ก'); break;
+    case 'ferrokid_child': requireValue(missing, flag(row.ferrokid_age_eligible) || (ageMonths >= 6 && ageMonths <= 12), 'อายุ 6-12 เดือน'); requireValue(missing, flag(row.has_ferrokid_diag) || hasCode(row, ['Z130']), 'Diagnosis Z130'); requireValue(missing, flag(row.has_ferrokid_med) || flag(row.has_ferrokid), 'ยา Ferrokid'); break;
+    case 'hepc':
+    case 'hepb':
+      requireValue(missing, flag(row.birth_before_2535) || (present(row.birthday) && new Date(text(row.birthday)) < new Date('1992-01-01')), 'เกิดก่อน พ.ศ.2535'); requireValue(missing, flag(row.has_z115_diag) || hasCode(row, ['Z115']), 'Diagnosis Z11.5'); requireValue(missing, flag(row[fundId === 'hepc' ? 'has_hepc_lab' : 'has_hepb_lab']), fundId === 'hepc' ? 'Lab Anti-HCV' : 'Lab HBsAg'); break;
+    case 'mental_health_counselling':
+    case 'gender_affirming_hormone':
+    case 'latent_tb_screening':
+    case 'osteoporosis_screening':
+    case 'autism_tdas_screening':
+      requireValue(missing, flag(row.age_eligible), 'อายุ/กลุ่มเป้าหมายตามเกณฑ์'); requireValue(missing, flag(row.sex_eligible), 'เพศตามเกณฑ์'); requireValue(missing, flag(row.has_specific_evidence) || present(row.specific_lab_names) || present(row.specific_service_names), text(row.specific_evidence_label) || 'หลักฐานบริการ/Lab'); break;
+    case 'clopidogrel': requireValue(missing, flag(row.has_clopidogrel) || flag(row.has_clopidogrel_drug), 'รายการยา Clopidogrel'); break;
+  }
+  return missing;
+};
+
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+
+export const queryFundErrorReport = async (
+  startDate: string,
+  endDate: string,
+  onProgress?: (current: number, total: number, fund: FundSpec) => void,
+) => {
+  const sections: FundErrorSection[] = [];
+  for (const [index, fund] of REPORT_FUNDS.entries()) {
+    onProgress?.(index + 1, REPORT_FUNDS.length, fund);
+    try {
+      const rows = await getSpecificFundData(fund.id, startDate, endDate, { includeTracking: false, throwOnError: true });
+      const errors = rows.map((row) => ({
+        hn: text(row.hn) || 'ไม่ระบุ HN',
+        serviceDate: text(row.serviceDate) || startDate,
+        missing: getFundMissingConditions(fund.id, row),
+      })).filter((item) => item.missing.length > 0);
+      sections.push({ ...fund, checked: rows.length, errors });
+    } catch (error) {
+      sections.push({ ...fund, checked: 0, errors: [], queryError: errorMessage(error).slice(0, 180) });
+    }
+  }
+  return sections;
+};
+
+export const formatFundErrorReport = (sections: FundErrorSection[], startDate: string, endDate: string) => {
+  const totalErrors = sections.reduce((sum, section) => sum + section.errors.length, 0);
+  const lines = [`📋 ตรวจสอบกองทุน/43 แฟ้ม`, `วันที่ ${startDate}${endDate === startDate ? '' : ` ถึง ${endDate}`}`, `ตรวจ ${sections.length} กองทุน • พบผิด ${totalErrors} รายการ`, ''];
+  for (const section of sections) {
+    if (section.queryError) {
+      lines.push(`❗ ${section.name}`, `ตรวจ query ไม่สำเร็จ: ${section.queryError}`, '');
+    } else if (section.errors.length === 0) {
+      lines.push(`✅ ${section.name}: ไม่พบข้อผิดพลาด (ตรวจ ${section.checked})`);
+    } else {
+      lines.push(`❌ ${section.name}: ผิด ${section.errors.length}/${section.checked}`);
+      section.errors.forEach((item, index) => lines.push(`${index + 1}. HN ${item.hn} — ขาด ${item.missing.join(', ')}`));
+      lines.push('');
+    }
+  }
+  lines.push('🔒 รายงานนี้แสดงเฉพาะ HN ไม่มีข้อมูลระบุตัวบุคคลอื่น');
+  return lines.join('\n').trim();
+};
+
+export const chunkLineText = (report: string, maxLength = 4500) => {
+  const chunks: string[] = [];
+  let current = '';
+  for (const rawLine of report.split('\n')) {
+    const line = rawLine.length > maxLength ? rawLine.slice(0, maxLength - 1) + '…' : rawLine;
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > maxLength && current) {
+      chunks.push(current);
+      current = line;
+    } else current = candidate;
+  }
+  if (current) chunks.push(current);
+  return chunks;
+};
+
+const splitFundSection = (section: FundErrorSection, maxLength = 4500) => {
+  const title = `❌ ${section.name}: ผิด ${section.errors.length}/${section.checked}`;
+  const messages: string[] = [];
+  let currentLines = [title];
+
+  section.errors.forEach((item, index) => {
+    const line = `${index + 1}. HN ${item.hn} — ขาด ${item.missing.join(', ')}`;
+    const candidate = [...currentLines, line].join('\n');
+    if (candidate.length > maxLength && currentLines.length > 1) {
+      messages.push(currentLines.join('\n'));
+      currentLines = [`${title} (ต่อ)`];
+    }
+    currentLines.push(line.length > maxLength ? `${line.slice(0, maxLength - 1)}…` : line);
+  });
+
+  if (currentLines.length > 1) messages.push(currentLines.join('\n'));
+  return messages;
+};
+
+export const buildDailyFundLineMessages = (
+  sections: FundErrorSection[],
+  reportDate: string,
+  maxLength = 4500,
+) => {
+  const totalErrors = sections.reduce((sum, section) => sum + section.errors.length, 0);
+  const messages = [
+    [
+      '📋 ตรวจสอบกองทุน/43 แฟ้ม',
+      `วันที่ ${reportDate}`,
+      `ตรวจ ${sections.length} กองทุน • พบผิด ${totalErrors} รายการ`,
+    ].join('\n'),
+  ];
+
+  for (const section of sections) {
+    if (section.queryError) {
+      messages.push(`❗ ${section.name}\nตรวจ query ไม่สำเร็จ: ${section.queryError}`);
+    } else if (section.errors.length > 0) {
+      messages.push(...splitFundSection(section, maxLength));
+    }
+  }
+  return messages;
+};
+
+const pushTextMessages = async (messages: string[]) => {
+  const targetId = text(process.env.LINE_TARGET_ID);
+  if (!targetId) throw new Error('LINE_TARGET_ID is not configured');
+  for (let index = 0; index < messages.length; index += 5) {
+    const lineMessages: LineMessage[] = messages.slice(index, index + 5).map((value) => ({ type: 'text', text: value }));
+    await pushLineMessages(targetId, lineMessages);
+  }
+  return messages.length;
+};
+
+export const sendDailyFundErrorReportToLine = async (sections: FundErrorSection[], reportDate: string) => (
+  pushTextMessages(buildDailyFundLineMessages(sections, reportDate))
+);
+
+export const sendFundErrorReportToLine = async (report: string, startChunk = 0) => {
+  const chunks = chunkLineText(report).slice(Math.max(0, startChunk));
+  return pushTextMessages(chunks);
+};

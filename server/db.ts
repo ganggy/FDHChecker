@@ -12428,7 +12428,6 @@ export const getSpecificFundData = async (
       mental_health_counselling: {
         regex: MENTAL_HEALTH_COUNSELLING_REGEX,
         ageSql: 'v.age_y >= 12',
-        diagRegex: '^Z13|^Z71|^F',
         evidenceLabel: 'ST-5/9Q หรือบริการให้คำปรึกษาสุขภาพจิต',
         channelNote: 'e-Claim',
       },
@@ -12440,13 +12439,15 @@ export const getSpecificFundData = async (
       },
       latent_tb_screening: {
         regex: LATENT_TB_SCREENING_REGEX,
-        diagRegex: '^Z111|^Z115|^A15|^A16|^A17|^A18|^A19|^Z205',
+        // Z11.1 = TB screening, Z20.1 = TB exposure, R76.1 = abnormal TB test.
+        // Do not include Z11.5/Z20.5 (viral disease/hepatitis) or active TB A15-A19.
+        diagRegex: '^Z111|^Z201|^R761',
         evidenceLabel: 'IGRA หรือบริการคัดกรองวัณโรคระยะแฝง',
         channelNote: 'NTIP/TB Data Hub',
       },
       osteoporosis_screening: {
         regex: OSTEOPOROSIS_SCREENING_REGEX,
-        diagRegex: '^M80|^M81|^M82|^Z13',
+        diagRegex: '^M80|^M81|^M82',
         ageSql: 'v.age_y >= 60',
         sexSql: "COALESCE(v.sex, pt.sex) = '2'",
         evidenceLabel: 'FRAX/DXA/BMD หรือบริการคัดกรองกระดูกพรุน',
@@ -12454,7 +12455,7 @@ export const getSpecificFundData = async (
       },
       autism_tdas_screening: {
         regex: TDAS_SCREENING_REGEX,
-        diagRegex: '^F84|^R62|^Z13',
+        diagRegex: '^F84|^R62',
         ageSql: 'TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) BETWEEN 12 AND 60',
         evidenceLabel: 'TDAS หรือบริการคัดกรองออทิสติก',
         channelNote: 'KTB',
@@ -12527,10 +12528,9 @@ export const getSpecificFundData = async (
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
-          AND (
-            (${ageSql} AND ${sexSql} AND ${buildServiceOrLabNameExistsSql('o', rule.regex)})
-            OR ${diagCondition}
-          )
+          AND (${ageSql})
+          AND (${sexSql})
+          AND (${buildServiceOrLabNameExistsSql('o', rule.regex)} OR ${diagCondition})
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);

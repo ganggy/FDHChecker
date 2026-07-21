@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildDailyFundLineMessages, chunkLineText, formatFundErrorReport, getFundMissingConditions } from './fundErrorReport.js';
+import { buildDailyFundLineMessages, chunkLineText, formatFundErrorReport, getFundMissingConditions, isFundReportEligible } from './fundErrorReport.js';
 
 test('knee report identifies missing procedures', () => {
   const missing = getFundMissingConditions('knee', {
@@ -108,4 +108,14 @@ test('near-match funds do not alert until the web considers the visit actionable
   for (const item of cases) {
     assert.deepEqual(getFundMissingConditions(item.fund, item.row), item.expected, item.fund);
   }
+});
+
+test('ineligible rights are excluded instead of reported as missing clinical data', () => {
+  const sssDrugp = { hipdata_code: 'SSS', has_drugp: 'Y', drug_count: 3 };
+  assert.equal(isFundReportEligible('drugp', sssDrugp), false);
+  assert.deepEqual(getFundMissingConditions('drugp', sssDrugp), []);
+
+  const ucsDrugp = { hipdata_code: 'UCS', has_drugp: 'Y', drug_count: 3 };
+  assert.equal(isFundReportEligible('drugp', ucsDrugp), true);
+  assert.deepEqual(getFundMissingConditions('drugp', ucsDrugp), []);
 });

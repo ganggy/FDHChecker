@@ -71,6 +71,15 @@ const hasListedCode = (value: unknown, wanted: string[]) => {
   const available = new Set(text(value).split(',').map(cleanCode).filter(Boolean));
   return wanted.some((code) => available.has(cleanCode(code)));
 };
+const isUcsLike = (row: FundRow) => {
+  const hip = `${text(row.hipdata_code)} ${text(row.fund)} ${text(row.hipdata_desc)}`.toUpperCase();
+  return ['UCS', 'UC', 'WEL', 'UNK'].some((code) => hip.includes(code));
+};
+export const isFundReportEligible = (fundId: string, row: FundRow) => {
+  if (['palliative', 'telemedicine', 'drugp'].includes(fundId)) return isUcsLike(row);
+  if (fundId === 'herb') return isUcsLike(row);
+  return true;
+};
 const requireValue = (missing: string[], met: boolean, label: string) => { if (!met) missing.push(label); };
 const addWebNearStatusMissing = (
   missing: string[],
@@ -103,21 +112,21 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
     {
       const hasDiag = flag(row.has_pal_diag) || hasCode(row, ['Z515', 'Z718']);
       const hasAdp = flag(row.has_pal_adp) || flag(row.has_30001) || flag(row.has_cons01) || flag(row.has_eva001);
-      requireValue(missing, ucs, 'สิทธิ UCS');
+      if (!ucs) break;
       addWebNearStatusMissing(missing, hasAdp, 'ADP 30001/Cons01/Eva001', [{ met: hasDiag, label: 'Diagnosis Z515/Z718' }]);
       break;
     }
     case 'telemedicine':
-      requireValue(missing, ucs, 'สิทธิ UCS');
+      if (!ucs) break;
       requireValue(missing, flag(row.has_telmed) || text(row.ovstist_export_code) === '5', 'ADP/Export TELMED');
       break;
     case 'drugp':
-      requireValue(missing, ucs, 'สิทธิ UCS');
+      if (!ucs) break;
       requireValue(missing, flag(row.has_drugp), 'ADP DRUGP');
       requireValue(missing, Number(row.drug_count ?? 0) > 0, 'รายการยา');
       break;
     case 'herb':
-      requireValue(missing, ucs || hip.includes('WEL'), 'สิทธิ UCS/WEL');
+      if (!(ucs || hip.includes('WEL'))) break;
       requireValue(missing, Number(row.herb_total_price ?? 0) > 0 || flag(row.has_herb), 'รายการสมุนไพร/ยอดราคา');
       break;
     case 'knee':
@@ -255,12 +264,13 @@ export const queryFundErrorReport = async (
     onProgress?.(index + 1, REPORT_FUNDS.length, fund);
     try {
       const rows = await getSpecificFundData(fund.id, startDate, endDate, { includeTracking: false, throwOnError: true });
-      const errors = rows.map((row) => ({
+      const eligibleRows = rows.filter((row) => isFundReportEligible(fund.id, row));
+      const errors = eligibleRows.map((row) => ({
         hn: text(row.hn) || 'ไม่ระบุ HN',
         serviceDate: text(row.serviceDate) || startDate,
         missing: getFundMissingConditions(fund.id, row),
       })).filter((item) => item.missing.length > 0);
-      sections.push({ ...fund, checked: rows.length, errors });
+      sections.push({ ...fund, checked: eligibleRows.length, errors });
     } catch (error) {
       sections.push({ ...fund, checked: 0, errors: [], queryError: errorMessage(error).slice(0, 180) });
     }

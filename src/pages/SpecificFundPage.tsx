@@ -488,6 +488,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         const hasFpDiag = toFlag(item?.has_fp_diag) || hasDiagRegex(item, /^Z30/);
 
         if (fundId === 'palliative') {
+            if (!isUcsLike) return buildStatusResult([], [], undefined, false);
             const isMatched = hasPalliativeDiag && hasPalliativeAdp;
             if (hasPalliativeDiag || hasPalliativeAdp) subfunds.push('🕊️ Palliative Care');
             return buildStatusResult(
@@ -498,33 +499,36 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     [{ met: hasPalliativeDiag, label: ' Diagnosis Z515/Z718' }],
                     hasPalliativeDiag
                 ),
-                !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined,
+                undefined,
                 isMatched
             );
         }
 
         if (fundId === 'telemedicine') {
+            if (!isUcsLike) return buildStatusResult([], [], undefined, false);
             const hasTelmed =
                 toFlag(item?.has_telmed) ||
                 String(item?.ovstist_export_code ?? '').trim() === telmedExportCode;
             if (hasTelmed) subfunds.push(`📱 ${telmedCode}`);
-            return buildStatusResult(subfunds, [hasTelmed ? '' : ` ADP/Export ${telmedCode}`].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
+            return buildStatusResult(subfunds, [hasTelmed ? '' : ` ADP/Export ${telmedCode}`].filter(Boolean));
         }
 
         if (fundId === 'drugp') {
+            if (!isUcsLike) return buildStatusResult([], [], undefined, false);
             const hasDrugp = toFlag(item?.has_drugp);
             const hasDrugItems = Number(item?.drug_count ?? 0) > 0;
             if (hasDrugp) subfunds.push('📦 EMS ส่งยา');
             return buildStatusResult(subfunds, [
                 hasDrugp ? '' : ' ADP DRUGP',
                 hasDrugItems ? '' : ' รายการยา',
-            ].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
+            ].filter(Boolean));
         }
 
         if (fundId === 'herb') {
+            if (!(isUcsLike || hipdataText.includes('WEL'))) return buildStatusResult([], [], undefined, false);
             const hasHerb = Number(item?.herb_total_price || 0) > 0 || toFlag(item?.has_herb);
             if (hasHerb) subfunds.push('🌿 สมุนไพร');
-            return buildStatusResult(subfunds, [hasHerb ? '' : ' รายการสมุนไพร/ยอดราคา'].filter(Boolean), !(isUcsLike || hipdataText.includes('WEL')) ? 'ไม่ใช่สิทธิ์ UCS/WEL' : undefined);
+            return buildStatusResult(subfunds, [hasHerb ? '' : ' รายการสมุนไพร/ยอดราคา'].filter(Boolean));
         }
 
         if (fundId === 'knee') {

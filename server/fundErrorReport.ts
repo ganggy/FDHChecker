@@ -127,10 +127,22 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
       requireValue(missing, flag(row.has_anc_visit) || hasListedCode(row.anc_adp_codes, ['30011']), 'ADP 30011');
       break;
     case 'anc_ultrasound':
-      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
-      requireValue(missing, flag(row.has_anc_us) || hasListedCode(row.anc_adp_codes, ['30010']), 'ADP 30010');
-      requireValue(missing, flag(row.has_anc_us_proc), 'Ultrasound ANC');
+    {
+      const hasAncUs = flag(row.has_anc_us) || hasListedCode(row.anc_adp_codes, ['30010']);
+      const hasAncUsProc = flag(row.has_anc_us_proc);
+      const requirements = [
+        { met: female, label: 'เพศหญิง' },
+        { met: ancDiag, label: 'Diagnosis Z34/Z35' },
+        { met: hasAncUsProc, label: 'Ultrasound ANC' },
+      ];
+      const missingRequirements = requirements.filter((requirement) => !requirement.met);
+      if (hasAncUs) {
+        missing.push(...missingRequirements.map((requirement) => requirement.label));
+      } else if (missingRequirements.length === 0) {
+        missing.push('ADP 30010');
+      }
       break;
+    }
     case 'anc_lab_1':
       requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
       requireValue(missing, flag(row.has_anc_lab1) || hasListedCode(row.anc_adp_codes, ['30012']), 'ADP 30012');

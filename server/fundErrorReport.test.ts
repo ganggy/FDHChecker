@@ -48,3 +48,20 @@ test('unfinished hepatitis B and C funds are excluded from the daily report', as
   const { REPORT_FUNDS } = await import('./fundErrorReport.js');
   assert.equal(REPORT_FUNDS.some((fund) => fund.id === 'hepb' || fund.id === 'hepc'), false);
 });
+
+test('ANC ultrasound LINE rule matches the web actionable-status rule', () => {
+  const ancVisitOnly = getFundMissingConditions('anc_ultrasound', {
+    sex: '2', has_anc_diag: 'Y', has_anc_us: 'N', has_anc_us_proc: 'N', anc_adp_codes: '30011',
+  });
+  assert.deepEqual(ancVisitOnly, []);
+
+  const procedureWithoutAdp = getFundMissingConditions('anc_ultrasound', {
+    sex: '2', has_anc_diag: 'Y', has_anc_us: 'N', has_anc_us_proc: 'Y', anc_adp_codes: '30011',
+  });
+  assert.deepEqual(procedureWithoutAdp, ['ADP 30010']);
+
+  const adpWithoutProcedure = getFundMissingConditions('anc_ultrasound', {
+    sex: '2', has_anc_diag: 'Y', has_anc_us: 'Y', has_anc_us_proc: 'N', anc_adp_codes: '30010',
+  });
+  assert.deepEqual(adpWithoutProcedure, ['Ultrasound ANC']);
+});

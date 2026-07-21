@@ -65,3 +65,47 @@ test('ANC ultrasound LINE rule matches the web actionable-status rule', () => {
   });
   assert.deepEqual(adpWithoutProcedure, ['Ultrasound ANC']);
 });
+
+test('near-match funds do not alert until the web considers the visit actionable', () => {
+  const cases: Array<{ fund: string; row: Record<string, unknown>; expected: string[] }> = [
+    {
+      fund: 'preg_test',
+      row: { has_preg_diag: 'Y', has_preg_lab: 'N', has_preg_item: 'N' },
+      expected: [],
+    },
+    {
+      fund: 'preg_test',
+      row: { has_preg_diag: 'Y', has_preg_lab: 'Y', has_preg_item: 'N' },
+      expected: ['ADP 30014'],
+    },
+    {
+      fund: 'anc_lab_1',
+      row: { sex: '2', has_anc_diag: 'Y', has_anc_lab1: 'N' },
+      expected: [],
+    },
+    {
+      fund: 'anc_dental_exam',
+      row: { sex: '2', has_anc_diag: 'Y', has_anc_dental_exam: 'N', pdx: 'Z340' },
+      expected: [],
+    },
+    {
+      fund: 'fpg_screening',
+      row: { age_eligible: 'Y', has_fpg_lab: 'Y', has_fpg_diag: 'N', has_fpg_adp: 'N' },
+      expected: [],
+    },
+    {
+      fund: 'fpg_screening',
+      row: { age_eligible: 'Y', has_fpg_lab: 'Y', has_fpg_diag: 'Y', has_fpg_adp: 'N' },
+      expected: ['ADP 12003'],
+    },
+    {
+      fund: 'postnatal_supplements',
+      row: { sex: '2', has_post_supp_diag: 'Y', has_post_iron_med: 'N', has_post_supp: 'N' },
+      expected: [],
+    },
+  ];
+
+  for (const item of cases) {
+    assert.deepEqual(getFundMissingConditions(item.fund, item.row), item.expected, item.fund);
+  }
+});

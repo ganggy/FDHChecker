@@ -72,6 +72,19 @@ const hasListedCode = (value: unknown, wanted: string[]) => {
   return wanted.some((code) => available.has(cleanCode(code)));
 };
 const requireValue = (missing: string[], met: boolean, label: string) => { if (!met) missing.push(label); };
+const addWebNearStatusMissing = (
+  missing: string[],
+  adpMet: boolean,
+  adpLabel: string,
+  requirements: Array<{ met: boolean; label: string }>,
+) => {
+  const missingRequirements = requirements.filter((requirement) => !requirement.met);
+  if (adpMet) {
+    missing.push(...missingRequirements.map((requirement) => requirement.label));
+  } else if (missingRequirements.length === 0 && adpLabel) {
+    missing.push(adpLabel);
+  }
+};
 
 export const getFundMissingConditions = (fundId: string, row: FundRow) => {
   const missing: string[] = [];
@@ -87,10 +100,13 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
 
   switch (fundId) {
     case 'palliative':
+    {
+      const hasDiag = flag(row.has_pal_diag) || hasCode(row, ['Z515', 'Z718']);
+      const hasAdp = flag(row.has_pal_adp) || flag(row.has_30001) || flag(row.has_cons01) || flag(row.has_eva001);
       requireValue(missing, ucs, 'สิทธิ UCS');
-      requireValue(missing, flag(row.has_pal_diag) || hasCode(row, ['Z515', 'Z718']), 'Diagnosis Z515/Z718');
-      requireValue(missing, flag(row.has_pal_adp) || flag(row.has_30001) || flag(row.has_cons01) || flag(row.has_eva001), 'ADP 30001/Cons01/Eva001');
+      addWebNearStatusMissing(missing, hasAdp, 'ADP 30001/Cons01/Eva001', [{ met: hasDiag, label: 'Diagnosis Z515/Z718' }]);
       break;
+    }
     case 'telemedicine':
       requireValue(missing, ucs, 'สิทธิ UCS');
       requireValue(missing, flag(row.has_telmed) || text(row.ovstist_export_code) === '5', 'ADP/Export TELMED');
@@ -115,16 +131,21 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
       break;
     case 'instrument': requireValue(missing, Number(row.instrument_price ?? 0) > 0 || flag(row.has_instrument), 'อุปกรณ์/ยอดอวัยวะเทียม'); break;
     case 'cacervix':
-      requireValue(missing, flag(row.has_cx_diag) || present(row.ca_diags), 'Diagnosis/บริการคัดกรอง');
-      requireValue(missing, flag(row.has_cx_adp) || present(row.ca_adp_codes), 'ADP คัดกรอง');
+      addWebNearStatusMissing(
+        missing,
+        flag(row.has_cx_adp) || present(row.ca_adp_codes),
+        'ADP คัดกรอง',
+        [{ met: flag(row.has_cx_diag) || present(row.ca_diags), label: 'Diagnosis/บริการคัดกรอง' }],
+      );
       break;
     case 'fp':
-      requireValue(missing, fpDiag, 'Diagnosis Z30x');
-      requireValue(missing, flag(row.has_fp_adp) || present(row.fp_adp_codes), 'ADP/หัตถการ FP');
+      addWebNearStatusMissing(missing, flag(row.has_fp_adp) || present(row.fp_adp_codes), 'ADP/หัตถการ FP', [{ met: fpDiag, label: 'Diagnosis Z30x' }]);
       break;
     case 'anc':
-      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
-      requireValue(missing, flag(row.has_anc_visit) || hasListedCode(row.anc_adp_codes, ['30011']), 'ADP 30011');
+      addWebNearStatusMissing(missing, flag(row.has_anc_visit) || hasListedCode(row.anc_adp_codes, ['30011']), 'ADP 30011', [
+        { met: female, label: 'เพศหญิง' },
+        { met: ancDiag, label: 'Diagnosis Z34/Z35' },
+      ]);
       break;
     case 'anc_ultrasound':
     {
@@ -135,56 +156,78 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
         { met: ancDiag, label: 'Diagnosis Z34/Z35' },
         { met: hasAncUsProc, label: 'Ultrasound ANC' },
       ];
-      const missingRequirements = requirements.filter((requirement) => !requirement.met);
-      if (hasAncUs) {
-        missing.push(...missingRequirements.map((requirement) => requirement.label));
-      } else if (missingRequirements.length === 0) {
-        missing.push('ADP 30010');
-      }
+      addWebNearStatusMissing(missing, hasAncUs, 'ADP 30010', requirements);
       break;
     }
     case 'anc_lab_1':
-      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
-      requireValue(missing, flag(row.has_anc_lab1) || hasListedCode(row.anc_adp_codes, ['30012']), 'ADP 30012');
-      for (const [key, label] of [['anc_lab1_cbc','CBC'],['anc_lab1_dcip','DCIP'],['anc_lab1_abo','ABO group'],['anc_lab1_rh','Rh grouping'],['anc_lab1_hbsag','HBsAg'],['anc_lab1_syphilis','Treponema Pallidum Ab'],['anc_lab1_hiv','HIV-Ab Screening']] as const) requireValue(missing, flag(row[key]), label);
+      addWebNearStatusMissing(missing, flag(row.has_anc_lab1) || hasListedCode(row.anc_adp_codes, ['30012']), 'ADP 30012', [
+        { met: female, label: 'เพศหญิง' }, { met: ancDiag, label: 'Diagnosis Z34/Z35' },
+        ...([['anc_lab1_cbc','CBC'],['anc_lab1_dcip','DCIP'],['anc_lab1_abo','ABO group'],['anc_lab1_rh','Rh grouping'],['anc_lab1_hbsag','HBsAg'],['anc_lab1_syphilis','Treponema Pallidum Ab'],['anc_lab1_hiv','HIV-Ab Screening']] as const)
+          .map(([key, label]) => ({ met: flag(row[key]), label })),
+      ]);
       break;
     case 'anc_lab_2':
-      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35');
-      requireValue(missing, flag(row.has_anc_lab2) || hasListedCode(row.anc_adp_codes, ['30013']), 'ADP 30013');
-      for (const [key, label] of [['anc_lab2_hiv','Anti-HIV ANC 2'],['anc_lab2_syphilis','Treponema Pallidum Ab ANC 2'],['anc_lab2_cbc','CBC']] as const) requireValue(missing, flag(row[key]), label);
+      addWebNearStatusMissing(missing, flag(row.has_anc_lab2) || hasListedCode(row.anc_adp_codes, ['30013']), 'ADP 30013', [
+        { met: female, label: 'เพศหญิง' }, { met: ancDiag, label: 'Diagnosis Z34/Z35' },
+        ...([['anc_lab2_hiv','Anti-HIV ANC 2'],['anc_lab2_syphilis','Treponema Pallidum Ab ANC 2'],['anc_lab2_cbc','CBC']] as const)
+          .map(([key, label]) => ({ met: flag(row[key]), label })),
+      ]);
       break;
     case 'anc_dental_exam':
     case 'anc_dental_clean': {
       const exam = fundId === 'anc_dental_exam';
-      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, ancDiag, 'Diagnosis Z34/Z35'); requireValue(missing, hasPrefix(row, 'K'), 'Diagnosis K*');
-      requireValue(missing, flag(row[exam ? 'has_anc_dental_exam' : 'has_anc_dental_clean']) || hasListedCode(row.anc_adp_codes, [exam ? '30008' : '30009']), `ADP ${exam ? '30008' : '30009'}`);
+      addWebNearStatusMissing(
+        missing,
+        flag(row[exam ? 'has_anc_dental_exam' : 'has_anc_dental_clean']) || hasListedCode(row.anc_adp_codes, [exam ? '30008' : '30009']),
+        `ADP ${exam ? '30008' : '30009'}`,
+        [{ met: female, label: 'เพศหญิง' }, { met: ancDiag, label: 'Diagnosis Z34/Z35' }, { met: hasPrefix(row, 'K'), label: 'Diagnosis K*' }],
+      );
       break;
     }
     case 'preg_test':
-      requireValue(missing, flag(row.has_preg_lab) || present(row.preg_lab_name) || present(row.preg_result), 'Lab UPT/31101');
-      requireValue(missing, flag(row.has_preg_diag) || hasCode(row, ['Z320', 'Z321']) || present(row.preg_diags), 'Diagnosis Z320/Z321');
-      requireValue(missing, flag(row.has_preg_item) || flag(row.has_upt) || flag(row.has_specific_adp), 'ADP 30014');
+      addWebNearStatusMissing(missing, flag(row.has_preg_item) || flag(row.has_upt) || flag(row.has_specific_adp), 'ADP 30014', [
+        { met: flag(row.has_preg_diag) || hasCode(row, ['Z320', 'Z321']) || present(row.preg_diags), label: 'Diagnosis Z320/Z321' },
+        { met: flag(row.has_preg_lab) || present(row.preg_lab_name) || present(row.preg_result), label: 'Lab UPT/31101' },
+      ]);
       break;
-    case 'postnatal_care': requireValue(missing, ppDiag, 'Diagnosis Z390/Z391/Z392'); requireValue(missing, flag(row.has_post_care), 'ADP 30015'); break;
+    case 'postnatal_care': addWebNearStatusMissing(missing, flag(row.has_post_care), 'ADP 30015', [{ met: ppDiag, label: 'Diagnosis Z390/Z391/Z392' }]); break;
     case 'postnatal_supplements':
-      requireValue(missing, female, 'เพศหญิง'); requireValue(missing, flag(row.has_post_supp_diag) || hasCode(row, ['Z391', 'Z392']), 'Diagnosis Z391/Z392');
-      requireValue(missing, flag(row.has_post_supp), 'ADP 30016'); requireValue(missing, flag(row.has_post_iron_med), 'ยาเสริมธาตุเหล็ก'); break;
+      addWebNearStatusMissing(missing, flag(row.has_post_supp), 'ADP 30016', [
+        { met: female, label: 'เพศหญิง' },
+        { met: flag(row.has_post_supp_diag) || hasCode(row, ['Z391', 'Z392']), label: 'Diagnosis Z391/Z392' },
+        { met: flag(row.has_post_iron_med), label: 'ยาเสริมธาตุเหล็ก' },
+      ]); break;
     case 'fluoride': requireValue(missing, flag(row.has_specific_adp) || hasListedCode(row.anc_adp_codes, ['15001']), 'ADP 15001'); break;
     case 'contraceptive_pill':
-      requireValue(missing, hasCode(row, ['Z304']), 'Diagnosis Z304');
-      requireValue(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_1', 'FP003_2']), 'ADP FP003_1/FP003_2'); break;
-    case 'condom': requireValue(missing, fpDiag, 'Diagnosis Z30x'); requireValue(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_4']), 'ADP FP003_4'); break;
+      addWebNearStatusMissing(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_1', 'FP003_2']), 'ADP FP003_1/FP003_2', [{ met: hasCode(row, ['Z304']), label: 'Diagnosis Z304' }]); break;
+    case 'condom': addWebNearStatusMissing(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_4']), 'ADP FP003_4', [{ met: fpDiag, label: 'Diagnosis Z30x' }]); break;
     case 'fpg_screening':
-      requireValue(missing, flag(row.age_eligible), 'อายุ 35-59 ปี'); requireValue(missing, flag(row.has_fpg_lab), 'Lab FPG'); requireValue(missing, flag(row.has_fpg_diag) || hasCode(row, ['Z131','Z133','Z136']), 'Diagnosis Z131/Z133/Z136'); requireValue(missing, flag(row.has_fpg_adp), 'ADP 12003'); break;
+      addWebNearStatusMissing(missing, flag(row.has_fpg_adp), 'ADP 12003', [
+        { met: flag(row.age_eligible), label: 'อายุ 35-59 ปี' }, { met: flag(row.has_fpg_lab), label: 'Lab FPG' },
+        { met: flag(row.has_fpg_diag) || hasCode(row, ['Z131','Z133','Z136']), label: 'Diagnosis Z131/Z133/Z136' },
+      ]); break;
     case 'cholesterol_screening':
-      requireValue(missing, flag(row.age_eligible), 'อายุ 45-70 ปี'); requireValue(missing, flag(row.has_chol_lab), 'Lab Total Cholesterol และ HDL'); requireValue(missing, flag(row.has_chol_diag) || hasCode(row, ['Z136']), 'Diagnosis Z136'); requireValue(missing, flag(row.has_chol_adp), 'ADP 12004'); break;
+      addWebNearStatusMissing(missing, flag(row.has_chol_adp), 'ADP 12004', [
+        { met: flag(row.age_eligible), label: 'อายุ 45-70 ปี' }, { met: flag(row.has_chol_lab), label: 'Lab Total Cholesterol และ HDL' },
+        { met: flag(row.has_chol_diag) || hasCode(row, ['Z136']), label: 'Diagnosis Z136' },
+      ]); break;
     case 'anemia_screening': {
       const ageEligible = flag(row.age_eligible) || (age >= 13 && age <= 24) || (ageMonths >= 6 && ageMonths <= 12) || (age >= 3 && age <= 6);
-      const labOk = age >= 13 && age <= 24 ? flag(row.has_anemia_cbc) : flag(row.has_anemia_hbhct);
-      requireValue(missing, ageEligible, 'ช่วงอายุตามเกณฑ์'); requireValue(missing, labOk, age >= 13 ? 'Lab CBC' : 'Lab Hb/Hct'); requireValue(missing, flag(row.has_anemia_diag) || hasCode(row, ['Z130','Z138']), 'Diagnosis Z130/Z138'); requireValue(missing, flag(row.has_anemia_adp), 'ADP 13001'); break;
+      const requiresCbc = age >= 13 && age <= 24;
+      const requiresHbHct = (ageMonths >= 6 && ageMonths <= 12) || (age >= 3 && age <= 6);
+      const labOk = requiresCbc ? flag(row.has_anemia_cbc) : requiresHbHct ? flag(row.has_anemia_hbhct) : flag(row.has_anemia_lab);
+      addWebNearStatusMissing(missing, flag(row.has_anemia_adp), 'ADP 13001', [
+        { met: ageEligible, label: 'ช่วงอายุตามเกณฑ์' },
+        { met: labOk, label: requiresCbc ? 'Lab CBC' : requiresHbHct ? 'Lab Hb/Hct' : 'Lab CBC / Hb/Hct' },
+        { met: flag(row.has_anemia_diag) || hasCode(row, ['Z130','Z138']), label: 'Diagnosis Z130/Z138' },
+      ]); break;
     }
     case 'syphilis_screening_male': requireValue(missing, male, 'เพศชาย'); requireValue(missing, flag(row.has_syphilis_lab) || present(row.syphilis_lab_names) || present(row.syphilis_service_names), 'Lab Treponema/Syphilis'); break;
-    case 'iron_supplement': requireValue(missing, flag(row.age_eligible) || (female && age >= 13 && age <= 45), 'หญิงอายุ 13-45 ปี'); requireValue(missing, flag(row.has_iron_diag) || hasCode(row, ['Z130']), 'Diagnosis Z130'); requireValue(missing, flag(row.has_iron_adp), 'ADP 14001'); requireValue(missing, flag(row.has_iron_med), 'ยาเสริมธาตุเหล็ก'); break;
+    case 'iron_supplement': addWebNearStatusMissing(missing, flag(row.has_iron_adp), 'ADP 14001', [
+      { met: flag(row.age_eligible) || (female && age >= 13 && age <= 45), label: 'หญิงอายุ 13-45 ปี' },
+      { met: flag(row.has_iron_diag) || hasCode(row, ['Z130']), label: 'Diagnosis Z130' },
+      { met: flag(row.has_iron_med), label: 'ยาเสริมธาตุเหล็ก' },
+    ]); break;
     case 'ferrokid_child': requireValue(missing, flag(row.ferrokid_age_eligible) || (ageMonths >= 6 && ageMonths <= 12), 'อายุ 6-12 เดือน'); requireValue(missing, flag(row.has_ferrokid_diag) || hasCode(row, ['Z130']), 'Diagnosis Z130'); requireValue(missing, flag(row.has_ferrokid_med) || flag(row.has_ferrokid), 'ยา Ferrokid'); break;
     case 'hepc':
     case 'hepb':

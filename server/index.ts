@@ -191,6 +191,35 @@ app.post('/webhooks/line', express.raw({ type: 'application/json', limit: '1mb' 
   }
 });
 
+// Separate LINE bot used by the daily operational overview report.
+app.post('/webhooks/line-overview', express.raw({ type: 'application/json', limit: '1mb' }), (req, res) => {
+  const channelSecret = String(process.env.LINE_OVERVIEW_CHANNEL_SECRET || '').trim();
+  const accessToken = String(process.env.LINE_OVERVIEW_CHANNEL_ACCESS_TOKEN || '').trim();
+  if (!channelSecret) {
+    return res.status(503).json({ success: false, error: 'LINE overview webhook is not configured' });
+  }
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const signature = String(req.headers['x-line-signature'] || '');
+  if (!verifyLineWebhookSignature(rawBody, signature, channelSecret)) {
+    return res.status(401).json({ success: false, error: 'Invalid LINE overview webhook signature' });
+  }
+  try {
+    const payload = parseLineWebhookPayload(rawBody);
+    for (const event of payload.events || []) {
+      const idCommand = getLineIdCommandReply(event);
+      if (idCommand && accessToken) {
+        void replyLineMessages(idCommand.replyToken, [{
+          type: 'text',
+          text: `Daily Overview Target ID: ${idCommand.target.targetId}\nตั้งค่านี้เป็น LINE_OVERVIEW_TARGET_ID บนเซิร์ฟเวอร์`,
+        }], accessToken).catch((error) => console.error('LINE overview command reply failed:', (error as Error).message));
+      }
+    }
+    return res.status(200).json({ success: true });
+  } catch {
+    return res.status(400).json({ success: false, error: 'Invalid LINE overview webhook payload' });
+  }
+});
+
 // Reject anonymous write payloads before parsing them. Full token validation still happens below.
 app.use('/api', anonymousApiWriteGuard);
 app.use(jsonBodyParserMiddleware);

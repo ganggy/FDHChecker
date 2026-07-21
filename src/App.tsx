@@ -20,6 +20,7 @@ const FDHImportStatusPage = lazyNamed(() => import('./pages/FDHImportStatusPage'
 const FdhClaimDetailImportPage = lazyNamed(() => import('./pages/FdhClaimDetailImportPage'), 'FdhClaimDetailImportPage');
 const NhsoClosePage = lazyNamed(() => import('./pages/NhsoClosePage'), 'NhsoClosePage');
 const RepStmImportPage = lazyNamed(() => import('./pages/RepStmImportPage'), 'RepStmImportPage');
+const RepStmManagePage = lazyNamed(() => import('./pages/RepStmManagePage'), 'RepStmManagePage');
 const AuthenSyncPage = lazyNamed(() => import('./pages/AuthenSyncPage'), 'AuthenSyncPage');
 const ReceivablePage = lazyNamed(() => import('./pages/ReceivablePage'), 'ReceivablePage');
 const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewPage'), 'InsuranceOverviewPage');
@@ -297,6 +298,7 @@ function App() {
         {currentPage === 'fdhClaimDetail' && <FdhClaimDetailImportPage />}
         {currentPage === 'nhsoClose' && <NhsoClosePage />}
         {currentPage === 'repstm' && <RepStmImportPage />}
+        {currentPage === 'repstmManage' && <RepStmManagePage />}
         {currentPage === 'authenSync' && <AuthenSyncPage />}
         {currentPage === 'receivable' && <ReceivablePage />}
         {currentPage === 'insuranceOverview' && <InsuranceOverviewPage />}

@@ -44,6 +44,8 @@ import {
   getFdhClaimDetailRows,
   getRepstmImportBatches,
   getRepstmImportBatchDetail,
+  searchRepstmManagedBatches,
+  deleteRepstmManagedBatch,
   preflightRepstmImportFiles,
   getRepstmImportedRows,
   getRepDataRows,
@@ -97,6 +99,18 @@ import {
   validateFdhData,
 } from './fdhExport.js';
 import { analyzeRepstmArchive } from './repstmArchive.js';
+import {
+  normalizeRepstmSearchFilters,
+  validateRepstmBatchDeletion,
+} from './repstmManagement.js';
+import {
+  getLineIdCommandReply,
+  getLineWebhookTarget,
+  parseLineWebhookPayload,
+  pushLineMessages,
+  replyLineMessages,
+  verifyLineWebhookSignature,
+} from './lineMessaging.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -134,6 +148,48 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(requestTracingMiddleware);
+
+type LastLineWebhookTarget = {
+  targetId: string;
+  sourceType: 'user' | 'group' | 'room';
+  receivedAt: string;
+};
+
+let lastLineWebhookTarget: LastLineWebhookTarget | null = null;
+
+// LINE signatures must be checked against the exact, unparsed request bytes.
+// Keep this route before the global JSON parser and outside /api authentication.
+app.post('/webhooks/line', express.raw({ type: 'application/json', limit: '1mb' }), (req, res) => {
+  const channelSecret = String(process.env.LINE_CHANNEL_SECRET || '').trim();
+  if (!channelSecret) {
+    return res.status(503).json({ success: false, error: 'LINE webhook is not configured' });
+  }
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const signature = String(req.headers['x-line-signature'] || '');
+  if (!verifyLineWebhookSignature(rawBody, signature, channelSecret)) {
+    return res.status(401).json({ success: false, error: 'Invalid LINE webhook signature' });
+  }
+
+  try {
+    const payload = parseLineWebhookPayload(rawBody);
+    for (const event of payload.events || []) {
+      const target = getLineWebhookTarget(event.source);
+      if (target) {
+        lastLineWebhookTarget = { ...target, receivedAt: new Date().toISOString() };
+      }
+      const idCommand = getLineIdCommandReply(event);
+      if (idCommand && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+        void replyLineMessages(idCommand.replyToken, [{
+          type: 'text',
+          text: `FDH Target ID: ${idCommand.target.targetId}\nตั้งค่านี้เป็น LINE_TARGET_ID บนเซิร์ฟเวอร์`,
+        }]).catch((error) => console.error('LINE command reply failed:', (error as Error).message));
+      }
+    }
+    return res.status(200).json({ success: true });
+  } catch {
+    return res.status(400).json({ success: false, error: 'Invalid LINE webhook payload' });
+  }
+});
 
 // Reject anonymous write payloads before parsing them. Full token validation still happens below.
 app.use('/api', anonymousApiWriteGuard);
@@ -597,6 +653,38 @@ app.post('/api/admin/groups', requireAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/admin/line/status', requireAdmin, (_req, res) => {
+  const targetId = String(process.env.LINE_TARGET_ID || '').trim();
+  res.json({
+    success: true,
+    data: {
+      channelId: String(process.env.LINE_CHANNEL_ID || '').trim(),
+      channelSecretConfigured: Boolean(String(process.env.LINE_CHANNEL_SECRET || '').trim()),
+      channelAccessTokenConfigured: Boolean(String(process.env.LINE_CHANNEL_ACCESS_TOKEN || '').trim()),
+      targetId: targetId || null,
+      lastWebhookTarget: lastLineWebhookTarget,
+      webhookPath: '/webhooks/line',
+    },
+  });
+});
+
+app.post('/api/admin/line/test', requireAdmin, async (req, res) => {
+  try {
+    const targetId = String(req.body?.targetId || process.env.LINE_TARGET_ID || '').trim();
+    if (!targetId) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า LINE_TARGET_ID' });
+    }
+    await pushLineMessages(targetId, [{
+      type: 'text',
+      text: String(req.body?.message || 'ทดสอบการเชื่อมต่อ FDH Checker กับ LINE สำเร็จ').slice(0, 5000),
+    }]);
+    return res.json({ success: true, message: 'ส่งข้อความทดสอบไป LINE แล้ว' });
+  } catch (error) {
+    console.error('LINE test message failed:', (error as Error).message);
+    return res.status(502).json({ success: false, error: (error as Error).message });
+  }
+});
+
 // All API routes declared below this point require an approved, active user.
 // Health remains public for PM2/reverse-proxy readiness checks and contains no infrastructure details.
 app.use('/api', (req: AuthenticatedRequest, res, next) => {
@@ -613,6 +701,7 @@ app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
 type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean };
 const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
+  { pattern: /^\/settings\/fdh-api\/test-connection$/, pages: ['settings'] },
   { pattern: /^\/config\/system-settings(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/fdh-api-settings(\/|$)/, pages: ['settings', 'fdhImport'] },
@@ -625,7 +714,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/receivable(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
-  { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
+  { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'repstmManage', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
   { pattern: /^\/rep-(daily|deny)(\/|$)/, pages: ['repDailySummary', 'repDeny'] },
   { pattern: /^\/uuc1(\/|$)/, pages: ['uuc1Tracking'] },
   { pattern: /^\/ppfs(\/|$)/, pages: ['ppfsBenchmark', 'ppfsVisitMatch'] },
@@ -807,6 +896,84 @@ const getPasswordHashCandidates = (password: string) => {
     sha256Lower,
     sha256Upper,
   ]));
+};
+
+type FdhConnectionTestResult = {
+  token: string;
+  responseTimeMs: number;
+};
+
+const requestFdhAccessTokenForConnectionTest = async (
+  config: Record<string, unknown>,
+): Promise<FdhConnectionTestResult> => {
+  const tokenUrl = String(config.tokenUrl || '').trim();
+  const username = String(config.username || '').trim();
+  const password = String(config.password || '');
+  const hospitalCode = String(config.hcode || '').trim();
+
+  if (!tokenUrl) throw new Error('ยังไม่ได้บันทึก URL Token ของ FDH');
+  if (!username || !password) throw new Error('ยังไม่ได้บันทึก username/password สำหรับ FDH API');
+  if (!hospitalCode) throw new Error('ยังไม่ได้บันทึกรหัสหน่วยบริการ (HCODE)');
+
+  const tokenEndpoint = getFdhTokenEndpoint(tokenUrl);
+  const startedAt = Date.now();
+  let reachedFdh = false;
+  let rejectedCredentials = false;
+  let serviceUnavailable = false;
+  let timedOut = false;
+
+  for (const passwordHash of getPasswordHashCandidates(password)) {
+    const query = new URLSearchParams({
+      Action: 'get_moph_access_token',
+      user: username,
+      password_hash: passwordHash,
+      hospital_code: hospitalCode,
+    }).toString();
+
+    try {
+      const response = await fetchWithTimeout(`${tokenEndpoint}?${query}`, { method: 'POST' }, 30_000);
+      reachedFdh = true;
+      if (response.status === 401 || response.status === 403) rejectedCredentials = true;
+      if (response.status >= 500) serviceUnavailable = true;
+
+      const rawText = await response.text();
+      let parsedPayload: unknown = {};
+      try {
+        parsedPayload = JSON.parse(rawText);
+      } catch {
+        parsedPayload = { raw: rawText };
+      }
+
+      const payloadRecord = isPlainRecord(parsedPayload) ? parsedPayload : {};
+      const messageCode = Number(payloadRecord.MessageCode ?? payloadRecord.status ?? 0);
+      if (messageCode !== 0) rejectedCredentials = true;
+      const token = extractTokenFromPayload(parsedPayload)
+        || (response.ok && messageCode === 0 && rawText.trim() && !rawText.trim().startsWith('{')
+          ? rawText.trim()
+          : null);
+      if (response.ok && token) {
+        return { token, responseTimeMs: Date.now() - startedAt };
+      }
+    } catch (error) {
+      const errorName = error instanceof Error ? error.name : '';
+      const errorMessage = error instanceof Error ? error.message : '';
+      if (errorName === 'TimeoutError' || /timeout/i.test(errorMessage)) timedOut = true;
+    }
+  }
+
+  if (timedOut && !reachedFdh) {
+    throw new Error('FDH API ไม่ตอบกลับภายในเวลาที่กำหนด กรุณาตรวจสอบเครือข่ายหรือทดลองใหม่');
+  }
+  if (rejectedCredentials) {
+    throw new Error('FDH ไม่ยอมรับข้อมูลเข้าสู่ระบบ กรุณาตรวจสอบ username/password และ HCODE');
+  }
+  if (serviceUnavailable) {
+    throw new Error('บริการ FDH API ขัดข้องชั่วคราว กรุณาทดลองใหม่ภายหลัง');
+  }
+  if (reachedFdh) {
+    throw new Error('เชื่อมต่อถึง FDH API ได้ แต่ไม่ได้รับ access token กรุณาตรวจสอบค่าที่บันทึกไว้');
+  }
+  throw new Error('เชื่อมต่อ FDH API ไม่สำเร็จ กรุณาตรวจสอบ URL และเครือข่ายของเซิร์ฟเวอร์');
 };
 
 const getMophClaimToken = async (config: Record<string, unknown>) => {
@@ -2342,6 +2509,10 @@ app.get('/api/hosxp/kidney-monitor', async (req, res) => {
         returned: result.returned,
         truncated: result.truncated,
         limit: result.totalCount,
+        candidateTotal: result.candidateCount,
+        excludedWithoutEvidence: result.excludedCount,
+        trackingSummary: result.trackingSummary,
+        trackingIssues: result.trackingIssues,
       }
     });
   } catch (error) {
@@ -2752,6 +2923,33 @@ app.get('/api/repstm/batches/:batchId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching REP/STM batch detail:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านรายละเอียด batch' });
+  }
+});
+
+app.get('/api/repstm/manage/search', async (req, res) => {
+  try {
+    const filters = normalizeRepstmSearchFilters(req.query as Record<string, unknown>);
+    const data = await searchRepstmManagedBatches(filters);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error searching REP/STM/INV management rows:', error);
+    res.status(500).json({ success: false, error: 'ค้นหาข้อมูล REP/STM/INV ไม่สำเร็จ' });
+  }
+});
+
+app.delete('/api/repstm/manage/batches/:batchId', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const validation = validateRepstmBatchDeletion(req.params.batchId, req.body as Record<string, unknown>);
+    if (!validation.valid) return res.status(400).json({ success: false, error: validation.error });
+    const result = await deleteRepstmManagedBatch({
+      batchId: validation.batchId,
+      reason: validation.reason,
+      deletedBy: String(req.authUser?.display_name || req.authUser?.username || 'admin'),
+    });
+    res.json({ success: true, data: result, message: `ลบ batch #${result.batchId} แล้ว` });
+  } catch (error) {
+    console.error('Error deleting REP/STM/INV batch:', error);
+    res.status(500).json({ success: false, error: (error as Error).message || 'ลบ batch ไม่สำเร็จ' });
   }
 });
 
@@ -3641,6 +3839,29 @@ app.post('/api/config/system-settings', async (req: AuthenticatedRequest, res) =
     console.error('Error updating system settings:', error);
     const message = error instanceof Error ? error.message : 'Cannot update system settings';
     const status = message.includes('URL') || message.includes('Production') ? 400 : 500;
+    res.status(status).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/settings/fdh-api/test-connection', async (_req, res) => {
+  try {
+    // Deliberately load credentials from server-side storage. This endpoint accepts
+    // no username/password and never returns the access token to the browser.
+    const savedConfig = await getResolvedFdhApiConfig();
+    const result = await requestFdhAccessTokenForConnectionTest(savedConfig);
+    res.json({
+      success: true,
+      message: 'เชื่อมต่อ FDH API สำเร็จ และได้รับ access token แล้ว',
+      data: { responseTimeMs: result.responseTimeMs },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการทดสอบการเชื่อมต่อ FDH API';
+    const status = message.includes('ยังไม่ได้บันทึก') || message.includes('ไม่ยอมรับ') || message.includes('ไม่ได้รับ access token')
+      ? 400
+      : message.includes('ไม่ตอบกลับ')
+        ? 504
+        : 502;
+    console.error('FDH API connection test failed:', message);
     res.status(status).json({ success: false, error: message });
   }
 });

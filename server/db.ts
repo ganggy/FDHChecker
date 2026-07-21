@@ -6,7 +6,7 @@ import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receiv
 import { fetchWithTimeout } from './httpClient.js';
 import { getApVaccineRule, validateApVaccineEligibility } from './mophVaccineRules.js';
 import type { FdhExportProfile } from './fdhExport.js';
-import { isDialysisMonitorVisit } from './kidneyMonitorRules.js';
+import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVisit, summarizeKidneyTrackingVisits } from './kidneyMonitorRules.js';
 
 dotenv.config();
 
@@ -397,7 +397,7 @@ const APP_SESSION_TABLE_SQL = `
 `;
 
 export const DEFAULT_MENU_PAGES = [
-  'staff', 'ipd', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm',
+  'staff', 'ipd', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
   'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'reconciliation',
@@ -748,6 +748,23 @@ const REPSTM_STATEMENT_DATA_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const REPSTM_DELETE_AUDIT_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS repstm_delete_audit (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    delete_scope VARCHAR(16) NOT NULL,
+    data_type VARCHAR(16) NULL,
+    batch_id BIGINT NULL,
+    source_filename VARCHAR(255) NULL,
+    deleted_row_count INT NOT NULL DEFAULT 0,
+    deleted_row_ids JSON NULL,
+    deleted_by VARCHAR(128) NOT NULL,
+    reason VARCHAR(500) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_delete_audit_batch (batch_id),
+    INDEX idx_delete_audit_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 const RECEIVABLE_BATCH_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS receivable_batch (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -957,6 +974,7 @@ const ensureRepstmTablesUncached = async () => {
     await connection.query(REP_DATA_TABLE_SQL);
     await connection.query(REP_DATA_VERIFY_TABLE_SQL);
     await connection.query(REPSTM_STATEMENT_DATA_TABLE_SQL);
+    await connection.query(REPSTM_DELETE_AUDIT_TABLE_SQL);
     await connection.query(RECEIVABLE_BATCH_TABLE_SQL);
     await connection.query(RECEIVABLE_ITEM_TABLE_SQL);
     await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
@@ -3733,6 +3751,7 @@ const isIdentitySuperset = (candidate: Set<string>, required: Set<string>) => {
 
 const parseImportRawData = (value: unknown): Record<string, unknown> | null => {
   if (!value) return null;
+  if (Buffer.isBuffer(value)) return parseImportRawData(value.toString('utf8'));
   if (typeof value === 'string') {
     try {
       const parsed = JSON.parse(value);
@@ -9086,6 +9105,177 @@ export const getRepstmImportBatchDetail = async (
   }
 };
 
+export const searchRepstmManagedBatches = async (filters: {
+  dataType: 'ALL' | 'REP' | 'STM' | 'INV';
+  query: string;
+  page: number;
+  pageSize: number;
+  includeReplaced: boolean;
+}) => {
+  await ensureRepstmTables();
+  const connection = await getRepstmConnection();
+  try {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (filters.dataType !== 'ALL') {
+      where.push('b.data_type = ?');
+      params.push(filters.dataType);
+    }
+    if (!filters.includeReplaced) {
+      where.push(`NOT EXISTS (
+        SELECT 1 FROM repstm_import_batch replacement WHERE replacement.replaces_batch_id = b.id
+      )`);
+    }
+    if (filters.query) {
+      const like = `%${filters.query}%`;
+      where.push(`(
+        CAST(b.id AS CHAR) LIKE ? OR COALESCE(b.source_filename, '') LIKE ?
+        OR COALESCE(b.sheet_name, '') LIKE ? OR COALESCE(b.imported_by, '') LIKE ?
+        OR COALESCE(b.notes, '') LIKE ?
+      )`);
+      params.push(like, like, like, like, like);
+    }
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const offset = (filters.page - 1) * filters.pageSize;
+    const [summaryRows] = await connection.query(
+      `SELECT COUNT(*) AS total, COALESCE(SUM(b.row_count), 0) AS total_rows
+       FROM repstm_import_batch b
+       ${whereSql}`,
+      params,
+    );
+    const [batchResults] = await connection.query(
+      `SELECT b.id, b.data_type, b.source_filename, b.file_size, b.sheet_name, b.is_subfile,
+              b.imported_by, b.row_count, b.notes, b.replaces_batch_id, b.created_at,
+              EXISTS(SELECT 1 FROM repstm_import_batch replacement WHERE replacement.replaces_batch_id = b.id) AS is_replaced
+       FROM repstm_import_batch b
+       ${whereSql}
+       ORDER BY b.created_at DESC, b.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, filters.pageSize, offset],
+    );
+    const summary = Array.isArray(summaryRows) && summaryRows.length > 0
+      ? summaryRows[0] as Record<string, unknown>
+      : {};
+    return {
+      batches: Array.isArray(batchResults) ? batchResults as Record<string, unknown>[] : [],
+      total: Number(summary.total || 0),
+      totalRows: Number(summary.total_rows || 0),
+      page: filters.page,
+      pageSize: filters.pageSize,
+    };
+  } finally {
+    connection.release();
+  }
+};
+
+const restoreRepstmBatchNormalizedRows = async (
+  connection: mysql.PoolConnection,
+  hosConnection: mysql.PoolConnection,
+  batchId: number,
+) => {
+  const [batchRows] = await connection.query(
+    `SELECT id, data_type, source_filename, is_subfile FROM repstm_import_batch WHERE id = ? LIMIT 1`,
+    [batchId],
+  );
+  if (!Array.isArray(batchRows) || batchRows.length === 0) return;
+  const batch = batchRows[0] as Record<string, unknown>;
+  if (Number(batch.is_subfile || 0) === 1) return;
+  const dataType = String(batch.data_type || '').toUpperCase();
+  const [rawRows] = await connection.query(
+    `SELECT raw_data FROM repstm_import_row WHERE batch_id = ? ORDER BY row_no ASC, id ASC`,
+    [batchId],
+  );
+  const rows = (Array.isArray(rawRows) ? rawRows as Record<string, unknown>[] : [])
+    .map((row) => parseImportRawData(row.raw_data))
+    .filter((row): row is Record<string, unknown> => Boolean(row));
+  if (rows.length === 0) return;
+  if (dataType === 'REP') {
+    await importRepDataRows(connection, hosConnection, batchId, {
+      sourceFilename: String(batch.source_filename || ''),
+      rows,
+    });
+  } else if (dataType === 'STM' || dataType === 'INV') {
+    await importStatementDataRows(connection, hosConnection, batchId, {
+      dataType,
+      sourceFilename: String(batch.source_filename || ''),
+      rows,
+    });
+  }
+};
+
+const deleteRepstmBatchWithinTransaction = async (
+  connection: mysql.PoolConnection,
+  hosConnection: mysql.PoolConnection,
+  batchId: number,
+) => {
+  const [batchRows] = await connection.query(
+    `SELECT id, data_type, source_filename, row_count, replaces_batch_id
+     FROM repstm_import_batch WHERE id = ? LIMIT 1 FOR UPDATE`,
+    [batchId],
+  );
+  if (!Array.isArray(batchRows) || batchRows.length === 0) return null;
+  const batch = batchRows[0] as Record<string, unknown>;
+  const previousBatchId = Number(batch.replaces_batch_id || 0);
+  const [replacementRows] = await connection.query(
+    `SELECT id FROM repstm_import_batch WHERE replaces_batch_id = ? FOR UPDATE`,
+    [batchId],
+  );
+  const replacements = Array.isArray(replacementRows) ? replacementRows as Record<string, unknown>[] : [];
+  if (replacements.length > 0) {
+    await connection.query(
+      `UPDATE repstm_import_batch SET replaces_batch_id = ? WHERE replaces_batch_id = ?`,
+      [previousBatchId || null, batchId],
+    );
+  }
+  await connection.query(`DELETE FROM repstm_import_batch WHERE id = ?`, [batchId]);
+  if (replacements.length === 0 && previousBatchId > 0) {
+    await restoreRepstmBatchNormalizedRows(connection, hosConnection, previousBatchId);
+  }
+  return batch;
+};
+
+export const deleteRepstmManagedBatch = async (input: {
+  batchId: number;
+  reason: string;
+  deletedBy: string;
+}) => {
+  await ensureRepstmTables();
+  const connection = await getRepstmConnection();
+  const hosConnection = await getUTFConnection();
+  try {
+    await connection.beginTransaction();
+    const batch = await deleteRepstmBatchWithinTransaction(connection, hosConnection, input.batchId);
+    if (!batch) throw new Error('ไม่พบ batch ที่เลือก หรือ batch ถูกลบไปแล้ว');
+    await connection.query(
+      `INSERT INTO repstm_delete_audit
+       (delete_scope, data_type, batch_id, source_filename, deleted_row_count, deleted_by, reason)
+       VALUES ('BATCH', ?, ?, ?, ?, ?, ?)`,
+      [
+        String(batch.data_type || ''),
+        input.batchId,
+        String(batch.source_filename || ''),
+        Number(batch.row_count || 0),
+        input.deletedBy,
+        input.reason,
+      ],
+    );
+    await connection.commit();
+    return {
+      batchId: input.batchId,
+      dataType: String(batch.data_type || ''),
+      sourceFilename: String(batch.source_filename || ''),
+      deletedRows: Number(batch.row_count || 0),
+      restoredBatchId: Number(batch.replaces_batch_id || 0) || null,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    hosConnection.release();
+    connection.release();
+  }
+};
+
 export const preflightRepstmImportFiles = async (
   files: Array<{ filename: string; size?: number; hash?: string }>
 ): Promise<Record<string, unknown>[]> => {
@@ -12851,8 +13041,9 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
 
     console.log(`🔍 getKidneyMonitorDetailed: startDate=${startDate}, endDate=${endDate}`);
 
-    // Step 1: Get candidates from the dialysis unit. A visit is retained only
-    // when it also has N185/Z49 diagnosis or a real dialysis service item.
+    // Step 1: Get every visit served by the dialysis unit. N185/Z49 and actual
+    // dialysis items are validation flags only; they must not change the visit
+    // count shown elsewhere on this page.
     // ไม่มี LIMIT — ดึงข้อมูลทั้งหมดตามช่วงวันที่
     const patientQuery = `
       SELECT DISTINCT
@@ -12891,12 +13082,15 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
         AND ovst.main_dep = '060'
       ORDER BY ovst.vstdate DESC
     `;    const [candidateVisits] = await connection.query(patientQuery, [startDate, endDate]);
-    const visits = (candidateVisits as any[]).filter(isDialysisMonitorVisit);
-    const excludedCount = (candidateVisits as any[]).length - visits.length;
+    const visits = (candidateVisits as any[]).filter(isKidneyUnitServiceVisit);
+    const evidenceCount = visits.filter(isDialysisMonitorVisit).length;
+    const excludedCount = visits.length - evidenceCount;
     const totalCount = visits.length;
+    const trackingSummary = summarizeKidneyTrackingVisits(visits);
+    const trackingIssues = findKidneyTrackingIssues(visits);
     console.log(`🏥 Found ${totalCount} patient visits for kidney monitor (${startDate} to ${endDate})`);
     if (excludedCount > 0) {
-      console.log(`🧹 Excluded ${excludedCount} department-060 visits without dialysis evidence`);
+      console.log(`⚠️ Kept ${excludedCount} department-060 visits without dialysis evidence for reconciliation`);
     }
     // Process visits sequentially (not all at once) to avoid connection pool exhaustion
     const detailedData: any[] = [];
@@ -13075,6 +13269,9 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
         insuranceType,
         hipdata_code: row.hipdata_code,
         serviceDate: row.serviceDate || new Date().toISOString().split('T')[0],
+        hasDialysisDiagnosis: Number(row.hasDialysisDiagnosis) === 1,
+        hasDialysisService: Number(row.hasDialysisService) === 1,
+        hasDialysisEvidence: isDialysisMonitorVisit(row),
         dialysisFee: dialysisServicePrice,
         dialysisCost: dialysisServiceCost,
         otherServiceFee: otherServicePrice,
@@ -13129,10 +13326,28 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
     }    connection.release();
     const returned = detailedData.length;
     console.log(`✅ Processed ${returned} kidney monitor records - No truncation (all records shown)`);
-    return { data: detailedData, totalCount, returned, truncated: false };
+    return {
+      data: detailedData,
+      totalCount,
+      returned,
+      truncated: false,
+      candidateCount: (candidateVisits as any[]).length,
+      excludedCount,
+      trackingSummary,
+      trackingIssues,
+    };
   } catch (error) {
     console.error('Error in getKidneyMonitorDetailed:', error);
-    return { data: [], totalCount: 0, returned: 0, truncated: false };
+    return {
+      data: [],
+      totalCount: 0,
+      returned: 0,
+      truncated: false,
+      candidateCount: 0,
+      excludedCount: 0,
+      trackingSummary: summarizeKidneyTrackingVisits([]),
+      trackingIssues: findKidneyTrackingIssues([]),
+    };
   }
 };
 

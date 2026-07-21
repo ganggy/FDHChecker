@@ -26,6 +26,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'fdhImport', icon: '📥', label: 'สถานะ FDH' },
   { page: 'fdhClaimDetail', icon: '📄', label: 'ClaimDetail FDH' },
   { page: 'repstm', icon: '🧾', label: 'REP/STM' },
+  { page: 'repstmManage', icon: '🗃️', label: 'จัดการ REP/STM' },
   { page: 'authenSync', icon: '🪪', label: 'Authen Code' },
   { page: 'preValidator', icon: '✅', label: 'Pre-submit' },
   { page: 'workQueue', icon: '📋', label: 'คิวงาน' },
@@ -61,7 +62,7 @@ export const toolNavGroups: NavGroup[] = [
   { label: '43 แฟ้ม', icon: '🗂️', pages: ['fund43'] },
   { label: 'MOPH Claim', icon: '🧪', pages: ['mophDmht', 'mophVaccine'] },
   { label: 'KTB/NTIP/อื่นๆ', icon: '🏦', pages: ['fundKtb', 'fundOther', 'specific', 'guide'] },
-  { label: 'บริหารระบบ', icon: '⚙️', pages: ['admin', 'memberAdmin'] },
+  { label: 'บริหารระบบ', icon: '⚙️', pages: ['admin', 'repstmManage', 'memberAdmin'] },
 ];
 
 export const allMenuItems: NavItem[] = [
@@ -77,4 +78,4 @@ export const menuLabelByPage = allMenuItems.reduce<Record<string, string>>((acc,
   return acc;
 }, {});
 
-export const adminOnlyPages: AppPage[] = ['settings', 'memberAdmin'];
+export const adminOnlyPages: AppPage[] = ['settings', 'repstmManage', 'memberAdmin'];

@@ -450,6 +450,64 @@ export interface ImportedRepstmBatchRow {
   raw_data: Record<string, unknown>;
 }
 
+export interface RepstmManagedBatch {
+  id: number;
+  data_type: 'REP' | 'STM' | 'INV';
+  source_filename: string;
+  file_size?: number | null;
+  sheet_name?: string | null;
+  is_subfile?: number | boolean;
+  imported_by?: string | null;
+  row_count: number;
+  notes?: string | null;
+  replaces_batch_id?: number | null;
+  created_at: string;
+  is_replaced: number | boolean;
+}
+
+export interface RepstmManagementSearchResult {
+  batches: RepstmManagedBatch[];
+  total: number;
+  totalRows: number;
+  page: number;
+  pageSize: number;
+}
+
+export const searchRepstmManagement = async (filters: {
+  dataType?: 'ALL' | 'REP' | 'STM' | 'INV';
+  query?: string;
+  page?: number;
+  pageSize?: number;
+  includeReplaced?: boolean;
+}): Promise<RepstmManagementSearchResult> => {
+  const params = new URLSearchParams({
+    dataType: filters.dataType || 'ALL',
+    q: filters.query || '',
+    page: String(filters.page || 1),
+    pageSize: String(filters.pageSize || 50),
+    includeReplaced: String(Boolean(filters.includeReplaced)),
+  });
+  const response = await fetch(`/api/repstm/manage/search?${params.toString()}`);
+  const json = await response.json().catch(() => null);
+  if (!response.ok || !json?.success) throw new Error(json?.error || 'ค้นหาข้อมูล REP/STM/INV ไม่สำเร็จ');
+  return json.data as RepstmManagementSearchResult;
+};
+
+export const deleteRepstmManagementBatch = async (payload: {
+  batchId: number;
+  reason: string;
+  confirmation: string;
+}) => {
+  const response = await fetch(`/api/repstm/manage/batches/${encodeURIComponent(String(payload.batchId))}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: payload.reason, confirmation: payload.confirmation }),
+  });
+  const json = await response.json().catch(() => null);
+  if (!response.ok || !json?.success) throw new Error(json?.error || 'ลบ batch ไม่สำเร็จ');
+  return json as { success: true; message: string; data: { batchId: number; deletedRows: number; restoredBatchId?: number | null } };
+};
+
 export interface ReceivableCandidate {
   patient_type: 'OPD' | 'IPD' | string;
   vn?: string | null;

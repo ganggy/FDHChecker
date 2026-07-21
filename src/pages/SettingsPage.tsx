@@ -70,6 +70,12 @@ interface SettingsMeta {
     updatedBy?: { id?: number; username?: string };
 }
 
+interface FdhConnectionTestState {
+    type: 'success' | 'error';
+    message: string;
+    responseTimeMs?: number;
+}
+
 const SECRET_PLACEHOLDER = '***';
 
 const isPlainRecord = (value: unknown): value is Record<string, any> => (
@@ -154,6 +160,8 @@ export const SettingsPage: React.FC = () => {
     const [settingsMeta, setSettingsMeta] = useState<SettingsMeta | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [testingFdhConnection, setTestingFdhConnection] = useState(false);
+    const [fdhConnectionTest, setFdhConnectionTest] = useState<FdhConnectionTestState | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -283,7 +291,32 @@ export const SettingsPage: React.FC = () => {
 
     const setFdhSetting = <K extends keyof FdhApiSettings>(key: K, value: FdhApiSettings[K]) => {
         setIsDirty(true);
+        setFdhConnectionTest(null);
         setFdhApiSettings((previous) => ({ ...(previous || {}), [key]: value }));
+    };
+
+    const handleTestFdhConnection = async () => {
+        try {
+            setTestingFdhConnection(true);
+            setFdhConnectionTest(null);
+            const response = await fetch('/api/settings/fdh-api/test-connection', { method: 'POST' });
+            const result = await readJsonResponse<{
+                message?: string;
+                data?: { responseTimeMs?: number };
+            }>(response, 'การทดสอบการเชื่อมต่อ FDH API');
+            setFdhConnectionTest({
+                type: 'success',
+                message: result.message || 'เชื่อมต่อ FDH API สำเร็จ',
+                responseTimeMs: result.data?.responseTimeMs,
+            });
+        } catch (error) {
+            setFdhConnectionTest({
+                type: 'error',
+                message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการทดสอบการเชื่อมต่อ FDH API',
+            });
+        } finally {
+            setTestingFdhConnection(false);
+        }
     };
 
     const exportAppSettings = () => {
@@ -607,6 +640,37 @@ export const SettingsPage: React.FC = () => {
                                 ตอนนี้ระบบของเรารองรับการตั้งค่า URL สำคัญครบตามที่โปรแกรมเดิมใช้แล้ว และหน้า <code>นำเข้าสถานะ FDH</code> จะหยิบค่าชุดนี้ไปใช้ต่อได้ทันที
                             </span>
                         </div>
+                        <div className="fdh-connection-test">
+                            <div>
+                                <strong>ทดสอบค่าที่บันทึกไว้</strong>
+                                <p>ระบบจะใช้ username/password จากฐานข้อมูลโดยตรง และจะไม่แสดงหรือส่งรหัสผ่านกลับมาที่หน้านี้</p>
+                            </div>
+                            <button
+                                type="button"
+                                className="secondary-btn fdh-test-btn"
+                                onClick={() => void handleTestFdhConnection()}
+                                disabled={testingFdhConnection || saving || isDirty || !fdhPasswordConfigured || !mergedFdhApiSettings.username}
+                                title={isDirty ? 'กรุณาบันทึกการตั้งค่าก่อนทดสอบ' : undefined}
+                            >
+                                {testingFdhConnection ? 'กำลังทดสอบ...' : '🔌 ทดสอบการเชื่อมต่อ FDH API'}
+                            </button>
+                        </div>
+                        {isDirty && (
+                            <div className="fdh-test-hint">กรุณาบันทึกการตั้งค่าก่อน จึงจะทดสอบการเชื่อมต่อด้วยค่าล่าสุดได้</div>
+                        )}
+                        {fdhConnectionTest && (
+                            <div
+                                className={`fdh-test-result is-${fdhConnectionTest.type}`}
+                                role={fdhConnectionTest.type === 'error' ? 'alert' : 'status'}
+                                aria-live="polite"
+                            >
+                                <strong>{fdhConnectionTest.type === 'success' ? '✅ สำเร็จ' : '❌ ไม่สำเร็จ'}</strong>
+                                <span>{fdhConnectionTest.message}</span>
+                                {fdhConnectionTest.responseTimeMs != null && (
+                                    <small>ใช้เวลา {fdhConnectionTest.responseTimeMs.toLocaleString('th-TH')} มิลลิวินาที</small>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 

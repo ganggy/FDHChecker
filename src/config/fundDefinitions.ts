@@ -20,7 +20,13 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'ผู้ป่วยระยะประคับประคอง / เยี่ยมบ้าน',
         claimChannel: 'FDH/e-Claim',
         recordingSystem: 'FDH หรือ e-Claim ตามช่องทางที่หน่วยบริการใช้',
-        conditions: ['สิทธิ UCS', 'Diagnosis Z515 หรือ Z718', 'ADP 30001 หรือ Cons01 หรือ Eva001'],
+        conditions: [
+            'สิทธิ UCS',
+            'โรคหลักที่เข้าเกณฑ์: K70.4, K71.7, K72.0, K72.1, K72.9 หรือ N18.5',
+            'Diagnosis Z51.5 สำหรับ Palliative Care',
+            'กรณี Advance care planning ให้บันทึก Z71.8 คู่กับ Z51.5',
+            'ADP 30001 หรือ Cons01 หรือ Eva001',
+        ],
         caution: 'กองทุนนี้เป็นงานเยี่ยมบ้าน ไม่ควรรวมกับกองทุนแล็บ/คัดกรองอื่นใน visit เดียวกัน ยกเว้นรายการยา'
     },
     {

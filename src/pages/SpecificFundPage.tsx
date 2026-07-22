@@ -1199,6 +1199,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             if (fundId === 'palliative') {
                 return {
                     ...baseRow,
+                    'Diag หลัก': item.pdx || '',
                     'Diag Z515': item.z515_code || '',
                     'Diag Z718': item.z718_code || '',
                     'ADP Code': item.adp_code || '',
@@ -1885,6 +1886,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     <th style={{ width: 105 }}>วันที่รับบริการ</th>
                                     {activeFund === 'palliative' && (
                                         <>
+                                            <th style={{ width: 90, textAlign: 'center' }}>Diag หลัก</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z515)</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z718)</th>
                                             <th style={{ width: 110, textAlign: 'center' }}>ADP Code</th>
@@ -2082,6 +2084,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.vsttime}</div>
                                                 </td>{activeFund === 'palliative' && (
                                                     <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.pdx
+                                                                ? <span className="badge badge-primary">{item.pdx}</span>
+                                                                : <span className="badge badge-danger">✗ ไม่มี Diag หลัก</span>}
+                                                        </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.z515_code
                                                                 ? <span className="badge badge-success">✓ มี Z515</span>

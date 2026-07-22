@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { FUND_DEFINITIONS } from '../config/fundDefinitions';
+import { buildFundOperationalGuide } from '../config/fundOperationalGuideCatalog';
 import { formatPalliativeIcd10, PALLIATIVE_DIAGNOSIS_CODE_COUNT, PALLIATIVE_DIAGNOSIS_GROUPS } from '../config/palliativeDiagnosisCatalog';
 
 interface FundGuide {
@@ -462,6 +464,19 @@ const guides: FundGuide[] = [
     }
 ];
 
+const ChecklistBlock: React.FC<{ title: string; items: string[]; color: string; background: string }> = ({ title, items, color, background }) => (
+    <div style={{ padding: 11, borderRadius: 9, background, borderLeft: `3px solid ${color}` }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color, marginBottom: 6 }}>{title}</div>
+        {items.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: 18, color: '#334155', fontSize: 11, lineHeight: 1.55 }}>
+                {items.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+        ) : (
+            <div style={{ color: '#64748b', fontSize: 11 }}>ตรวจสอบตามประกาศกองทุนล่าสุด</div>
+        )}
+    </div>
+);
+
 export const GuidePage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [copiedPathGuideId, setCopiedPathGuideId] = useState<string | null>(null);
@@ -477,6 +492,23 @@ export const GuidePage: React.FC = () => {
     };
 
     const normalizedSearchTerm = searchTerm.trim().replace('.', '').toLowerCase();
+    const operationalGuides = FUND_DEFINITIONS.map(buildFundOperationalGuide);
+    const filteredOperationalGuides = operationalGuides.filter((guide) => {
+        const searchableText = [
+            guide.name,
+            guide.description,
+            guide.claimChannel,
+            guide.recordingSystem,
+            ...guide.requiredData,
+            ...guide.automatedChecks,
+            ...guide.manualChecks,
+            ...guide.commonErrors,
+        ].filter(Boolean).join(' ').replaceAll('.', '').toLowerCase();
+        if (searchableText.includes(normalizedSearchTerm)) return true;
+        return guide.id === 'palliative' && PALLIATIVE_DIAGNOSIS_GROUPS.some((group) =>
+            group.codes.some((code) => code.toLowerCase().includes(normalizedSearchTerm))
+        );
+    });
     const filteredGuides = guides.filter(g => {
         const regularText = [g.title, g.description, ...g.conditions, ...g.codes].join(' ').replaceAll('.', '').toLowerCase();
         if (regularText.includes(normalizedSearchTerm)) return true;
@@ -507,6 +539,54 @@ export const GuidePage: React.FC = () => {
                 </div>
             </div>
 
+            <section style={{ marginBottom: 28 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div>
+                        <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: 20 }}>✅ Checklist ก่อนส่งเบิกทุกกองทุน</h2>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13 }}>ข้อมูลที่ต้องกรอก • ระบบตรวจอัตโนมัติ • จุดตรวจด้วยตนเอง • ข้อผิดพลาดที่พบบ่อย</p>
+                    </div>
+                    <span className="badge badge-primary" style={{ padding: '7px 12px', fontSize: 12 }}>
+                        แสดง {filteredOperationalGuides.length} / {operationalGuides.length} กองทุน
+                    </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 12 }}>
+                    {filteredOperationalGuides.map((guide) => (
+                        <details key={guide.id} className="card" style={{ overflow: 'hidden', borderLeft: '4px solid var(--primary)' }}>
+                            <summary style={{ cursor: 'pointer', padding: 16, listStylePosition: 'inside' }}>
+                                <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: 15 }}>{guide.name}</span>
+                                <span style={{ display: 'inline-block', marginLeft: 8, padding: '2px 7px', borderRadius: 999, background: '#eef2ff', color: '#4338ca', fontSize: 10, fontWeight: 700 }}>
+                                    {guide.claimChannel || 'ตรวจสอบช่องทาง'}
+                                </span>
+                                <div style={{ margin: '5px 0 0 20px', color: 'var(--text-secondary)', fontSize: 11 }}>{guide.description}</div>
+                            </summary>
+                            <div style={{ padding: '0 16px 16px', display: 'grid', gap: 10 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
+                                    <ChecklistBlock title="📝 ข้อมูลที่ต้องกรอก/ต้องมี" items={guide.requiredData} color="#2563eb" background="#eff6ff" />
+                                    <ChecklistBlock title="🤖 ระบบตรวจอัตโนมัติ" items={guide.automatedChecks} color="#7c3aed" background="#f5f3ff" />
+                                    <ChecklistBlock title="👀 เจ้าหน้าที่ต้องตรวจ" items={guide.manualChecks} color="#047857" background="#ecfdf5" />
+                                    <ChecklistBlock title="⚠️ ข้อผิดพลาดที่พบบ่อย" items={guide.commonErrors} color="#c2410c" background="#fff7ed" />
+                                </div>
+                                {guide.caution && (
+                                    <div style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid #fbbf24', background: '#fffbeb', color: '#92400e', fontSize: 11, lineHeight: 1.5 }}>
+                                        <strong>ข้อควรระวัง:</strong> {guide.caution}
+                                    </div>
+                                )}
+                                <div style={{ padding: '9px 11px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', fontSize: 11, lineHeight: 1.5 }}>
+                                    <strong>พร้อมส่งเมื่อ:</strong> ข้อมูลผู้ป่วย สิทธิ/Authen เวชระเบียน และเงื่อนไขอัตโนมัติครบทั้งหมด ไม่มีรายการผิด VN/ผิดวัน และเจ้าหน้าที่ตรวจหลักฐานจริงแล้ว
+                                </div>
+                            </div>
+                        </details>
+                    ))}
+                </div>
+                {filteredOperationalGuides.length === 0 && (
+                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>ไม่พบ Checklist กองทุนที่ตรงกับคำค้นหา</div>
+                )}
+            </section>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '0 0 12px' }}>
+                <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: 20 }}>📖 บทความและคำอธิบายเพิ่มเติม</h2>
+                <span className="badge">{filteredGuides.length} รายการ</span>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 20 }}>
                 {filteredGuides.map(guide => (
                     <div key={guide.id} className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { formatPalliativeIcd10, PALLIATIVE_DIAGNOSIS_CODE_COUNT, PALLIATIVE_DIAGNOSIS_GROUPS } from '../config/palliativeDiagnosisCatalog';
 
 interface FundGuide {
     id: string;
@@ -40,6 +41,21 @@ const guides: FundGuide[] = [
         payment: 'ใช้ตามรายการค่าบริการของ ANC และ Fee Schedule ที่ สปสช. กำหนด',
         icon: '🤰',
         color: 'var(--danger)'
+    },
+    {
+        id: 'anc_ultrasound',
+        title: 'ANC Ultrasound',
+        description: 'ตรวจความครบของบริการอัลตราซาวด์หญิงตั้งครรภ์ โดยใช้ ADP 30010 เป็นหลักฐานบริการ ไม่ตรวจ xray_head ซ้ำ',
+        conditions: [
+            'เป็นผู้รับบริการเพศหญิง',
+            'มี Diagnosis ฝากครรภ์ Z34 หรือ Z35',
+            'มี ADP 30010 ซึ่งถือเป็นหลักฐานบริการ ANC Ultrasound',
+            'visit ฝากครรภ์ทั่วไปที่ไม่มี 30010 จะไม่ถูกแจ้งเป็นข้อผิดพลาดของ ANC Ultrasound'
+        ],
+        codes: ['ICD-10: Z34 / Z35', 'ADP 30010', 'ไม่ตรวจ xray_head'],
+        payment: 'ระบบตรวจความครบจาก ADP 30010 ตามรายการบริการที่บันทึกใน visit และไม่บังคับหลักฐานรังสีซ้ำ',
+        icon: '📽️',
+        color: 'var(--info)'
     },
     {
         id: 'anc_labs',
@@ -249,15 +265,34 @@ const guides: FundGuide[] = [
     {
         id: 'palliative',
         title: 'ดูแลประคับประคอง (Palliative Care)',
-        description: 'การดูแลผู้ป่วยระยะท้ายและครอบครัวแบบประคับประคอง เพื่อลดความทุกข์ทรมานทั้งร่างกาย จิตใจ สังคม และจิตวิญญาณ',
+        description: `คู่มือตรวจ Palliative Care พร้อมบัญชีโรคที่เข้าเกณฑ์ ${PALLIATIVE_DIAGNOSIS_CODE_COUNT} รหัส แบ่งเป็น ${PALLIATIVE_DIAGNOSIS_GROUPS.length} กลุ่ม`,
         conditions: [
-            'เป็นผู้ป่วยที่ได้รับการวินิจฉัยว่าอยู่ในระยะท้ายของโรค (Life-limiting illness)',
-            'มีการลงทะเบียนในระบบ Palliative Care ของหน่วยบริการ'
+            'สิทธิ UCS และโรคหลักอยู่ในบัญชี ICD-10 ที่กำหนด',
+            'บันทึก Z51.5 สำหรับ Palliative Care',
+            'กรณี Advance care planning ให้บันทึก Z71.8 คู่กับ Z51.5',
+            'มี ADP 30001 หรือ Cons01 หรือ Eva001',
+            'หน้ารายกองทุนแสดง Diag หลักของผู้ป่วยเพื่อช่วยตรวจสอบก่อนส่งเบิก'
         ],
-        codes: ['ICD-10: Z51.5 (Palliative care)'],
-        payment: 'เหมาจ่ายดูแลต่อเนื่องที่บ้าน หรือชดเชยตาม Fee Schedule บริการอุปกรณ์',
+        codes: ['ICD-10: Z51.5', 'ICD-10: Z71.8 (ใช้คู่ Z51.5)', 'ADP 30001 / Cons01 / Eva001', `${PALLIATIVE_DIAGNOSIS_CODE_COUNT} รหัสโรคที่เข้าเกณฑ์`],
+        payment: 'ตรวจสอบช่องทาง FDH/e-Claim และ Fee Schedule ล่าสุดก่อนส่งเบิก',
         icon: '🕊️',
         color: 'var(--slate)'
+    },
+    {
+        id: 'line_automation',
+        title: 'การแจ้งเตือน LINE อัตโนมัติ',
+        description: 'สรุปงานตรวจสอบที่ระบบส่งอัตโนมัติ เพื่อให้หน้าเว็บและข้อความ LINE ใช้เงื่อนไขเดียวกัน',
+        conditions: [
+            'เวลา 11.00 น. ตรวจนัดหมายวันพรุ่งนี้ที่มี HN ซ้ำในตาราง oapp',
+            'เวลา 15.00 น. ส่งรายงานข้อผิดพลาดรายกองทุน/43 แฟ้ม เฉพาะข้อมูลภายในวัน',
+            'เวลา 15.00 น. ส่งภาพรวมงานประจำวันเป็นจำนวนผู้รับบริการ',
+            'ไม่ส่งรายงานคัดกรองไวรัสตับอักเสบบี/ซีที่ยังจัดทำไม่เสร็จ',
+            'ไม่ส่งแจ้งเตือนคัดกรอง Latent TB ซึ่งใช้ช่องทาง NTIP/TB Data Hub'
+        ],
+        codes: ['11.00 นัดซ้ำ', '15.00 รายกองทุน', '15.00 ภาพรวม', 'ยกเว้น NTIP/TB Data Hub'],
+        payment: 'เป็นระบบช่วยตรวจสอบก่อนส่งเบิก ไม่ใช่ผลอนุมัติการจ่ายจากกองทุน',
+        icon: '🔔',
+        color: 'var(--warning)'
     },
     {
         id: 'thalassemia',
@@ -441,11 +476,14 @@ export const GuidePage: React.FC = () => {
         }
     };
 
-    const filteredGuides = guides.filter(g =>
-        g.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        g.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        g.conditions.some(c => c.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const normalizedSearchTerm = searchTerm.trim().replace('.', '').toLowerCase();
+    const filteredGuides = guides.filter(g => {
+        const regularText = [g.title, g.description, ...g.conditions, ...g.codes].join(' ').replaceAll('.', '').toLowerCase();
+        if (regularText.includes(normalizedSearchTerm)) return true;
+        return g.id === 'palliative' && PALLIATIVE_DIAGNOSIS_GROUPS.some((group) =>
+            group.codes.some((code) => code.toLowerCase().includes(normalizedSearchTerm))
+        );
+    });
 
     return (
         <div className="page-container" style={{ padding: '0 16px' }}>
@@ -498,6 +536,33 @@ export const GuidePage: React.FC = () => {
                                     ))}
                                 </div>
                             </div>
+                            {guide.id === 'palliative' && (
+                                <div style={{ padding: 12, borderRadius: 10, border: '1px solid #c7d2fe', background: '#f8fafc' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                                        <div style={{ fontSize: 12, fontWeight: 800, color: '#312e81' }}>📚 บัญชีโรค Palliative Care</div>
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: '#4338ca' }}>{PALLIATIVE_DIAGNOSIS_GROUPS.length} กลุ่ม • {PALLIATIVE_DIAGNOSIS_CODE_COUNT} รหัส</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gap: 6 }}>
+                                        {PALLIATIVE_DIAGNOSIS_GROUPS.map((group) => (
+                                            <details key={group.id} open={group.codes.length <= 5} style={{ border: `1px solid ${group.accent}33`, borderLeft: `3px solid ${group.accent}`, borderRadius: 7, background: group.background }}>
+                                                <summary style={{ cursor: 'pointer', padding: '7px 9px', color: group.accent, fontWeight: 700, fontSize: 11 }}>
+                                                    {group.title} ({group.codes.length} รหัส)
+                                                </summary>
+                                                <div style={{ padding: '0 9px 9px' }}>
+                                                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>{group.summary}</div>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: group.codes.length > 40 ? 170 : 'none', overflowY: group.codes.length > 40 ? 'auto' : 'visible' }}>
+                                                        {group.codes.map((code) => (
+                                                            <span key={code} style={{ padding: '2px 6px', borderRadius: 5, border: `1px solid ${group.accent}44`, background: '#fff', fontFamily: 'monospace', fontSize: 10, fontWeight: 700 }}>
+                                                                {formatPalliativeIcd10(code)}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </details>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                             {guide.referencePath && (
                                 <div style={{ background: 'rgba(37, 99, 235, 0.06)', border: '1px solid rgba(37, 99, 235, 0.18)', padding: 12, borderRadius: 8 }}>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>📚 Vale Reference</div>

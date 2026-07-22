@@ -1,0 +1,19 @@
+[Unit]
+Description=FDHChecker LINE duplicate appointment alert
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=war12oc
+Group=war12oc
+WorkingDirectory=/opt/FDHChecker
+Environment="PATH=/home/war12oc/.nvm/versions/node/v20.20.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+EnvironmentFile=/etc/fdh-overview.env
+ExecStart=/home/war12oc/.nvm/versions/node/v20.20.2/bin/npm run line:duplicate-appointments:scheduled
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -62,7 +62,6 @@ const GENDER_AFFIRMING_HORMONE_REGEX = 'GENDER|HORMONE|ESTRADIOL|ESTROGEN|TESTOS
 const LATENT_TB_SCREENING_REGEX = 'IGRA|INTERFERON|QUANTIFERON|T[- ]?SPOT|LATENT TB|วัณโรคระยะแฝง';
 const OSTEOPOROSIS_SCREENING_REGEX = 'FRAX|DXA|DEXA|BMD|BONE DENS|OSTEOPOROSIS|กระดูกพรุน|มวลกระดูก';
 const TDAS_SCREENING_REGEX = 'TDAS|AUTIS|ออทิส|ออทิสติก';
-const PALLIATIVE_DISEASE_CODES = businessRules.diagnosis_patterns.palliative_disease;
 const TELEMED_ADP_CODE = String((businessRules as any)?.adp_codes?.telmed || 'TELMED').trim().toUpperCase();
 const TELEMED_EXPORT_CODE = String((businessRules as any)?.project_codes?.ovstist_tele || '5').trim();
 
@@ -9846,8 +9845,7 @@ export const getCheckData = async (
         
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z124|^Z014' LIMIT 1) as has_cx_diag,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '1B004|1B005' LIMIT 1) as has_cx_adp,
-        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z515', 'Z718') LIMIT 1) as has_pal_diag,
-        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN (${PALLIATIVE_DISEASE_CODES.map(c => `'${c}'`).join(',')}) LIMIT 1) as has_pal_disease,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 IN ('Z515', 'Z718') LIMIT 1) as has_pal_diag,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30001', 'Cons01', 'Eva001') LIMIT 1) as has_pal_adp,
         
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z511|^Z512' LIMIT 1) as has_chemo_diag,
@@ -10579,8 +10577,7 @@ export const getEligibleVisits = async (
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.cx_regex}' LIMIT 1) as has_cx_adp,
         
         -- Palliative/Other Specialized
-        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) LIMIT 1) as has_pal_diag,
-        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN (${PALLIATIVE_DISEASE_CODES.map(c => `'${c}'`).join(',')}) LIMIT 1) as has_pal_disease,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) LIMIT 1) as has_pal_diag,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')}) LIMIT 1) as has_pal_adp,
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z511|^Z512' LIMIT 1) as has_chemo_diag,
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^B182' LIMIT 1) as has_hepc_diag,
@@ -11949,21 +11946,17 @@ export const getSpecificFundData = async (
           DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
           pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
           ptt.name as pttypename, ptt.hipdata_code,
-          GROUP_CONCAT(DISTINCT IF(REPLACE(UPPER(dx.icd10), '.', '')='${businessRules.diagnosis_patterns.palliative[0]}', dx.icd10, NULL)) as z515_code,
-          GROUP_CONCAT(DISTINCT IF(REPLACE(UPPER(dx.icd10), '.', '')='${businessRules.diagnosis_patterns.palliative[1]}', dx.icd10, NULL)) as z718_code,
-          CASE WHEN MAX(CASE WHEN REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_pal_diag,
-          CASE WHEN MAX(CASE WHEN REPLACE(UPPER(dx.icd10), '.', '') IN (${PALLIATIVE_DISEASE_CODES.map(c => `'${c}'`).join(',')}) THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_pal_disease,
-          GROUP_CONCAT(DISTINCT IF(REPLACE(UPPER(dx.icd10), '.', '') IN (${PALLIATIVE_DISEASE_CODES.map(c => `'${c}'`).join(',')}), dx.icd10, NULL) ORDER BY dx.icd10 SEPARATOR ', ') as palliative_disease_codes,
+          GROUP_CONCAT(DISTINCT IF(dx.icd10='${businessRules.diagnosis_patterns.palliative[0]}', '${businessRules.diagnosis_patterns.palliative[0]}', NULL)) as z515_code,
+          GROUP_CONCAT(DISTINCT IF(dx.icd10='${businessRules.diagnosis_patterns.palliative[1]}', '${businessRules.diagnosis_patterns.palliative[1]}', NULL)) as z718_code,
           (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.palliative[0]}' LIMIT 1) as has_30001,
           (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.palliative[1]}' LIMIT 1) as has_cons01,
-          (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.palliative[2]}' LIMIT 1) as has_eva001,
-          (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')}) LIMIT 1) as has_pal_adp
+          (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.palliative[2]}' LIMIT 1) as has_eva001
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
-        LEFT JOIN ovstdiag dx ON o.vn = dx.vn
+        LEFT JOIN ovstdiag dx ON o.vn = dx.vn AND dx.icd10 IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
         WHERE o.vstdate BETWEEN ? AND ?
-          AND (REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) OR EXISTS (SELECT 1 FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})))
+          AND (dx.icd10 IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) OR EXISTS (SELECT 1 FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})))
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);

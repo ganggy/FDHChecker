@@ -111,17 +111,9 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
     case 'palliative':
     {
       const hasDiag = flag(row.has_pal_diag) || hasCode(row, ['Z515', 'Z718']);
-      const hasDisease = flag(row.has_pal_disease) || hasCode(row, ['K704', 'K717', 'K720', 'K721', 'K729', 'N185']) || hasListedCode(row.palliative_disease_codes, ['K704', 'K717', 'K720', 'K721', 'K729', 'N185']);
       const hasAdp = flag(row.has_pal_adp) || flag(row.has_30001) || flag(row.has_cons01) || flag(row.has_eva001);
       if (!ucs) break;
-      if (hasDiag && !hasDisease) {
-        missing.push('ไม่พบโรคหลัก K70.4/K71.7/K72.0/K72.1/K72.9/N18.5');
-        break;
-      }
-      addWebNearStatusMissing(missing, hasAdp, 'ADP 30001/Cons01/Eva001', [
-        { met: hasDiag, label: 'Diagnosis Z515/Z718' },
-        { met: hasDisease, label: 'โรคหลัก K70.4/K71.7/K72.0/K72.1/K72.9/N18.5' },
-      ]);
+      addWebNearStatusMissing(missing, hasAdp, 'ADP 30001/Cons01/Eva001', [{ met: hasDiag, label: 'Diagnosis Z515/Z718' }]);
       break;
     }
     case 'telemedicine':

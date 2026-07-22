@@ -296,7 +296,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             .map(cleanCode)
             .filter(Boolean);
 
-        [item?.fp_diags, item?.diag_list, item?.diagnosis_list, item?.palliative_disease_codes]
+        [item?.fp_diags, item?.diag_list, item?.diagnosis_list]
             .filter(Boolean)
             .join(',')
             .split(/[^A-Z0-9.]+/)
@@ -480,7 +480,6 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         const hipdataText = `${item?.hipdata_code || ''} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.toUpperCase();
         const isUcsLike = ['UCS', 'UC', 'WEL', 'UNK'].some((code) => hipdataText.includes(code));
         const hasPalliativeDiag = toFlag(item?.has_pal_diag) || hasDiagCodes(item, ['Z515', 'Z718']);
-        const hasPalliativeDisease = toFlag(item?.has_pal_disease) || hasDiagCodes(item, ['K704', 'K717', 'K720', 'K721', 'K729', 'N185']);
         const hasPalliativeAdp = toFlag(item?.has_pal_adp) || toFlag(item?.has_30001) || toFlag(item?.has_cons01) || toFlag(item?.has_eva001);
         const hasAncDiag = toFlag(item?.has_anc_diag) || hasDiagRegex(item, /^Z3[45]/) || hasValue(item?.anc_diags);
         const isFemale = String(item?.sex ?? '').trim() === '2';
@@ -490,22 +489,16 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'palliative') {
             if (!isUcsLike) return buildStatusResult([], [], undefined, false);
-            const isMatched = hasPalliativeDiag && hasPalliativeDisease && hasPalliativeAdp;
+            const isMatched = hasPalliativeDiag && hasPalliativeAdp;
             if (hasPalliativeDiag || hasPalliativeAdp) subfunds.push('🕊️ Palliative Care');
-            const palliativeMissing = hasPalliativeDiag && !hasPalliativeDisease
-                ? [' ไม่พบโรคหลัก K70.4/K71.7/K72.0/K72.1/K72.9/N18.5']
-                : getNearStatusMissing(
-                    hasPalliativeAdp,
-                    ' ADP 30001/Cons01/Eva001',
-                    [
-                        { met: hasPalliativeDiag, label: ' Diagnosis Z515/Z718' },
-                        { met: hasPalliativeDisease, label: ' โรคหลัก K70.4/K71.7/K72.0/K72.1/K72.9/N18.5' },
-                    ],
-                    hasPalliativeDiag
-                );
             return buildStatusResult(
                 subfunds,
-                palliativeMissing,
+                getNearStatusMissing(
+                    hasPalliativeAdp,
+                    ' ADP 30001/Cons01/Eva001',
+                    [{ met: hasPalliativeDiag, label: ' Diagnosis Z515/Z718' }],
+                    hasPalliativeDiag
+                ),
                 undefined,
                 isMatched
             );
@@ -1208,7 +1201,6 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     ...baseRow,
                     'Diag Z515': item.z515_code || '',
                     'Diag Z718': item.z718_code || '',
-                    'โรคหลัก Palliative': item.palliative_disease_codes || '',
                     'ADP Code': item.adp_code || '',
                 };
             }

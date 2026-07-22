@@ -48,7 +48,6 @@ export const REPORT_FUNDS: FundSpec[] = [
   { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)' },
   { id: 'mental_health_counselling', name: 'ปรึกษาสุขภาพจิต' },
   { id: 'gender_affirming_hormone', name: 'ฮอร์โมนยืนยันเพศสภาพ' },
-  { id: 'latent_tb_screening', name: 'คัดกรอง Latent TB' },
   { id: 'osteoporosis_screening', name: 'คัดกรองกระดูกพรุน' },
   { id: 'autism_tdas_screening', name: 'คัดกรองออทิสติก TDAS' },
   { id: 'clopidogrel', name: 'ยา Clopidogrel' },

@@ -49,6 +49,11 @@ test('unfinished hepatitis B and C funds are excluded from the daily report', as
   assert.equal(REPORT_FUNDS.some((fund) => fund.id === 'hepb' || fund.id === 'hepc'), false);
 });
 
+test('NTIP/TB Data Hub is excluded from the daily LINE report', async () => {
+  const { REPORT_FUNDS } = await import('./fundErrorReport.js');
+  assert.equal(REPORT_FUNDS.some((fund) => fund.id === 'latent_tb_screening'), false);
+});
+
 test('ANC ultrasound LINE rule matches the web actionable-status rule', () => {
   const ancVisitOnly = getFundMissingConditions('anc_ultrasound', {
     sex: '2', has_anc_diag: 'Y', has_anc_us: 'N', has_anc_us_proc: 'N', anc_adp_codes: '30011',

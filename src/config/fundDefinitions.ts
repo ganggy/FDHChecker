@@ -22,7 +22,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         recordingSystem: 'FDH หรือ e-Claim ตามช่องทางที่หน่วยบริการใช้',
         conditions: [
             'สิทธิ UCS',
-            'โรคหลักที่เข้าเกณฑ์: K70.4, K71.7, K72.0, K72.1, K72.9 หรือ N18.5',
+            'โรคหลักต้องอยู่ในบัญชี ICD-10 สำหรับ Palliative Care ที่แสดงด้านล่าง',
             'Diagnosis Z51.5 สำหรับ Palliative Care',
             'กรณี Advance care planning ให้บันทึก Z71.8 คู่กับ Z51.5',
             'ADP 30001 หรือ Cons01 หรือ Eva001',

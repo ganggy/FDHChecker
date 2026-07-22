@@ -6,6 +6,7 @@ import type { CheckRecord } from '../mockData';
 import businessRules from '../config/business_rules.json';
 import { FUND_DEFINITIONS, type FundDefinition } from '../config/fundDefinitions';
 import { getAnemiaRuleBand, getFundRule } from '../config/fundRuleCatalog';
+import { formatPalliativeIcd10, PALLIATIVE_DIAGNOSIS_CODE_COUNT, PALLIATIVE_DIAGNOSIS_GROUPS } from '../config/palliativeDiagnosisCatalog';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
 import { fetchAppSettings } from '../services/hosxpService';
@@ -1581,6 +1582,41 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                 </div>
                             )}
                         </div>
+                        {activeFund === 'palliative' && (
+                            <section style={{ marginBottom: 12, padding: 14, border: '1px solid #c7d2fe', borderRadius: 12, background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                                    <div>
+                                        <div style={{ fontWeight: 800, color: '#312e81', fontSize: 15 }}>📚 บัญชี Diagnosis ที่เข้าเกณฑ์ Palliative Care</div>
+                                        <div style={{ color: '#475569', fontSize: 12, marginTop: 3 }}>จัดกลุ่มจากบัญชี ICD-10 ที่หน่วยงานกำหนด กดแต่ละกลุ่มเพื่อดูรหัสทั้งหมด</div>
+                                    </div>
+                                    <span style={{ padding: '5px 10px', borderRadius: 999, background: '#4338ca', color: '#fff', fontWeight: 700, fontSize: 12 }}>
+                                        {PALLIATIVE_DIAGNOSIS_GROUPS.length} กลุ่ม • {PALLIATIVE_DIAGNOSIS_CODE_COUNT} รหัส
+                                    </span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 9 }}>
+                                    {PALLIATIVE_DIAGNOSIS_GROUPS.map((group) => (
+                                        <details key={group.id} open={group.codes.length <= 5} style={{ border: `1px solid ${group.accent}33`, borderLeft: `4px solid ${group.accent}`, borderRadius: 9, background: group.background, overflow: 'hidden' }}>
+                                            <summary style={{ cursor: 'pointer', padding: '10px 12px', listStylePosition: 'inside', color: group.accent, fontWeight: 750, fontSize: 12 }}>
+                                                {group.title} <span style={{ opacity: 0.75, fontWeight: 600 }}>({group.codes.length} รหัส)</span>
+                                            </summary>
+                                            <div style={{ padding: '0 12px 12px' }}>
+                                                <div style={{ color: '#475569', fontSize: 11, lineHeight: 1.45, marginBottom: 8 }}>{group.summary}</div>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: group.codes.length > 40 ? 210 : 'none', overflowY: group.codes.length > 40 ? 'auto' : 'visible', paddingRight: 3 }}>
+                                                    {group.codes.map((code) => (
+                                                        <span key={code} title={group.summary} style={{ padding: '3px 7px', borderRadius: 6, background: '#fff', border: `1px solid ${group.accent}55`, color: '#1e293b', fontFamily: 'monospace', fontSize: 11, fontWeight: 700 }}>
+                                                            {formatPalliativeIcd10(code)}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </details>
+                                    ))}
+                                </div>
+                                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 11, lineHeight: 1.5 }}>
+                                    <strong>หมายเหตุ:</strong> Z71.8 ใช้ระบุ Advance care planning เมื่อบันทึกคู่กับ Z51.5 และควรตรวจสอบโรคหลักของผู้ป่วยจากกลุ่มด้านบนก่อนส่งเบิก
+                                </div>
+                            </section>
+                        )}
                         <div style={{ display: 'none', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', fontSize: '12px' }}>
                             {activeFund === 'palliative' && (
                                 <>

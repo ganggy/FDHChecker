@@ -7,6 +7,8 @@ type FsSummary = {
   itemCount: number;
   visitCount: number;
   patientCount: number;
+  rateMismatchCount: number;
+  totalRateDifference: number;
 };
 
 type FsAggregate = {
@@ -42,6 +44,9 @@ type FsDetail = {
   unitPrice: number;
   rawAmount: number;
   amount: number;
+  rateStatus: 'matched' | 'mismatch';
+  rateDifference: number;
+  rateWarning: string;
 };
 
 type FsMonitorResponse = {
@@ -95,7 +100,14 @@ export const FsMonitorPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const summary = data?.summary || { totalAmount: 0, itemCount: 0, visitCount: 0, patientCount: 0 };
+  const summary = data?.summary || {
+    totalAmount: 0,
+    itemCount: 0,
+    visitCount: 0,
+    patientCount: 0,
+    rateMismatchCount: 0,
+    totalRateDifference: 0,
+  };
 
   const exportExcel = () => {
     if (!data) return;
@@ -108,6 +120,8 @@ export const FsMonitorPage = () => {
       'จำนวน Visit': summary.visitCount,
       'จำนวนผู้ป่วย': summary.patientCount,
       'จำนวนรายการ': summary.itemCount,
+      'รายการราคาผิดอัตรา': summary.rateMismatchCount,
+      'ส่วนต่างสุทธิ HOSxP-ประกาศ': summary.totalRateDifference,
     }]), 'Summary');
 
     const aggregateSheet = (rows: FsAggregate[]) => XLSX.utils.json_to_sheet(rows.map((row) => ({
@@ -143,6 +157,9 @@ export const FsMonitorPage = () => {
       'ราคา/หน่วย': row.unitPrice,
       'ยอดตามคู่มือ FS': row.amount,
       'ยอดจริง HOSxP': row.rawAmount,
+      'สถานะราคา': row.rateStatus === 'matched' ? 'ตรงอัตรา' : 'ผิดอัตรา',
+      'ส่วนต่าง HOSxP-ประกาศ': row.rateDifference,
+      'คำเตือนราคา': row.rateWarning,
     }))), 'Details');
 
     XLSX.writeFile(workbook, `fs-monitor-${startDate}-${endDate}.xlsx`);
@@ -209,6 +226,13 @@ export const FsMonitorPage = () => {
           <span>จำนวนรายการ</span>
           <strong>{numberText(summary.itemCount)}</strong>
         </div>
+        <div className="fs-metric-card" style={summary.rateMismatchCount > 0 ? { borderColor: '#ef5350' } : undefined}>
+          <span>ราคาผิดอัตรา</span>
+          <strong style={summary.rateMismatchCount > 0 ? { color: '#c62828' } : undefined}>
+            {numberText(summary.rateMismatchCount)}
+          </strong>
+          <small>ส่วนต่างสุทธิ {money(summary.totalRateDifference)}</small>
+        </div>
       </section>
 
       <div className="fs-grid-two">
@@ -267,6 +291,11 @@ export const FsMonitorPage = () => {
                   <td className="right money">
                     {money(row.amount)}
                     <small>จริง HOSxP {money(row.rawAmount)}</small>
+                    {row.rateStatus === 'mismatch' && (
+                      <small style={{ color: '#c62828', fontWeight: 700 }}>
+                        ⚠️ ต่าง {money(row.rateDifference)}
+                      </small>
+                    )}
                   </td>
                 </tr>
               ))}

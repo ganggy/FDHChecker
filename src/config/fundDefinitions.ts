@@ -172,12 +172,13 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         conditions: ['Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)', 'ADP FP003_1 (ยา Anna 40.-) หรือ FP003_2 (ยา Lynestrenol 80.-)']
     },
     {
+        // Legacy id retained for saved settings/API compatibility; FP003_4 is injection contraception.
         id: 'condom',
-        name: 'ถุงยางอนามัย',
-        description: 'บริการถุงยางอนามัย',
+        name: 'ยาฉีดคุมกำเนิด',
+        description: 'บริการยาฉีดคุมกำเนิด อัตรา 60 บาท',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z304 (คุมกำเนิดด้วยยา) หรือ Z30x', 'ADP FP003_4']
+        conditions: ['Diagnosis Z30x ตามบริการวางแผนครอบครัว', 'ADP FP003_4', 'อัตรา 60 บาทต่อครั้ง']
     },
     {
         id: 'cacervix',
@@ -201,15 +202,15 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'กลุ่มเสี่ยงอายุ 35-59 ปี ด้วย FPG',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
-        conditions: ['อายุ 35-59 ปี', 'Lab FPG', 'Diagnosis Z131 หรือ Z133 หรือ Z136', 'ADP 12003']
+        conditions: ['อายุ 35-59 ปี', 'Lab FPG', 'Diagnosis Z131 หรือ Z133 หรือ Z136', 'ADP 12003', 'อัตรา 50 บาทต่อครั้ง']
     },
     {
         id: 'cholesterol_screening',
         name: 'คัดกรองหัวใจหลอดเลือด',
-        description: 'ตรวจ Total Cholesterol และ HDL ตามเกณฑ์ปี 2568',
+        description: 'ตรวจ Total Cholesterol และ HDL ตามเกณฑ์ปี 2569',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
-        conditions: ['อายุ 45-70 ปี', 'Lab Total Cholesterol และ HDL', 'Diagnosis Z136', 'ADP 12004']
+        conditions: ['อายุ 45-70 ปี', 'Lab Total Cholesterol และ HDL', 'Diagnosis Z136', 'ADP 12004', 'อัตรา 160 บาทต่อครั้ง']
     },
     {
         id: 'anemia_screening',
@@ -220,7 +221,8 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         conditions: anemiaRule?.conditions || [
             'อายุ 13-24 ปี ต้องมี Lab CBC + Diagnosis Z130/Z138 + ADP 13001',
             'อายุ 6-12 เดือน ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001',
-            'อายุ 3-6 ปี ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001'
+            'อายุ 3-6 ปี ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001',
+            'อัตรา 75 บาทต่อคนต่อปี'
         ],
         caution: anemiaRule?.caution || 'กองทุนนี้ต้องดู “ช่วงอายุ + ชนิดแลป” ให้ตรงกับเกณฑ์ก่อน'
       },
@@ -259,8 +261,14 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'Mental Health Counselling รายบุคคล',
         claimChannel: 'e-Claim',
         recordingSystem: 'e-Claim ตามประกาศ PPFS 2569',
-        conditions: ['อายุ 12 ปีขึ้นไป', 'มีการประเมิน ST-5/9Q', 'ให้คำปรึกษารายบุคคลไม่เกิน 3 ครั้งใน 14 วัน และไม่เกิน 6 ครั้ง/ปีงบประมาณ'],
-        caution: 'ไม่ควรรวมกับผู้ที่มี diagnosis จิตเวชเป็นบริการรักษา ให้ใช้เป็นบริการคัดกรอง/ให้คำปรึกษาตามเกณฑ์'
+        conditions: [
+            'อายุ 12 ปีขึ้นไปและมีปัญหาสุขภาพจิตเร่งด่วน',
+            'มีผลประเมิน ST-5 และ/หรือ 9Q และ/หรือ 8Q',
+            'ให้คำปรึกษารายบุคคลครั้งละ 30-45 นาที อัตรา 150 บาทต่อครั้ง',
+            'ไม่เกิน 2 รอบต่อปีงบประมาณ รอบละ 14 วัน ไม่เกิน 3 ครั้งต่อรอบ',
+            'รอบถัดไปต้องห่างจากรอบก่อนอย่างน้อย 30 วัน'
+        ],
+        caution: 'ต้องมีหลักฐานการประเมิน ระยะเวลาให้คำปรึกษา และนับรอบบริการตามปีงบประมาณให้ครบ'
     },
     {
         id: 'gender_affirming_hormone',

@@ -470,13 +470,13 @@ export const evaluateBillingLogic = (item: any) => {
         } else {
             addWarningFundNote(fundNotes, 'ยาคุมกำเนิด', fpPillNearMissing, 'drug');
         }
-        const fpCondomNearMissing = getNearFundMissingParts(toBool(item?.has_fp_condom), ' ADP FP003_4', [
+        const fpInjectionNearMissing = getNearFundMissingParts(toBool(item?.has_fp_condom), ' ADP FP003_4', [
             { met: hasFpDiag, label: ' Diagnosis Z30x' },
         ], hasFpDiag);
         if (toBool(item?.has_fp_condom) && hasFpDiag) {
-            fundNotes.push({ label: '🛡️ ถุงยางอนามัย', kind: 'matched', group: 'other' });
+            fundNotes.push({ label: '💉 ยาฉีดคุมกำเนิด', kind: 'matched', group: 'drug' });
         } else {
-            addWarningFundNote(fundNotes, 'ถุงยางอนามัย', fpCondomNearMissing);
+            addWarningFundNote(fundNotes, 'ยาฉีดคุมกำเนิด', fpInjectionNearMissing, 'drug');
         }
         const fpNearMissing = getNearFundMissingParts(hasFpAnyAdp, ' ADP/หัตถการ FP', [
             { met: hasFpDiag, label: ' Diagnosis Z30x' },

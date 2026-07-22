@@ -33,6 +33,7 @@ export const FUND_RULE_CATALOG: Record<string, FundRuleCatalogItem> = {
             'อายุ 13-24 ปี ต้องมี Lab CBC + Diagnosis Z130/Z138 + ADP 13001',
             'อายุ 6-12 เดือน ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001',
             'อายุ 3-6 ปี ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001',
+            'อัตรา 75 บาทต่อคนต่อปี ตามประกาศ PPFS ปีงบประมาณ 2569',
         ],
         caution: 'ระบบจะแจ้งเฉพาะ visit ที่มีหลักฐานใกล้เข้าเงื่อนไข เช่น มี Lab, Diagnosis หรือ ADP อย่างใดอย่างหนึ่ง และจะแยกบอกว่าขาดช่วงอายุ, Lab, Diagnosis หรือ ADP ใด',
         bands: [

@@ -28,7 +28,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'fluoride', name: 'เคลือบฟลูออไรด์', description: 'ทันตกรรมป้องกันฟันผุ' },
     { id: 'fp', name: 'วางแผนครอบครัว', description: 'บริการคุมกำเนิดและวางแผนครอบครัว' },
     { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด', description: 'ยาคุมชนิดเม็ด' },
-    { id: 'condom', name: 'ถุงยางอนามัย', description: 'บริการถุงยางอนามัย' },
+    { id: 'condom', name: 'ยาฉีดคุมกำเนิด', description: 'ADP FP003_4 อัตรา 60 บาท' },
     { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก', description: 'Pap smear / Cervix screening' },
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
@@ -972,12 +972,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         }
 
         if (fundId === 'condom') {
-            const hasCondom = toFlag(item?.has_fp_condom) || toFlag(item?.has_specific_adp) || hasAnyCodeValue(item?.fp_adp_codes, ['FP003_4']);
-            const isMatched = hasFpDiag && hasCondom;
-            if (hasFpDiag || hasCondom) subfunds.push('🛡️ ถุงยางอนามัย');
+            const hasInjection = toFlag(item?.has_fp_condom) || toFlag(item?.has_specific_adp) || hasAnyCodeValue(item?.fp_adp_codes, ['FP003_4']);
+            const isMatched = hasFpDiag && hasInjection;
+            if (hasFpDiag || hasInjection) subfunds.push('💉 ยาฉีดคุมกำเนิด');
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasCondom, ' ADP FP003_4', [
+                getNearStatusMissing(hasInjection, ' ADP FP003_4', [
                     { met: hasFpDiag, label: ' Diagnosis Z30x' },
                 ], hasFpDiag),
                 undefined,

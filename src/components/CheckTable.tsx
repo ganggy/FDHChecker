@@ -125,7 +125,7 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                               if (note.match(/Telemedicine|EMS/)) {
                                  return <span key={idx} className="badge" style={{...badgeStyle, background: '#faf5ff', color: '#6b21a8', border: '1px solid #e9d5ff'}}>{note}</span>;
                               }
-                              if (note.match(/คุมกำเนิด|ถุงยาง/)) {
+                              if (note.match(/คุมกำเนิด|ถุงยาง|ยาฉีด/)) {
                                  return <span key={idx} className="badge" style={{...badgeStyle, background: '#fff1f2', color: '#9f1239', border: '1px solid #fecdd3'}}>{note}</span>;
                               }
                               if (note.match(/ล้างไต/)) {

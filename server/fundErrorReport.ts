@@ -38,7 +38,7 @@ export const REPORT_FUNDS: FundSpec[] = [
   { id: 'fluoride', name: 'เคลือบฟลูออไรด์' },
   { id: 'fp', name: 'วางแผนครอบครัว' },
   { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด' },
-  { id: 'condom', name: 'ถุงยางอนามัย' },
+  { id: 'condom', name: 'ยาฉีดคุมกำเนิด' },
   { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก' },
   { id: 'fpg_screening', name: 'คัดกรองเบาหวาน' },
   { id: 'cholesterol_screening', name: 'คัดกรองหัวใจหลอดเลือด' },

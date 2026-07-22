@@ -6,6 +6,7 @@ import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receiv
 import { fetchWithTimeout } from './httpClient.js';
 import { getApVaccineRule, validateApVaccineEligibility } from './mophVaccineRules.js';
 import type { FdhExportProfile } from './fdhExport.js';
+import { evaluateFsRate, FS_PROJECT_ITEMS_2569 } from './fsRateRules.js';
 import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVisit, summarizeKidneyTrackingVisits } from './kidneyMonitorRules.js';
 
 dotenv.config();
@@ -13362,49 +13363,9 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
   }
 };
 
-type FsProjectItem = {
-  code: string;
-  label: string;
-  amount: number;
-};
-
 // FS monitor must use only ProjectCode/ADP items from the NHSO 16-file guide.
 // Do not infer from broad item names, otherwise one matching visit can be over-counted.
-const FS_PROJECT_ITEMS: FsProjectItem[] = [
-  { code: '1B004N', label: 'Pap smear ผลปกติ', amount: 250 },
-  { code: '1B004P', label: 'Pap smear ผลผิดปกติ', amount: 250 },
-  { code: '1B004_0N', label: 'VIA ผลปกติ', amount: 250 },
-  { code: '1B004_0P', label: 'VIA ผลผิดปกติ', amount: 250 },
-  { code: '1B0046_01', label: 'HPV DNA type 16/18/Other', amount: 280 },
-  { code: '1B0046_1', label: 'HPV DNA 14 type fully', amount: 370 },
-  { code: '1B005', label: 'Colposcopy', amount: 900 },
-  { code: '12001', label: 'คัดกรอง/ประเมินปัจจัยเสี่ยง อายุ 15-34 ปี', amount: 100 },
-  { code: '12002', label: 'คัดกรอง/ประเมินปัจจัยเสี่ยง อายุ 35-59 ปี', amount: 150 },
-  { code: '12003', label: 'คัดกรองเบาหวาน FPG อายุ 35-59 ปี', amount: 40 },
-  { code: '12004', label: 'คัดกรองหัวใจและหลอดเลือด Total Cholesterol และ HDL อายุ 45-70 ปี', amount: 160 },
-  { code: '13001', label: 'คัดกรองโลหิตจาง', amount: 65 },
-  { code: '14001', label: 'เสริมธาตุเหล็ก Ferrofolic', amount: 80 },
-  { code: '15001', label: 'ทาฟลูออไรด์', amount: 100 },
-  { code: '30008', label: 'ANC ตรวจฟัน', amount: 0 },
-  { code: '30009', label: 'ANC ขัดทำความสะอาดฟัน', amount: 500 },
-  { code: '30010', label: 'ANC Ultrasound', amount: 400 },
-  { code: '30011', label: 'ANC Visit', amount: 360 },
-  { code: '30012', label: 'ANC Lab 1', amount: 600 },
-  { code: '30013', label: 'ANC Lab 2 / ใกล้คลอด', amount: 190 },
-  { code: '30014', label: 'ตรวจครรภ์ (UPT)', amount: 75 },
-  { code: '30015', label: 'ดูแลหลังคลอด', amount: 150 },
-  { code: '30016', label: 'เสริมธาตุเหล็กหลังคลอด', amount: 135 },
-  { code: '37550', label: 'ตรวจยีน BRCA1/BRCA2', amount: 10000 },
-  { code: '90001', label: 'ให้คำปรึกษา/เก็บตัวอย่าง BRCA', amount: 500 },
-  { code: '90002', label: 'ตรวจ BRCA ญาติสายตรง', amount: 2500 },
-  { code: '90004', label: 'ตัดชิ้นเนื้อช่องปากส่งพยาธิ', amount: 600 },
-  { code: '90005', label: 'คัดกรองมะเร็งลำไส้ใหญ่และไส้ตรง', amount: 60 },
-  { code: 'AB001', label: 'บริการยุติการตั้งครรภ์', amount: 3000 },
-  { code: 'AB002', label: 'บริการยุติการตั้งครรภ์', amount: 3000 },
-  { code: 'AB003', label: 'บริการยุติการตั้งครรภ์', amount: 3000 },
-  { code: 'FP001', label: 'วางแผนครอบครัว ห่วงอนามัย', amount: 800 },
-  { code: 'FP002', label: 'วางแผนครอบครัว ยาฝังคุมกำเนิด', amount: 2500 },
-];
+const FS_PROJECT_ITEMS = FS_PROJECT_ITEMS_2569;
 
 const FS_PROJECT_ITEM_BY_CODE = new Map(
   FS_PROJECT_ITEMS.map((item) => [item.code.toUpperCase(), item])
@@ -13547,6 +13508,9 @@ export const getFsMonitor = async (startDate: string, endDate: string) => {
       unitPrice: number;
       rawAmount: number;
       amount: number;
+      rateStatus?: 'matched' | 'mismatch';
+      rateDifference?: number;
+      rateWarning?: string;
     }>();
 
     (rows as Record<string, unknown>[]).forEach((row) => {
@@ -13594,7 +13558,15 @@ export const getFsMonitor = async (startDate: string, endDate: string) => {
       });
     });
 
-    const detailRows = [...detailMap.values()];
+    const detailRows = [...detailMap.values()].map((row) => {
+      const rateCheck = evaluateFsRate(row.amount, row.rawAmount);
+      return {
+        ...row,
+        rateStatus: rateCheck.status,
+        rateDifference: rateCheck.difference,
+        rateWarning: rateCheck.warning,
+      };
+    });
 
     const byHipdata = new Map<string, FsAggregate>();
     const byPatientPttype = new Map<string, FsAggregate>();
@@ -13603,9 +13575,15 @@ export const getFsMonitor = async (startDate: string, endDate: string) => {
     const visits = new Set<string>();
     const patients = new Set<string>();
     let totalAmount = 0;
+    let rateMismatchCount = 0;
+    let totalRateDifference = 0;
 
     detailRows.forEach((row) => {
       totalAmount += row.amount;
+      if (row.rateStatus === 'mismatch') {
+        rateMismatchCount += 1;
+        totalRateDifference += Number(row.rateDifference || 0);
+      }
       if (row.vn) visits.add(row.vn);
       if (row.hn) patients.add(row.hn);
       addFsAggregate(byHipdata, row.patientHipdata || 'ไม่ระบุ', row.patientHipdata || 'ไม่ระบุ hipdata', row);
@@ -13639,6 +13617,8 @@ export const getFsMonitor = async (startDate: string, endDate: string) => {
         itemCount: detailRows.length,
         visitCount: visits.size,
         patientCount: patients.size,
+        rateMismatchCount,
+        totalRateDifference: Number(totalRateDifference.toFixed(2)),
       },
       byHipdata: sortByAmount([...byHipdata.values()]),
       byPatientPttype: sortByAmount([...byPatientPttype.values()]),

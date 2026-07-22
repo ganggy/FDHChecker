@@ -215,8 +215,9 @@ export const evaluateBillingLogic = (item: any) => {
         const hasDiag = !!(item?.pdx || item?.main_diag);
 
         const palliativeDiag = toBool(item?.has_pal_diag) || hasDiagCode(item, ['Z515', 'Z718']);
+        const palliativeDisease = toBool(item?.has_pal_disease) || hasDiagCode(item, ['K704', 'K717', 'K720', 'K721', 'K729', 'N185']);
         const palliativeAdp = toBool(item?.has_pal_adp) || toBool(item?.has_30001) || toBool(item?.has_cons01) || toBool(item?.has_eva001);
-        const palliativeMatch = palliativeDiag && palliativeAdp;
+        const palliativeMatch = palliativeDiag && palliativeDisease && palliativeAdp;
 
         if (toBool(item?.has_telmed) || String(item?.ovstist_export_code ?? '').trim() === String(rules.project_codes?.ovstist_tele ?? '5').trim()) {
             fundNotes.push({ label: '📱 Telemedicine', kind: 'matched', group: 'other' });
@@ -497,9 +498,12 @@ export const evaluateBillingLogic = (item: any) => {
         if (palliativeMatch) {
             fundNotes.push({ label: '🕊️ Palliative Care', kind: 'matched', group: 'palliative' });
         } else {
-            const palliativeNearMissing = getNearFundMissingParts(palliativeAdp, ' ADP 30001/Cons01/Eva001', [
-                { met: palliativeDiag, label: ' Diagnosis Z515/Z718' },
-            ], palliativeDiag);
+            const palliativeNearMissing = palliativeDiag && !palliativeDisease
+                ? [' ไม่พบโรคหลัก K70.4/K71.7/K72.0/K72.1/K72.9/N18.5']
+                : getNearFundMissingParts(palliativeAdp, ' ADP 30001/Cons01/Eva001', [
+                    { met: palliativeDiag, label: ' Diagnosis Z515/Z718' },
+                    { met: palliativeDisease, label: ' โรคหลัก K70.4/K71.7/K72.0/K72.1/K72.9/N18.5' },
+                ], palliativeDiag);
             addWarningFundNote(fundNotes, 'Palliative Care', palliativeNearMissing, 'palliative');
         }
 

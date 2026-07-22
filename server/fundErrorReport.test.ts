@@ -119,3 +119,22 @@ test('ineligible rights are excluded instead of reported as missing clinical dat
   assert.equal(isFundReportEligible('drugp', ucsDrugp), true);
   assert.deepEqual(getFundMissingConditions('drugp', ucsDrugp), []);
 });
+
+test('palliative report alerts when Z515 or Z718 is used outside the allowed disease group', () => {
+  const outsideDiseaseGroup = {
+    hipdata_code: 'UCS', has_pal_diag: 'Y', has_pal_adp: 'Y', has_pal_disease: 'N',
+  };
+  assert.deepEqual(getFundMissingConditions('palliative', outsideDiseaseGroup), [
+    'ไม่พบโรคหลัก K70.4/K71.7/K72.0/K72.1/K72.9/N18.5',
+  ]);
+
+  const validPalliative = {
+    hipdata_code: 'UCS', has_pal_diag: 'Y', has_pal_adp: 'Y', has_pal_disease: 'Y',
+  };
+  assert.deepEqual(getFundMissingConditions('palliative', validPalliative), []);
+
+  const validDiseaseWithoutAdp = {
+    hipdata_code: 'UCS', has_pal_diag: 'Y', has_pal_adp: 'N', palliative_disease_codes: 'N18.5',
+  };
+  assert.deepEqual(getFundMissingConditions('palliative', validDiseaseWithoutAdp), ['ADP 30001/Cons01/Eva001']);
+});

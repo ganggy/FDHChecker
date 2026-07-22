@@ -70,6 +70,7 @@ export interface CheckRecord {
   has_herb?: number;
   has_knee_oper?: number;
   has_pal_diag?: number;
+  has_pal_disease?: number;
   has_pal_adp?: number;
   has_telmed?: number;
   has_drugp?: number;

@@ -63,12 +63,17 @@ test('ANC ultrasound LINE rule matches the web actionable-status rule', () => {
   const procedureWithoutAdp = getFundMissingConditions('anc_ultrasound', {
     sex: '2', has_anc_diag: 'Y', has_anc_us: 'N', has_anc_us_proc: 'Y', anc_adp_codes: '30011',
   });
-  assert.deepEqual(procedureWithoutAdp, ['ADP 30010']);
+  assert.deepEqual(procedureWithoutAdp, []);
 
   const adpWithoutProcedure = getFundMissingConditions('anc_ultrasound', {
     sex: '2', has_anc_diag: 'Y', has_anc_us: 'Y', has_anc_us_proc: 'N', anc_adp_codes: '30010',
   });
-  assert.deepEqual(adpWithoutProcedure, ['Ultrasound ANC']);
+  assert.deepEqual(adpWithoutProcedure, []);
+
+  const adpWithoutAncDiagnosis = getFundMissingConditions('anc_ultrasound', {
+    sex: '2', has_anc_diag: 'N', has_anc_us: 'Y', anc_adp_codes: '30010',
+  });
+  assert.deepEqual(adpWithoutAncDiagnosis, ['Diagnosis Z34/Z35']);
 });
 
 test('near-match funds do not alert until the web considers the visit actionable', () => {

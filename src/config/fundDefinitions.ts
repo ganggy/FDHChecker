@@ -97,7 +97,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'อัลตราซาวนด์ระหว่างตั้งครรภ์',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
-        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30010', 'มีหัตถการ Ultrasound ตามเกณฑ์ ANC']
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30010 (ถือเป็นหลักฐานบริการ ANC Ultrasound)']
     },
     {
         id: 'anc_lab_1',

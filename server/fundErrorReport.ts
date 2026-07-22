@@ -158,11 +158,10 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
     case 'anc_ultrasound':
     {
       const hasAncUs = flag(row.has_anc_us) || hasListedCode(row.anc_adp_codes, ['30010']);
-      const hasAncUsProc = flag(row.has_anc_us_proc);
+      if (!hasAncUs) break;
       const requirements = [
         { met: female, label: 'เพศหญิง' },
         { met: ancDiag, label: 'Diagnosis Z34/Z35' },
-        { met: hasAncUsProc, label: 'Ultrasound ANC' },
       ];
       addWebNearStatusMissing(missing, hasAncUs, 'ADP 30010', requirements);
       break;

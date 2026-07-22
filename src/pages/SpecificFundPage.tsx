@@ -830,10 +830,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'anc_ultrasound') {
             const hasAncUs = toFlag(item?.has_anc_us) || hasAnyCodeValue(item?.anc_adp_codes, ['30010']);
-            const hasAncUsProc = toFlag(item?.has_anc_us_proc);
-            // ANC Ultrasound ต้องมีทั้ง ADP 30010 และหลักฐาน Ultrasound ANC
-            const hasUltrasoundEvidence = hasAncUs && hasAncUsProc;
-            const ancUsEvidence = hasAncUs || hasAncUsProc;
+            // ADP 30010 เป็นหลักฐานบริการ ANC Ultrasound โดยไม่ตรวจ xray_head ซ้ำ
+            if (!hasAncUs) return buildStatusResult([], [], undefined, false);
+            const hasUltrasoundEvidence = hasAncUs;
+            const ancUsEvidence = hasAncUs;
             const isMatched = isFemale && hasAncDiag && hasUltrasoundEvidence;
             if (ancUsEvidence) subfunds.push('📽️ ANC Ultrasound');
             return buildStatusResult(
@@ -841,8 +841,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 getNearStatusMissing(hasAncUs, ' ADP 30010', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasAncUsProc, label: ' Ultrasound ANC' },
-                ], isFemale && hasAncDiag && hasAncUsProc),
+                ], isFemale && hasAncDiag),
                 ancUsEvidence && !isFemale ? 'เพศชาย ไม่สามารถรับบริการ ANC Ultrasound' : undefined,
                 isMatched
             );
@@ -2268,11 +2267,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         </td>
                                                         {activeFund === 'anc_ultrasound' && (
                                                             <td style={{ textAlign: 'center' }}>
-                                                                {(item.has_anc_us === 'Y' || item.has_anc_us_proc === 'Y')
-                                                                    ? ((item.has_anc_us === 'Y' && item.has_anc_us_proc === 'Y')
-                                                                        ? <span className="badge badge-success">✓ มี 30010 + Ultrasound ANC</span>
-                                                                        : <span className="badge badge-warning">⚠️ ขาด 30010 หรือ Ultrasound ANC</span>)
-                                                                    : <span className="badge badge-danger">✗ ขาด 30010 + Ultrasound ANC</span>}
+                                                                {(toFlag(item?.has_anc_us) || hasAnyCodeValue(item?.anc_adp_codes, ['30010']))
+                                                                    ? <span className="badge badge-success">✓ มี 30010 (ANC Ultrasound)</span>
+                                                                    : <span className="badge badge-danger">✗ ขาด ADP 30010</span>}
                                                             </td>
                                                         )}
                                                     </>

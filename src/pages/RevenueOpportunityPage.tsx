@@ -20,6 +20,13 @@ interface MonitorItem {
   chargeAmount: number | null;
   claimAmount: number | null;
   paidAmount: number | null;
+  eligibility?: 'claimable' | 'not_claimable' | 'review';
+  eligibilityLabel?: string;
+  eligibilityReasons?: string[];
+  transportMode?: 'ambulance' | 'self' | 'unknown';
+  dataAction?: 'no_fix_self' | 'no_fix_complete' | 'no_fix_not_claimable' | 'fix_ambulance' | 'fix_adp' | 'review';
+  dataActionLabel?: string;
+  dataActionReasons?: string[];
 }
 
 interface MonitorData {
@@ -83,6 +90,12 @@ const STATUS_META: Record<MonitorStatus, { icon: string; label: string }> = {
   submitted: { icon: '🔵', label: 'ส่งแล้วรอผล' },
   paid: { icon: '🟢', label: 'พบยอดรับ' },
 };
+
+const ELIGIBILITY_META = {
+  claimable: { icon: '✓', label: 'เบิกได้' },
+  not_claimable: { icon: '✕', label: 'เบิกไม่ได้' },
+  review: { icon: '!', label: 'ต้องทบทวน' },
+} as const;
 
 export const RevenueOpportunityPage = () => {
   const initialRange = useMemo(previousMonthRange, []);
@@ -252,14 +265,32 @@ export const RevenueOpportunityPage = () => {
                 <thead><tr><th>สถานะ</th><th>วันที่ / VN-AN</th><th>ผู้รับบริการ / สิทธิ</th><th>หลักฐานที่พบ</th><th>สิ่งที่ขาด</th><th>ค่าใช้จ่าย / เคลม / รับ</th><th>สอนวิธีแก้</th></tr></thead>
                 <tbody>
                   {visibleItems.map((item) => {
-                    const status = STATUS_META[item.status];
+                    const status = item.category === 'op_refer' && item.status === 'ready'
+                      ? { icon: '🟠', label: 'ข้อมูลครบ/รอตรวจสิทธิ' }
+                      : STATUS_META[item.status];
                     const expanded = expandedId === item.id;
                     return (
                       <tr key={item.id} className={`revenue-row--${item.status}`}>
-                        <td><span className={`revenue-status revenue-status--${item.status}`}>{status.icon} {status.label}</span><small>{item.categoryLabel}</small></td>
+                        <td>
+                          <span className={`revenue-status revenue-status--${item.status}`}>{status.icon} {status.label}</span>
+                          <small>{item.categoryLabel}</small>
+                          {item.eligibility && (
+                            <span className={`revenue-eligibility revenue-eligibility--${item.eligibility}`}>
+                              {ELIGIBILITY_META[item.eligibility].icon} {item.eligibilityLabel || ELIGIBILITY_META[item.eligibility].label}
+                            </span>
+                          )}
+                          {item.dataAction && (
+                            <span className={`revenue-data-action revenue-data-action--${item.dataAction}`}>
+                              {item.dataActionLabel}
+                            </span>
+                          )}
+                        </td>
                         <td><strong>{item.serviceDate || '—'}</strong><span>{item.visitCode || '—'}</span><small>HN {item.hn || '—'}</small></td>
                         <td><strong>{item.patientName || '—'}</strong><span>{item.fund || 'ไม่พบสิทธิ'}</span></td>
-                        <td>{item.evidence.length ? item.evidence.map((evidence) => <span className="revenue-evidence" key={evidence}>{evidence}</span>) : <span className="revenue-muted">ยังไม่พบ</span>}</td>
+                        <td>
+                          {item.evidence.length ? item.evidence.map((evidence) => <span className="revenue-evidence" key={evidence}>{evidence}</span>) : <span className="revenue-muted">ยังไม่พบ</span>}
+                          {item.eligibilityReasons?.map((reason) => <small className="revenue-rule-reason" key={reason}>• {reason}</small>)}
+                        </td>
                         <td>{item.missing.length ? <ul>{item.missing.map((missing) => <li key={missing}>{missing}</li>)}</ul> : <span className="revenue-complete">✓ กฎพื้นฐานครบ</span>}</td>
                         <td className="revenue-amount-cell">
                           <span>Charge <b>{money(item.chargeAmount)}</b></span>

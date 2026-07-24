@@ -13054,13 +13054,21 @@ export const getRevenueOpportunitySourceRows = async (startDate: string, endDate
   try {
     const [opdRows] = await connection.query(`
       SELECT
-        o.vn, o.hn,
+        o.vn, o.hn, COALESCE(o.an, '') AS an,
         DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS serviceDate,
         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patientName,
+        ptt.pttype AS pttype_code,
         ptt.name AS fund,
+        ptt.hipdata_code,
+        CASE WHEN COALESCE(o.an, '') <> '' OR EXISTS(SELECT 1 FROM ipt i WHERE i.vn = o.vn) THEN 1 ELSE 0 END AS is_admitted,
+        CASE WHEN COALESCE(o.an, '') <> '' OR EXISTS(SELECT 1 FROM ipt i WHERE i.vn = o.vn) THEN 'IP' ELSE 'OP' END AS service_type,
+        CASE WHEN EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = o.vn) THEN 1 ELSE 0 END AS has_refer_in,
+        CASE WHEN EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = o.vn) THEN 1 ELSE 0 END AS has_refer_out,
         CASE WHEN EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = o.vn)
           OR EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = o.vn) THEN 1 ELSE 0 END AS has_refer_record,
         CASE
+          WHEN EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = o.vn)
+            AND EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = o.vn) THEN 'BOTH'
           WHEN EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = o.vn) THEN 'IN'
           WHEN EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = o.vn) THEN 'OUT'
           ELSE ''
@@ -13085,6 +13093,34 @@ export const getRevenueOpportunitySourceRows = async (startDate: string, endDate
           (SELECT ro.refer_hospcode FROM referout ro WHERE ro.vn = o.vn LIMIT 1),
           ''
         ) AS refer_hospcode,
+        COALESCE((SELECT TRIM(ro.refer_hospcode) FROM referout ro WHERE ro.vn = o.vn LIMIT 1), '') AS referout_hospcode,
+        COALESCE((SELECT ro.refer_in_province FROM referout ro WHERE ro.vn = o.vn LIMIT 1), '') AS refer_in_province,
+        COALESCE((SELECT ro.with_ambulance FROM referout ro WHERE ro.vn = o.vn LIMIT 1), '') AS with_ambulance,
+        COALESCE((SELECT ro.car_registration_no FROM referout ro WHERE ro.vn = o.vn LIMIT 1), '') AS ambulance_registration,
+        CASE WHEN EXISTS(
+          SELECT 1
+          FROM opitemrece oi
+          JOIN s_drugitems sd ON sd.icode = oi.icode
+          WHERE oi.vn = o.vn
+            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S18'
+        ) THEN 1 ELSE 0 END AS has_refer_adp_s,
+        COALESCE((
+          SELECT GROUP_CONCAT(DISTINCT UPPER(TRIM(sd.nhso_adp_code)) ORDER BY sd.nhso_adp_code SEPARATOR ', ')
+          FROM opitemrece oi
+          JOIN s_drugitems sd ON sd.icode = oi.icode
+          WHERE oi.vn = o.vn
+            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S18'
+        ), '') AS refer_adp_codes,
+        COALESCE((
+          SELECT GROUP_CONCAT(
+            DISTINCT CONCAT(oi.icode, ' ', COALESCE(sd.name, ''), ' [', UPPER(TRIM(sd.nhso_adp_code)), ']')
+            ORDER BY oi.icode SEPARATOR ' | '
+          )
+          FROM opitemrece oi
+          JOIN s_drugitems sd ON sd.icode = oi.icode
+          WHERE oi.vn = o.vn
+            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S18'
+        ), '') AS refer_adp_items,
         (SELECT dx.icd10 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.diagtype = '1' LIMIT 1) AS main_diag,
         CASE WHEN EXISTS(SELECT 1 FROM opitemrece oi WHERE oi.vn = o.vn AND COALESCE(oi.sum_price, 0) > 0) THEN 1 ELSE 0 END AS has_receipt,
         COALESCE((SELECT SUM(oi.sum_price) FROM opitemrece oi WHERE oi.vn = o.vn), 0) AS total_price,
@@ -13135,8 +13171,18 @@ export const getRevenueOpportunitySourceRows = async (startDate: string, endDate
       ORDER BY i.regdate DESC
     `, [startDate, endDate, startDate, endDate]);
 
+    const enrichedOpdRows = ((Array.isArray(opdRows) ? opdRows : []) as Record<string, unknown>[]).map((row) => {
+      const pttypeCode = String(row.pttype_code || '').trim().toUpperCase();
+      const mapping = RECEIVABLE_RIGHT_MAPPINGS.find((item) => item.hosxp_code.toUpperCase() === pttypeCode);
+      return {
+        ...row,
+        finance_code: mapping?.finance_code || '',
+        finance_name: mapping?.finance_name || '',
+      };
+    });
+
     return {
-      opdRows: (Array.isArray(opdRows) ? opdRows : []) as Record<string, unknown>[],
+      opdRows: enrichedOpdRows,
       ipdRows: (Array.isArray(ipdRows) ? ipdRows : []) as Record<string, unknown>[],
     };
   } finally {

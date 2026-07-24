@@ -19,6 +19,15 @@ export type FundErrorSection = {
 
 type FundSpec = { id: string; name: string };
 
+export const LINE_ALERT_EXCLUDED_FUND_IDS = new Set([
+  'anc',
+  'anc_ultrasound',
+  'anc_dental_exam',
+  'anc_dental_clean',
+]);
+
+export const isLineAlertExcludedFund = (fundId: string) => LINE_ALERT_EXCLUDED_FUND_IDS.has(fundId);
+
 export const REPORT_FUNDS: FundSpec[] = [
   { id: 'palliative', name: 'Palliative Care' },
   { id: 'telemedicine', name: 'Telemedicine' },
@@ -27,12 +36,8 @@ export const REPORT_FUNDS: FundSpec[] = [
   { id: 'knee', name: 'ยาพอกเข่า (43 แฟ้ม)' },
   { id: 'instrument', name: 'อวัยวะเทียม' },
   { id: 'preg_test', name: 'ตรวจครรภ์ (UPT)' },
-  { id: 'anc', name: 'ANC Visit' },
-  { id: 'anc_ultrasound', name: 'ANC Ultrasound' },
   { id: 'anc_lab_1', name: 'ANC Lab 1' },
   { id: 'anc_lab_2', name: 'ANC Lab 2' },
-  { id: 'anc_dental_exam', name: 'ANC ตรวจฟัน' },
-  { id: 'anc_dental_clean', name: 'ANC ขัดทำความสะอาดฟัน' },
   { id: 'postnatal_care', name: 'ดูแลหลังคลอด' },
   { id: 'postnatal_supplements', name: 'เสริมธาตุเหล็กหลังคลอด' },
   { id: 'fluoride', name: 'เคลือบฟลูออไรด์' },
@@ -277,9 +282,10 @@ export const queryFundErrorReport = async (
 };
 
 export const formatFundErrorReport = (sections: FundErrorSection[], startDate: string, endDate: string) => {
-  const totalErrors = sections.reduce((sum, section) => sum + section.errors.length, 0);
-  const lines = [`📋 ตรวจสอบกองทุน/43 แฟ้ม`, `วันที่ ${startDate}${endDate === startDate ? '' : ` ถึง ${endDate}`}`, `ตรวจ ${sections.length} กองทุน • พบผิด ${totalErrors} รายการ`, ''];
-  for (const section of sections) {
+  const alertSections = sections.filter((section) => !isLineAlertExcludedFund(section.id));
+  const totalErrors = alertSections.reduce((sum, section) => sum + section.errors.length, 0);
+  const lines = [`📋 ตรวจสอบกองทุน/43 แฟ้ม`, `วันที่ ${startDate}${endDate === startDate ? '' : ` ถึง ${endDate}`}`, `ตรวจ ${alertSections.length} กองทุน • พบผิด ${totalErrors} รายการ`, ''];
+  for (const section of alertSections) {
     if (section.queryError) {
       lines.push(`❗ ${section.name}`, `ตรวจ query ไม่สำเร็จ: ${section.queryError}`, '');
     } else if (section.errors.length === 0) {
@@ -333,16 +339,17 @@ export const buildDailyFundLineMessages = (
   reportDate: string,
   maxLength = 4500,
 ) => {
-  const totalErrors = sections.reduce((sum, section) => sum + section.errors.length, 0);
+  const alertSections = sections.filter((section) => !isLineAlertExcludedFund(section.id));
+  const totalErrors = alertSections.reduce((sum, section) => sum + section.errors.length, 0);
   const messages = [
     [
       '📋 ตรวจสอบกองทุน/43 แฟ้ม',
       `วันที่ ${reportDate}`,
-      `ตรวจ ${sections.length} กองทุน • พบผิด ${totalErrors} รายการ`,
+      `ตรวจ ${alertSections.length} กองทุน • พบผิด ${totalErrors} รายการ`,
     ].join('\n'),
   ];
 
-  for (const section of sections) {
+  for (const section of alertSections) {
     if (section.queryError) {
       messages.push(`❗ ${section.name}\nตรวจ query ไม่สำเร็จ: ${section.queryError}`);
     } else if (section.errors.length > 0) {

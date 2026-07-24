@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildDailyFundLineMessages, chunkLineText, formatFundErrorReport, getFundMissingConditions, isFundReportEligible } from './fundErrorReport.js';
+import {
+  buildDailyFundLineMessages,
+  chunkLineText,
+  formatFundErrorReport,
+  getFundMissingConditions,
+  isFundReportEligible,
+  REPORT_FUNDS,
+} from './fundErrorReport.js';
 
 test('knee report identifies missing procedures', () => {
   const missing = getFundMissingConditions('knee', {
@@ -52,6 +59,26 @@ test('unfinished hepatitis B and C funds are excluded from the daily report', as
 test('NTIP/TB Data Hub is excluded from the daily LINE report', async () => {
   const { REPORT_FUNDS } = await import('./fundErrorReport.js');
   assert.equal(REPORT_FUNDS.some((fund) => fund.id === 'latent_tb_screening'), false);
+});
+
+test('temporarily disabled ANC funds are excluded from LINE alerts', () => {
+  const excludedFundIds = ['anc', 'anc_ultrasound', 'anc_dental_exam', 'anc_dental_clean'];
+  assert.ok(excludedFundIds.every((fundId) => !REPORT_FUNDS.some((fund) => fund.id === fundId)));
+
+  const sections = excludedFundIds.map((id) => ({
+    id,
+    name: id,
+    checked: 1,
+    errors: [{ hn: '001', serviceDate: '2026-07-24', missing: ['ADP'] }],
+  }));
+  const dailyMessages = buildDailyFundLineMessages(sections, '2026-07-24');
+  const formattedReport = formatFundErrorReport(sections, '2026-07-24', '2026-07-24');
+
+  assert.equal(dailyMessages.length, 1);
+  assert.match(dailyMessages[0], /ตรวจ 0 กองทุน • พบผิด 0 รายการ/);
+  assert.match(formattedReport, /ตรวจ 0 กองทุน • พบผิด 0 รายการ/);
+  assert.ok(excludedFundIds.every((fundId) => !dailyMessages.join('\n').includes(fundId)));
+  assert.ok(excludedFundIds.every((fundId) => !formattedReport.includes(fundId)));
 });
 
 test('ANC ultrasound LINE rule matches the web actionable-status rule', () => {

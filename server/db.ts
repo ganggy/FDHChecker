@@ -13060,11 +13060,26 @@ export const getRevenueOpportunitySourceRows = async (startDate: string, endDate
         ptt.name AS fund,
         CASE WHEN EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = o.vn)
           OR EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = o.vn) THEN 1 ELSE 0 END AS has_refer_record,
+        CASE
+          WHEN EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = o.vn) THEN 'IN'
+          WHEN EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = o.vn) THEN 'OUT'
+          ELSE ''
+        END AS refer_direction,
         COALESCE(
           (SELECT CONCAT('IN:', COALESCE(ri.docno, '')) FROM referin ri WHERE ri.vn = o.vn LIMIT 1),
           (SELECT CONCAT('OUT:', COALESCE(ro.refer_number, '')) FROM referout ro WHERE ro.vn = o.vn LIMIT 1),
           ''
         ) AS refer_no,
+        COALESCE(
+          (SELECT ri.docno FROM referin ri WHERE ri.vn = o.vn LIMIT 1),
+          (SELECT ro.refer_number FROM referout ro WHERE ro.vn = o.vn LIMIT 1),
+          ''
+        ) AS refer_no_raw,
+        COALESCE(
+          (SELECT DATE_FORMAT(ri.refer_date, '%Y-%m-%d') FROM referin ri WHERE ri.vn = o.vn LIMIT 1),
+          (SELECT DATE_FORMAT(ro.refer_date, '%Y-%m-%d') FROM referout ro WHERE ro.vn = o.vn LIMIT 1),
+          ''
+        ) AS refer_date,
         COALESCE(
           (SELECT ri.refer_hospcode FROM referin ri WHERE ri.vn = o.vn LIMIT 1),
           (SELECT ro.refer_hospcode FROM referout ro WHERE ro.vn = o.vn LIMIT 1),

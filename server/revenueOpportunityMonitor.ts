@@ -163,9 +163,19 @@ const buildInstrumentItem = (row: SourceRow): RevenueMonitorItem => {
 
 const buildReferItem = (row: SourceRow): RevenueMonitorItem => {
   const fund = text(row.fund);
+  const referHospcode = text(row.refer_hospcode);
+  const referNumber = text(row.refer_no_raw);
+  const referDirection = text(row.refer_direction);
   const missing: string[] = [];
   if (!flag(row.has_refer_record)) missing.push('ไม่พบระเบียน Refer in/out ที่เชื่อมกับ VN');
-  if (flag(row.has_refer_record) && !text(row.refer_hospcode)) missing.push('ระเบียน Refer ขาดรหัสหน่วยบริการต้นทาง/ปลายทาง');
+  if (flag(row.has_refer_record) && !referNumber) missing.push('ระเบียน Refer ขาดเลขที่ใบส่งต่อ');
+  if (flag(row.has_refer_record) && !/^\d{5}$/.test(referHospcode)) {
+    missing.push(referHospcode
+      ? `รหัสหน่วยบริการต้นทาง/ปลายทางต้องเป็นตัวเลข 5 หลัก (พบ ${referHospcode})`
+      : 'ระเบียน Refer ขาดรหัสหน่วยบริการต้นทาง/ปลายทาง 5 หลัก');
+  }
+  if (flag(row.has_refer_record) && !text(row.refer_date)) missing.push('ระเบียน Refer ขาดวันที่ส่งต่อ');
+  if (flag(row.has_refer_record) && !['IN', 'OUT'].includes(referDirection)) missing.push('ระเบียน Refer ไม่ระบุทิศทางรับเข้า/ส่งต่อ');
   if (!/OP\s*Refer|รับส่งต่อ|Refer/i.test(fund)) missing.push('พบ Refer แต่ชื่อสิทธิ/ช่องทางยังไม่ระบุ OP Refer — ต้องตรวจสิทธิจริง');
   if (!text(row.main_diag)) missing.push('ขาด Diagnosis หลัก');
   if (!flag(row.has_receipt) || (numberOrNull(row.total_price) ?? 0) <= 0) missing.push('ขาดรายการค่าใช้จ่ายหรือยอดเป็นศูนย์');
@@ -182,15 +192,17 @@ const buildReferItem = (row: SourceRow): RevenueMonitorItem => {
     fund,
     evidence: [
       text(row.refer_no) ? `Refer: ${text(row.refer_no)}` : '',
-      text(row.refer_hospcode) ? `หน่วยบริการ: ${text(row.refer_hospcode)}` : '',
+      referDirection ? `ทิศทาง: ${referDirection === 'IN' ? 'รับเข้า' : referDirection === 'OUT' ? 'ส่งต่อ' : referDirection}` : '',
+      text(row.refer_date) ? `วันที่ Refer: ${text(row.refer_date)}` : '',
+      referHospcode ? `หน่วยบริการ: ${referHospcode}` : '',
       text(row.main_diag) ? `Diagnosis: ${text(row.main_diag)}` : '',
       text(row.project_code) ? `Project: ${text(row.project_code)}` : '',
       flag(row.has_close) ? `ปิดสิทธิ: ${text(row.close_code) || 'พบ EP'}` : '',
     ].filter(Boolean),
     missing,
     instruction: missing.length
-      ? 'ตรวจสิทธิรับส่งต่อ เลข Refer/หน่วยบริการต้นทาง-ปลายทาง Diagnosis ค่าใช้จ่าย และปิดสิทธิ EP ให้ครบก่อนส่ง'
-      : 'ข้อมูลพื้นฐานครบแล้ว ให้ตรวจแฟ้ม Refer และติดตามสถานะส่ง/ตอบกลับ',
+      ? 'ตรวจสิทธิรับส่งต่อ เลขและวันที่ Refer ทิศทางรับเข้า/ส่งต่อ รหัสหน่วยบริการ 5 หลัก Diagnosis ค่าใช้จ่าย และปิดสิทธิ EP ให้ครบก่อนส่ง'
+      : 'ข้อมูลพื้นฐานครบแล้ว ให้ยืนยันสิทธิ OP Refer และความเชื่อมโยงกับหน่วยบริการต้นทาง/ปลายทาง จากนั้นตรวจแฟ้ม ORF และติดตามผลตอบกลับ',
     ...tracking,
     chargeAmount: numberOrNull(row.total_price),
     claimAmount: null,

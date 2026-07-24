@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { DetailModal } from '../components/DetailModal';
 import { DetailKidneyModal } from '../components/DetailKidneyModal';
+import { OpReferMonitorPanel } from '../components/OpReferMonitorPanel';
 import type { CheckRecord } from '../mockData';
 import type { KidneyMonitorRecord } from '../mockKidneyData';
 import businessRules from '../config/business_rules.json';
@@ -135,9 +136,9 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
         },
         {
             id: 'special',
-            name: 'สิทธิพิเศษ',
+            name: 'OP Refer',
             icon: '⭐',
-            description: 'หน่วยฉุกเฉิน, OP Refer, AE และโครงการพิเศษอื่นๆ',
+            description: 'ตรวจสิทธิรับส่งต่อ ข้อมูล Refer, Diagnosis, ค่าใช้จ่าย และการปิดสิทธิ',
         },
     ];    const fetchMonitorData = useCallback(async (): Promise<void> => {
         setLoading(true);
@@ -1025,9 +1026,12 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                     🚧 โรคเรื้อรัง (NCD) - ยังไม่พร้อมใช้งาน (Coming Soon)
                 </div>
             )}            {activeMonitor === 'special' && (
-                <div style={{ padding: '20px', background: '#f5f5f5', borderRadius: '8px', marginBottom: '30px', textAlign: 'center', color: '#999' }}>
-                    🚧 สิทธิพิเศษ - ยังไม่พร้อมใช้งาน (Coming Soon)
-                </div>
+                <OpReferMonitorPanel
+                    startDate={startDate}
+                    endDate={endDate}
+                    onStartDateChange={setStartDate}
+                    onEndDateChange={setEndDate}
+                />
             )}
 
             {/* Filter Controls */}

@@ -49,6 +49,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'specific', icon: '🎯', label: 'รวมทุกช่องทาง' },
   { page: 'monitor', icon: '📈', label: 'มอนิเตอร์พิเศษ' },
   { page: 'fsMonitor', icon: '💰', label: 'มอนิเตอร์ FS' },
+  { page: 'revenueOpportunity', icon: '🧭', label: 'โอกาสรายได้' },
   { page: 'mophDmht', icon: '🧪', label: 'MOPH DMHT' },
   { page: 'mophVaccine', icon: '💉', label: 'MOPH Vaccine' },
   { page: 'guide', icon: '📚', label: 'คู่มือกองทุน', soft: true },
@@ -57,7 +58,7 @@ export const toolNavItems: NavItem[] = [
 export const toolNavGroups: NavGroup[] = [
   { label: 'นำเข้า/ตรวจสอบ', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
   { label: 'ติดตามเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
-  { label: 'การเงิน/บัญชี', icon: '💼', pages: ['receivable', 'ucOutsideCup', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
+  { label: 'การเงิน/บัญชี', icon: '💼', pages: ['revenueOpportunity', 'receivable', 'ucOutsideCup', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
   { label: 'FDH/e-Claim', icon: '🏥', pages: ['fundFdh', 'monitor', 'fsMonitor'] },
   { label: '43 แฟ้ม', icon: '🗂️', pages: ['fund43'] },
   { label: 'MOPH Claim', icon: '🧪', pages: ['mophDmht', 'mophVaccine'] },

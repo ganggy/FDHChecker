@@ -1,0 +1,318 @@
+export type RevenueMonitorStatus = 'data_error' | 'ready' | 'submitted' | 'paid';
+
+export interface RevenueMonitorItem {
+  id: string;
+  category: 'palliative' | 'instrument' | 'op_refer' | 'ipd_cscd';
+  categoryLabel: string;
+  serviceDate: string;
+  visitCode: string;
+  hn: string;
+  patientName: string;
+  fund: string;
+  evidence: string[];
+  missing: string[];
+  instruction: string;
+  status: RevenueMonitorStatus;
+  statusLabel: string;
+  chargeAmount: number | null;
+  claimAmount: number | null;
+  paidAmount: number | null;
+}
+
+export interface RevenueMonitorCategory {
+  key: RevenueMonitorItem['category'];
+  label: string;
+  description: string;
+  total: number;
+  dataErrors: number;
+  ready: number;
+  submitted: number;
+  paid: number;
+  knownCharges: number;
+  knownClaims: number;
+  knownPaid: number;
+}
+
+export interface RevenueOpportunityMonitorResult {
+  generatedAt: string;
+  startDate: string;
+  endDate: string;
+  conclusion: {
+    verdict: 'insufficient_evidence' | 'risk_detected' | 'no_risk_detected';
+    label: string;
+    explanation: string;
+    limitations: string[];
+  };
+  summary: {
+    totalCandidates: number;
+    dataErrors: number;
+    awaitingClaim: number;
+    submitted: number;
+    paid: number;
+    knownCharges: number;
+    knownClaims: number;
+    knownPaid: number;
+  };
+  categories: RevenueMonitorCategory[];
+  alerts: Array<{ severity: 'danger' | 'warning' | 'info'; title: string; message: string; count: number }>;
+  items: RevenueMonitorItem[];
+}
+
+type SourceRow = Record<string, unknown>;
+
+const text = (value: unknown) => String(value ?? '').trim();
+const numberOrNull = (value: unknown) => {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+const flag = (value: unknown) => ['1', 'Y', 'YES', 'TRUE'].includes(text(value).toUpperCase());
+const firstNumber = (...values: unknown[]) => {
+  for (const value of values) {
+    const parsed = numberOrNull(value);
+    if (parsed != null) return parsed;
+  }
+  return null;
+};
+
+const trackingStatus = (row: SourceRow, missing: string[]) => {
+  if (missing.length > 0) {
+    return { status: 'data_error' as const, statusLabel: 'ข้อมูลไม่ครบ' };
+  }
+  const paid = firstNumber(row.inv_net_amount, row.stm_paid_amount);
+  if ((paid ?? 0) > 0 || flag(row.has_inv_import)) {
+    return { status: 'paid' as const, statusLabel: 'พบยอดรับ/ชดเชย' };
+  }
+  if (flag(row.has_stm_import) || flag(row.has_rep_import) || flag(row.has_fdh_import) || text(row.fdh_claim_status_message)) {
+    return { status: 'submitted' as const, statusLabel: 'ส่งแล้ว/รอผล' };
+  }
+  return { status: 'ready' as const, statusLabel: 'พร้อมตรวจและส่งเบิก' };
+};
+
+const commonAmounts = (row: SourceRow) => ({
+  claimAmount: firstNumber(row.rep_amount, row.fdh_act_amt),
+  paidAmount: firstNumber(row.inv_net_amount, row.stm_paid_amount),
+});
+
+const buildPalliativeItem = (row: SourceRow): RevenueMonitorItem => {
+  const diagnosis = [text(row.z515_code), text(row.z718_code)].filter(Boolean);
+  const adpCodes = [
+    flag(row.has_30001) ? '30001' : '',
+    flag(row.has_cons01) ? 'CONS01' : '',
+    flag(row.has_eva001) ? 'EVA001' : '',
+  ].filter(Boolean);
+  const missing: string[] = [];
+  if (diagnosis.length === 0) missing.push('ขาดรหัสวินิจฉัย Palliative (เช่น Z51.5/Z71.8 ตามเกณฑ์ที่ตั้งไว้)');
+  if (adpCodes.length === 0) missing.push('ขาดรหัสบริการ Palliative ในรายการค่าใช้จ่าย');
+  const tracking = trackingStatus(row, missing);
+  return {
+    id: `palliative:${text(row.vn)}`,
+    category: 'palliative',
+    categoryLabel: 'Palliative',
+    serviceDate: text(row.serviceDate),
+    visitCode: text(row.vn),
+    hn: text(row.hn),
+    patientName: text(row.patientName),
+    fund: text(row.pttypename),
+    evidence: [
+      diagnosis.length ? `Diagnosis: ${diagnosis.join(', ')}` : '',
+      adpCodes.length ? `ADP: ${adpCodes.join(', ')}` : '',
+      text(row.close_code) ? `ปิดสิทธิ: ${text(row.close_code)}` : '',
+    ].filter(Boolean),
+    missing,
+    instruction: missing.length
+      ? 'ตรวจบันทึก Diagnosis ให้ตรงเวชระเบียน แล้วตรวจรายการค่าบริการ/ADP ก่อนปิดสิทธิและส่งเคลม ห้ามเติมรหัสจากการคาดเดา'
+      : 'ตรวจสิทธิ ปิดสิทธิ และติดตาม ClaimDetail → REP → STM/INV จนพบยอดรับจริง',
+    ...tracking,
+    chargeAmount: null,
+    ...commonAmounts(row),
+  };
+};
+
+const buildInstrumentItem = (row: SourceRow): RevenueMonitorItem => {
+  const price = numberOrNull(row.instrument_price);
+  const items = text(row.instrument_items);
+  const missing: string[] = [];
+  if (!items) missing.push('ไม่พบชื่ออุปกรณ์/อวัยวะเทียม');
+  if ((price ?? 0) <= 0) missing.push('ยอดอุปกรณ์เป็นศูนย์หรือไม่มีราคา');
+  const tracking = trackingStatus(row, missing);
+  return {
+    id: `instrument:${text(row.vn)}`,
+    category: 'instrument',
+    categoryLabel: 'Instrument',
+    serviceDate: text(row.serviceDate),
+    visitCode: text(row.vn),
+    hn: text(row.hn),
+    patientName: text(row.patientName),
+    fund: text(row.pttypename),
+    evidence: [
+      items ? `รายการ: ${items}` : '',
+      flag(row.has_oa) ? 'กลุ่ม OA' : '',
+      flag(row.has_dm) ? 'กลุ่ม DM' : '',
+      text(row.close_code) ? `ปิดสิทธิ: ${text(row.close_code)}` : '',
+    ].filter(Boolean),
+    missing,
+    instruction: missing.length
+      ? 'ตรวจ icode ให้ผูก nondrugitems และ NHSO ADP type/code ถูกต้อง พร้อมจำนวนและราคา ก่อนส่งเบิก'
+      : 'ตรวจสิทธิ/หลักฐานประกอบของอุปกรณ์ แล้วติดตามผล REP และยอด STM/INV',
+    ...tracking,
+    chargeAmount: price,
+    ...commonAmounts(row),
+  };
+};
+
+const buildReferItem = (row: SourceRow): RevenueMonitorItem => {
+  const fund = text(row.fund);
+  const missing: string[] = [];
+  if (!flag(row.has_refer_record)) missing.push('ไม่พบระเบียน Refer in/out ที่เชื่อมกับ VN');
+  if (flag(row.has_refer_record) && !text(row.refer_hospcode)) missing.push('ระเบียน Refer ขาดรหัสหน่วยบริการต้นทาง/ปลายทาง');
+  if (!/OP\s*Refer|รับส่งต่อ|Refer/i.test(fund)) missing.push('พบ Refer แต่ชื่อสิทธิ/ช่องทางยังไม่ระบุ OP Refer — ต้องตรวจสิทธิจริง');
+  if (!text(row.main_diag)) missing.push('ขาด Diagnosis หลัก');
+  if (!flag(row.has_receipt) || (numberOrNull(row.total_price) ?? 0) <= 0) missing.push('ขาดรายการค่าใช้จ่ายหรือยอดเป็นศูนย์');
+  if (!flag(row.has_close)) missing.push('ยังไม่พบ EP/การปิดสิทธิ');
+  const tracking = trackingStatus(row, missing);
+  return {
+    id: `op_refer:${text(row.vn)}`,
+    category: 'op_refer',
+    categoryLabel: 'OP Refer',
+    serviceDate: text(row.serviceDate),
+    visitCode: text(row.vn),
+    hn: text(row.hn),
+    patientName: text(row.patientName),
+    fund,
+    evidence: [
+      text(row.refer_no) ? `Refer: ${text(row.refer_no)}` : '',
+      text(row.refer_hospcode) ? `หน่วยบริการ: ${text(row.refer_hospcode)}` : '',
+      text(row.main_diag) ? `Diagnosis: ${text(row.main_diag)}` : '',
+      text(row.project_code) ? `Project: ${text(row.project_code)}` : '',
+      flag(row.has_close) ? `ปิดสิทธิ: ${text(row.close_code) || 'พบ EP'}` : '',
+    ].filter(Boolean),
+    missing,
+    instruction: missing.length
+      ? 'ตรวจสิทธิรับส่งต่อ เลข Refer/หน่วยบริการต้นทาง-ปลายทาง Diagnosis ค่าใช้จ่าย และปิดสิทธิ EP ให้ครบก่อนส่ง'
+      : 'ข้อมูลพื้นฐานครบแล้ว ให้ตรวจแฟ้ม Refer และติดตามสถานะส่ง/ตอบกลับ',
+    ...tracking,
+    chargeAmount: numberOrNull(row.total_price),
+    claimAmount: null,
+    paidAmount: null,
+  };
+};
+
+const buildCscdItem = (row: SourceRow): RevenueMonitorItem => {
+  const missing: string[] = [];
+  if (!text(row.pdx)) missing.push('ขาด Diagnosis หลักของ IPD');
+  if (!text(row.dchdate)) missing.push('ผู้ป่วยยังไม่จำหน่าย/ยังสรุปเคสไม่ได้');
+  if ((numberOrNull(row.totalPrice) ?? 0) <= 0) missing.push('ยอดค่าใช้จ่าย IPD เป็นศูนย์');
+  if (text(row.dchdate) && !text(row.drg)) missing.push('ยังไม่พบ DRG');
+  const tracking = trackingStatus({
+    ...row,
+    has_fdh_import: Boolean(text(row.fdh_claim_detail_status) || text(row.fdh_transaction_uid)),
+    fdh_claim_status_message: row.fdh_status_label,
+    fdh_act_amt: row.fdh_act_amt,
+  }, missing);
+  return {
+    id: `ipd_cscd:${text(row.an)}`,
+    category: 'ipd_cscd',
+    categoryLabel: 'IPD สิทธิ CSCD',
+    serviceDate: text(row.admDate),
+    visitCode: text(row.an),
+    hn: text(row.hn),
+    patientName: text(row.patientName),
+    fund: text(row.pttype),
+    evidence: [
+      text(row.pdx) ? `PDX: ${text(row.pdx)}` : '',
+      text(row.drg) ? `DRG: ${text(row.drg)} / RW ${text(row.rw) || '-'}` : '',
+      text(row.ward) ? `Ward: ${text(row.ward)}` : '',
+      text(row.fdh_status_label),
+    ].filter(Boolean),
+    missing,
+    instruction: missing.length
+      ? 'ให้ทีม Ward/เวชระเบียนตรวจวันจำหน่าย สรุป Diagnosis/Procedure และ DRG จากเวชระเบียนจริง แล้วทีมการเงินตรวจค่าใช้จ่ายก่อนส่ง'
+      : 'ตรวจความสอดคล้องสิทธิ CSCD, DRG/RW และค่าใช้จ่าย จากนั้นติดตามสถานะ FDH/ผลชดเชย',
+    ...tracking,
+    chargeAmount: numberOrNull(row.totalPrice),
+    claimAmount: numberOrNull(row.fdh_act_amt),
+    paidAmount: null,
+  };
+};
+
+const CATEGORY_META: Array<Pick<RevenueMonitorCategory, 'key' | 'label' | 'description'>> = [
+  { key: 'ipd_cscd', label: 'IPD สิทธิ CSCD', description: 'กลุ่มที่ข้อความอ้างว่ารายรับสูง ต้องดู DRG/RW ค่าใช้จ่าย และผลชดเชยจริง' },
+  { key: 'op_refer', label: 'OP Refer', description: 'ตรวจสิทธิรับส่งต่อ Diagnosis ค่าใช้จ่าย เลข Refer และ EP' },
+  { key: 'instrument', label: 'Instrument', description: 'ตรวจการผูกอุปกรณ์กับ ADP code จำนวน ราคา และผลตอบกลับ' },
+  { key: 'palliative', label: 'Palliative', description: 'ตรวจ Diagnosis คู่กับรหัสบริการ ไม่สรุปจากชื่อคลินิกเพียงอย่างเดียว' },
+];
+
+export const buildRevenueOpportunityMonitor = (input: {
+  startDate: string;
+  endDate: string;
+  palliativeRows: SourceRow[];
+  instrumentRows: SourceRow[];
+  opdRows: SourceRow[];
+  ipdRows: SourceRow[];
+}): RevenueOpportunityMonitorResult => {
+  const referRows = input.opdRows.filter((row) => flag(row.has_refer_record) || /OP\s*Refer|รับส่งต่อ|Refer/i.test(text(row.fund)));
+  const cscdRows = input.ipdRows.filter((row) => /CSCD/i.test(text(row.pttype)));
+  const items = [
+    ...input.palliativeRows.map(buildPalliativeItem),
+    ...input.instrumentRows.map(buildInstrumentItem),
+    ...referRows.map(buildReferItem),
+    ...cscdRows.map(buildCscdItem),
+  ].sort((a, b) => b.serviceDate.localeCompare(a.serviceDate) || a.visitCode.localeCompare(b.visitCode));
+
+  const sumKnown = (rows: RevenueMonitorItem[], key: 'chargeAmount' | 'claimAmount' | 'paidAmount') =>
+    Math.round(rows.reduce((sum, row) => sum + (row[key] ?? 0), 0) * 100) / 100;
+  const categories = CATEGORY_META.map((meta) => {
+    const rows = items.filter((item) => item.category === meta.key);
+    return {
+      ...meta,
+      total: rows.length,
+      dataErrors: rows.filter((row) => row.status === 'data_error').length,
+      ready: rows.filter((row) => row.status === 'ready').length,
+      submitted: rows.filter((row) => row.status === 'submitted').length,
+      paid: rows.filter((row) => row.status === 'paid').length,
+      knownCharges: sumKnown(rows, 'chargeAmount'),
+      knownClaims: sumKnown(rows, 'claimAmount'),
+      knownPaid: sumKnown(rows, 'paidAmount'),
+    };
+  });
+  const dataErrors = items.filter((item) => item.status === 'data_error').length;
+  const ready = items.filter((item) => item.status === 'ready').length;
+  const submitted = items.filter((item) => item.status === 'submitted').length;
+  const paid = items.filter((item) => item.status === 'paid').length;
+  const limitations = [
+    'ยังไม่มีข้อมูลยอดและจำนวนผู้ป่วยของ “หน่วยงานกลุ่มเปรียบเทียบ” จึงยืนยันอันดับสูง/กลาง/ต่ำไม่ได้',
+    'ยอดค่าบริการ (charge) ไม่เท่ากับยอดเคลม และยอดเคลมไม่เท่ากับเงินที่ได้รับจริง',
+    'การพบสัญญาณข้อมูลไม่ครบเป็นคิวให้คนตรวจเวชระเบียน ไม่ใช่คำสั่งให้เติมรหัสโดยไม่มีหลักฐาน',
+  ];
+  const verdict = dataErrors > 0 ? 'risk_detected' as const : items.length > 0 ? 'no_risk_detected' as const : 'insufficient_evidence' as const;
+  const alerts: RevenueOpportunityMonitorResult['alerts'] = [];
+  if (dataErrors > 0) alerts.push({ severity: 'danger', title: 'พบรายการเสี่ยงข้อมูลไม่ครบ', message: 'ควรให้ผู้รับผิดชอบตรวจหลักฐานและแก้ที่ต้นทางก่อนส่ง', count: dataErrors });
+  if (ready > 0) alerts.push({ severity: 'warning', title: 'ข้อมูลพร้อมแต่ยังไม่พบผลการส่ง', message: 'ตรวจคิวส่งเคลมและกำหนดผู้รับผิดชอบ', count: ready });
+  if (submitted > 0) alerts.push({ severity: 'info', title: 'ส่งแล้วแต่ยังไม่พบยอดรับ', message: 'ติดตาม REP/STM/INV และรหัสปฏิเสธตามรอบ', count: submitted });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    startDate: input.startDate,
+    endDate: input.endDate,
+    conclusion: {
+      verdict,
+      label: verdict === 'risk_detected' ? 'พบความเสี่ยงที่ต้องตรวจ แต่ยังยืนยันข้อความเรื่องอันดับไม่ได้' : verdict === 'no_risk_detected' ? 'ยังไม่พบความผิดพลาดจากกฎที่ตรวจ และยังยืนยันอันดับไม่ได้' : 'ข้อมูลไม่พอสำหรับยืนยันหรือโต้แย้ง',
+      explanation: 'ระบบใช้เส้นทางหลักฐาน บริการ → ความครบถ้วน → การส่งเคลม → REP/STM/INV แทนการตัดสินจากยอดรวมเพียงตัวเดียว',
+      limitations,
+    },
+    summary: {
+      totalCandidates: items.length,
+      dataErrors,
+      awaitingClaim: ready,
+      submitted,
+      paid,
+      knownCharges: sumKnown(items, 'chargeAmount'),
+      knownClaims: sumKnown(items, 'claimAmount'),
+      knownPaid: sumKnown(items, 'paidAmount'),
+    },
+    categories,
+    alerts,
+    items,
+  };
+};

@@ -37,6 +37,7 @@ const Uuc1TrackingPage = lazy(() => import('./pages/Uuc1TrackingPage'));
 const SpecificFundPage = lazy(() => import('./pages/SpecificFundPage').then((module) => ({ default: module.SpecificFundPage })));
 const SpecialMonitorPage = lazyNamed(() => import('./pages/SpecialMonitorPage'), 'SpecialMonitorPage');
 const FsMonitorPage = lazyNamed(() => import('./pages/FsMonitorPage'), 'FsMonitorPage');
+const RevenueOpportunityPage = lazyNamed(() => import('./pages/RevenueOpportunityPage'), 'RevenueOpportunityPage');
 const MophDmhtClaimPage = lazyNamed(() => import('./pages/MophDmhtClaimPage'), 'MophDmhtClaimPage');
 const MophVaccineClaimPage = lazyNamed(() => import('./pages/MophVaccineClaimPage'), 'MophVaccineClaimPage');
 const GuidePage = lazyNamed(() => import('./pages/GuidePage'), 'GuidePage');
@@ -316,6 +317,7 @@ function App() {
         {currentPage === 'fundOther' && <SpecificFundPage channelView="other" />}
         {currentPage === 'monitor' && <SpecialMonitorPage />}
         {currentPage === 'fsMonitor' && <FsMonitorPage />}
+        {currentPage === 'revenueOpportunity' && <RevenueOpportunityPage />}
         {currentPage === 'mophDmht' && <MophDmhtClaimPage />}
         {currentPage === 'mophVaccine' && <MophVaccineClaimPage />}
         {currentPage === 'preValidator' && <PreSubmitValidatorPage />}

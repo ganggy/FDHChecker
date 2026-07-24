@@ -4,6 +4,279 @@
   gap: 1rem;
 }
 
+/* Revenue opportunity monitor */
+.revenue-monitor-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  min-width: 0;
+  padding: 22px;
+  color: var(--text-primary);
+}
+
+.revenue-monitor-hero {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+  padding: 28px;
+  border: 1px solid #c7d7f2;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 90% 10%, rgba(37, 99, 235, .18), transparent 34%),
+    linear-gradient(135deg, #f8fbff, #edf4ff);
+  box-shadow: 0 12px 32px rgba(15, 45, 85, .08);
+}
+
+.revenue-monitor-hero > div:first-child {
+  flex: 1 1 520px;
+  min-width: 0;
+}
+
+.revenue-monitor-kicker,
+.revenue-section-heading span,
+.revenue-next-step > div span {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.revenue-monitor-hero h1 {
+  margin: 5px 0 8px;
+  color: #123466;
+  font-size: clamp(26px, 3vw, 38px);
+}
+
+.revenue-monitor-hero p {
+  margin: 0;
+  color: #52647f;
+  font-size: 15px;
+}
+
+.revenue-monitor-datebar {
+  display: flex;
+  align-items: end;
+  gap: 9px;
+  min-width: max-content;
+}
+
+.revenue-monitor-datebar label {
+  display: grid;
+  gap: 5px;
+  color: #50617a;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.revenue-monitor-datebar input,
+.revenue-filters input,
+.revenue-filters select {
+  min-height: 40px;
+  padding: 8px 11px;
+  border: 1px solid #c9d5e8;
+  border-radius: 10px;
+  background: #fff;
+  color: #1d2b44;
+}
+
+.revenue-verdict {
+  display: flex;
+  gap: 16px;
+  padding: 20px 22px;
+  border: 1px solid #f2c66d;
+  border-left: 6px solid #d8950c;
+  border-radius: 16px;
+  background: #fffaf0;
+}
+
+.revenue-verdict--no_risk_detected { border-color: #8fd3b0; border-left-color: #16875b; background: #f1fbf6; }
+.revenue-verdict--insufficient_evidence { border-color: #aebdd2; border-left-color: #60738e; background: #f6f8fb; }
+.revenue-verdict-icon { font-size: 28px; }
+.revenue-verdict-label { color: #895d09; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.revenue-verdict h2 { margin: 2px 0 4px; font-size: 20px; }
+.revenue-verdict p { margin: 0; color: #566276; }
+.revenue-verdict details { margin-top: 9px; color: #556277; }
+.revenue-verdict summary { cursor: pointer; font-weight: 700; }
+.revenue-verdict ul { margin: 8px 0 0; padding-left: 22px; }
+
+.revenue-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(150px, 1fr));
+  gap: 11px;
+}
+
+.revenue-summary-grid article {
+  display: grid;
+  gap: 3px;
+  padding: 17px;
+  border: 1px solid #d7e0ed;
+  border-top: 4px solid #6d7f99;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 5px 16px rgba(22, 43, 75, .06);
+}
+
+.revenue-summary-grid article.is-danger { border-top-color: #dc3545; }
+.revenue-summary-grid article.is-warning { border-top-color: #e69500; }
+.revenue-summary-grid article.is-info { border-top-color: #2775d7; }
+.revenue-summary-grid article.is-success { border-top-color: #16875b; }
+.revenue-summary-grid span { color: #53647d; font-size: 12px; font-weight: 700; }
+.revenue-summary-grid strong { color: #152b4d; font-size: 30px; line-height: 1.1; }
+.revenue-summary-grid small { color: #7a879a; }
+
+.revenue-money-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid #cbd8e9;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #f7faff;
+}
+
+.revenue-money-strip div { display: grid; gap: 3px; padding: 15px 20px; border-right: 1px solid #d7e1ee; }
+.revenue-money-strip span { color: #5b6b82; font-size: 12px; }
+.revenue-money-strip strong { color: #183e73; font-size: 20px; }
+.revenue-money-strip p { grid-column: 1 / -1; margin: 0; padding: 9px 20px; background: #e8f0fb; color: #405978; font-size: 12px; }
+
+.revenue-alert-grid,
+.revenue-category-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.revenue-alert {
+  display: grid;
+  gap: 5px;
+  padding: 15px;
+  border: 1px solid;
+  border-radius: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.revenue-alert strong { display: flex; justify-content: space-between; gap: 10px; }
+.revenue-alert b { padding: 1px 8px; border-radius: 999px; background: rgba(255,255,255,.8); }
+.revenue-alert span { font-size: 12px; }
+.revenue-alert--danger { border-color: #f2afb5; background: #fff1f2; color: #9d2632; }
+.revenue-alert--warning { border-color: #f0cc87; background: #fff9e9; color: #805b08; }
+.revenue-alert--info { border-color: #9fc8f0; background: #eff7ff; color: #175c9b; }
+
+.revenue-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.revenue-section-heading h2 { margin: 2px 0 0; color: #183456; font-size: 21px; }
+.revenue-section-heading small { color: #6e7d91; }
+.revenue-category-grid { grid-template-columns: repeat(4, 1fr); }
+
+.revenue-category-card {
+  display: grid;
+  gap: 9px;
+  padding: 17px;
+  border: 1px solid #d6e0ec;
+  border-radius: 15px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+.revenue-category-card:hover,
+.revenue-category-card.is-active {
+  transform: translateY(-2px);
+  border-color: #4c83d1;
+  box-shadow: 0 9px 22px rgba(24, 67, 125, .12);
+}
+
+.revenue-category-title { display: flex; justify-content: space-between; gap: 12px; color: #17365e; }
+.revenue-category-title b { padding: 2px 9px; border-radius: 999px; background: #e8f1ff; color: #2563a9; }
+.revenue-category-card p { min-height: 38px; margin: 0; color: #65748a; font-size: 12px; }
+.revenue-category-statuses { display: flex; flex-wrap: wrap; gap: 5px; }
+.revenue-category-statuses span { padding: 3px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.revenue-category-statuses .danger { background: #ffe8ea; color: #b12938; }
+.revenue-category-statuses .warning { background: #fff1c9; color: #856009; }
+.revenue-category-statuses .info { background: #e2f0ff; color: #23649e; }
+.revenue-category-statuses .success { background: #ddf7e9; color: #17744e; }
+.revenue-category-amount { padding-top: 8px; border-top: 1px solid #e7edf4; color: #67768b; font-size: 12px; }
+.revenue-category-amount strong { float: right; color: #173f73; }
+
+.revenue-worklist {
+  padding: 17px;
+  border: 1px solid #d6e0ec;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.revenue-filters {
+  display: grid;
+  grid-template-columns: 190px 190px minmax(250px, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.revenue-table-wrap { overflow-x: auto; border: 1px solid #dde5ef; border-radius: 12px; }
+.revenue-table { width: 100%; min-width: 1280px; border-collapse: collapse; font-size: 12px; }
+.revenue-table th { padding: 11px; background: #edf3fa; color: #405671; text-align: left; white-space: nowrap; }
+.revenue-table td { max-width: 260px; padding: 11px; border-top: 1px solid #e3e9f1; vertical-align: top; }
+.revenue-table td > strong,
+.revenue-table td > span,
+.revenue-table td > small { display: block; margin-bottom: 3px; }
+.revenue-table tr:hover td { background: #fafcff; }
+.revenue-table ul { margin: 0; padding-left: 17px; color: #a32f3b; }
+.revenue-status { width: max-content; padding: 4px 7px; border-radius: 7px; font-weight: 800; }
+.revenue-status--data_error { background: #ffe5e8; color: #a72835; }
+.revenue-status--ready { background: #fff0c7; color: #826009; }
+.revenue-status--submitted { background: #e3f0ff; color: #1f619c; }
+.revenue-status--paid { background: #dcf6e8; color: #13734b; }
+.revenue-evidence { width: max-content; max-width: 100%; padding: 3px 6px; border-radius: 5px; background: #edf4fd; color: #315a89; }
+.revenue-muted { color: #8b96a6; font-style: italic; }
+.revenue-complete { color: #17744e; font-weight: 700; }
+.revenue-amount-cell span { display: flex !important; justify-content: space-between; gap: 12px; color: #6b788a; }
+.revenue-amount-cell b { color: #233f62; }
+.revenue-instruction { width: 260px; margin-top: 7px; padding: 10px; border-radius: 9px; background: #f0f6ff; color: #344d6c; }
+.revenue-instruction p { margin: 4px 0; }
+.revenue-instruction em { color: #8a5e12; font-size: 11px; }
+.revenue-empty { padding: 35px !important; color: #748195; text-align: center; }
+
+.revenue-next-step {
+  display: grid;
+  grid-template-columns: minmax(260px, .8fr) 1.4fr;
+  gap: 24px;
+  padding: 22px;
+  border-radius: 16px;
+  background: #132f54;
+  color: #eaf2ff;
+}
+
+.revenue-next-step h2 { margin: 4px 0 0; color: #fff; font-size: 20px; }
+.revenue-next-step ol { display: grid; gap: 7px; margin: 0; padding-left: 22px; }
+
+@media (max-width: 1100px) {
+  .revenue-monitor-hero { align-items: stretch; flex-direction: column; }
+  .revenue-monitor-datebar { min-width: 0; flex-wrap: wrap; }
+  .revenue-summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .revenue-category-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .revenue-monitor-page { padding: 12px; }
+  .revenue-summary-grid,
+  .revenue-alert-grid,
+  .revenue-category-grid,
+  .revenue-money-strip,
+  .revenue-next-step { grid-template-columns: 1fr; }
+  .revenue-money-strip div { border-right: 0; border-bottom: 1px solid #d7e1ee; }
+  .revenue-filters { grid-template-columns: 1fr; }
+}
+
 .workflow-hero {
   position: relative;
   overflow: hidden;

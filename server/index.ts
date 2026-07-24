@@ -89,6 +89,7 @@ import {
   requestTracingMiddleware,
 } from './requestSafety.js';
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
+import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
   buildFdhFiles,
@@ -1582,6 +1583,39 @@ app.get('/api/hosxp/specific-funds', async (req, res) => {
   } catch (error) {
     console.error('Error fetching specific fund data:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// มอนิเตอร์โอกาสรายได้: แยกยอดค่าบริการ ยอดเคลม และยอดรับจริง
+// พร้อมชี้รายการที่ต้องตรวจเวชระเบียน โดยไม่สรุปว่า "ยอดต่ำ = ลงข้อมูลผิด"
+app.get('/api/hosxp/revenue-opportunity-monitor', async (req, res) => {
+  try {
+    const startDate = String(req.query.startDate || '').trim();
+    const endDate = String(req.query.endDate || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุ startDate และ endDate รูปแบบ YYYY-MM-DD' });
+    }
+    if (startDate > endDate) {
+      return res.status(400).json({ success: false, error: 'วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด' });
+    }
+    const { getRevenueOpportunitySourceRows, getSpecificFundData } = await import('./db.js');
+    const [palliativeRows, instrumentRows, focusedRows] = await Promise.all([
+      getSpecificFundData('palliative', startDate, endDate),
+      getSpecificFundData('instrument', startDate, endDate),
+      getRevenueOpportunitySourceRows(startDate, endDate),
+    ]);
+    const data = buildRevenueOpportunityMonitor({
+      startDate,
+      endDate,
+      palliativeRows,
+      instrumentRows,
+      opdRows: focusedRows.opdRows,
+      ipdRows: focusedRows.ipdRows,
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error building revenue opportunity monitor:', error);
+    res.status(500).json({ success: false, error: 'ไม่สามารถวิเคราะห์โอกาสรายได้จากฐานข้อมูลได้' });
   }
 });
 

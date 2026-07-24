@@ -400,7 +400,7 @@ export const DEFAULT_MENU_PAGES = [
   'staff', 'ipd', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
   'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
-  'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'reconciliation',
+  'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'revenueOpportunity', 'reconciliation',
   'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking', 'ucOutsideCup'
 ];
 
@@ -13042,6 +13042,88 @@ export const getSpecificFundData = async (
     console.error('Error fetching specific fund data:', error);
     if (options.throwOnError) throw error;
     return [];
+  } finally {
+    connection.release();
+  }
+};
+
+// Lightweight source queries for the revenue monitor. These intentionally avoid
+// loading every eligible OPD rule and the full IPD claim-monitor joins.
+export const getRevenueOpportunitySourceRows = async (startDate: string, endDate: string) => {
+  const connection = await getUTFConnection();
+  try {
+    const [opdRows] = await connection.query(`
+      SELECT
+        o.vn, o.hn,
+        DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS serviceDate,
+        CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patientName,
+        ptt.name AS fund,
+        CASE WHEN EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = o.vn)
+          OR EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = o.vn) THEN 1 ELSE 0 END AS has_refer_record,
+        COALESCE(
+          (SELECT CONCAT('IN:', COALESCE(ri.docno, '')) FROM referin ri WHERE ri.vn = o.vn LIMIT 1),
+          (SELECT CONCAT('OUT:', COALESCE(ro.refer_number, '')) FROM referout ro WHERE ro.vn = o.vn LIMIT 1),
+          ''
+        ) AS refer_no,
+        COALESCE(
+          (SELECT ri.refer_hospcode FROM referin ri WHERE ri.vn = o.vn LIMIT 1),
+          (SELECT ro.refer_hospcode FROM referout ro WHERE ro.vn = o.vn LIMIT 1),
+          ''
+        ) AS refer_hospcode,
+        (SELECT dx.icd10 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.diagtype = '1' LIMIT 1) AS main_diag,
+        CASE WHEN EXISTS(SELECT 1 FROM opitemrece oi WHERE oi.vn = o.vn AND COALESCE(oi.sum_price, 0) > 0) THEN 1 ELSE 0 END AS has_receipt,
+        COALESCE((SELECT SUM(oi.sum_price) FROM opitemrece oi WHERE oi.vn = o.vn), 0) AS total_price,
+        CASE WHEN COALESCE(
+          (SELECT ncp.nhso_authen_code FROM nhso_confirm_privilege ncp
+           WHERE ncp.vn = o.vn AND ncp.nhso_status = 'Y' AND ncp.nhso_authen_code REGEXP '^EP' LIMIT 1),
+          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = o.vn AND ah.claim_code REGEXP '^EP' LIMIT 1),
+          (SELECT vp.auth_code FROM visit_pttype vp WHERE vp.vn = o.vn AND vp.auth_code REGEXP '^EP' LIMIT 1)
+        ) IS NOT NULL THEN 1 ELSE 0 END AS has_close,
+        COALESCE(
+          (SELECT ncp.nhso_authen_code FROM nhso_confirm_privilege ncp
+           WHERE ncp.vn = o.vn AND ncp.nhso_status = 'Y' AND ncp.nhso_authen_code REGEXP '^EP' LIMIT 1),
+          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = o.vn AND ah.claim_code REGEXP '^EP' LIMIT 1),
+          (SELECT vp.auth_code FROM visit_pttype vp WHERE vp.vn = o.vn AND vp.auth_code REGEXP '^EP' LIMIT 1),
+          ''
+        ) AS close_code,
+        'OP Refer' AS project_code
+      FROM ovst o
+      JOIN patient pt ON pt.hn = o.hn
+      JOIN pttype ptt ON ptt.pttype = o.pttype
+      WHERE o.vstdate BETWEEN ? AND ?
+        AND (
+          ptt.name LIKE '%OP Refer%' OR ptt.name LIKE '%รับส่งต่อ%' OR ptt.name LIKE '%Refer%'
+          OR EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = o.vn)
+          OR EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = o.vn)
+        )
+      ORDER BY o.vstdate DESC, o.vsttime DESC
+    `, [startDate, endDate]);
+
+    const [ipdRows] = await connection.query(`
+      SELECT
+        i.an, i.hn, i.vn,
+        DATE_FORMAT(i.regdate, '%Y-%m-%d') AS admDate,
+        DATE_FORMAT(i.dchdate, '%Y-%m-%d') AS dchdate,
+        CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patientName,
+        ptt.name AS pttype,
+        w.name AS ward,
+        (SELECT dx.icd10 FROM iptdiag dx WHERE dx.an = i.an AND dx.diagtype = '1' LIMIT 1) AS pdx,
+        (SELECT s.drg FROM an_stat s WHERE s.an = i.an LIMIT 1) AS drg,
+        (SELECT s.rw FROM an_stat s WHERE s.an = i.an LIMIT 1) AS rw,
+        COALESCE((SELECT SUM(oi.sum_price) FROM opitemrece oi WHERE oi.an = i.an), 0) AS totalPrice
+      FROM ipt i
+      JOIN patient pt ON pt.hn = i.hn
+      JOIN pttype ptt ON ptt.pttype = i.pttype
+      LEFT JOIN ward w ON w.ward = i.ward
+      WHERE (DATE(i.regdate) BETWEEN ? AND ? OR DATE(i.dchdate) BETWEEN ? AND ?)
+        AND ptt.name LIKE '%CSCD%'
+      ORDER BY i.regdate DESC
+    `, [startDate, endDate, startDate, endDate]);
+
+    return {
+      opdRows: (Array.isArray(opdRows) ? opdRows : []) as Record<string, unknown>[],
+      ipdRows: (Array.isArray(ipdRows) ? ipdRows : []) as Record<string, unknown>[],
+    };
   } finally {
     connection.release();
   }

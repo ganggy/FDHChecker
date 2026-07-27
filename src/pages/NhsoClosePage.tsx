@@ -73,8 +73,36 @@ const defaultSettings: NhsoCloseSettings = {
   maxDays: 4,
 };
 
+const bangkokDateTimeFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Bangkok',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
 const splitDateTime = (value?: string) => {
-  const raw = String(value || '').replace('T', ' ').trim();
+  const source = String(value || '').trim();
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(source)) {
+    const parsed = new Date(source);
+    if (!Number.isNaN(parsed.getTime())) {
+      const parts = Object.fromEntries(
+        bangkokDateTimeFormatter
+          .formatToParts(parsed)
+          .filter((part) => part.type !== 'literal')
+          .map((part) => [part.type, part.value]),
+      );
+      return {
+        date: `${parts.year}-${parts.month}-${parts.day}`,
+        time: `${parts.hour}:${parts.minute}:${parts.second}`,
+      };
+    }
+  }
+
+  const raw = source.replace('T', ' ');
   if (!raw) return { date: '-', time: '' };
   const [date, time] = raw.split(' ');
   return { date: date || '-', time: time ? time.slice(0, 8) : '' };

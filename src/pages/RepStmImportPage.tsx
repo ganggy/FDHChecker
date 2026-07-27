@@ -1208,7 +1208,7 @@ export const RepStmImportPage: React.FC = () => {
           <div className="alert alert-info repstm-alert" style={{ marginBottom: 16 }}>
             <span>ℹ️</span>
             <span>
-              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และ SHA-256 แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
+              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
             </span>
           </div>
 

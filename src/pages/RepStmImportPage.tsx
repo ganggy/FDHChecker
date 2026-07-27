@@ -69,6 +69,7 @@ interface ImportQueueItem {
   rows: Record<string, unknown>[];
   rowCount: number;
   status: QueueStatus;
+  progress?: number;
   message?: string;
   importerId?: string;
   importerLabel?: string;
@@ -151,10 +152,14 @@ const detectImportType = (fileName: string, headers: string[], rows: Record<stri
   return detectTypeFromFileName(fileName);
 };
 
-const calculateFileSha256 = async (file: File) => {
-  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+const calculateFileSha256 = async (buffer: ArrayBuffer) => {
+  const digest = await crypto.subtle.digest('SHA-256', buffer);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 };
+
+const yieldToBrowser = () => new Promise<void>((resolve) => {
+  window.requestAnimationFrame(() => resolve());
+});
 
 const statusLabelMap: Record<QueueStatus, string> = {
   parsing: 'กำลังอ่านไฟล์',
@@ -295,18 +300,26 @@ const parseWorksheetRows = (worksheet: XLSX.WorkSheet, hintType?: ImportType | n
     ? singleHeaders
     : buildHeadersFromRows(headerRow, nextRow);
   const dataStartIndex = resolvedHeaderIndex + (nextRowIsData ? 1 : 2);
+  const dataRows = grid
+    .slice(dataStartIndex)
+    .filter((row) => Array.isArray(row) && row.some((cell) => normalizeHeaderCell(cell)));
+  const populatedColumns = new Array(headersWithIndexes.length).fill(false);
+  for (const row of dataRows) {
+    if (!Array.isArray(row)) continue;
+    const width = Math.min(row.length, headersWithIndexes.length);
+    for (let index = 0; index < width; index += 1) {
+      if (!populatedColumns[index] && normalizeHeaderCell(row[index])) {
+        populatedColumns[index] = true;
+      }
+    }
+  }
   const activeColumnIndexes = headersWithIndexes
     .map((header, index) => ({ header, index }))
-    .filter(({ header, index }) => {
-      if (!header || header.startsWith('column_')) return false;
-      return grid.slice(dataStartIndex).some((row) => Array.isArray(row) && normalizeHeaderCell(row[index]));
-    });
+    .filter(({ header, index }) => header && !header.startsWith('column_') && populatedColumns[index]);
 
   const headers = activeColumnIndexes.map(({ header }) => header);
 
-  const rows = grid
-    .slice(dataStartIndex)
-    .filter((row) => Array.isArray(row) && row.some((cell) => normalizeHeaderCell(cell)))
+  const rows = dataRows
     .map((row) => {
       const values = Array.isArray(row) ? row : [];
       return Object.fromEntries(activeColumnIndexes.map(({ header, index }) => [header, values[index] ?? '']));
@@ -332,9 +345,16 @@ interface ParsedSheet {
 
 /** Scans all sheets in a workbook; returns one ParsedSheet per sheet that has data.
  *  Priority sheet names (from Auto4Rep.EXE) are checked first. */
-const readWorkbook = async (file: File, includeSubfiles = false): Promise<ParsedSheet[]> => {
-  const buffer = await file.arrayBuffer();
+const readWorkbook = async (
+  file: File,
+  includeSubfiles = false,
+  sourceBuffer?: ArrayBuffer,
+  onProgress?: (progress: number, message: string) => void,
+): Promise<ParsedSheet[]> => {
+  const buffer = sourceBuffer ?? await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
+  onProgress?.(44, `เปิดไฟล์แล้ว พบ ${workbook.SheetNames.length.toLocaleString()} Sheet`);
+  await yieldToBrowser();
   const fileHint = detectTypeFromFileName(file.name);
 
   const priorityNames = ['statement', 'eclaim', 'invoice', 'individual', 'detail', 'repdata', 'repeclaim'];
@@ -344,7 +364,11 @@ const readWorkbook = async (file: File, includeSubfiles = false): Promise<Parsed
   ];
 
   const results: ParsedSheet[] = [];
-  for (const sheetName of ordered) {
+  for (let sheetIndex = 0; sheetIndex < ordered.length; sheetIndex += 1) {
+    const sheetName = ordered[sheetIndex];
+    const progress = 45 + Math.round(((sheetIndex + 1) / Math.max(ordered.length, 1)) * 12);
+    onProgress?.(progress, `กำลังอ่าน Sheet ${sheetIndex + 1}/${ordered.length}: ${sheetName}`);
+    await yieldToBrowser();
     // ใช้ชนิดจากชื่อไฟล์เป็น hint สำหรับหา header เท่านั้น แล้วตรวจชนิดจริงจาก header อีกครั้ง
     const hintType = fileHint || detectTypeFromSheetName(sheetName);
     const parsed = parseWorksheetRows(workbook.Sheets[sheetName], hintType);
@@ -389,8 +413,15 @@ const readWorkbook = async (file: File, includeSubfiles = false): Promise<Parsed
   return results;
 };
 
-const readImportSource = async (file: File, includeSubfiles = false): Promise<ParsedSheet[]> => {
-  if (!/\.zip$/i.test(file.name)) return readWorkbook(file, includeSubfiles);
+const readImportSource = async (
+  file: File,
+  includeSubfiles = false,
+  sourceBuffer?: ArrayBuffer,
+  onProgress?: (progress: number, message: string) => void,
+): Promise<ParsedSheet[]> => {
+  if (!/\.zip$/i.test(file.name)) return readWorkbook(file, includeSubfiles, sourceBuffer, onProgress);
+  onProgress?.(42, 'กำลังส่ง ZIP ไปวิเคราะห์โครงสร้างและข้อมูล');
+  await yieldToBrowser();
   const archive = await analyzeRepstmArchiveFile(file);
   return archive.datasets.map((dataset) => ({
     sheetName: dataset.sheetName,
@@ -497,7 +528,10 @@ export const RepStmImportPage: React.FC = () => {
   const importingItems = queueItems.filter((item) => item.status === 'importing');
   const overallProgress = useMemo(() => {
     if (queueItems.length === 0) return 0;
-    const total = queueItems.reduce((sum, item) => sum + statusPercentMap[item.status], 0);
+    const total = queueItems.reduce(
+      (sum, item) => sum + (item.progress ?? statusPercentMap[item.status]),
+      0,
+    );
     return Math.round(total / queueItems.length);
   }, [queueItems]);
   const typeSummary = useMemo(() => {
@@ -833,7 +867,8 @@ export const RepStmImportPage: React.FC = () => {
       rows: [],
       rowCount: 0,
       status: 'parsing' as QueueStatus,
-      message: 'กำลังอ่านไฟล์',
+      progress: 5,
+      message: 'เตรียมอ่านไฟล์',
     }));
 
     setQueueItems((current) => {
@@ -850,16 +885,37 @@ export const RepStmImportPage: React.FC = () => {
     }
 
     const hashById = new Map<string, string>();
+    const bufferById = new Map<string, ArrayBuffer>();
     let nextHashIndex = 0;
     const hashNext = async () => {
       while (nextHashIndex < initialQueue.length) {
         const queueItem = initialQueue[nextHashIndex++];
-        const hash = await calculateFileSha256(queueItem.file);
+        updateQueueItem(queueItem.id, (item) => ({
+          ...item,
+          progress: 10,
+          message: 'กำลังอ่านไฟล์จากเครื่อง',
+        }));
+        const buffer = await queueItem.file.arrayBuffer();
+        bufferById.set(queueItem.id, buffer);
+        updateQueueItem(queueItem.id, (item) => ({
+          ...item,
+          progress: 20,
+          message: 'กำลังคำนวณลายนิ้วมือไฟล์',
+        }));
+        const hash = await calculateFileSha256(buffer);
         hashById.set(queueItem.id, hash);
-        updateQueueItem(queueItem.id, (item) => ({ ...item, fileHash: hash, fileSize: queueItem.file.size }));
+        queueItem.fileHash = hash;
+        queueItem.progress = 28;
+        updateQueueItem(queueItem.id, (item) => ({
+          ...item,
+          fileHash: hash,
+          fileSize: queueItem.file.size,
+          progress: 28,
+          message: 'กำลังตรวจว่าเคยนำเข้าไฟล์นี้หรือไม่',
+        }));
       }
     };
-    await Promise.all(Array.from({ length: Math.min(4, initialQueue.length) }, () => hashNext()));
+    await Promise.all(Array.from({ length: Math.min(2, initialQueue.length) }, () => hashNext()));
 
     const preflightByName = new Map<string, Awaited<ReturnType<typeof preflightRepstmFiles>>[number]>();
     if (!bypassPreflight && !includeSubfiles) {
@@ -893,13 +949,24 @@ export const RepStmImportPage: React.FC = () => {
           detectedType: preflight.dataType || undefined,
           rowCount: Number(preflight.rowCount || 0),
           status: 'duplicate',
+          progress: 100,
           message: `${reason} · ข้ามก่อนเปิด Excel`,
         };
         parsedItems.push(skippedItem);
         updateQueueItem(queueItem.id, () => skippedItem);
       } else {
         if (preflight?.status === 'changed') {
-          updateQueueItem(queueItem.id, (item) => ({ ...item, message: 'ชื่อเดิมแต่เนื้อหาเปลี่ยน กำลังตรวจไฟล์แก้ไข' }));
+          updateQueueItem(queueItem.id, (item) => ({
+            ...item,
+            progress: 35,
+            message: 'ชื่อเดิมแต่เนื้อหาเปลี่ยน กำลังเปิดไฟล์แก้ไข',
+          }));
+        } else {
+          updateQueueItem(queueItem.id, (item) => ({
+            ...item,
+            progress: 35,
+            message: 'ตรวจประวัติแล้ว กำลังเปิดไฟล์',
+          }));
         }
         parseQueue.push(queueItem);
       }
@@ -910,12 +977,23 @@ export const RepStmImportPage: React.FC = () => {
       while (nextParseIndex < parseQueue.length) {
         const queueItem = parseQueue[nextParseIndex++];
       try {
-        const parsedSheets = await readImportSource(queueItem.file, includeSubfiles);
+        await yieldToBrowser();
+        const parsedSheets = await readImportSource(
+          queueItem.file,
+          includeSubfiles,
+          bufferById.get(queueItem.id),
+          (progress, message) => updateQueueItem(queueItem.id, (item) => ({
+            ...item,
+            progress,
+            message,
+          })),
+        );
 
         if (parsedSheets.length === 0) {
           const failedItem: ImportQueueItem = {
             ...queueItem,
             status: 'error',
+            progress: 100,
             message: 'ไม่พบข้อมูลในไฟล์',
           };
           parsedItems.push(failedItem);
@@ -946,6 +1024,7 @@ export const RepStmImportPage: React.FC = () => {
             archiveEntries,
             relativePath: sourceEntryName || queueItem.relativePath,
             status: rows.length > 0 && detectedType ? 'ready' : 'error',
+            progress: rows.length > 0 && detectedType ? 60 : 100,
             message: rows.length === 0
               ? 'ไม่พบข้อมูลในไฟล์'
               : detectedType
@@ -980,6 +1059,7 @@ export const RepStmImportPage: React.FC = () => {
               archiveSummaries,
               archiveEntries,
               status: (rows.length > 0 && detectedType ? 'ready' : 'error') as QueueStatus,
+              progress: rows.length > 0 && detectedType ? 60 : 100,
               message: rows.length === 0
                 ? `Sheet "${sheetName}": ไม่พบข้อมูล`
                 : detectedType
@@ -997,6 +1077,7 @@ export const RepStmImportPage: React.FC = () => {
         const failedItem: ImportQueueItem = {
           ...queueItem,
           status: 'error',
+          progress: 100,
           message: err instanceof Error ? err.message : 'อ่านไฟล์ไม่สำเร็จ',
         };
         parsedItems.push(failedItem);
@@ -1049,6 +1130,7 @@ export const RepStmImportPage: React.FC = () => {
         updateQueueItem(item.id, (current) => ({
           ...current,
           status: 'importing',
+          progress: 75,
           message: 'กำลังนำเข้า',
         }));
 
@@ -1566,7 +1648,9 @@ export const RepStmImportPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {queueItems.map((item) => (
+                  {queueItems.map((item) => {
+                    const itemProgress = item.progress ?? statusPercentMap[item.status];
+                    return (
                     <tr
                       key={item.id}
                       onClick={() => setActivePreviewId(item.id)}
@@ -1603,12 +1687,12 @@ export const RepStmImportPage: React.FC = () => {
                         <div className="repstm-row-progress">
                           <div className="repstm-row-progress-track">
                             <div style={{
-                              width: `${statusPercentMap[item.status]}%`,
+                              width: `${itemProgress}%`,
                               background: statusColorMap[item.status],
                             }} />
                           </div>
                           <span className="repstm-progress-percent">
-                            {statusPercentMap[item.status]}%
+                            {itemProgress}%
                           </span>
                         </div>
                       </td>
@@ -1619,7 +1703,8 @@ export const RepStmImportPage: React.FC = () => {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

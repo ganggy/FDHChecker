@@ -575,6 +575,7 @@ const REPSTM_IMPORT_ROW_TABLE_SQL = `
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_batch_id (batch_id),
     INDEX idx_data_type_created_at (data_type, created_at),
+    INDEX idx_data_type_id (data_type, id),
     INDEX idx_ref_key (ref_key),
     INDEX idx_data_type_row_identity (data_type, row_identity),
     INDEX idx_batch_row_identity (batch_id, row_identity),
@@ -1280,6 +1281,7 @@ const ensureRepstmTablesUncached = async () => {
     const repstmRowIndexes: Array<[string, string]> = [
       ['idx_data_type_row_identity', 'ADD INDEX idx_data_type_row_identity (data_type, row_identity)'],
       ['idx_batch_row_identity', 'ADD INDEX idx_batch_row_identity (batch_id, row_identity)'],
+      ['idx_data_type_id', 'ADD INDEX idx_data_type_id (data_type, id)'],
     ];
     for (const [indexName, alterSql] of repstmRowIndexes) {
       const [indexRows] = await connection.query(
@@ -9360,14 +9362,11 @@ export const getRepstmImportedRows = async (
               b.source_filename, b.sheet_name
        FROM repstm_import_row r
        JOIN repstm_import_batch b ON b.id = r.batch_id
+       LEFT JOIN repstm_import_batch replacement ON replacement.replaces_batch_id = b.id
        WHERE r.data_type = ?
-       AND NOT EXISTS (
-         SELECT 1
-         FROM repstm_import_batch replacement
-         WHERE replacement.replaces_batch_id = b.id
-       )
+       AND replacement.id IS NULL
        ${visitConditions.length ? `AND (${visitConditions.join(' OR ')})` : ''}
-       ORDER BY r.created_at DESC, r.id DESC
+       ORDER BY r.id DESC
        LIMIT ?`,
       [dataType, ...visitParams, limit]
     );

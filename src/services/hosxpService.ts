@@ -359,18 +359,31 @@ export interface RepstmPreflightResult {
 }
 
 export const preflightRepstmFiles = async (
-  files: Array<{ filename: string; size: number; hash: string }>
+  files: Array<{ filename: string; size: number; hash: string }>,
+  timeoutMs = 10_000,
 ): Promise<RepstmPreflightResult[]> => {
-  const response = await fetch('/api/repstm/preflight', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ files }),
-  });
-  const json = await response.json();
-  if (!response.ok || !json.success) {
-    throw new Error(json.error || 'ตรวจสอบรายการไฟล์เดิมไม่สำเร็จ');
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch('/api/repstm/preflight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+      signal: controller.signal,
+    });
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || 'ตรวจสอบรายการไฟล์เดิมไม่สำเร็จ');
+    }
+    return Array.isArray(json.data) ? json.data : [];
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`ตรวจสอบประวัติไฟล์เกิน ${Math.round(timeoutMs / 1000)} วินาที`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return Array.isArray(json.data) ? json.data : [];
 };
 
 export const fetchRepstmBatches = async (dataType?: 'REP' | 'STM' | 'INV', limit = 20) => {

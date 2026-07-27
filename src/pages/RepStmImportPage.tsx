@@ -152,11 +152,6 @@ const detectImportType = (fileName: string, headers: string[], rows: Record<stri
   return detectTypeFromFileName(fileName);
 };
 
-const calculateFileSha256 = async (buffer: ArrayBuffer) => {
-  const digest = await crypto.subtle.digest('SHA-256', buffer);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-};
-
 const yieldToBrowser = () => new Promise<void>((resolve) => {
   window.requestAnimationFrame(() => resolve());
 });
@@ -884,12 +879,11 @@ export const RepStmImportPage: React.FC = () => {
       setActivePreviewId(initialQueue[0].id);
     }
 
-    const hashById = new Map<string, string>();
     const bufferById = new Map<string, ArrayBuffer>();
-    let nextHashIndex = 0;
-    const hashNext = async () => {
-      while (nextHashIndex < initialQueue.length) {
-        const queueItem = initialQueue[nextHashIndex++];
+    let nextReadIndex = 0;
+    const readNext = async () => {
+      while (nextReadIndex < initialQueue.length) {
+        const queueItem = initialQueue[nextReadIndex++];
         updateQueueItem(queueItem.id, (item) => ({
           ...item,
           progress: 10,
@@ -899,23 +893,12 @@ export const RepStmImportPage: React.FC = () => {
         bufferById.set(queueItem.id, buffer);
         updateQueueItem(queueItem.id, (item) => ({
           ...item,
-          progress: 20,
-          message: 'กำลังคำนวณลายนิ้วมือไฟล์',
-        }));
-        const hash = await calculateFileSha256(buffer);
-        hashById.set(queueItem.id, hash);
-        queueItem.fileHash = hash;
-        queueItem.progress = 28;
-        updateQueueItem(queueItem.id, (item) => ({
-          ...item,
-          fileHash: hash,
-          fileSize: queueItem.file.size,
           progress: 28,
           message: 'กำลังตรวจว่าเคยนำเข้าไฟล์นี้หรือไม่',
         }));
       }
     };
-    await Promise.all(Array.from({ length: Math.min(2, initialQueue.length) }, () => hashNext()));
+    await Promise.all(Array.from({ length: Math.min(2, initialQueue.length) }, () => readNext()));
 
     const preflightByName = new Map<string, Awaited<ReturnType<typeof preflightRepstmFiles>>[number]>();
     if (!bypassPreflight && !includeSubfiles) {
@@ -923,7 +906,9 @@ export const RepStmImportPage: React.FC = () => {
         const preflight = await preflightRepstmFiles(initialQueue.map((item) => ({
           filename: item.file.name,
           size: item.file.size,
-          hash: hashById.get(item.id) || '',
+          // ไม่บังคับ SHA-256 ฝั่ง browser เพราะ Web Crypto บางเครื่องค้างนาน
+          // หลังเปิดไฟล์ server จะตรวจข้อมูลซ้ำจาก contentBatchHash อีกครั้งก่อนบันทึก
+          hash: '',
         })));
         preflight.forEach((result) => preflightByName.set(result.filename.toLowerCase(), result));
       } catch (preflightError) {
@@ -934,7 +919,6 @@ export const RepStmImportPage: React.FC = () => {
     const parsedItems: ImportQueueItem[] = [];
     const parseQueue: ImportQueueItem[] = [];
     for (const queueItem of initialQueue) {
-      queueItem.fileHash = hashById.get(queueItem.id);
       const preflight = preflightByName.get(queueItem.file.name.toLowerCase());
       const expectedType = detectTypeFromFileName(queueItem.file.name);
       const preflightTypeMatches = !expectedType || !preflight?.dataType || preflight.dataType === expectedType;

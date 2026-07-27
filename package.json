@@ -14,7 +14,7 @@
     "line:duplicate-appointments": "node --import tsx server/duplicateAppointmentAlertCli.ts",
     "line:duplicate-appointments:dry": "node --import tsx server/duplicateAppointmentAlertCli.ts --dry-run",
     "line:duplicate-appointments:scheduled": "node --import tsx server/duplicateAppointmentAlertCli.ts --scheduled",
-    "test": "node --import tsx --test server/requestSafety.test.ts server/mophVaccineRules.test.ts server/fdhExport.test.ts server/kidneyMonitorRules.test.ts server/repstmArchive.test.ts server/repstmManagement.test.ts server/lineMessaging.test.ts server/fundErrorReport.test.ts server/dailyWorkOverview.test.ts server/duplicateAppointmentAlert.test.ts server/fsRateRules.test.ts server/revenueOpportunityMonitor.test.ts",
+    "test": "node --import tsx --test server/requestSafety.test.ts server/mophVaccineRules.test.ts server/fdhExport.test.ts server/fdhClaimProgress.test.ts server/kidneyMonitorRules.test.ts server/repstmArchive.test.ts server/repstmManagement.test.ts server/lineMessaging.test.ts server/fundErrorReport.test.ts server/dailyWorkOverview.test.ts server/duplicateAppointmentAlert.test.ts server/fsRateRules.test.ts server/revenueOpportunityMonitor.test.ts",
     "check:server": "tsc -p server/tsconfig.json --noEmit",
     "check": "npm run test && npm run check:server && npm run lint && npm run build",
     "build": "tsc -b && vite build",

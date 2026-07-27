@@ -9,6 +9,7 @@ import { getAnemiaRuleBand, getFundRule } from '../config/fundRuleCatalog';
 import { formatPalliativeIcd10, PALLIATIVE_DIAGNOSIS_CODE_COUNT, PALLIATIVE_DIAGNOSIS_GROUPS } from '../config/palliativeDiagnosisCatalog';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
+import { buildFdhClaimProgress, hasFdhSubmissionData } from '../utils/fdhClaimProgress';
 import { fetchAppSettings } from '../services/hosxpService';
 
 const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
@@ -332,17 +333,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (value === 'pending' || value === 'rejected' || value === 'ยังไม่เข้าเงื่อนไข') return 'badge-warning';
         return 'badge-secondary';
     };
-    /** Returns true when any FDH settlement field carries data, meaning this visit was already submitted to FDH */
-    const hasFdhData = (item: any) =>
-        Boolean(item?.has_fdh_import) ||
-        Boolean(String(item?.fdh_claim_status_message ?? '').trim()) ||
-        Boolean(String(item?.fdh_stm_period ?? '').trim()) ||
-        (item?.fdh_act_amt != null && item?.fdh_act_amt !== '') ||
-        Boolean(String(item?.fdh_settle_at ?? '').trim());
     const getEffectiveSendStatusLabel = (item: any) =>
-        hasFdhData(item) ? 'ส่งแล้ว' : getSendStatusLabel(item.status);
+        hasFdhSubmissionData(item) ? 'ส่งแล้ว' : getSendStatusLabel(item.status);
     const getEffectiveSendStatusBadgeClass = (item: any) =>
-        hasFdhData(item) ? 'badge-success' : getSendStatusBadgeClass(item.status);
+        hasFdhSubmissionData(item) ? 'badge-success' : getSendStatusBadgeClass(item.status);
     const getFdhStatusLabel = (item: any) => (
         String(item?.fdh_status_label ?? '').trim()
         || (toFlag(item?.has_close)
@@ -1289,6 +1283,22 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const activeClaimChannel = activeFundDefinition?.claimChannel || 'ยังไม่ได้จัดช่องทาง';
     const activeRecordingSystem = activeFundDefinition?.recordingSystem || 'ตรวจสอบตามประกาศ/คู่มือกองทุนล่าสุด';
     const activeClaimChannelNote = activeFundDefinition?.claimChannelNote;
+    const showFdhClaimProgress = activeFundDefinition
+        ? isFundInChannelView(activeFundDefinition, 'fdh')
+        : channelView === 'fdh';
+    const fdhClaimProgress = buildFdhClaimProgress(
+        actionableData,
+        (item) => getStatusForFund(item, activeFund).status === 'สมบูรณ์',
+    );
+    const fdhStageIndex = fdhClaimProgress.stage === 'no-data'
+        ? 0
+        : ['prepare-data', 'ready-to-submit', 'partially-submitted'].includes(fdhClaimProgress.stage)
+            ? 1
+            : ['rep-correction', 'awaiting-rep'].includes(fdhClaimProgress.stage)
+                ? 2
+                : fdhClaimProgress.stage === 'awaiting-statement'
+                    ? 3
+                    : 4;
 
     return (
         <div className="page-container" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1809,7 +1819,102 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     <div style={{ fontWeight: 700, color: '#2196f3' }}>ℹ️ เลือกกองทุนด้านซ้ายเพื่อดูเงื่อนไข</div>
                                 </div>                            )}
                         </div>
-                    </div>                    {/* Data Table Section */}
+                    </div>
+                    {showFdhClaimProgress && !loading && !error && (
+                        <section
+                            className={`specific-fund-fdh-monitor specific-fund-fdh-monitor--${fdhClaimProgress.stage}`}
+                            data-testid="fdh-claim-progress"
+                        >
+                            <div className="specific-fund-fdh-monitor__header">
+                                <div>
+                                    <div className="specific-fund-fdh-monitor__kicker">FDH CLAIM MONITOR</div>
+                                    <h2>{fdhClaimProgress.stageTitle}</h2>
+                                    <p>{fdhClaimProgress.stageDescription}</p>
+                                </div>
+                                <div className={`specific-fund-fdh-monitor__verdict ${fdhClaimProgress.isFullySubmitted ? 'is-complete' : 'is-incomplete'}`}>
+                                    <span>ส่งออกไปเบิกครบหรือไม่</span>
+                                    <strong>
+                                        {fdhClaimProgress.total === 0
+                                            ? 'ยังไม่มีข้อมูล'
+                                            : fdhClaimProgress.isFullySubmitted
+                                                ? 'ส่งครบแล้ว'
+                                                : 'ยังส่งไม่ครบ'}
+                                    </strong>
+                                    <small>
+                                        พบใน FDH {fdhClaimProgress.submitted}/{fdhClaimProgress.total} รายการ
+                                        {fdhClaimProgress.total > 0 ? ` (${fdhClaimProgress.coveragePercent}%)` : ''}
+                                    </small>
+                                </div>
+                            </div>
+
+                            <div className="specific-fund-fdh-monitor__metrics">
+                                <div className="specific-fund-fdh-metric">
+                                    <span>รายการที่ระบบพบ</span>
+                                    <strong>{fdhClaimProgress.total}</strong>
+                                    <small>เข้าเกณฑ์/ใกล้เข้าเกณฑ์</small>
+                                </div>
+                                <div className="specific-fund-fdh-metric is-ready">
+                                    <span>ข้อมูลพร้อมส่ง</span>
+                                    <strong>{fdhClaimProgress.ready}</strong>
+                                    <small>เงื่อนไขในระบบครบ</small>
+                                </div>
+                                <div className="specific-fund-fdh-metric is-submitted">
+                                    <span>ส่งเบิกแล้ว</span>
+                                    <strong>{fdhClaimProgress.submitted}</strong>
+                                    <small>พบข้อมูลจาก FDH</small>
+                                </div>
+                                <div className="specific-fund-fdh-metric is-pending">
+                                    <span>ยังไม่พบใน FDH</span>
+                                    <strong>{fdhClaimProgress.notSubmitted}</strong>
+                                    <small>ต้องส่งหรือตรวจสอบเพิ่ม</small>
+                                </div>
+                            </div>
+
+                            <div className="specific-fund-fdh-monitor__flow" aria-label="ลำดับขั้นตอนการเบิก FDH">
+                                {[
+                                    { label: 'ตรวจข้อมูล', value: `${fdhClaimProgress.ready}/${fdhClaimProgress.total}` },
+                                    { label: 'ส่ง FDH', value: `${fdhClaimProgress.submitted}/${fdhClaimProgress.total}` },
+                                    { label: 'รับ REP', value: `${fdhClaimProgress.repReceived}/${fdhClaimProgress.submitted}` },
+                                    { label: 'รับ STM/INV', value: `${fdhClaimProgress.statementReceived}/${fdhClaimProgress.submitted}` },
+                                ].map((step, index) => (
+                                    <div
+                                        key={step.label}
+                                        className={`specific-fund-fdh-step ${index < fdhStageIndex ? 'is-done' : ''} ${index === fdhStageIndex ? 'is-current' : ''}`}
+                                    >
+                                        <span className="specific-fund-fdh-step__dot">{index < fdhStageIndex ? '✓' : index + 1}</span>
+                                        <div>
+                                            <strong>{step.label}</strong>
+                                            <small>{step.value} รายการ</small>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {(fdhClaimProgress.readyNotSubmitted > 0
+                                || fdhClaimProgress.needsFixNotSubmitted > 0
+                                || fdhClaimProgress.submittedButIncomplete > 0
+                                || fdhClaimProgress.repErrors > 0) && (
+                                <div className="specific-fund-fdh-monitor__actions">
+                                    {fdhClaimProgress.readyNotSubmitted > 0 && (
+                                        <span className="is-urgent">พร้อมแต่ยังไม่ส่ง {fdhClaimProgress.readyNotSubmitted}</span>
+                                    )}
+                                    {fdhClaimProgress.needsFixNotSubmitted > 0 && (
+                                        <span className="is-warning">ต้องแก้ข้อมูลก่อนส่ง {fdhClaimProgress.needsFixNotSubmitted}</span>
+                                    )}
+                                    {fdhClaimProgress.submittedButIncomplete > 0 && (
+                                        <span className="is-review">ส่งแล้วแต่ข้อมูลปัจจุบันไม่ครบ {fdhClaimProgress.submittedButIncomplete}</span>
+                                    )}
+                                    {fdhClaimProgress.repErrors > 0 && (
+                                        <span className="is-urgent">REP ติด C/D {fdhClaimProgress.repErrors}</span>
+                                    )}
+                                </div>
+                            )}
+                            <div className="specific-fund-fdh-monitor__note">
+                                หลักการเทียบ: รายการที่พบใน ClaimDetail FDH หรือมีสถานะธุรกรรมจาก FDH ถือว่า “ส่งเบิกแล้ว”; คำตอบ “ไม่พบข้อมูล” ไม่นับเป็นการส่งเบิก
+                            </div>
+                        </section>
+                    )}
+                    {/* Data Table Section */}
                     <div style={{ display: 'flex', flexDirection: 'column' }}>                        {/* Date Filter */}
                         <div className="card" style={{ marginBottom: 10, flexShrink: 0 }}>
                             <div className="card-body specific-fund-filters" style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', padding: '12px 16px' }}>

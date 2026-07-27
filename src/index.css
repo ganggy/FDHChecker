@@ -2626,6 +2626,256 @@ p {
   min-width: 0;
 }
 
+.specific-fund-fdh-monitor {
+  --fdh-monitor-accent: #2563eb;
+  margin: 0 0 12px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--fdh-monitor-accent) 28%, #dbeafe);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--fdh-monitor-accent) 12%, transparent), transparent 38%),
+    linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
+}
+
+.specific-fund-fdh-monitor--prepare-data,
+.specific-fund-fdh-monitor--ready-to-submit,
+.specific-fund-fdh-monitor--partially-submitted {
+  --fdh-monitor-accent: #d97706;
+}
+
+.specific-fund-fdh-monitor--rep-correction {
+  --fdh-monitor-accent: #dc2626;
+}
+
+.specific-fund-fdh-monitor--awaiting-rep,
+.specific-fund-fdh-monitor--awaiting-statement {
+  --fdh-monitor-accent: #7c3aed;
+}
+
+.specific-fund-fdh-monitor--completed {
+  --fdh-monitor-accent: #059669;
+}
+
+.specific-fund-fdh-monitor__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+
+.specific-fund-fdh-monitor__kicker {
+  margin-bottom: 4px;
+  color: var(--fdh-monitor-accent);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+}
+
+.specific-fund-fdh-monitor__header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 18px;
+}
+
+.specific-fund-fdh-monitor__header p {
+  margin: 5px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.specific-fund-fdh-monitor__verdict {
+  min-width: 225px;
+  padding: 11px 14px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #9a3412;
+  text-align: right;
+}
+
+.specific-fund-fdh-monitor__verdict.is-complete {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.specific-fund-fdh-monitor__verdict span,
+.specific-fund-fdh-monitor__verdict small {
+  display: block;
+  font-size: 10px;
+}
+
+.specific-fund-fdh-monitor__verdict strong {
+  display: block;
+  margin: 2px 0;
+  font-size: 20px;
+}
+
+.specific-fund-fdh-monitor__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.specific-fund-fdh-metric {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.specific-fund-fdh-metric span,
+.specific-fund-fdh-metric small {
+  display: block;
+  color: #64748b;
+  font-size: 10px;
+}
+
+.specific-fund-fdh-metric strong {
+  display: block;
+  margin: 3px 0;
+  color: #0f172a;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.specific-fund-fdh-metric.is-ready {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.specific-fund-fdh-metric.is-submitted {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+}
+
+.specific-fund-fdh-metric.is-pending {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.specific-fund-fdh-monitor__flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 4px 0 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.specific-fund-fdh-step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  color: #94a3b8;
+}
+
+.specific-fund-fdh-step:not(:last-child)::after {
+  position: absolute;
+  z-index: 0;
+  top: 15px;
+  right: 7px;
+  left: 42px;
+  height: 2px;
+  background: #e2e8f0;
+  content: '';
+}
+
+.specific-fund-fdh-step.is-done:not(:last-child)::after {
+  background: #86efac;
+}
+
+.specific-fund-fdh-step__dot {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 2px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.specific-fund-fdh-step.is-done {
+  color: #047857;
+}
+
+.specific-fund-fdh-step.is-done .specific-fund-fdh-step__dot {
+  border-color: #10b981;
+  background: #10b981;
+  color: #fff;
+}
+
+.specific-fund-fdh-step.is-current {
+  color: var(--fdh-monitor-accent);
+}
+
+.specific-fund-fdh-step.is-current .specific-fund-fdh-step__dot {
+  border-color: var(--fdh-monitor-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--fdh-monitor-accent) 13%, transparent);
+  color: var(--fdh-monitor-accent);
+}
+
+.specific-fund-fdh-step strong,
+.specific-fund-fdh-step small {
+  display: block;
+  position: relative;
+  z-index: 1;
+  background: #f8fafc;
+  font-size: 10px;
+}
+
+.specific-fund-fdh-step strong {
+  font-size: 11px;
+}
+
+.specific-fund-fdh-monitor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.specific-fund-fdh-monitor__actions span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.specific-fund-fdh-monitor__actions .is-urgent {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.specific-fund-fdh-monitor__actions .is-warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.specific-fund-fdh-monitor__actions .is-review {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.specific-fund-fdh-monitor__note {
+  padding-top: 9px;
+  border-top: 1px dashed #cbd5e1;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .specific-fund-table-wrap {
   overflow-x: auto;
 }
@@ -2797,6 +3047,33 @@ p {
 
   .specific-fund-filters {
     align-items: stretch !important;
+  }
+
+  .specific-fund-fdh-monitor__header {
+    flex-direction: column;
+  }
+
+  .specific-fund-fdh-monitor__verdict {
+    width: 100%;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .specific-fund-fdh-monitor__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .specific-fund-fdh-monitor__flow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .specific-fund-fdh-step:not(:last-child)::after {
+    top: 31px;
+    bottom: -8px;
+    left: 14px;
+    width: 2px;
+    height: auto;
   }
 
   .summary-toolbar {

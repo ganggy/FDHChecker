@@ -133,32 +133,40 @@ export const FDHCheckerPage: React.FC = () => {
     }, []);
 
     const specialFundOptions = Array.from(data.reduce((options, item) => {
-        const matchedFunds = evaluateBillingLogic(item).matchedSpecialFundNotes;
-        matchedFunds.forEach((fundName) => {
-            const current = options.get(fundName) || { total: 0, ready: 0 };
+        const logic = evaluateBillingLogic(item);
+        new Set<string>(logic.detectedSpecialFundNotes).forEach((fundName) => {
+            const current = options.get(fundName) || { total: 0, ready: 0, pending: 0 };
             current.total += 1;
-            if (item.status === 'ready') current.ready += 1;
+            if (item.status === 'ready' && logic.matchedSpecialFundNotes.includes(fundName)) {
+                current.ready += 1;
+            } else {
+                current.pending += 1;
+            }
             options.set(fundName, current);
         });
         return options;
-    }, new Map<string, { total: number; ready: number }>()).entries())
+    }, new Map<string, { total: number; ready: number; pending: number }>()).entries())
         .map(([name, counts]) => ({ name, ...counts }))
         .sort((left, right) => left.name.localeCompare(right.name, 'th'));
 
     const matchesExportFund = (item: EligibleVisit) => exportFund === ALL_SPECIAL_FUNDS
-        || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund);
+        || evaluateBillingLogic(item).detectedSpecialFundNotes.includes(exportFund);
+
+    const isReadyForExportFund = (item: EligibleVisit) => item.status === 'ready'
+        && (exportFund === ALL_SPECIAL_FUNDS
+            || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund));
 
     const filtered = data.filter(item => {
         if (!matchesExportFund(item)) return false;
-        if (statusFilter === 'ready') return item.status === 'ready';
-        if (statusFilter === 'pending') return item.status === 'pending';
+        if (statusFilter === 'ready') return isReadyForExportFund(item);
+        if (statusFilter === 'pending') return !isReadyForExportFund(item);
         return true;
     });
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
             // Select only those that are ready
-            const readyVns = filtered.filter(i => i.status === 'ready').map(i => i.vn);
+            const readyVns = filtered.filter(isReadyForExportFund).map(i => i.vn);
             setSelectedVns(readyVns);
         } else {
             setSelectedVns([]);
@@ -172,7 +180,7 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const getReadyVns = () => {
-        const visibleReadyVns = filtered.filter(i => i.status === 'ready').map(i => i.vn).filter(Boolean);
+        const visibleReadyVns = filtered.filter(isReadyForExportFund).map(i => i.vn).filter(Boolean);
         if (selectedVns.length === 0) return visibleReadyVns;
         const visibleReadySet = new Set(visibleReadyVns);
         return selectedVns.filter((vn) => visibleReadySet.has(vn));
@@ -335,8 +343,8 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const fundFilteredData = data.filter(matchesExportFund);
-    const readyCount = fundFilteredData.filter(i => i.status === 'ready').length;
-    const pendingCount = fundFilteredData.filter(i => i.status === 'pending').length;
+    const readyCount = fundFilteredData.filter(isReadyForExportFund).length;
+    const pendingCount = fundFilteredData.length - readyCount;
     const exportVisitCount = getReadyVns().length;
 
 
@@ -458,7 +466,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 <option value={ALL_SPECIAL_FUNDS}>ทุกกองทุน / ทุก Visit ({data.length})</option>
                                 {specialFundOptions.map((fund) => (
                                     <option key={fund.name} value={fund.name}>
-                                        {fund.name} (พร้อมส่ง {fund.ready} / ทั้งหมด {fund.total})
+                                        {fund.name} (พร้อมส่ง {fund.ready} / รอแก้ {fund.pending})
                                     </option>
                                 ))}
                             </select>
@@ -533,9 +541,9 @@ export const FDHCheckerPage: React.FC = () => {
                                 <th style={{ width: 40, textAlign: 'center' }}>
                                     <input
                                         type="checkbox"
-                                        checked={selectedVns.length > 0 && selectedVns.length === filtered.filter(i => i.status === 'ready').length}
+                                        checked={selectedVns.length > 0 && selectedVns.length === filtered.filter(isReadyForExportFund).length}
                                         onChange={handleSelectAll}
-                                        disabled={filtered.filter(i => i.status === 'ready').length === 0}
+                                        disabled={filtered.filter(isReadyForExportFund).length === 0}
                                     />
                                 </th>
                                 <th style={{ width: 40 }}>#</th>
@@ -556,6 +564,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 {filtered.length > 0 ? (
                                     filtered.map((item, index) => {
                                         const logic = evaluateBillingLogic(item);
+                                        const readyForSelectedFund = isReadyForExportFund(item);
                                         const specialFundNotes = logic.specialFundNotes.filter((note) => !note.includes('ปิดสิทธิ'));
                                         const epNotes = logic.specialFundNotes.filter((note) => note.includes('ปิดสิทธิ'));
                                         const hasSpecialFundBlock = specialFundNotes.length > 0;
@@ -577,7 +586,7 @@ export const FDHCheckerPage: React.FC = () => {
                                                         type="checkbox"
                                                         checked={selectedVns.includes(item.vn)}
                                                         onChange={() => handleSelect(item.vn)}
-                                                        disabled={item.status !== 'ready'}
+                                                        disabled={!isReadyForExportFund(item)}
                                                     />
                                                 </td>
                                                 <td style={{ textAlign: 'center', opacity: 0.6, fontSize: 13 }}>{index + 1}</td>
@@ -693,7 +702,12 @@ export const FDHCheckerPage: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    {item.status === 'ready' ? (
+                                                    {exportFund !== ALL_SPECIAL_FUNDS && !readyForSelectedFund ? (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                            <span className="badge badge-warning">🟡 รอแก้เงื่อนไขกองทุน</span>
+                                                            <div style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 600 }}>{exportFund}</div>
+                                                        </div>
+                                                    ) : item.status === 'ready' ? (
                                                         <span className="badge badge-success">🟢 พร้อมส่ง</span>
                                                     ) : item.status === 'pending' ? (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

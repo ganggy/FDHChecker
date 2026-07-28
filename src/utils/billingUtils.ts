@@ -38,6 +38,12 @@ interface FundNote {
     group: FundNoteGroup;
 }
 
+const getSpecialFundSelectionName = (label: string) => label
+    .replace(/^⚠️\s*/, '')
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .split(':')[0]
+    .trim();
+
 const toBool = (value: unknown) => value === true || value === 1 || value === '1' || value === 'Y' || value === 'y';
 const cleanDiag = (value: unknown) => String(value ?? '').replace(/\./g, '').trim().toUpperCase();
 const cleanCode = (value: unknown) => String(value ?? '').replace(/\./g, '').trim().toUpperCase();
@@ -595,7 +601,11 @@ export const evaluateBillingLogic = (item: any) => {
             specialFundNotes: visibleFundNotes.map((note) => note.label),
             matchedSpecialFundNotes: visibleFundNotes
                 .filter((note) => note.kind === 'matched')
-                .map((note) => note.label),
+                .map((note) => getSpecialFundSelectionName(note.label)),
+            detectedSpecialFundNotes: visibleFundNotes
+                .filter((note) => note.kind === 'matched' || note.kind === 'warning')
+                .map((note) => getSpecialFundSelectionName(note.label))
+                .filter((label) => label && !label.startsWith('ขาด Diag')),
             isUUC1,
             incompleteFund,
             hasNoDiagnosis,
@@ -617,7 +627,11 @@ export const evaluateBillingLogic = (item: any) => {
         specialFundNotes: fundNotes.map((note) => note.label),
         matchedSpecialFundNotes: fundNotes
             .filter((note) => note.kind === 'matched')
-            .map((note) => note.label),
+            .map((note) => getSpecialFundSelectionName(note.label)),
+        detectedSpecialFundNotes: fundNotes
+            .filter((note) => note.kind === 'matched' || note.kind === 'warning')
+            .map((note) => getSpecialFundSelectionName(note.label))
+            .filter((label) => label && !label.startsWith('ขาด Diag')),
         isUUC1,
         incompleteFund: false,
         hasNoDiagnosis,

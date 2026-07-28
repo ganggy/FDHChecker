@@ -9825,6 +9825,33 @@ export const getCheckData = async (
         CASE WHEN ${buildServiceOrLabNameExistsSql('ovst', ANC_LAB_2_REGEX.cbc)} THEN 1 ELSE 0 END as anc_lab2_cbc,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30008' LIMIT 1) as has_anc_dental_exam,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30009' LIMIT 1) as has_anc_dental_clean,
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM dtmain dm
+          LEFT JOIN dttm tm ON tm.code = dm.tmcode
+          WHERE dm.vn = ovst.vn
+            AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+              IN ('2330011', '2330013')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_anc_dental_exam_procedure,
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM dtmain dm
+          LEFT JOIN dttm tm ON tm.code = dm.tmcode
+          WHERE dm.vn = ovst.vn
+            AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+              IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_anc_dental_clean_procedure,
+        (
+          SELECT GROUP_CONCAT(
+            DISTINCT COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+            ORDER BY dm.tm_no SEPARATOR ', '
+          )
+          FROM dtmain dm
+          LEFT JOIN dttm tm ON tm.code = dm.tmcode
+          WHERE dm.vn = ovst.vn
+        ) as dental_procedure_codes,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_CARE_DX_CODES)} THEN 1 ELSE 0 END as has_pp_diag,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_SUPPLEMENT_DX_CODES)} THEN 1 ELSE 0 END as has_pp_specific_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 1 ELSE 0 END as has_pp_adp,
@@ -10554,6 +10581,33 @@ export const getEligibleVisits = async (
         CASE WHEN ${buildServiceOrLabNameExistsSql('ovst', ANC_LAB_2_REGEX.cbc)} THEN 1 ELSE 0 END as anc_lab2_cbc,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30008' LIMIT 1) as has_anc_dental_exam,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30009' LIMIT 1) as has_anc_dental_clean,
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM dtmain dm
+          LEFT JOIN dttm tm ON tm.code = dm.tmcode
+          WHERE dm.vn = ovst.vn
+            AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+              IN ('2330011', '2330013')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_anc_dental_exam_procedure,
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM dtmain dm
+          LEFT JOIN dttm tm ON tm.code = dm.tmcode
+          WHERE dm.vn = ovst.vn
+            AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+              IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_anc_dental_clean_procedure,
+        (
+          SELECT GROUP_CONCAT(
+            DISTINCT COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+            ORDER BY dm.tm_no SEPARATOR ', '
+          )
+          FROM dtmain dm
+          LEFT JOIN dttm tm ON tm.code = dm.tmcode
+          WHERE dm.vn = ovst.vn
+        ) as dental_procedure_codes,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_CARE_DX_CODES)} THEN 1 ELSE 0 END as has_pp_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 1 ELSE 0 END as has_pp_adp,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30015' LIMIT 1) as has_post_care,

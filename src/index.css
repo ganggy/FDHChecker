@@ -2880,6 +2880,45 @@ p {
   overflow-x: auto;
 }
 
+.anc-claim-classification-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0 0 10px;
+  padding: 11px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #eff6ff, #f8fafc);
+  color: #1e3a8a;
+  font-size: 12px;
+}
+
+.anc-claim-classification-note__icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.anc-claim-classification-note p {
+  margin: 3px 0 0;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.fdh-failure-guidance {
+  display: -webkit-box;
+  max-width: 160px;
+  margin: 5px auto 0;
+  overflow: hidden;
+  color: #b91c1c;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .page-container .specific-fund-table-wrap .data-table.specific-fund-table--dental {
   min-width: 2440px;
 }

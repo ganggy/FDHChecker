@@ -376,6 +376,17 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const getImportedFdhLabel = (item: any) => item?.has_fdh_import
         ? (String(item?.fdh_import_status ?? '').trim() || 'พบในไฟล์ FDH')
         : 'ยังไม่พบไฟล์ FDH';
+    const isFdhProcessingFailed = (item: any) => {
+        const statusText = `${item?.fdh_import_status || ''} ${item?.fdh_claim_status_message || ''}`.trim();
+        return /ประมวลผลไม่ผ่าน|ไม่ผ่าน|reject|deny|failed/i.test(statusText);
+    };
+    const hasDedicatedAncService = (item: any) => (
+        toFlag(item?.has_anc_us)
+        || toFlag(item?.has_anc_lab1)
+        || toFlag(item?.has_anc_lab2)
+        || toFlag(item?.has_anc_dental_exam)
+        || toFlag(item?.has_anc_dental_clean)
+    );
     const hasMeaningfulRepCode = (value: unknown) => {
         const normalized = String(value ?? '').trim().toUpperCase();
         return !['', '-', '--', '0', 'N/A', 'NA', 'NONE', 'NULL'].includes(normalized);
@@ -829,6 +840,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'anc') {
             const hasVisitAdp = toFlag(item?.has_anc_visit) || hasAnyCodeValue(item?.anc_adp_codes, ['30011']);
+            // ANC sub-services (ultrasound, lab and dental) are separate claim
+            // items. Do not label them as a near-miss ANC Visit merely because
+            // the visit also carries Z34/Z35.
+            if (!hasVisitAdp && hasDedicatedAncService(item)) {
+                return buildStatusResult([], [], undefined, false);
+            }
             const ancVisitEvidence = hasVisitAdp || hasAncDiag;
             const isMatched = isFemale && hasAncDiag && hasVisitAdp;
             if (ancVisitEvidence) subfunds.push('🤰 ANC Visit');
@@ -1112,6 +1129,16 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     };
 
     const getStatus = (item: any) => getStatusForFund(item, activeFund);
+    const getFdhFailureGuidance = (item: any, status = getStatus(item)) => {
+        if (!isFdhProcessingFailed(item)) return '';
+        if (status.missingConditions?.length > 0) {
+            return `ข้อมูลต้นทางยังขาด: ${status.missingConditions.join(', ')}`;
+        }
+        if (hasRepCError(item) || hasRepDenyError(item)) {
+            return `พบ REP: ${getRepImportLabel(item)} — คลิกปุ่ม REP เพื่อดูแนวทางแก้`;
+        }
+        return 'ข้อมูลต้นทางครบตามเกณฑ์เบื้องต้น แต่ ClaimDetail ไม่ระบุสาเหตุ ต้องนำเข้า REP เพื่อดูรหัสปฏิเสธ C/D';
+    };
     const getStatusForFundRef = useRef(getStatusForFund);
     getStatusForFundRef.current = getStatusForFund;
 
@@ -1174,6 +1201,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
     // Show only visits that either match the fund or are close enough to warn what is missing.
     const actionableData = data.filter((item) => getStatus(item).status !== 'ยังไม่เข้าเงื่อนไข');
+    const excludedAncServiceRows = activeFund === 'anc'
+        ? data.filter((item) => (
+            !toFlag(item?.has_anc_visit)
+            && !hasAnyCodeValue(item?.anc_adp_codes, ['30011'])
+            && hasDedicatedAncService(item)
+        ))
+        : [];
+    const excludedAncFailedRows = excludedAncServiceRows.filter(isFdhProcessingFailed);
     const filteredData = showRepCOnly
         ? actionableData.filter(hasRepCError)
         : showIncompleteOnly
@@ -2062,6 +2097,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                 <button onClick={() => setTrackResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit' }}>✕</button>
                             </div>
                         )}
+                        {!loading && activeFund === 'anc' && excludedAncServiceRows.length > 0 && (
+                            <div className="anc-claim-classification-note">
+                                <div className="anc-claim-classification-note__icon">ℹ️</div>
+                                <div>
+                                    <strong>แยกบริการ ANC ประเภทย่อยออกจาก ANC Visit แล้ว {excludedAncServiceRows.length} รายการ</strong>
+                                    <p>
+                                        รายการเหล่านี้มีบริการ Ultrasound/Lab/ทันตกรรม แต่ไม่มี ADP 30011
+                                        จึงไม่ควรถูกนับเป็น ANC Visit
+                                        {excludedAncFailedRows.length > 0 && (
+                                            <> — พบสถานะ FDH “ประมวลผลไม่ผ่าน” {excludedAncFailedRows.length} รายการ ให้ตรวจต่อในเมนูกองทุนย่อยและนำเข้า REP เพื่อดูรหัสปฏิเสธ</>
+                                        )}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                         {loading && <div className="loading-container"><div className="spinner" /><span>กำลังโหลดข้อมูล...</span></div>}
                         {error && <div className="alert alert-danger">{error}</div>}
                         {!loading && !error && (
@@ -2256,7 +2306,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     <th style={{ width: 120, textAlign: 'center' }}>สถานะส่งเบิก</th>
                                     <th style={{ width: 130, textAlign: 'center' }}>สถานะ FDH</th>
                                     <th style={{ width: 100, textAlign: 'center' }}>FDH Status</th>
-                                    <th style={{ width: 110, textAlign: 'center' }}>ไฟล์ FDH</th>
+                                    <th style={{ width: 170, textAlign: 'center' }}>ไฟล์ FDH / เหตุผล</th>
                                     <th style={{ width: 90, textAlign: 'center' }}>REP</th>
                                     <th style={{ width: 110, textAlign: 'center' }}>STM/INV</th>
                                 </tr>
@@ -2808,6 +2858,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     <span className={`badge ${item.has_fdh_import ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: 10 }} title={item.fdh_import_claim_code || ''}>
                                                         {getImportedFdhLabel(item)}
                                                     </span>
+                                                    {getFdhFailureGuidance(item, st) && (
+                                                        <div className="fdh-failure-guidance" title={getFdhFailureGuidance(item, st)}>
+                                                            {getFdhFailureGuidance(item, st)}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <button

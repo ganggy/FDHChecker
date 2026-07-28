@@ -10882,7 +10882,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
 
     // 6. OOP (Procedures)
     const oop = await runQuery('OOP', `
-      SELECT * FROM (
+      SELECT DISTINCT * FROM (
         SELECT 
           o.hn AS HN,
           DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEOPD,
@@ -10913,8 +10913,33 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         LEFT JOIN spclty sp ON sp.spclty = o.spclty
         LEFT JOIN patient pt ON o.hn = pt.hn
         WHERE dro.vn IN (?) AND COALESCE(eoc.icd9cm, eoc.icd10tm, '') <> ''
+        UNION ALL
+        SELECT
+          o.hn AS HN,
+          DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEOPD,
+          COALESCE(sp.provis_code, o.main_dep, '') AS CLINIC,
+          COALESCE(
+            NULLIF(TRIM(tm.icd10tm_operation_code), ''),
+            NULLIF(TRIM(tm.icd9cm), ''),
+            NULLIF(TRIM(dm.icd9), '')
+          ) AS OPER,
+          dm.doctor AS DROPID,
+          COALESCE(pt.cid, '') AS PERSON_ID,
+          o.vn AS SEQ,
+          '' AS SERVPRICE
+        FROM dtmain dm
+        JOIN ovst o ON dm.vn = o.vn
+        LEFT JOIN dttm tm ON tm.code = dm.tmcode
+        LEFT JOIN spclty sp ON sp.spclty = o.spclty
+        LEFT JOIN patient pt ON o.hn = pt.hn
+        WHERE dm.vn IN (?)
+          AND COALESCE(
+            NULLIF(TRIM(tm.icd10tm_operation_code), ''),
+            NULLIF(TRIM(tm.icd9cm), ''),
+            NULLIF(TRIM(dm.icd9), '')
+          ) <> ''
       ) base
-    `, [vns, vns]);
+    `, [vns, vns, vns]);
 
     // 7. IPD (Admission)
     const ipd = await runQuery('IPD', `

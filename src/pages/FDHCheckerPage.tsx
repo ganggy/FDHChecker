@@ -48,6 +48,7 @@ interface EligibleVisit {
 }
 
 type FdhExportProfile = 'standard' | 'fwf-migrants';
+const ALL_SPECIAL_FUNDS = '__all_special_funds__';
 
 interface FdhValidationIssue {
     code: string;
@@ -78,6 +79,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
     const [exportWithHeader, setExportWithHeader] = useState(true);
     const [exportProfile, setExportProfile] = useState<FdhExportProfile>('standard');
+    const [exportFund, setExportFund] = useState(ALL_SPECIAL_FUNDS);
     const [fcodeByHn, setFcodeByHn] = useState<Record<string, string>>({});
     const [previewValidation, setPreviewValidation] = useState<FdhValidationResult | null>(null);
     const [submitting, setSubmitting] = useState(false);
@@ -130,7 +132,24 @@ export const FDHCheckerPage: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    const specialFundOptions = Array.from(data.reduce((options, item) => {
+        const matchedFunds = evaluateBillingLogic(item).matchedSpecialFundNotes;
+        matchedFunds.forEach((fundName) => {
+            const current = options.get(fundName) || { total: 0, ready: 0 };
+            current.total += 1;
+            if (item.status === 'ready') current.ready += 1;
+            options.set(fundName, current);
+        });
+        return options;
+    }, new Map<string, { total: number; ready: number }>()).entries())
+        .map(([name, counts]) => ({ name, ...counts }))
+        .sort((left, right) => left.name.localeCompare(right.name, 'th'));
+
+    const matchesExportFund = (item: EligibleVisit) => exportFund === ALL_SPECIAL_FUNDS
+        || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund);
+
     const filtered = data.filter(item => {
+        if (!matchesExportFund(item)) return false;
         if (statusFilter === 'ready') return item.status === 'ready';
         if (statusFilter === 'pending') return item.status === 'pending';
         return true;
@@ -152,9 +171,12 @@ export const FDHCheckerPage: React.FC = () => {
         );
     };
 
-    const getReadyVns = () => selectedVns.length > 0
-        ? selectedVns
-        : filtered.filter(i => i.status === 'ready').map(i => i.vn).filter(Boolean);
+    const getReadyVns = () => {
+        const visibleReadyVns = filtered.filter(i => i.status === 'ready').map(i => i.vn).filter(Boolean);
+        if (selectedVns.length === 0) return visibleReadyVns;
+        const visibleReadySet = new Set(visibleReadyVns);
+        return selectedVns.filter((vn) => visibleReadySet.has(vn));
+    };
 
     const buildFdhPayload = (vns: string[]) => ({
         vns,
@@ -312,8 +334,10 @@ export const FDHCheckerPage: React.FC = () => {
         }
     };
 
-    const readyCount = data.filter(i => i.status === 'ready').length;
-    const pendingCount = data.filter(i => i.status === 'pending').length;
+    const fundFilteredData = data.filter(matchesExportFund);
+    const readyCount = fundFilteredData.filter(i => i.status === 'ready').length;
+    const pendingCount = fundFilteredData.filter(i => i.status === 'pending').length;
+    const exportVisitCount = getReadyVns().length;
 
 
 
@@ -377,9 +401,7 @@ export const FDHCheckerPage: React.FC = () => {
                         >
                             {exporting
                                 ? '⏳ กำลังสร้าง ZIP...'
-                                : selectedVns.length > 0
-                                    ? `📦 ส่งออก 16 แฟ้ม ZIP (${selectedVns.length} รายการ)`
-                                    : `📦 ส่งออก 16 แฟ้ม ZIP (พร้อมส่งทั้งหมด)`}
+                                : `📦 ส่งออก 16 แฟ้ม ZIP (${exportVisitCount} รายการ)`}
                         </button>
                     </div>
                 </div>
@@ -421,6 +443,28 @@ export const FDHCheckerPage: React.FC = () => {
                                 <option value="standard">FDH 16 แฟ้มทั่วไป</option>
                                 <option value="fwf-migrants">FWF Migrants (แรงงานต่างด้าว)</option>
                             </select>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">🏷️ กองทุนที่จะส่งออก</label>
+                            <select
+                                className="form-control"
+                                value={exportFund}
+                                onChange={(event) => {
+                                    setExportFund(event.target.value);
+                                    setSelectedVns([]);
+                                    setPreviewValidation(null);
+                                }}
+                            >
+                                <option value={ALL_SPECIAL_FUNDS}>ทุกกองทุน / ทุก Visit ({data.length})</option>
+                                {specialFundOptions.map((fund) => (
+                                    <option key={fund.name} value={fund.name}>
+                                        {fund.name} (พร้อมส่ง {fund.ready} / ทั้งหมด {fund.total})
+                                    </option>
+                                ))}
+                            </select>
+                            <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+                                ตาราง ตรวจสอบก่อนส่ง และ ZIP จะใช้กองทุนเดียวกัน
+                            </div>
                         </div>
                         <div className="form-group">
                             <label className="form-label">🔍 สถานะความพร้อม</label>

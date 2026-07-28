@@ -593,6 +593,9 @@ export const evaluateBillingLogic = (item: any) => {
             bgStyle,
             billingStatusLabel,
             specialFundNotes: visibleFundNotes.map((note) => note.label),
+            matchedSpecialFundNotes: visibleFundNotes
+                .filter((note) => note.kind === 'matched')
+                .map((note) => note.label),
             isUUC1,
             incompleteFund,
             hasNoDiagnosis,
@@ -612,6 +615,9 @@ export const evaluateBillingLogic = (item: any) => {
         bgStyle,
         billingStatusLabel,
         specialFundNotes: fundNotes.map((note) => note.label),
+        matchedSpecialFundNotes: fundNotes
+            .filter((note) => note.kind === 'matched')
+            .map((note) => note.label),
         isUUC1,
         incompleteFund: false,
         hasNoDiagnosis,

@@ -57,6 +57,28 @@ test('PERMITNO is conditional by fund and remains required for UCS', () => {
   assert.equal(result.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), true);
 });
 
+test('preflight rejects an AER row that is not refer, accident or emergency', () => {
+  const data = validFwfData();
+  data.AER = [{
+    HN: '0001',
+    AN: '',
+    DATEOPD: '20260720',
+    UCAE: '',
+    SEQ: 'VN1',
+  }];
+  const result = validateFdhData(projectFdhData(data, 'standard'), 'standard', '11101');
+  assert.equal(result.errors.some((issue) => issue.code === 'AER_OPTYPE_INVALID'), true);
+});
+
+test('preflight rejects placeholder HCODE 00000', () => {
+  const data = validFwfData();
+  data.INS[0].HCODE = '00000';
+  data.PAT[0].HCODE = '00000';
+  const result = validateFdhData(data, 'fwf-migrants', '11101');
+  assert.equal(result.errors.some((issue) => issue.code === 'FWF_HCODE'), true);
+  assert.equal(result.errors.some((issue) => issue.code === 'HCODE_FORMAT' && issue.file === 'PAT'), true);
+});
+
 test('preflight blocks missing FCode, missing invoice and unbalanced CHA', () => {
   const data = validFwfData();
   data.INS[0].CID = '';

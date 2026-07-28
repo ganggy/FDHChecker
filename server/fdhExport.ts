@@ -139,6 +139,10 @@ const TIME_FIELDS = new Set(['TIMEOPD', 'TIMEADM', 'TIMEDSC', 'AETIME', 'TIMEIN'
 const value = (row: FdhRow, field: string) => normalizePipeValue(row[field]);
 const keyOf = (row: FdhRow, fields: string[]) => fields.map((field) => value(row, field)).join('|');
 const money = (input: unknown) => Number.parseFloat(normalizePipeValue(input) || '0');
+const isValidHcode = (input: unknown) => {
+  const hcode = normalizePipeValue(input);
+  return /^\d{5}$/.test(hcode) && hcode !== '00000';
+};
 const isCalendarDate = (text: string) => {
   if (!/^\d{8}$/.test(text)) return false;
   const year = Number(text.slice(0, 4));
@@ -232,18 +236,18 @@ export const validateFdhData = (
       if (value(row, 'INSCL') !== 'FWF') add({ code: 'FWF_INSCL', file: 'INS', row: index + 1, field: 'INSCL', message: 'FWF Migrants กำหนด INSCL เป็น FWF' });
       if (!value(row, 'CID')) add({ code: 'FWF_FCODE', file: 'INS', row: index + 1, field: 'CID', message: `HN ${hn} ยังไม่มี FCode จาก FDH-Migrants` });
       if (Buffer.byteLength(value(row, 'CID'), 'utf8') > 16) add({ code: 'FWF_FCODE_LENGTH', file: 'INS', row: index + 1, field: 'CID', message: `HN ${hn}: FCode ต้องยาวไม่เกิน 16 bytes` });
-      if (!/^\d{5}$/.test(value(row, 'HCODE'))) add({ code: 'FWF_HCODE', file: 'INS', row: index + 1, field: 'HCODE', message: 'HCODE ต้องเป็นตัวเลข 5 หลัก' });
+      if (!isValidHcode(value(row, 'HCODE'))) add({ code: 'FWF_HCODE', file: 'INS', row: index + 1, field: 'HCODE', message: 'HCODE ต้องเป็นตัวเลข 5 หลักและห้ามเป็น 00000' });
     }
   });
 
   data.PAT.forEach((row, index) => {
     const hcode = value(row, 'HCODE');
-    if (!/^\d{5}$/.test(hcode)) add({ code: 'HCODE_FORMAT', file: 'PAT', row: index + 1, field: 'HCODE', message: 'PAT.HCODE ต้องเป็นตัวเลข 5 หลัก' });
+    if (!isValidHcode(hcode)) add({ code: 'HCODE_FORMAT', file: 'PAT', row: index + 1, field: 'HCODE', message: 'PAT.HCODE ต้องเป็นตัวเลข 5 หลักและห้ามเป็น 00000' });
     if (expectedHcode && hcode !== expectedHcode) add({ code: 'HCODE_MISMATCH', file: 'PAT', row: index + 1, field: 'HCODE', message: `PAT HCODE ${hcode || '(ว่าง)'} ไม่ตรงกับหน่วยบริการ ${expectedHcode}` });
   });
   data.DRU.forEach((row, index) => {
     const hcode = value(row, 'HCODE');
-    if (!/^\d{5}$/.test(hcode)) add({ code: 'HCODE_FORMAT', file: 'DRU', row: index + 1, field: 'HCODE', message: 'DRU.HCODE ต้องเป็นตัวเลข 5 หลัก' });
+    if (!isValidHcode(hcode)) add({ code: 'HCODE_FORMAT', file: 'DRU', row: index + 1, field: 'HCODE', message: 'DRU.HCODE ต้องเป็นตัวเลข 5 หลักและห้ามเป็น 00000' });
     if (expectedHcode && hcode !== expectedHcode) add({ code: 'HCODE_MISMATCH', file: 'DRU', row: index + 1, field: 'HCODE', message: `DRU HCODE ${hcode || '(ว่าง)'} ไม่ตรงกับหน่วยบริการ ${expectedHcode}` });
   });
 
@@ -256,6 +260,15 @@ export const validateFdhData = (
   data.AER.forEach((row, index) => {
     const optype = value(opdByKey.get(keyOf(row, ['HN', 'SEQ'])) || {}, 'OPTYPE');
     const ucae = value(row, 'UCAE');
+    if (!['0', '1', '2', '3'].includes(optype)) {
+      add({
+        code: 'AER_OPTYPE_INVALID',
+        file: 'AER',
+        row: index + 1,
+        field: 'UCAE',
+        message: `AER แถว ${index + 1}: มีข้อมูล AER แต่ OPD.OPTYPE ไม่ใช่ Refer/Accident/Emergency`,
+      });
+    }
     if (['2', '3'].includes(optype) && !ucae) {
       add({ code: 'AER_UCAE_REQUIRED', file: 'AER', row: index + 1, field: 'UCAE', message: `AER แถว ${index + 1}: OPTYPE ${optype} ต้องระบุ UCAE` });
     }

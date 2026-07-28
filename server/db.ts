@@ -10778,15 +10778,24 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
   const connection = await getUTFConnection();
   try {
     // 🏥 1. Get hospital code from config (Check multiple column variations)
-    let hcode = process.env.HOSXP_HCODE || businessRules.hospital.hcode;
+    const validHcode = (value: unknown) => {
+      const normalized = String(value ?? '').trim();
+      return /^\d{5}$/.test(normalized) && normalized !== '00000' ? normalized : '';
+    };
+    let hcode = validHcode(process.env.HOSXP_HCODE)
+      || validHcode(businessRules.hospital.hcode)
+      || validHcode((businessRules as any)?.site_settings?.hospital_code);
     try {
       const [config] = await connection.query('SELECT * FROM opdconfig LIMIT 1');
       const conf = (config as any)?.[0];
       if (conf) {
-        hcode = conf.hospitalcode || conf.hospital_code || hcode;
+        hcode = validHcode(conf.hospitalcode) || validHcode(conf.hospital_code) || hcode;
       }
     } catch (e) {
       console.warn('⚠️ Could not fetch hospitalcode from opdconfig, using default:', hcode);
+    }
+    if (!hcode) {
+      throw new Error('ไม่พบ HCODE หน่วยบริการที่ถูกต้อง กรุณาตั้งค่า HOSXP_HCODE เป็นตัวเลข 5 หลักที่ไม่ใช่ 00000');
     }
 
     const profile = options.profile === 'fwf-migrants' ? 'fwf-migrants' : 'standard';
@@ -11176,7 +11185,12 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       LEFT JOIN referout ro ON ro.vn = o.vn
       LEFT JOIN er_regist er ON er.vn = o.vn
       LEFT JOIN er_pt_type ept ON ept.er_pt_type = er.er_pt_type
-      WHERE o.vn IN (?) AND (ri.vn IS NOT NULL OR ro.vn IS NOT NULL OR er.vn IS NOT NULL)
+      WHERE o.vn IN (?)
+        AND (
+          ri.vn IS NOT NULL
+          OR ro.vn IS NOT NULL
+          OR UPPER(COALESCE(ept.ucae, '')) IN ('A', 'E')
+        )
     `, [vns]);
 
     // 14. ADP (Additionals)

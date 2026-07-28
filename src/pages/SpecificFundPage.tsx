@@ -1804,6 +1804,29 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     </div>
                                 </>
                             )}
+                            {(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') && (
+                                <>
+                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
+                                        <div style={{ fontWeight: 700, color: '#e65100', marginBottom: '4px' }}>✓ Diagnosis ฝากครรภ์</div>
+                                        <div style={{ color: '#bf360c' }}>Z34 หรือ Z35</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
+                                        <div style={{ fontWeight: 700, color: '#2e7d32', marginBottom: '4px' }}>✓ ADP Code</div>
+                                        <div style={{ color: '#1b5e20' }}>{activeFund === 'anc_dental_exam' ? '30008' : '30009'}</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: 'span 2' }}>
+                                        <div style={{ fontWeight: 700, color: '#1565c0', marginBottom: '4px' }}>✓ หัตถการทันตกรรม</div>
+                                        <div style={{ color: '#0d47a1', fontFamily: 'monospace', lineHeight: 1.6 }}>
+                                            {activeFund === 'anc_dental_exam'
+                                                ? '2330011, 2330013'
+                                                : '2387010, 2277310, 2277320, 2287310, 2287320'}
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: '10px 12px', background: '#f3e5f5', borderRadius: '8px', borderLeft: '3px solid #9c27b0', gridColumn: '1 / -1', color: '#6a1b9a', fontSize: 12 }}>
+                                        ตรวจช่องปากและขัดทำความสะอาดฟันรวมอัตรา 500 บาทต่อการตั้งครรภ์ และไม่จำเป็นต้องให้บริการในวันเดียวกัน
+                                    </div>
+                                </>
+                            )}
                             {['mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
                                 <>
                                     <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
@@ -1827,7 +1850,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     </div>
                                 </>
                             )}
-                            {!['palliative', 'telemedicine', 'herb', 'knee', 'chemo', 'hepc', 'hepb', 'rehab', 'crrt', 'robot', 'proton', 'cxr', 'fp', 'preg_test', 'mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
+                            {!['palliative', 'telemedicine', 'herb', 'knee', 'chemo', 'hepc', 'hepb', 'rehab', 'crrt', 'robot', 'proton', 'cxr', 'fp', 'preg_test', 'anc_dental_exam', 'anc_dental_clean', 'mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
                                 <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: '1 / -1' }}>
                                     <div style={{ fontWeight: 700, color: '#2196f3' }}>ℹ️ เลือกกองทุนด้านซ้ายเพื่อดูเงื่อนไข</div>
                                 </div>                            )}

@@ -11419,7 +11419,27 @@ export const getDiagsAndProcedures = async (vn: string) => {
       FROM er_regist_oper eo
       LEFT JOIN er_oper_code e ON eo.er_oper_code = e.er_oper_code
       WHERE eo.vn = ?
-    `, [vn, vn]);
+      UNION ALL
+      SELECT
+        COALESCE(
+          NULLIF(TRIM(tm.icd10tm_operation_code), ''),
+          NULLIF(TRIM(tm.icd9cm), ''),
+          NULLIF(TRIM(dm.icd9), ''),
+          dm.tmcode
+        ) as code,
+        COALESCE(
+          NULLIF(TRIM(tm.thai_name), ''),
+          NULLIF(TRIM(tm.name), ''),
+          NULLIF(TRIM(dm.ttcode), ''),
+          'หัตถการทันตกรรม'
+        ) as name,
+        'Dental' as type,
+        'Procedure' as category
+      FROM dtmain dm
+      LEFT JOIN dttm tm ON tm.code = dm.tmcode
+      WHERE dm.vn = ?
+      ORDER BY code
+    `, [vn, vn, vn]);
 
     return {
       clinical: Array.isArray(clinicalRows) ? clinicalRows[0] || { cc: '', hpi: '' } : { cc: '', hpi: '' },

@@ -10689,13 +10689,47 @@ export const getEligibleVisits = async (
         COALESCE(
           (SELECT nhso_status FROM nhso_confirm_privilege WHERE vn = ovst.vn LIMIT 1),
           ''
-        ) as close_status
+        ) as close_status,
+        COALESCE(
+          NULLIF(fdh_detail.claim_status, ''),
+          NULLIF(fdh.fdh_reservation_status, ''),
+          NULLIF(fdh.fdh_claim_status_message, ''),
+          IF(fdh.transaction_uid IS NOT NULL, 'ส่ง FDH แล้ว', NULL)
+        ) as fdh_status_label,
+        fdh_detail.claim_status as fdh_claim_detail_status,
+        fdh_detail.claim_code as fdh_claim_code,
+        fdh_detail.upload_uid as fdh_upload_uid,
+        fdh_detail.sent_at as fdh_sent_at,
+        fdh.fdh_reservation_status,
+        fdh.fdh_claim_status_message,
+        fdh.error_code as fdh_error_code,
+        fdh.updated_at as fdh_updated_at
 
       FROM ovst
       LEFT JOIN patient pt ON ovst.hn = pt.hn
       LEFT JOIN pttype ON ovst.pttype = pttype.pttype
       LEFT JOIN vn_stat v ON v.vn = ovst.vn
       LEFT JOIN ovstist ON ovstist.ovstist = ovst.ovstist
+      LEFT JOIN (
+        SELECT d.*
+        FROM repstminv.fdh_claim_detail_row d
+        JOIN (
+          SELECT vn, MAX(id) AS latest_id
+          FROM repstminv.fdh_claim_detail_row
+          WHERE IFNULL(vn, '') <> ''
+          GROUP BY vn
+        ) latest ON latest.latest_id = d.id
+      ) fdh_detail ON fdh_detail.vn = ovst.vn
+      LEFT JOIN (
+        SELECT s.*
+        FROM fdh_claim_status s
+        JOIN (
+          SELECT vn, MAX(updated_at) AS latest_updated_at
+          FROM fdh_claim_status
+          WHERE IFNULL(vn, '') <> ''
+          GROUP BY vn
+        ) latest ON latest.vn = s.vn AND latest.latest_updated_at = s.updated_at
+      ) fdh ON fdh.vn = ovst.vn
       WHERE 1=1
     `;
 

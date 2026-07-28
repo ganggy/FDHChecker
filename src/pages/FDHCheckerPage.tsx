@@ -45,6 +45,15 @@ interface EligibleVisit {
     has_pal_diag: number;
     has_pal_adp: number;
     age_y: number;
+    fdh_status_label?: string | null;
+    fdh_claim_detail_status?: string | null;
+    fdh_claim_code?: string | null;
+    fdh_upload_uid?: string | null;
+    fdh_sent_at?: string | null;
+    fdh_reservation_status?: string | null;
+    fdh_claim_status_message?: string | null;
+    fdh_error_code?: string | null;
+    fdh_updated_at?: string | null;
 }
 
 type FdhExportProfile = 'standard' | 'fwf-migrants';
@@ -225,7 +234,7 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const handleExportCSV = () => {
-        const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะข้อมูล,ราคา (บาท)';
+        const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะ FDH,สถานะข้อมูล,ราคา (บาท)';
         const rows = filtered.map((item, index) => {
             const logic = evaluateBillingLogic(item);
             return [
@@ -238,6 +247,7 @@ export const FDHCheckerPage: React.FC = () => {
                 'ผู้ป่วยนอก', // FDH Checker logic usually targets OPD for now or use item._dataSource
                 item.main_diag || '-',
                 logic.isUUC1 ? 'UUC1' : 'UUC2',
+                item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
                 item.status === 'ready' ? 'พร้อมส่ง (ปิดสิทธิแล้ว)' : 'รอแก้ไข/รอปิดสิทธิ',
                 item.total_price
             ].join(',')
@@ -263,6 +273,7 @@ export const FDHCheckerPage: React.FC = () => {
                 'ประเภท': 'ผู้ป่วยนอก',
                 'DIAG': item.main_diag || '-',
                 'สถานะกองทุน': logic.isUUC1 ? 'UUC1' : 'UUC2',
+                'สถานะ FDH': item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
                 'สถานะข้อมูล': item.status === 'ready' ? 'พร้อมส่ง (ปิดสิทธิแล้ว)' : 'รอแก้ไข/รอปิดสิทธิ',
                 'ราคา (บาท)': item.total_price
             };
@@ -275,7 +286,7 @@ export const FDHCheckerPage: React.FC = () => {
         const colWidths = [
             { wch: 5 }, { wch: 15 }, { wch: 12 }, { wch: 30 },
             { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 10 },
-            { wch: 15 }, { wch: 12 }, { wch: 12 }
+            { wch: 15 }, { wch: 24 }, { wch: 12 }, { wch: 12 }
         ];
         worksheet['!cols'] = colWidths;
 
@@ -557,6 +568,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 <th style={{ textAlign: 'center' }}>Invoice</th>
                                 <th style={{ textAlign: 'center' }}>ปิดสิทธิ (EP)</th>
                                 <th style={{ minWidth: 200 }}>สถานะกองทุน (สปสช.)</th>
+                                <th style={{ minWidth: 180 }}>สถานะ FDH</th>
                                 <th>สถานะส่งออก / ข้อมูล</th>
                             </tr>
                         </thead>
@@ -565,6 +577,15 @@ export const FDHCheckerPage: React.FC = () => {
                                     filtered.map((item, index) => {
                                         const logic = evaluateBillingLogic(item);
                                         const readyForSelectedFund = isReadyForExportFund(item);
+                                        const fdhStatus = String(item.fdh_status_label || '').trim();
+                                        const fdhStatusText = `${fdhStatus} ${item.fdh_error_code || ''}`.trim();
+                                        const fdhStatusClass = /ประมวลผลไม่ผ่าน|ไม่ผ่าน|reject|deny|failed|error/i.test(fdhStatusText)
+                                            ? 'badge-danger'
+                                            : /ผ่าน|สำเร็จ|accepted|approved|อนุมัติ/i.test(fdhStatusText)
+                                                ? 'badge-success'
+                                                : fdhStatus
+                                                    ? 'badge-info'
+                                                    : 'badge-secondary';
                                         const specialFundNotes = logic.specialFundNotes.filter((note) => !note.includes('ปิดสิทธิ'));
                                         const epNotes = logic.specialFundNotes.filter((note) => note.includes('ปิดสิทธิ'));
                                         const hasSpecialFundBlock = specialFundNotes.length > 0;
@@ -702,6 +723,25 @@ export const FDHCheckerPage: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                                                        <span className={`badge ${fdhStatusClass}`} style={{ fontSize: 10 }}>
+                                                            {fdhStatus || 'ยังไม่พบข้อมูล FDH'}
+                                                        </span>
+                                                        {item.fdh_error_code && (
+                                                            <span style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 700 }}>
+                                                                Error: {item.fdh_error_code}
+                                                            </span>
+                                                        )}
+                                                        {(item.fdh_claim_code || item.fdh_sent_at || item.fdh_updated_at) && (
+                                                            <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>
+                                                                {item.fdh_claim_code ? `Claim: ${item.fdh_claim_code}` : ''}
+                                                                {item.fdh_claim_code && (item.fdh_sent_at || item.fdh_updated_at) ? ' • ' : ''}
+                                                                {item.fdh_sent_at || item.fdh_updated_at || ''}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td>
                                                     {exportFund !== ALL_SPECIAL_FUNDS && !readyForSelectedFund ? (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                                             <span className="badge badge-warning">🟡 รอแก้เงื่อนไขกองทุน</span>
@@ -723,7 +763,7 @@ export const FDHCheckerPage: React.FC = () => {
                                     })
                                 ) : (
                                     <tr>
-                                        <td colSpan={exportProfile === 'fwf-migrants' ? 13 : 12} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
+                                        <td colSpan={exportProfile === 'fwf-migrants' ? 14 : 13} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
                                             ไม่พบข้อมูล Visit ในช่วงวันที่เลือก
                                         </td>
                                     </tr>

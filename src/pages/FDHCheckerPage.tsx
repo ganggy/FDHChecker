@@ -80,6 +80,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'pending'>('all');
+    const [searchTerm, setSearchTerm] = useState('');
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [selectedVns, setSelectedVns] = useState<string[]>([]);
     const [exporting, setExporting] = useState(false);
@@ -165,11 +166,41 @@ export const FDHCheckerPage: React.FC = () => {
         && (exportFund === ALL_SPECIAL_FUNDS
             || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund));
 
+    const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+    const matchesSearchTerm = (item: EligibleVisit) => {
+        const query = normalizeSearchValue(searchTerm);
+        if (!query) return true;
+
+        const logic = evaluateBillingLogic(item);
+        const haystack = [
+            item.vn,
+            item.hn,
+            item.patientName,
+            item.fund,
+            item.hipdata_code,
+            item.serviceDate,
+            item.main_diag,
+            item.project_code,
+            item.fdh_status_label,
+            item.fdh_claim_code,
+            item.fdh_error_code,
+            item.fdh_claim_detail_status,
+            logic.billingStatusLabel,
+            logic.matchedFund ? 'พร้อมส่ง' : '',
+            logic.incompleteFund ? 'รอแก้ไข' : '',
+            ...logic.specialFundNotes,
+            ...item.missing,
+        ].map(normalizeSearchValue);
+
+        return haystack.some((value) => value.includes(query));
+    };
+
     const filtered = data.filter(item => {
         if (!matchesExportFund(item)) return false;
-        if (statusFilter === 'ready') return isReadyForExportFund(item);
-        if (statusFilter === 'pending') return !isReadyForExportFund(item);
-        return true;
+        if (statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
+        if (statusFilter === 'pending' && isReadyForExportFund(item)) return false;
+        return matchesSearchTerm(item);
     });
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -357,6 +388,8 @@ export const FDHCheckerPage: React.FC = () => {
     const readyCount = fundFilteredData.filter(isReadyForExportFund).length;
     const pendingCount = fundFilteredData.length - readyCount;
     const exportVisitCount = getReadyVns().length;
+    const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
+    const visiblePendingCount = filtered.length - visibleReadyCount;
 
 
 
@@ -496,6 +529,32 @@ export const FDHCheckerPage: React.FC = () => {
                                 <option value="ready">🟢 ข้อมูลพร้อมส่ง ({readyCount})</option>
                                 <option value="pending">🟡 ข้อมูลรอแก้ไข ({pendingCount})</option>
                             </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">🔎 ค้นหาในตาราง</label>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    placeholder="ค้นหา VN, HN, ชื่อ, สิทธิ์, DIAG, สถานะ"
+                                />
+                                {searchTerm && (
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={() => setSearchTerm('')}
+                                    >
+                                        ล้าง
+                                    </button>
+                                )}
+                            </div>
+                            <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+                                แสดง {filtered.length} รายการ จากทั้งหมด {fundFilteredData.length} รายการ
+                                {searchTerm ? ` • พร้อมส่ง ${visibleReadyCount} • รอแก้ ${visiblePendingCount}` : ''}
+                            </div>
                         </div>
 
                         <div className="form-group">

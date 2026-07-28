@@ -12932,6 +12932,47 @@ export const getSpecificFundData = async (
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30013' LIMIT 1) THEN 'Y' ELSE 'N' END as has_anc_lab2,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30008' LIMIT 1) THEN 'Y' ELSE 'N' END as has_anc_dental_exam,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30009' LIMIT 1) THEN 'Y' ELSE 'N' END as has_anc_dental_clean,
+              CASE WHEN EXISTS (
+                SELECT 1
+                FROM dtmain dm
+                LEFT JOIN dttm tm ON tm.code = dm.tmcode
+                WHERE dm.vn = o.vn
+                  AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+                    IN ('2330011', '2330013')
+                LIMIT 1
+              ) THEN 'Y' ELSE 'N' END as has_anc_dental_exam_procedure,
+              CASE WHEN EXISTS (
+                SELECT 1
+                FROM dtmain dm
+                LEFT JOIN dttm tm ON tm.code = dm.tmcode
+                WHERE dm.vn = o.vn
+                  AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+                    IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+                LIMIT 1
+              ) THEN 'Y' ELSE 'N' END as has_anc_dental_clean_procedure,
+              (
+                SELECT GROUP_CONCAT(
+                  DISTINCT COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
+                  ORDER BY dm.tm_no SEPARATOR ', '
+                )
+                FROM dtmain dm
+                LEFT JOIN dttm tm ON tm.code = dm.tmcode
+                WHERE dm.vn = o.vn
+              ) as dental_procedure_codes,
+              (
+                SELECT GROUP_CONCAT(
+                  DISTINCT CONCAT(
+                    COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''), dm.tmcode),
+                    ' ',
+                    COALESCE(NULLIF(TRIM(tm.thai_name), ''), NULLIF(TRIM(tm.name), ''), NULLIF(TRIM(dm.ttcode), ''), 'หัตถการทันตกรรม')
+                  )
+                  ORDER BY dm.tm_no SEPARATOR ' | '
+                )
+                FROM dtmain dm
+                LEFT JOIN dttm tm ON tm.code = dm.tmcode
+                WHERE dm.vn = o.vn
+              ) as dental_procedure_names,
+              CASE WHEN EXISTS (SELECT 1 FROM dental_care dc WHERE dc.vn = o.vn LIMIT 1) THEN 'Y' ELSE 'N' END as has_dental_care_record,
               CASE WHEN ${buildAncLab1CompleteSql('o')} THEN 'Y' ELSE 'N' END as anc_lab1_complete,
               CASE WHEN ${buildAncLab2CompleteSql('o')} THEN 'Y' ELSE 'N' END as anc_lab2_complete,
               CASE WHEN ${buildServiceOrLabNameExistsSql('o', ANC_LAB_1_REGEX.cbc)} THEN 'Y' ELSE 'N' END as anc_lab1_cbc,

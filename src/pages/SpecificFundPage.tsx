@@ -871,17 +871,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'anc_dental_exam') {
             const hasExam = toFlag(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
-            const hasDentalDiagK = hasDiagPrefix(item, 'K');
-            const ancDentalExamEvidence = isFemale && (hasExam || hasAncDiag || hasDentalDiagK);
-            const isMatched = isFemale && hasAncDiag && hasDentalDiagK && hasExam;
+            const hasExamProcedure = toFlag(item?.has_anc_dental_exam_procedure)
+                || hasAnyCodeValue(item?.dental_procedure_codes, ['2330011', '2330013']);
+            const ancDentalExamEvidence = isFemale && (hasExam || hasAncDiag || hasExamProcedure);
+            const isMatched = isFemale && hasAncDiag && hasExamProcedure && hasExam;
             if (ancDentalExamEvidence) subfunds.push('🦷 ANC ตรวจฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasExam, ' ADP 30008', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasDentalDiagK, label: ' Diagnosis K*' },
-                ], isFemale && hasAncDiag && hasDentalDiagK),
+                    { met: hasExamProcedure, label: ' หัตถการ 2330011/2330013' },
+                ], isFemale && hasAncDiag && hasExamProcedure),
                 undefined,
                 isMatched
             );
@@ -889,17 +890,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'anc_dental_clean') {
             const hasClean = toFlag(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
-            const hasDentalDiagK = hasDiagPrefix(item, 'K');
-            const ancDentalCleanEvidence = isFemale && (hasClean || hasAncDiag || hasDentalDiagK);
-            const isMatched = isFemale && hasAncDiag && hasDentalDiagK && hasClean;
+            const hasCleanProcedure = toFlag(item?.has_anc_dental_clean_procedure)
+                || hasAnyCodeValue(item?.dental_procedure_codes, ['2387010', '2277310', '2277320', '2287310', '2287320']);
+            const ancDentalCleanEvidence = isFemale && (hasClean || hasAncDiag || hasCleanProcedure);
+            const isMatched = isFemale && hasAncDiag && hasCleanProcedure && hasClean;
             if (ancDentalCleanEvidence) subfunds.push('🪥 ANC ขัดทำความสะอาดฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasClean, ' ADP 30009', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasDentalDiagK, label: ' Diagnosis K*' },
-                ], isFemale && hasAncDiag && hasDentalDiagK),
+                    { met: hasCleanProcedure, label: ' หัตถการ 2387010/2277310/2277320/2287310/2287320' },
+                ], isFemale && hasAncDiag && hasCleanProcedure),
                 undefined,
                 isMatched
             );
@@ -1220,6 +1222,17 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     'Z308': item.pdx === 'Z308' || item.fp_diags?.includes('Z308') ? 'Z308' : '',
                     'ICD9 Code': item.icd9_code || '',
                     'ADP Codes': item.fp_adp_codes || '',
+                };
+            }
+            if (fundId === 'anc_dental_exam' || fundId === 'anc_dental_clean') {
+                return {
+                    ...baseRow,
+                    'Diagnosis ฝากครรภ์': item.anc_diags || '',
+                    'ADP Codes': item.anc_adp_codes || '',
+                    'ชื่อรายการ ADP': item.adp_names || '',
+                    'รหัสหัตถการทันตกรรม': item.dental_procedure_codes || '',
+                    'หัตถการทันตกรรม': item.dental_procedure_names || '',
+                    'บันทึกตรวจช่องปาก': toFlag(item.has_dental_care_record) ? 'มี' : 'ไม่มี',
                 };
             }
 
@@ -2080,6 +2093,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             {activeFund === 'anc_ultrasound' && <th style={{ width: 120, textAlign: 'center' }}>อัลตราซาวนด์</th>}
                                         </>
                                     )}
+                                    {(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') && (
+                                        <>
+                                            <th style={{ width: 130, textAlign: 'center' }}>Diag ฝากครรภ์</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>ADP Code</th>
+                                            <th style={{ minWidth: 300, textAlign: 'left' }}>หัตถการทันตกรรม</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>บันทึกช่องปาก</th>
+                                        </>
+                                    )}
                                     {activeFund === 'cacervix' && (
                                         <>
                                             <th style={{ width: 120, textAlign: 'center' }}>Diag (Z124/Z014)</th>
@@ -2377,6 +2398,43 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                     : <span className="badge badge-danger">✗ ขาด ADP 30010</span>}
                                                             </td>
                                                         )}
+                                                    </>
+                                                )}
+                                                {(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.anc_diags
+                                                                ? <span className="badge badge-primary">{item.anc_diags}</span>
+                                                                : <span className="badge badge-danger">✗ ขาด Z34/Z35</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {activeFund === 'anc_dental_exam'
+                                                                ? (toFlag(item.has_anc_dental_exam)
+                                                                    ? <span className="badge badge-primary" title={item.adp_names || 'ADP 30008'}>30008</span>
+                                                                    : <span className="badge badge-danger">✗ ขาด 30008</span>)
+                                                                : (toFlag(item.has_anc_dental_clean)
+                                                                    ? <span className="badge badge-primary" title={item.adp_names || 'ADP 30009'}>30009</span>
+                                                                    : <span className="badge badge-danger">✗ ขาด 30009</span>)}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            {item.dental_procedure_names ? (
+                                                                <>
+                                                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', whiteSpace: 'normal' }}>
+                                                                        {item.dental_procedure_names}
+                                                                    </div>
+                                                                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+                                                                        รหัส: {item.dental_procedure_codes || '-'}
+                                                                    </div>
+                                                                </>
+                                                            ) : (
+                                                                <span className="badge badge-danger">✗ ไม่พบหัตถการใน dtmain</span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {toFlag(item.has_dental_care_record)
+                                                                ? <span className="badge badge-success">✓ มีบันทึก</span>
+                                                                : <span className="badge badge-warning">ไม่พบบันทึก</span>}
+                                                        </td>
                                                     </>
                                                 )}
                                                 {activeFund === 'cacervix' && (

@@ -121,7 +121,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'ตรวจสุขภาพช่องปากหญิงตั้งครรภ์ (30008)',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
-        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30008', 'มีบริการตรวจช่องปากตามเกณฑ์ ANC']
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30008', 'หัตถการตรวจช่องปาก 2330011 หรือ 2330013']
     },
     {
         id: 'anc_dental_clean',
@@ -129,7 +129,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'ขูดหินปูน/ทำความสะอาดฟันหญิงตั้งครรภ์ (30009)',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
-        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30009', 'มีบริการขูดหินปูน/ทำความสะอาดฟันตามเกณฑ์ ANC']
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30009', 'หัตถการขัดทำความสะอาดฟัน 2387010, 2277310, 2277320, 2287310 หรือ 2287320']
     },
     {
         id: 'postnatal_care',

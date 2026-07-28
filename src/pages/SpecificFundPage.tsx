@@ -56,6 +56,27 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
 
 type ClaimChannelView = 'all' | 'fdh' | '43' | 'ktb' | 'other';
 
+type DentalProcedureDisplay = {
+    code: string;
+    name: string;
+};
+
+const parseDentalProcedureDisplay = (value: unknown): DentalProcedureDisplay[] => {
+    const raw = String(value || '').trim();
+    if (!raw) return [];
+
+    return raw
+        .split(/\s*\|\s*/)
+        .map((entry) => {
+            const match = entry.trim().match(/^([A-Z0-9.]+)\s*(.*)$/i);
+            return {
+                code: match?.[1] || '',
+                name: match?.[2] || entry.trim(),
+            };
+        })
+        .filter((entry) => entry.code || entry.name);
+};
+
 const CHANNEL_VIEW_LABELS: Record<ClaimChannelView, { title: string; subtitle: string; empty: string }> = {
     all: {
         title: 'ตรวจสอบเงื่อนไขรายกองทุน/43 แฟ้ม',
@@ -2052,7 +2073,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                         <div className="badge badge-primary">รวม {filteredData.length} / {data.length} รายการ</div>
                     </div>
                     <div className="specific-fund-table-wrap" style={{ overflowX: 'auto' }}>
-                        <table className="data-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: 12 }}>
+                        <table
+                            className={`data-table ${(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') ? 'specific-fund-table--dental' : ''}`}
+                            style={{ width: '100%', tableLayout: 'fixed', fontSize: 12 }}
+                        >
                             <thead>
                                 <tr>
                                     <th style={{ width: 36, textAlign: 'center', padding: '8px 4px' }}>#</th>
@@ -2120,7 +2144,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         <>
                                             <th style={{ width: 130, textAlign: 'center' }}>Diag ฝากครรภ์</th>
                                             <th style={{ width: 110, textAlign: 'center' }}>ADP Code</th>
-                                            <th style={{ minWidth: 300, textAlign: 'left' }}>หัตถการทันตกรรม</th>
+                                            <th className="dental-procedure-column" style={{ width: 360, textAlign: 'left' }}>หัตถการทันตกรรม</th>
                                             <th style={{ width: 110, textAlign: 'center' }}>บันทึกช่องปาก</th>
                                         </>
                                     )}
@@ -2439,16 +2463,20 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                     ? <span className="badge badge-primary" title={item.adp_names || 'ADP 30009'}>30009</span>
                                                                     : <span className="badge badge-danger">✗ ขาด 30009</span>)}
                                                         </td>
-                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                        <td className="dental-procedure-column" style={{ textAlign: 'left', padding: '8px' }}>
                                                             {item.dental_procedure_names ? (
-                                                                <>
-                                                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', whiteSpace: 'normal' }}>
-                                                                        {item.dental_procedure_names}
-                                                                    </div>
-                                                                    <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
-                                                                        รหัส: {item.dental_procedure_codes || '-'}
-                                                                    </div>
-                                                                </>
+                                                                <div className="dental-procedure-list" title={item.dental_procedure_names}>
+                                                                    {parseDentalProcedureDisplay(item.dental_procedure_names).map((procedure, procedureIndex) => (
+                                                                        <span
+                                                                            className="dental-procedure-chip"
+                                                                            key={`${procedure.code}-${procedure.name}-${procedureIndex}`}
+                                                                            title={`${procedure.code}${procedure.name ? ` ${procedure.name}` : ''}`}
+                                                                        >
+                                                                            {procedure.code && <strong>{procedure.code}</strong>}
+                                                                            {procedure.name && <span>{procedure.name}</span>}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
                                                             ) : (
                                                                 <span className="badge badge-danger">✗ ไม่พบหัตถการใน dtmain</span>
                                                             )}

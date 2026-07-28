@@ -2880,6 +2880,50 @@ p {
   overflow-x: auto;
 }
 
+.page-container .specific-fund-table-wrap .data-table.specific-fund-table--dental {
+  min-width: 2440px;
+}
+
+.specific-fund-table--dental .dental-procedure-column {
+  width: 360px;
+}
+
+.dental-procedure-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.dental-procedure-chip {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: #eff6ff;
+  color: #334155;
+  line-height: 1.25;
+}
+
+.dental-procedure-chip strong {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 10px;
+  letter-spacing: 0.01em;
+}
+
+.dental-procedure-chip span {
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px 6px;
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* ========== Progress Bar ========== */
 .progress-bar-wrap {
   height: 6px;

@@ -20,6 +20,8 @@ interface CloseCandidateRow {
   maininscl?: string;
   pttypename?: string;
   vst_datetime?: string;
+  service_date?: string;
+  service_time?: string;
   income?: number;
   uc_money?: number;
   rcpt_money?: number;
@@ -509,7 +511,8 @@ export const NhsoClosePage: React.FC = () => {
                   <th>VN</th>
                   <th>HN</th>
                   <th>ผู้ป่วย</th>
-                  <th>วันรับบริการ</th>
+                  <th>วันที่รับบริการ</th>
+                  <th>เวลารับบริการ</th>
                   <th>สิทธิ</th>
                   <th>ปิดสิทธิ (EP)</th>
                   <th>สถานะปิดสิทธิ</th>
@@ -523,6 +526,8 @@ export const NhsoClosePage: React.FC = () => {
                   const disabled = Number(row.can_close || 0) !== 1;
                   const isSelected = selectedVns.includes(row.vn);
                   const visitDateTime = splitDateTime(row.vst_datetime);
+                  const serviceDate = row.service_date || visitDateTime.date;
+                  const serviceTime = row.service_time || visitDateTime.time || '-';
                   return (
                     <tr key={row.vn} className={`${isSelected ? 'row-selected' : ''} ${disabled ? 'row-muted' : ''}`}>
                       <td className="table-index-cell nhso-select-cell">
@@ -534,10 +539,8 @@ export const NhsoClosePage: React.FC = () => {
                         <div className="nhso-patient-name">{row.patient_name || '-'}</div>
                         <div className="nhso-subtext mono">{row.cid || '-'}</div>
                       </td>
-                      <td className="nhso-datetime-cell">
-                        <div className="mono">{visitDateTime.date}</div>
-                        {visitDateTime.time && <div className="nhso-subtext mono">{visitDateTime.time}</div>}
-                      </td>
+                      <td className="table-cell-nowrap nhso-datetime-cell mono">{serviceDate}</td>
+                      <td className="table-cell-nowrap nhso-datetime-cell mono">{serviceTime}</td>
                       <td className="nhso-right-cell">
                         <div className="nhso-maininscl">{row.maininscl || '-'}</div>
                         <div className="nhso-subtext">{row.pttypename || '-'}</div>
@@ -555,7 +558,7 @@ export const NhsoClosePage: React.FC = () => {
                   );
                 }) : (
                   <tr>
-                    <td colSpan={11} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                    <td colSpan={12} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                       {loading ? 'กำลังโหลดรายการ...' : 'ไม่พบรายการตามตัวกรองที่เลือก'}
                     </td>
                   </tr>

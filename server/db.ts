@@ -2115,6 +2115,8 @@ export const getNhsoClosePrivilegeCandidates = async (options: {
          TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate) AS age,
          IFNULL(pt.nationality, '') AS nation,
          TIMESTAMP(o.vstdate, o.vsttime) AS vst_datetime,
+         DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+         TIME_FORMAT(o.vsttime, '%H:%i:%s') AS service_time,
          o.main_dep AS room,
          IFNULL(s.cc, '') AS cc,
          IFNULL(ptt.hipdata_code, '') AS maininscl,

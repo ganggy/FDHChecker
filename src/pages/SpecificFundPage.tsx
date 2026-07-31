@@ -1049,14 +1049,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             const birthBefore2535 = toFlag(item?.birth_before_2535) || (item?.birthday ? new Date(item.birthday).getTime() < new Date('1992-01-01').getTime() : false);
             const hasDiag = toFlag(item?.has_z115_diag) || hasDiagCodes(item, ['Z115']);
             const hasLab = toFlag(item?.has_hepc_lab) || hasValue(item?.hepc_lab_names) || hasValue(item?.hepc_service_names);
+            if (!hasLab) return buildStatusResult([], [], undefined, false);
             const isMatched = birthBefore2535 && hasDiag && hasLab;
-            if (birthBefore2535 || hasDiag || hasLab) subfunds.push('🩹 คัดกรองไวรัสตับอักเสบซี');
+            subfunds.push('🩹 คัดกรองไวรัสตับอักเสบซี');
             return buildStatusResult(
                 subfunds,
                 [
                     birthBefore2535 ? '' : ' เกิดก่อน พ.ศ.2535',
                     hasDiag ? '' : ' Diagnosis Z11.5',
-                    hasLab ? '' : ' Lab Anti-HCV',
                 ].filter(Boolean),
                 undefined,
                 isMatched,
@@ -1072,14 +1072,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             const birthBefore2535 = toFlag(item?.birth_before_2535) || (item?.birthday ? new Date(item.birthday).getTime() < new Date('1992-01-01').getTime() : false);
             const hasDiag = toFlag(item?.has_z115_diag) || hasDiagCodes(item, ['Z115']);
             const hasLab = toFlag(item?.has_hepb_lab) || hasValue(item?.hepb_lab_names) || hasValue(item?.hepb_service_names);
+            if (!hasLab) return buildStatusResult([], [], undefined, false);
             const isMatched = birthBefore2535 && hasDiag && hasLab;
-            if (birthBefore2535 || hasDiag || hasLab) subfunds.push('🧫 คัดกรองไวรัสตับอักเสบบี');
+            subfunds.push('🧫 คัดกรองไวรัสตับอักเสบบี');
             return buildStatusResult(
                 subfunds,
                 [
                     birthBefore2535 ? '' : ' เกิดก่อน พ.ศ.2535',
                     hasDiag ? '' : ' Diagnosis Z11.5',
-                    hasLab ? '' : ' Lab HBsAg',
                 ].filter(Boolean),
                 undefined,
                 isMatched,

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildOpReferSelfTransportErrorSection,
   buildDailyFundLineMessages,
   chunkLineText,
   formatFundErrorReport,
@@ -8,6 +9,38 @@ import {
   isFundReportEligible,
   REPORT_FUNDS,
 } from './fundErrorReport.js';
+
+test('LINE report flags S1 transport claims when OP Refer patient travels independently', () => {
+  const section = buildOpReferSelfTransportErrorSection([{
+    vn: '14',
+    hn: '000014',
+    serviceDate: '2026-07-24',
+    fund: 'OP Refer',
+    has_refer_record: 1,
+    has_refer_out: 1,
+    refer_no_raw: 'RF014',
+    refer_no: 'OUT:RF014',
+    refer_direction: 'OUT',
+    refer_date: '2026-07-24',
+    refer_hospcode: '10710',
+    with_ambulance: '',
+    service_type: 'OP',
+    refer_adp_codes: 'S1801, S1901',
+    has_refer_adp_s: 1,
+    main_diag: 'J189',
+    has_receipt: 1,
+    total_price: 900,
+    has_close: 1,
+  }], '2026-07-24', '2026-07-24');
+
+  assert.equal(section.checked, 1);
+  assert.equal(section.errors.length, 1);
+  assert.match(section.errors[0].missing.join(' '), /ติด C.*S1801, S1901.*ลบรายการข้อเบิกค่ารถ/);
+  const messages = buildDailyFundLineMessages([section], '2026-07-24');
+  assert.match(messages.join('\n'), /OP Refer — เบิกค่ารถทั้งที่ผู้ป่วยไปเอง/);
+  assert.match(messages.join('\n'), /HN 000014 — ติด C:/);
+  assert.doesNotMatch(messages.join('\n'), /— ขาด ติด C:/);
+});
 
 test('knee report identifies missing procedures', () => {
   const missing = getFundMissingConditions('knee', {
@@ -54,6 +87,30 @@ test('large fund is split without mixing another fund', () => {
 test('unfinished hepatitis B and C funds are excluded from the daily report', async () => {
   const { REPORT_FUNDS } = await import('./fundErrorReport.js');
   assert.equal(REPORT_FUNDS.some((fund) => fund.id === 'hepb' || fund.id === 'hepc'), false);
+});
+
+test('hepatitis screening only warns about other conditions after a matching lab exists', () => {
+  assert.deepEqual(getFundMissingConditions('hepc', {
+    birth_before_2535: 'Y',
+    has_z115_diag: 'N',
+    has_hepc_lab: 'N',
+  }), []);
+  assert.deepEqual(getFundMissingConditions('hepb', {
+    birth_before_2535: 'N',
+    has_z115_diag: 'N',
+    has_hepb_lab: 'N',
+  }), []);
+
+  assert.deepEqual(getFundMissingConditions('hepc', {
+    birth_before_2535: 'Y',
+    has_z115_diag: 'N',
+    has_hepc_lab: 'Y',
+  }), ['Diagnosis Z11.5']);
+  assert.deepEqual(getFundMissingConditions('hepb', {
+    birth_before_2535: 'N',
+    has_z115_diag: 'Y',
+    hepb_lab_names: 'HBsAg',
+  }), ['เกิดก่อน พ.ศ.2535']);
 });
 
 test('NTIP/TB Data Hub is excluded from the daily LINE report', async () => {

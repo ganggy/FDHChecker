@@ -21,7 +21,7 @@ interface ReferMonitorItem {
     eligibilityLabel?: string;
     eligibilityReasons?: string[];
     transportMode?: 'ambulance' | 'self' | 'unknown';
-    dataAction?: 'no_fix_self' | 'no_fix_complete' | 'no_fix_not_claimable' | 'fix_ambulance' | 'fix_adp' | 'review';
+    dataAction?: 'no_fix_self' | 'no_fix_complete' | 'no_fix_not_claimable' | 'remove_transport_adp' | 'fix_ambulance' | 'fix_adp' | 'review';
     dataActionLabel?: string;
     dataActionReasons?: string[];
 }
@@ -56,6 +56,7 @@ const ACTION_META = {
     no_fix_self: { icon: '🚶', color: '#166534', background: '#dcfce7' },
     no_fix_complete: { icon: '✅', color: '#166534', background: '#dcfce7' },
     no_fix_not_claimable: { icon: '⊘', color: '#475569', background: '#f1f5f9' },
+    remove_transport_adp: { icon: '🗑️', color: '#b91c1c', background: '#fee2e2' },
     fix_ambulance: { icon: '🚑', color: '#b91c1c', background: '#fee2e2' },
     fix_adp: { icon: '⚠️', color: '#b91c1c', background: '#fee2e2' },
     review: { icon: '🔎', color: '#b45309', background: '#fef3c7' },
@@ -134,6 +135,7 @@ export const OpReferMonitorPanel = ({
         noFixSelf: referItems.filter((item) => item.dataAction === 'no_fix_self').length,
         noFixComplete: referItems.filter((item) => item.dataAction === 'no_fix_complete').length,
         noFixNotClaimable: referItems.filter((item) => item.dataAction === 'no_fix_not_claimable').length,
+        removeTransportAdp: referItems.filter((item) => item.dataAction === 'remove_transport_adp').length,
         fixAmbulance: referItems.filter((item) => item.dataAction === 'fix_ambulance').length,
         fixAdp: referItems.filter((item) => item.dataAction === 'fix_adp').length,
         actionReview: referItems.filter((item) => item.dataAction === 'review').length,
@@ -190,6 +192,7 @@ export const OpReferMonitorPanel = ({
                         ['🚶 ไปเอง — ไม่ต้องแก้', eligibilitySummary.noFixSelf, '#166534', '#f0fdf4'],
                         ['✅ Ambulance ครบ — ไม่ต้องแก้', eligibilitySummary.noFixComplete, '#166534', '#f0fdf4'],
                         ['⊘ ไม่เข้าเกณฑ์ — ไม่ต้องแก้', eligibilitySummary.noFixNotClaimable, '#475569', '#f8fafc'],
+                        ['🗑️ ติด C — ลบค่ารถ', eligibilitySummary.removeTransportAdp, '#b91c1c', '#fff1f2'],
                         ['🚑 ควรแก้ Ambulance', eligibilitySummary.fixAmbulance, '#b91c1c', '#fff1f2'],
                         ['⚠️ ควรแก้ ADP S18xx', eligibilitySummary.fixAdp, '#b91c1c', '#fff1f2'],
                         ['🔎 ต้องทบทวน', eligibilitySummary.actionReview, '#b45309', '#fffbeb'],
@@ -229,6 +232,7 @@ export const OpReferMonitorPanel = ({
                     <option value="no_fix_self">ไม่ต้องแก้ — Refer ไปเอง</option>
                     <option value="no_fix_complete">ไม่ต้องแก้ — Ambulance/ADP ครบ</option>
                     <option value="no_fix_not_claimable">ไม่ต้องแก้ — กฎไม่ให้เบิก</option>
+                    <option value="remove_transport_adp">ติด C — ลบข้อเบิกค่ารถ</option>
                     <option value="fix_ambulance">ควรแก้ — Ambulance ขัดแย้ง</option>
                     <option value="fix_adp">ควรแก้ — ขาด ADP S18xx</option>
                     <option value="review">ต้องทบทวนเอกสาร</option>
@@ -300,7 +304,7 @@ export const OpReferMonitorPanel = ({
                 </table>
             </div>
             <p style={{ color: '#64748b', fontSize: 11, marginTop: 10 }}>
-                หมายเหตุ: EA0010710 ถือว่ามีรหัสสถานพยาบาล 10710 แล้ว ส่วนรายการที่เข้าเกณฑ์เบิกต้องตรวจ ADP S1801/S1802 ในใบสั่งยาด้วย มิฉะนั้นอาจสูญเสียรายได้
+                หมายเหตุ: ผู้ป่วย Refer ไปเองห้ามมีข้อเบิกค่ารถ ADP กลุ่ม S1... ในใบสั่งยา หากพบระบบจะแจ้งติด C ให้ลบรายการ ส่วนกรณีใช้รถพยาบาลจริงให้ตรวจ S1801/S1802 และหลักฐานประกอบ
             </p>
         </section>
     );

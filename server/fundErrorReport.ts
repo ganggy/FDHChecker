@@ -1,5 +1,6 @@
-import { getSpecificFundData } from './db.js';
+import { getRevenueOpportunitySourceRows, getSpecificFundData } from './db.js';
 import { pushLineMessages, type LineMessage } from './lineMessaging.js';
+import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 
 type FundRow = Record<string, unknown>;
 
@@ -18,6 +19,11 @@ export type FundErrorSection = {
 };
 
 type FundSpec = { id: string; name: string };
+
+const OP_REFER_TRANSPORT_FUND: FundSpec = {
+  id: 'op_refer_self_transport',
+  name: 'OP Refer — เบิกค่ารถทั้งที่ผู้ป่วยไปเอง',
+};
 
 export const LINE_ALERT_EXCLUDED_FUND_IDS = new Set([
   'anc',
@@ -242,8 +248,17 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
     ]); break;
     case 'ferrokid_child': requireValue(missing, flag(row.ferrokid_age_eligible) || (ageMonths >= 6 && ageMonths <= 12), 'อายุ 6-12 เดือน'); requireValue(missing, flag(row.has_ferrokid_diag) || hasCode(row, ['Z130']), 'Diagnosis Z130'); requireValue(missing, flag(row.has_ferrokid_med) || flag(row.has_ferrokid), 'ยา Ferrokid'); break;
     case 'hepc':
-    case 'hepb':
-      requireValue(missing, flag(row.birth_before_2535) || (present(row.birthday) && new Date(text(row.birthday)) < new Date('1992-01-01')), 'เกิดก่อน พ.ศ.2535'); requireValue(missing, flag(row.has_z115_diag) || hasCode(row, ['Z115']), 'Diagnosis Z11.5'); requireValue(missing, flag(row[fundId === 'hepc' ? 'has_hepc_lab' : 'has_hepb_lab']), fundId === 'hepc' ? 'Lab Anti-HCV' : 'Lab HBsAg'); break;
+    case 'hepb': {
+      const labPrefix = fundId === 'hepc' ? 'hepc' : 'hepb';
+      const hasScreeningLab =
+        flag(row[`has_${labPrefix}_lab`])
+        || present(row[`${labPrefix}_lab_names`])
+        || present(row[`${labPrefix}_service_names`]);
+      if (!hasScreeningLab) break;
+      requireValue(missing, flag(row.birth_before_2535) || (present(row.birthday) && new Date(text(row.birthday)) < new Date('1992-01-01')), 'เกิดก่อน พ.ศ.2535');
+      requireValue(missing, flag(row.has_z115_diag) || hasCode(row, ['Z115']), 'Diagnosis Z11.5');
+      break;
+    }
     case 'mental_health_counselling':
     case 'gender_affirming_hormone':
     case 'latent_tb_screening':
@@ -257,14 +272,44 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
 
+export const buildOpReferSelfTransportErrorSection = (
+  opdRows: FundRow[],
+  startDate: string,
+  endDate: string,
+): FundErrorSection => {
+  const monitor = buildRevenueOpportunityMonitor({
+    startDate,
+    endDate,
+    palliativeRows: [],
+    instrumentRows: [],
+    opdRows,
+    ipdRows: [],
+  });
+  const referItems = monitor.items.filter((item) => item.category === 'op_refer');
+  const errors = referItems
+    .filter((item) => item.dataAction === 'remove_transport_adp')
+    .map((item) => ({
+      hn: item.hn || 'ไม่ระบุ HN',
+      serviceDate: item.serviceDate || startDate,
+      missing: item.missing.filter((issue) => issue.startsWith('ติด C:')),
+    }))
+    .filter((item) => item.missing.length > 0);
+  return {
+    ...OP_REFER_TRANSPORT_FUND,
+    checked: referItems.length,
+    errors,
+  };
+};
+
 export const queryFundErrorReport = async (
   startDate: string,
   endDate: string,
   onProgress?: (current: number, total: number, fund: FundSpec) => void,
 ) => {
   const sections: FundErrorSection[] = [];
+  const totalReports = REPORT_FUNDS.length + 1;
   for (const [index, fund] of REPORT_FUNDS.entries()) {
-    onProgress?.(index + 1, REPORT_FUNDS.length, fund);
+    onProgress?.(index + 1, totalReports, fund);
     try {
       const rows = await getSpecificFundData(fund.id, startDate, endDate, { includeTracking: false, throwOnError: true });
       const eligibleRows = rows.filter((row) => isFundReportEligible(fund.id, row));
@@ -278,8 +323,26 @@ export const queryFundErrorReport = async (
       sections.push({ ...fund, checked: 0, errors: [], queryError: errorMessage(error).slice(0, 180) });
     }
   }
+  onProgress?.(totalReports, totalReports, OP_REFER_TRANSPORT_FUND);
+  try {
+    const rows = await getRevenueOpportunitySourceRows(startDate, endDate);
+    sections.push(buildOpReferSelfTransportErrorSection(rows.opdRows, startDate, endDate));
+  } catch (error) {
+    sections.push({
+      ...OP_REFER_TRANSPORT_FUND,
+      checked: 0,
+      errors: [],
+      queryError: errorMessage(error).slice(0, 180),
+    });
+  }
   return sections;
 };
+
+const formatFundErrorDetail = (missing: string[]) => (
+  missing.some((item) => item.startsWith('ติด C:'))
+    ? missing.join(', ')
+    : `ขาด ${missing.join(', ')}`
+);
 
 export const formatFundErrorReport = (sections: FundErrorSection[], startDate: string, endDate: string) => {
   const alertSections = sections.filter((section) => !isLineAlertExcludedFund(section.id));
@@ -292,7 +355,7 @@ export const formatFundErrorReport = (sections: FundErrorSection[], startDate: s
       lines.push(`✅ ${section.name}: ไม่พบข้อผิดพลาด (ตรวจ ${section.checked})`);
     } else {
       lines.push(`❌ ${section.name}: ผิด ${section.errors.length}/${section.checked}`);
-      section.errors.forEach((item, index) => lines.push(`${index + 1}. HN ${item.hn} — ขาด ${item.missing.join(', ')}`));
+      section.errors.forEach((item, index) => lines.push(`${index + 1}. HN ${item.hn} — ${formatFundErrorDetail(item.missing)}`));
       lines.push('');
     }
   }
@@ -321,7 +384,7 @@ const splitFundSection = (section: FundErrorSection, maxLength = 4500) => {
   let currentLines = [title];
 
   section.errors.forEach((item, index) => {
-    const line = `${index + 1}. HN ${item.hn} — ขาด ${item.missing.join(', ')}`;
+    const line = `${index + 1}. HN ${item.hn} — ${formatFundErrorDetail(item.missing)}`;
     const candidate = [...currentLines, line].join('\n');
     if (candidate.length > maxLength && currentLines.length > 1) {
       messages.push(currentLines.join('\n'));

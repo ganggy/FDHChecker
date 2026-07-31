@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import test from 'node:test';
 import {
   getLineIdCommandReply,
+  getLinePushTargetKind,
   getLineWebhookTarget,
   parseLineWebhookPayload,
   validateLineMessages,
@@ -41,6 +42,13 @@ test('recognizes the FDH target ID command', () => {
     replyToken: 'reply-token',
     target: { targetId: 'C123', sourceType: 'group' },
   });
+});
+
+test('infers LINE push target kind from target ID prefixes', () => {
+  assert.equal(getLinePushTargetKind('U123'), 'user');
+  assert.equal(getLinePushTargetKind('C123'), 'group');
+  assert.equal(getLinePushTargetKind('R123'), 'room');
+  assert.equal(getLinePushTargetKind('x123'), 'unknown');
 });
 
 test('validates text and HTTPS image messages', () => {

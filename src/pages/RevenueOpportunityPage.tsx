@@ -24,7 +24,7 @@ interface MonitorItem {
   eligibilityLabel?: string;
   eligibilityReasons?: string[];
   transportMode?: 'ambulance' | 'self' | 'unknown';
-  dataAction?: 'no_fix_self' | 'no_fix_complete' | 'no_fix_not_claimable' | 'fix_ambulance' | 'fix_adp' | 'review';
+  dataAction?: 'no_fix_self' | 'no_fix_complete' | 'no_fix_not_claimable' | 'remove_transport_adp' | 'fix_ambulance' | 'fix_adp' | 'review';
   dataActionLabel?: string;
   dataActionReasons?: string[];
 }

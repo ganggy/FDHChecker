@@ -12557,11 +12557,7 @@ export const getSpecificFundData = async (
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
-          AND (
-            pt.birthday < '1992-01-01'
-            OR ${buildDiagnosisMatchSql('o', 'v', ['Z115'])}
-            OR ${buildServiceOrLabNameExistsSql('o', labRegex)}
-          )
+          AND ${buildServiceOrLabNameExistsSql('o', labRegex)}
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
@@ -13292,14 +13288,14 @@ export const getRevenueOpportunitySourceRows = async (startDate: string, endDate
           FROM opitemrece oi
           JOIN s_drugitems sd ON sd.icode = oi.icode
           WHERE oi.vn = o.vn
-            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S18'
+            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S1'
         ) THEN 1 ELSE 0 END AS has_refer_adp_s,
         COALESCE((
           SELECT GROUP_CONCAT(DISTINCT UPPER(TRIM(sd.nhso_adp_code)) ORDER BY sd.nhso_adp_code SEPARATOR ', ')
           FROM opitemrece oi
           JOIN s_drugitems sd ON sd.icode = oi.icode
           WHERE oi.vn = o.vn
-            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S18'
+            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S1'
         ), '') AS refer_adp_codes,
         COALESCE((
           SELECT GROUP_CONCAT(
@@ -13309,7 +13305,7 @@ export const getRevenueOpportunitySourceRows = async (startDate: string, endDate
           FROM opitemrece oi
           JOIN s_drugitems sd ON sd.icode = oi.icode
           WHERE oi.vn = o.vn
-            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S18'
+            AND UPPER(TRIM(COALESCE(sd.nhso_adp_code, ''))) REGEXP '^S1'
         ), '') AS refer_adp_items,
         (SELECT dx.icd10 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.diagtype = '1' LIMIT 1) AS main_diag,
         CASE WHEN EXISTS(SELECT 1 FROM opitemrece oi WHERE oi.vn = o.vn AND COALESCE(oi.sum_price, 0) > 0) THEN 1 ELSE 0 END AS has_receipt,

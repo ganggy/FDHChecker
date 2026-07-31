@@ -12,6 +12,8 @@ export type LineMessage =
   | { type: 'text'; text: string }
   | { type: 'image'; originalContentUrl: string; previewImageUrl: string };
 
+export type LinePushTargetKind = 'user' | 'group' | 'room' | 'unknown';
+
 type LineWebhookSource = {
   type?: unknown;
   userId?: unknown;
@@ -31,6 +33,7 @@ export type LineWebhookPayload = {
 };
 
 const LINE_MESSAGING_API_BASE = 'https://api.line.me/v2/bot/message';
+const linePushTargetDiagnostics = new Map<string, string>();
 
 const secureEqual = (left: Buffer, right: Buffer) => (
   left.length === right.length && crypto.timingSafeEqual(left, right)
@@ -115,6 +118,58 @@ export const validateLineMessages = (messages: LineMessage[]) => {
   });
 };
 
+export const getLinePushTargetKind = (targetId: string): LinePushTargetKind => {
+  const cleanId = String(targetId || '').trim();
+  if (cleanId.startsWith('U')) return 'user';
+  if (cleanId.startsWith('C')) return 'group';
+  if (cleanId.startsWith('R')) return 'room';
+  return 'unknown';
+};
+
+const buildLineTargetRecoveryHint = (kind: LinePushTargetKind) => {
+  if (kind === 'group') {
+    return 'LINE target group not found for this bot. Invite the bot into the destination group, send "#FDH-ID" in that group, and update LINE_TARGET_ID with the returned target ID.';
+  }
+  if (kind === 'room') {
+    return 'LINE target room not found for this bot. Re-add the bot to the room and refresh LINE_TARGET_ID from a current webhook event.';
+  }
+  if (kind === 'user') {
+    return 'LINE target user not found for this bot. Make sure the user has added the bot as a friend and refresh LINE_TARGET_ID from a current webhook event.';
+  }
+  return 'LINE target ID is not reachable for this bot. Refresh LINE_TARGET_ID from a current webhook event.';
+};
+
+const fetchLineTargetDiagnostic = async (targetId: string, channelAccessToken: string) => {
+  const kind = getLinePushTargetKind(targetId);
+  const cached = linePushTargetDiagnostics.get(targetId);
+  if (cached) return cached;
+  const token = String(channelAccessToken || '').trim();
+  if (!token || kind === 'unknown') return '';
+  const endpoint = kind === 'group'
+    ? `https://api.line.me/v2/bot/group/${targetId}/summary`
+    : kind === 'user'
+      ? `https://api.line.me/v2/bot/profile/${targetId}`
+      : `https://api.line.me/v2/bot/room/${targetId}/members/count`;
+  try {
+    const response = await fetchWithTimeout(endpoint, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    }, 15_000);
+    if (response.status === 404) {
+      const hint = buildLineTargetRecoveryHint(kind);
+      linePushTargetDiagnostics.set(targetId, hint);
+      return hint;
+    }
+    if (response.ok) {
+      linePushTargetDiagnostics.delete(targetId);
+      return '';
+    }
+    return `LINE target diagnostic returned ${response.status}.`;
+  } catch {
+    return '';
+  }
+};
+
 const callLineMessagingApi = async (
   endpoint: 'push' | 'reply',
   channelAccessToken: string,
@@ -143,10 +198,19 @@ export const pushLineMessages = async (
 ) => {
   const to = String(targetId || '').trim();
   if (!to) throw new Error('LINE target ID is required');
-  await callLineMessagingApi('push', channelAccessToken, {
-    to,
-    messages: validateLineMessages(messages),
-  });
+  try {
+    await callLineMessagingApi('push', channelAccessToken, {
+      to,
+      messages: validateLineMessages(messages),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('LINE Messaging API returned 400')) {
+      const hint = await fetchLineTargetDiagnostic(to, channelAccessToken);
+      if (hint) throw new Error(`${message}. ${hint}`);
+    }
+    throw error;
+  }
 };
 
 export const replyLineMessages = async (

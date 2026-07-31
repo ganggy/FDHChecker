@@ -1,6 +1,6 @@
 export type RevenueMonitorStatus = 'data_error' | 'ready' | 'submitted' | 'paid';
 export type ReferBillingEligibility = 'claimable' | 'not_claimable' | 'review';
-export type ReferDataAction = 'no_fix_self' | 'no_fix_complete' | 'no_fix_not_claimable' | 'fix_ambulance' | 'fix_adp' | 'review';
+export type ReferDataAction = 'no_fix_self' | 'no_fix_complete' | 'no_fix_not_claimable' | 'remove_transport_adp' | 'fix_ambulance' | 'fix_adp' | 'review';
 
 export interface RevenueMonitorItem {
   id: string;
@@ -273,23 +273,30 @@ const buildReferItem = (row: SourceRow): RevenueMonitorItem => {
     .split(',')
     .map((code) => code.trim().toUpperCase())
     .filter(Boolean);
-  const hasReferAdpS = flag(row.has_refer_adp_s) || referAdpCodes.some((code) => /^S18/.test(code));
-  if (billingEligibility.eligibility === 'claimable' && !hasReferAdpS) {
+  const hasAnyReferS1 = flag(row.has_refer_adp_s) || referAdpCodes.some((code) => /^S1/.test(code));
+  const hasReferAdpS18 = referAdpCodes.some((code) => /^S18/.test(code))
+    || (flag(row.has_refer_adp_s) && referAdpCodes.length === 0);
+  const selfTravelTransportChargeConflict = billingEligibility.transportMode === 'self' && hasAnyReferS1;
+  if (billingEligibility.eligibility === 'claimable' && !hasReferAdpS18) {
     missing.push('ใบสั่งยา/รายการค่าใช้จ่ายขาด ADP รหัส S18xx (เช่น S1801/S1802 ตามบริการจริง) สำหรับค่า Refer — เสี่ยงสูญเสียรายได้');
   }
-  if (billingEligibility.transportMode === 'self' && hasReferAdpS) {
-    missing.push('พบ ADP ค่า Refer รหัส S18xx แต่ไม่ได้ทำเครื่องหมาย Ambulance — ให้ตรวจหลักฐานและแก้ข้อมูลที่ขัดแย้งกัน');
+  if (selfTravelTransportChargeConflict) {
+    missing.push(`ติด C: ผู้ป่วย Refer ไปเอง แต่พบข้อเบิกค่ารถ ADP ${referAdpCodes.join(', ') || 'S1...'} — ให้ลบรายการข้อเบิกค่ารถ Refer ออกจากใบสั่งยา`);
   }
   const dataAction: {
     key: ReferDataAction;
     label: string;
     reasons: string[];
   } = billingEligibility.transportMode === 'self'
-    ? hasReferAdpS
+    ? hasAnyReferS1
       ? {
-          key: 'fix_ambulance',
-          label: 'ควรตรวจ/แก้ — S18xx ขัดแย้งกับ Refer ไปเอง',
-          reasons: ['พบค่า Refer รหัส S18xx', 'ช่อง Ambulance ไม่ได้เลือก', 'ตรวจหลักฐานแล้วเลือกแก้เฉพาะข้อมูลที่ผิด'],
+          key: 'remove_transport_adp',
+          label: 'ติด C — ต้องลบข้อเบิกค่ารถ Refer',
+          reasons: [
+            'ข้อมูล Refer ระบุว่าผู้ป่วยไปเอง',
+            `พบ ADP ${referAdpCodes.join(', ') || 'S1...'}`,
+            'ค่ารถ Refer เบิกไม่ได้ ให้ลบรายการ S1... จากใบสั่งยา',
+          ],
         }
       : {
           key: 'no_fix_self',
@@ -308,7 +315,7 @@ const buildReferItem = (row: SourceRow): RevenueMonitorItem => {
             label: 'ต้องทบทวนเอกสารก่อนตัดสินใจ',
             reasons: ['สิทธิหรือปลายทางยังไม่ชัดเจน'],
           }
-        : !hasReferAdpS
+        : !hasReferAdpS18
           ? {
               key: 'fix_adp',
               label: 'ควรแก้ — ขาด ADP ค่า Refer S18xx',
@@ -321,7 +328,9 @@ const buildReferItem = (row: SourceRow): RevenueMonitorItem => {
             };
   const tracking = trackingStatus(row, missing);
   const instruction = billingEligibility.eligibility === 'not_claimable'
-    ? billingEligibility.transportMode === 'self'
+    ? selfTravelTransportChargeConflict
+      ? `ผู้ป่วย Refer ไปเอง เบิกค่ารถไม่ได้ ให้ลบรายการ ADP ${referAdpCodes.join(', ') || 'S1...'} ที่เป็นข้อเบิกค่ารถออกจากใบสั่งยา แล้วตรวจข้อมูลใหม่ก่อนส่งเคลม`
+      : billingEligibility.transportMode === 'self'
       ? 'ไม่ส่งเบิกค่ารถ เพราะไม่ได้ทำเครื่องหมาย Ambulance และระบบถือว่าเดินทางเอง หากใช้รถพยาบาลจริงให้ตรวจใบนำส่ง/ทะเบียนรถก่อนแก้ข้อมูลต้นทาง'
       : 'ไม่ส่งเบิกค่า OP Refer ตามกฎ UC ใน CUP สำหรับ OP ภายในจังหวัด ทั้งขาไปและขากลับ'
     : billingEligibility.eligibility === 'review'
@@ -356,6 +365,7 @@ const buildReferItem = (row: SourceRow): RevenueMonitorItem => {
     missing,
     instruction,
     ...tracking,
+    statusLabel: selfTravelTransportChargeConflict ? 'ข้อมูลผิดพลาด (ติด C)' : tracking.statusLabel,
     chargeAmount: numberOrNull(row.total_price),
     claimAmount: null,
     paidAmount: null,

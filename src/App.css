@@ -244,6 +244,7 @@
 .revenue-data-action--no_fix_self,
 .revenue-data-action--no_fix_complete { background: #dcfce7; color: #166534; }
 .revenue-data-action--no_fix_not_claimable { background: #f1f5f9; color: #475569; }
+.revenue-data-action--remove_transport_adp,
 .revenue-data-action--fix_ambulance,
 .revenue-data-action--fix_adp { background: #fee2e2; color: #b91c1c; }
 .revenue-data-action--review { background: #fef3c7; color: #92400e; }

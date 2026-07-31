@@ -225,7 +225,7 @@ test('refer out without the Ambulance checkbox is treated as self travel and not
   assert.match(result.label, /เดินทางเอง/);
 });
 
-test('an S18 Refer charge without the Ambulance checkbox is flagged as contradictory data', () => {
+test('self travel with an S18 Refer charge is marked C and must remove the transport claim', () => {
   const result = buildRevenueOpportunityMonitor({
     startDate: '2026-06-01',
     endDate: '2026-06-30',
@@ -254,9 +254,42 @@ test('an S18 Refer charge without the Ambulance checkbox is flagged as contradic
     ipdRows: [],
   });
   assert.equal(result.items[0].eligibility, 'not_claimable');
-  assert.equal(result.items[0].dataAction, 'fix_ambulance');
-  assert.match(result.items[0].missing.join(' '), /S18xx.*ไม่ได้ทำเครื่องหมาย Ambulance/);
+  assert.equal(result.items[0].dataAction, 'remove_transport_adp');
+  assert.match(result.items[0].missing.join(' '), /ติด C.*Refer ไปเอง.*S1802.*ลบรายการข้อเบิกค่ารถ/);
+  assert.match(result.items[0].instruction, /เบิกค่ารถไม่ได้.*ลบรายการ ADP S1802/);
+  assert.equal(result.items[0].statusLabel, 'ข้อมูลผิดพลาด (ติด C)');
   assert.equal(result.items[0].status, 'data_error');
+});
+
+test('self travel rejects every S1 transport claim code, not only S18', () => {
+  const result = buildRevenueOpportunityMonitor({
+    startDate: '2026-06-01',
+    endDate: '2026-06-30',
+    palliativeRows: [],
+    instrumentRows: [],
+    opdRows: [{
+      vn: '14',
+      fund: 'OP Refer',
+      has_refer_record: 1,
+      has_refer_out: 1,
+      refer_no_raw: 'RF014',
+      refer_no: 'OUT:RF014',
+      refer_direction: 'OUT',
+      refer_date: '2026-06-14',
+      refer_hospcode: '10710',
+      with_ambulance: '',
+      service_type: 'OP',
+      refer_adp_codes: 'S1901',
+      has_refer_adp_s: 1,
+      main_diag: 'J189',
+      has_receipt: 1,
+      total_price: 900,
+      has_close: 1,
+    }],
+    ipdRows: [],
+  });
+  assert.equal(result.items[0].dataAction, 'remove_transport_adp');
+  assert.match(result.items[0].missing.join(' '), /ติด C.*S1901/);
 });
 
 test('self travel without an S18 charge is explicitly classified as no correction needed', () => {

@@ -7,6 +7,25 @@ interface CheckTableProps {
   onRowClick?: (record: CheckRecord) => void;
 }
 
+const THAI_SHORT_MONTHS = [
+  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+];
+
+const formatThaiServiceDate = (value?: string) => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return value || '-';
+
+  const [, year, month, day] = match;
+  const monthLabel = THAI_SHORT_MONTHS[Number(month) - 1];
+  return monthLabel ? `${Number(day)} ${monthLabel} ${Number(year) + 543}` : value || '-';
+};
+
+const formatServiceTime = (value?: string) => {
+  const match = String(value || '').match(/^(\d{2}):(\d{2})/);
+  return match ? `${match[1]}:${match[2]} น.` : '-';
+};
+
 export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => {
   if (items.length === 0) return null;
 
@@ -21,7 +40,7 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
               <th>HN</th>
               <th>ชื่อผู้ป่วย</th>
               <th>สิทธิ์</th>
-              <th style={{ textAlign: 'center' }}>วันที่รับบริการ</th>
+              <th className="opd-service-datetime-header">วัน–เวลารับบริการ</th>
               <th style={{ textAlign: 'center' }}>ประเภท</th>
               <th style={{ textAlign: 'center' }}>Diag</th>
               <th style={{ minWidth: 150 }}>สถานะกองทุน</th>
@@ -76,7 +95,15 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                       {item.fund || item.hipdata_code}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'center', fontSize: 13 }}>{item.serviceDate || '-'}</td>
+                  <td className="opd-service-datetime-cell">
+                    <div className="opd-service-datetime">
+                      <span className="opd-service-date">{formatThaiServiceDate(item.serviceDate)}</span>
+                      <span className="opd-service-time">
+                        <span className="opd-service-time-dot" />
+                        {formatServiceTime(item.serviceTime)}
+                      </span>
+                    </div>
+                  </td>
                   <td style={{ textAlign: 'center' }}>
                     <span style={{
                       padding: '2px 8px',

@@ -37,6 +37,7 @@ export interface CheckRecord {
   patientName: string;
   fund: string;
   serviceDate: string;
+  serviceTime?: string;
   serviceType: string;
   status: 'ready' | 'pending' | 'rejected';
   issues: string[];

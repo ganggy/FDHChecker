@@ -116,7 +116,7 @@ export const StaffPage: React.FC = () => {
 
   // Export CSV
   const handleExportCSV = () => {
-    const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,ECLAIM,สถานะ FDH,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะข้อมูล,ราคา (บาท)';
+    const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,ECLAIM,สถานะ FDH,วันที่รับบริการ,เวลารับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะข้อมูล,ราคา (บาท)';
     const rows = filtered.map((item, index) => {
       const logic = evaluateBillingLogic(item);
       const eclaimCode = String(item.pttype_eclaim_id || '').trim();
@@ -135,6 +135,7 @@ export const StaffPage: React.FC = () => {
         eclaimLabel,
         fdhLabel,
         item.serviceDate,
+        item.serviceTime || '',
         item.serviceType,
         item.pdx || item.main_diag || '-',
         logic.isUUC1 ? 'UUC1' : 'UUC2',
@@ -169,6 +170,7 @@ export const StaffPage: React.FC = () => {
         'ECLAIM': eclaimLabel,
         'สถานะ FDH': fdhLabel,
         'วันที่รับบริการ': item.serviceDate,
+        'เวลารับบริการ': item.serviceTime || '',
         'ประเภท': item.serviceType,
         'DIAG': item.pdx || item.main_diag || '-',
         'สถานะกองทุน': logic.isUUC1 ? 'UUC1' : 'UUC2',
@@ -185,7 +187,8 @@ export const StaffPage: React.FC = () => {
     const colWidths = [
       { wch: 5 }, { wch: 15 }, { wch: 12 }, { wch: 30 },
       { wch: 12 }, { wch: 24 }, { wch: 15 }, { wch: 15 },
-      { wch: 10 }, { wch: 15 }, { wch: 12 }, { wch: 12 }
+      { wch: 12 }, { wch: 10 }, { wch: 15 }, { wch: 12 },
+      { wch: 12 }
     ];
     worksheet['!cols'] = colWidths;
 

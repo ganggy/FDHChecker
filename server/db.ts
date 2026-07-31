@@ -9700,6 +9700,7 @@ export const getCheckData = async (
           LIMIT 1
         ), '') as pttype_eclaim_name,
         DATE_FORMAT(ovst.vstdate, '%Y-%m-%d') as serviceDate,
+        TIME_FORMAT(ovst.vsttime, '%H:%i:%s') as serviceTime,
         (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) as main_diag,
         CASE 
           WHEN ovst.an IS NOT NULL AND ovst.an != '' THEN 'ผู้ป่วยใน'
@@ -9945,7 +9946,7 @@ export const getCheckData = async (
       params.push(endDate);
     }
 
-    query += ` GROUP BY ovst.vn, ovst.hn, pt.pname, pt.fname, pt.lname, pttype.name, pttype.hipdata_code, ovst.vstdate, ovst.ovstost, pt.birthday, ovst.pt_subtype, v.age_y ORDER BY ovst.vstdate DESC, ovst.vn DESC`;
+    query += ` GROUP BY ovst.vn, ovst.hn, pt.pname, pt.fname, pt.lname, pttype.name, pttype.hipdata_code, ovst.vstdate, ovst.vsttime, ovst.ovstost, pt.birthday, ovst.pt_subtype, v.age_y ORDER BY ovst.vstdate DESC, ovst.vsttime DESC, ovst.vn DESC`;
 
     const [rows] = await connection.query(query, params);
     connection.release();

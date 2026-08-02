@@ -16,6 +16,10 @@ import {
   getAiAuthStatus,
   requireAiAuth,
 } from './aiAuth.js';
+import {
+  answerPatientReportQuestion,
+  parsePatientReportIntent,
+} from './aiReportTools.js';
 
 export const aiRouter = Router();
 
@@ -35,6 +39,19 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (r
   if (question.length > 2_000) return res.status(400).json({ error: 'question is too long' });
 
   try {
+    const reportIntent = parsePatientReportIntent(question);
+    if (reportIntent) {
+      const answer = await answerPatientReportQuestion(reportIntent);
+      return res.json({
+        answer,
+        report: {
+          type: reportIntent.kind,
+          date: reportIntent.date,
+          source: 'HOSxP',
+        },
+      });
+    }
+
     const matches = await getKnowledgeVault().search(
       question,
       Math.min(8, Math.max(1, Number(process.env.VAULT_TOP_K) || 5)),

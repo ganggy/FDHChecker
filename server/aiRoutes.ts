@@ -20,6 +20,7 @@ import {
   answerPatientReportQuestion,
   parsePatientReportIntent,
 } from './aiReportTools.js';
+import { answerOperationalQuestion, parseOperationalIntent } from './aiOperationalTools.js';
 
 export const aiRouter = Router();
 
@@ -39,6 +40,10 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (r
   if (question.length > 2_000) return res.status(400).json({ error: 'question is too long' });
 
   try {
+    const operationalIntent = parseOperationalIntent(question);
+    if (operationalIntent) {
+      return res.json(await answerOperationalQuestion(operationalIntent));
+    }
     const reportIntent = parsePatientReportIntent(question);
     if (reportIntent) {
       return res.json(await answerPatientReportQuestion(reportIntent));

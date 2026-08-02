@@ -13,6 +13,8 @@ export type DailyWorkVisit = {
   totalCharge: number;
   hasCloseCode: boolean;
   closeStatus: string;
+  departmentCode?: string;
+  departmentName?: string;
 };
 
 export type DailyWorkCategoryId =
@@ -97,8 +99,11 @@ export const queryDailyWorkOverview = async (reportDate: string) => {
            ORDER BY ncp.nhso_confirm_privilege_id DESC
            LIMIT 1
          ), '') AS close_status
+         ,COALESCE(o.main_dep, '') AS department_code
+         ,COALESCE(k.department, '') AS department_name
        FROM ovst o
        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+       LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
        WHERE o.vstdate = ?
          AND IFNULL(o.an, '') = ''
        ORDER BY o.vsttime, o.vn`,
@@ -118,6 +123,8 @@ export const queryDailyWorkOverview = async (reportDate: string) => {
         totalCharge: num(item.total_charge),
         hasCloseCode: yes(item.has_close_code),
         closeStatus: text(item.close_status),
+        departmentCode: text(item.department_code),
+        departmentName: text(item.department_name),
       } satisfies DailyWorkVisit;
     });
     return classifyDailyWorkVisits(visits, reportDate);

@@ -41,15 +41,25 @@ import businessRules from './config/business_rules.json';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getLineBotStatus, lineWebhookHandler } from './lineBot.js';
+import { aiRouter } from './aiRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config();
+dotenv.config({ path: path.resolve(__dirname, '../.env.local') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '25mb' }));
+app.use(express.json({
+  limit: '25mb',
+  verify: (req, _res, buffer) => {
+    if ((req.url || '').startsWith('/api/line/webhook')) {
+      (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+    }
+  },
+}));
 
 const CONFIG_SETTING_KEY = 'business_rules';
 const APP_SETTINGS_KEY = 'site_settings';
@@ -2330,6 +2340,15 @@ app.post('/api/fdh/request-token', async (req, res) => {
     console.error('Error requesting FDH token:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการขอ token จาก FDH' });
   }
+});
+
+app.post('/api/line/webhook', lineWebhookHandler);
+
+app.use('/api/ai', aiRouter);
+
+app.get('/api/line/status', async (req, res) => {
+  const reindex = String(req.query.reindex || '').toLowerCase() === 'true';
+  res.json(await getLineBotStatus(reindex));
 });
 
 app.get('/api/health', async (req, res) => {

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --host --port 3507",
     "server": "tsx watch server/index.ts",
+    "test:ai": "node --import tsx --test server/aiService.test.ts server/lineBot.test.ts",
+    "ai:status": "curl -sS http://127.0.0.1:3506/api/ai/status",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

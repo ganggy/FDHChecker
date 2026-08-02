@@ -12,6 +12,7 @@ import { SpecificFundPage } from './pages/SpecificFundPage';
 import { SpecialMonitorPage } from './pages/SpecialMonitorPage';
 import { GuidePage } from './pages/GuidePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { LocalAiAssistant } from './components/LocalAiAssistant';
 import type { AppPage } from './utils/navigationState';
 import './App.css';
 
@@ -139,6 +140,7 @@ function App() {
         {currentPage === 'guide' && <GuidePage />}
         {currentPage === 'settings' && <SettingsPage />}
       </div>
+      <LocalAiAssistant />
     </div>
   );
 }

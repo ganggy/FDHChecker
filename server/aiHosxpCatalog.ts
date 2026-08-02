@@ -54,7 +54,10 @@ export const HOSXP_SEMANTIC_CATALOG = `
 - จำนวนคน: COUNT(DISTINCT hn)
 - จำนวนครั้ง OPD: COUNT(DISTINCT vn)
 - จำนวนครั้ง IPD: COUNT(DISTINCT an)
-- OPD ใช้ ovst.vstdate; IPD ใช้ ipt.regdate หรือ dchdateตามคำถาม
+- OPD หมายถึงข้อมูลในตาราง ovst และใช้ ovst.vstdate; ห้ามใช้เงื่อนไข pttype='OPD' เพราะ pttype คือรหัสสิทธิ ไม่ใช่ประเภทผู้ป่วย
+- IPD หมายถึงข้อมูลในตาราง ipt และใช้ ipt.regdate หรือ dchdate ตามคำถาม
+- แผนก OPD: ovst.main_dep=kskdepartment.depcode; ชื่อแผนกคือ kskdepartment.department
+- เดือนที่แล้วหมายถึงเดือนปฏิทินก่อนหน้า ตั้งแต่วันแรกของเดือนก่อนจนถึงก่อนวันแรกของเดือนปัจจุบัน
 - นัดที่ยังใช้งาน: COALESCE(oapp_status_id,1) <> 4
 - ชื่อเต็ม: CONCAT(COALESCE(pname,''),COALESCE(fname,''),' ',COALESCE(lname,''))
 - ระบุช่วงวันที่เสมอเมื่อคำถามเกี่ยวข้องกับเวลา และใช้ parameter เป็นค่าวันที่ literal รูปแบบ YYYY-MM-DD

@@ -118,6 +118,7 @@ const PLANNER_SYSTEM = `
 7. ห้ามใช้ตารางหรือคอลัมน์นอก catalog ห้ามเดาชื่อคอลัมน์
 8. ใช้ alias ภาษาอังกฤษที่สั้นและสื่อความหมาย ผลรายการ LIMIT ไม่เกิน 200
 9. คำถามต่อเนื่องให้อ้างอิงบริบทก่อนหน้า
+10. ห้ามเพิ่ม filter ที่ผู้ใช้ไม่ได้ขอ โดยเฉพาะห้ามใช้ pttype='OPD'; OPD ให้เลือกจากตาราง ovst ตาม catalog
 
 JSON schema:
 {"action":"query|clarify|not_data|deny","title":"ชื่อรายงาน","sql":"SELECT ...","clarification":"คำถามกลับ","reason":"เหตุผลสั้น ๆ"}

@@ -33,6 +33,13 @@ import {
   setAiLearningExampleStatus,
   type AiFeedbackRating,
 } from './aiLearningStore.js';
+import { answerVaultManagementQuestion, isVaultManagementQuestion } from './aiVaultAgent.js';
+import {
+  buildKspVaultExport,
+  getKspVaultStatus,
+  saveManagedVaultNote,
+  type KspVaultCategory,
+} from './kspVaultManager.js';
 
 export const aiRouter = Router();
 
@@ -57,12 +64,48 @@ const requireLearningAdmin = (req: AppAuthenticatedRequest, res: Response, next:
 aiRouter.get('/status', async (_req, res) => {
   const ai = await getAiStatus();
   const vault = getKnowledgeVault().status();
-  res.json({ ai, vault, auth: getAiAuthStatus(_req) });
+  const kspVault = await getKspVaultStatus().catch(() => null);
+  res.json({ ai, vault, kspVault, auth: getAiAuthStatus(_req) });
 });
 
 aiRouter.post('/session', aiLoginRateLimit, createAiSession);
 aiRouter.post('/session/auto', createTrustedAiSession);
 aiRouter.delete('/session', clearAiSession);
+
+aiRouter.get('/vault/search', requireAiAuth, async (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!query) return res.status(400).json({ error: 'q is required' });
+  return res.json({ matches: await getKnowledgeVault().search(query, Math.min(20, Number(req.query.limit) || 5)) });
+});
+
+aiRouter.post('/vault/note', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (req: AppAuthenticatedRequest, res) => {
+  try {
+    const saved = await saveManagedVaultNote({
+      title: String(req.body?.title || ''),
+      content: String(req.body?.content || ''),
+      category: String(req.body?.category || 'general') as KspVaultCategory,
+      tags: Array.isArray(req.body?.tags) ? req.body.tags.map(String) : [],
+      actor: req.authUser?.username || String(res.locals.aiAccessIdentity || ''),
+      source: 'api',
+      stableId: typeof req.body?.stableId === 'string' ? req.body.stableId : undefined,
+    });
+    await getKnowledgeVault().reindex(true);
+    return res.json({ saved: true, note: saved });
+  } catch (error) {
+    return res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+aiRouter.post('/vault/reindex', requireAiAuth, async (_req, res) => (
+  res.json({ vault: await getKnowledgeVault().reindex(true) })
+));
+
+aiRouter.get('/vault/export', requireAiAuth, async (_req, res) => {
+  const buffer = await buildKspVaultExport();
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename="FDHChecker-ksp-vault.zip"');
+  return res.send(buffer);
+});
 
 aiRouter.post('/feedback', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (req: AppAuthenticatedRequest, res) => {
   const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
@@ -107,13 +150,22 @@ aiRouter.patch('/learning/examples/:id', requireAiAuth, requireLearningAdmin, as
   return res.status(updated ? 200 : 404).json({ updated, id, status });
 });
 
-aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (req, res) => {
+aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (req: AppAuthenticatedRequest, res) => {
   const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
   const currentConversationKey = conversationKey(req, res);
   if (!question) return res.status(400).json({ error: 'question is required' });
   if (question.length > 2_000) return res.status(400).json({ error: 'question is too long' });
 
   try {
+    if (isVaultManagementQuestion(question)) {
+      const result = await answerVaultManagementQuestion(
+        question,
+        req.authUser?.username || String(res.locals.aiAccessIdentity || ''),
+      );
+      await getKnowledgeVault().reindex(true);
+      rememberConversationExchange(currentConversationKey, question, result.answer);
+      return res.json(result);
+    }
     const operationalIntent = parseOperationalIntent(question);
     if (operationalIntent) {
       const result = await answerOperationalQuestion(operationalIntent);
@@ -127,13 +179,16 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (r
       return res.json(result);
     }
 
-    const dynamicResult = await answerConversationalDataQuestion(question, currentConversationKey);
-    if (dynamicResult) return res.json(dynamicResult);
-
     const matches = await getKnowledgeVault().search(
       question,
       Math.min(8, Math.max(1, Number(process.env.VAULT_TOP_K) || 5)),
     );
+    const vaultContext = matches.map((match, index) => (
+      `[${index + 1}] ${match.source} > ${match.heading}\n${match.content}`
+    )).join('\n\n');
+    const dynamicResult = await answerConversationalDataQuestion(question, currentConversationKey, vaultContext);
+    if (dynamicResult) return res.json(dynamicResult);
+
     if (!matches.length) {
       const answer = await answerGeneralConversation(question);
       rememberConversationExchange(currentConversationKey, question, answer);

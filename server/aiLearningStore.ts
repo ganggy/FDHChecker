@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { getRepstmConnection } from './db.js';
 import { validateReadOnlySql } from './aiReadOnlyQuery.js';
+import { saveManagedVaultNote } from './kspVaultManager.js';
 
 export type AiFeedbackRating = 'correct' | 'incorrect' | 'remember';
 
@@ -161,6 +162,23 @@ export const recordAiFeedback = async (input: {
     );
     await connection.commit();
     cache = null;
+    if (status === 'approved') {
+      await saveManagedVaultNote({
+        title: `รูปแบบคำถาม: ${question.slice(0, 120)}`,
+        content: [
+          '## คำถามที่ยืนยันแล้ว', question,
+          correction ? `\n## คำอธิบายจากผู้ใช้\n${correction}` : '',
+          current.title ? `\n## ชื่อรายงาน\n${current.title}` : '',
+          current.safeSql ? `\n## SQL read-only ที่ผ่าน validator\n\`\`\`sql\n${current.safeSql}\n\`\`\`` : '',
+          '\n> ต้องปรับวันที่และเงื่อนไขตามคำถามใหม่ ห้ามใช้ตัวเลขคำตอบเดิมเป็นข้อเท็จจริง',
+        ].filter(Boolean).join('\n\n'),
+        category: 'learning',
+        tags: ['ai-learning', 'approved-example'],
+        actor: String(input.actor || 'unknown'),
+        source: 'ai_feedback',
+        stableId: `feedback-${questionHash(question).slice(0, 20)}`,
+      }).catch((error) => console.warn('Cannot mirror approved AI feedback to KSP Vault:', (error as Error).message));
+    }
     return { ...current, status, learned: status === 'approved', minPositive: MIN_POSITIVE };
   } catch (error) {
     await connection.rollback().catch(() => undefined);

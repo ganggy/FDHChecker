@@ -13,7 +13,7 @@ export type ReportSummaryInput = {
 };
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
-const defaultVaultPath = path.resolve(moduleDirectory, '..');
+const defaultVaultPath = path.resolve(moduleDirectory, '..', 'knowlage', 'ksp-vault');
 const provider = (): AiProvider => process.env.AI_PROVIDER?.trim().toLowerCase() === 'openai'
   ? 'openai'
   : 'ollama';
@@ -29,7 +29,7 @@ const responseCache = new Map<string, { text: string; expiresAt: number }>();
 export const getKnowledgeVault = () => {
   if (!vault) {
     vault = new VaultKnowledgeBase(
-      path.resolve(process.env.VAULT_PATH || defaultVaultPath),
+      path.resolve(process.env.KSP_VAULT_PATH || process.env.VAULT_PATH || defaultVaultPath),
       Number(process.env.VAULT_CACHE_MS) || 5 * 60_000,
       Number(process.env.VAULT_MAX_FILE_BYTES) || 2_500_000,
     );

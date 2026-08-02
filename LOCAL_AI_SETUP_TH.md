@@ -132,6 +132,33 @@ Agent จำบริบทภายใน session เดียวกัน จ�
 
 ระบบเรียนรู้วิธีตีความและค้นข้อมูล ไม่จดจำตัวเลขผู้ป่วยเป็นข้อเท็จจริงถาวร ข้อมูลจริงยังอ่านจาก HOSxP ใหม่ทุกครั้ง
 
+## KSP Vault และ Obsidian
+
+FDHChecker ใช้ Vault แบบ portable ที่ `knowlage/ksp-vault/FDHChecker` ประกอบด้วย Markdown, JSON manifest และ JSONL audit จึงนำทั้งโฟลเดอร์ไปใช้กับ Obsidian, chatbot หรือโปรแกรมอื่นได้โดยไม่ต้องแปลงฐานข้อมูลเฉพาะระบบ
+
+สร้าง Vault ใหม่จากเอกสาร config และ source code ทั้งหมด:
+
+```bash
+npm run vault:sync
+```
+
+ค้นหา Obsidian Vault ชื่อ `ksp-vault` จากการตั้งค่า Obsidian และ sync เข้าไปอัตโนมัติ:
+
+```bash
+npm run vault:sync:obsidian
+```
+
+AI อ่านเงื่อนไขที่ค้นพบจาก KSP Vault ระหว่างวางแผน query และเพิ่มความรู้ได้เมื่อผู้ใช้สั่งอย่างชัดเจน เช่น `จำไว้ว่า...` หรือ `เพิ่มเงื่อนไขนี้ลง Vault` ความรู้ที่ AI สร้างจะอยู่ใน `70_AI_Managed` เท่านั้น การแก้ไขเดิมถูกเก็บใน `_ksp/ai-revisions` และ audit อยู่ที่ `_ksp/ai-audit.jsonl`
+
+API สำหรับนำไปใช้กับโปรแกรมอื่น:
+
+- `GET /api/ai/vault/search?q=...` ค้นความรู้
+- `POST /api/ai/vault/note` เพิ่มหรือปรับปรุง note พร้อม revision
+- `POST /api/ai/vault/reindex` สร้างดัชนีใหม่ทันที
+- `GET /api/ai/vault/export` ดาวน์โหลด Vault ทั้งชุดเป็น ZIP
+
+API ทั้งหมดต้องผ่าน FDHChecker login และ AI session/key การเขียน Vault ไม่สามารถแก้ไขข้อมูล HOSxP และไม่เขียนทับ source snapshot ที่สร้างจากโค้ด
+
 ## API สำหรับสรุปรายงาน
 
 `POST /api/ai/summarize-report`

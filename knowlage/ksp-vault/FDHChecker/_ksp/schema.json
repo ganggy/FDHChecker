@@ -1,0 +1,33 @@
+{
+  "name": "ksp-vault",
+  "version": 1,
+  "project": "FDHChecker",
+  "portableFormats": [
+    "markdown",
+    "json",
+    "jsonl"
+  ],
+  "managedZones": {
+    "generated": [
+      "00_Home",
+      "10_Rules_and_Config",
+      "20_Data_Model",
+      "30_Claims_and_Knowledge",
+      "40_Project_Documentation",
+      "50_Operations",
+      "60_Programming_Knowledge"
+    ],
+    "ai": [
+      "70_AI_Managed"
+    ]
+  },
+  "noteMetadata": [
+    "ksp_schema",
+    "project",
+    "type",
+    "category",
+    "source",
+    "source_hash",
+    "managed_by"
+  ]
+}

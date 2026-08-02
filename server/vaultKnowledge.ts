@@ -193,7 +193,7 @@ export class VaultKnowledgeBase {
     ]));
     if (!queryTokens.length) return [];
 
-    return this.chunks
+    const ranked = this.chunks
       .map((chunk) => {
         let score = 0;
         for (const token of queryTokens) {
@@ -202,12 +202,29 @@ export class VaultKnowledgeBase {
           if (normalize(chunk.heading).includes(token)) score += 2;
         }
         if (normalizedQuery.length >= 6 && chunk.normalized.includes(normalizedQuery)) score += 12;
+        if (score > 0) {
+          if (/^FDHChecker\/70_AI_Managed\//i.test(chunk.source)) score += 7;
+          else if (/^FDHChecker\/(10_Rules_and_Config|20_Data_Model|30_Claims_and_Knowledge)\//i.test(chunk.source)) score += 4;
+          else if (/^FDHChecker\/50_Operations\//i.test(chunk.source)) score += 2;
+          else if (/^FDHChecker\/40_Project_Documentation\//i.test(chunk.source)) score += 1;
+          if (/\/extracted\//i.test(chunk.source)) score -= 2;
+        }
         return { ...chunk, score };
       })
       .filter((chunk) => chunk.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit)
-      .map(({ tokens: _tokens, normalized: _normalized, ...match }) => match);
+      .sort((a, b) => b.score - a.score);
+    const selected: typeof ranked = [];
+    const headings = new Set<string>();
+    const perSource = new Map<string, number>();
+    for (const chunk of ranked) {
+      const headingKey = `${chunk.source}\u0000${chunk.heading}`;
+      if (headings.has(headingKey) || (perSource.get(chunk.source) || 0) >= 2) continue;
+      headings.add(headingKey);
+      perSource.set(chunk.source, (perSource.get(chunk.source) || 0) + 1);
+      selected.push(chunk);
+      if (selected.length >= limit) break;
+    }
+    return selected.map(({ tokens: _tokens, normalized: _normalized, ...match }) => match);
   }
 
   status() {

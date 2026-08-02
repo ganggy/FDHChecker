@@ -1,0 +1,396 @@
+---
+ksp_schema: 1
+project: FDHChecker
+type: "source-snapshot"
+category: "rules-and-config"
+source: "src/config/fundDefinitions.ts"
+source_hash: "5e690b5897f85908ed5232d33c69c43d093bd79bbf5ce58da6dc0980351e6ecf"
+managed_by: "sync-ksp-vault"
+---
+# fundDefinitions.ts
+
+> Source: `src/config/fundDefinitions.ts`
+> SHA-256: `5e690b5897f85908ed5232d33c69c43d093bd79bbf5ce58da6dc0980351e6ecf`
+
+````typescript
+import { getFundRule } from './fundRuleCatalog';
+
+export interface FundDefinition {
+    id: string;
+    name: string;
+    description: string;
+    claimChannel?: string;
+    recordingSystem?: string;
+    claimChannelNote?: string;
+    conditions?: string[];
+    caution?: string;
+}
+
+const anemiaRule = getFundRule('anemia_screening');
+
+export const FUND_DEFINITIONS: FundDefinition[] = [
+    {
+        id: 'palliative',
+        name: 'Palliative Care',
+        description: 'ผู้ป่วยระยะประคับประคอง / เยี่ยมบ้าน',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH หรือ e-Claim ตามช่องทางที่หน่วยบริการใช้',
+        conditions: [
+            'สิทธิ UCS',
+            'โรคหลักต้องอยู่ในบัญชี ICD-10 สำหรับ Palliative Care ที่แสดงด้านล่าง',
+            'Diagnosis Z51.5 สำหรับ Palliative Care',
+            'กรณี Advance care planning ให้บันทึก Z71.8 คู่กับ Z51.5',
+            'ADP 30001 หรือ Cons01 หรือ Eva001',
+        ],
+        caution: 'กองทุนนี้เป็นงานเยี่ยมบ้าน ไม่ควรรวมกับกองทุนแล็บ/คัดกรองอื่นใน visit เดียวกัน ยกเว้นรายการยา'
+    },
+    {
+        id: 'telemedicine',
+        name: 'Telemedicine',
+        description: 'บริการแพทย์ทางไกล / Telemed',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim',
+        conditions: ['สิทธิ UCS', 'ADP TELMED หรือ export code 5']
+    },
+    {
+        id: 'drugp',
+        name: 'ส่งยาไปรษณีย์',
+        description: 'ยา EMS / ส่งยาถึงบ้าน',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim',
+        conditions: ['สิทธิ UCS', 'ADP DRUGP']
+    },
+    {
+        id: 'herb',
+        name: 'สมุนไพร / ยาไทย',
+        description: 'รายการสมุนไพรและยาไทย',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim หรือระบบที่ประกาศกำหนด',
+        conditions: ['สิทธิ UCS/WEL', 'มียาสมุนไพรหรือยาไทย', 'มียอดราคามากกว่า 0 บาท']
+    },
+    {
+        id: 'knee',
+        name: 'ยาพอกเข่า',
+        description: 'บริการพอกเข่าในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม',
+        claimChannelNote: 'ไม่ใช่กองทุนพิเศษแบบ ADP/FDH ให้ตรวจความครบของ Dx/หัตถการเพื่อออก 43 แฟ้ม',
+        conditions: [
+            'ดึงผู้ป่วยอายุ 40 ปีขึ้นไปและต้องมี Diagnosis ทั้ง M17 และ U57.53 ขึ้นมาตรวจ แม้ยังไม่มีหัตถการ',
+            'มีหัตถการครบ 4 รายการ: 872-78-11, 873-78-11, 874-78-11, 873-78-35',
+            'ไม่เกินวันละ 1 ครั้ง รวมไม่เกิน 5 ครั้งภายใน 2 สัปดาห์'
+        ],
+        caution: 'รายการนี้เป็นบริการที่ใช้ตรวจความพร้อมสำหรับการส่ง 43 แฟ้ม ไม่จัดเป็นกองทุนพิเศษแบบ ADP'
+    },
+    {
+        id: 'instrument',
+        name: 'อวัยวะเทียม',
+        description: 'วัสดุ/อุปกรณ์เบิกได้',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim',
+        conditions: ['มีอุปกรณ์กลุ่ม ADP Type 2', 'มียอดรายการอุปกรณ์ใน visit']
+    },
+    {
+        id: 'preg_test',
+        name: 'ตรวจครรภ์ (UPT)',
+        description: 'คัดกรองการตั้งครรภ์',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        conditions: ['ADP 30014', 'Diagnosis Z320 หรือ Z321', 'มีรายการ 31101 / Lab UPT']
+    },
+    {
+        id: 'anc',
+        name: 'ANC Visit',
+        description: 'ตรวจครรภ์คุณภาพ / ฝากครรภ์',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30011']
+    },
+    {
+        id: 'anc_ultrasound',
+        name: 'ANC Ultrasound',
+        description: 'อัลตราซาวนด์ระหว่างตั้งครรภ์',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30010 (ถือเป็นหลักฐานบริการ ANC Ultrasound)']
+    },
+    {
+        id: 'anc_lab_1',
+        name: 'ANC Lab 1',
+        description: 'ห้องแล็บชุดที่ 1 ของ ANC',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30012', 'CBC', 'DCIP', 'ABO group cell grouping', 'Rh grouping tube method', 'HBs Ag', 'Treponema Pallidum Antibody', 'HIV-Ab Screening rapid test']
+    },
+    {
+        id: 'anc_lab_2',
+        name: 'ANC Lab 2',
+        description: 'ห้องแล็บชุดที่ 2 ของ ANC',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30013', 'Anti-HIV ANC 2 (Screening) Rapid', 'Treponema Pallidum Antibody (ANC 2)', 'CBC (Complete blood count without smear)']
+    },
+    {
+        id: 'anc_dental_exam',
+        name: 'ANC ตรวจฟัน',
+        description: 'ตรวจสุขภาพช่องปากหญิงตั้งครรภ์ (30008)',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30008', 'หัตถการตรวจช่องปาก 2330011 หรือ 2330013']
+    },
+    {
+        id: 'anc_dental_clean',
+        name: 'ANC ขัดทำความสะอาดฟัน',
+        description: 'ขูดหินปูน/ทำความสะอาดฟันหญิงตั้งครรภ์ (30009)',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30009', 'หัตถการขัดทำความสะอาดฟัน 2387010, 2277310, 2277320, 2287310 หรือ 2287320']
+    },
+    {
+        id: 'postnatal_care',
+        name: 'ดูแลหลังคลอด',
+        description: 'ติดตาม/ตรวจหลังคลอด',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        conditions: ['Diagnosis Z390 หรือ Z391 หรือ Z392', 'ADP 30015']
+    },
+    {
+        id: 'postnatal_supplements',
+        name: 'เสริมธาตุเหล็กหลังคลอด',
+        description: 'ยาเสริมธาตุเหล็กหลังคลอด',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        conditions: ['Diagnosis Z391 หรือ Z392', 'ADP 30016', 'มีรายการยาเสริมธาตุเหล็กตามเกณฑ์']
+    },
+    {
+        id: 'fluoride',
+        name: 'เคลือบฟลูออไรด์',
+        description: 'ทันตกรรมป้องกันฟันผุ',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือระบบที่ประกาศกำหนด',
+        conditions: ['ADP 15001', 'อยู่ในช่วงอายุหรือสิทธิที่หน่วยบริการใช้เบิก']
+    },
+    {
+        id: 'fp',
+        name: 'วางแผนครอบครัว',
+        description: 'บริการคุมกำเนิดและวางแผนครอบครัว',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
+        conditions: ['Diagnosis Z30x', 'กรณี Z308 ให้จับคู่ ICD9/ADP ให้ครบ', 'มี ADP กลุ่ม FP ตามบริการที่ทำจริง']
+    },
+    {
+        id: 'contraceptive_pill',
+        name: 'ยาคุมกำเนิด',
+        description: 'ยาคุมชนิดเม็ด (Anna / Lynestrenol)',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
+        conditions: ['Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)', 'ADP FP003_1 (ยา Anna 40.-) หรือ FP003_2 (ยา Lynestrenol 80.-)']
+    },
+    {
+        // Legacy id retained for saved settings/API compatibility; FP003_4 is injection contraception.
+        id: 'condom',
+        name: 'ยาฉีดคุมกำเนิด',
+        description: 'บริการยาฉีดคุมกำเนิด อัตรา 60 บาท',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
+        conditions: ['Diagnosis Z30x ตามบริการวางแผนครอบครัว', 'ADP FP003_4', 'อัตรา 60 บาทต่อครั้ง']
+    },
+    {
+        id: 'cacervix',
+        name: 'คัดกรองมะเร็งปากมดลูก',
+        description: 'Pap smear / Cervix screening',
+        claimChannel: 'KTB/FDH',
+        recordingSystem: 'KTB หรือช่องทางที่ประกาศกำหนด',
+        conditions: ['Diagnosis/บริการคัดกรองมะเร็งปากมดลูก', 'ADP กลุ่ม 1B004 หรือ 1B005']
+    },
+    {
+        id: 'er_emergency',
+        name: 'ฉุกเฉิน (ER)',
+        description: 'ผู้ป่วยฉุกเฉินและนอกเขต',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim',
+        conditions: ['มีโครงการ OP AE หรือสิทธินอกเขต/ฉุกเฉินที่เบิกได้']
+    },
+    {
+        id: 'fpg_screening',
+        name: 'คัดกรองเบาหวาน',
+        description: 'กลุ่มเสี่ยงอายุ 35-59 ปี ด้วย FPG',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
+        conditions: ['อายุ 35-59 ปี', 'Lab FPG', 'Diagnosis Z131 หรือ Z133 หรือ Z136', 'ADP 12003', 'อัตรา 50 บาทต่อครั้ง']
+    },
+    {
+        id: 'cholesterol_screening',
+        name: 'คัดกรองหัวใจหลอดเลือด',
+        description: 'ตรวจ Total Cholesterol และ HDL ตามเกณฑ์ปี 2569',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
+        conditions: ['อายุ 45-70 ปี', 'Lab Total Cholesterol และ HDL', 'Diagnosis Z136', 'ADP 12004', 'อัตรา 160 บาทต่อครั้ง']
+    },
+    {
+        id: 'anemia_screening',
+        name: 'คัดกรองโลหิตจาง',
+        description: anemiaRule?.summary || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็กตามช่วงอายุและชนิดแลปที่กำหนด',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตามประกาศ PPFS 2569',
+        conditions: anemiaRule?.conditions || [
+            'อายุ 13-24 ปี ต้องมี Lab CBC + Diagnosis Z130/Z138 + ADP 13001',
+            'อายุ 6-12 เดือน ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001',
+            'อายุ 3-6 ปี ต้องมี Lab Hb/Hct + Diagnosis Z130/Z138 + ADP 13001',
+            'อัตรา 75 บาทต่อคนต่อปี'
+        ],
+        caution: anemiaRule?.caution || 'กองทุนนี้ต้องดู “ช่วงอายุ + ชนิดแลป” ให้ตรงกับเกณฑ์ก่อน'
+      },
+    {
+        id: 'syphilis_screening_male',
+        name: 'คัดกรองซิฟิลิส (ชาย)',
+        description: 'บริการคัดกรองโรคซิฟิลิสในประชาชนทั่วไปเพศชาย',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB; รายงาน/เชื่อมข้อมูลบางส่วนผ่าน Seamless/DMIS ตามพื้นที่',
+        conditions: [
+            'ประชาชนทั่วไปเพศชาย',
+            'มี Lab Treponema Pallidum Antibody หรือรายการตรวจซิฟิลิส',
+            'รองรับชื่อ Lab/บริการกลุ่ม Treponema, Syphilis, RPR, VDRL, TPHA, TPPA'
+        ],
+        caution: 'ตรวจสอบความเหมาะสมของกลุ่มเป้าหมายตามประกาศกองทุน และผลตรวจที่ผูกกับ visit ให้ถูกต้อง'
+    },
+    {
+        id: 'iron_supplement',
+        name: 'เสริมธาตุเหล็ก',
+        description: 'ยาเสริมธาตุเหล็ก',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตามประกาศ PPFS 2569',
+        conditions: ['หญิงอายุ 13-45 ปี', 'Diagnosis Z130', 'ADP 14001']
+    },
+    {
+        id: 'ferrokid_child',
+        name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)',
+        description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตามประกาศ PPFS 2569',
+        conditions: ['อายุ 6-12 เดือน', 'Diagnosis Z130', 'มียา Ferrokid']
+    },
+    {
+        id: 'mental_health_counselling',
+        name: 'ปรึกษาสุขภาพจิต',
+        description: 'Mental Health Counselling รายบุคคล',
+        claimChannel: 'e-Claim',
+        recordingSystem: 'e-Claim ตามประกาศ PPFS 2569',
+        conditions: [
+            'อายุ 12 ปีขึ้นไปและมีปัญหาสุขภาพจิตเร่งด่วน',
+            'มีผลประเมิน ST-5 และ/หรือ 9Q และ/หรือ 8Q',
+            'ให้คำปรึกษารายบุคคลครั้งละ 30-45 นาที อัตรา 150 บาทต่อครั้ง',
+            'ไม่เกิน 2 รอบต่อปีงบประมาณ รอบละ 14 วัน ไม่เกิน 3 ครั้งต่อรอบ',
+            'รอบถัดไปต้องห่างจากรอบก่อนอย่างน้อย 30 วัน'
+        ],
+        caution: 'ต้องมีหลักฐานการประเมิน ระยะเวลาให้คำปรึกษา และนับรอบบริการตามปีงบประมาณให้ครบ'
+    },
+    {
+        id: 'gender_affirming_hormone',
+        name: 'ฮอร์โมนยืนยันเพศสภาพ',
+        description: 'บริการฮอร์โมนเพื่อการยืนยันเพศสภาพ',
+        claimChannel: 'KTB/VMI',
+        recordingSystem: 'บันทึก KTB; รายการยา/ฮอร์โมนผ่าน VMI',
+        conditions: ['ผู้รับบริการตาม protocol 1-4', 'มี lab/บริการ/ยา hormone ตามความถี่ของ protocol', 'แยกบันทึกบริการกับการจ่ายยาให้ชัดเจน'],
+        caution: 'รายการยา/ฮอร์โมนไม่ใช่ FDH ปกติ ต้องตรวจช่องทาง VMI ประกอบ'
+    },
+    {
+        id: 'latent_tb_screening',
+        name: 'คัดกรอง Latent TB',
+        description: 'คัดกรองวัณโรคระยะแฝงด้วย IGRA',
+        claimChannel: 'NTIP/TB Data Hub',
+        recordingSystem: 'NTIP หรือ TB Data Hub ตามประกาศ',
+        conditions: ['มีบริการเจาะเลือด/ส่ง specimen/ตรวจ IGRA', 'กลุ่มเสี่ยงตามแนวทางวัณโรคระยะแฝง', 'แยกค่าบริการเก็บตัวอย่าง ส่งตรวจ และค่า lab IGRA'],
+        caution: 'ไม่ใช่ FDH/e-Claim ปกติ ต้องบันทึกระบบวัณโรคที่กำหนด'
+    },
+    {
+        id: 'osteoporosis_screening',
+        name: 'คัดกรองกระดูกพรุน',
+        description: 'คัดกรอง osteoporosis ด้วย FRAX/DXA/BMD',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตามประกาศ PPFS 2569',
+        conditions: ['หญิงหลังหมดประจำเดือน', 'อายุ 60 ปีขึ้นไป', 'ตรวจได้ทุก 5 ปี', 'มี FRAX/DXA/BMD หรือบริการคัดกรองกระดูกพรุน']
+    },
+    {
+        id: 'autism_tdas_screening',
+        name: 'คัดกรอง TDAS',
+        description: 'คัดกรอง Autistic disorder ด้วยเครื่องมือ TDAS',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตามประกาศ PPFS 2569',
+        conditions: ['เด็กไทยอายุ 12-60 เดือน', 'DSPM ล่าช้าหรือผิดปกติชัดเจน', 'ผู้ให้บริการผ่านอบรม TDAS']
+    },
+    {
+        id: 'chemo',
+        name: 'เคมีบำบัด',
+        description: 'ผู้ป่วยเคมีบำบัด',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim',
+        conditions: ['Diagnosis Z511 หรือ Z512']
+    },
+    {
+        id: 'hepc',
+        name: 'ไวรัสตับอักเสบซี',
+        description: 'คัดกรองไวรัสตับอักเสบซี / Anti-HCV',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตั้งแต่ 1 มิ.ย. 2568 ตามเอกสาร',
+        conditions: ['เกิดก่อน พ.ศ. 2535', 'Diagnosis Z11.5', 'Lab Anti-HCV']
+    },
+    {
+        id: 'hepb',
+        name: 'ไวรัสตับอักเสบบี',
+        description: 'คัดกรองไวรัสตับอักเสบบี / HBsAg',
+        claimChannel: 'KTB',
+        recordingSystem: 'KTB ตามประกาศ PPFS',
+        conditions: ['เกิดก่อน พ.ศ. 2535', 'Diagnosis Z11.5', 'Lab HBsAg']
+    },
+    {
+        id: 'rehab',
+        name: 'ฟื้นฟูสมรรถภาพ',
+        description: 'งานฟื้นฟู / กายภาพ',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim หรือระบบฟื้นฟูตามประกาศ',
+        conditions: ['Diagnosis Z50']
+    },
+    {
+        id: 'crrt',
+        name: 'ฟอกเลือด (CRRT)',
+        description: 'ผู้ป่วยฟอกเลือด / ไต',
+        claimChannel: 'อื่นๆ',
+        recordingSystem: 'ระบบ renal/รายการเฉพาะตามประกาศ สปสช.',
+        conditions: ['Diagnosis Z49']
+    },
+    {
+        id: 'robot',
+        name: 'ผ่าตัดหุ่นยนต์',
+        description: 'Robotic surgery',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim หรือ approval เฉพาะรายการ',
+        conditions: ['มีรายการหรือหัตถการที่ระบุ Robot']
+    },
+    {
+        id: 'proton',
+        name: 'รังสีรักษา (Proton)',
+        description: 'ฉายแสงโปรตอน',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim หรือ approval เฉพาะรายการ',
+        conditions: ['Diagnosis Z51.0']
+    },
+    {
+        id: 'cxr',
+        name: 'อ่านฟิล์ม CXR',
+        description: 'อ่านฟิล์มทรวงอก',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim หรือระบบคัดกรองที่ประกาศกำหนด',
+        conditions: ['มีรายการอ่านฟิล์มทรวงอก / CXR']
+    },
+    {
+        id: 'clopidogrel',
+        name: 'Clopidogrel',
+        description: 'ยาต้านเกล็ดเลือด',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim หรือระบบยาตามประกาศ',
+        conditions: ['มียา Clopidogrel ใน visit']
+    },
+];
+
+````

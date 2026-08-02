@@ -1,0 +1,49 @@
+---
+ksp_schema: 1
+project: FDHChecker
+type: "source-snapshot"
+category: "programming"
+source: "server/debug_hosxp.mjs"
+source_hash: "08e39641319469ac3e19df6020e63e62b27aae20f5f0a0eabf338fa8e42908e1"
+managed_by: "sync-ksp-vault"
+---
+# debug_hosxp.mjs
+
+> Source: `server/debug_hosxp.mjs`
+> SHA-256: `08e39641319469ac3e19df6020e63e62b27aae20f5f0a0eabf338fa8e42908e1`
+
+````javascript
+import mysql from 'mysql2/promise';
+import 'dotenv/config';
+
+const conn = await mysql.createConnection({
+  host: process.env.HOSXP_HOST,
+  user: process.env.HOSXP_USER,
+  password: process.env.HOSXP_PASSWORD,
+  database: process.env.HOSXP_DB,
+  charset: 'utf8mb4'
+});
+
+console.log('Connected to HOSxP');
+
+// Check ovst date range
+const [ovstRange] = await conn.execute('SELECT MIN(vstdate) as minD, MAX(vstdate) as maxD, COUNT(*) as cnt FROM ovst');
+console.log('ovst range:', JSON.stringify(ovstRange));
+
+// Check vn_stat with income
+const [vnstatIncome] = await conn.execute('SELECT COUNT(*) as cnt FROM vn_stat WHERE income > 0');
+console.log('vn_stat income>0:', JSON.stringify(vnstatIncome));
+
+// Check sample with income join
+const [sample] = await conn.execute(`
+  SELECT o.vn, o.hn, o.vstdate, v.income
+  FROM ovst o
+  JOIN vn_stat v ON v.vn = o.vn
+  WHERE v.income > 0
+  LIMIT 5
+`);
+console.log('sample ovst+vn_stat:', JSON.stringify(sample));
+
+await conn.end();
+
+````

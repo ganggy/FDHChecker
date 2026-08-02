@@ -19,6 +19,12 @@ dist-ssr
 !.env.example
 outputs/
 
+# Runtime knowledge managed by FDH Local AI. The curated governance seed stays versioned.
+knowlage/ksp-vault/FDHChecker/70_AI_Managed/**/*.md
+!knowlage/ksp-vault/FDHChecker/70_AI_Managed/operations/ksp-vault-ai-governance.md
+knowlage/ksp-vault/FDHChecker/_ksp/ai-audit.jsonl
+knowlage/ksp-vault/FDHChecker/_ksp/ai-revisions/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

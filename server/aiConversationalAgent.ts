@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { buildReportAttachment, type ExportableReport, type ReportFormat } from './aiReportExport.js';
 import { HOSXP_SEMANTIC_CATALOG } from './aiHosxpCatalog.js';
+import { getAiLearningContext } from './aiLearningStore.js';
 import { executeReadOnlyQuery } from './aiReadOnlyQuery.js';
 import { generateAgentText } from './aiService.js';
 
@@ -78,6 +79,12 @@ export const rememberConversationExchange = (
   if (state.entries.length > MAX_HISTORY) state.entries.splice(0, state.entries.length - MAX_HISTORY);
 };
 
+export const getConversationExchange = (key: string, question: string) => {
+  const normalized = question.trim();
+  const entry = [...stateFor(key).entries].reverse().find((item) => item.question.trim() === normalized);
+  return entry ? { ...entry } : null;
+};
+
 const requestedFormat = (question: string): ReportFormat | undefined => {
   const normalized = question.toLowerCase();
   if (/excel|xlsx|เอ็กเซล/.test(normalized)) return 'xlsx';
@@ -124,7 +131,7 @@ JSON schema:
 {"action":"query|clarify|not_data|deny","title":"ชื่อรายงาน","sql":"SELECT ...","clarification":"คำถามกลับ","reason":"เหตุผลสั้น ๆ"}
 `.trim();
 
-const buildPlannerPrompt = (question: string, history: ConversationEntry[], correction?: string) => {
+const buildPlannerPrompt = (question: string, history: ConversationEntry[], correction?: string, learningContext?: string) => {
   const historyText = history.length
     ? history.map((entry, index) => [
       `${index + 1}. ผู้ใช้: ${entry.question}`,
@@ -135,6 +142,7 @@ const buildPlannerPrompt = (question: string, history: ConversationEntry[], corr
   return [
     `เวลาปัจจุบันประเทศไทย: ${bangkokNow()}`,
     HOSXP_SEMANTIC_CATALOG,
+    learningContext,
     `บริบทสนทนา:\n${historyText}`,
     `คำถามล่าสุด: ${question}`,
     correction ? `แผนก่อนหน้าใช้ไม่ได้: ${correction}\nแก้แผนโดยใช้เฉพาะ catalog` : '',
@@ -142,8 +150,8 @@ const buildPlannerPrompt = (question: string, history: ConversationEntry[], corr
   ].filter(Boolean).join('\n\n');
 };
 
-const planQuestion = async (question: string, history: ConversationEntry[], correction?: string) => {
-  const text = await generateAgentText(PLANNER_SYSTEM, buildPlannerPrompt(question, history, correction), {
+const planQuestion = async (question: string, history: ConversationEntry[], correction?: string, learningContext?: string) => {
+  const text = await generateAgentText(PLANNER_SYSTEM, buildPlannerPrompt(question, history, correction, learningContext), {
     json: true, temperature: 0, maxTokens: 1_200,
   });
   const plan = extractJson(text);
@@ -207,13 +215,14 @@ export const answerConversationalDataQuestion = async (
   }
 
   const format = requestedFormat(question);
+  const learningContext = await getAiLearningContext(question);
   const reuseLast = format && /(?:ผล|ข้อมูล|รายงาน)?(?:เมื่อกี้|ก่อนหน้า|เดิม|ชุดเดิม)/.test(question);
   let plan: QueryPlan | null = null;
   if (reuseLast) {
     const previous = [...state.entries].reverse().find((entry) => entry.sql);
     if (previous?.sql) plan = { action: 'query', sql: previous.sql, title: previous.title || 'รายงานจากคำถามก่อนหน้า' };
   }
-  if (!plan) plan = await planQuestion(question, state.entries);
+  if (!plan) plan = await planQuestion(question, state.entries, undefined, learningContext);
 
   if (plan.action === 'not_data') return null;
   if (plan.action === 'deny') {
@@ -236,7 +245,7 @@ export const answerConversationalDataQuestion = async (
     } catch (error) {
       lastError = (error as Error).message.slice(0, 300);
       if (attempt === 0 && !reuseLast) {
-        plan = await planQuestion(question, state.entries, lastError);
+        plan = await planQuestion(question, state.entries, lastError, learningContext);
         if (plan.action !== 'query' || !plan.sql) break;
       }
     }

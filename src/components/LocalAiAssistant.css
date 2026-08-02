@@ -215,6 +215,43 @@
   margin-top: 5px;
 }
 
+.local-ai-feedback {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #eef2f7;
+  white-space: normal;
+}
+
+.local-ai-feedback button {
+  padding: 4px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #475569;
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.local-ai-feedback button:hover {
+  border-color: #0f766e;
+  color: #0f766e;
+}
+
+.local-ai-feedback button:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
+.local-ai-feedback small {
+  margin: 0;
+  color: #0f766e;
+  line-height: 1.4;
+}
+
 .local-ai-thinking {
   align-self: flex-start;
   color: #64748b;

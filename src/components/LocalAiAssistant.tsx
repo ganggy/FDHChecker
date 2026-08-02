@@ -5,6 +5,9 @@ import './LocalAiAssistant.css';
 type ChatMessage = {
   role: 'user' | 'assistant';
   text: string;
+  question?: string;
+  feedback?: string;
+  feedbackBusy?: boolean;
   sources?: Array<{ id: number; source: string; heading: string }>;
   attachment?: {
     filename: string;
@@ -133,6 +136,7 @@ export function LocalAiAssistant() {
       setMessages((current) => [...current, {
         role: 'assistant',
         text: payload.answer || 'ไม่พบคำตอบ',
+        question: prompt,
         sources: payload.sources,
         attachment: payload.attachment,
       }]);
@@ -143,6 +147,41 @@ export function LocalAiAssistant() {
       }]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const sendFeedback = async (messageIndex: number, rating: 'correct' | 'incorrect' | 'remember') => {
+    const message = messages[messageIndex];
+    if (!message?.question || message.feedbackBusy) return;
+    let correction = '';
+    if (rating === 'incorrect') {
+      const supplied = window.prompt('คำตอบที่ถูกต้องหรือความหมายที่ AI ควรจำคืออะไร? (เว้นว่างได้)');
+      if (supplied === null) return;
+      correction = supplied.trim();
+    }
+    setMessages((current) => current.map((item, index) => (
+      index === messageIndex ? { ...item, feedbackBusy: true } : item
+    )));
+    try {
+      const response = await fetch('/api/ai/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationId: conversationIdRef.current,
+          question: message.question,
+          rating,
+          correction,
+        }),
+      });
+      const payload = await response.json() as { message?: string; error?: string };
+      if (!response.ok) throw new Error(payload.error || 'บันทึก feedback ไม่สำเร็จ');
+      setMessages((current) => current.map((item, index) => (
+        index === messageIndex ? { ...item, feedbackBusy: false, feedback: payload.message || 'บันทึกแล้ว' } : item
+      )));
+    } catch (error) {
+      setMessages((current) => current.map((item, index) => (
+        index === messageIndex ? { ...item, feedbackBusy: false, feedback: (error as Error).message } : item
+      )));
     }
   };
 
@@ -229,6 +268,19 @@ export function LocalAiAssistant() {
                     ดาวน์โหลด {message.attachment.filename} ({Math.max(1, Math.round(message.attachment.size / 1024)).toLocaleString('th-TH')} KB)
                   </button>
                 )}
+                {message.role === 'assistant' && message.question && (
+                  <div className="local-ai-feedback">
+                    {message.feedback ? (
+                      <small>{message.feedback}</small>
+                    ) : (
+                      <>
+                        <button type="button" disabled={message.feedbackBusy} onClick={() => void sendFeedback(index, 'correct')}>✓ ถูกต้อง</button>
+                        <button type="button" disabled={message.feedbackBusy} onClick={() => void sendFeedback(index, 'incorrect')}>✕ ไม่ถูกต้อง</button>
+                        <button type="button" disabled={message.feedbackBusy} onClick={() => void sendFeedback(index, 'remember')}>จำวิธีนี้</button>
+                      </>
+                    )}
+                  </div>
+                )}
               </article>
             ))}
             {loading && <div className="local-ai-thinking">กำลังค้นข้อมูลและประมวลผล…</div>}
@@ -251,7 +303,7 @@ export function LocalAiAssistant() {
             />
             <button type="submit" disabled={!question.trim() || loading}>ส่ง</button>
           </form>}
-          <footer>AI session ถูกสร้างใหม่อัตโนมัติสำหรับแต่ละเครื่อง</footer>
+          <footer>AI session สร้างอัตโนมัติ • Feedback ช่วยให้ AI เรียนรู้รูปแบบคำถามที่ถูกต้อง</footer>
         </section>
       )}
 

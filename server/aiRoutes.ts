@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  answerGeneralConversation,
   answerGroundedQuestion,
   getAiStatus,
   getKnowledgeVault,
@@ -21,6 +22,10 @@ import {
   parsePatientReportIntent,
 } from './aiReportTools.js';
 import { answerOperationalQuestion, parseOperationalIntent } from './aiOperationalTools.js';
+import {
+  answerConversationalDataQuestion,
+  rememberConversationExchange,
+} from './aiConversationalAgent.js';
 
 export const aiRouter = Router();
 
@@ -36,27 +41,40 @@ aiRouter.delete('/session', clearAiSession);
 
 aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (req, res) => {
   const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
+  const suppliedConversationId = typeof req.body?.conversationId === 'string' ? req.body.conversationId.trim() : '';
+  const conversationId = /^[a-zA-Z0-9_-]{8,80}$/.test(suppliedConversationId) ? suppliedConversationId : 'default';
+  const conversationKey = `${String(res.locals.aiAccessIdentity || 'unknown')}:${conversationId}`;
   if (!question) return res.status(400).json({ error: 'question is required' });
   if (question.length > 2_000) return res.status(400).json({ error: 'question is too long' });
 
   try {
     const operationalIntent = parseOperationalIntent(question);
     if (operationalIntent) {
-      return res.json(await answerOperationalQuestion(operationalIntent));
+      const result = await answerOperationalQuestion(operationalIntent);
+      rememberConversationExchange(conversationKey, question, result.answer);
+      return res.json(result);
     }
     const reportIntent = parsePatientReportIntent(question);
     if (reportIntent) {
-      return res.json(await answerPatientReportQuestion(reportIntent));
+      const result = await answerPatientReportQuestion(reportIntent);
+      rememberConversationExchange(conversationKey, question, result.answer);
+      return res.json(result);
     }
+
+    const dynamicResult = await answerConversationalDataQuestion(question, conversationKey);
+    if (dynamicResult) return res.json(dynamicResult);
 
     const matches = await getKnowledgeVault().search(
       question,
       Math.min(8, Math.max(1, Number(process.env.VAULT_TOP_K) || 5)),
     );
     if (!matches.length) {
-      return res.status(404).json({ error: 'ไม่พบข้อมูลที่เกี่ยวข้องใน Vault' });
+      const answer = await answerGeneralConversation(question);
+      rememberConversationExchange(conversationKey, question, answer);
+      return res.json({ answer });
     }
     const answer = await answerGroundedQuestion(question, matches);
+    rememberConversationExchange(conversationKey, question, answer);
     return res.json({
       answer,
       sources: matches.map((match, index) => ({

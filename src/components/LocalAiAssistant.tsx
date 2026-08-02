@@ -39,6 +39,11 @@ export function LocalAiAssistant() {
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const conversationIdRef = useRef(
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `fdh-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
 
   const loadStatus = async (allowAutoLogin = true) => {
     const response = await fetch('/api/ai/status');
@@ -115,7 +120,7 @@ export function LocalAiAssistant() {
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: prompt }),
+        body: JSON.stringify({ question: prompt, conversationId: conversationIdRef.current }),
       });
       const payload = await response.json() as {
         answer?: string;
@@ -188,8 +193,8 @@ export function LocalAiAssistant() {
             )}
             {status?.auth?.authenticated && !messages.length && (
               <div className="local-ai-welcome">
-                <strong>ถามข้อมูล HOSxP หรือให้สร้างรายงานได้ครับ</strong>
-                <p>ค้นด้วย HN, VN, AN, CID หรือชื่อ ดูประวัติ ยา แล็บ วันนัด และดาวน์โหลด Word, Excel, CSV หรือ JSON ได้ โดย Backend เป็นผู้สร้างคำสั่งฐานข้อมูลที่กำหนดไว้ให้</p>
+                <strong>ถามข้อมูล HOSxP ต่อเนื่อง หรือให้สร้าง Word/Excel ได้ครับ</strong>
+                <p>ค้นด้วย HN, VN, AN, CID หรือชื่อ ดูประวัติ ยา แล็บ วันนัด ถามต่อจากคำตอบเดิม และดาวน์โหลด Word, Excel, CSV หรือ JSON ได้ ทุกคำค้นถูกตรวจและรันแบบอ่านอย่างเดียว</p>
               </div>
             )}
             {status?.auth?.authenticated && messages.map((message, index) => (

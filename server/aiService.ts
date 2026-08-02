@@ -52,7 +52,11 @@ const buildGroundedPrompt = (question: string, matches: VaultMatch[]) => {
   return `คำถามจากผู้ใช้:\n${question}\n\nข้อมูลที่ค้นพบใน Vault:\n${evidence}\n\nอ้างอิงแหล่งข้อมูลด้วย [1], [2] ต่อท้ายข้อความที่เกี่ยวข้อง`;
 };
 
-const callOllama = async (prompt: string) => {
+const callOllama = async (
+  prompt: string,
+  systemInstructions = SYSTEM_INSTRUCTIONS,
+  options?: { json?: boolean; temperature?: number; maxTokens?: number },
+) => {
   const response = await fetch(`${ollamaBaseUrl()}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -61,13 +65,14 @@ const callOllama = async (prompt: string) => {
       stream: false,
       keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
       messages: [
-        { role: 'system', content: SYSTEM_INSTRUCTIONS },
+        { role: 'system', content: systemInstructions },
         { role: 'user', content: prompt },
       ],
+      ...(options?.json ? { format: 'json' } : {}),
       options: {
-        temperature: 0.1,
+        temperature: options?.temperature ?? 0.1,
         num_ctx: Number(process.env.OLLAMA_CONTEXT_LENGTH) || 8_192,
-        num_predict: Number(process.env.OLLAMA_MAX_TOKENS) || 1_200,
+        num_predict: options?.maxTokens || Number(process.env.OLLAMA_MAX_TOKENS) || 1_200,
       },
     }),
     signal: AbortSignal.timeout(requestTimeoutMs()),
@@ -100,7 +105,11 @@ const extractOpenAIText = (payload: Record<string, unknown>): string => {
   return '';
 };
 
-const callOpenAI = async (prompt: string) => {
+const callOpenAI = async (
+  prompt: string,
+  systemInstructions = SYSTEM_INSTRUCTIONS,
+  options?: { json?: boolean; maxTokens?: number },
+) => {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
   const response = await fetch('https://api.openai.com/v1/responses', {
@@ -109,9 +118,9 @@ const callOpenAI = async (prompt: string) => {
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
       reasoning: { effort: 'none' },
-      instructions: SYSTEM_INSTRUCTIONS,
+      instructions: systemInstructions,
       input: prompt,
-      max_output_tokens: 1_000,
+      max_output_tokens: options?.maxTokens || 1_000,
       text: { verbosity: 'low' },
     }),
     signal: AbortSignal.timeout(requestTimeoutMs()),
@@ -149,8 +158,30 @@ const generateText = async (prompt: string) => {
   return text;
 };
 
+export const generateAgentText = async (
+  systemInstructions: string,
+  prompt: string,
+  options?: { json?: boolean; temperature?: number; maxTokens?: number },
+) => (
+  provider() === 'openai'
+    ? callOpenAI(prompt, systemInstructions, options)
+    : callOllama(prompt, systemInstructions, options)
+);
+
 export const answerGroundedQuestion = (question: string, matches: VaultMatch[]) => (
   generateText(buildGroundedPrompt(question, matches))
+);
+
+export const answerGeneralConversation = (question: string) => generateAgentText(
+  [
+    'คุณคือผู้ช่วยภาษาไทยของ FDHChecker ที่สุภาพและสนทนาเป็นธรรมชาติ',
+    'คำถามนี้ไม่ใช่การค้นฐานข้อมูล HOSxP และไม่มีหลักฐานจากระบบแนบมา',
+    'ตอบความรู้ทั่วไปได้ แต่ต้องบอกเมื่อไม่แน่ใจ ห้ามอ้างว่าพบข้อมูลผู้ป่วยหรือข้อมูลโรงพยาบาล',
+    'ห้ามให้คำวินิจฉัยหรือคำสั่งรักษาเฉพาะบุคคล และห้ามอ้างว่าสามารถแก้ไขฐานข้อมูลได้',
+    'ตอบกระชับและชวนผู้ใช้ระบุข้อมูลเพิ่มเมื่อจำเป็น',
+  ].join('\n'),
+  question,
+  { temperature: 0.3, maxTokens: 800 },
 );
 
 export const validateReportPayload = (input: ReportSummaryInput) => {

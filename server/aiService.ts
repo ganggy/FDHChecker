@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { VaultKnowledgeBase, type VaultMatch } from './vaultKnowledge.js';
@@ -20,8 +21,11 @@ const ollamaBaseUrl = () => (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11
 const ollamaModel = () => process.env.OLLAMA_MODEL || 'qwen3:4b-instruct';
 const reportRowLimit = () => Math.max(1, Number(process.env.AI_REPORT_MAX_ROWS) || 50);
 const requestTimeoutMs = () => Math.max(5_000, Number(process.env.AI_TIMEOUT_MS) || 90_000);
+const responseCacheMs = () => Math.max(0, Number(process.env.AI_RESPONSE_CACHE_MS) || 5 * 60_000);
+const responseCacheMax = () => Math.max(1, Number(process.env.AI_RESPONSE_CACHE_MAX) || 100);
 
 let vault: VaultKnowledgeBase | null = null;
+const responseCache = new Map<string, { text: string; expiresAt: number }>();
 export const getKnowledgeVault = () => {
   if (!vault) {
     vault = new VaultKnowledgeBase(
@@ -37,7 +41,6 @@ const SYSTEM_INSTRUCTIONS = [
   'คุณคือผู้ช่วยภาษาไทยของระบบ FDHChecker',
   'ตอบเฉพาะจากข้อมูลที่ Backend แนบมา ห้ามใช้ความจำเพื่อเติมข้อเท็จจริง',
   'ห้ามสร้างหรือเสนอ SQL และห้ามอ้างว่าสามารถเชื่อมฐานข้อมูลได้',
-  'ห้ามเปิดเผยหรือทวนข้อมูลส่วนบุคคลของผู้ป่วย เช่น HN, VN, AN, เลขบัตร, ชื่อ, ที่อยู่ หรือข้อมูลสุขภาพรายบุคคล',
   'ถ้าหลักฐานไม่พอ ให้บอกตรง ๆ ว่าข้อมูลไม่เพียงพอ',
   'ตอบให้กระชับ อ่านง่าย และใช้ภาษาไทยเป็นหลัก',
 ].join('\n');
@@ -56,6 +59,7 @@ const callOllama = async (prompt: string) => {
     body: JSON.stringify({
       model: ollamaModel(),
       stream: false,
+      keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
       messages: [
         { role: 'system', content: SYSTEM_INSTRUCTIONS },
         { role: 'user', content: prompt },
@@ -63,7 +67,7 @@ const callOllama = async (prompt: string) => {
       options: {
         temperature: 0.1,
         num_ctx: Number(process.env.OLLAMA_CONTEXT_LENGTH) || 8_192,
-        num_predict: Number(process.env.OLLAMA_MAX_TOKENS) || 1_000,
+        num_predict: Number(process.env.OLLAMA_MAX_TOKENS) || 1_200,
       },
     }),
     signal: AbortSignal.timeout(requestTimeoutMs()),
@@ -124,36 +128,30 @@ const callOpenAI = async (prompt: string) => {
   return text;
 };
 
-const generateText = (prompt: string) => provider() === 'openai'
-  ? callOpenAI(prompt)
-  : callOllama(prompt);
+const generateText = async (prompt: string) => {
+  const selectedProvider = provider();
+  const selectedModel = selectedProvider === 'ollama' ? ollamaModel() : (process.env.OPENAI_MODEL || 'gpt-5.6-terra');
+  const cacheKey = crypto.createHash('sha256').update(`${selectedProvider}:${selectedModel}:${prompt}`).digest('hex');
+  const cached = responseCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.text;
+  if (cached) responseCache.delete(cacheKey);
+
+  const text = selectedProvider === 'openai' ? await callOpenAI(prompt) : await callOllama(prompt);
+  const cacheDuration = responseCacheMs();
+  if (cacheDuration > 0) {
+    responseCache.set(cacheKey, { text, expiresAt: Date.now() + cacheDuration });
+    while (responseCache.size > responseCacheMax()) {
+      const oldestKey = responseCache.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      responseCache.delete(oldestKey);
+    }
+  }
+  return text;
+};
 
 export const answerGroundedQuestion = (question: string, matches: VaultMatch[]) => (
   generateText(buildGroundedPrompt(question, matches))
 );
-
-const SENSITIVE_FIELD = /^(hn|vn|an|cid|pid|patient_?name|person_?name|first_?name|last_?name|fname|lname|birthday|birth_?date|address|phone|mobile)$/i;
-const PATIENT_IDENTIFIER_VALUE = /(?:\b(?:hn|vn|an|cid|pid)\s*[:=]?\s*[a-z0-9-]{4,}\b|\b\d{13}\b)/i;
-
-export const containsPatientIdentifier = (value: string) => PATIENT_IDENTIFIER_VALUE.test(value);
-
-const findSensitiveField = (value: unknown, currentPath = ''): string | null => {
-  if (!value || typeof value !== 'object') return null;
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      const found = findSensitiveField(value[index], `${currentPath}[${index}]`);
-      if (found) return found;
-    }
-    return null;
-  }
-  for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-    const fieldPath = currentPath ? `${currentPath}.${key}` : key;
-    if (SENSITIVE_FIELD.test(key)) return fieldPath;
-    const found = findSensitiveField(nestedValue, fieldPath);
-    if (found) return found;
-  }
-  return null;
-};
 
 export const validateReportPayload = (input: ReportSummaryInput) => {
   if (!input || typeof input !== 'object') throw new Error('report payload is required');
@@ -165,10 +163,7 @@ export const validateReportPayload = (input: ReportSummaryInput) => {
   for (const row of input.rows) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('each report row must be an object');
   }
-  const sensitiveKey = findSensitiveField({ filters: input.filters, rows: input.rows });
-  if (sensitiveKey) throw new Error(`sensitive patient field is not allowed: ${sensitiveKey}`);
   const serialized = JSON.stringify(input);
-  if (containsPatientIdentifier(serialized)) throw new Error('patient identifier value is not allowed');
   if (serialized.length > 80_000) throw new Error('report payload is too large');
   return input;
 };

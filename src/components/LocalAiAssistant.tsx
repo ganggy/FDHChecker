@@ -19,6 +19,7 @@ type AiStatus = {
     configured?: boolean;
     authenticated?: boolean;
     sessionHours?: number;
+    trustedAutoLogin?: boolean;
   };
 };
 
@@ -33,14 +34,36 @@ export function LocalAiAssistant() {
   const [loginLoading, setLoginLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const loadStatus = () => fetch('/api/ai/status')
-    .then((response) => response.json())
-    .then((payload: AiStatus) => setStatus(payload));
+  const loadStatus = async (allowAutoLogin = true) => {
+    const response = await fetch('/api/ai/status');
+    let payload = await response.json() as AiStatus;
+    if (
+      allowAutoLogin
+      && payload.auth?.configured
+      && payload.auth.trustedAutoLogin
+      && !payload.auth.authenticated
+    ) {
+      const sessionResponse = await fetch('/api/ai/session/auto', { method: 'POST' });
+      if (sessionResponse.ok) {
+        const refreshedResponse = await fetch('/api/ai/status');
+        payload = await refreshedResponse.json() as AiStatus;
+      }
+    }
+    setStatus(payload);
+  };
 
   useEffect(() => {
     if (!open) return;
     loadStatus().catch(() => setStatus({ ai: { configured: false, reachable: false } }));
   }, [open]);
+
+  useEffect(() => {
+    const handleApplicationLogin = () => {
+      void loadStatus(true);
+    };
+    window.addEventListener('fdh:login', handleApplicationLogin);
+    return () => window.removeEventListener('fdh:login', handleApplicationLogin);
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -140,7 +163,7 @@ export function LocalAiAssistant() {
               <form className="local-ai-login" onSubmit={login}>
                 <div className="local-ai-lock">🔐</div>
                 <strong>กรอก FDH AI Access Key</strong>
-                <p>ใช้ key เดียวกันได้หลายเครื่อง แต่แต่ละเครื่องจะได้รับ session แยกกัน</p>
+                <p>โหมด Session อัตโนมัติไม่พร้อม จึงต้องใช้ Access Key สำรอง</p>
                 <input
                   type="password"
                   value={accessKey}
@@ -194,7 +217,7 @@ export function LocalAiAssistant() {
             />
             <button type="submit" disabled={!question.trim() || loading}>ส่ง</button>
           </form>}
-          <footer>ห้ามส่ง HN, VN, AN, เลขบัตร หรือชื่อผู้ป่วย</footer>
+          <footer>AI session ถูกสร้างใหม่อัตโนมัติสำหรับแต่ละเครื่อง</footer>
         </section>
       )}
 

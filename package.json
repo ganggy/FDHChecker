@@ -10,6 +10,7 @@
     "ai:key:setup": "node scripts/setup-ai-key.mjs --copy",
     "ai:key:rotate": "node scripts/setup-ai-key.mjs --rotate --copy",
     "ai:key:copy": "node scripts/setup-ai-key.mjs --copy",
+    "ai:tune:mac": "sh scripts/tune-ollama-macos.sh",
     "ai:status": "curl -sS http://127.0.0.1:3506/api/ai/status",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

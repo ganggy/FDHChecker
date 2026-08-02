@@ -11,9 +11,17 @@ npm run server
 npm run dev
 ```
 
+ปรับ Ollama สำหรับ Mac RAM 16 GB ให้รองรับสองคำขอพร้อมกัน เปิด Flash Attention ใช้ KV cache แบบ q8 และเก็บโมเดลในหน่วยความจำ 30 นาที:
+
+```bash
+npm run ai:tune:mac
+```
+
+คำสั่งนี้จะรีสตาร์ตแอป Ollama และควรรันใหม่หลัง logout/reboot หากค่า environment ของ launchd ถูกล้าง
+
 เปิด FDHChecker ที่ `http://localhost:3507` แล้วกดปุ่ม **AI** มุมขวาล่าง
 
-## สร้าง Access Key สำหรับหลายเครื่อง
+## Session อัตโนมัติสำหรับหลายเครื่อง
 
 สร้าง key ครั้งแรกบนเครื่อง Server คำสั่งจะเก็บ key ใน `.secrets/ai-access-key` ด้วยสิทธิ์อ่านเฉพาะเจ้าของ และคัดลอกค่าไว้ใน Clipboard โดยไม่แสดงค่าใน Terminal:
 
@@ -21,7 +29,9 @@ npm run dev
 npm run ai:key:setup
 ```
 
-จากเครื่องอื่นในเครือข่าย ให้เปิด FDHChecker ผ่าน IP ของ Mac mini เช่น `http://10.10.20.119:3507` กดปุ่ม **AI** แล้ววาง Access Key แต่ละเครื่องจะได้รับ HttpOnly session cookie แยกกัน ค่าเริ่มต้นมีอายุ 12 ชั่วโมง
+จากเครื่องอื่นในเครือข่าย ให้เปิด FDHChecker ผ่าน IP ของ Mac mini เช่น `http://10.10.20.119:3507` แล้วกดปุ่ม **AI** ระบบจะสร้าง HttpOnly session cookie แยกสำหรับเครื่องนั้นโดยอัตโนมัติ ค่าเริ่มต้นมีอายุ 12 ชั่วโมง ไม่ต้องกรอก Access Key หาก `FDH_AI_TRUSTED_NETWORK_AUTO_LOGIN=true`
+
+เมื่อเพิ่มระบบ Login ผู้ใช้จริงในอนาคต ให้หน้า Login ส่ง event `fdh:login` หลังเข้าสู่ระบบสำเร็จ ตัว AI assistant จะสร้าง session ใหม่ให้อัตโนมัติ
 
 คัดลอก key เดิมกลับเข้า Clipboard:
 
@@ -56,11 +66,15 @@ AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=qwen3:4b-instruct
 OLLAMA_CONTEXT_LENGTH=8192
-OLLAMA_MAX_TOKENS=1000
+OLLAMA_MAX_TOKENS=1200
+OLLAMA_KEEP_ALIVE=30m
 AI_TIMEOUT_MS=90000
 AI_REPORT_MAX_ROWS=50
+AI_RESPONSE_CACHE_MS=300000
+AI_RESPONSE_CACHE_MAX=100
 FDH_AI_SESSION_HOURS=12
-FDH_AI_RATE_LIMIT_PER_MINUTE=20
+FDH_AI_RATE_LIMIT_PER_MINUTE=120
+FDH_AI_TRUSTED_NETWORK_AUTO_LOGIN=true
 FDH_AI_COOKIE_SECURE=false
 ```
 
@@ -95,13 +109,14 @@ Backend จะค้นเอกสาร `.md` และ `.txt` ใน Vault �
 }
 ```
 
-ข้อจำกัดด้านความปลอดภัย:
+ขอบเขตเพื่อประสิทธิภาพ:
 
 - ส่งได้สูงสุด 50 แถว และ payload ไม่เกิน 80 KB
-- API ปฏิเสธฟิลด์ผู้ป่วย เช่น `hn`, `vn`, `an`, `cid`, `patient_name`, วันเกิด ที่อยู่ และโทรศัพท์
+- Session ที่ผ่านการรับรองสามารถส่งฟิลด์ `hn`, `vn`, `an`, `cid`, ชื่อ และข้อมูลระดับผู้ป่วยได้ ระบบไม่บล็อกฟิลด์เหล่านี้
+- Backend บันทึก audit metadata ได้แก่ session hash, route, status, เวลา และระยะเวลาทำงาน แต่ไม่บันทึก request body
 - โมเดลไม่ได้รับ credential ของฐานข้อมูลและไม่มีเครื่องมือรัน SQL
-- Backend ต้องคำนวณยอดและตรวจสิทธิ์ก่อนส่งข้อมูลสรุปให้โมเดล
-- ใช้บัญชีฐานข้อมูลแบบ read-only และ database views สำหรับรายงาน
+- คำตอบที่เหมือนกันจะ cache ในหน่วยความจำ 5 นาที สูงสุด 100 รายการ
+- โมเดลถูกเก็บในหน่วยความจำ 30 นาทีเพื่อลดเวลาโหลดซ้ำ
 
 ## เลือกโมเดล
 

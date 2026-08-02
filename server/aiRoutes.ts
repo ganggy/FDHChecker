@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import {
   answerGroundedQuestion,
-  containsPatientIdentifier,
   getAiStatus,
   getKnowledgeVault,
   summarizeReport,
@@ -9,9 +8,11 @@ import {
 } from './aiService.js';
 import {
   aiLoginRateLimit,
+  aiAuditTrail,
   aiRequestRateLimit,
   clearAiSession,
   createAiSession,
+  createTrustedAiSession,
   getAiAuthStatus,
   requireAiAuth,
 } from './aiAuth.js';
@@ -25,15 +26,13 @@ aiRouter.get('/status', async (_req, res) => {
 });
 
 aiRouter.post('/session', aiLoginRateLimit, createAiSession);
+aiRouter.post('/session/auto', createTrustedAiSession);
 aiRouter.delete('/session', clearAiSession);
 
-aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, async (req, res) => {
+aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (req, res) => {
   const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
   if (!question) return res.status(400).json({ error: 'question is required' });
   if (question.length > 2_000) return res.status(400).json({ error: 'question is too long' });
-  if (containsPatientIdentifier(question)) {
-    return res.status(400).json({ error: 'ห้ามส่ง HN, VN, AN, CID หรือเลขบัตรผู้ป่วยให้ AI' });
-  }
 
   try {
     const matches = await getKnowledgeVault().search(
@@ -58,7 +57,7 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, async (req, res) => {
   }
 });
 
-aiRouter.post('/summarize-report', requireAiAuth, aiRequestRateLimit, async (req, res) => {
+aiRouter.post('/summarize-report', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (req, res) => {
   try {
     const summary = await summarizeReport(req.body as ReportSummaryInput);
     return res.json({ summary });

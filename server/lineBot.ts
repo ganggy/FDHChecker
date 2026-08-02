@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import path from 'path';
 import type { Request, Response } from 'express';
-import { answerGroundedQuestion, containsPatientIdentifier, getAiStatus, getKnowledgeVault } from './aiService.js';
+import { answerGroundedQuestion, getAiStatus, getKnowledgeVault } from './aiService.js';
 import type { VaultMatch } from './vaultKnowledge.js';
 
 type LineMentionee = {
@@ -117,10 +117,6 @@ const processEvent = async (event: LineWebhookEvent) => {
   const question = extractQuestion(event);
   if (!question) {
     await replyToLine(event.replyToken!, 'กรุณาพิมพ์คำถามต่อท้าย @ชื่อบอท ครับ');
-    return;
-  }
-  if (containsPatientIdentifier(question)) {
-    await replyToLine(event.replyToken!, 'เพื่อความปลอดภัย กรุณาอย่าส่ง HN, VN, AN, CID หรือเลขบัตรผู้ป่วยให้ AI ครับ');
     return;
   }
 

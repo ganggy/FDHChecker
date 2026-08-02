@@ -8,7 +8,8 @@ const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(moduleDirectory, '..');
 const COOKIE_NAME = 'fdh_ai_session';
 const SESSION_HOURS = Math.max(1, Number(process.env.FDH_AI_SESSION_HOURS) || 12);
-const RATE_LIMIT = Math.max(1, Number(process.env.FDH_AI_RATE_LIMIT_PER_MINUTE) || 20);
+const RATE_LIMIT = Math.max(1, Number(process.env.FDH_AI_RATE_LIMIT_PER_MINUTE) || 120);
+const TRUSTED_AUTO_LOGIN = String(process.env.FDH_AI_TRUSTED_NETWORK_AUTO_LOGIN || 'true').toLowerCase() === 'true';
 const WINDOW_MS = 60_000;
 
 let cachedAccessKey: string | null | undefined;
@@ -115,6 +116,7 @@ export const getAiAuthStatus = (req: Request) => {
     configured: Boolean(accessKey),
     authenticated: Boolean(accessKey && accessIdentity(req, accessKey)),
     sessionHours: SESSION_HOURS,
+    trustedAutoLogin: TRUSTED_AUTO_LOGIN,
   };
 };
 
@@ -126,13 +128,7 @@ export const aiLoginRateLimit = (req: Request, res: Response, next: NextFunction
   return next();
 };
 
-export const createAiSession = (req: Request, res: Response) => {
-  const accessKey = getAiAccessKey();
-  if (!accessKey) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า FDH AI Access Key บน Server' });
-  const candidate = typeof req.body?.accessKey === 'string' ? req.body.accessKey.trim() : '';
-  if (!candidate || !isAccessKeyMatch(candidate, accessKey)) {
-    return res.status(401).json({ error: 'AI Access Key ไม่ถูกต้อง' });
-  }
+const setSessionCookie = (res: Response, accessKey: string) => {
   const token = createAiSessionToken(accessKey);
   const cookieParts = [
     `${COOKIE_NAME}=${encodeURIComponent(token)}`,
@@ -143,7 +139,25 @@ export const createAiSession = (req: Request, res: Response) => {
   ];
   if (String(process.env.FDH_AI_COOKIE_SECURE || '').toLowerCase() === 'true') cookieParts.push('Secure');
   res.setHeader('Set-Cookie', cookieParts.join('; '));
+};
+
+export const createAiSession = (req: Request, res: Response) => {
+  const accessKey = getAiAccessKey();
+  if (!accessKey) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า FDH AI Access Key บน Server' });
+  const candidate = typeof req.body?.accessKey === 'string' ? req.body.accessKey.trim() : '';
+  if (!candidate || !isAccessKeyMatch(candidate, accessKey)) {
+    return res.status(401).json({ error: 'AI Access Key ไม่ถูกต้อง' });
+  }
+  setSessionCookie(res, accessKey);
   return res.json({ authenticated: true, sessionHours: SESSION_HOURS });
+};
+
+export const createTrustedAiSession = (_req: Request, res: Response) => {
+  if (!TRUSTED_AUTO_LOGIN) return res.status(403).json({ error: 'ปิดการออก AI session อัตโนมัติ' });
+  const accessKey = getAiAccessKey();
+  if (!accessKey) return res.status(503).json({ error: 'ยังไม่ได้ตั้งค่า FDH AI Access Key บน Server' });
+  setSessionCookie(res, accessKey);
+  return res.json({ authenticated: true, sessionHours: SESSION_HOURS, automatic: true });
 };
 
 export const clearAiSession = (_req: Request, res: Response) => {
@@ -174,5 +188,21 @@ export const aiRequestRateLimit = (_req: Request, res: Response, next: NextFunct
     res.setHeader('Retry-After', '60');
     return res.status(429).json({ error: `เกินขีดจำกัด ${RATE_LIMIT} คำขอต่อนาที กรุณารอสักครู่` });
   }
+  return next();
+};
+
+export const aiAuditTrail = (req: Request, res: Response, next: NextFunction) => {
+  const startedAt = Date.now();
+  res.once('finish', () => {
+    console.info('AI_AUDIT', JSON.stringify({
+      timestamp: new Date().toISOString(),
+      session: String(res.locals.aiAccessIdentity || 'unknown'),
+      route: req.originalUrl,
+      method: req.method,
+      status: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      client: req.ip || req.socket.remoteAddress || 'unknown',
+    }));
+  });
   return next();
 };

@@ -67,6 +67,21 @@ test('routes HN questions to labs, medication, appointment and diagnosis tools',
   });
 });
 
+test('recognizes a natural Thai patient-name visit-count question', () => {
+  assert.deepEqual(parsePatientReportIntent('นายเปรมศักดิ์ เทพวงสา เคยมาโรงพยาบาลกี่ครั้ง', now), {
+    kind: 'patient-lookup',
+    identifierType: 'name',
+    identifier: 'นายเปรมศักดิ์ เทพวงสา',
+    countVisits: true,
+  });
+  assert.deepEqual(parsePatientReportIntent('ผู้ป่วยชื่อ นางสาวสมหญิง ใจดี เคยมารักษากี่ครั้ง', now), {
+    kind: 'patient-lookup',
+    identifierType: 'name',
+    identifier: 'นางสาวสมหญิง ใจดี',
+    countVisits: true,
+  });
+});
+
 test('does not route a general OPD guidance question to the database', () => {
   assert.equal(parsePatientReportIntent('อธิบายขั้นตอนตรวจสอบ OPD', now), null);
 });

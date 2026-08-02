@@ -24,6 +24,7 @@ export type PatientLookupIntent = {
   kind: 'patient-lookup';
   identifierType: 'hn' | 'vn' | 'an' | 'cid' | 'name';
   identifier: string;
+  countVisits?: boolean;
   topic?: 'labs' | 'medications' | 'appointments' | 'diagnoses';
   format?: ReportFormat;
 };
@@ -163,9 +164,23 @@ export const parsePatientReportIntent = (
   if (hn) return { kind: 'patient-lookup', identifierType: 'hn', identifier: hn, ...topicOption, ...formatOption };
   if (cid) return { kind: 'patient-lookup', identifierType: 'cid', identifier: cid, ...topicOption, ...formatOption };
 
-  const nameMatch = normalized.match(/(?:คนไข้ชื่อ|ผู้ป่วยชื่อ|ค้น(?:หา)?(?:คนไข้|ผู้ป่วย)?ชื่อ)\s*[:#-]?\s*([^\d,?]{2,60})/);
-  if (nameMatch) {
-    return { kind: 'patient-lookup', identifierType: 'name', identifier: nameMatch[1].trim(), ...formatOption };
+  const asksVisitCount = /(?:เคย)?(?:มา|รับบริการ|รักษา|เข้าโรงพยาบาล).*?(?:กี่ครั้ง|กี่หน|จำนวนครั้ง)/.test(normalized);
+  const directNameMatch = normalized.match(
+    /^((?:(?:นาย|นางสาว|นาง|เด็กชาย|เด็กหญิง|ด\.ช\.|ด\.ญ\.)\s*)?[ก-๙a-z]+\s+[ก-๙a-z]+)\s+(?:เคย)?(?:มา|รับบริการ|รักษา|เข้าโรงพยาบาล)/,
+  );
+  const labeledNameMatch = normalized.match(/(?:คนไข้ชื่อ|ผู้ป่วยชื่อ|ค้น(?:หา)?(?:คนไข้|ผู้ป่วย)?ชื่อ)\s*[:#-]?\s*([^\d,?]{2,60})/);
+  const rawName = directNameMatch?.[1] || labeledNameMatch?.[1];
+  if (rawName) {
+    const identifier = rawName
+      .replace(/\s+(?:เคย)?(?:มา|รับบริการ|รักษา|เข้าโรงพยาบาล).*$/u, '')
+      .trim();
+    return {
+      kind: 'patient-lookup',
+      identifierType: 'name',
+      identifier,
+      ...(asksVisitCount ? { countVisits: true } : {}),
+      ...formatOption,
+    };
   }
 
   const asksAboutOpd = /\bopd\b|ผู้ป่วยนอก|คนไข้นอก/.test(normalized);
@@ -304,6 +319,32 @@ const getPatientProfilesByName = async (name: string) => {
        ORDER BY p.hn
        LIMIT 20`,
       terms.map((term) => `%${term}%`),
+    );
+    return rows as Array<Record<string, unknown>>;
+  } finally {
+    connection.release();
+  }
+};
+
+const getPatientVisitCounts = async (hns: string[]) => {
+  if (!hns.length) return [];
+  const connection = await getUTFConnection();
+  try {
+    const placeholders = hns.map(() => '?').join(', ');
+    const [rows] = await connection.query(
+      `SELECT p.hn,
+         CONCAT(COALESCE(p.pname, ''), COALESCE(p.fname, ''), ' ', COALESCE(p.lname, '')) AS patientName,
+         COUNT(DISTINCT NULLIF(o.vn, '')) AS visitCount,
+         COUNT(DISTINCT NULLIF(i.an, '')) AS admissionCount,
+         DATE_FORMAT(MIN(o.vstdate), '%Y-%m-%d') AS firstVisitDate,
+         DATE_FORMAT(MAX(o.vstdate), '%Y-%m-%d') AS lastVisitDate
+       FROM patient p
+       LEFT JOIN ovst o ON o.hn = p.hn
+       LEFT JOIN ipt i ON i.hn = p.hn
+       WHERE p.hn IN (${placeholders})
+       GROUP BY p.hn, p.pname, p.fname, p.lname
+       ORDER BY patientName, p.hn`,
+      hns,
     );
     return rows as Array<Record<string, unknown>>;
   } finally {
@@ -686,6 +727,42 @@ export const answerPatientReportQuestion = async (
 
   if (intent.identifierType === 'name') {
     const rows = await getPatientProfilesByName(intent.identifier);
+    if (intent.countVisits && rows.length) {
+      const counts = await getPatientVisitCounts(rows.map((row) => String(row.hn || '')).filter(Boolean));
+      const report: ExportableReport = {
+        title: `จำนวนครั้งรับบริการของ ${intent.identifier}`,
+        subtitle: 'นับจำนวน VN ไม่ซ้ำจากประวัติ HOSxP',
+        columns: [
+          { key: 'hn', label: 'HN', width: 12 },
+          { key: 'patientName', label: 'ชื่อผู้ป่วย', width: 30 },
+          { key: 'visitCount', label: 'จำนวนครั้งรับบริการ', width: 18 },
+          { key: 'admissionCount', label: 'จำนวน IPD', width: 12 },
+          { key: 'firstVisitDate', label: 'มาครั้งแรก', width: 12 },
+          { key: 'lastVisitDate', label: 'มาครั้งล่าสุด', width: 12 },
+        ],
+        rows: counts,
+        wordColumnKeys: ['hn', 'patientName', 'visitCount', 'admissionCount', 'firstVisitDate', 'lastVisitDate'],
+      };
+      const output = intent.format
+        ? await buildReportAttachment(intent.format, report, 'fdh-patient-visit-count')
+        : undefined;
+      return {
+        answer: counts.map((row) => (
+          `${row.patientName || intent.identifier} (HN ${row.hn || '-'}) เคยมารับบริการ ${Number(row.visitCount || 0).toLocaleString('th-TH')} ครั้ง`
+          + ` โดยนับ VN ไม่ซ้ำ พบการนอนโรงพยาบาล ${Number(row.admissionCount || 0).toLocaleString('th-TH')} ครั้ง`
+          + ` มาครั้งแรก ${row.firstVisitDate || '-'} และครั้งล่าสุด ${row.lastVisitDate || '-'}`
+        )).concat(output ? [`สร้างไฟล์ ${output.filename} แล้ว`] : []).join('\n'),
+        report: {
+          type: intent.kind,
+          source: 'HOSxP',
+          identifierType: 'name',
+          identifier: intent.identifier,
+          totalRows: counts.length,
+          returnedRows: counts.length,
+        },
+        attachment: output,
+      };
+    }
     const report: ExportableReport = {
       title: `ผลค้นหาผู้ป่วยชื่อ ${intent.identifier}`,
       subtitle: 'ค้นจากชื่อ-นามสกุลใน HOSxP',

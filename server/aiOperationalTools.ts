@@ -9,7 +9,7 @@ import {
 } from './aiReportExport.js';
 
 export type OperationalIntent = {
-  kind: 'appointment-duplicates' | 'appointment-clinics' | 'claim-completeness' | 'department-errors';
+  kind: 'appointment-duplicates' | 'appointment-clinics' | 'claim-completeness' | 'department-errors' | 'patient-identity-duplicates';
   date: string;
   format?: ReportFormat;
 };
@@ -75,6 +75,12 @@ export const parseOperationalIntent = (question: string, now = new Date()): Oper
   const format = requestedFormat(normalized);
   const formatOption = format ? { format } : {};
 
+  if (
+    /(?:hn|cid|คนไข้|ผู้ป่วย|บุคคล).*(?:ซ้ำ|หลาย\s*hn)/i.test(normalized)
+    && /(?:hn|cid|เลขประจำตัว|คนเดียว|บุคคลเดียว)/i.test(normalized)
+  ) {
+    return { kind: 'patient-identity-duplicates', date, ...formatOption };
+  }
   if (/(?:นัด.*(?:ซ้ำ|ซ้อน))|(?:(?:ซ้ำซ้อน|นัดซ้ำ).*นัด)/.test(normalized)) {
     return { kind: 'appointment-duplicates', date, ...formatOption };
   }
@@ -211,8 +217,88 @@ const maybeAttachment = async (intent: OperationalIntent, report: ExportableRepo
   intent.format ? buildReportAttachment(intent.format, report, name) : undefined
 );
 
+const getPatientIdentityDuplicates = async () => {
+  const connection = await getUTFConnection();
+  try {
+    const [summaryRows] = await connection.query(
+      `SELECT
+         (SELECT COUNT(*) FROM (
+           SELECT hn FROM patient WHERE COALESCE(hn, '') <> '' GROUP BY hn HAVING COUNT(*) > 1
+         ) duplicate_hn) AS duplicateHnGroups,
+         (SELECT COUNT(*) FROM (
+           SELECT cid FROM patient
+           WHERE cid REGEXP '^[0-9]{13}$' AND cid <> '0000000000000' AND COALESCE(hn, '') <> ''
+           GROUP BY cid HAVING COUNT(DISTINCT hn) > 1
+         ) duplicate_cid) AS duplicateCidGroups`,
+    );
+    const summary = (summaryRows as Array<Record<string, unknown>>)[0] || {};
+    const [detailRows] = await connection.query(
+      `SELECT 'HN ซ้ำหลาย record' AS duplicateType, p.hn AS duplicateKey,
+          COUNT(*) AS recordCount, p.hn AS hns,
+          GROUP_CONCAT(DISTINCT TRIM(CONCAT(COALESCE(p.pname, ''), COALESCE(p.fname, ''), ' ', COALESCE(p.lname, ''))) SEPARATOR ' | ') AS patientNames
+       FROM patient p
+       WHERE COALESCE(p.hn, '') <> ''
+       GROUP BY p.hn
+       HAVING COUNT(*) > 1
+       UNION ALL
+       SELECT 'CID เดียวหลาย HN' AS duplicateType, p.cid AS duplicateKey,
+          COUNT(DISTINCT p.hn) AS recordCount,
+          GROUP_CONCAT(DISTINCT p.hn ORDER BY p.hn SEPARATOR ', ') AS hns,
+          GROUP_CONCAT(DISTINCT TRIM(CONCAT(COALESCE(p.pname, ''), COALESCE(p.fname, ''), ' ', COALESCE(p.lname, ''))) SEPARATOR ' | ') AS patientNames
+       FROM patient p
+       WHERE p.cid REGEXP '^[0-9]{13}$' AND p.cid <> '0000000000000' AND COALESCE(p.hn, '') <> ''
+       GROUP BY p.cid
+       HAVING COUNT(DISTINCT p.hn) > 1
+       ORDER BY recordCount DESC, duplicateKey
+       LIMIT 500`,
+    );
+    return {
+      duplicateHnGroups: Number(summary.duplicateHnGroups || 0),
+      duplicateCidGroups: Number(summary.duplicateCidGroups || 0),
+      rows: detailRows as Array<Record<string, unknown>>,
+    };
+  } finally {
+    connection.release();
+  }
+};
+
 export const answerOperationalQuestion = async (intent: OperationalIntent): Promise<OperationalAnswer> => {
   const dateLabel = thaiDate(intent.date);
+  if (intent.kind === 'patient-identity-duplicates') {
+    const result = await getPatientIdentityDuplicates();
+    const report: ExportableReport = {
+      title: 'ตรวจสอบผู้ป่วยซ้ำจาก HN และ CID',
+      subtitle: 'ตรวจจากตาราง patient ใน HOSxP',
+      metadata: [
+        { label: 'HN ซ้ำหลาย record', value: `${result.duplicateHnGroups.toLocaleString('th-TH')} กลุ่ม` },
+        { label: 'CID เดียวหลาย HN', value: `${result.duplicateCidGroups.toLocaleString('th-TH')} กลุ่ม` },
+      ],
+      columns: [
+        { key: 'duplicateType', label: 'ประเภทซ้ำ', width: 22 },
+        { key: 'duplicateKey', label: 'HN/CID ที่ซ้ำ', width: 18 },
+        { key: 'recordCount', label: 'จำนวน record/HN', width: 16 },
+        { key: 'hns', label: 'HN ที่เกี่ยวข้อง', width: 30 },
+        { key: 'patientNames', label: 'ชื่อที่บันทึก', width: 40 },
+      ],
+      rows: result.rows,
+    };
+    const output = await maybeAttachment(intent, report, 'fdh-patient-identity-duplicates');
+    return {
+      answer: [
+        `ตรวจจากตาราง patient พบเลข HN เดียวกันซ้ำหลาย record ${result.duplicateHnGroups.toLocaleString('th-TH')} กลุ่ม`,
+        `พบ CID เดียวกันแต่ผูกมากกว่า 1 HN จำนวน ${result.duplicateCidGroups.toLocaleString('th-TH')} กลุ่ม`,
+        'สองกรณีนี้มีความหมายต่างกัน: HN ซ้ำคือเลข HN เดิมมีหลายแถว ส่วน CID ซ้ำคือบุคคลเดียวอาจมีหลาย HN',
+        result.rows.length >= 500 ? 'รายละเอียดแสดงสูงสุด 500 กลุ่ม' : '',
+        output ? `สร้างไฟล์ ${output.filename} แล้ว` : '',
+      ].filter(Boolean).join('\n'),
+      report: {
+        type: intent.kind, source: 'HOSxP', date: intent.date,
+        totalRows: result.duplicateHnGroups + result.duplicateCidGroups,
+        returnedRows: result.rows.length,
+      },
+      attachment: output,
+    };
+  }
   if (intent.kind === 'appointment-duplicates') {
     const result = await queryDuplicateAppointments(intent.date);
     const rows = result.duplicatePatients.flatMap((patient) => patient.appointments.map((appointment) => ({

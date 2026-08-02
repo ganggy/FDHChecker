@@ -27,6 +27,14 @@ test('recognizes claim completeness and department-error questions with common s
   assert.equal(parseOperationalIntent('เมื่อวานหน่วยงานใดข้อมูลผิดมากที่สุด', now)?.kind, 'department-errors');
 });
 
+test('recognizes duplicate HN and same-person multiple-HN questions', () => {
+  assert.equal(parseOperationalIntent('มีคนไข้ HN ซ้ำกันในระบบหรือไม่', now)?.kind, 'patient-identity-duplicates');
+  assert.equal(parseOperationalIntent('มีคนไข้คนเดียวกันแต่หลาย HN หรือไม่', now)?.kind, 'patient-identity-duplicates');
+  assert.deepEqual(parseOperationalIntent('ขอ Excel รายชื่อ CID ซ้ำหลาย HN', now), {
+    kind: 'patient-identity-duplicates', date: '2026-08-02', format: 'xlsx',
+  });
+});
+
 const visit = (values: Partial<DailyWorkVisit>): DailyWorkVisit => ({
   vn: '1', hn: '1', serviceDate: '2026-08-01', pttype: '01', hipdataCode: 'UCS',
   diagCount: 1, mainDiagCount: 1, chargeCount: 1, totalCharge: 100,

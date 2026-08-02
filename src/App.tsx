@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { LoginPage } from './pages/LoginPage';
 import { adminOnlyPages, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
 import { changePassword, fetchMe, logout, type AuthSession } from './services/authService';
+import { LocalAiAssistant } from './components/LocalAiAssistant';
 import type { AppPage } from './utils/navigationState';
 import businessRules from './config/business_rules.json';
 import './App.css';
@@ -84,6 +85,11 @@ function App() {
     window.addEventListener('fdh:unauthorized', handleUnauthorized);
     return () => window.removeEventListener('fdh:unauthorized', handleUnauthorized);
   }, []);
+
+  useEffect(() => {
+    if (!authSession) return;
+    void fetch('/api/ai/session/auto', { method: 'POST' }).catch(() => undefined);
+  }, [authSession]);
 
   const canOpenPage = useCallback((page: AppPage) => allowedPageSet.has(page), [allowedPageSet]);
 
@@ -353,6 +359,7 @@ function App() {
           </section>
         </div>
       )}
+      <LocalAiAssistant />
     </div>
   );
 }

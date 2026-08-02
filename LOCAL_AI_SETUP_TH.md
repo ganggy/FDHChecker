@@ -1,0 +1,140 @@
+# FDHChecker Local AI (Ollama)
+
+ระบบตั้งค่าให้ใช้ `qwen3:4b-instruct` ผ่าน Ollama เป็นค่าเริ่มต้น รุ่น Instruct เหมาะกับ chatbot และการสรุปรายงานมากกว่ารุ่น Thinking เพราะไม่ใช้ token กับ reasoning trace ยาว ข้อมูลคำถามและรายงานจึงประมวลผลในเครื่อง ไม่ต้องส่งไป OpenAI API
+
+## เริ่มใช้งาน
+
+```bash
+ollama pull qwen3:4b-instruct
+ollama ps
+npm run server
+npm run dev
+```
+
+ปรับ Ollama สำหรับ Mac RAM 16 GB ให้รองรับสองคำขอพร้อมกัน เปิด Flash Attention ใช้ KV cache แบบ q8 และเก็บโมเดลในหน่วยความจำ 30 นาที:
+
+```bash
+npm run ai:tune:mac
+```
+
+คำสั่งนี้จะรีสตาร์ตแอป Ollama และควรรันใหม่หลัง logout/reboot หากค่า environment ของ launchd ถูกล้าง
+
+เปิด FDHChecker ที่ `http://localhost:3507` แล้วกดปุ่ม **AI** มุมขวาล่าง
+
+## Session อัตโนมัติสำหรับหลายเครื่อง
+
+สร้าง key ครั้งแรกบนเครื่อง Server คำสั่งจะเก็บ key ใน `.secrets/ai-access-key` ด้วยสิทธิ์อ่านเฉพาะเจ้าของ และคัดลอกค่าไว้ใน Clipboard โดยไม่แสดงค่าใน Terminal:
+
+```bash
+npm run ai:key:setup
+```
+
+จากเครื่องอื่นในเครือข่าย ให้เปิด FDHChecker ผ่าน IP ของ Mac mini เช่น `http://10.10.20.119:3507` แล้วกดปุ่ม **AI** ระบบจะสร้าง HttpOnly session cookie แยกสำหรับเครื่องนั้นโดยอัตโนมัติ ค่าเริ่มต้นมีอายุ 12 ชั่วโมง ไม่ต้องกรอก Access Key หาก `FDH_AI_TRUSTED_NETWORK_AUTO_LOGIN=true`
+
+เมื่อเพิ่มระบบ Login ผู้ใช้จริงในอนาคต ให้หน้า Login ส่ง event `fdh:login` หลังเข้าสู่ระบบสำเร็จ ตัว AI assistant จะสร้าง session ใหม่ให้อัตโนมัติ
+
+คัดลอก key เดิมกลับเข้า Clipboard:
+
+```bash
+npm run ai:key:copy
+```
+
+เปลี่ยน key และยกเลิก session เดิมทั้งหมด:
+
+```bash
+npm run ai:key:rotate
+```
+
+ระบบอื่นที่เรียก Backend โดยตรงส่ง key ผ่าน header โดยไม่ต้องสร้าง browser session:
+
+```http
+X-FDH-AI-Key: <access-key>
+```
+
+ห้าม commit โฟลเดอร์ `.secrets` และไม่ควรเปิดพอร์ต Ollama `11434` ให้เครื่องอื่นเข้าถึงโดยตรง ให้ทุกเครื่องเรียกผ่าน FDHChecker Backend เท่านั้น หากให้บริการผ่าน HTTPS ให้ตั้ง `FDH_AI_COOKIE_SECURE=true`
+
+ตรวจสถานะ Backend และโมเดล:
+
+```bash
+curl http://localhost:3506/api/ai/status
+```
+
+หากต้องการกำหนดค่าเอง ให้เพิ่มใน `.env.local`:
+
+```dotenv
+AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen3:4b-instruct
+OLLAMA_CONTEXT_LENGTH=8192
+OLLAMA_MAX_TOKENS=1200
+OLLAMA_KEEP_ALIVE=30m
+AI_TIMEOUT_MS=90000
+AI_REPORT_MAX_ROWS=50
+AI_RESPONSE_CACHE_MS=300000
+AI_RESPONSE_CACHE_MAX=100
+FDH_AI_SESSION_HOURS=12
+FDH_AI_RATE_LIMIT_PER_MINUTE=120
+FDH_AI_TRUSTED_NETWORK_AUTO_LOGIN=true
+FDH_AI_COOKIE_SECURE=false
+```
+
+## API สำหรับ Chatbot
+
+`POST /api/ai/chat`
+
+```json
+{
+  "question": "การเบิกฟอกไตต้องตรวจสอบอะไรบ้าง"
+}
+```
+
+Backend จะค้นเอกสาร `.md` และ `.txt` ใน Vault ก่อน แล้วส่งเฉพาะข้อความที่เกี่ยวข้องให้โมเดล คำตอบจะคืนรายการแหล่งข้อมูลด้วย
+
+## API สำหรับสรุปรายงาน
+
+`POST /api/ai/summarize-report`
+
+```json
+{
+  "title": "ยอดเบิกแยกตามกองทุน",
+  "filters": {
+    "month": "2026-07",
+    "department": "OPD"
+  },
+  "rows": [
+    { "fund": "UCS", "visit_count": 120, "amount": 450000 },
+    { "fund": "SSS", "visit_count": 35, "amount": 98000 }
+  ],
+  "notes": "ตัวเลขคำนวณและตรวจสิทธิ์โดย Backend แล้ว"
+}
+```
+
+ขอบเขตเพื่อประสิทธิภาพ:
+
+- ส่งได้สูงสุด 50 แถว และ payload ไม่เกิน 80 KB
+- Session ที่ผ่านการรับรองสามารถส่งฟิลด์ `hn`, `vn`, `an`, `cid`, ชื่อ และข้อมูลระดับผู้ป่วยได้ ระบบไม่บล็อกฟิลด์เหล่านี้
+- Backend บันทึก audit metadata ได้แก่ session hash, route, status, เวลา และระยะเวลาทำงาน แต่ไม่บันทึก request body
+- โมเดลไม่ได้รับ credential ของฐานข้อมูลและไม่มีเครื่องมือรัน SQL
+- คำตอบที่เหมือนกันจะ cache ในหน่วยความจำ 5 นาที สูงสุด 100 รายการ
+- โมเดลถูกเก็บในหน่วยความจำ 30 นาทีเพื่อลดเวลาโหลดซ้ำ
+
+## เลือกโมเดล
+
+สำหรับ RAM 16 GB ให้เริ่มจาก `qwen3:4b-instruct` หากต้องการทดลอง 8B:
+
+```bash
+OLLAMA_MODEL=qwen3:8b npm run server
+ollama ps
+memory_pressure
+```
+
+หาก Memory Pressure เป็นสีเหลือง/แดงหรือเริ่มใช้ swap มาก ให้กลับมาใช้ 4B
+
+## ทดสอบ
+
+```bash
+npm run test:ai
+npm run build
+```
+
+LINE Bot ที่อยู่ในโปรเจกต์ใช้ AI provider เดียวกัน จึงเปลี่ยนมาใช้ Ollama อัตโนมัติเมื่อ `AI_PROVIDER=ollama` หรือละค่า `AI_PROVIDER` ไว้

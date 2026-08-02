@@ -89,6 +89,7 @@ import {
   requestTracingMiddleware,
 } from './requestSafety.js';
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
+import { aiRouter } from './aiRoutes.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -772,6 +773,10 @@ app.use('/api', (req: AuthenticatedRequest, res, next) => {
   if (rule.pages?.some((page) => permissions.has(page))) return next();
   return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์ใช้งานส่วนนี้' });
 });
+
+// AI endpoints inherit the approved FDHChecker user session above. The
+// separate HttpOnly AI cookie limits direct model use and is issued silently.
+app.use('/api/ai', aiRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

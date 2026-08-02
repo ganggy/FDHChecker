@@ -15,6 +15,11 @@ type AiStatus = {
     configured?: boolean;
     reachable?: boolean | null;
   };
+  auth?: {
+    configured?: boolean;
+    authenticated?: boolean;
+    sessionHours?: number;
+  };
 };
 
 export function LocalAiAssistant() {
@@ -22,20 +27,52 @@ export function LocalAiAssistant() {
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<AiStatus['ai']>();
+  const [status, setStatus] = useState<AiStatus>();
+  const [accessKey, setAccessKey] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const loadStatus = () => fetch('/api/ai/status')
+    .then((response) => response.json())
+    .then((payload: AiStatus) => setStatus(payload));
 
   useEffect(() => {
     if (!open) return;
-    fetch('/api/ai/status')
-      .then((response) => response.json())
-      .then((payload: AiStatus) => setStatus(payload.ai))
-      .catch(() => setStatus({ configured: false, reachable: false }));
+    loadStatus().catch(() => setStatus({ ai: { configured: false, reachable: false } }));
   }, [open]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, loading]);
+
+  const login = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!accessKey.trim() || loginLoading) return;
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      const response = await fetch('/api/ai/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessKey: accessKey.trim() }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || 'ไม่สามารถเข้าสู่ระบบ AI ได้');
+      setAccessKey('');
+      await loadStatus();
+    } catch (error) {
+      setLoginError((error as Error).message);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    await fetch('/api/ai/session', { method: 'DELETE' });
+    setMessages([]);
+    await loadStatus();
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -56,6 +93,7 @@ export function LocalAiAssistant() {
         error?: string;
         sources?: ChatMessage['sources'];
       };
+      if (response.status === 401) await loadStatus();
       if (!response.ok) throw new Error(payload.error || 'Local AI ไม่สามารถตอบได้');
       setMessages((current) => [...current, {
         role: 'assistant',
@@ -79,21 +117,51 @@ export function LocalAiAssistant() {
           <header className="local-ai-header">
             <div>
               <strong>FDH Local AI</strong>
-              <span className={`local-ai-status ${status?.configured ? 'is-ready' : ''}`}>
-                {status?.configured ? `${status.model} พร้อมใช้งาน` : 'กำลังตรวจสอบ Ollama'}
+              <span className={`local-ai-status ${status?.ai?.configured && status.auth?.authenticated ? 'is-ready' : ''}`}>
+                {status?.ai?.configured ? `${status.ai.model} ${status.auth?.authenticated ? 'พร้อมใช้งาน' : 'รอ Access Key'}` : 'กำลังตรวจสอบ Ollama'}
               </span>
             </div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="ปิดผู้ช่วย">×</button>
+            <div className="local-ai-header-actions">
+              {status?.auth?.authenticated && (
+                <button type="button" className="local-ai-logout" onClick={logout}>ออก</button>
+              )}
+              <button type="button" className="local-ai-close" onClick={() => setOpen(false)} aria-label="ปิดผู้ช่วย">×</button>
+            </div>
           </header>
 
           <div className="local-ai-messages" ref={scrollRef}>
-            {!messages.length && (
+            {status?.auth?.configured === false && (
+              <div className="local-ai-login">
+                <strong>Server ยังไม่มี AI Access Key</strong>
+                <p>รัน <code>npm run ai:key:setup</code> บนเครื่อง Server แล้วรีสตาร์ต Backend</p>
+              </div>
+            )}
+            {status?.auth?.configured && !status.auth.authenticated && (
+              <form className="local-ai-login" onSubmit={login}>
+                <div className="local-ai-lock">🔐</div>
+                <strong>กรอก FDH AI Access Key</strong>
+                <p>ใช้ key เดียวกันได้หลายเครื่อง แต่แต่ละเครื่องจะได้รับ session แยกกัน</p>
+                <input
+                  type="password"
+                  value={accessKey}
+                  onChange={(event) => setAccessKey(event.target.value)}
+                  autoComplete="current-password"
+                  placeholder="วาง Access Key"
+                  disabled={loginLoading}
+                />
+                {loginError && <span className="local-ai-login-error">{loginError}</span>}
+                <button type="submit" disabled={!accessKey.trim() || loginLoading}>
+                  {loginLoading ? 'กำลังตรวจสอบ…' : 'เข้าใช้งาน AI'}
+                </button>
+              </form>
+            )}
+            {status?.auth?.authenticated && !messages.length && (
               <div className="local-ai-welcome">
                 <strong>ถามเรื่องเงื่อนไขและรายงาน FDHChecker ได้ครับ</strong>
                 <p>AI จะตอบจากเอกสารในโปรเจกต์เท่านั้น และไม่ได้เชื่อมฐานข้อมูลโดยตรง</p>
               </div>
             )}
-            {messages.map((message, index) => (
+            {status?.auth?.authenticated && messages.map((message, index) => (
               <article key={`${message.role}-${index}`} className={`local-ai-message is-${message.role}`}>
                 <div>{message.text}</div>
                 {!!message.sources?.length && (
@@ -109,7 +177,7 @@ export function LocalAiAssistant() {
             {loading && <div className="local-ai-thinking">กำลังค้นข้อมูลและประมวลผล…</div>}
           </div>
 
-          <form className="local-ai-form" onSubmit={submit}>
+          {status?.auth?.authenticated && <form className="local-ai-form" onSubmit={submit}>
             <textarea
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
@@ -125,7 +193,7 @@ export function LocalAiAssistant() {
               disabled={loading}
             />
             <button type="submit" disabled={!question.trim() || loading}>ส่ง</button>
-          </form>
+          </form>}
           <footer>ห้ามส่ง HN, VN, AN, เลขบัตร หรือชื่อผู้ป่วย</footer>
         </section>
       )}

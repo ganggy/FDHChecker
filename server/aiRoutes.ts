@@ -7,16 +7,27 @@ import {
   summarizeReport,
   type ReportSummaryInput,
 } from './aiService.js';
+import {
+  aiLoginRateLimit,
+  aiRequestRateLimit,
+  clearAiSession,
+  createAiSession,
+  getAiAuthStatus,
+  requireAiAuth,
+} from './aiAuth.js';
 
 export const aiRouter = Router();
 
 aiRouter.get('/status', async (_req, res) => {
   const ai = await getAiStatus();
   const vault = getKnowledgeVault().status();
-  res.json({ ai, vault });
+  res.json({ ai, vault, auth: getAiAuthStatus(_req) });
 });
 
-aiRouter.post('/chat', async (req, res) => {
+aiRouter.post('/session', aiLoginRateLimit, createAiSession);
+aiRouter.delete('/session', clearAiSession);
+
+aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, async (req, res) => {
   const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
   if (!question) return res.status(400).json({ error: 'question is required' });
   if (question.length > 2_000) return res.status(400).json({ error: 'question is too long' });
@@ -47,7 +58,7 @@ aiRouter.post('/chat', async (req, res) => {
   }
 });
 
-aiRouter.post('/summarize-report', async (req, res) => {
+aiRouter.post('/summarize-report', requireAiAuth, aiRequestRateLimit, async (req, res) => {
   try {
     const summary = await summarizeReport(req.body as ReportSummaryInput);
     return res.json({ summary });

@@ -13,6 +13,36 @@ npm run dev
 
 เปิด FDHChecker ที่ `http://localhost:3507` แล้วกดปุ่ม **AI** มุมขวาล่าง
 
+## สร้าง Access Key สำหรับหลายเครื่อง
+
+สร้าง key ครั้งแรกบนเครื่อง Server คำสั่งจะเก็บ key ใน `.secrets/ai-access-key` ด้วยสิทธิ์อ่านเฉพาะเจ้าของ และคัดลอกค่าไว้ใน Clipboard โดยไม่แสดงค่าใน Terminal:
+
+```bash
+npm run ai:key:setup
+```
+
+จากเครื่องอื่นในเครือข่าย ให้เปิด FDHChecker ผ่าน IP ของ Mac mini เช่น `http://10.10.20.119:3507` กดปุ่ม **AI** แล้ววาง Access Key แต่ละเครื่องจะได้รับ HttpOnly session cookie แยกกัน ค่าเริ่มต้นมีอายุ 12 ชั่วโมง
+
+คัดลอก key เดิมกลับเข้า Clipboard:
+
+```bash
+npm run ai:key:copy
+```
+
+เปลี่ยน key และยกเลิก session เดิมทั้งหมด:
+
+```bash
+npm run ai:key:rotate
+```
+
+ระบบอื่นที่เรียก Backend โดยตรงส่ง key ผ่าน header โดยไม่ต้องสร้าง browser session:
+
+```http
+X-FDH-AI-Key: <access-key>
+```
+
+ห้าม commit โฟลเดอร์ `.secrets` และไม่ควรเปิดพอร์ต Ollama `11434` ให้เครื่องอื่นเข้าถึงโดยตรง ให้ทุกเครื่องเรียกผ่าน FDHChecker Backend เท่านั้น หากให้บริการผ่าน HTTPS ให้ตั้ง `FDH_AI_COOKIE_SECURE=true`
+
 ตรวจสถานะ Backend และโมเดล:
 
 ```bash
@@ -29,6 +59,9 @@ OLLAMA_CONTEXT_LENGTH=8192
 OLLAMA_MAX_TOKENS=1000
 AI_TIMEOUT_MS=90000
 AI_REPORT_MAX_ROWS=50
+FDH_AI_SESSION_HOURS=12
+FDH_AI_RATE_LIMIT_PER_MINUTE=20
+FDH_AI_COOKIE_SECURE=false
 ```
 
 ## API สำหรับ Chatbot

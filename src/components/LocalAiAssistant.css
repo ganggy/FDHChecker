@@ -56,12 +56,29 @@
   gap: 3px;
 }
 
+.local-ai-header-actions {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
 .local-ai-header button {
   border: 0;
   color: white;
   background: transparent;
-  font-size: 1.8rem;
   cursor: pointer;
+}
+
+.local-ai-close {
+  font-size: 1.8rem;
+}
+
+.local-ai-logout {
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  border-radius: 8px;
+  font-size: 0.72rem;
 }
 
 .local-ai-status {
@@ -94,6 +111,56 @@
   margin: 8px 0 0;
   color: #64748b;
   font-size: 0.85rem;
+}
+
+.local-ai-login {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: auto 0;
+  padding: 26px;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: white;
+  text-align: center;
+  color: #334155;
+}
+
+.local-ai-lock {
+  font-size: 2rem;
+}
+
+.local-ai-login p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.local-ai-login input {
+  padding: 11px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font: inherit;
+}
+
+.local-ai-login button {
+  padding: 11px 14px;
+  border: 0;
+  border-radius: 10px;
+  color: white;
+  background: #0f766e;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.local-ai-login button:disabled {
+  opacity: 0.45;
+}
+
+.local-ai-login-error {
+  color: #b91c1c;
+  font-size: 0.78rem;
 }
 
 .local-ai-message {

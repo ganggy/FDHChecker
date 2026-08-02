@@ -41,15 +41,7 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (r
   try {
     const reportIntent = parsePatientReportIntent(question);
     if (reportIntent) {
-      const answer = await answerPatientReportQuestion(reportIntent);
-      return res.json({
-        answer,
-        report: {
-          type: reportIntent.kind,
-          date: reportIntent.date,
-          source: 'HOSxP',
-        },
-      });
+      return res.json(await answerPatientReportQuestion(reportIntent));
     }
 
     const matches = await getKnowledgeVault().search(

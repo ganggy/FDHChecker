@@ -6,6 +6,12 @@ type ChatMessage = {
   role: 'user' | 'assistant';
   text: string;
   sources?: Array<{ id: number; source: string; heading: string }>;
+  attachment?: {
+    filename: string;
+    mimeType: string;
+    base64: string;
+    size: number;
+  };
 };
 
 type AiStatus = {
@@ -115,6 +121,7 @@ export function LocalAiAssistant() {
         answer?: string;
         error?: string;
         sources?: ChatMessage['sources'];
+        attachment?: ChatMessage['attachment'];
       };
       if (response.status === 401) await loadStatus();
       if (!response.ok) throw new Error(payload.error || 'Local AI ไม่สามารถตอบได้');
@@ -122,6 +129,7 @@ export function LocalAiAssistant() {
         role: 'assistant',
         text: payload.answer || 'ไม่พบคำตอบ',
         sources: payload.sources,
+        attachment: payload.attachment,
       }]);
     } catch (error) {
       setMessages((current) => [...current, {
@@ -180,8 +188,8 @@ export function LocalAiAssistant() {
             )}
             {status?.auth?.authenticated && !messages.length && (
               <div className="local-ai-welcome">
-                <strong>ถามเรื่องเงื่อนไขและรายงาน FDHChecker ได้ครับ</strong>
-                <p>AI จะตอบจากเอกสารในโปรเจกต์เท่านั้น และไม่ได้เชื่อมฐานข้อมูลโดยตรง</p>
+                <strong>ถามข้อมูล HOSxP หรือให้สร้างรายงานได้ครับ</strong>
+                <p>ค้นด้วย HN, VN, AN, CID หรือชื่อ ดูประวัติ ยา แล็บ วันนัด และดาวน์โหลด Word, Excel, CSV หรือ JSON ได้ โดย Backend เป็นผู้สร้างคำสั่งฐานข้อมูลที่กำหนดไว้ให้</p>
               </div>
             )}
             {status?.auth?.authenticated && messages.map((message, index) => (
@@ -194,6 +202,27 @@ export function LocalAiAssistant() {
                       <small key={`${source.id}-${source.source}`}>[{source.id}] {source.source} › {source.heading}</small>
                     ))}
                   </details>
+                )}
+                {message.attachment && (
+                  <button
+                    type="button"
+                    className="local-ai-download"
+                    onClick={() => {
+                      const binary = window.atob(message.attachment!.base64);
+                      const bytes = new Uint8Array(binary.length);
+                      for (let byteIndex = 0; byteIndex < binary.length; byteIndex += 1) {
+                        bytes[byteIndex] = binary.charCodeAt(byteIndex);
+                      }
+                      const url = URL.createObjectURL(new Blob([bytes], { type: message.attachment!.mimeType }));
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = message.attachment!.filename;
+                      link.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    ดาวน์โหลด {message.attachment.filename} ({Math.max(1, Math.round(message.attachment.size / 1024)).toLocaleString('th-TH')} KB)
+                  </button>
                 )}
               </article>
             ))}
@@ -212,7 +241,7 @@ export function LocalAiAssistant() {
               }}
               maxLength={2_000}
               rows={2}
-              placeholder="เช่น การเบิกฟอกไตต้องตรวจอะไรบ้าง"
+              placeholder="เช่น ทำ Excel รายชื่อ OPD วันนี้ หรือ ดูผลแล็บ HN 000123456"
               disabled={loading}
             />
             <button type="submit" disabled={!question.trim() || loading}>ส่ง</button>

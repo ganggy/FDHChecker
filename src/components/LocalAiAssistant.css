@@ -192,6 +192,24 @@
   color: #64748b;
 }
 
+.local-ai-download {
+  display: block;
+  width: 100%;
+  margin-top: 0.65rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid rgba(37, 99, 235, 0.28);
+  border-radius: 0.65rem;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.local-ai-download:hover {
+  background: #dbeafe;
+}
+
 .local-ai-message small {
   display: block;
   margin-top: 5px;

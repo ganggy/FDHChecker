@@ -14166,7 +14166,20 @@ export const getEligibleIPD = async (
         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
         w.name as ward,
         DATE_FORMAT(ipt.regdate, '%Y-%m-%d') as admDate,
-        ipt.dchdate,
+        DATE_FORMAT(ipt.dchdate, '%Y-%m-%d') as dchdate,
+        DATE_FORMAT(TIMESTAMP(ipt.regdate, COALESCE(ipt.regtime, '00:00:00')), '%Y-%m-%d %H:%i:%s') as admission_at,
+        CASE WHEN ipt.dchdate IS NULL THEN NULL
+          ELSE DATE_FORMAT(TIMESTAMP(ipt.dchdate, COALESCE(ipt.dchtime, '00:00:00')), '%Y-%m-%d %H:%i:%s')
+        END as discharge_at,
+        (
+          SELECT DATE_FORMAT(MAX(TIMESTAMP(previous.dchdate, COALESCE(previous.dchtime, '00:00:00'))), '%Y-%m-%d %H:%i:%s')
+          FROM ipt previous
+          WHERE previous.hn = ipt.hn
+            AND previous.an <> ipt.an
+            AND previous.dchdate IS NOT NULL
+            AND TIMESTAMP(previous.dchdate, COALESCE(previous.dchtime, '00:00:00'))
+              <= TIMESTAMP(ipt.regdate, COALESCE(ipt.regtime, '00:00:00'))
+        ) as previous_discharge_at,
         CASE 
           WHEN ipt.dchdate IS NULL THEN DATEDIFF(CURDATE(), ipt.regdate)
           ELSE DATEDIFF(ipt.dchdate, ipt.regdate) 
@@ -14180,6 +14193,7 @@ export const getEligibleIPD = async (
         
         -- Diagnosis and Procedures
         (SELECT icd10 FROM iptdiag WHERE an = ipt.an AND diagtype = '1' LIMIT 1) as pdx,
+        (SELECT GROUP_CONCAT(DISTINCT icd10 ORDER BY diagtype, icd10 SEPARATOR ',') FROM iptdiag WHERE an = ipt.an) as diagnosis_codes,
         (SELECT GROUP_CONCAT(icd9) FROM iptoprt WHERE an = ipt.an) as or_codes,
         
         -- Total Price
@@ -14279,7 +14293,24 @@ export const getEligibleIPD = async (
     query += ` ORDER BY ipt.regdate DESC LIMIT ${businessRules.query_limits.ipd_limit}`;
 
     const [rows] = await connection.query(query, params);
-    return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
+    return ((Array.isArray(rows) ? rows : []) as Record<string, unknown>[]).map((row) => {
+      const diagnoses = String(row.diagnosis_codes || '').split(',').map((code) => code.trim()).filter(Boolean);
+      const procedures = String(row.or_codes || '').split(',').map((code) => code.trim()).filter(Boolean);
+      return {
+        ...row,
+        pre_audit: evaluateIpdPreAudit({
+          diagnoses,
+          procedures,
+          principalDiagnosis: row.pdx,
+          admissionAt: row.admission_at,
+          dischargeAt: row.discharge_at,
+          previousDischargeAt: row.previous_discharge_at,
+          // Active admissions are not failed merely because discharge data is
+          // not available yet; diagnosis-specific coding rules still run.
+          includeDocumentAudit: Boolean(row.dchdate),
+        }),
+      };
+    });
   } catch (error) {
     console.error('Error fetching IPD data:', error);
     return [];

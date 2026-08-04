@@ -1351,6 +1351,11 @@ app.get('/api/hosxp/checks', async (req, res) => {
         issues.push('ยังไม่ปิดสิทธิ (EP)');
       }
 
+      const opdPreAuditFindings = isIPD ? [] : evaluateOpdPreAudit(rec);
+      issues.push(...opdPreAuditFindings.map(formatOpdPreAuditIssue));
+      const opdBlockingCount = opdPreAuditFindings.filter((finding) => finding.severity === 'blocking').length;
+      const opdReviewCount = opdPreAuditFindings.filter((finding) => finding.severity === 'warning').length;
+
       const isComplete = issues.length === 0;
 
       return {
@@ -1358,6 +1363,13 @@ app.get('/api/hosxp/checks', async (req, res) => {
         status: isComplete ? 'ready' : 'pending',
         isBillable,
         issues: issues,
+        opd_pre_audit: isIPD ? null : {
+          status: opdBlockingCount > 0 ? 'blocking' : opdReviewCount > 0 ? 'review' : 'clear',
+          findingCount: opdPreAuditFindings.length,
+          blockingCount: opdBlockingCount,
+          reviewCount: opdReviewCount,
+          findings: opdPreAuditFindings,
+        },
         has_authen: hasAuthenPp ? 1 : 0,
         has_close: hasCloseEp ? 1 : 0,
         fdh_status_label: hasCloseEp

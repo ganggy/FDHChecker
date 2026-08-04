@@ -80,6 +80,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getPpfsNhsoReport } from './ppfsReport.js';
 import { fetchWithTimeout } from './httpClient.js';
+import { evaluateOpdPreAudit, formatOpdPreAuditIssue } from './opdPreAuditRules.js';
 import {
   anonymousApiWriteGuard,
   apiErrorHandler,
@@ -1737,6 +1738,12 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       if (!item.has_pal_diag && item.has_pal_adp) issues.push('ER213: มีรายการเบิก Palliative แต่ขาดรหัสวินิจฉัยสภาวะ');
       if (hasDrugpWithoutDrugItems(item)) issues.push('ER214: ส่งยาไปรษณีย์ (DRUGP) ต้องมีรายการยา');
 
+      // OPD medical-record and charge evidence layer. These codes are kept
+      // separate from ER1xx/ER2xx so 16-file structure and clinical audit are
+      // visible independently on the pre-submit screen.
+      const opdAuditIssues = evaluateOpdPreAudit(item);
+      issues.push(...opdAuditIssues.map(formatOpdPreAuditIssue));
+
       // Logic for status
       let status: 'ready' | 'pending' | 'rejected' = 'ready';
 
@@ -1749,7 +1756,7 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       } else {
         // นับเฉพาะที่เป็น Error จริงๆ (เว้น WRN ไว้)
         const criticalErrors = issues.filter(iss => iss.startsWith('ER'));
-        if (criticalErrors.length > 0) {
+        if (criticalErrors.length > 0 || opdAuditIssues.length > 0) {
           // ถ้าขาด CID หรือ Diagnosis หรือ Fund จะถือว่า Rejected (ส่งไม่ได้)
           if (!item.has_cid || !item.has_diagnosis || !item.fund) {
             status = 'rejected';

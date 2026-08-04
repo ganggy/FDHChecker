@@ -360,6 +360,7 @@ export const IPDPage: React.FC = () => {
     const [startDate, setStartDate] = useState(firstDayOfCurrentMonth());
     const [endDate, setEndDate] = useState(todayStr);
     const [statusFilter, setStatusFilter] = useState('all');
+    const [preAuditFilter, setPreAuditFilter] = useState<'all' | 'risk' | 'review' | 'clear'>('all');
     const [wardFilter, setWardFilter] = useState('all');
     const [search, setSearch] = useState('');
     const [selectedAN, setSelectedAN] = useState<string | null>(null);
@@ -392,9 +393,9 @@ export const IPDPage: React.FC = () => {
             return;
         }
 
-        const headers = ['ลำดับ', 'AN', 'HN', 'ชื่อ-สกุล', 'ตึกผู้ป่วย', 'สิทธิ', 'วันที่ Admit', 'วันที่ D/C', 'วันนอน (LOS)', 'รหัสโรค (PDx)', 'รหัสหัตถการ (OR)', 'DRG', 'RW', 'ค่าใช้จ่าย', 'สถานะ FDH', 'วันที่ส่ง FDH', 'วันหลัง D/C ถึง FDH', 'Error FDH', 'สถานะ'];
+        const headers = ['ลำดับ', 'AN', 'HN', 'ชื่อ-สกุล', 'ตึกผู้ป่วย', 'สิทธิ', 'วันที่ Admit', 'วันที่ D/C', 'วันนอน (LOS)', 'รหัสโรค (PDx)', 'รหัสหัตถการ (OR)', 'DRG', 'RW', 'ค่าใช้จ่าย', 'สถานะ FDH', 'วันที่ส่ง FDH', 'วันหลัง D/C ถึง FDH', 'Error FDH', 'สถานะ', 'ผล IPD Pre-audit', 'รหัสที่พบ', 'รายละเอียด'];
 
-        const rows = data.map((item, index) => {
+        const rows = filteredData.map((item, index) => {
             const statusStr = !item.pdx || item.pdx === '-' ? 'รอสรุปชาร์ต' : (item.dchdate ? 'จำหน่าย (D/C)' : 'กำลังรักษา');
             return [
                 index + 1,
@@ -415,7 +416,10 @@ export const IPDPage: React.FC = () => {
                 item.fdh_reservation_datetime || item.fdh_updated_at || '',
                 formatFdhDays(item),
                 item.fdh_error_code || '',
-                statusStr
+                statusStr,
+                item.pre_audit?.status === 'risk' ? 'พบความเสี่ยง' : item.pre_audit?.status === 'review' ? 'ทบทวนเวชระเบียน' : 'ผ่านกฎอัตโนมัติ',
+                item.pre_audit?.findings?.map((finding: any) => finding.code).join(' ') || '',
+                item.pre_audit?.findings?.map((finding: any) => finding.message).join(' | ') || ''
             ].map(cell => `"${cell}"`).join(',');
         });
 
@@ -457,7 +461,10 @@ export const IPDPage: React.FC = () => {
                 'วันที่ส่ง FDH': item.fdh_reservation_datetime || item.fdh_updated_at || '',
                 'วันหลัง D/C ถึง FDH': formatFdhDays(item),
                 'Error FDH': item.fdh_error_code || '',
-                'สถานะ': statusStr
+                'สถานะ': statusStr,
+                'ผล IPD Pre-audit': item.pre_audit?.status === 'risk' ? 'พบความเสี่ยง' : item.pre_audit?.status === 'review' ? 'ทบทวนเวชระเบียน' : 'ผ่านกฎอัตโนมัติ',
+                'รหัส Pre-audit': item.pre_audit?.findings?.map((finding: any) => finding.code).join(', ') || '',
+                'รายละเอียด Pre-audit': item.pre_audit?.findings?.map((finding: any) => finding.message).join(' | ') || ''
             };
         });
 
@@ -481,6 +488,7 @@ export const IPDPage: React.FC = () => {
 
     const filteredData = data.filter(item => {
         if (wardFilter !== 'all' && item.ward !== wardFilter) return false;
+        if (preAuditFilter !== 'all' && (item.pre_audit?.status || 'clear') !== preAuditFilter) return false;
 
         if (!search) return true;
         const q = search.toLowerCase();
@@ -496,6 +504,8 @@ export const IPDPage: React.FC = () => {
     const pendingChartCount = data.filter(i => i.chartStatus === 'รอแพทย์สรุปชาร์ต').length;
     const auditedCount = data.filter(i => i.audit_status === 'AUDITED').length;
     const fdhSubmittedCount = data.filter(i => i.fdh_transaction_uid || i.fdh_reservation_status || i.fdh_updated_at).length;
+    const preAuditRiskCount = data.filter(i => i.pre_audit?.status === 'risk').length;
+    const preAuditReviewCount = data.filter(i => i.pre_audit?.status === 'review').length;
 
     const getFdhStatusTone = (item: any) => {
         const text = String(item.fdh_status_label || item.fdh_reservation_status || item.fdh_claim_status_message || '').toLowerCase();
@@ -550,7 +560,7 @@ export const IPDPage: React.FC = () => {
                 </div>
 
                 {/* Dashboard Summary Cards */}
-                <div style={{ display: 'flex', gap: 16 }}>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <div className="card" style={{ padding: '12px 20px', textAlign: 'center', background: 'var(--surface-2)', minWidth: 150 }}>
                         <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>ผู้ป่วยพักรักษาตัว (Admitting)</div>
                         <div style={{ fontSize: 24, fontWeight: '700', color: 'var(--primary)' }}>{admittedCount} <span style={{ fontSize: 14 }}>ราย</span></div>
@@ -570,6 +580,13 @@ export const IPDPage: React.FC = () => {
                     <div className="card" style={{ padding: '12px 20px', textAlign: 'center', background: 'rgba(14, 165, 233, 0.1)', border: '1px solid rgba(14, 165, 233, 0.26)', minWidth: 150 }}>
                         <div style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>มีสถานะจาก FDH</div>
                         <div style={{ fontSize: 24, fontWeight: '700', color: 'var(--primary)' }}>{fdhSubmittedCount} <span style={{ fontSize: 14 }}>ราย</span></div>
+                    </div>
+                    <div className="card" style={{ padding: '12px 16px', textAlign: 'center', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.28)', minWidth: 190 }}>
+                        <div style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 700 }}>IPD Pre-audit ใหม่</div>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginTop: 5 }}>
+                            <button type="button" onClick={() => setPreAuditFilter(preAuditFilter === 'risk' ? 'all' : 'risk')} style={{ border: 0, background: 'transparent', color: 'var(--danger)', cursor: 'pointer', fontWeight: 800 }}>เสี่ยง {preAuditRiskCount}</button>
+                            <button type="button" onClick={() => setPreAuditFilter(preAuditFilter === 'review' ? 'all' : 'review')} style={{ border: 0, background: 'transparent', color: 'var(--warning)', cursor: 'pointer', fontWeight: 800 }}>ทบทวน {preAuditReviewCount}</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -616,6 +633,16 @@ export const IPDPage: React.FC = () => {
                             <option value="all">ทั้งหมด</option>
                             <option value="admitted">กำลังรักษา (Admitted)</option>
                             <option value="discharged">จำหน่ายแล้ว (Discharged)</option>
+                        </select>
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 0, width: 200 }}>
+                        <label className="form-label">IPD Pre-audit</label>
+                        <select className="form-control" value={preAuditFilter} onChange={e => setPreAuditFilter(e.target.value as typeof preAuditFilter)}>
+                            <option value="all">ทุกผลตรวจ</option>
+                            <option value="risk">พบความเสี่ยง</option>
+                            <option value="review">ต้องทบทวนเวชระเบียน</option>
+                            <option value="clear">ผ่านกฎอัตโนมัติ</option>
                         </select>
                     </div>
 
@@ -743,26 +770,35 @@ export const IPDPage: React.FC = () => {
                                         </td>
                                         <td style={{ textAlign: 'left', background: 'rgba(245, 158, 11, 0.02)' }}>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
-                                                {!item.pdx || item.pdx === '-' ? (
-                                                    <span style={{ color: 'var(--danger)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                        <span style={{ fontSize: 13 }}>🔴</span> Missing PDx (ขาดรหัสโรคหลัก)
+                                                <span className={`badge ${item.pre_audit?.status === 'risk' ? 'badge-danger' : item.pre_audit?.status === 'review' ? 'badge-warning' : 'badge-success'}`} style={{ alignSelf: 'flex-start' }}>
+                                                    {item.pre_audit?.status === 'risk' ? `🔴 พบความเสี่ยง ${item.pre_audit?.riskCount || 0}` : item.pre_audit?.status === 'review' ? `🟠 ทบทวน Chart ${item.pre_audit?.reviewCount || 0}` : '🟢 ผ่านกฎอัตโนมัติ'}
+                                                </span>
+                                                {item.pre_audit?.findings?.slice(0, 2).map((finding: any) => (
+                                                    <span key={finding.code} style={{ color: finding.severity === 'risk' ? 'var(--danger)' : 'var(--warning)', fontWeight: 600 }}>
+                                                        {finding.code}: {finding.title}
                                                     </span>
-                                                ) : null}
-                                                {item.or_codes && item.or_codes !== '-' && (!item.rw || Number(item.rw) === 0) ? (
-                                                    <span style={{ color: 'var(--warning)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                        <span style={{ fontSize: 13 }}>🟠</span> OR but RW=0 (ผ่าตัดแต่ RW ไม่ขึ้น)
-                                                    </span>
-                                                ) : null}
-                                                {Number(item.los) > 10 && (!item.rw || Number(item.rw) < 0.8) ? (
-                                                    <span style={{ color: 'var(--warning)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                        <span style={{ fontSize: 13 }}>🟠</span> High LOS/Low RW (นอนนานแต่ RW ต่ำ)
-                                                    </span>
-                                                ) : null}
-                                                {(item.pdx && item.pdx !== '-') && (!item.or_codes || item.or_codes === '-' || Number(item.rw) > 0) && (Number(item.los) <= 10 || Number(item.rw) >= 0.8) ? (
-                                                    <span style={{ color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                        <span style={{ fontSize: 13 }}>🟢</span> ปกติเบื้องต้น (Basic Pass)
-                                                    </span>
-                                                ) : null}
+                                                ))}
+                                                {item.pre_audit?.findings?.length > 0 && (
+                                                    <details onClick={(event) => event.stopPropagation()} style={{ marginTop: 2 }}>
+                                                        <summary style={{ cursor: 'pointer', color: 'var(--primary)', fontWeight: 600 }}>
+                                                            ดูรายละเอียดทั้งหมด ({item.pre_audit.findingCount})
+                                                        </summary>
+                                                        <div style={{ display: 'grid', gap: 7, marginTop: 7, minWidth: 260 }}>
+                                                            {item.pre_audit.findings.map((finding: any) => (
+                                                                <div key={finding.code} style={{ padding: 7, borderRadius: 6, background: finding.severity === 'risk' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(245, 158, 11, 0.08)' }}>
+                                                                    <strong>{finding.code} · {finding.title}</strong>
+                                                                    <div style={{ marginTop: 3, color: 'var(--text-secondary)', lineHeight: 1.45 }}>{finding.message}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </details>
+                                                )}
+                                                {item.or_codes && item.or_codes !== '-' && (!item.rw || Number(item.rw) === 0) && (
+                                                    <span style={{ color: 'var(--warning)', fontWeight: 600 }}>🟠 OR but RW=0</span>
+                                                )}
+                                                {Number(item.los) > 10 && (!item.rw || Number(item.rw) < 0.8) && (
+                                                    <span style={{ color: 'var(--warning)', fontWeight: 600 }}>🟠 High LOS / Low RW</span>
+                                                )}
                                             </div>
                                         </td>                                        <td style={{ textAlign: 'center' }}>
                                             <button

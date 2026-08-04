@@ -3964,7 +3964,12 @@ app.post('/api/config/nhso-authen-settings', async (req, res) => {
 
 app.post('/api/nhso/authen/sync', async (req, res) => {
   try {
-    const { startDate, endDate } = req.body as { startDate?: string; endDate?: string };
+    const { startDate, endDate, mode, fundCodes } = req.body as {
+      startDate?: string;
+      endDate?: string;
+      mode?: 'missing' | 'close-status';
+      fundCodes?: string[];
+    };
     if (!startDate || !endDate) {
       return res.status(400).json({ success: false, error: 'กรุณาระบุวันที่เริ่มต้นและสิ้นสุด' });
     }
@@ -3986,6 +3991,8 @@ app.post('/api/nhso/authen/sync', async (req, res) => {
       startDate,
       endDate,
       maxDays,
+      mode: mode === 'close-status' ? 'close-status' : 'missing',
+      fundCodes: Array.isArray(fundCodes) ? fundCodes : undefined,
     });
     res.json({ success: true, summary });
   } catch (error) {

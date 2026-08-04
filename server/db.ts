@@ -9801,6 +9801,7 @@ export const getCheckData = async (
         ovst.vn as id,
         ovst.hn,
         ovst.vn,
+        ovst.an,
         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
         COALESCE(v.sex, pt.sex) as sex,
         v.age_y as age,
@@ -9822,6 +9823,44 @@ export const getCheckData = async (
           ELSE 'ผู้ป่วยนอก'
         END as serviceType,
         COALESCE(SUM(opitemrece.unitprice * opitemrece.qty), 0) as price,
+
+        -- OPD pre-audit: structured medical-record and charge evidence
+        CASE WHEN NULLIF(TRIM(COALESCE(ovst.doctor, '')), '') IS NOT NULL THEN 1 ELSE 0 END as has_provider,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opdscreen os
+          WHERE os.vn = ovst.vn
+            AND NULLIF(TRIM(CONCAT(COALESCE(os.cc, ''), COALESCE(os.hpi, ''))), '') IS NOT NULL
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_clinical_note,
+        CASE WHEN EXISTS (SELECT 1 FROM lab_head lh WHERE lh.vn = ovst.vn LIMIT 1) THEN 1 ELSE 0 END as has_lab_order,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = ovst.vn AND NULLIF(TRIM(COALESCE(lo.lab_order_result, '')), '') IS NOT NULL
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_lab_result,
+        (SELECT COUNT(*) FROM opitemrece oo WHERE oo.vn = ovst.vn AND COALESCE(oo.qty, 0) <= 0) as invalid_charge_qty_count,
+        (SELECT GREATEST(COUNT(*) - COUNT(DISTINCT oo.icode), 0)
+          FROM opitemrece oo WHERE oo.vn = ovst.vn) as duplicate_charge_count,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN s_drugitems sd ON sd.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND sd.nhso_adp_code = '55020' LIMIT 1
+        ) THEN 1 ELSE 0 END as has_55020,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN s_drugitems sd ON sd.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND sd.nhso_adp_code = '55021' LIMIT 1
+        ) THEN 1 ELSE 0 END as has_55021,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN nondrugitems nd ON nd.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND (nd.name LIKE '%สังเกตอาการ%' OR UPPER(nd.name) LIKE '%OBSERVATION%') LIMIT 1
+        ) THEN 1 ELSE 0 END as has_observation_charge,
+        CASE WHEN EXISTS (SELECT 1 FROM er_regist_oper ero WHERE ero.vn = ovst.vn LIMIT 1)
+          OR EXISTS (SELECT 1 FROM dtmain dm WHERE dm.vn = ovst.vn LIMIT 1)
+          OR EXISTS (SELECT 1 FROM health_med_service hms WHERE hms.vn = ovst.vn LIMIT 1)
+          THEN 1 ELSE 0 END as has_procedure_service,
+        (SELECT COUNT(*)
+          FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND COALESCE(oo.qty, 0) <= 0) as invalid_drug_qty_count,
         
         -- กองทุนพิเศษ Subqueries
         TIMESTAMPDIFF(YEAR, pt.birthday, ovst.vstdate) as age_y,
@@ -10061,7 +10100,7 @@ export const getCheckData = async (
       params.push(endDate);
     }
 
-    query += ` GROUP BY ovst.vn, ovst.hn, pt.pname, pt.fname, pt.lname, pttype.name, pttype.hipdata_code, ovst.vstdate, ovst.vsttime, ovst.ovstost, pt.birthday, ovst.pt_subtype, v.age_y ORDER BY ovst.vstdate DESC, ovst.vsttime DESC, ovst.vn DESC`;
+    query += ` GROUP BY ovst.vn, ovst.hn, ovst.an, pt.pname, pt.fname, pt.lname, pttype.name, pttype.hipdata_code, ovst.vstdate, ovst.vsttime, ovst.ovstost, pt.birthday, ovst.pt_subtype, v.age_y ORDER BY ovst.vstdate DESC, ovst.vsttime DESC, ovst.vn DESC`;
 
     const [rows] = await connection.query(query, params);
     connection.release();

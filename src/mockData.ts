@@ -30,6 +30,20 @@ export interface PrescriptionItem {
   incomeName?: string;
 }
 
+export interface OpdPreAuditFinding {
+  code: string;
+  message: string;
+  severity: 'blocking' | 'warning';
+}
+
+export interface OpdPreAuditResult {
+  status: 'clear' | 'review' | 'blocking';
+  findingCount: number;
+  blockingCount: number;
+  reviewCount: number;
+  findings: OpdPreAuditFinding[];
+}
+
 export interface CheckRecord {
   id: number;
   hn: string;
@@ -86,6 +100,7 @@ export interface CheckRecord {
   pttype_eclaim_id?: string;
   pttype_eclaim_name?: string;
   fdh_status_label?: string;
+  opd_pre_audit?: OpdPreAuditResult | null;
 }
 
 export const mockChecks: CheckRecord[] = [

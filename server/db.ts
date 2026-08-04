@@ -2049,6 +2049,9 @@ export const getNhsoClosePrivilegeCandidates = async (options: {
     const whereConditions = ['o.vstdate BETWEEN ? AND ?'];
     const params: Array<string | number> = [options.startDate, options.endDate];
 
+    // งานปิดสิทธิ NHSO ใช้เฉพาะสิทธิ UCS, LGO และ WEL เท่านั้น
+    whereConditions.push(`IFNULL(ptt.hipdata_code, '') IN ('UCS', 'LGO', 'WEL')`);
+
     if (options.closeStatus === 'pending') {
       whereConditions.push(`(
         IFNULL(ncp.nhso_status, '') <> 'Y'
@@ -2399,6 +2402,7 @@ export const submitNhsoClosePrivileges = async (options: {
     for (const item of options.items) {
       const vn = normalizeImportCellValue(item.vn);
       const cid = normalizeImportCellValue(item.cid);
+      const mainInscl = normalizeImportCellValue(item.mainInscl).toUpperCase();
       const existingRows = await connection.query(
         `SELECT nhso_status, nhso_seq
          FROM nhso_confirm_privilege
@@ -2409,6 +2413,12 @@ export const submitNhsoClosePrivileges = async (options: {
       const existingRow = Array.isArray(existingRows[0]) && existingRows[0].length > 0
         ? existingRows[0][0] as Record<string, unknown>
         : null;
+
+      if (!['UCS', 'LGO', 'WEL'].includes(mainInscl)) {
+        summary.skipped += 1;
+        summary.results.push({ vn, status: 'skipped', message: `สิทธิ ${mainInscl || '-'} ไม่อยู่ในกลุ่มที่ต้องปิดสิทธิ (UCS/LGO/WEL)` });
+        continue;
+      }
 
       if (!cid || !isValidThaiCid(cid)) {
         summary.skipped += 1;
@@ -2434,7 +2444,7 @@ export const submitNhsoClosePrivileges = async (options: {
         transactionId: `${options.hospitalCode}${vn}`,
         serviceDateTime: toUnixMillis(item.vstDateTime),
         invoiceDateTime: toUnixMillis(item.vstDateTime),
-        mainInsclCode: normalizeImportCellValue(item.mainInscl) || 'UCS',
+        mainInsclCode: mainInscl,
         totalAmount: Number(item.income || 0),
         paidAmount: Number(item.rcptMoney || 0),
         privilegeAmount: Number(item.ucMoney || 0),
@@ -3301,9 +3311,41 @@ export const getMophClaimDashboardSummary = async (options: {
   }
 };
 
-const getNhsoAuthenCandidates = async (startDate: string, endDate: string) => {
+const getNhsoAuthenCandidates = async (
+  startDate: string,
+  endDate: string,
+  options: { mode?: 'missing' | 'close-status'; fundCodes?: string[] } = {},
+) => {
   const connection = await getUTFConnection();
   try {
+    const fundCodes = Array.from(new Set(
+      (options.fundCodes || [])
+        .map((code) => normalizeImportCellValue(code).toUpperCase())
+        .filter((code) => ['UCS', 'LGO', 'WEL'].includes(code)),
+    ));
+    const authenCondition = options.mode === 'close-status'
+      ? `AND IFNULL(vp.auth_code, '') NOT REGEXP '^EP'
+         AND NOT EXISTS (
+           SELECT 1 FROM authenhos ah2
+           WHERE ah2.vn = o.vn AND IFNULL(ah2.claim_code, '') REGEXP '^EP'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM nhso_confirm_privilege ncp
+           WHERE ncp.vn = o.vn
+             AND (ncp.nhso_status = 'Y' OR IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP')
+         )`
+      : `AND IFNULL(vp.auth_code, '') = ''
+         AND IFNULL(ah.claim_code, '') = ''`;
+    const fundCondition = fundCodes.length > 0 ? 'AND ptt.hipdata_code IN (?)' : '';
+    const cancelCondition = options.mode === 'close-status'
+      ? `AND NOT EXISTS (
+           SELECT 1 FROM ${repstmDatabaseName}.authen_sync_cancel ac
+           WHERE ac.vn = o.vn AND ac.reason IN ('INVALIDPID', 'MULTIVISIT')
+         )`
+      : `AND NOT EXISTS (
+           SELECT 1 FROM ${repstmDatabaseName}.authen_sync_cancel ac
+           WHERE ac.vn = o.vn
+         )`;
     const [rows] = await connection.query(
       `SELECT o.vn, pt.cid, o.hn, o.vstdate, o.vsttime,
               TIMESTAMP(o.vstdate, o.vsttime) AS service_datetime,
@@ -3319,18 +3361,15 @@ const getNhsoAuthenCandidates = async (startDate: string, endDate: string) => {
               ) AS per_day
        FROM ovst o
        LEFT JOIN patient pt ON pt.hn = o.hn
+       LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
        LEFT JOIN visit_pttype vp ON vp.vn = o.vn AND vp.pttype = o.pttype
        LEFT JOIN authenhos ah ON ah.vn = o.vn
        WHERE o.vstdate BETWEEN ? AND ?
-         AND IFNULL(vp.auth_code, '') = ''
-         AND IFNULL(ah.claim_code, '') = ''
-         AND NOT EXISTS (
-            SELECT 1
-            FROM ${repstmDatabaseName}.authen_sync_cancel ac
-            WHERE ac.vn = o.vn
-         )
+         ${authenCondition}
+         ${fundCondition}
+         ${cancelCondition}
        ORDER BY o.vstdate DESC, o.vn DESC`,
-      [startDate, endDate]
+      fundCodes.length > 0 ? [startDate, endDate, fundCodes] : [startDate, endDate]
     );
     return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
   } finally {
@@ -3411,6 +3450,8 @@ export const syncNhsoAuthenCodes = async (options: {
   startDate: string;
   endDate: string;
   maxDays?: number;
+  mode?: 'missing' | 'close-status';
+  fundCodes?: string[];
 }) => {
   const start = new Date(options.startDate);
   const end = new Date(options.endDate);
@@ -3422,7 +3463,10 @@ export const syncNhsoAuthenCodes = async (options: {
     throw new Error(`ช่วงวันที่มากเกินไป ระบบนี้รองรับไม่เกิน ${options.maxDays ?? 4} วัน`);
   }
 
-  const candidates = await getNhsoAuthenCandidates(options.startDate, options.endDate);
+  const candidates = await getNhsoAuthenCandidates(options.startDate, options.endDate, {
+    mode: options.mode,
+    fundCodes: options.fundCodes,
+  });
   const summary = {
     total: candidates.length,
     updated: 0,

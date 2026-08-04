@@ -8,6 +8,7 @@ import { getApVaccineRule, validateApVaccineEligibility } from './mophVaccineRul
 import type { FdhExportProfile } from './fdhExport.js';
 import { evaluateFsRate, FS_PROJECT_ITEMS_2569 } from './fsRateRules.js';
 import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVisit, summarizeKidneyTrackingVisits } from './kidneyMonitorRules.js';
+import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 
 dotenv.config();
 
@@ -8187,7 +8188,9 @@ export const getInsuranceOverview = async (options: {
          i.hn,
          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
          DATE_FORMAT(i.regdate, '%Y-%m-%d') AS admdate,
+         TIME_FORMAT(i.regtime, '%H:%i:%s') AS adm_time,
          DATE_FORMAT(i.dchdate, '%Y-%m-%d') AS dchdate,
+         TIME_FORMAT(i.dchtime, '%H:%i:%s') AS dch_time,
          DATE_FORMAT(i.dchdate, '%Y-%m') AS month,
          COALESCE(a.income, 0) AS income,
          COALESCE(a.rcpt_money, 0) AS rcpt_money,
@@ -8277,6 +8280,58 @@ export const getInsuranceOverview = async (options: {
     const ipdTranIdList = (Array.isArray(ipdRows) ? ipdRows : [])
       .map((row: any) => String(row.transaction_uid || '').trim())
       .filter(Boolean);
+
+    const previousDischargeByAn = new Map<string, string>();
+    const latestDischargeByHn = new Map<string, string>();
+    [...(Array.isArray(ipdRows) ? ipdRows : [])]
+      .sort((left: any, right: any) => `${left.admdate || ''} ${left.adm_time || ''}`.localeCompare(`${right.admdate || ''} ${right.adm_time || ''}`))
+      .forEach((row: any) => {
+        const an = String(row.an || '').trim();
+        const hn = String(row.hn || '').trim();
+        if (an && hn && latestDischargeByHn.has(hn)) previousDischargeByAn.set(an, latestDischargeByHn.get(hn)!);
+        const dischargeAt = `${row.dchdate || ''} ${row.dch_time || ''}`.trim();
+        if (hn && row.dchdate) latestDischargeByHn.set(hn, dischargeAt);
+      });
+
+    const ipdAuditInputMap = new Map<string, { diagnoses: string[]; procedures: string[]; principalDiagnosis: string }>();
+    const auditInputFor = (an: unknown) => {
+      const key = String(an || '').trim();
+      const current = ipdAuditInputMap.get(key) || { diagnoses: [], procedures: [], principalDiagnosis: '' };
+      ipdAuditInputMap.set(key, current);
+      return current;
+    };
+    if (ipdAnList.length > 0) {
+      const [auditDiagnosisRows] = await hosConnection.query(
+        `SELECT d.an, d.diagtype, d.icd10
+         FROM iptdiag d
+         JOIN ipt i ON i.an = d.an
+         WHERE i.dchdate BETWEEN ? AND ?
+           AND COALESCE(d.icd10, '') <> ''
+         ORDER BY d.an, d.diagtype, d.icd10`,
+        [startDate, endDate]
+      );
+      (Array.isArray(auditDiagnosisRows) ? auditDiagnosisRows : []).forEach((row: any) => {
+        const input = auditInputFor(row.an);
+        const code = String(row.icd10 || '').trim();
+        if (code) input.diagnoses.push(code);
+        if (String(row.diagtype || '').trim() === '1') input.principalDiagnosis = code;
+      });
+
+      const [auditProcedureRows] = await hosConnection.query(
+        `SELECT o.an, o.icd9
+         FROM iptoprt o
+         JOIN ipt i ON i.an = o.an
+         WHERE i.dchdate BETWEEN ? AND ?
+           AND COALESCE(o.icd9, '') <> ''
+         ORDER BY o.an, o.icd9`,
+        [startDate, endDate]
+      );
+      (Array.isArray(auditProcedureRows) ? auditProcedureRows : []).forEach((row: any) => {
+        const input = auditInputFor(row.an);
+        const code = String(row.icd9 || '').trim();
+        if (code) input.procedures.push(code);
+      });
+    }
 
     let fdhClaimDetailMap = new Map<string, Record<string, unknown>>();
     if (ipdAnList.length > 0) {
@@ -8429,6 +8484,16 @@ export const getInsuranceOverview = async (options: {
       const receivable = receivableByVisit.get(`AN:${row.an || ''}`);
       const expected = receivable ? toNumber(receivable.claimable_amount) : Math.max(toNumber(row.income) - toNumber(row.rcpt_money) - toNumber(row.discount_money), 0);
       const repAmount = rep ? toNumber(rep.rep_amount) : null;
+      const preAuditInput = auditInputFor(row.an);
+      const admissionAt = `${row.admdate || ''} ${row.adm_time || ''}`.trim();
+      const dischargeAt = `${row.dchdate || ''} ${row.dch_time || ''}`.trim();
+      const preAudit = evaluateIpdPreAudit({
+        ...preAuditInput,
+        admissionAt,
+        dischargeAt,
+        previousDischargeAt: previousDischargeByAn.get(String(row.an || '').trim()),
+        includeDocumentAudit: true,
+      });
       const month = getMonth(String(row.month || monthKey(row.dchdate)));
       month.ipdDischarged += 1;
       month.ipdIncome += toNumber(row.income);
@@ -8442,7 +8507,9 @@ export const getInsuranceOverview = async (options: {
         hn: row.hn,
         patient_name: row.patient_name,
         admdate: row.admdate,
+        adm_time: row.adm_time,
         dchdate: row.dchdate,
+        dch_time: row.dch_time,
         month: row.month,
         pttype: row.pttype,
         pttype_name: row.pttype_name,
@@ -8467,6 +8534,10 @@ export const getInsuranceOverview = async (options: {
         rep_amount: repAmount,
         diff_amount: repAmount == null ? null : repAmount - expected,
         errorcode: rep?.errorcode || null,
+        diagnosis_codes: preAuditInput.diagnoses,
+        procedure_codes: preAuditInput.procedures,
+        principal_diagnosis: preAuditInput.principalDiagnosis || null,
+        pre_audit: preAudit,
       };
     });
 
@@ -10699,6 +10770,45 @@ export const getEligibleVisits = async (
         -- ตรวจสอบใบเสร็จและราคา
         CASE WHEN (SELECT SUM(sum_price) FROM opitemrece WHERE vn = ovst.vn) > 0 THEN 1 ELSE 0 END as has_receipt,
         COALESCE((SELECT SUM(sum_price) FROM opitemrece WHERE vn = ovst.vn), 0) as total_price,
+
+        -- OPD pre-audit: structured medical-record and charge evidence
+        CASE WHEN NULLIF(TRIM(COALESCE(ovst.doctor, '')), '') IS NOT NULL THEN 1 ELSE 0 END as has_provider,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opdscreen os
+          WHERE os.vn = ovst.vn
+            AND NULLIF(TRIM(CONCAT(COALESCE(os.cc, ''), COALESCE(os.hpi, ''))), '') IS NOT NULL
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_clinical_note,
+        CASE WHEN EXISTS (SELECT 1 FROM lab_head lh WHERE lh.vn = ovst.vn LIMIT 1) THEN 1 ELSE 0 END as has_lab_order,
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = ovst.vn AND NULLIF(TRIM(COALESCE(lo.lab_order_result, '')), '') IS NOT NULL
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_lab_result,
+        (SELECT COUNT(*) FROM opitemrece oo WHERE oo.vn = ovst.vn AND COALESCE(oo.qty, 0) <= 0) as invalid_charge_qty_count,
+        (SELECT GREATEST(COUNT(*) - COUNT(DISTINCT oo.icode), 0)
+          FROM opitemrece oo WHERE oo.vn = ovst.vn) as duplicate_charge_count,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN s_drugitems sd ON sd.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND sd.nhso_adp_code = '55020' LIMIT 1
+        ) THEN 1 ELSE 0 END as has_55020,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN s_drugitems sd ON sd.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND sd.nhso_adp_code = '55021' LIMIT 1
+        ) THEN 1 ELSE 0 END as has_55021,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN nondrugitems nd ON nd.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND (nd.name LIKE '%สังเกตอาการ%' OR UPPER(nd.name) LIKE '%OBSERVATION%') LIMIT 1
+        ) THEN 1 ELSE 0 END as has_observation_charge,
+        CASE WHEN EXISTS (SELECT 1 FROM er_regist_oper ero WHERE ero.vn = ovst.vn LIMIT 1)
+          OR EXISTS (SELECT 1 FROM dtmain dm WHERE dm.vn = ovst.vn LIMIT 1)
+          OR EXISTS (SELECT 1 FROM health_med_service hms WHERE hms.vn = ovst.vn LIMIT 1)
+          THEN 1 ELSE 0 END as has_procedure_service,
+        (SELECT COUNT(*)
+          FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND COALESCE(oo.qty, 0) <= 0) as invalid_drug_qty_count,
         
         -- วิเคราะห์ Project Code (อ้างอิง FDH Ver 3.0)
         CASE 
@@ -11669,17 +11779,47 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
              AND IFNULL(vp.auth_code, '') REGEXP '^EP'
            LIMIT 1),
           ''
-        ) AS close_code
+        ) AS close_code,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovst o WHERE o.vn = t.vn AND NULLIF(TRIM(COALESCE(o.doctor, '')), '') IS NOT NULL LIMIT 1
+        ) THEN 1 ELSE 0 END AS has_provider,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opdscreen os
+          WHERE os.vn = t.vn
+            AND NULLIF(TRIM(CONCAT(COALESCE(os.cc, ''), COALESCE(os.hpi, ''))), '') IS NOT NULL
+          LIMIT 1
+        ) THEN 1 ELSE 0 END AS has_clinical_note,
+        CASE WHEN EXISTS (SELECT 1 FROM lab_head lh WHERE lh.vn = t.vn LIMIT 1) THEN 1 ELSE 0 END AS has_lab_order,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM lab_head lh JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = t.vn AND NULLIF(TRIM(COALESCE(lo.lab_order_result, '')), '') IS NOT NULL LIMIT 1
+        ) THEN 1 ELSE 0 END AS has_lab_result,
+        (SELECT COUNT(*) FROM opitemrece oo WHERE oo.vn = t.vn AND COALESCE(oo.qty, 0) <= 0) AS invalid_charge_qty_count,
+        (SELECT GREATEST(COUNT(*) - COUNT(DISTINCT oo.icode), 0) FROM opitemrece oo WHERE oo.vn = t.vn) AS duplicate_charge_count,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN s_drugitems sd ON sd.icode = oo.icode
+          WHERE oo.vn = t.vn AND sd.nhso_adp_code = '55020' LIMIT 1
+        ) THEN 1 ELSE 0 END AS has_55020,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN s_drugitems sd ON sd.icode = oo.icode
+          WHERE oo.vn = t.vn AND sd.nhso_adp_code = '55021' LIMIT 1
+        ) THEN 1 ELSE 0 END AS has_55021,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN nondrugitems nd ON nd.icode = oo.icode
+          WHERE oo.vn = t.vn AND (nd.name LIKE '%สังเกตอาการ%' OR UPPER(nd.name) LIKE '%OBSERVATION%') LIMIT 1
+        ) THEN 1 ELSE 0 END AS has_observation_charge,
+        1 AS opd_evidence_checked
       FROM (${vnQuery}) t
     `,
     uniqueVns
   );
 
-  const statusMap = new Map<string, { authencode: string; closeCode: string }>();
+  const statusMap = new Map<string, Record<string, unknown>>();
   if (Array.isArray(statusRows)) {
     for (const row of statusRows as Record<string, unknown>[]) {
       const vn = normalizeImportCellValue(row.vn);
       statusMap.set(vn, {
+        ...row,
         authencode: normalizeImportCellValue(row.authencode),
         closeCode: normalizeImportCellValue(row.close_code),
       });
@@ -11900,10 +12040,11 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
     const fdhImport = fdhImportMap.get(vn) || (an ? fdhImportMap.get(an) : undefined);
     const repImport = repImportMap.get(vn) || (an ? repImportMap.get(an) : undefined);
     const statementImport = statementImportMap.get(vn) || (an ? statementImportMap.get(an) : undefined);
-    const authencode = normalizeImportCellValue(row.authencode) || statusInfo?.authencode || '';
-    const closeCode = normalizeImportCellValue(row.close_code) || statusInfo?.closeCode || '';
+    const authencode = normalizeImportCellValue(row.authencode) || normalizeImportCellValue(statusInfo?.authencode) || '';
+    const closeCode = normalizeImportCellValue(row.close_code) || normalizeImportCellValue(statusInfo?.closeCode) || '';
     return {
       ...row,
+      ...(statusInfo || {}),
       authencode,
       has_authen: normalizeImportCellValue(row.has_authen) || (authencode ? 'Y' : 'N'),
       close_code: closeCode,

@@ -21,7 +21,7 @@ Vault กลางสำหรับเงื่อนไขการเบิ�
 
 ## สถานะ
 
-- Source files: 309
+- Source files: 322
 - Manifest: [[_ksp/manifest.json]]
 - Schema: [[_ksp/schema.json]]
 - การแก้จาก AI จะอยู่ใน `70_AI_Managed` และไม่เขียนทับ source snapshot

@@ -4,16 +4,16 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/utils/navigationState.ts"
-source_hash: "ba903743b69d3809d0affbeaf074241919042b8d40b91e547c7c084ca7d0a82d"
+source_hash: "1a335bbad26c2bac784d63a74dec82e08027ab7308461631387ec0412a62a61a"
 managed_by: "sync-ksp-vault"
 ---
 # navigationState.ts
 
 > Source: `src/utils/navigationState.ts`
-> SHA-256: `ba903743b69d3809d0affbeaf074241919042b8d40b91e547c7c084ca7d0a82d`
+> SHA-256: `1a335bbad26c2bac784d63a74dec82e08027ab7308461631387ec0412a62a61a`
 
 ````typescript
-export type AppPage = 'staff' | 'ipd' | 'ipdClaimMonitor' | 'admin' | 'fdh' | 'fdhImport' | 'fdhClaimDetail' | 'nhsoClose' | 'repstm' | 'repstmManage' | 'receivable' | 'insuranceOverview' | 'repDeny' | 'specific' | 'fundFdh' | 'fund43' | 'fundKtb' | 'fundOther' | 'monitor' | 'fsMonitor' | 'revenueOpportunity' | 'mophDmht' | 'mophVaccine' | 'guide' | 'settings' | 'memberAdmin' | 'authenSync' | 'preValidator' | 'workQueue' | 'rejectTracking' | 'reconciliation' | 'repDailySummary' | 'ppfsBenchmark' | 'ppfsVisitMatch' | 'uuc1Tracking' | 'ucOutsideCup';
+export type AppPage = 'staff' | 'ipd' | 'ipdClaimMonitor' | 'hospitalReports' | 'admin' | 'fdh' | 'fdhImport' | 'fdhClaimDetail' | 'nhsoClose' | 'repstm' | 'repstmManage' | 'receivable' | 'insuranceOverview' | 'repDeny' | 'specific' | 'fundFdh' | 'fund43' | 'fundKtb' | 'fundOther' | 'monitor' | 'fsMonitor' | 'revenueOpportunity' | 'mophDmht' | 'mophVaccine' | 'guide' | 'settings' | 'memberAdmin' | 'authenSync' | 'preValidator' | 'workQueue' | 'rejectTracking' | 'reconciliation' | 'repDailySummary' | 'ppfsBenchmark' | 'ppfsVisitMatch' | 'uuc1Tracking' | 'ucOutsideCup';
 
 export interface DashboardNavigationPayload {
   source?: 'dashboard';

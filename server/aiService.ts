@@ -45,11 +45,18 @@ const SYSTEM_INSTRUCTIONS = [
   'ตอบให้กระชับ อ่านง่าย และใช้ภาษาไทยเป็นหลัก',
 ].join('\n');
 
-const buildGroundedPrompt = (question: string, matches: VaultMatch[]) => {
+type ConversationContext = Array<{ question: string; answer: string }>;
+
+const conversationContextText = (history: ConversationContext) => history.slice(-8).map((entry, index) => (
+  `${index + 1}. ผู้ใช้: ${entry.question}\nผู้ช่วย: ${entry.answer}`
+)).join('\n\n');
+
+const buildGroundedPrompt = (question: string, matches: VaultMatch[], history: ConversationContext = []) => {
   const evidence = matches.map((match, index) => (
     `[แหล่งข้อมูล ${index + 1}: ${match.source} > ${match.heading}]\n${match.content}`
   )).join('\n\n');
-  return `คำถามจากผู้ใช้:\n${question}\n\nข้อมูลที่ค้นพบใน Vault:\n${evidence}\n\nอ้างอิงแหล่งข้อมูลด้วย [1], [2] ต่อท้ายข้อความที่เกี่ยวข้อง`;
+  const conversation = history.length ? `บริบทก่อนหน้า:\n${conversationContextText(history)}\n\n` : '';
+  return `${conversation}คำถามล่าสุดจากผู้ใช้:\n${question}\n\nข้อมูลที่ค้นพบใน Vault:\n${evidence}\n\nอ้างอิงแหล่งข้อมูลด้วย [1], [2] ต่อท้ายข้อความที่เกี่ยวข้อง`;
 };
 
 const callOllama = async (
@@ -63,6 +70,7 @@ const callOllama = async (
     body: JSON.stringify({
       model: ollamaModel(),
       stream: false,
+      think: false,
       keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
       messages: [
         { role: 'system', content: systemInstructions },
@@ -168,11 +176,11 @@ export const generateAgentText = async (
     : callOllama(prompt, systemInstructions, options)
 );
 
-export const answerGroundedQuestion = (question: string, matches: VaultMatch[]) => (
-  generateText(buildGroundedPrompt(question, matches))
+export const answerGroundedQuestion = (question: string, matches: VaultMatch[], history: ConversationContext = []) => (
+  generateText(buildGroundedPrompt(question, matches, history))
 );
 
-export const answerGeneralConversation = (question: string) => generateAgentText(
+export const answerGeneralConversation = (question: string, history: ConversationContext = []) => generateAgentText(
   [
     'คุณคือผู้ช่วยภาษาไทยของ FDHChecker ที่สุภาพและสนทนาเป็นธรรมชาติ',
     'คำถามนี้ไม่ใช่การค้นฐานข้อมูล HOSxP และไม่มีหลักฐานจากระบบแนบมา',
@@ -180,7 +188,11 @@ export const answerGeneralConversation = (question: string) => generateAgentText
     'ห้ามให้คำวินิจฉัยหรือคำสั่งรักษาเฉพาะบุคคล และห้ามอ้างว่าสามารถแก้ไขฐานข้อมูลได้',
     'ตอบกระชับและชวนผู้ใช้ระบุข้อมูลเพิ่มเมื่อจำเป็น',
   ].join('\n'),
-  question,
+  [
+    history.length ? `บริบทก่อนหน้า:\n${conversationContextText(history)}` : '',
+    `คำถามล่าสุด:\n${question}`,
+    'ถ้าคำถามล่าสุดเป็นคำตอบสั้น ๆ ให้ตีความร่วมกับคำถามก่อนหน้า และถามข้อมูลเพิ่มเฉพาะที่จำเป็นต่อผลลัพธ์',
+  ].filter(Boolean).join('\n\n'),
   { temperature: 0.3, maxTokens: 800 },
 );
 

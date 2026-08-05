@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/App.tsx"
-source_hash: "f235f0cd7434a61fca80b1c40dff8c1489419ff990849124afd11078c3b82bad"
+source_hash: "728d80d4cc92a29ab33232bf54bee81edc64a233eb04c3d85be10c6f87866a49"
 managed_by: "sync-ksp-vault"
 ---
 # App.tsx
 
 > Source: `src/App.tsx`
-> SHA-256: `f235f0cd7434a61fca80b1c40dff8c1489419ff990849124afd11078c3b82bad`
+> SHA-256: `728d80d4cc92a29ab33232bf54bee81edc64a233eb04c3d85be10c6f87866a49`
 
 ````tsx
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
@@ -30,6 +30,7 @@ const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
 const StaffPage = lazyNamed(() => import('./pages/StaffPage'), 'StaffPage');
 const IPDPage = lazyNamed(() => import('./pages/IPDPage'), 'IPDPage');
 const IpdClaimMonitorPage = lazyNamed(() => import('./pages/IpdClaimMonitorPage'), 'IpdClaimMonitorPage');
+const HospitalReportHubPage = lazyNamed(() => import('./pages/HospitalReportHubPage'), 'HospitalReportHubPage');
 const AdminDashboard = lazyNamed(() => import('./pages/AdminDashboard'), 'AdminDashboard');
 const FDHCheckerPage = lazyNamed(() => import('./pages/FDHCheckerPage'), 'FDHCheckerPage');
 const FDHImportStatusPage = lazyNamed(() => import('./pages/FDHImportStatusPage'), 'FDHImportStatusPage');
@@ -315,6 +316,7 @@ function App() {
         {currentPage === 'staff' && <StaffPage />}
         {currentPage === 'ipd' && <IPDPage />}
         {currentPage === 'ipdClaimMonitor' && <IpdClaimMonitorPage />}
+        {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
         {currentPage === 'fdhClaimDetail' && <FdhClaimDetailImportPage />}

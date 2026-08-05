@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/LocalAiAssistant.tsx"
-source_hash: "81b3cd3775c92b9945ffb4cc3dff44831f6062fceb56fc4956ef4ab6b55836d5"
+source_hash: "82306cc8156e4339c54317311d6232f26eb3b09fc5f6d8029481b202ce5f6411"
 managed_by: "sync-ksp-vault"
 ---
 # LocalAiAssistant.tsx
 
 > Source: `src/components/LocalAiAssistant.tsx`
-> SHA-256: `81b3cd3775c92b9945ffb4cc3dff44831f6062fceb56fc4956ef4ab6b55836d5`
+> SHA-256: `82306cc8156e4339c54317311d6232f26eb3b09fc5f6d8029481b202ce5f6411`
 
 ````tsx
 import { useEffect, useRef, useState } from 'react';
@@ -23,6 +23,7 @@ type ChatMessage = {
   question?: string;
   feedback?: string;
   feedbackBusy?: boolean;
+  needsClarification?: boolean;
   sources?: Array<{ id: number; source: string; heading: string }>;
   attachment?: {
     filename: string;
@@ -47,6 +48,12 @@ type AiStatus = {
   };
 };
 
+type ConversationContext = {
+  patient?: { hn: string; patientName: string };
+  waitingFor?: string;
+  lastAction?: { kind: 'patient-report' | 'operational' | 'dynamic-query'; label: string };
+};
+
 export function LocalAiAssistant() {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
@@ -56,12 +63,19 @@ export function LocalAiAssistant() {
   const [accessKey, setAccessKey] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [conversationContext, setConversationContext] = useState<ConversationContext>({});
+  const [progressText, setProgressText] = useState('กำลังค้นข้อมูลและประมวลผล…');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const conversationIdRef = useRef(
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+  const conversationIdRef = useRef((() => {
+    const storageKey = 'fdh-ai-conversation-id';
+    const existing = window.sessionStorage.getItem(storageKey);
+    if (existing && /^[a-zA-Z0-9_-]{8,80}$/.test(existing)) return existing;
+    const created = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
-      : `fdh-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+      : `fdh-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    window.sessionStorage.setItem(storageKey, created);
+    return created;
+  })());
 
   const loadStatus = async (allowAutoLogin = true) => {
     const response = await fetch('/api/ai/status');
@@ -123,14 +137,21 @@ export function LocalAiAssistant() {
   const logout = async () => {
     await fetch('/api/ai/session', { method: 'DELETE' });
     setMessages([]);
+    setConversationContext({});
     await loadStatus();
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const prompt = question.trim();
+  const sendPrompt = async (suppliedPrompt?: string) => {
+    const prompt = (suppliedPrompt ?? question).trim();
     if (!prompt || loading) return;
     setQuestion('');
+    setProgressText(
+      /excel|xlsx|word|docx|csv|json|ไฟล์/i.test(prompt)
+        ? 'กำลังสร้างไฟล์จากข้อมูลที่ตรวจสอบแล้ว…'
+        : /error|ข้อผิดพลาด|รหัส|ผิดอะไร/i.test(prompt)
+          ? 'กำลังตรวจรหัสและแนวทางแก้ไข…'
+          : 'กำลังค้นข้อมูลและประมวลผล…',
+    );
     setMessages((current) => [...current, { role: 'user', text: prompt }]);
     setLoading(true);
 
@@ -145,15 +166,19 @@ export function LocalAiAssistant() {
         error?: string;
         sources?: ChatMessage['sources'];
         attachment?: ChatMessage['attachment'];
+        needsClarification?: boolean;
+        context?: ConversationContext;
       };
       if (response.status === 401) await loadStatus();
       if (!response.ok) throw new Error(payload.error || 'Local AI ไม่สามารถตอบได้');
+      setConversationContext(payload.context || {});
       setMessages((current) => [...current, {
         role: 'assistant',
         text: payload.answer || 'ไม่พบคำตอบ',
         question: prompt,
         sources: payload.sources,
         attachment: payload.attachment,
+        needsClarification: payload.needsClarification,
       }]);
     } catch (error) {
       setMessages((current) => [...current, {
@@ -163,6 +188,23 @@ export function LocalAiAssistant() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    void sendPrompt();
+  };
+
+  const resetConversation = async () => {
+    if (loading) return;
+    const response = await fetch('/api/ai/conversation/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversationId: conversationIdRef.current }),
+    });
+    if (!response.ok) return;
+    setMessages([]);
+    setConversationContext({});
   };
 
   const sendFeedback = async (messageIndex: number, rating: 'correct' | 'incorrect' | 'remember') => {
@@ -219,6 +261,22 @@ export function LocalAiAssistant() {
             </div>
           </header>
 
+          {status?.auth?.authenticated && (
+            <div className="local-ai-context" aria-label="บริบทการสนทนาปัจจุบัน">
+              <div>
+                {conversationContext.patient && (
+                  <span>ผู้ป่วย: {conversationContext.patient.patientName || 'ไม่ระบุชื่อ'} · HN {conversationContext.patient.hn}</span>
+                )}
+                {conversationContext.lastAction && <span>งานล่าสุด: {conversationContext.lastAction.label}</span>}
+                {conversationContext.waitingFor && <span className="is-waiting">กำลังรอ: {conversationContext.waitingFor}</span>}
+                {!conversationContext.patient && !conversationContext.lastAction && !conversationContext.waitingFor && (
+                  <span>ยังไม่ได้เลือกผู้ป่วยหรือรายงาน</span>
+                )}
+              </div>
+              <button type="button" onClick={() => void resetConversation()} disabled={loading}>ล้างบริบท</button>
+            </div>
+          )}
+
           <div className="local-ai-messages" ref={scrollRef}>
             {status?.auth?.configured === false && (
               <div className="local-ai-login">
@@ -249,11 +307,15 @@ export function LocalAiAssistant() {
               <div className="local-ai-welcome">
                 <strong>ถามข้อมูล HOSxP ต่อเนื่อง หรือให้สร้าง Word/Excel ได้ครับ</strong>
                 <p>ค้นด้วย HN, VN, AN, CID หรือชื่อ ดูประวัติ ยา แล็บ วันนัด ถามต่อจากคำตอบเดิม และดาวน์โหลด Word, Excel, CSV หรือ JSON ได้ ทุกคำค้นถูกตรวจและรันแบบอ่านอย่างเดียว</p>
+                <p>ลองถาม “Word ทำอะไรได้บ้าง” เพื่อดูตัวอย่างรายงานที่สร้างได้</p>
               </div>
             )}
             {status?.auth?.authenticated && messages.map((message, index) => (
               <article key={`${message.role}-${index}`} className={`local-ai-message is-${message.role}`}>
                 <div>{message.text}</div>
+                {message.needsClarification && (
+                  <small className="local-ai-clarification-hint">ตอบคำถามนี้เพื่อให้ AI ดำเนินงานเดิมต่อ</small>
+                )}
                 {!!message.sources?.length && (
                   <details>
                     <summary>แหล่งข้อมูล {message.sources.length} รายการ</summary>
@@ -298,10 +360,16 @@ export function LocalAiAssistant() {
                 )}
               </article>
             ))}
-            {loading && <div className="local-ai-thinking">กำลังค้นข้อมูลและประมวลผล…</div>}
+            {loading && <div className="local-ai-thinking">{progressText}</div>}
           </div>
 
           {status?.auth?.authenticated && <form className="local-ai-form" onSubmit={submit}>
+            <div className="local-ai-quick-actions">
+              <button type="button" onClick={() => setQuestion('แผนกไหนมีข้อมูลผิดพลาดวันนี้')}>สรุปวันนี้</button>
+              <button type="button" onClick={() => setQuestion('ตรวจข้อผิดพลาด VN ')}>ตรวจ VN</button>
+              <button type="button" disabled={!conversationContext.lastAction || loading} onClick={() => void sendPrompt('เอาผลล่าสุดเป็น Excel')}>ทำ Excel</button>
+              <button type="button" disabled={!conversationContext.patient || loading} onClick={() => void sendPrompt('ขอผลแล็บล่าสุด')}>ผลแล็บ</button>
+            </div>
             <textarea
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
@@ -313,10 +381,11 @@ export function LocalAiAssistant() {
               }}
               maxLength={2_000}
               rows={2}
-              placeholder="เช่น ทำ Excel รายชื่อ OPD วันนี้ หรือ ดูผลแล็บ HN 000123456"
+              placeholder="พิมพ์ได้หลายบรรทัด เช่น รายงานที่ต้องการ ช่วงเวลา และรูปแบบไฟล์"
               disabled={loading}
             />
             <button type="submit" disabled={!question.trim() || loading}>ส่ง</button>
+            <small className="local-ai-input-hint">Enter ส่ง • Shift+Enter ขึ้นบรรทัดใหม่ • ตอบต่อจากคำถาม AI ได้ทันที</small>
           </form>}
           <footer>AI session สร้างอัตโนมัติ • Feedback ช่วยให้ AI เรียนรู้รูปแบบคำถามที่ถูกต้อง</footer>
         </section>

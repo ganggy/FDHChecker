@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { buildQueryCatalog, renderQueryCatalog } from './lib/query-catalog.mjs';
 
 const projectRoot = process.cwd();
 const args = process.argv.slice(2);
@@ -162,6 +163,14 @@ await writeGenerated(
   path.join('20_Data_Model', 'HOSxP Semantic Catalog.md'),
   `${frontmatter({ type: 'data-catalog', category: 'data-model', source: 'server/aiHosxpCatalog.ts', source_hash: hash(semanticSource), managed_by: 'sync-ksp-vault' })}# HOSxP Semantic Catalog\n\n${semanticMatch?.[1]?.trim() || semanticSource}\n`,
   { type: 'data-catalog', source: 'server/aiHosxpCatalog.ts' },
+);
+
+const readOnlyQueries = await buildQueryCatalog(projectRoot);
+const queryCatalogContent = renderQueryCatalog(readOnlyQueries);
+await writeGenerated(
+  path.join('20_Data_Model', 'FDHChecker Read-only Query Catalog.md'),
+  `${frontmatter({ type: 'query-catalog', category: 'data-model', source: 'server/**/*.ts', source_hash: hash(queryCatalogContent), managed_by: 'sync-ksp-vault' })}${queryCatalogContent}\n`,
+  { type: 'query-catalog', source: 'server/**/*.ts', queries: readOnlyQueries.length },
 );
 
 const configFiles = [

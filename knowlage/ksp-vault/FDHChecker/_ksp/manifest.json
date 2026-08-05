@@ -1,13 +1,14 @@
 {
   "schema": 1,
   "project": "FDHChecker",
-  "generatedAt": "2026-08-02T07:57:32.342Z",
+  "generatedAt": "2026-08-05T01:48:15.360Z",
   "counts": {
     "project-document": 143,
     "domain-knowledge": 6,
     "rule-catalog": 1,
     "data-catalog": 1,
-    "source-snapshot": 158
+    "query-catalog": 1,
+    "source-snapshot": 170
   },
   "files": [
     {
@@ -425,8 +426,8 @@
     },
     {
       "output": "40_Project_Documentation/LOCAL_AI_SETUP_TH.md",
-      "sha256": "ba838f621c268329412c762dabf2ba6df33dc5e5285acc4d0a892af780f11b88",
-      "bytes": 15284,
+      "sha256": "0b628021065c8c89af42f66201c66f9b8720f813c624752e2d4ab3842abf9f44",
+      "bytes": 15921,
       "type": "project-document",
       "source": "LOCAL_AI_SETUP_TH.md"
     },
@@ -1062,10 +1063,18 @@
     },
     {
       "output": "20_Data_Model/HOSxP Semantic Catalog.md",
-      "sha256": "6507b7ea501fd1c83d3dc122ac8cd590ec8bddc13ce4b25a2660d1e88fcdea65",
-      "bytes": 3974,
+      "sha256": "9f3776af4b2b911dbe17fa8541c7b8fcb25373d40a99caa9c9d5ca3b3a9be183",
+      "bytes": 3990,
       "type": "data-catalog",
       "source": "server/aiHosxpCatalog.ts"
+    },
+    {
+      "output": "20_Data_Model/FDHChecker Read-only Query Catalog.md",
+      "sha256": "91d498313f8f57a6965bfe428a081c76c17d52a96c26ab7b7963f9d2a391b0e2",
+      "bytes": 70388,
+      "type": "query-catalog",
+      "source": "server/**/*.ts",
+      "queries": 73
     },
     {
       "output": "10_Rules_and_Config/src__config__business_rules.json.md",
@@ -1097,8 +1106,8 @@
     },
     {
       "output": "10_Rules_and_Config/src__config__menuDefinitions.ts.md",
-      "sha256": "c00ac886247d088370f7f3ac8cedb775ad4de12046e47c17210cac14b8c93ff7",
-      "bytes": 4845,
+      "sha256": "fbce764f316cd42d6582f25bbbd20e6e83c1424b81b83a7009b13558e4f4ab31",
+      "bytes": 5038,
       "type": "source-snapshot",
       "source": "src/config/menuDefinitions.ts"
     },
@@ -1138,16 +1147,51 @@
       "source": "server/aiAuth.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__aiCapabilityHelp.test.ts.md",
+      "sha256": "e3456b0ecf6a1b3cbe6c0a5f84cf4a0b7a40ca3895ec2beb7d7e2519e5a30798",
+      "bytes": 1670,
+      "type": "source-snapshot",
+      "source": "server/aiCapabilityHelp.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__aiCapabilityHelp.ts.md",
+      "sha256": "c6e2f3125db7c0e7db0a55766e6eb762eb4f07bba80e241b04df0d4cd6d72e23",
+      "bytes": 3560,
+      "type": "source-snapshot",
+      "source": "server/aiCapabilityHelp.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__aiConversation.test.ts.md",
+      "sha256": "92be671291365dcbffbd528704be404aee2f079d8965d432798a3afa833c3238",
+      "bytes": 3406,
+      "type": "source-snapshot",
+      "source": "server/aiConversation.test.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__aiConversationalAgent.ts.md",
-      "sha256": "c35a2771a1050a07a009602c667f1dfd2b17e5712be6211e6ffdf27404351628",
-      "bytes": 16173,
+      "sha256": "348a1545488cf0178d781fbcf0658a630c35f62aade605cbe692117efe4caf83",
+      "bytes": 23390,
       "type": "source-snapshot",
       "source": "server/aiConversationalAgent.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__aiErrorTools.test.ts.md",
+      "sha256": "5128537de8e7d44233444f0460e68c1d5203ce8d5bd89d8a77f2234498497de4",
+      "bytes": 1140,
+      "type": "source-snapshot",
+      "source": "server/aiErrorTools.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__aiErrorTools.ts.md",
+      "sha256": "839fb6cf6c1ff4ae06a2a410fa39b8017e6173db63f4ffc14b66732cf182c319",
+      "bytes": 4869,
+      "type": "source-snapshot",
+      "source": "server/aiErrorTools.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__aiHosxpCatalog.ts.md",
-      "sha256": "69149adc7f68fa3f2281229c60dc390075554be2be70cba5aeba008c972d13ed",
-      "bytes": 4682,
+      "sha256": "620d89f0af192ae05cb0ee3f66c1b6d4e82efd5db4f244163eab7bc6b19010a3",
+      "bytes": 4698,
       "type": "source-snapshot",
       "source": "server/aiHosxpCatalog.ts"
     },
@@ -1202,22 +1246,22 @@
     },
     {
       "output": "50_Operations/server__aiReportTools.test.ts.md",
-      "sha256": "057ee5133acce035f0357a4bee07a1ac819cfe61785fa1c7036c49f894acfe52",
-      "bytes": 4564,
+      "sha256": "d95f90c16347de6cf9080be2a9574f099bc1cf1935a2648e109c8e23a79d7951",
+      "bytes": 5104,
       "type": "source-snapshot",
       "source": "server/aiReportTools.test.ts"
     },
     {
       "output": "50_Operations/server__aiReportTools.ts.md",
-      "sha256": "99a3bd77c1111cf3b5c6551d04ec4410c565ced138e81be7c7d28857412ee96e",
-      "bytes": 39029,
+      "sha256": "cce9ae1ef578629a8b53fd339db58eea9ae4879a60ce2603402b310329c69350",
+      "bytes": 41360,
       "type": "source-snapshot",
       "source": "server/aiReportTools.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiRoutes.ts.md",
-      "sha256": "dfc98eadf268fc713c97d2a1badf18930457618ff7a23b434f8d976d6b4a18d1",
-      "bytes": 10325,
+      "sha256": "dc43a5fcce2253ca13806451ce9056fcdb0a5e7370090f2f7d24aafc36eddffc",
+      "bytes": 16752,
       "type": "source-snapshot",
       "source": "server/aiRoutes.ts"
     },
@@ -1230,8 +1274,8 @@
     },
     {
       "output": "60_Programming_Knowledge/server__aiService.ts.md",
-      "sha256": "27c42714c5ef8c2dd7e1f14620deaf54f39e37696a6022f0756b9d0ccf7ae622",
-      "bytes": 12145,
+      "sha256": "9a3210255a0d07f388959e75510cf9c65cd2bd102b6749b0f201f6272f11cac4",
+      "bytes": 13230,
       "type": "source-snapshot",
       "source": "server/aiService.ts"
     },
@@ -1279,8 +1323,8 @@
     },
     {
       "output": "60_Programming_Knowledge/server__db.ts.md",
-      "sha256": "dc75d4840159b17086cabfe2c1c07306825fffb4894c7bbd6ca1952176537ab0",
-      "bytes": 616032,
+      "sha256": "0f5106a22e58af6f28287750d22016761f8d91c1966eb12b97febd3f61e320c1",
+      "bytes": 616070,
       "type": "source-snapshot",
       "source": "server/db.ts"
     },
@@ -1383,6 +1427,27 @@
       "source": "server/fundErrorReportCli.ts"
     },
     {
+      "output": "50_Operations/server__hospitalReportRoutes.ts.md",
+      "sha256": "9da41d62b524b54c1b7b8d943ba3daa037388680254528347253131e77bcdd7a",
+      "bytes": 1053,
+      "type": "source-snapshot",
+      "source": "server/hospitalReportRoutes.ts"
+    },
+    {
+      "output": "50_Operations/server__hospitalReportTools.test.ts.md",
+      "sha256": "2ddb469a506b7d738a0ac5df32cfc386e68a5c8c2a92a1125d279e7d3ce0a6de",
+      "bytes": 1569,
+      "type": "source-snapshot",
+      "source": "server/hospitalReportTools.test.ts"
+    },
+    {
+      "output": "50_Operations/server__hospitalReportTools.ts.md",
+      "sha256": "592695e32afbeb32196767a912273b7ece7d30b03545abbc8f7de2aa62d3dce9",
+      "bytes": 15030,
+      "type": "source-snapshot",
+      "source": "server/hospitalReportTools.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__httpClient.ts.md",
       "sha256": "996ed11173bbaad0233ff3eddfb7bdebfa5496b7cd01e67772d74d1edea03bdd",
       "bytes": 998,
@@ -1391,8 +1456,8 @@
     },
     {
       "output": "60_Programming_Knowledge/server__index.ts.md",
-      "sha256": "489693e064e41751f41bdafac0ca99aa4d76fafc5914a03f62534fe536d6e736",
-      "bytes": 228725,
+      "sha256": "24584ebe0998539960e1fb67e85d9a56c1a9d8ec034f0b6f3430cdaeb5804ee1",
+      "bytes": 228919,
       "type": "source-snapshot",
       "source": "server/index.ts"
     },
@@ -1629,8 +1694,8 @@
     },
     {
       "output": "60_Programming_Knowledge/src__App.tsx.md",
-      "sha256": "8ff8490fbf042eda7ed094f3957fbcf0c1528907025c616b31d71430100ac5ec",
-      "bytes": 19918,
+      "sha256": "7661837faef8861d59cb34bd5089e26e01f3ac1815ec58367af8e3f9e70d2c4b",
+      "bytes": 20104,
       "type": "source-snapshot",
       "source": "src/App.tsx"
     },
@@ -1713,15 +1778,15 @@
     },
     {
       "output": "60_Programming_Knowledge/src__components__LocalAiAssistant.css.md",
-      "sha256": "09dfe2122a7f55b8a8118ce0ca771dcf131a56d5b8dc44d9eee86deea559687f",
-      "bytes": 5637,
+      "sha256": "32fb03bd67d8df0f6199c99afccc6c5672b55cc72161f2d4800b53f9964d6a04",
+      "bytes": 7133,
       "type": "source-snapshot",
       "source": "src/components/LocalAiAssistant.css"
     },
     {
       "output": "60_Programming_Knowledge/src__components__LocalAiAssistant.tsx.md",
-      "sha256": "edf271f31cd43739ec2f0aee36d8b4450050e01be770da8afb8533314d920883",
-      "bytes": 14507,
+      "sha256": "8f5df3392d23b697d76bed227f0a0a8af7f1d1d4dbb8179a5958e5b12b172800",
+      "bytes": 19067,
       "type": "source-snapshot",
       "source": "src/components/LocalAiAssistant.tsx"
     },
@@ -1776,8 +1841,8 @@
     },
     {
       "output": "60_Programming_Knowledge/src__config__menuDefinitions.ts.md",
-      "sha256": "9ae5175904735285160aba0925c3ba1afa100753a06433d70595e7a06d02cc39",
-      "bytes": 4840,
+      "sha256": "71ce4973f04474a735d69ac561ea962fb2f8760a221206f7b7f805b96787eaf1",
+      "bytes": 5033,
       "type": "source-snapshot",
       "source": "src/config/menuDefinitions.ts"
     },
@@ -1885,6 +1950,20 @@
       "bytes": 54750,
       "type": "source-snapshot",
       "source": "src/pages/GuidePage.tsx"
+    },
+    {
+      "output": "50_Operations/src__pages__HospitalReportHubPage.css.md",
+      "sha256": "3063a47a0c8b1acc62f65be243a9d3040c8da18f14a648fad82e068ce85a7ab1",
+      "bytes": 8388,
+      "type": "source-snapshot",
+      "source": "src/pages/HospitalReportHubPage.css"
+    },
+    {
+      "output": "50_Operations/src__pages__HospitalReportHubPage.tsx.md",
+      "sha256": "bc9f6ca794618ee94fe39d1759db8c95f442f1008fc1775add221fb0bc4762f9",
+      "bytes": 18828,
+      "type": "source-snapshot",
+      "source": "src/pages/HospitalReportHubPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__IPDPage.tsx.md",
@@ -2140,8 +2219,8 @@
     },
     {
       "output": "60_Programming_Knowledge/src__utils__navigationState.ts.md",
-      "sha256": "f0d07bc9da0b9922df1ddc8b0b6fe8f63b23cd601a2e08e4541689ffc84ebba8",
-      "bytes": 2225,
+      "sha256": "3d5f4b3b5f796c7033084c1d009579c43bbb3e9103c1dda01830f778d1b1d624",
+      "bytes": 2245,
       "type": "source-snapshot",
       "source": "src/utils/navigationState.ts"
     },
@@ -2153,6 +2232,20 @@
       "source": "scripts/import_rep_error_catalog.mjs"
     },
     {
+      "output": "60_Programming_Knowledge/scripts__lib__query-catalog.mjs.md",
+      "sha256": "3e91c3bfe5fb96a93363843268e8ada0a737b418e89d197059b0201f957ff383",
+      "bytes": 7874,
+      "type": "source-snapshot",
+      "source": "scripts/lib/query-catalog.mjs"
+    },
+    {
+      "output": "60_Programming_Knowledge/scripts__query-catalog.test.mjs.md",
+      "sha256": "910cc07ca30f4956f3c877f6906fd57dc7ade4991d9cdf82ef40c767c80e9eb6",
+      "bytes": 1723,
+      "type": "source-snapshot",
+      "source": "scripts/query-catalog.test.mjs"
+    },
+    {
       "output": "60_Programming_Knowledge/scripts__setup-ai-key.mjs.md",
       "sha256": "0b129455fce36495414162cd72bf125367552bf4b927bde3f148c2371db46e4d",
       "bytes": 1875,
@@ -2161,8 +2254,8 @@
     },
     {
       "output": "60_Programming_Knowledge/scripts__sync-ksp-vault.mjs.md",
-      "sha256": "a811dee84dfffa861cc77f338568202f28fc96ae99c9d6b6f256fe5231ffe20e",
-      "bytes": 14041,
+      "sha256": "d27fc314244c27e911dfcb64542b011fb263768309485a3fba40f89f446cbf0e",
+      "bytes": 14625,
       "type": "source-snapshot",
       "source": "scripts/sync-ksp-vault.mjs"
     },
@@ -2175,7 +2268,7 @@
     },
     {
       "output": "00_Home/FDHChecker Knowledge Hub.md",
-      "sha256": "2dcae66cd0506596158d790ddd147e6ced5b05a44554b3f9d5d7a1051d19f147",
+      "sha256": "9a5698b692b2ce27082e8c5e616e43cb12393587648aa89471e4ae1fa1403f4f",
       "bytes": 1421,
       "type": "index",
       "source": "generated"

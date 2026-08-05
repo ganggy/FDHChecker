@@ -90,6 +90,7 @@ import {
 } from './requestSafety.js';
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
 import { aiRouter } from './aiRoutes.js';
+import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -732,6 +733,7 @@ app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
 type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean };
 const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
+  { pattern: /^\/hospital-reports(\/|$)/, pages: ['hospitalReports'] },
   { pattern: /^\/settings\/fdh-api\/test-connection$/, pages: ['settings'] },
   { pattern: /^\/config\/system-settings(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },
@@ -777,6 +779,7 @@ app.use('/api', (req: AuthenticatedRequest, res, next) => {
 // AI endpoints inherit the approved FDHChecker user session above. The
 // separate HttpOnly AI cookie limits direct model use and is issued silently.
 app.use('/api/ai', aiRouter);
+app.use('/api/hospital-reports', hospitalReportRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

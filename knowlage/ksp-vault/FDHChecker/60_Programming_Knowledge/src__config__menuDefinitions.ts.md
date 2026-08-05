@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/config/menuDefinitions.ts"
-source_hash: "a1a6a73b7168846b63588fefce9e8a4b9bdb4392e7bd4cfdad57a6846af182da"
+source_hash: "db8d1a8aba6af81d38de267a9026551dfb3a7f9b3d859c14fc6c6e25192fc04c"
 managed_by: "sync-ksp-vault"
 ---
 # menuDefinitions.ts
 
 > Source: `src/config/menuDefinitions.ts`
-> SHA-256: `a1a6a73b7168846b63588fefce9e8a4b9bdb4392e7bd4cfdad57a6846af182da`
+> SHA-256: `db8d1a8aba6af81d38de267a9026551dfb3a7f9b3d859c14fc6c6e25192fc04c`
 
 ````typescript
 import type { AppPage } from '../utils/navigationState';
@@ -38,6 +38,7 @@ export const primaryNavItems: NavItem[] = [
 ];
 
 export const toolNavItems: NavItem[] = [
+  { page: 'hospitalReports', icon: '📑', label: 'ศูนย์รายงาน' },
   { page: 'fdhImport', icon: '📥', label: 'สถานะ FDH' },
   { page: 'fdhClaimDetail', icon: '📄', label: 'ClaimDetail FDH' },
   { page: 'repstm', icon: '🧾', label: 'REP/STM' },
@@ -71,6 +72,7 @@ export const toolNavItems: NavItem[] = [
 ];
 
 export const toolNavGroups: NavGroup[] = [
+  { label: 'รายงานโรงพยาบาล', icon: '📑', pages: ['hospitalReports'] },
   { label: 'นำเข้า/ตรวจสอบ', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
   { label: 'ติดตามเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
   { label: 'การเงิน/บัญชี', icon: '💼', pages: ['revenueOpportunity', 'receivable', 'ucOutsideCup', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },

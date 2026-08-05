@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/db.ts"
-source_hash: "3dcc43b4c103ff82aca36eba19586822d73ad3e3d1a8015f1101f0fea84c8e0c"
+source_hash: "93b16c3176e5b243c37f9ba52e70a34b72b3b95e37cf032cb79667b7a402f015"
 managed_by: "sync-ksp-vault"
 ---
 # db.ts
 
 > Source: `server/db.ts`
-> SHA-256: `3dcc43b4c103ff82aca36eba19586822d73ad3e3d1a8015f1101f0fea84c8e0c`
+> SHA-256: `93b16c3176e5b243c37f9ba52e70a34b72b3b95e37cf032cb79667b7a402f015`
 
 ````typescript
 import mysql from 'mysql2/promise';
@@ -412,7 +412,7 @@ const APP_SESSION_TABLE_SQL = `
 `;
 
 export const DEFAULT_MENU_PAGES = [
-  'staff', 'ipd', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
+  'staff', 'ipd', 'hospitalReports', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
   'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'revenueOpportunity', 'reconciliation',
@@ -420,7 +420,7 @@ export const DEFAULT_MENU_PAGES = [
 ];
 
 const DEFAULT_STAFF_MENU_PAGES = [
-  'staff', 'ipd', 'fdh', 'nhsoClose', 'preValidator', 'workQueue', 'guide'
+  'staff', 'ipd', 'hospitalReports', 'fdh', 'nhsoClose', 'preValidator', 'workQueue', 'guide'
 ];
 
 const FDH_STATUS_IMPORT_LOG_TABLE_SQL = `

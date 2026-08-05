@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/index.ts"
-source_hash: "9217cf6f4477811fc45758c4f506dfbc0887247177017f7e2595dd2a069708e0"
+source_hash: "02cf254b20024db615cfc7e908ac07d3cd10ed74d8da6baa4f63455759ca06bf"
 managed_by: "sync-ksp-vault"
 ---
 # index.ts
 
 > Source: `server/index.ts`
-> SHA-256: `9217cf6f4477811fc45758c4f506dfbc0887247177017f7e2595dd2a069708e0`
+> SHA-256: `02cf254b20024db615cfc7e908ac07d3cd10ed74d8da6baa4f63455759ca06bf`
 
 ````typescript
 // Backend API Server สำหรับเชื่อมต่อ HOSxP
@@ -105,6 +105,7 @@ import {
 } from './requestSafety.js';
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
 import { aiRouter } from './aiRoutes.js';
+import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -747,6 +748,7 @@ app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
 type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean };
 const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
+  { pattern: /^\/hospital-reports(\/|$)/, pages: ['hospitalReports'] },
   { pattern: /^\/settings\/fdh-api\/test-connection$/, pages: ['settings'] },
   { pattern: /^\/config\/system-settings(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },
@@ -792,6 +794,7 @@ app.use('/api', (req: AuthenticatedRequest, res, next) => {
 // AI endpoints inherit the approved FDHChecker user session above. The
 // separate HttpOnly AI cookie limits direct model use and is issued silently.
 app.use('/api/ai', aiRouter);
+app.use('/api/hospital-reports', hospitalReportRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

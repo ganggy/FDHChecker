@@ -4,18 +4,18 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/aiReportTools.test.ts"
-source_hash: "72fd99df152536b8f103095b6f34d5f72f5570ca1d851df8e2499f7c6e076ddd"
+source_hash: "6b8f49bd96b1b967250120c222142428e5627c4215e0eed97d1e6a53674c9f02"
 managed_by: "sync-ksp-vault"
 ---
 # aiReportTools.test.ts
 
 > Source: `server/aiReportTools.test.ts`
-> SHA-256: `72fd99df152536b8f103095b6f34d5f72f5570ca1d851df8e2499f7c6e076ddd`
+> SHA-256: `6b8f49bd96b1b967250120c222142428e5627c4215e0eed97d1e6a53674c9f02`
 
 ````typescript
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatOpdCountAnswer, parsePatientReportIntent } from './aiReportTools.js';
+import { formatOpdCountAnswer, parsePatientReportIntent, parsePatientTopicFollowup } from './aiReportTools.js';
 
 const now = new Date('2026-08-02T05:00:00.000Z');
 
@@ -80,6 +80,13 @@ test('routes HN questions to labs, medication, appointment and diagnosis tools',
     topic: 'diagnoses',
     format: 'xlsx',
   });
+});
+
+test('recognizes patient-topic follow-ups without guessing a patient', () => {
+  assert.deepEqual(parsePatientTopicFollowup('ขอผล lab'), { topic: 'labs' });
+  assert.deepEqual(parsePatientTopicFollowup('แล้วยาล่าสุดล่ะ'), { topic: 'medications' });
+  assert.deepEqual(parsePatientTopicFollowup('ขอวันนัดเป็น Excel'), { topic: 'appointments', format: 'xlsx' });
+  assert.equal(parsePatientTopicFollowup('ผล lab คืออะไร'), null);
 });
 
 test('recognizes a natural Thai patient-name visit-count question', () => {

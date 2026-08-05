@@ -23,6 +23,7 @@ export const primaryNavItems: NavItem[] = [
 ];
 
 export const toolNavItems: NavItem[] = [
+  { page: 'hospitalReports', icon: '📑', label: 'ศูนย์รายงาน' },
   { page: 'fdhImport', icon: '📥', label: 'สถานะ FDH' },
   { page: 'fdhClaimDetail', icon: '📄', label: 'ClaimDetail FDH' },
   { page: 'repstm', icon: '🧾', label: 'REP/STM' },
@@ -56,6 +57,7 @@ export const toolNavItems: NavItem[] = [
 ];
 
 export const toolNavGroups: NavGroup[] = [
+  { label: 'รายงานโรงพยาบาล', icon: '📑', pages: ['hospitalReports'] },
   { label: 'นำเข้า/ตรวจสอบ', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
   { label: 'ติดตามเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
   { label: 'การเงิน/บัญชี', icon: '💼', pages: ['revenueOpportunity', 'receivable', 'ucOutsideCup', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },

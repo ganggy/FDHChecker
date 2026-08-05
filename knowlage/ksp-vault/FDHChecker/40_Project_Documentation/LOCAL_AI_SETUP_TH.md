@@ -4,12 +4,12 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "LOCAL_AI_SETUP_TH.md"
-source_hash: "2c8087c82d9a7789ee271ddb5665d98ca958678b3a869782a131072632cd3e08"
+source_hash: "0f1bd0e35650ca43c6efdb113dfe9e8bd4fe103d36105c04432aecd4e1970c77"
 managed_by: "sync-ksp-vault"
 ---
 # FDHChecker Local AI (Ollama)
 
-ระบบตั้งค่าให้ใช้ `qwen3:4b-instruct` ผ่าน Ollama เป็นค่าเริ่มต้น รุ่น Instruct เหมาะกับ chatbot และการสรุปรายงานมากกว่ารุ่น Thinking เพราะไม่ใช้ token กับ reasoning trace ยาว ข้อมูลคำถามและรายงานจึงประมวลผลในเครื่อง ไม่ต้องส่งไป OpenAI API
+ระบบตั้งค่าให้ใช้ `qwen3:4b-instruct` ผ่าน Ollama เป็นค่าเริ่มต้น เพราะตอบเร็วกว่าและเหมาะกับ RAM 16 GB Backend ปิด thinking trace เพื่อไม่ให้สิ้นเปลือง token กับกระบวนการคิด ข้อมูลคำถามและรายงานจึงประมวลผลในเครื่อง ไม่ต้องส่งไป OpenAI API
 
 ## เริ่มใช้งาน
 
@@ -157,6 +157,8 @@ npm run vault:sync
 npm run vault:sync:obsidian
 ```
 
+คำสั่ง sync จะสร้าง `FDHChecker Read-only Query Catalog` จาก SELECT ใน Backend อัตโนมัติ โดยรับเฉพาะตารางใน AI allowlist ตัดคำสั่งแก้ไขและ Query ที่ประกอบค่าด้วย string interpolation ออก ควรรัน `npm run vault:sync` หลังเพิ่มหรือแก้รายงานใน Backend ทุกครั้ง
+
 AI อ่านเงื่อนไขที่ค้นพบจาก KSP Vault ระหว่างวางแผน query และเพิ่มความรู้ได้เมื่อผู้ใช้สั่งอย่างชัดเจน เช่น `จำไว้ว่า...` หรือ `เพิ่มเงื่อนไขนี้ลง Vault` ความรู้ที่ AI สร้างจะอยู่ใน `70_AI_Managed` เท่านั้น การแก้ไขเดิมถูกเก็บใน `_ksp/ai-revisions` และ audit อยู่ที่ `_ksp/ai-audit.jsonl`
 
 API สำหรับนำไปใช้กับโปรแกรมอื่น:
@@ -200,15 +202,15 @@ API ทั้งหมดต้องผ่าน FDHChecker login และ AI 
 
 ## เลือกโมเดล
 
-สำหรับ RAM 16 GB ให้เริ่มจาก `qwen3:4b-instruct` หากต้องการทดลอง 8B:
+สำหรับเครื่อง RAM 16 GB ให้ใช้ `qwen3:4b-instruct` เป็นค่าปกติ สามารถตรวจการใช้หน่วยความจำได้ด้วย:
 
 ```bash
-OLLAMA_MODEL=qwen3:8b npm run server
+npm run server
 ollama ps
 memory_pressure
 ```
 
-หาก Memory Pressure เป็นสีเหลือง/แดงหรือเริ่มใช้ swap มาก ให้กลับมาใช้ 4B
+หากทดลองรุ่นใหญ่กว่าแล้วตอบช้าหรือ Memory Pressure สูง ให้กลับมาใช้ `qwen3:4b-instruct` ผ่าน `OLLAMA_MODEL`
 
 ## ทดสอบ
 

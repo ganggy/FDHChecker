@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/App.css"
-source_hash: "db90c4f1f5af06b7c61ba9ee12c69c55d31513aa7369538a4cecc4ef241ba31e"
+source_hash: "e6d7b8bc8720284df639d2c91036ac19ff46d10974b2e3be71f10fcc8d62e657"
 managed_by: "sync-ksp-vault"
 ---
 # App.css
 
 > Source: `src/App.css`
-> SHA-256: `db90c4f1f5af06b7c61ba9ee12c69c55d31513aa7369538a4cecc4ef241ba31e`
+> SHA-256: `e6d7b8bc8720284df639d2c91036ac19ff46d10974b2e3be71f10fcc8d62e657`
 
 ````css
 .workflow-page {
@@ -2555,7 +2555,7 @@ managed_by: "sync-ksp-vault"
 .ipd-monitor-filter-card .card-body { padding: 14px 16px; }
 .ipd-monitor-filter-grid {
   display: grid;
-  grid-template-columns: 145px 145px minmax(220px, 1fr) 180px 150px auto;
+  grid-template-columns: 145px 145px minmax(220px, 1fr) 180px 150px 190px auto;
   gap: 12px;
   align-items: end;
 }
@@ -2577,7 +2577,12 @@ managed_by: "sync-ksp-vault"
   border: 1px solid #e2e8f0;
   border-top: 4px solid var(--ipd-kpi, #64748b);
   box-shadow: 0 8px 22px rgba(15, 23, 42, .06);
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
+button.ipd-monitor-kpi { cursor: pointer; }
+button.ipd-monitor-kpi:hover { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(15, 23, 42, .1); }
 .ipd-monitor-kpi span { color: #64748b; font-size: 12px; font-weight: 700; }
 .ipd-monitor-kpi strong { color: var(--ipd-kpi, #334155); font-size: 28px; line-height: 1.1; }
 .ipd-monitor-kpi small { color: #64748b; }
@@ -2588,6 +2593,14 @@ managed_by: "sync-ksp-vault"
 .ipd-monitor-kpi--green { --ipd-kpi: #16a34a; }
 .ipd-monitor-kpi--emerald { --ipd-kpi: #059669; }
 .ipd-monitor-kpi--rose { --ipd-kpi: #e11d48; }
+.ipd-audit-guide { overflow: hidden; }
+.ipd-audit-guide > summary { padding: 14px 16px; cursor: pointer; color: #1e3a8a; font-weight: 800; background: #eff6ff; }
+.ipd-audit-guide__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 14px; }
+.ipd-audit-guide__grid section { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid #dbeafe; border-radius: 10px; background: #f8fafc; }
+.ipd-audit-guide__grid strong { color: #1d4ed8; margin-bottom: 3px; }
+.ipd-audit-guide__grid span { color: #475569; font-size: 12px; }
+.ipd-audit-guide__grid span::before { content: '✓'; margin-right: 6px; color: #059669; font-weight: 800; }
+.ipd-audit-guide__grid small { margin-top: 5px; color: #b45309; line-height: 1.45; }
 .ipd-monitor-pipeline { overflow: hidden; }
 .ipd-monitor-pipeline .card-header { display: flex; justify-content: space-between; align-items: center; }
 .ipd-monitor-pipeline .card-header span { color: #64748b; font-size: 12px; }
@@ -2626,6 +2639,12 @@ managed_by: "sync-ksp-vault"
 .ipd-monitor-table th { white-space: nowrap; }
 .ipd-monitor-table td { vertical-align: top; }
 .ipd-monitor-table td > small { display: block; margin-top: 5px; max-width: 210px; color: #64748b; line-height: 1.35; white-space: normal; }
+.ipd-preaudit-details { margin-top: 6px; min-width: 190px; }
+.ipd-preaudit-details summary { cursor: pointer; color: #475569; font-size: 11px; font-weight: 800; }
+.ipd-preaudit-finding { display: flex; flex-direction: column; gap: 3px; margin-top: 7px; padding: 8px; border-radius: 8px; background: #fffbeb; border-left: 3px solid #f59e0b; white-space: normal; }
+.ipd-preaudit-finding--risk { background: #fff1f2; border-left-color: #e11d48; }
+.ipd-preaudit-finding strong { font-size: 11px; color: #334155; }
+.ipd-preaudit-finding span, .ipd-preaudit-finding small { font-size: 10px; line-height: 1.4; color: #475569; }
 .ipd-monitor-id { color: #2563eb; }
 .ipd-monitor-money { color: #0f766e; font-weight: 800; text-align: right; white-space: nowrap; }
 .btn-sm { padding: 5px 9px; font-size: 11px; white-space: nowrap; }
@@ -2638,7 +2657,7 @@ managed_by: "sync-ksp-vault"
 
 @media (max-width: 760px) {
   .ipd-monitor-hero { align-items: flex-start; flex-direction: column; }
-  .ipd-monitor-filter-grid, .ipd-monitor-kpi-grid, .ipd-monitor-stage-grid, .ipd-monitor-money-grid, .ipd-monitor-import-health { grid-template-columns: 1fr; }
+  .ipd-monitor-filter-grid, .ipd-monitor-kpi-grid, .ipd-monitor-stage-grid, .ipd-monitor-money-grid, .ipd-monitor-import-health, .ipd-audit-guide__grid { grid-template-columns: 1fr; }
 }
 
 /* REP/STM/INV management */

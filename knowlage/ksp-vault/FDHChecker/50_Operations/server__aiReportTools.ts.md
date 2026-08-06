@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/aiReportTools.ts"
-source_hash: "10a10842feae96c11cf1b3cda91c43228423a06558a643bf09950e2f65fb2d1e"
+source_hash: "333d0e4a26a024597da890f3c026f35f788de3bcfca3988995ee9736399602ce"
 managed_by: "sync-ksp-vault"
 ---
 # aiReportTools.ts
 
 > Source: `server/aiReportTools.ts`
-> SHA-256: `10a10842feae96c11cf1b3cda91c43228423a06558a643bf09950e2f65fb2d1e`
+> SHA-256: `333d0e4a26a024597da890f3c026f35f788de3bcfca3988995ee9736399602ce`
 
 ````typescript
 import { getDiagsAndProcedures, getUTFConnection, getVisitChargeItems } from './db.js';
@@ -72,11 +72,14 @@ export type PatientToolAnswer = {
     dateEnd?: string;
     identifierType?: string;
     identifier?: string;
+    resolvedHn?: string;
+    patientName?: string;
     totalRows?: number;
     returnedRows?: number;
     truncated?: boolean;
   };
   attachment?: ReportAttachment;
+  needsClarification?: boolean;
 };
 
 const MAX_EXPORT_ROWS = Math.min(5_000, Math.max(100, Number(process.env.AI_EXPORT_MAX_ROWS) || 2_000));
@@ -142,6 +145,24 @@ const requestedFormat = (question: string): ReportFormat | undefined => {
   if (/\bjson\b/.test(question)) return 'json';
   if (/สร้างไฟล์|ส่งออก|ดาวน์โหลด/.test(question)) return 'xlsx';
   return undefined;
+};
+
+export const parsePatientTopicFollowup = (question: string): Pick<PatientLookupIntent, 'topic' | 'format'> | null => {
+  const normalized = question.trim().toLowerCase();
+  const asksFollowup = /(?:ขอ|ดู|แสดง|เอา|แล้ว).*(?:แล็บ|แลบ|\blab\b|ยา|นัด|วินิจฉัย|โรค)|(?:แล็บ|แลบ|\blab\b|ยา|นัด|วินิจฉัย|โรค).*(?:ล่ะ|ล่าสุด|ด้วย)/i.test(normalized);
+  if (!asksFollowup) return null;
+  const topic = /(?:ผล(?:ตรวจ)?(?:แล็บ|แลบ)|\blab\b)/i.test(normalized)
+    ? 'labs' as const
+    : /ยา|เวชภัณฑ์|medication/i.test(normalized)
+      ? 'medications' as const
+      : /นัด|appointment/i.test(normalized)
+        ? 'appointments' as const
+        : /วินิจฉัย|โรค|diagnos/i.test(normalized)
+          ? 'diagnoses' as const
+          : undefined;
+  if (!topic) return null;
+  const format = requestedFormat(normalized);
+  return { topic, ...(format ? { format } : {}) };
 };
 
 const labeledIdentifier = (question: string, label: string, length = '{4,20}') => {
@@ -733,6 +754,8 @@ export const answerPatientReportQuestion = async (
         source: 'HOSxP',
         identifierType: 'vn',
         identifier: intent.vn,
+        resolvedHn: String(header.hn || ''),
+        patientName: String(header.patientName || ''),
         totalRows: items.length,
         returnedRows: items.length,
       },
@@ -766,7 +789,10 @@ export const answerPatientReportQuestion = async (
           `${row.patientName || intent.identifier} (HN ${row.hn || '-'}) เคยมารับบริการ ${Number(row.visitCount || 0).toLocaleString('th-TH')} ครั้ง`
           + ` โดยนับ VN ไม่ซ้ำ พบการนอนโรงพยาบาล ${Number(row.admissionCount || 0).toLocaleString('th-TH')} ครั้ง`
           + ` มาครั้งแรก ${row.firstVisitDate || '-'} และครั้งล่าสุด ${row.lastVisitDate || '-'}`
-        )).concat(output ? [`สร้างไฟล์ ${output.filename} แล้ว`] : []).join('\n'),
+        )).concat(
+          counts.length > 1 ? ['พบชื่อซ้ำ กรุณาระบุ HN ก่อนขอดูแล็บ ยา นัด หรือโรค'] : [],
+          output ? [`สร้างไฟล์ ${output.filename} แล้ว`] : [],
+        ).join('\n'),
         report: {
           type: intent.kind,
           source: 'HOSxP',
@@ -774,8 +800,13 @@ export const answerPatientReportQuestion = async (
           identifier: intent.identifier,
           totalRows: counts.length,
           returnedRows: counts.length,
+          ...(counts.length === 1 ? {
+            resolvedHn: String(counts[0].hn || ''),
+            patientName: String(counts[0].patientName || intent.identifier),
+          } : {}),
         },
         attachment: output,
+        needsClarification: counts.length > 1,
       };
     }
     const report: ExportableReport = {
@@ -795,7 +826,7 @@ export const answerPatientReportQuestion = async (
       : undefined;
     return {
       answer: rows.length
-        ? `พบ ${rows.length.toLocaleString('th-TH')} คน: ${rows.slice(0, 10).map((row) => `${row.hn} ${row.patientName}`).join(', ')}${output ? ` และสร้างไฟล์ ${output.filename} แล้ว` : ''}`
+        ? `พบ ${rows.length.toLocaleString('th-TH')} คน: ${rows.slice(0, 10).map((row) => `${row.hn} ${row.patientName}`).join(', ')}${rows.length > 1 ? '\nพบชื่อซ้ำ กรุณาระบุ HN ของผู้ป่วยที่ต้องการก่อนดูแล็บ ยา นัด หรือโรค' : ''}${output ? ` และสร้างไฟล์ ${output.filename} แล้ว` : ''}`
         : `ไม่พบผู้ป่วยชื่อ ${intent.identifier}`,
       report: {
         type: intent.kind,
@@ -804,8 +835,13 @@ export const answerPatientReportQuestion = async (
         identifier: intent.identifier,
         totalRows: rows.length,
         returnedRows: rows.length,
+        ...(rows.length === 1 ? {
+          resolvedHn: String(rows[0].hn || ''),
+          patientName: String(rows[0].patientName || intent.identifier),
+        } : {}),
       },
       attachment: output,
+      needsClarification: rows.length > 1,
     };
   }
 
@@ -871,6 +907,8 @@ export const answerPatientReportQuestion = async (
         source: 'HOSxP',
         identifierType: intent.identifierType,
         identifier: intent.identifier,
+        resolvedHn: String(profile.hn || hn),
+        patientName: String(profile.patientName || ''),
         totalRows: topicRows.length,
         returnedRows: topicRows.length,
       },
@@ -905,6 +943,8 @@ export const answerPatientReportQuestion = async (
       source: 'HOSxP',
       identifierType: intent.identifierType,
       identifier: intent.identifier,
+      resolvedHn: String(profile.hn || hn),
+      patientName: String(profile.patientName || ''),
       totalRows: rows.length,
       returnedRows: rows.length,
     },

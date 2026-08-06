@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/IpdClaimMonitorPage.tsx"
-source_hash: "afa5cb85f0cc9ca3c85f745c73dce95a750dedfb39e1ca53eb149b8547dd0f28"
+source_hash: "81b9bb5ca7cea7824430c9f2b67fbb73c5a886f29acd70a67f6305a259840b4f"
 managed_by: "sync-ksp-vault"
 ---
 # IpdClaimMonitorPage.tsx
 
 > Source: `src/pages/IpdClaimMonitorPage.tsx`
-> SHA-256: `afa5cb85f0cc9ca3c85f745c73dce95a750dedfb39e1ca53eb149b8547dd0f28`
+> SHA-256: `81b9bb5ca7cea7824430c9f2b67fbb73c5a886f29acd70a67f6305a259840b4f`
 
 ````tsx
 import { useEffect, useMemo, useState } from 'react';
@@ -49,6 +49,19 @@ type IpdOverviewRow = {
   rep_amount?: number | null;
   diff_amount?: number | null;
   errorcode?: string | null;
+  pre_audit?: {
+    status: 'clear' | 'review' | 'risk';
+    findingCount: number;
+    riskCount: number;
+    reviewCount: number;
+    findings: Array<{
+      code: string;
+      severity: 'risk' | 'review';
+      title: string;
+      message: string;
+      evidence: string[];
+    }>;
+  };
 };
 
 type ReconciliationRow = {
@@ -162,6 +175,7 @@ export const IpdClaimMonitorPage = () => {
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<StageKey | 'all'>('all');
   const [rightFilter, setRightFilter] = useState('all');
+  const [auditFilter, setAuditFilter] = useState<'all' | 'clear' | 'review' | 'risk'>('all');
   const [detailVisit, setDetailVisit] = useState<MonitorRow | null>(null);
 
   const loadData = async () => {
@@ -215,11 +229,12 @@ export const IpdClaimMonitorPage = () => {
     return rows.filter((row) => {
       if (stageFilter !== 'all' && row.stageKey !== stageFilter) return false;
       if (rightFilter !== 'all' && String(row.hipdata_code || 'ไม่ระบุ') !== rightFilter) return false;
+      if (auditFilter !== 'all' && (row.pre_audit?.status || 'clear') !== auditFilter) return false;
       if (!term) return true;
       return [row.an, row.vn, row.hn, row.patient_name, row.pttype_name, row.hipdata_code, row.rep_no, row.stm_statement_no, row.inv_statement_no]
         .some((value) => String(value || '').toLowerCase().includes(term));
     });
-  }, [rightFilter, rows, search, stageFilter]);
+  }, [auditFilter, rightFilter, rows, search, stageFilter]);
 
   const summary = useMemo(() => {
     const total = rows.length;
@@ -229,10 +244,12 @@ export const IpdClaimMonitorPage = () => {
     const stm = rows.filter((row) => row.has_stm).length;
     const complete = rows.filter((row) => row.stageKey === 'complete').length;
     const attention = rows.filter((row) => row.stageKey === 'rep_issue' || row.stageKey === 'stm_issue').length;
+    const preAuditRisk = rows.filter((row) => row.pre_audit?.status === 'risk').length;
+    const preAuditReview = rows.filter((row) => row.pre_audit?.status === 'review').length;
     const expected = rows.reduce((sum, row) => sum + Number(row.expected_receivable || 0), 0);
     const repAmount = rows.reduce((sum, row) => sum + Number(row.rep_amount || 0), 0);
     const stmPaid = rows.reduce((sum, row) => sum + Number(row.stm_paid_amount || 0), 0);
-    return { total, fdh, rep, inv, stm, complete, attention, expected, repAmount, stmPaid };
+    return { total, fdh, rep, inv, stm, complete, attention, preAuditRisk, preAuditReview, expected, repAmount, stmPaid };
   }, [rows]);
 
   const stageCounts = useMemo(() => rows.reduce<Record<string, number>>((acc, row) => {
@@ -262,6 +279,9 @@ export const IpdClaimMonitorPage = () => {
       ยอดจ่าย_STM: row.stm_paid_amount || 0,
       สถานะปัจจุบัน: row.stageLabel,
       หมายเหตุ: row.stageNote,
+      ผล_Pre_Audit: row.pre_audit?.status === 'risk' ? 'พบความเสี่ยง' : row.pre_audit?.status === 'review' ? 'ทบทวนเวชระเบียน' : 'ผ่านกฎอัตโนมัติ',
+      รหัส_Pre_Audit: row.pre_audit?.findings.map((finding) => finding.code).join(', ') || '',
+      รายละเอียด_Pre_Audit: row.pre_audit?.findings.map((finding) => finding.message).join(' | ') || '',
     }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(exportRows), 'IPD Claim Monitor');
@@ -275,7 +295,7 @@ export const IpdClaimMonitorPage = () => {
       <div className="page-header ipd-monitor-hero">
         <div>
           <h1 className="page-title">📡 IPD Claim Monitor</h1>
-          <p className="page-subtitle">ติดตามผู้ป่วยในตั้งแต่จำหน่าย ส่ง FDH รับ REP และผล INV/STM พร้อมชี้งานค้างและยอดเงินในหน้าจอเดียว</p>
+          <p className="page-subtitle">ติดตามผู้ป่วยในตั้งแต่ตรวจความพร้อมเวชระเบียนและกฎ S1 ส่ง FDH รับ REP และผล INV/STM พร้อมชี้งานค้างในหน้าจอเดียว</p>
         </div>
         <div className="ipd-monitor-hero__actions">
           <button className="btn btn-outline" type="button" onClick={goToIpd}>← รายการผู้ป่วยใน</button>
@@ -290,11 +310,21 @@ export const IpdClaimMonitorPage = () => {
           <div className="form-group ipd-monitor-search"><label className="form-label">ค้นหา AN / HN / ชื่อ / REP</label><input className="form-control" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="พิมพ์คำค้น..." /></div>
           <div className="form-group"><label className="form-label">สถานะปัจจุบัน</label><select className="form-control" value={stageFilter} onChange={(event) => setStageFilter(event.target.value as StageKey | 'all')}>{STAGES.map((stage) => <option key={stage.key} value={stage.key}>{stage.label}</option>)}</select></div>
           <div className="form-group"><label className="form-label">สิทธิ HIPDATA</label><select className="form-control" value={rightFilter} onChange={(event) => setRightFilter(event.target.value)}><option value="all">ทุกสิทธิ</option>{rightOptions.map((right) => <option key={right} value={right}>{right}</option>)}</select></div>
+          <div className="form-group"><label className="form-label">IPD Pre-audit</label><select className="form-control" value={auditFilter} onChange={(event) => setAuditFilter(event.target.value as typeof auditFilter)}><option value="all">ทุกผลตรวจ</option><option value="risk">พบความเสี่ยง</option><option value="review">ต้องทบทวนเวชระเบียน</option><option value="clear">ผ่านกฎอัตโนมัติ</option></select></div>
           <button className="btn btn-primary" type="button" onClick={loadData} disabled={loading}>{loading ? 'กำลังโหลด...' : '🔄 โหลดข้อมูล'}</button>
         </div>
       </div>
 
       {error && <div className="alert alert-danger">⚠️ {error}</div>}
+
+      <details className="card ipd-audit-guide">
+        <summary>📋 หลักฐาน IPD ที่ต้องพร้อมตามแนวทางตรวจร่วม 3 กองทุน ปี 2569</summary>
+        <div className="ipd-audit-guide__grid">
+          <section><strong>เอกสารหลักทุก admission</strong><span>OPD card / Patient profile</span><span>Discharge summary พร้อม PDx และแพทย์รับรอง</span><span>Admission note ระบุเหตุผลรับไว้</span><span>Progress note และ Doctor’s order</span><span>Nurses’ note, Graphic sheet และ Medication sheet</span><span>ผล Lab / รังสี / พยาธิที่เกี่ยวข้อง</span></section>
+          <section><strong>เอกสารตามบริการ</strong><span>Informed consent และ Consultation record</span><span>Operative/Procedure note พร้อม finding และขั้นตอน</span><span>Anesthetic, Labour หรือ Rehabilitation record</span><span>Sticker/serial number อุปกรณ์ พร้อมหลักฐานการเงิน</span><span>ข้อมูลจาก platform อื่นที่ใช้ดูแลผู้ป่วย</span></section>
+          <section><strong>ระบบตรวจอัตโนมัติ</strong><span>PDx และวันเวลา Admit/Discharge</span><span>Short stay ที่ต้องยืนยันเหตุผลรับไว้</span><span>Split admission ภายใน 24 ชั่วโมงในช่วงข้อมูลที่เลือก</span><span>ICD-9 ที่ต้องมีหลักฐานหัตถการ</span><span>มะเร็ง active และกฎ S1/CR ทั้ง 10 กลุ่ม</span><small>ลายมือชื่อ เนื้อหา note และเอกสาร PDF ยังต้องให้ผู้ตรวจทบทวนจากเวชระเบียนจริง</small></section>
+        </div>
+      </details>
 
       <div className="ipd-monitor-kpi-grid">
         <div className="ipd-monitor-kpi ipd-monitor-kpi--slate"><span>จำหน่ายทั้งหมด</span><strong>{summary.total.toLocaleString('th-TH')}</strong><small>เคสในช่วงวันที่</small></div>
@@ -304,6 +334,8 @@ export const IpdClaimMonitorPage = () => {
         <div className="ipd-monitor-kpi ipd-monitor-kpi--green"><span>ได้รับ STM</span><strong>{summary.stm.toLocaleString('th-TH')}</strong><small>ผลการจ่าย</small></div>
         <div className="ipd-monitor-kpi ipd-monitor-kpi--emerald"><span>ครบกระบวนการ</span><strong>{summary.complete.toLocaleString('th-TH')}</strong><small>FDH + REP + STM</small></div>
         <div className="ipd-monitor-kpi ipd-monitor-kpi--rose"><span>ต้องตรวจสอบ</span><strong>{summary.attention.toLocaleString('th-TH')}</strong><small>REP/STM ผิดปกติ</small></div>
+        <button className="ipd-monitor-kpi ipd-monitor-kpi--rose" type="button" onClick={() => setAuditFilter(auditFilter === 'risk' ? 'all' : 'risk')}><span>Pre-audit เสี่ยง</span><strong>{summary.preAuditRisk.toLocaleString('th-TH')}</strong><small>ข้อมูล/รหัสอาจไม่ผ่านเกณฑ์</small></button>
+        <button className="ipd-monitor-kpi ipd-monitor-kpi--cyan" type="button" onClick={() => setAuditFilter(auditFilter === 'review' ? 'all' : 'review')}><span>ทบทวน Chart</span><strong>{summary.preAuditReview.toLocaleString('th-TH')}</strong><small>หลักฐานทั่วไปหรือกฎ S1</small></button>
       </div>
 
       <div className="ipd-monitor-pipeline card">
@@ -337,15 +369,21 @@ export const IpdClaimMonitorPage = () => {
         <div className="card-header"><span className="workflow-table-title">รายการติดตามผู้ป่วยใน</span><span className="workflow-table-meta">แสดง {filteredRows.length.toLocaleString('th-TH')} / {rows.length.toLocaleString('th-TH')} เคส</span></div>
         <div className="table-responsive">
           <table className="data-table ipd-monitor-table">
-            <thead><tr><th>#</th><th>AN / HN</th><th>ผู้ป่วย / สิทธิ</th><th>D/C</th><th>ยอดคาดรับ</th><th>FDH</th><th>REP</th><th>INV</th><th>STM</th><th>สถานะปัจจุบัน</th><th>รายละเอียด</th></tr></thead>
+            <thead><tr><th>#</th><th>AN / HN</th><th>ผู้ป่วย / สิทธิ</th><th>D/C</th><th>ยอดคาดรับ</th><th>IPD Pre-audit</th><th>FDH</th><th>REP</th><th>INV</th><th>STM</th><th>สถานะปัจจุบัน</th><th>รายละเอียด</th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={11} className="empty-cell">กำลังโหลดข้อมูล...</td></tr> : filteredRows.length === 0 ? <tr><td colSpan={11} className="empty-cell">ไม่พบรายการตามเงื่อนไข</td></tr> : filteredRows.map((row, index) => (
+              {loading ? <tr><td colSpan={12} className="empty-cell">กำลังตรวจข้อมูลและกฎ S1...</td></tr> : filteredRows.length === 0 ? <tr><td colSpan={12} className="empty-cell">ไม่พบรายการตามเงื่อนไข</td></tr> : filteredRows.map((row, index) => (
                 <tr key={visitKey(row)}>
                   <td>{index + 1}</td>
                   <td><strong className="ipd-monitor-id">{row.an || '-'}</strong><small>HN {row.hn || '-'}</small></td>
                   <td><strong>{row.patient_name || '-'}</strong><small>{row.hipdata_code || '-'} · {row.pttype_name || '-'}</small></td>
                   <td><span>{row.dchdate || '-'}</span><small>Admit {row.admdate || '-'}</small></td>
                   <td className="ipd-monitor-money">{money(row.expected_receivable)}</td>
+                  <td>
+                    <span className={`insurance-status insurance-status--${row.pre_audit?.status === 'risk' ? 'danger' : row.pre_audit?.status === 'review' ? 'warning' : 'success'}`}>
+                      {row.pre_audit?.status === 'risk' ? 'พบความเสี่ยง' : row.pre_audit?.status === 'review' ? 'ทบทวน Chart' : 'ผ่านอัตโนมัติ'}
+                    </span>
+                    {row.pre_audit && row.pre_audit.findingCount > 0 && <details className="ipd-preaudit-details"><summary>{row.pre_audit.findings.map((finding) => finding.code).join(', ')}</summary>{row.pre_audit.findings.map((finding, findingIndex) => <div key={`${finding.code}-${findingIndex}`} className={`ipd-preaudit-finding ipd-preaudit-finding--${finding.severity}`}><strong>{finding.code} · {finding.title}</strong><span>{finding.message}</span>{finding.evidence.length > 0 && <small>รหัสที่พบ: {finding.evidence.join(', ')}</small>}</div>)}</details>}
+                  </td>
                   <td><span className={`insurance-status insurance-status--${row.fdh_found ? 'success' : 'warning'}`}>{row.fdh_found ? 'พบ FDH' : 'ยังไม่พบ'}</span><small>{row.fdh_status || row.fdh_followup_note || '-'}</small><small>{row.days_dch_to_fdh == null ? '' : `${row.days_dch_to_fdh} วันหลัง D/C`}</small></td>
                   <td><span className={`insurance-status insurance-status--${row.has_rep || row.rep_no ? (meaningfulCode(row.rep_errorcode || row.errorcode) || meaningfulCode(row.rep_verifycode) ? 'danger' : 'success') : 'muted'}`}>{row.rep_no || 'รอ REP'}</span><small>{[row.rep_errorcode || row.errorcode, row.rep_verifycode].filter(meaningfulCode).join(' / ') || `${money(row.rep_amount)} บาท`}</small></td>
                   <td><span className={`insurance-status insurance-status--${row.has_inv ? 'success' : 'muted'}`}>{row.has_inv ? 'มี INV' : 'รอ INV'}</span><small>{row.inv_statement_no || (row.has_inv ? `${money(row.inv_amount)} บาท` : '-')}</small></td>

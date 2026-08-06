@@ -16,7 +16,7 @@ export const HOSXP_SEMANTIC_CATALOG = `
 - ovst o: vn, hn, an, vstdate, vsttime, pttype, main_dep, hospmain, hosp_sub, doctor, ovstist
 - vn_stat v: vn, hn, vstdate, age_y, sex, income, pdx, pttype
 - ipt i: an, hn, vn, regdate, regtime, dchdate, dchtime, ward, pttype
-- an_stat a: an, hn, vn, regdate, dchdate, ward, pdx, dx0, dx1, dx2, dx3, dx4, dx5, income
+- an_stat a: an, hn, vn, regdate, dchdate, ward, pdx, dx0, dx1, dx2, dx3, dx4, dx5, income, drg, rw, adjrw
 ความสัมพันธ์: patient.hn=ovst.hn, ovst.vn=vn_stat.vn, ipt.an=an_stat.an
 
 วินิจฉัยและอาการ

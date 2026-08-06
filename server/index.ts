@@ -80,7 +80,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { getPpfsNhsoReport } from './ppfsReport.js';
 import { fetchWithTimeout } from './httpClient.js';
-import { evaluateOpdPreAudit, formatOpdPreAuditIssue } from './opdPreAuditRules.js';
 import {
   anonymousApiWriteGuard,
   apiErrorHandler,
@@ -91,6 +90,7 @@ import {
 } from './requestSafety.js';
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
 import { aiRouter } from './aiRoutes.js';
+import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -733,6 +733,7 @@ app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
 type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean };
 const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
+  { pattern: /^\/hospital-reports(\/|$)/, pages: ['hospitalReports'] },
   { pattern: /^\/settings\/fdh-api\/test-connection$/, pages: ['settings'] },
   { pattern: /^\/config\/system-settings(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },
@@ -778,6 +779,7 @@ app.use('/api', (req: AuthenticatedRequest, res, next) => {
 // AI endpoints inherit the approved FDHChecker user session above. The
 // separate HttpOnly AI cookie limits direct model use and is issued silently.
 app.use('/api/ai', aiRouter);
+app.use('/api/hospital-reports', hospitalReportRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);
@@ -1351,11 +1353,6 @@ app.get('/api/hosxp/checks', async (req, res) => {
         issues.push('ยังไม่ปิดสิทธิ (EP)');
       }
 
-      const opdPreAuditFindings = isIPD ? [] : evaluateOpdPreAudit(rec);
-      issues.push(...opdPreAuditFindings.map(formatOpdPreAuditIssue));
-      const opdBlockingCount = opdPreAuditFindings.filter((finding) => finding.severity === 'blocking').length;
-      const opdReviewCount = opdPreAuditFindings.filter((finding) => finding.severity === 'warning').length;
-
       const isComplete = issues.length === 0;
 
       return {
@@ -1363,13 +1360,6 @@ app.get('/api/hosxp/checks', async (req, res) => {
         status: isComplete ? 'ready' : 'pending',
         isBillable,
         issues: issues,
-        opd_pre_audit: isIPD ? null : {
-          status: opdBlockingCount > 0 ? 'blocking' : opdReviewCount > 0 ? 'review' : 'clear',
-          findingCount: opdPreAuditFindings.length,
-          blockingCount: opdBlockingCount,
-          reviewCount: opdReviewCount,
-          findings: opdPreAuditFindings,
-        },
         has_authen: hasAuthenPp ? 1 : 0,
         has_close: hasCloseEp ? 1 : 0,
         fdh_status_label: hasCloseEp
@@ -1750,12 +1740,6 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       if (!item.has_pal_diag && item.has_pal_adp) issues.push('ER213: มีรายการเบิก Palliative แต่ขาดรหัสวินิจฉัยสภาวะ');
       if (hasDrugpWithoutDrugItems(item)) issues.push('ER214: ส่งยาไปรษณีย์ (DRUGP) ต้องมีรายการยา');
 
-      // OPD medical-record and charge evidence layer. These codes are kept
-      // separate from ER1xx/ER2xx so 16-file structure and clinical audit are
-      // visible independently on the pre-submit screen.
-      const opdAuditIssues = evaluateOpdPreAudit(item);
-      issues.push(...opdAuditIssues.map(formatOpdPreAuditIssue));
-
       // Logic for status
       let status: 'ready' | 'pending' | 'rejected' = 'ready';
 
@@ -1768,7 +1752,7 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       } else {
         // นับเฉพาะที่เป็น Error จริงๆ (เว้น WRN ไว้)
         const criticalErrors = issues.filter(iss => iss.startsWith('ER'));
-        if (criticalErrors.length > 0 || opdAuditIssues.length > 0) {
+        if (criticalErrors.length > 0) {
           // ถ้าขาด CID หรือ Diagnosis หรือ Fund จะถือว่า Rejected (ส่งไม่ได้)
           if (!item.has_cid || !item.has_diagnosis || !item.fund) {
             status = 'rejected';
@@ -3983,12 +3967,7 @@ app.post('/api/config/nhso-authen-settings', async (req, res) => {
 
 app.post('/api/nhso/authen/sync', async (req, res) => {
   try {
-    const { startDate, endDate, mode, fundCodes } = req.body as {
-      startDate?: string;
-      endDate?: string;
-      mode?: 'missing' | 'close-status';
-      fundCodes?: string[];
-    };
+    const { startDate, endDate } = req.body as { startDate?: string; endDate?: string };
     if (!startDate || !endDate) {
       return res.status(400).json({ success: false, error: 'กรุณาระบุวันที่เริ่มต้นและสิ้นสุด' });
     }
@@ -4010,8 +3989,6 @@ app.post('/api/nhso/authen/sync', async (req, res) => {
       startDate,
       endDate,
       maxDays,
-      mode: mode === 'close-status' ? 'close-status' : 'missing',
-      fundCodes: Array.isArray(fundCodes) ? fundCodes : undefined,
     });
     res.json({ success: true, summary });
   } catch (error) {

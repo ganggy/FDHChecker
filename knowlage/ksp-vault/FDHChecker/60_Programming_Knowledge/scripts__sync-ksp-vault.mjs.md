@@ -4,18 +4,19 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "scripts/sync-ksp-vault.mjs"
-source_hash: "7b7a8c32bf0578eb88eb0fc0e05390cc3650949322dbf100a1b41298c16c64c3"
+source_hash: "eac7ba77dd471ad8b8a38208539fc8ab20bff5a1c41ddcfd29d8ce4567df7470"
 managed_by: "sync-ksp-vault"
 ---
 # sync-ksp-vault.mjs
 
 > Source: `scripts/sync-ksp-vault.mjs`
-> SHA-256: `7b7a8c32bf0578eb88eb0fc0e05390cc3650949322dbf100a1b41298c16c64c3`
+> SHA-256: `eac7ba77dd471ad8b8a38208539fc8ab20bff5a1c41ddcfd29d8ce4567df7470`
 
 ````javascript
 import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { buildQueryCatalog, renderQueryCatalog } from './lib/query-catalog.mjs';
 
 const projectRoot = process.cwd();
 const args = process.argv.slice(2);
@@ -177,6 +178,14 @@ await writeGenerated(
   path.join('20_Data_Model', 'HOSxP Semantic Catalog.md'),
   `${frontmatter({ type: 'data-catalog', category: 'data-model', source: 'server/aiHosxpCatalog.ts', source_hash: hash(semanticSource), managed_by: 'sync-ksp-vault' })}# HOSxP Semantic Catalog\n\n${semanticMatch?.[1]?.trim() || semanticSource}\n`,
   { type: 'data-catalog', source: 'server/aiHosxpCatalog.ts' },
+);
+
+const readOnlyQueries = await buildQueryCatalog(projectRoot);
+const queryCatalogContent = renderQueryCatalog(readOnlyQueries);
+await writeGenerated(
+  path.join('20_Data_Model', 'FDHChecker Read-only Query Catalog.md'),
+  `${frontmatter({ type: 'query-catalog', category: 'data-model', source: 'server/**/*.ts', source_hash: hash(queryCatalogContent), managed_by: 'sync-ksp-vault' })}${queryCatalogContent}\n`,
+  { type: 'query-catalog', source: 'server/**/*.ts', queries: readOnlyQueries.length },
 );
 
 const configFiles = [

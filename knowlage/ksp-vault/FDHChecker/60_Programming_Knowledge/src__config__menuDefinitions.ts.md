@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/config/menuDefinitions.ts"
-source_hash: "a1a6a73b7168846b63588fefce9e8a4b9bdb4392e7bd4cfdad57a6846af182da"
+source_hash: "9fd4789078bf45d44b07d2e5e5b1bb2ffacd112b89bb4fce0782a0a9f6587a0b"
 managed_by: "sync-ksp-vault"
 ---
 # menuDefinitions.ts
 
 > Source: `src/config/menuDefinitions.ts`
-> SHA-256: `a1a6a73b7168846b63588fefce9e8a4b9bdb4392e7bd4cfdad57a6846af182da`
+> SHA-256: `9fd4789078bf45d44b07d2e5e5b1bb2ffacd112b89bb4fce0782a0a9f6587a0b`
 
 ````typescript
 import type { AppPage } from '../utils/navigationState';
@@ -38,6 +38,8 @@ export const primaryNavItems: NavItem[] = [
 ];
 
 export const toolNavItems: NavItem[] = [
+  { page: 'aiReports', icon: '✨', label: 'FDH AI Report' },
+  { page: 'hospitalReports', icon: '📑', label: 'ศูนย์รายงาน' },
   { page: 'fdhImport', icon: '📥', label: 'สถานะ FDH' },
   { page: 'fdhClaimDetail', icon: '📄', label: 'ClaimDetail FDH' },
   { page: 'repstm', icon: '🧾', label: 'REP/STM' },
@@ -71,6 +73,7 @@ export const toolNavItems: NavItem[] = [
 ];
 
 export const toolNavGroups: NavGroup[] = [
+  { label: 'รายงานโรงพยาบาล', icon: '📑', pages: ['aiReports', 'hospitalReports'] },
   { label: 'นำเข้า/ตรวจสอบ', icon: '📤', pages: ['fdhImport', 'fdhClaimDetail', 'repstm', 'authenSync', 'preValidator'] },
   { label: 'ติดตามเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
   { label: 'การเงิน/บัญชี', icon: '💼', pages: ['revenueOpportunity', 'receivable', 'ucOutsideCup', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },

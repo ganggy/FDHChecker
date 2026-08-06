@@ -4,16 +4,16 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/NhsoClosePage.tsx"
-source_hash: "230bc476aae21864dabe6f250a50a6ffff91f2c84ac270e6a069161777780c8b"
+source_hash: "e1f65d4b0b6a229322610f648b57b7dd44c60772e42fe522571d18e8d674a53c"
 managed_by: "sync-ksp-vault"
 ---
 # NhsoClosePage.tsx
 
 > Source: `src/pages/NhsoClosePage.tsx`
-> SHA-256: `230bc476aae21864dabe6f250a50a6ffff91f2c84ac270e6a069161777780c8b`
+> SHA-256: `e1f65d4b0b6a229322610f648b57b7dd44c60772e42fe522571d18e8d674a53c`
 
 ````tsx
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatLocalDateDaysAgo, formatLocalDateInput } from '../utils/dateUtils';
 
 interface NhsoCloseSettings {
@@ -143,6 +143,11 @@ export const NhsoClosePage: React.FC = () => {
   const [selectedVns, setSelectedVns] = useState<string[]>([]);
   const [testingToken, setTestingToken] = useState(false);
   const [tokenTestResult, setTokenTestResult] = useState<TokenTestResult | null>(null);
+  const [autoSyncStatus, setAutoSyncStatus] = useState<'checking' | 'success' | 'warning'>('checking');
+  const [autoSyncMessage, setAutoSyncMessage] = useState('กำลังเตรียมตรวจสอบสถานะปิดสิทธิ UCS/LGO/WEL...');
+  const [autoSyncSummary, setAutoSyncSummary] = useState<Record<string, number> | null>(null);
+  const initialLoadStarted = useRef(false);
+  const filtersReady = useRef(false);
   const parseHistoryDetail = (row: CloseStatusDetailSource) => {
     const candidates = [row.nhso_reponse_json, row.nhso_cancel_response];
     for (const candidate of candidates) {
@@ -207,10 +212,46 @@ export const NhsoClosePage: React.FC = () => {
   }, [closeStatus, endDate, mainInscl, search, startDate]);
 
   useEffect(() => {
-    void loadSettingsAndHistory();
-  }, []);
+    if (initialLoadStarted.current) return;
+    initialLoadStarted.current = true;
+
+    const initializePage = async () => {
+      let syncWarning = '';
+      try {
+        setAutoSyncStatus('checking');
+        setAutoSyncMessage('กำลังโหลดค่าการเชื่อมต่อและประวัติปิดสิทธิ...');
+        await loadSettingsAndHistory();
+
+        setAutoSyncMessage('กำลังเช็ค NHSO และอัปเดต Authen Code/สถานะปิดสิทธิของ UCS, LGO และ WEL...');
+        const response = await fetch('/api/nhso/authen/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startDate, endDate, mode: 'close-status', fundCodes: ['UCS', 'LGO', 'WEL'] }),
+        });
+        const json = await response.json();
+        if (!response.ok || !json.success) throw new Error(json.error || 'ตรวจสอบสถานะ Authen ไม่สำเร็จ');
+        setAutoSyncSummary(json.summary || null);
+      } catch (err) {
+        syncWarning = err instanceof Error ? err.message : 'ตรวจสอบสถานะ Authen ไม่สำเร็จ';
+      } finally {
+        setAutoSyncMessage('กำลังโหลดรายการปิดสิทธิ UCS/LGO/WEL ล่าสุด...');
+        await loadCandidates();
+        filtersReady.current = true;
+        if (syncWarning) {
+          setAutoSyncStatus('warning');
+          setAutoSyncMessage(`โหลดรายการแล้ว แต่ Auto Sync ไม่สำเร็จ: ${syncWarning}`);
+        } else {
+          setAutoSyncStatus('success');
+          setAutoSyncMessage('ตรวจสอบและอัปเดต Authen Code/สถานะปิดสิทธิ UCS/LGO/WEL เรียบร้อยแล้ว');
+        }
+      }
+    };
+
+    void initializePage();
+  }, [endDate, loadCandidates, startDate]);
 
   useEffect(() => {
+    if (!filtersReady.current) return;
     void loadCandidates();
   }, [loadCandidates]);
 
@@ -340,7 +381,24 @@ export const NhsoClosePage: React.FC = () => {
         <div className="card-body">
           <div className="alert alert-info" style={{ marginBottom: 16 }}>
             <span>ℹ️</span>
-            <span>หน้านี้โฟกัสงาน `ปิดสิทธิ (EP)` อย่างเดียว ระบบจะพาเฉพาะเคสที่ยังต้องปิดสิทธิมาให้ และตัวที่ปิดแล้วจะไม่ถูกรวมเข้ากลุ่มงานค้าง</span>
+            <span>หน้านี้โฟกัสงาน `ปิดสิทธิ (EP)` เฉพาะสิทธิ <strong>UCS, LGO และ WEL</strong> ระบบจะไม่ส่งสิทธิ OFC หรือ SSS ไปยัง endpoint ปิดสิทธิ</span>
+          </div>
+
+          <div
+            className={`alert ${autoSyncStatus === 'warning' ? 'alert-warning' : autoSyncStatus === 'success' ? 'alert-success' : 'alert-info'}`}
+            style={{ marginBottom: 16, display: 'block' }}
+            role="status"
+            aria-live="polite"
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: autoSyncStatus === 'checking' ? 8 : 0 }}>
+              <span>{autoSyncStatus === 'checking' ? '⏳' : autoSyncStatus === 'success' ? '✅' : '⚠️'} {autoSyncMessage}</span>
+              {autoSyncSummary && autoSyncStatus !== 'checking' && (
+                <span className="badge badge-info">ตรวจ {Number(autoSyncSummary.total || 0)} / อัปเดต {Number(autoSyncSummary.updated || 0)}</span>
+              )}
+            </div>
+            {autoSyncStatus === 'checking' && (
+              <progress aria-label="กำลังตรวจสอบสถานะปิดสิทธิ" style={{ width: '100%', height: 10 }} />
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -496,12 +554,10 @@ export const NhsoClosePage: React.FC = () => {
             <div className="form-group">
               <label className="form-label">สิทธิหลัก</label>
               <select className="form-control" value={mainInscl} onChange={(e) => setMainInscl(e.target.value)}>
-                <option value="all">ทั้งหมด</option>
+                <option value="all">UCS + LGO + WEL ทั้งหมด</option>
                 <option value="UCS">UCS</option>
-                <option value="WEL">WEL</option>
-                <option value="OFC">OFC</option>
-                <option value="SSS">SSS</option>
                 <option value="LGO">LGO</option>
+                <option value="WEL">WEL</option>
               </select>
             </div>
             <div className="form-group">

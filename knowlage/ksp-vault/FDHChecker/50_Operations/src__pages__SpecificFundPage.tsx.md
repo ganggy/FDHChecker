@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/SpecificFundPage.tsx"
-source_hash: "ca289190c2e78a2f2ad0b0ca19dac726bb1b6bf67cb8359a56acd520fabeb97c"
+source_hash: "063b8e0e55540034017be112fe878a9e410c42cef092544b5c662d90eb47ac5e"
 managed_by: "sync-ksp-vault"
 ---
 # SpecificFundPage.tsx
 
 > Source: `src/pages/SpecificFundPage.tsx`
-> SHA-256: `ca289190c2e78a2f2ad0b0ca19dac726bb1b6bf67cb8359a56acd520fabeb97c`
+> SHA-256: `063b8e0e55540034017be112fe878a9e410c42cef092544b5c662d90eb47ac5e`
 
 ````tsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -516,7 +516,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         };
     };
 
-    const getStatusForFund = (item: any, fundId: string = activeFund) => {
+    const getFundRuleStatus = (item: any, fundId: string = activeFund) => {
         const subfunds: string[] = [];
         const age = Number(item?.age_y ?? item?.age ?? 0);
         const hipdataText = `${item?.hipdata_code || ''} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.toUpperCase();
@@ -1143,6 +1143,47 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         return { status: 'ยังไม่เข้าเงื่อนไข', class: 'badge-warning', icon: '❓', subfunds, matchedConditions: [] as string[], missingConditions: [] as string[] };
     };
 
+    const getManualEvidenceItems = (fundId: string) => {
+        const evidence: Record<string, string[]> = {
+            instrument: ['ตรวจ sticker/serial number หรือใบรับอุปกรณ์จากเอกสาร'],
+            er_emergency: ['ตรวจใบส่งต่อ/หลักฐานรถและบันทึกดูแลระหว่างนำส่ง'],
+            rehab: ['ตรวจแผนรักษา เวลาเริ่ม–สิ้นสุด และลายมือชื่อผู้ให้บริการ'],
+            knee: ['ตรวจรายละเอียดตำแหน่ง เวลา และผู้ให้บริการแพทย์แผนไทย'],
+            fluoride: ['ตรวจซี่ฟัน/ตำแหน่งและผู้ให้บริการในเวชระเบียนทันตกรรม'],
+            anc_ultrasound: ['ตรวจคำสั่งแพทย์และรายงานผล Ultrasound'],
+        };
+        return evidence[fundId] || [];
+    };
+    const getStatusForFund = (item: any, fundId: string = activeFund) => {
+        const base = getFundRuleStatus(item, fundId);
+        const manualEvidenceConditions = getManualEvidenceItems(fundId);
+        if (base.status === 'ยังไม่เข้าเงื่อนไข' || !toFlag(item?.opd_evidence_checked)) {
+            return { ...base, manualEvidenceConditions };
+        }
+
+        const evidenceMissing = [
+            toFlag(item?.has_provider) ? '' : 'แพทย์/ผู้ให้บริการประจำ visit',
+            toFlag(item?.has_clinical_note) ? '' : 'บันทึกอาการสำคัญ/ประวัติ',
+            toFlag(item?.has_lab_order) && !toFlag(item?.has_lab_result) ? 'ผล LAB ตามคำสั่ง' : '',
+            Number(item?.invalid_charge_qty_count ?? 0) > 0 ? 'จำนวนรายการค่าใช้จ่ายต้องมากกว่า 0' : '',
+            Number(item?.duplicate_charge_count ?? 0) > 0 ? 'ตรวจรายการค่าใช้จ่ายซ้ำ' : '',
+            toFlag(item?.has_55020) && toFlag(item?.has_55021) ? 'เลือกค่าบริการ 55020 หรือ 55021 เพียงรายการเดียว' : '',
+            toFlag(item?.has_observation_charge) && (toFlag(item?.has_55020) || toFlag(item?.has_55021))
+                ? 'ห้ามเบิกเตียงสังเกตอาการร่วมกับ 55020/55021'
+                : '',
+        ].filter(Boolean);
+        if (evidenceMissing.length === 0) return { ...base, manualEvidenceConditions };
+
+        const missingConditions = Array.from(new Set([...(base.missingConditions || []), ...evidenceMissing]));
+        return {
+            ...base,
+            status: `ขาด ${missingConditions.join(' + ')}`,
+            class: missingConditions.length <= 2 ? 'badge-warning' : 'badge-danger',
+            icon: missingConditions.length <= 2 ? '⚠️' : '❌',
+            missingConditions,
+            manualEvidenceConditions,
+        };
+    };
     const getStatus = (item: any) => getStatusForFund(item, activeFund);
     const getFdhFailureGuidance = (item: any, status = getStatus(item)) => {
         if (!isFdhProcessingFailed(item)) return '';
@@ -1261,6 +1302,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 'บริการ': status.subfunds.join(' | ') || '',
                 'เงื่อนไขที่ตรง': status.matchedConditions?.join(' | ') || '',
                 'เงื่อนไขที่ขาด': status.missingConditions?.join(' | ') || '',
+                'หลักฐานเอกสารที่ต้องตรวจ': status.manualEvidenceConditions?.join(' | ') || '',
             };
 
             if (fundId === 'palliative') {
@@ -2856,7 +2898,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     </div>
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                                                    <span className={`badge ${st.class}`} style={{ fontSize: 11 }}>{st.icon} {st.status}</span>
+                                                    <span
+                                                        className={`badge ${st.class}`}
+                                                        style={{ fontSize: 11 }}
+                                                        title={[
+                                                            ...(st.missingConditions || []),
+                                                            ...(st.manualEvidenceConditions || []).map((text: string) => `ตรวจเอกสาร: ${text}`),
+                                                        ].join('\n')}
+                                                    >
+                                                        {st.icon} {st.status}
+                                                    </span>
+                                                    {st.manualEvidenceConditions?.length > 0 && (
+                                                        <div style={{ marginTop: 4, fontSize: 9, color: 'var(--text-muted)' }}>
+                                                            📎 มีหลักฐานเอกสารต้องตรวจ
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <span className={`badge ${sendStatusClass}`} style={{ fontSize: 10 }}>{sendStatusLabel}</span>

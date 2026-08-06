@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/LocalAiAssistant.css"
-source_hash: "6910cf000bef1b92c0085237b9378c43fc68d47b0f6705a9c2b560bac1e90e8b"
+source_hash: "fef0b59ecf3863949db33e2e96971ecd9395f87f40b06eb4803764ed22302823"
 managed_by: "sync-ksp-vault"
 ---
 # LocalAiAssistant.css
 
 > Source: `src/components/LocalAiAssistant.css`
-> SHA-256: `6910cf000bef1b92c0085237b9378c43fc68d47b0f6705a9c2b560bac1e90e8b`
+> SHA-256: `fef0b59ecf3863949db33e2e96971ecd9395f87f40b06eb4803764ed22302823`
 
 ````css
 .local-ai {
@@ -48,12 +48,52 @@ managed_by: "sync-ksp-vault"
   width: min(420px, calc(100vw - 32px));
   height: min(650px, calc(100vh - 48px));
   display: grid;
-  grid-template-rows: auto 1fr auto auto;
+  grid-template-rows: auto auto 1fr auto auto;
   overflow: hidden;
   border: 1px solid rgba(15, 118, 110, 0.18);
   border-radius: 22px;
   background: #f8fafc;
   box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.local-ai-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #334155;
+  font-size: 0.7rem;
+}
+
+.local-ai-context > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.local-ai-context span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-ai-context .is-waiting {
+  color: #92400e;
+}
+
+.local-ai-context button {
+  flex: 0 0 auto;
+  padding: 5px 7px;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  background: white;
+  color: #1d4ed8;
+  cursor: pointer;
+  font: inherit;
 }
 
 .local-ai-header {
@@ -230,6 +270,14 @@ managed_by: "sync-ksp-vault"
   margin-top: 5px;
 }
 
+.local-ai-clarification-hint {
+  margin-top: 9px !important;
+  padding: 7px 9px;
+  border-radius: 8px;
+  color: #92400e;
+  background: #fffbeb;
+}
+
 .local-ai-feedback {
   display: flex;
   flex-wrap: wrap;
@@ -282,13 +330,39 @@ managed_by: "sync-ksp-vault"
   background: white;
 }
 
+.local-ai-quick-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.local-ai-quick-actions button {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
 .local-ai-form textarea {
-  resize: none;
+  resize: vertical;
   min-height: 48px;
+  max-height: 150px;
   padding: 10px 12px;
   border: 1px solid #cbd5e1;
   border-radius: 12px;
   font: inherit;
+}
+
+.local-ai-input-hint {
+  grid-column: 1 / -1;
+  color: #64748b;
+  font-size: 0.68rem;
+  text-align: left;
 }
 
 .local-ai-form button {
@@ -305,6 +379,17 @@ managed_by: "sync-ksp-vault"
 .local-ai-form button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+.local-ai-form .local-ai-quick-actions button {
+  align-self: auto;
+  padding: 6px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.7rem;
+  font-weight: 600;
 }
 
 .local-ai-panel footer {

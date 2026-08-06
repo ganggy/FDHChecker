@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatOpdCountAnswer, parsePatientReportIntent } from './aiReportTools.js';
+import { formatOpdCountAnswer, parsePatientReportIntent, parsePatientTopicFollowup } from './aiReportTools.js';
 
 const now = new Date('2026-08-02T05:00:00.000Z');
 
@@ -65,6 +65,13 @@ test('routes HN questions to labs, medication, appointment and diagnosis tools',
     topic: 'diagnoses',
     format: 'xlsx',
   });
+});
+
+test('recognizes patient-topic follow-ups without guessing a patient', () => {
+  assert.deepEqual(parsePatientTopicFollowup('ขอผล lab'), { topic: 'labs' });
+  assert.deepEqual(parsePatientTopicFollowup('แล้วยาล่าสุดล่ะ'), { topic: 'medications' });
+  assert.deepEqual(parsePatientTopicFollowup('ขอวันนัดเป็น Excel'), { topic: 'appointments', format: 'xlsx' });
+  assert.equal(parsePatientTopicFollowup('ผล lab คืออะไร'), null);
 });
 
 test('recognizes a natural Thai patient-name visit-count question', () => {

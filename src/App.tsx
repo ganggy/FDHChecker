@@ -15,6 +15,8 @@ const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
 const StaffPage = lazyNamed(() => import('./pages/StaffPage'), 'StaffPage');
 const IPDPage = lazyNamed(() => import('./pages/IPDPage'), 'IPDPage');
 const IpdClaimMonitorPage = lazyNamed(() => import('./pages/IpdClaimMonitorPage'), 'IpdClaimMonitorPage');
+const AiReportWorkspacePage = lazyNamed(() => import('./pages/AiReportWorkspacePage'), 'AiReportWorkspacePage');
+const HospitalReportHubPage = lazyNamed(() => import('./pages/HospitalReportHubPage'), 'HospitalReportHubPage');
 const AdminDashboard = lazyNamed(() => import('./pages/AdminDashboard'), 'AdminDashboard');
 const FDHCheckerPage = lazyNamed(() => import('./pages/FDHCheckerPage'), 'FDHCheckerPage');
 const FDHImportStatusPage = lazyNamed(() => import('./pages/FDHImportStatusPage'), 'FDHImportStatusPage');
@@ -300,6 +302,8 @@ function App() {
         {currentPage === 'staff' && <StaffPage />}
         {currentPage === 'ipd' && <IPDPage />}
         {currentPage === 'ipdClaimMonitor' && <IpdClaimMonitorPage />}
+        {currentPage === 'aiReports' && <AiReportWorkspacePage />}
+        {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
         {currentPage === 'fdhClaimDetail' && <FdhClaimDetailImportPage />}
@@ -359,7 +363,7 @@ function App() {
           </section>
         </div>
       )}
-      <LocalAiAssistant />
+      {currentPage !== 'aiReports' && <LocalAiAssistant />}
     </div>
   );
 }

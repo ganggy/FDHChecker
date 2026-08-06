@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/mockData.ts"
-source_hash: "684e9bdef8af58315603f3e709b102f06c4a21aca23eb33eda6e073545dbad80"
+source_hash: "ac056a6b0fdc091374cbc26e72a3dbb296793d73b4829a1ddd7515c2d8cf8e43"
 managed_by: "sync-ksp-vault"
 ---
 # mockData.ts
 
 > Source: `src/mockData.ts`
-> SHA-256: `684e9bdef8af58315603f3e709b102f06c4a21aca23eb33eda6e073545dbad80`
+> SHA-256: `ac056a6b0fdc091374cbc26e72a3dbb296793d73b4829a1ddd7515c2d8cf8e43`
 
 ````typescript
 // ข้อมูล mockup สำหรับรายการตรวจสอบกองทุน HOSxP
@@ -43,6 +43,20 @@ export interface PrescriptionItem {
   has_adp_mapping?: number;
   itemType?: string;
   incomeName?: string;
+}
+
+export interface OpdPreAuditFinding {
+  code: string;
+  message: string;
+  severity: 'blocking' | 'warning';
+}
+
+export interface OpdPreAuditResult {
+  status: 'clear' | 'review' | 'blocking';
+  findingCount: number;
+  blockingCount: number;
+  reviewCount: number;
+  findings: OpdPreAuditFinding[];
 }
 
 export interface CheckRecord {
@@ -101,6 +115,7 @@ export interface CheckRecord {
   pttype_eclaim_id?: string;
   pttype_eclaim_name?: string;
   fdh_status_label?: string;
+  opd_pre_audit?: OpdPreAuditResult | null;
 }
 
 export const mockChecks: CheckRecord[] = [

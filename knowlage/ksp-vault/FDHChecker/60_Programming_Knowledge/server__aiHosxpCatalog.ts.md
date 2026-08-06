@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiHosxpCatalog.ts"
-source_hash: "66ee83b4ebc5db862abc6d76cfb9992e7526b7d957ab534e6fc1cd0022b133e8"
+source_hash: "c60bb0bf8c107481518fead3465b18057f25af978d321530024efe917880ce67"
 managed_by: "sync-ksp-vault"
 ---
 # aiHosxpCatalog.ts
 
 > Source: `server/aiHosxpCatalog.ts`
-> SHA-256: `66ee83b4ebc5db862abc6d76cfb9992e7526b7d957ab534e6fc1cd0022b133e8`
+> SHA-256: `c60bb0bf8c107481518fead3465b18057f25af978d321530024efe917880ce67`
 
 ````typescript
 export const AI_ALLOWED_HOSXP_TABLES = new Set([
@@ -31,7 +31,7 @@ export const HOSXP_SEMANTIC_CATALOG = `
 - ovst o: vn, hn, an, vstdate, vsttime, pttype, main_dep, hospmain, hosp_sub, doctor, ovstist
 - vn_stat v: vn, hn, vstdate, age_y, sex, income, pdx, pttype
 - ipt i: an, hn, vn, regdate, regtime, dchdate, dchtime, ward, pttype
-- an_stat a: an, hn, vn, regdate, dchdate, ward, pdx, dx0, dx1, dx2, dx3, dx4, dx5, income
+- an_stat a: an, hn, vn, regdate, dchdate, ward, pdx, dx0, dx1, dx2, dx3, dx4, dx5, income, drg, rw, adjrw
 ความสัมพันธ์: patient.hn=ovst.hn, ovst.vn=vn_stat.vn, ipt.an=an_stat.an
 
 วินิจฉัยและอาการ

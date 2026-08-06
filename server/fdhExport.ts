@@ -270,6 +270,7 @@ export const validateFdhData = (
   });
   const opdByKey = new Map(data.OPD.map((row) => [keyOf(row, ['HN', 'SEQ']), row]));
   data.AER.forEach((row, index) => {
+    if (value(row, 'AN')) return;
     const optype = value(opdByKey.get(keyOf(row, ['HN', 'SEQ'])) || {}, 'OPTYPE');
     const ucae = value(row, 'UCAE');
     if (!['0', '1', '2', '3'].includes(optype)) {

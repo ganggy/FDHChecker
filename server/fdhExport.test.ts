@@ -82,6 +82,13 @@ test('IPD export scope excludes OPD-specific files without dropping shared claim
   assert.equal(scoped.CHA.length, 1);
 });
 
+test('IPD AER rows are not subjected to OPD OPTYPE validation', () => {
+  const data = validIpdData();
+  data.AER = [{ HN: '0002', AN: 'AN001', DATEOPD: '20260801', SEQ: 'VN2' }];
+  const result = validateFdhData(data, 'standard', '11101');
+  assert.equal(result.errors.some((issue) => issue.code === 'AER_OPTYPE_INVALID'), false);
+});
+
 test('PERMITNO is conditional by fund and remains required for UCS', () => {
   const data = validFwfData();
   data.INS[0] = { ...data.INS[0], INSCL: 'UCS', DATEIN: '20260720', PERMITNO: '' };

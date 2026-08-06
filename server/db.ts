@@ -11250,7 +11250,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     const cha = await runQuery('CHA', `
       SELECT 
         o.hn as HN,
-        COALESCE(o.an, '') as AN,
+        COALESCE(NULLIF(o.an, ''), NULLIF(ov.an, ''), '') as AN,
         DATE_FORMAT(COALESCE(o.rxdate, ov.vstdate), '%Y%m%d') as DATE,
         COALESCE(CASE WHEN o.paidst IN ('03') THEN drg.chrgitem_code2 ELSE drg.chrgitem_code1 END, LPAD(COALESCE(inc.drg_chrgitem_id, 18), 2, '0')) as CHRGITEM,
         SUM(o.sum_price) as AMOUNT,
@@ -11262,7 +11262,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       LEFT JOIN income inc ON inc.income = o.income
       LEFT JOIN drg_chrgitem drg ON drg.drg_chrgitem_id = inc.drg_chrgitem_id
       WHERE o.vn IN (?)
-      GROUP BY o.vn, o.hn, o.an, DATE, pt.cid, CHRGITEM
+      GROUP BY o.vn, o.hn, o.an, ov.an, DATE, pt.cid, CHRGITEM
     `, [vns]);
 
     // 13. AER (Accident/Emergency)
@@ -11335,7 +11335,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       FROM (
         SELECT
           o.hn AS HN,
-          COALESCE(o.an, '') AS AN,
+          COALESCE(NULLIF(o.an, ''), NULLIF(ov.an, ''), '') AS AN,
           DATE_FORMAT(COALESCE(o.rxdate, ov.vstdate), '%Y%m%d') AS DATEOPD,
           CASE
             WHEN inc.drg_chrgitem_id = 1 THEN '10'
@@ -11486,7 +11486,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       FROM (
         SELECT
           o.hn AS HN,
-          COALESCE(o.an, '') AS AN,
+          COALESCE(NULLIF(o.an, ''), NULLIF(ov.an, ''), '') AS AN,
           COALESCE(sp.provis_code, ov.main_dep, '') AS CLINIC,
           COALESCE(pt.cid, '') AS PERSON_ID,
           COALESCE(o.rxdate, ov.vstdate) AS RXDATE,

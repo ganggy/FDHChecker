@@ -6,6 +6,14 @@ export interface OpdPreAuditIssue {
   severity: OpdPreAuditSeverity;
 }
 
+export interface OpdPreAuditResult {
+  status: 'clear' | 'review' | 'blocking';
+  findingCount: number;
+  blockingCount: number;
+  reviewCount: number;
+  findings: OpdPreAuditIssue[];
+}
+
 const enabled = (value: unknown) => value === true || value === 1 || value === '1' || value === 'Y' || value === 'y';
 const count = (value: unknown) => Number(value ?? 0) || 0;
 
@@ -15,7 +23,12 @@ const count = (value: unknown) => Number(value ?? 0) || 0;
  * of automatic pass/fail decisions and must remain a manual audit item.
  */
 export const evaluateOpdPreAudit = (row: Record<string, unknown>): OpdPreAuditIssue[] => {
-  if (row.an) return [];
+  const serviceType = String(row.serviceType ?? '').trim().toUpperCase();
+  const isIpd = Boolean(String(row.an ?? '').trim())
+    || serviceType === 'IPD'
+    || serviceType === 'IP'
+    || serviceType.includes('ผู้ป่วยใน');
+  if (isIpd) return [];
 
   const issues: OpdPreAuditIssue[] = [];
   if (!enabled(row.has_provider)) {
@@ -47,6 +60,27 @@ export const evaluateOpdPreAudit = (row: Record<string, unknown>): OpdPreAuditIs
   }
 
   return issues;
+};
+
+export const buildOpdPreAuditResult = (row: Record<string, unknown>): OpdPreAuditResult | null => {
+  const serviceType = String(row.serviceType ?? '').trim().toUpperCase();
+  const isIpd = Boolean(String(row.an ?? '').trim())
+    || serviceType === 'IPD'
+    || serviceType === 'IP'
+    || serviceType.includes('ผู้ป่วยใน');
+  if (isIpd) return null;
+
+  const findings = evaluateOpdPreAudit(row);
+  const blockingCount = findings.filter((issue) => issue.severity === 'blocking').length;
+  const reviewCount = findings.filter((issue) => issue.severity === 'warning').length;
+
+  return {
+    status: blockingCount > 0 ? 'blocking' : reviewCount > 0 ? 'review' : 'clear',
+    findingCount: findings.length,
+    blockingCount,
+    reviewCount,
+    findings,
+  };
 };
 
 export const formatOpdPreAuditIssue = (issue: OpdPreAuditIssue) => `${issue.code}: ${issue.message}`;

@@ -193,7 +193,11 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                   </td>
                   <td onClick={(event) => event.stopPropagation()}>
                     {!opdAudit ? (
-                      <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>ไม่ใช่รายการ OPD</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                        {item.serviceType === 'ผู้ป่วยใน' || item.serviceType === 'IPD'
+                          ? 'ไม่ใช่รายการ OPD'
+                          : 'ยังไม่ได้ประมวลผล Pre-audit'}
+                      </span>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
                         <span className={`badge ${opdAudit.status === 'clear' ? 'badge-success' : opdAudit.status === 'blocking' ? 'badge-danger' : 'badge-warning'}`}>

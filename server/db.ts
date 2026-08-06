@@ -9714,12 +9714,79 @@ export const getCheckData = async (
         ), '') as pttype_eclaim_name,
         DATE_FORMAT(ovst.vstdate, '%Y-%m-%d') as serviceDate,
         TIME_FORMAT(ovst.vsttime, '%H:%i:%s') as serviceTime,
+        COALESCE(ovst.an, '') as an,
         (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) as main_diag,
         CASE 
           WHEN ovst.an IS NOT NULL AND ovst.an != '' THEN 'ผู้ป่วยใน'
           ELSE 'ผู้ป่วยนอก'
         END as serviceType,
         COALESCE(SUM(opitemrece.unitprice * opitemrece.qty), 0) as price,
+
+        -- หลักฐานสำหรับ OPD Pre-audit (คำนวณใหม่ทุกครั้งที่ API โหลดข้อมูล)
+        CASE WHEN COALESCE(NULLIF(TRIM(ovst.doctor), ''),
+          (SELECT NULLIF(TRIM(dx.doctor), '') FROM ovstdiag dx WHERE dx.vn = ovst.vn AND TRIM(COALESCE(dx.doctor, '')) <> '' LIMIT 1),
+          (SELECT NULLIF(TRIM(dop.doctor), '') FROM doctor_operation dop WHERE dop.vn = ovst.vn AND TRIM(COALESCE(dop.doctor, '')) <> '' LIMIT 1)
+        ) IS NOT NULL THEN 1 ELSE 0 END as has_provider,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opdscreen os
+          WHERE os.vn = ovst.vn
+            AND (TRIM(COALESCE(os.cc, '')) <> '' OR TRIM(COALESCE(os.hpi, '')) <> '')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_clinical_note,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = ovst.vn
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_lab_order,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = ovst.vn
+          LIMIT 1
+        ) AND NOT EXISTS (
+          SELECT 1 FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = ovst.vn
+            AND TRIM(COALESCE(lo.lab_order_result, '')) = ''
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_lab_result,
+        (SELECT COUNT(*) FROM opitemrece oo WHERE oo.vn = ovst.vn AND COALESCE(oo.qty, 0) <= 0) as invalid_charge_qty_count,
+        (SELECT GREATEST(COUNT(*) - COUNT(DISTINCT oo.icode), 0) FROM opitemrece oo WHERE oo.vn = ovst.vn) as duplicate_charge_count,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+          LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+          WHERE oo.vn = ovst.vn
+            AND (oo.icode = '55020' OR sd.nhso_adp_code = '55020' OR ndi.nhso_adp_code = '55020')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_55020,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+          LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+          WHERE oo.vn = ovst.vn
+            AND (oo.icode = '55021' OR sd.nhso_adp_code = '55021' OR ndi.nhso_adp_code = '55021')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_55021,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN income inc ON inc.income = oo.income
+          LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+          LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+          WHERE oo.vn = ovst.vn
+            AND UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(sd.name, ''), COALESCE(ndi.name, '')))
+              REGEXP 'สังเกตอาการ|OBSERVATION|OBSERVE'
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_observation_charge,
+        CASE WHEN EXISTS (SELECT 1 FROM doctor_operation dop WHERE dop.vn = ovst.vn LIMIT 1)
+          OR EXISTS (SELECT 1 FROM dtmain dm WHERE dm.vn = ovst.vn LIMIT 1)
+          THEN 1 ELSE 0 END as has_procedure_service,
+        (SELECT COUNT(*)
+          FROM opitemrece oo
+          JOIN drugitems di ON di.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND COALESCE(oo.qty, 0) <= 0
+        ) as invalid_drug_qty_count,
         
         -- กองทุนพิเศษ Subqueries
         TIMESTAMPDIFF(YEAR, pt.birthday, ovst.vstdate) as age_y,

@@ -115,6 +115,7 @@ import {
   verifyLineWebhookSignature,
 } from './lineMessaging.js';
 import { isMissingFdhStatus } from '../src/utils/fdhClaimProgress.js';
+import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1358,6 +1359,7 @@ app.get('/api/hosxp/checks', async (req, res) => {
 
       return {
         ...record,
+        opd_pre_audit: buildOpdPreAuditResult(record),
         status: isComplete ? 'ready' : 'pending',
         isBillable,
         issues: issues,

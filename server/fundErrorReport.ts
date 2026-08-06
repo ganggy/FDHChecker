@@ -1,6 +1,11 @@
 import { getRevenueOpportunitySourceRows, getSpecificFundData } from './db.js';
 import { pushLineMessages, type LineMessage } from './lineMessaging.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
+import {
+  ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+  ANC_DENTAL_EXAM_PROCEDURE_CODES,
+  getMatchingDentalProcedureAdpCodes,
+} from '../src/utils/ancDentalRules.js';
 
 type FundRow = Record<string, unknown>;
 
@@ -194,11 +199,19 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
     case 'anc_dental_exam':
     case 'anc_dental_clean': {
       const exam = fundId === 'anc_dental_exam';
+      const dentalProcedureCodes = exam ? ANC_DENTAL_EXAM_PROCEDURE_CODES : ANC_DENTAL_CLEAN_PROCEDURE_CODES;
       addWebNearStatusMissing(
         missing,
         flag(row[exam ? 'has_anc_dental_exam' : 'has_anc_dental_clean']) || hasListedCode(row.anc_adp_codes, [exam ? '30008' : '30009']),
         `ADP ${exam ? '30008' : '30009'}`,
-        [{ met: female, label: 'เพศหญิง' }, { met: ancDiag, label: 'Diagnosis Z34/Z35' }, { met: hasPrefix(row, 'K'), label: 'Diagnosis K*' }],
+        [
+          { met: female, label: 'เพศหญิง' },
+          { met: ancDiag, label: 'Diagnosis Z34/Z35' },
+          {
+            met: getMatchingDentalProcedureAdpCodes(row.dental_procedure_codes, row.dental_adp_codes, dentalProcedureCodes).length > 0,
+            label: `หัตถการและ ADP รหัสเดียวกัน ${dentalProcedureCodes.join('/')}`,
+          },
+        ],
       );
       break;
     }

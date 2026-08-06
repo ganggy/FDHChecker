@@ -11,6 +11,11 @@ import { formatLocalDateInput } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
 import { buildFdhClaimProgress, hasFdhSubmissionData } from '../utils/fdhClaimProgress';
 import { fetchAppSettings } from '../services/hosxpService';
+import {
+    ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+    ANC_DENTAL_EXAM_PROCEDURE_CODES,
+    getMatchingDentalProcedureAdpCodes,
+} from '../utils/ancDentalRules';
 
 const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'palliative', name: 'Palliative Care', description: 'ผู้ป่วยระยะประคับประคอง' },
@@ -910,16 +915,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (fundId === 'anc_dental_exam') {
             const hasExam = toFlag(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
             const hasExamProcedure = toFlag(item?.has_anc_dental_exam_procedure)
-                || hasAnyCodeValue(item?.dental_procedure_codes, ['2330011', '2330013']);
+                || hasAnyCodeValue(item?.dental_procedure_codes, ANC_DENTAL_EXAM_PROCEDURE_CODES);
+            const hasExamProcedureAdpMatch = getMatchingDentalProcedureAdpCodes(
+                item?.dental_procedure_codes,
+                item?.dental_adp_codes,
+                ANC_DENTAL_EXAM_PROCEDURE_CODES,
+            ).length > 0;
             const ancDentalExamEvidence = isFemale && (hasExam || hasAncDiag || hasExamProcedure);
-            const isMatched = isFemale && hasAncDiag && hasExamProcedure && hasExam;
+            const isMatched = isFemale && hasAncDiag && hasExamProcedureAdpMatch && hasExam;
             if (ancDentalExamEvidence) subfunds.push('🦷 ANC ตรวจฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasExam, ' ADP 30008', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasExamProcedure, label: ' หัตถการ 2330011/2330013' },
+                    { met: hasExamProcedureAdpMatch, label: ` หัตถการและ ADP รหัสเดียวกัน ${ANC_DENTAL_EXAM_PROCEDURE_CODES.join('/')}` },
                 ], isFemale && hasAncDiag && hasExamProcedure),
                 undefined,
                 isMatched
@@ -929,16 +939,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (fundId === 'anc_dental_clean') {
             const hasClean = toFlag(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
             const hasCleanProcedure = toFlag(item?.has_anc_dental_clean_procedure)
-                || hasAnyCodeValue(item?.dental_procedure_codes, ['2387010', '2277310', '2277320', '2287310', '2287320']);
+                || hasAnyCodeValue(item?.dental_procedure_codes, ANC_DENTAL_CLEAN_PROCEDURE_CODES);
+            const hasCleanProcedureAdpMatch = getMatchingDentalProcedureAdpCodes(
+                item?.dental_procedure_codes,
+                item?.dental_adp_codes,
+                ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+            ).length > 0;
             const ancDentalCleanEvidence = isFemale && (hasClean || hasAncDiag || hasCleanProcedure);
-            const isMatched = isFemale && hasAncDiag && hasCleanProcedure && hasClean;
+            const isMatched = isFemale && hasAncDiag && hasCleanProcedureAdpMatch && hasClean;
             if (ancDentalCleanEvidence) subfunds.push('🪥 ANC ขัดทำความสะอาดฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasClean, ' ADP 30009', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasCleanProcedure, label: ' หัตถการ 2387010/2277310/2277320/2287310/2287320' },
+                    { met: hasCleanProcedureAdpMatch, label: ` หัตถการและ ADP รหัสเดียวกัน ${ANC_DENTAL_CLEAN_PROCEDURE_CODES.join('/')}` },
                 ], isFemale && hasAncDiag && hasCleanProcedure),
                 undefined,
                 isMatched
@@ -1327,6 +1342,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     ...baseRow,
                     'Diagnosis ฝากครรภ์': item.anc_diags || '',
                     'ADP Codes': item.anc_adp_codes || '',
+                    'ADP รหัสหัตถการทันตกรรม': item.dental_adp_codes || '',
                     'ชื่อรายการ ADP': item.adp_names || '',
                     'รหัสหัตถการทันตกรรม': item.dental_procedure_codes || '',
                     'หัตถการทันตกรรม': item.dental_procedure_names || '',
@@ -1913,11 +1929,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         <div style={{ color: '#1b5e20' }}>{activeFund === 'anc_dental_exam' ? '30008' : '30009'}</div>
                                     </div>
                                     <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: 'span 2' }}>
-                                        <div style={{ fontWeight: 700, color: '#1565c0', marginBottom: '4px' }}>✓ หัตถการทันตกรรม</div>
+                                        <div style={{ fontWeight: 700, color: '#1565c0', marginBottom: '4px' }}>✓ หัตถการทันตกรรมและ ADP ต้องเป็นรหัสเดียวกัน</div>
                                         <div style={{ color: '#0d47a1', fontFamily: 'monospace', lineHeight: 1.6 }}>
                                             {activeFund === 'anc_dental_exam'
-                                                ? '2330011, 2330013'
-                                                : '2387010, 2277310, 2277320, 2287310, 2287320'}
+                                                ? ANC_DENTAL_EXAM_PROCEDURE_CODES.join(', ')
+                                                : ANC_DENTAL_CLEAN_PROCEDURE_CODES.join(', ')}
                                         </div>
                                     </div>
                                     <div style={{ padding: '10px 12px', background: '#f3e5f5', borderRadius: '8px', borderLeft: '3px solid #9c27b0', gridColumn: '1 / -1', color: '#6a1b9a', fontSize: 12 }}>
@@ -2562,10 +2578,15 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                         <span
                                                                             className="dental-procedure-chip"
                                                                             key={`${procedure.code}-${procedure.name}-${procedureIndex}`}
-                                                                            title={`${procedure.code}${procedure.name ? ` ${procedure.name}` : ''}`}
+                                                                            title={`${procedure.code}${procedure.name ? ` ${procedure.name}` : ''} • ${hasAnyCodeValue(item.dental_adp_codes, [procedure.code]) ? 'พบ ADP รหัสเดียวกัน' : 'ไม่พบ ADP รหัสเดียวกัน'}`}
                                                                         >
                                                                             {procedure.code && <strong>{procedure.code}</strong>}
                                                                             {procedure.name && <span>{procedure.name}</span>}
+                                                                            {procedure.code && (
+                                                                                <small style={{ color: hasAnyCodeValue(item.dental_adp_codes, [procedure.code]) ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
+                                                                                    {hasAnyCodeValue(item.dental_adp_codes, [procedure.code]) ? 'ADP ✓' : 'ขาด ADP รหัสเดียวกัน'}
+                                                                                </small>
+                                                                            )}
                                                                         </span>
                                                                     ))}
                                                                 </div>

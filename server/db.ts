@@ -65,6 +65,15 @@ const OSTEOPOROSIS_SCREENING_REGEX = 'FRAX|DXA|DEXA|BMD|BONE DENS|OSTEOPOROSIS|�
 const TDAS_SCREENING_REGEX = 'TDAS|AUTIS|ออทิส|ออทิสติก';
 const TELEMED_ADP_CODE = String((businessRules as any)?.adp_codes?.telmed || 'TELMED').trim().toUpperCase();
 const TELEMED_EXPORT_CODE = String((businessRules as any)?.project_codes?.ovstist_tele || '5').trim();
+const ANC_DENTAL_EXAM_PROCEDURE_CODES = ((businessRules as any)?.adp_codes?.anc_dental_exam_procedures || ['2330011', '2330013']) as string[];
+const ANC_DENTAL_CLEAN_PROCEDURE_CODES = ((businessRules as any)?.adp_codes?.anc_dental_clean_procedures || ['2387010', '2338610', '2277310', '2277320', '2287310', '2287320']) as string[];
+const toSqlCodeList = (codes: string[]) => codes.map((code) => `'${String(code).replace(/'/g, "''")}'`).join(', ');
+const ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL = toSqlCodeList(ANC_DENTAL_EXAM_PROCEDURE_CODES);
+const ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL = toSqlCodeList(ANC_DENTAL_CLEAN_PROCEDURE_CODES);
+const ANC_DENTAL_PROCEDURE_CODES_SQL = toSqlCodeList(Array.from(new Set([
+  ...ANC_DENTAL_EXAM_PROCEDURE_CODES,
+  ...ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+])));
 
 const buildAnemiaLabExistsSql = (alias: string, labKind: 'cbc' | 'hbhct' | 'any' = 'any') => {
   const regex = labKind === 'cbc'
@@ -9840,7 +9849,7 @@ export const getCheckData = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
             AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-              IN ('2330011', '2330013')
+              IN (${ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL})
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_anc_dental_exam_procedure,
         CASE WHEN EXISTS (
@@ -9849,7 +9858,7 @@ export const getCheckData = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
             AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-              IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+              IN (${ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL})
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_anc_dental_clean_procedure,
         (
@@ -9861,6 +9870,13 @@ export const getCheckData = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
         ) as dental_procedure_codes,
+        (
+          SELECT GROUP_CONCAT(DISTINCT d.nhso_adp_code ORDER BY d.nhso_adp_code SEPARATOR ', ')
+          FROM opitemrece oo
+          JOIN s_drugitems d ON d.icode = oo.icode
+          WHERE oo.vn = ovst.vn
+            AND d.nhso_adp_code IN (${ANC_DENTAL_PROCEDURE_CODES_SQL})
+        ) as dental_adp_codes,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_CARE_DX_CODES)} THEN 1 ELSE 0 END as has_pp_diag,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_SUPPLEMENT_DX_CODES)} THEN 1 ELSE 0 END as has_pp_specific_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 1 ELSE 0 END as has_pp_adp,
@@ -10597,7 +10613,7 @@ export const getEligibleVisits = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
             AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-              IN ('2330011', '2330013')
+              IN (${ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL})
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_anc_dental_exam_procedure,
         CASE WHEN EXISTS (
@@ -10606,7 +10622,7 @@ export const getEligibleVisits = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
             AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-              IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+              IN (${ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL})
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_anc_dental_clean_procedure,
         (
@@ -10618,6 +10634,13 @@ export const getEligibleVisits = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
         ) as dental_procedure_codes,
+        (
+          SELECT GROUP_CONCAT(DISTINCT d.nhso_adp_code ORDER BY d.nhso_adp_code SEPARATOR ', ')
+          FROM opitemrece oo
+          JOIN s_drugitems d ON d.icode = oo.icode
+          WHERE oo.vn = ovst.vn
+            AND d.nhso_adp_code IN (${ANC_DENTAL_PROCEDURE_CODES_SQL})
+        ) as dental_adp_codes,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_CARE_DX_CODES)} THEN 1 ELSE 0 END as has_pp_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 1 ELSE 0 END as has_pp_adp,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30015' LIMIT 1) as has_post_care,
@@ -13091,7 +13114,7 @@ export const getSpecificFundData = async (
                 LEFT JOIN dttm tm ON tm.code = dm.tmcode
                 WHERE dm.vn = o.vn
                   AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-                    IN ('2330011', '2330013')
+                    IN (${ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL})
                 LIMIT 1
               ) THEN 'Y' ELSE 'N' END as has_anc_dental_exam_procedure,
               CASE WHEN EXISTS (
@@ -13100,7 +13123,7 @@ export const getSpecificFundData = async (
                 LEFT JOIN dttm tm ON tm.code = dm.tmcode
                 WHERE dm.vn = o.vn
                   AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-                    IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+                    IN (${ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL})
                 LIMIT 1
               ) THEN 'Y' ELSE 'N' END as has_anc_dental_clean_procedure,
               (
@@ -13112,6 +13135,13 @@ export const getSpecificFundData = async (
                 LEFT JOIN dttm tm ON tm.code = dm.tmcode
                 WHERE dm.vn = o.vn
               ) as dental_procedure_codes,
+              (
+                SELECT GROUP_CONCAT(DISTINCT d.nhso_adp_code ORDER BY d.nhso_adp_code SEPARATOR ', ')
+                FROM opitemrece oo
+                JOIN s_drugitems d ON d.icode = oo.icode
+                WHERE oo.vn = o.vn
+                  AND d.nhso_adp_code IN (${ANC_DENTAL_PROCEDURE_CODES_SQL})
+              ) as dental_adp_codes,
               (
                 SELECT GROUP_CONCAT(
                   DISTINCT CONCAT(

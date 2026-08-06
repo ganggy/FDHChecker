@@ -55,3 +55,29 @@ test('normal OFC remains a UUC1 whole-visit claim', () => {
 
   assert.equal(result.isUUC1, true);
 });
+
+test('ANC dental cleaning accepts 2338610 only when the same ADP code exists', () => {
+  const complete = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    sex: '2',
+    main_diag: 'Z340',
+    has_anc_diag: 1,
+    has_anc_dental_clean: 1,
+    dental_procedure_codes: '2338610',
+    dental_adp_codes: '2338610',
+  });
+  const missingMatchingAdp = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    sex: '2',
+    main_diag: 'Z340',
+    has_anc_diag: 1,
+    has_anc_dental_clean: 1,
+    dental_procedure_codes: '2338610',
+    dental_adp_codes: '2387010',
+  });
+
+  assert.equal(complete.specialFundNotes.includes('🪥 ANC ขัดทำความสะอาดฟัน'), true);
+  assert.equal(missingMatchingAdp.specialFundNotes.some((note: string) => note.includes('หัตถการและ ADP รหัสเดียวกัน')), true);
+});

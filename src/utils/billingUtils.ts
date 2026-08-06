@@ -1,5 +1,10 @@
 import businessRules from '../config/business_rules.json';
 import { getAnemiaRuleBand } from '../config/fundRuleCatalog';
+import {
+    ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+    ANC_DENTAL_EXAM_PROCEDURE_CODES,
+    getMatchingDentalProcedureAdpCodes,
+} from './ancDentalRules';
 
 const rules = businessRules as any;
 const insuranceMapping = rules.insurance_mapping || {};
@@ -426,26 +431,36 @@ export const evaluateBillingLogic = (item: any) => {
         }
         const hasAncDentalExamAdp = toBool(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
         const hasAncDentalExamProcedure = toBool(item?.has_anc_dental_exam_procedure)
-            || hasAnyCodeValue(item?.dental_procedure_codes, ['2330011', '2330013']);
+            || hasAnyCodeValue(item?.dental_procedure_codes, ANC_DENTAL_EXAM_PROCEDURE_CODES);
+        const hasAncDentalExamProcedureAdpMatch = getMatchingDentalProcedureAdpCodes(
+            item?.dental_procedure_codes,
+            item?.dental_adp_codes,
+            ANC_DENTAL_EXAM_PROCEDURE_CODES,
+        ).length > 0;
         const ancDentalExamNearMissing = getNearFundMissingParts(hasAncDentalExamAdp, ' ADP 30008', [
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-            { met: hasAncDentalExamProcedure, label: ' หัตถการ 2330011/2330013' },
+            { met: hasAncDentalExamProcedureAdpMatch, label: ` หัตถการและ ADP รหัสเดียวกัน ${ANC_DENTAL_EXAM_PROCEDURE_CODES.join('/')}` },
         ], isFemale && hasAncDiag && hasAncDentalExamProcedure);
-        if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasAncDentalExamProcedure) {
+        if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasAncDentalExamProcedureAdpMatch) {
             fundNotes.push({ label: '🦷 ANC ตรวจฟัน', kind: 'matched', group: 'other' });
         } else if (isFemale && (hasAncDentalExamAdp || hasAncDiag || hasAncDentalExamProcedure) && ancDentalExamNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ตรวจฟัน', ancDentalExamNearMissing);
         }
         const hasAncDentalCleanAdp = toBool(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
         const hasAncDentalCleanProcedure = toBool(item?.has_anc_dental_clean_procedure)
-            || hasAnyCodeValue(item?.dental_procedure_codes, ['2387010', '2277310', '2277320', '2287310', '2287320']);
+            || hasAnyCodeValue(item?.dental_procedure_codes, ANC_DENTAL_CLEAN_PROCEDURE_CODES);
+        const hasAncDentalCleanProcedureAdpMatch = getMatchingDentalProcedureAdpCodes(
+            item?.dental_procedure_codes,
+            item?.dental_adp_codes,
+            ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+        ).length > 0;
         const ancDentalCleanNearMissing = getNearFundMissingParts(hasAncDentalCleanAdp, ' ADP 30009', [
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-            { met: hasAncDentalCleanProcedure, label: ' หัตถการ 2387010/2277310/2277320/2287310/2287320' },
+            { met: hasAncDentalCleanProcedureAdpMatch, label: ` หัตถการและ ADP รหัสเดียวกัน ${ANC_DENTAL_CLEAN_PROCEDURE_CODES.join('/')}` },
         ], isFemale && hasAncDiag && hasAncDentalCleanProcedure);
-        if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasAncDentalCleanProcedure) {
+        if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasAncDentalCleanProcedureAdpMatch) {
             fundNotes.push({ label: '🪥 ANC ขัดทำความสะอาดฟัน', kind: 'matched', group: 'other' });
         } else if (isFemale && (hasAncDentalCleanAdp || hasAncDiag || hasAncDentalCleanProcedure) && ancDentalCleanNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ขัดทำความสะอาดฟัน', ancDentalCleanNearMissing);

@@ -34,7 +34,9 @@ const flag = (value: unknown) => value === true || value === 1 || value === '1' 
 export const isMissingFdhStatus = (value: unknown) => {
     const normalized = String(value ?? '').trim().toLowerCase();
     return normalized === ''
+        || normalized.includes('unclaimed')
         || normalized.includes('ไม่พบ')
+        || normalized.includes('ไม่มีรายการ')
         || normalized.includes('ยังไม่ส่ง')
         || normalized.includes('not found')
         || normalized.includes('no data');

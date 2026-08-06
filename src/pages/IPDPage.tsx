@@ -2,6 +2,39 @@ import React, { useState, useEffect } from 'react';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import * as XLSX from 'xlsx';
 
+type IpdPreAuditFinding = {
+    code: string;
+    severity: 'risk' | 'review';
+    title: string;
+    message: string;
+    evidence?: string[];
+};
+
+type IpdPreAuditResult = {
+    status: 'clear' | 'review' | 'risk';
+    findingCount: number;
+    riskCount: number;
+    reviewCount: number;
+    findings: IpdPreAuditFinding[];
+};
+
+const IPD_PRE_AUDIT_RULES = [
+    { code: 'IPD-DOC01', title: 'Principal diagnosis', condition: 'จำหน่ายแล้วแต่ไม่พบ PDx', result: 'เสี่ยง' },
+    { code: 'IPD-DOC02', title: 'Admit / Discharge', condition: 'วันเวลา Admit หรือ D/C ไม่ครบ หรือ D/C ก่อน Admit', result: 'เสี่ยง' },
+    { code: 'IPD-DOC03', title: 'Short stay', condition: 'จำหน่ายภายใน 24 ชั่วโมง', result: 'ทบทวน Chart' },
+    { code: 'IPD-DOC04', title: 'Split admission', condition: 'รับไว้ซ้ำภายใน 24 ชั่วโมงจากการจำหน่ายครั้งก่อน', result: 'เสี่ยง' },
+    { code: 'IPD-DOC05', title: 'Procedure evidence', condition: 'พบ ICD-9 procedure ต้องมี operative/procedure note สนับสนุน', result: 'ทบทวน Chart' },
+    { code: 'IPD-DOC06', title: 'Active cancer', condition: 'พบ ICD-10 กลุ่ม Cxx ต้องมี pathology/radiology และรายละเอียดระยะโรค', result: 'ทบทวน Chart' },
+    { code: 'CR1 / CR37', title: 'Sepsis / Septic shock', condition: 'A40-A41 หรือ R57.2; septic shock ต้องพบรหัส sepsis และหลักฐาน organ dysfunction', result: 'ทบทวน/เสี่ยง' },
+    { code: 'CR13_1', title: 'COPD', condition: 'J44.0 ต้องมีรหัสติดเชื้อทางเดินหายใจร่วม หรือ J44.9 เป็น PDx', result: 'ทบทวน/เสี่ยง' },
+    { code: 'CR19', title: 'Wound / Necrotizing fasciitis', condition: 'T79.3 ต้องมี external cause; M72.6 ตรวจ 86.22 และรหัสแผลซ้ำ', result: 'ทบทวน/เสี่ยง' },
+    { code: 'CR39', title: 'Aplastic anemia / Pancytopenia', condition: 'D61.- หรือชุด D64.9+D70+D69.6 ร่วม D73.1', result: 'ทบทวน/เสี่ยง' },
+    { code: 'CR44_1', title: 'Substance use / Rehabilitation', condition: 'ตรวจ F19 ซ้ำ F10-F18, Z50.3 คู่ Z71.5 หรือ F15.2 ที่ขาด Z50.3', result: 'ทบทวน/เสี่ยง' },
+    { code: 'CR45', title: 'Ischemic heart disease', condition: 'I25.1/I25.5 ต้องมี CAG/imaging, stenosis, LVEF หรือประวัติสนับสนุน', result: 'ทบทวน Chart' },
+    { code: 'CR58', title: 'PCI / Stent coding', condition: '00.66 ต้องมี 00.40-00.44 และจำนวน stent 00.45-00.48 ต้องครบคู่ 36.06/36.07', result: 'เสี่ยง' },
+    { code: 'CR5 / CR8', title: 'Acidosis / Volume overload', condition: 'E87.2 ต้องมีผล lab สนับสนุน; E87.7 ร่วม I50.- อาจเป็นรหัสซ้ำ', result: 'ทบทวน/เสี่ยง' },
+] as const;
+
 const readResponseError = async (response: Response) => {
     const contentType = response.headers.get('content-type') || '';
     const rawText = await response.text().catch(() => '');
@@ -66,7 +99,7 @@ const firstDayOfCurrentMonth = () => {
     return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
 };
 
-const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditComplete?: () => void }> = ({ an, onClose, onAuditComplete }) => {
+const ChartDetailModal: React.FC<{ an: string; preAudit?: IpdPreAuditResult | null; onClose: () => void; onAuditComplete?: () => void }> = ({ an, preAudit, onClose, onAuditComplete }) => {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -180,6 +213,24 @@ const ChartDetailModal: React.FC<{ an: string; onClose: () => void; onAuditCompl
                     <div className="alert alert-danger">ไม่พบข้อมูลชาร์ต หรือเกิดข้อผิดพลาดในการดึงข้อมูล</div>
                 ) : (
                     <div>
+                        <section className={`ipd-preaudit-summary ipd-preaudit-summary--${preAudit?.status || 'clear'}`}>
+                            <div className="ipd-preaudit-summary__header">
+                                <strong>ผล Pre-audit ของ AN {an}</strong>
+                                <span>{preAudit?.status === 'risk' ? `พบความเสี่ยง ${preAudit.riskCount}` : preAudit?.status === 'review' ? `ต้องทบทวน Chart ${preAudit.reviewCount}` : 'ผ่านกฎอัตโนมัติ'}</span>
+                            </div>
+                            {preAudit?.findings?.length ? (
+                                <div className="ipd-preaudit-summary__findings">
+                                    {preAudit.findings.map((finding, index) => (
+                                        <article key={`${finding.code}-${index}`} className={`ipd-preaudit-finding ipd-preaudit-finding--${finding.severity}`}>
+                                            <strong>{finding.code} · {finding.title}</strong>
+                                            <span>{finding.message}</span>
+                                            {finding.evidence?.length ? <small>ข้อมูลที่พบ: {finding.evidence.join(', ')}</small> : null}
+                                        </article>
+                                    ))}
+                                </div>
+                            ) : <small>AN นี้ไม่ติดเงื่อนไข error หรือเงื่อนไขที่ต้องทบทวนจากกฎปัจจุบัน</small>}
+                        </section>
+
                         {Array.isArray(data.warnings) && data.warnings.length > 0 && (
                             <div className="alert alert-warning" style={{ marginBottom: 16 }}>
                                 <div style={{ fontWeight: 700, marginBottom: 6 }}>ดึงข้อมูลได้บางส่วน</div>
@@ -364,6 +415,7 @@ export const IPDPage: React.FC = () => {
     const [wardFilter, setWardFilter] = useState('all');
     const [search, setSearch] = useState('');
     const [selectedAN, setSelectedAN] = useState<string | null>(null);
+    const [showPreAuditRules, setShowPreAuditRules] = useState(false);
 
     const fetchIPDData = async () => {
         setLoading(true);
@@ -506,6 +558,7 @@ export const IPDPage: React.FC = () => {
     const fdhSubmittedCount = data.filter(i => i.fdh_transaction_uid || i.fdh_reservation_status || i.fdh_updated_at).length;
     const preAuditRiskCount = data.filter(i => i.pre_audit?.status === 'risk').length;
     const preAuditReviewCount = data.filter(i => i.pre_audit?.status === 'review').length;
+    const selectedVisit = selectedAN ? data.find((item) => item.an === selectedAN) : null;
 
     const getFdhStatusTone = (item: any) => {
         const text = String(item.fdh_status_label || item.fdh_reservation_status || item.fdh_claim_status_message || '').toLowerCase();
@@ -556,6 +609,9 @@ export const IPDPage: React.FC = () => {
                     <p className="page-subtitle">แสดงรายการผู้ป่วยใน พร้อมตัวชี้วัดสำคัญ (DRG, RW, วันนอน) เพื่อการตรวจสอบการเบิกจ่าย</p>
                     <button className="btn btn-primary" type="button" style={{ marginTop: 10 }} onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'ipdClaimMonitor' } }))}>
                         📡 เปิด Monitor FDH / REP / STM / INV
+                    </button>
+                    <button className="btn btn-secondary" type="button" style={{ marginTop: 10, marginLeft: 8 }} onClick={() => setShowPreAuditRules(true)}>
+                        🛡️ ดูเงื่อนไข Pre-audit ที่ใช้
                     </button>
                 </div>
 
@@ -825,37 +881,36 @@ export const IPDPage: React.FC = () => {
                 </div>
             </div>
 
-            <div style={{ marginTop: 24, padding: 24, background: 'var(--surface-2)', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
-                <h3 style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 24 }}>🛡️</span> แนวทางการตรวจสอบชาร์ต (IPD Pre-Audit Checkpoints)
-                </h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
-                    <div className="card" style={{ padding: 16, border: 'none', background: '#fff' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--danger)', marginBottom: 10 }}>1. ข้อมูลพื้นฐานที่ห้ามขาด (Essential)</div>
-                        <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-                            <li><strong>Principal Diagnosis (PDx):</strong> ต้องลงรหัสโรคที่เป็นเหตุผลหลักในการรับไว้รักษา</li>
-                            <li><strong>Admission/Discharge Date:</strong> ตรวจสอบว่ามีวัน Admit และจำหน่ายครบถ้วน</li>
-                        </ul>
-                    </div>
-                    <div className="card" style={{ padding: 16, border: 'none', background: '#fff' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--warning)', marginBottom: 10 }}>2. จุดเสี่ยงการเสียโอกาส (Billing Risk)</div>
-                        <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-                            <li><strong>OR/Procedure Mapping:</strong> หากมีการผ่าตัด ต้องลงรหัส ICD-9-CM ให้ครบ เพื่อเปลี่ยนกลุ่ม DRG ให้สูงขึ้น</li>
-                            <li><strong>Low RW Warning:</strong> หากคนไข้มีวันนอนนาน (LOS &gt; 10 วัน) แต่ RW &lt; 0.8 ให้ตรวจสอบว่าลืมลงรหัส Complication หรือไม่</li>
-                        </ul>
-                    </div>
-                    <div className="card" style={{ padding: 16, border: 'none', background: '#fff' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--primary)', marginBottom: 10 }}>3. การเพิ่มคุณภาพรหัส (Clinical Refinement)</div>
-                        <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-                            <li><strong>Secondary Diagnosis (SDx):</strong> ค้นหาโรคร่วม/โรคแทรกซ้อน จากผล Lab หรือบันทึกทางการพยาบาล</li>
-                            <li><strong>RW Boosters:</strong> ตรวจสอบอุปกรณ์พิเศษ (Devices) หรือยาความเสี่ยงสูงที่มีค่าใช้จ่ายนอกจาก DRG</li>
-                        </ul>
+            <details className="card ipd-audit-guide" style={{ marginTop: 24 }}>
+                <summary>🛡️ ส่วนขยาย: เงื่อนไขที่ระบบ IPD Pre-audit ใช้ตรวจ</summary>
+                <div style={{ padding: 14 }}>
+                    <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: 13 }}>เปิดดูสรุปกฎทั้งหมด หรือกดปุ่มด้านล่างเพื่อแสดงแบบป๊อปอัป</p>
+                    <button className="btn btn-primary" type="button" onClick={() => setShowPreAuditRules(true)}>เปิดป๊อปอัปเงื่อนไขทั้งหมด</button>
+                </div>
+            </details>
+
+            {showPreAuditRules && (
+                <div className="modal-overlay" onClick={() => setShowPreAuditRules(false)}>
+                    <div className="modal-content ipd-rules-modal" onClick={(event) => event.stopPropagation()}>
+                        <div className="ipd-rules-modal__header">
+                            <div><h2>เงื่อนไข IPD Pre-audit ที่ระบบใช้</h2><small>กฎจาก Diagnosis, Procedure และวันเวลา Admit/D/C</small></div>
+                            <button type="button" aria-label="ปิด" onClick={() => setShowPreAuditRules(false)}>&times;</button>
+                        </div>
+                        <div className="ipd-rules-modal__grid">
+                            {IPD_PRE_AUDIT_RULES.map((rule) => (
+                                <article key={rule.code}>
+                                    <div><strong>{rule.code}</strong><span>{rule.result}</span></div>
+                                    <h3>{rule.title}</h3>
+                                    <p>{rule.condition}</p>
+                                </article>
+                            ))}
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
             {selectedAN && (
-                <ChartDetailModal an={selectedAN} onClose={() => setSelectedAN(null)} onAuditComplete={fetchIPDData} />
+                <ChartDetailModal an={selectedAN} preAudit={selectedVisit?.pre_audit} onClose={() => setSelectedAN(null)} onAuditComplete={fetchIPDData} />
             )}
         </div>
     );

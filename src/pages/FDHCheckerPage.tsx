@@ -27,6 +27,7 @@ interface EligibleVisit {
     status: 'ready' | 'pending' | 'rejected';
     missing: string[];
     _dataSource: string;
+    pttype_code?: string;
     hipdata_code: string;
     has_telmed: number;
     has_drugp: number;

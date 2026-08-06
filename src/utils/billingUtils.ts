@@ -193,10 +193,19 @@ export const evaluateBillingLogic = (item: any) => {
     const hipdataCodeUpper = hipdataCode.toUpperCase();
     const hipdataText = `${hipdataCode} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.trim();
     const hipdataTextLower = hipdataText.toLowerCase();
+    const pttypeCode = String(item?.pttype_code ?? item?.pttype ?? '').trim().toUpperCase();
+    const isPaidInFull = pttypeCode === '10' || hipdataTextLower.includes('ชำระเงินครบ');
+    const isSelfPaidMotorInsurance = pttypeCode === '83'
+        || /พรบ\.?\s*ชำระเงินเอง/.test(hipdataTextLower);
 
-    const isOFC_LGO = ofcCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ofcKeywords);
+    // HOSxP maps "ชำระเงินครบ" to HIPDATA A1, which is also present in the
+    // OFC/LGO mapping. The concrete HOSxP right must win so it is exported as
+    // UUC2 instead of being mistaken for a whole-visit UUC1 claim.
+    const isOFC_LGO = !isPaidInFull && !isSelfPaidMotorInsurance
+        && (ofcCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ofcKeywords));
     const isSSS = !isOFC_LGO && (sssCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, sssKeywords));
     const isUCS = !isOFC_LGO && !isSSS && (ucsCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ucsKeywords));
+    const isUuc2ExportOnly = isSSS || isPaidInFull || isSelfPaidMotorInsurance;
 
     let opacity = 1;
     let bgStyle = 'transparent';
@@ -205,10 +214,13 @@ export const evaluateBillingLogic = (item: any) => {
     let hasNoDiagnosis = false;
     const fundNotes: FundNote[] = [];
 
-    if (isSSS) {
-        opacity = 0.5;
+    if (isUuc2ExportOnly) {
         bgStyle = 'rgba(245, 158, 11, 0.05)';
-        billingStatusLabel = item.hipdata_code === 'CSCD' ? 'UUC2 ไม่ประสงค์เบิก' : 'เบิกไม่ได้ (UUC2/SSS)';
+        billingStatusLabel = isSSS
+            ? 'UUC2 ประกันสังคม — ส่งออกข้อมูล (ไม่ขอเบิก)'
+            : isPaidInFull
+                ? 'UUC2 ชำระเงินครบ — ส่งออกข้อมูล (ไม่ขอเบิก)'
+                : 'UUC2 พ.ร.บ.ชำระเงินเอง — ส่งออกข้อมูล (ไม่ขอเบิก)';
     } else if (!item.hipdata_code || (!isOFC_LGO && !isUCS)) {
         opacity = 0.5;
         billingStatusLabel = `เบิกไม่ได้ (${item.hipdata_code || 'ชำระเงิน'})`;

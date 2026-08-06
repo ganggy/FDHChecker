@@ -10479,6 +10479,7 @@ export const getEligibleVisits = async (
         v.age_y as age,
         pt.cid,
         pttype.name as fund,
+        ovst.pttype as pttype_code,
         pttype.hipdata_code,
         ovst.vsttime,
         

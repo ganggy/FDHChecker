@@ -185,7 +185,7 @@ export const FDHCheckerPage: React.FC = () => {
     );
 
     const isSelectableForExport = (item: EligibleVisit) => isReadyForExportFund(item)
-        && (confirmResend || !hasFdhSubmission(item));
+        && (isFailedFdhSubmission(item) || confirmResend || !hasFdhSubmission(item));
 
     const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLowerCase();
 
@@ -791,7 +791,9 @@ export const FDHCheckerPage: React.FC = () => {
                                                         disabled={!isSelectableForExport(item)}
                                                         title={!readyForSelectedFund
                                                             ? 'ข้อมูลยังไม่พร้อมส่ง'
-                                                            : hasFdhSubmission(item) && !confirmResend
+                                                            : isFailedFdhSubmission(item)
+                                                                ? 'FDH ประมวลผลไม่ผ่าน สามารถเลือกเพื่อส่งใหม่ได้'
+                                                                : hasFdhSubmission(item) && !confirmResend
                                                                 ? 'รายการนี้มีสถานะ FDH แล้ว หากต้องการเลือกให้กด “ยืนยันส่งซ้ำ”'
                                                                 : undefined}
                                                     />

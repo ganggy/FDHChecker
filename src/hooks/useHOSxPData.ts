@@ -13,6 +13,7 @@ export const useHOSxPData = ({ fund, startDate, endDate }: UseHOSxPDataProps = {
   const [totalFromDB, setTotalFromDB] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     const loadData = async () => {
@@ -79,7 +80,9 @@ export const useHOSxPData = ({ fund, startDate, endDate }: UseHOSxPDataProps = {
     };
 
     loadData();
-  }, [fund, startDate, endDate]);
+  }, [fund, startDate, endDate, refreshToken]);
 
-  return { data, totalFromDB, loading, error };
+  const refresh = () => setRefreshToken((value) => value + 1);
+
+  return { data, totalFromDB, loading, error, refresh };
 };

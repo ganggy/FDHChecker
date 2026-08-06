@@ -60,7 +60,7 @@ export const StaffPage: React.FC = () => {
   }, [todayStr]);
 
   // ดึงข้อมูลทั้งหมดตามช่วงวันที่ (ไม่กรอง fund ฝั่ง server)
-  const { data, totalFromDB, loading, error } = useHOSxPData({
+  const { data, totalFromDB, loading, error, refresh } = useHOSxPData({
     startDate: startDate || undefined,
     endDate: endDate || undefined,
   });
@@ -336,6 +336,10 @@ export const StaffPage: React.FC = () => {
                 className="form-control"
               />
             </div>
+
+            <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
+              {loading ? 'กำลังประมวลผล...' : '🔄 ดึงข้อมูลใหม่'}
+            </button>
           </div>
         </div>
       </div>
@@ -390,7 +394,7 @@ export const StaffPage: React.FC = () => {
       {loading && (
         <div className="loading-container">
           <div className="spinner" />
-          <span>กำลังโหลดข้อมูล...</span>
+          <span>กำลังโหลดข้อมูลและประมวลผล OPD Pre-audit...</span>
         </div>
       )}
 

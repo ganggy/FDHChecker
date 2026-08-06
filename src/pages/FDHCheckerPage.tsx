@@ -253,6 +253,7 @@ export const FDHCheckerPage: React.FC = () => {
 
     const buildFdhPayload = (vns: string[]) => ({
         vns,
+        patientType: 'OPD',
         profile: exportProfile,
         fcodeByHn,
         uucByVn: Object.fromEntries(vns.map((vn) => {

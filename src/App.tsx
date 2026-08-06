@@ -14,6 +14,7 @@ const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
 
 const StaffPage = lazyNamed(() => import('./pages/StaffPage'), 'StaffPage');
 const IPDPage = lazyNamed(() => import('./pages/IPDPage'), 'IPDPage');
+const IpdFdhExportPage = lazyNamed(() => import('./pages/IpdFdhExportPage'), 'IpdFdhExportPage');
 const IpdClaimMonitorPage = lazyNamed(() => import('./pages/IpdClaimMonitorPage'), 'IpdClaimMonitorPage');
 const AiReportWorkspacePage = lazyNamed(() => import('./pages/AiReportWorkspacePage'), 'AiReportWorkspacePage');
 const HospitalReportHubPage = lazyNamed(() => import('./pages/HospitalReportHubPage'), 'HospitalReportHubPage');
@@ -301,6 +302,7 @@ function App() {
         <Suspense fallback={<div className="page-loading" role="status">กำลังโหลดหน้าจอ...</div>}>
         {currentPage === 'staff' && <StaffPage />}
         {currentPage === 'ipd' && <IPDPage />}
+        {currentPage === 'ipdExport' && <IpdFdhExportPage />}
         {currentPage === 'ipdClaimMonitor' && <IpdClaimMonitorPage />}
         {currentPage === 'aiReports' && <AiReportWorkspacePage />}
         {currentPage === 'hospitalReports' && <HospitalReportHubPage />}

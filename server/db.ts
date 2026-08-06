@@ -14095,7 +14095,9 @@ export const getEligibleIPD = async (
         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
         w.name as ward,
         DATE_FORMAT(ipt.regdate, '%Y-%m-%d') as admDate,
-        ipt.dchdate,
+        TIME_FORMAT(ipt.regtime, '%H:%i:%s') as regTime,
+        DATE_FORMAT(ipt.dchdate, '%Y-%m-%d') as dchdate,
+        TIME_FORMAT(ipt.dchtime, '%H:%i:%s') as dchTime,
         CASE 
           WHEN ipt.dchdate IS NULL THEN DATEDIFF(CURDATE(), ipt.regdate)
           ELSE DATEDIFF(ipt.dchdate, ipt.regdate) 
@@ -14109,7 +14111,17 @@ export const getEligibleIPD = async (
         
         -- Diagnosis and Procedures
         (SELECT icd10 FROM iptdiag WHERE an = ipt.an AND diagtype = '1' LIMIT 1) as pdx,
+        (SELECT GROUP_CONCAT(DISTINCT icd10 ORDER BY diagtype, icd10 SEPARATOR ',') FROM iptdiag WHERE an = ipt.an) as diagnosis_codes,
         (SELECT GROUP_CONCAT(icd9) FROM iptoprt WHERE an = ipt.an) as or_codes,
+        (SELECT CONCAT(DATE_FORMAT(prev.dchdate, '%Y-%m-%d'), ' ', TIME_FORMAT(prev.dchtime, '%H:%i:%s'))
+          FROM ipt prev
+          WHERE prev.hn = ipt.hn
+            AND prev.an <> ipt.an
+            AND prev.dchdate IS NOT NULL
+            AND TIMESTAMP(prev.dchdate, COALESCE(prev.dchtime, '00:00:00')) <= TIMESTAMP(ipt.regdate, COALESCE(ipt.regtime, '00:00:00'))
+          ORDER BY prev.dchdate DESC, prev.dchtime DESC
+          LIMIT 1
+        ) as previousDischargeAt,
         
         -- Total Price
         COALESCE((SELECT SUM(sum_price) FROM opitemrece WHERE an = ipt.an), 0) as totalPrice,

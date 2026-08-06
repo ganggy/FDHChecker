@@ -97,6 +97,7 @@ import {
   buildFdhFiles,
   normalizeFdhProfile,
   projectFdhData,
+  scopeFdhData,
   selectFdhUploadFiles,
   uploadFdhFiles,
   validateFdhData,
@@ -116,6 +117,7 @@ import {
 } from './lineMessaging.js';
 import { isMissingFdhStatus } from '../src/utils/fdhClaimProgress.js';
 import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
+import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1573,7 +1575,35 @@ app.get('/api/hosxp/ipd-list', async (req, res) => {
     console.log(`🛏️ Fetching IPD List: ${startDate} to ${endDate}, Status: ${statusFilter || 'All'}`);
     const { getEligibleIPD } = await import('./db.js');
     const data = await getEligibleIPD(startDate as string, endDate as string, statusFilter as string);
-    res.json({ success: true, data });
+    const enrichedData = data.map((row: Record<string, unknown>) => {
+      const diagnoses = String(row.diagnosis_codes || '').split(',').map((code) => code.trim()).filter(Boolean);
+      const procedures = String(row.or_codes || '').split(',').map((code) => code.trim()).filter(Boolean);
+      const admissionAt = row.admDate ? `${row.admDate} ${row.regTime || '00:00:00'}` : '';
+      const dischargeAt = row.dchdate ? `${row.dchdate} ${row.dchTime || '00:00:00'}` : '';
+      const preAudit = evaluateIpdPreAudit({
+        diagnoses,
+        procedures,
+        principalDiagnosis: row.pdx,
+        admissionAt,
+        dischargeAt,
+        previousDischargeAt: row.previousDischargeAt,
+        includeDocumentAudit: true,
+      });
+      const exportIssues: string[] = [];
+      if (!row.dchdate) exportIssues.push('ยังไม่จำหน่าย');
+      if (!String(row.pdx || '').trim()) exportIssues.push('ไม่พบ Principal diagnosis');
+      if (Number(row.totalPrice || 0) <= 0) exportIssues.push('ไม่พบยอดค่าใช้จ่าย');
+      if (preAudit.status === 'risk' && String(row.audit_status || '').toUpperCase() !== 'AUDITED') {
+        exportIssues.push(`ติดความเสี่ยง Pre-audit ${preAudit.riskCount} จุด (ต้องตรวจชาร์ตก่อน)`);
+      }
+      return {
+        ...row,
+        pre_audit: preAudit,
+        export_ready: exportIssues.length === 0,
+        export_issues: exportIssues,
+      };
+    });
+    res.json({ success: true, data: enrichedData });
   } catch (error) {
     console.error('Error fetching IPD list:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
@@ -1865,11 +1895,14 @@ const normalizeFdhExportRequest = (body: Record<string, unknown>) => {
   );
   const rawProfile = String(body.profile || 'standard').trim().toLowerCase();
   if (!['standard', 'fwf-migrants'].includes(rawProfile)) throw new Error('profile ต้องเป็น standard หรือ fwf-migrants');
+  const patientType = String(body.patientType || 'ALL').trim().toUpperCase();
+  if (!['ALL', 'OPD', 'IPD'].includes(patientType)) throw new Error('patientType ต้องเป็น OPD หรือ IPD');
   return {
     vns,
     profile: normalizeFdhProfile(rawProfile),
     fcodeByHn: stringMap(body.fcodeByHn, 16),
     uucByVn: stringMap(body.uucByVn, 1),
+    patientType: patientType as 'ALL' | 'OPD' | 'IPD',
   };
 };
 
@@ -1879,7 +1912,7 @@ const prepareFdhExport = async (body: Record<string, unknown>) => {
   const hcode = String(config.hcode || '').trim();
   const rawData = await getExportData(request.vns, request);
   if (!rawData) throw new Error('ไม่สามารถดึงข้อมูล 16 แฟ้มจากฐานข้อมูลได้');
-  const data = projectFdhData(rawData, request.profile);
+  const data = scopeFdhData(projectFdhData(rawData, request.profile), request.patientType);
   const validation = validateFdhData(data, request.profile, hcode);
   const estimatedBytes = buildFdhFiles(data, request.profile, true, process.env.FDH_EXPORT_ENCODING)
     .reduce((sum, file) => sum + file.content.length, 0);
@@ -1912,6 +1945,7 @@ app.post('/api/fdh/preflight', async (req, res) => {
     res.status(prepared.validation.valid ? 200 : 422).json({
       success: prepared.validation.valid,
       profile: prepared.profile,
+      patientType: prepared.patientType,
       validation: prepared.validation,
     });
   } catch (error) {
@@ -1986,6 +2020,7 @@ app.post('/api/fdh/submit', async (req, res) => {
     const requestDigest = crypto.createHash('sha256').update(JSON.stringify({
       vns: [...prepared.vns].sort(),
       profile: prepared.profile,
+      patientType: prepared.patientType,
       counts: prepared.validation.counts,
     })).digest('hex');
     await saveFdhSubmissionLog({

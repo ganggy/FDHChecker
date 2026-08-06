@@ -7,6 +7,7 @@ export const FDH_FILE_CODES = [
 
 export type FdhFileCode = typeof FDH_FILE_CODES[number];
 export type FdhExportProfile = 'standard' | 'fwf-migrants';
+export type FdhPatientType = 'ALL' | 'OPD' | 'IPD';
 export type FdhRow = Record<string, unknown>;
 export type FdhExportData = Record<FdhFileCode, FdhRow[]>;
 
@@ -78,6 +79,17 @@ export const projectFdhData = (data: Partial<FdhExportData>, profile: FdhExportP
       layouts[file].map((field) => [field, row?.[field] ?? '']),
     )),
   ])) as FdhExportData;
+};
+
+export const scopeFdhData = (input: Partial<FdhExportData>, patientType: FdhPatientType): FdhExportData => {
+  const data = Object.fromEntries(FDH_FILE_CODES.map((file) => [file, Array.isArray(input[file]) ? input[file]! : []])) as FdhExportData;
+  if (patientType === 'IPD') {
+    return { ...data, OPD: [], ORF: [], ODX: [], OOP: [] };
+  }
+  if (patientType === 'OPD') {
+    return { ...data, IPD: [], IRF: [], IDX: [], IOP: [], LVD: [] };
+  }
+  return data;
 };
 
 export const serializeFdhFile = (

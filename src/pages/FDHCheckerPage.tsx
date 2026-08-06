@@ -5,7 +5,7 @@ import { evaluateBillingLogic } from '../utils/billingUtils';
 import { FDHPreviewModal } from '../components/FDHPreviewModal';
 import { formatLocalDateInput, formatLocalDateStamp } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
-import { isMissingFdhStatus } from '../utils/fdhClaimProgress';
+import { isFailedFdhSubmission, isMissingFdhStatus } from '../utils/fdhClaimProgress';
 
 interface EligibleVisit {
     vn: string;
@@ -59,6 +59,7 @@ interface EligibleVisit {
 }
 
 type FdhExportProfile = 'standard' | 'fwf-migrants';
+type FdhStatusFilter = 'all' | 'not-submitted' | 'failed' | 'submitted';
 const ALL_SPECIAL_FUNDS = '__all_special_funds__';
 
 interface FdhValidationIssue {
@@ -82,6 +83,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'pending'>('all');
+    const [fdhStatusFilter, setFdhStatusFilter] = useState<FdhStatusFilter>('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [selectedVns, setSelectedVns] = useState<string[]>([]);
@@ -219,6 +221,9 @@ export const FDHCheckerPage: React.FC = () => {
         if (!matchesExportFund(item)) return false;
         if (statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
         if (statusFilter === 'pending' && isReadyForExportFund(item)) return false;
+        if (fdhStatusFilter === 'not-submitted' && hasFdhSubmission(item)) return false;
+        if (fdhStatusFilter === 'failed' && !isFailedFdhSubmission(item)) return false;
+        if (fdhStatusFilter === 'submitted' && !hasFdhSubmission(item)) return false;
         return matchesSearchTerm(item);
     });
 
@@ -414,6 +419,9 @@ export const FDHCheckerPage: React.FC = () => {
     const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
     const visiblePendingCount = filtered.length - visibleReadyCount;
     const visibleAlreadySentCount = filtered.filter((item) => isReadyForExportFund(item) && hasFdhSubmission(item)).length;
+    const failedFdhCount = fundFilteredData.filter(isFailedFdhSubmission).length;
+    const notSubmittedFdhCount = fundFilteredData.filter((item) => !hasFdhSubmission(item)).length;
+    const submittedFdhCount = fundFilteredData.length - notSubmittedFdhCount;
 
 
 
@@ -570,6 +578,36 @@ export const FDHCheckerPage: React.FC = () => {
                                 <option value="ready">🟢 ข้อมูลพร้อมส่ง ({readyCount})</option>
                                 <option value="pending">🟡 ข้อมูลรอแก้ไข ({pendingCount})</option>
                             </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">📡 สถานะการส่ง FDH</label>
+                            <select
+                                className="form-control"
+                                value={fdhStatusFilter}
+                                onChange={(event) => {
+                                    const nextFilter = event.target.value as FdhStatusFilter;
+                                    setFdhStatusFilter(nextFilter);
+                                    setSelectedVns([]);
+                                    setPreviewValidation(null);
+                                    if (nextFilter === 'failed') {
+                                        setConfirmResend(true);
+                                        setStatusFilter('ready');
+                                    } else if (nextFilter === 'not-submitted') {
+                                        setConfirmResend(false);
+                                    }
+                                }}
+                            >
+                                <option value="all">ทุกสถานะ FDH ({fundFilteredData.length})</option>
+                                <option value="not-submitted">ยังไม่ส่ง / ไม่พบใน FDH ({notSubmittedFdhCount})</option>
+                                <option value="failed">🔴 ประมวลผลไม่ผ่าน — ส่งซ้ำ ({failedFdhCount})</option>
+                                <option value="submitted">เคยส่ง / มีสถานะ FDH ({submittedFdhCount})</option>
+                            </select>
+                            <div style={{ marginTop: 5, color: fdhStatusFilter === 'failed' ? 'var(--danger)' : 'var(--text-muted)', fontSize: 11, fontWeight: fdhStatusFilter === 'failed' ? 700 : 400 }}>
+                                {fdhStatusFilter === 'failed'
+                                    ? 'เปิด “ยืนยันส่งซ้ำ” แล้ว • เลือกได้เฉพาะรายการไม่ผ่านที่ข้อมูลพร้อมส่ง'
+                                    : 'ใช้กรองรายการตามผลตอบกลับล่าสุดจาก FDH'}
+                            </div>
                         </div>
 
                         <div className="form-group">

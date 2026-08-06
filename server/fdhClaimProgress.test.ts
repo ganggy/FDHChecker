@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildFdhClaimProgress,
   hasFdhSubmissionData,
+  isFailedFdhSubmission,
   isMissingFdhStatus,
 } from '../src/utils/fdhClaimProgress.js';
 
@@ -15,6 +16,14 @@ test('explicit FDH not-found responses are not counted as submitted', () => {
   assert.equal(hasFdhSubmissionData({ fdh_claim_status_message: 'ยังไม่พบข้อมูลใน FDH' }), false);
   assert.equal(hasFdhSubmissionData({ fdh_claim_status_message: 'ส่งข้อมูลสำเร็จ' }), true);
   assert.equal(hasFdhSubmissionData({ has_fdh_import: true }), true);
+});
+
+test('identifies only failed FDH statuses for the resend filter', () => {
+  assert.equal(isFailedFdhSubmission({ fdh_status_label: 'ประมวลผลไม่ผ่าน' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_claim_detail_status: 'REJECTED' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_error_code: 'E001' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_status_label: 'ประมวลผลผ่าน' }), false);
+  assert.equal(isFailedFdhSubmission({ fdh_status_label: 'UNCLAIMED' }), false);
 });
 
 test('FDH progress identifies records that are ready but not submitted', () => {

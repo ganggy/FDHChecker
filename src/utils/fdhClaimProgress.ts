@@ -27,6 +27,13 @@ export interface FdhClaimProgress {
 }
 
 type FdhTrackingRow = Record<string, unknown>;
+type FdhSubmissionStatusRow = {
+    fdh_error_code?: unknown;
+    fdh_status_label?: unknown;
+    fdh_claim_detail_status?: unknown;
+    fdh_reservation_status?: unknown;
+    fdh_claim_status_message?: unknown;
+};
 
 const hasValue = (value: unknown) => String(value ?? '').trim() !== '';
 const flag = (value: unknown) => value === true || value === 1 || value === '1' || value === 'Y' || value === 'y';
@@ -40,6 +47,18 @@ export const isMissingFdhStatus = (value: unknown) => {
         || normalized.includes('ยังไม่ส่ง')
         || normalized.includes('not found')
         || normalized.includes('no data');
+};
+
+export const isFailedFdhSubmission = (row: FdhSubmissionStatusRow) => {
+    if (hasValue(row.fdh_error_code)) return true;
+    const statusText = [
+        row.fdh_status_label,
+        row.fdh_claim_detail_status,
+        row.fdh_reservation_status,
+        row.fdh_claim_status_message,
+    ].map((value) => String(value ?? '').trim().toLowerCase()).filter(Boolean).join(' ');
+
+    return /ประมวลผลไม่ผ่าน|ไม่ผ่าน|reject(?:ed)?|fail(?:ed|ure)?|\berror\b|den(?:y|ied)/i.test(statusText);
 };
 
 /**

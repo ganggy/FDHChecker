@@ -416,6 +416,8 @@ export const FDHCheckerPage: React.FC = () => {
     const readyCount = fundFilteredData.filter(isReadyForExportFund).length;
     const pendingCount = fundFilteredData.length - readyCount;
     const exportVisitCount = getReadyVns().length;
+    const visibleSelectableCount = filtered.filter(isSelectableForExport).length;
+    const selectedVisibleCount = selectedVns.filter((vn) => filtered.some((item) => item.vn === vn && isSelectableForExport(item))).length;
     const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
     const visiblePendingCount = filtered.length - visibleReadyCount;
     const visibleAlreadySentCount = filtered.filter((item) => isReadyForExportFund(item) && hasFdhSubmission(item)).length;
@@ -678,6 +680,47 @@ export const FDHCheckerPage: React.FC = () => {
             {error && (
                 <div className="alert alert-danger" style={{ marginBottom: 16 }}>
                     <span>⚠️</span> <span>{error}</span>
+                </div>
+            )}
+
+            {!loading && !error && (
+                <div className="fdh-submit-action-bar no-print" role="region" aria-label="คำสั่งส่งเบิก FDH">
+                    <div className="fdh-submit-action-copy">
+                        <strong>ส่งเบิก FDH</strong>
+                        <span>
+                            {visibleSelectableCount === 0
+                                ? (visibleAlreadySentCount > 0 && !confirmResend
+                                    ? 'รายการที่แสดงเคยส่งแล้ว หากต้องการส่งอีกครั้งให้เปิด “ยืนยันส่งซ้ำ”'
+                                    : 'ไม่มีรายการสถานะพร้อมส่งตามตัวกรองปัจจุบัน')
+                                : (selectedVisibleCount > 0
+                                    ? `เลือกแล้ว ${selectedVisibleCount} รายการ — ระบบจะตรวจ Preflight ก่อนส่งจริง`
+                                    : `ยังไม่ได้ติ๊กเลือก — ระบบจะใช้รายการพร้อมส่งที่แสดงอยู่ทั้งหมด ${visibleSelectableCount} รายการ`)}
+                        </span>
+                    </div>
+                    <div className="fdh-submit-action-buttons">
+                        {visibleSelectableCount > 0 && (
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setSelectedVns(selectedVisibleCount > 0
+                                    ? []
+                                    : filtered.filter(isSelectableForExport).map((item) => item.vn))}
+                            >
+                                {selectedVisibleCount > 0 ? 'ล้างรายการที่เลือก' : 'เลือกทั้งหมดที่พร้อมส่ง'}
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            className="btn btn-primary fdh-submit-primary"
+                            onClick={handlePreviewData}
+                            disabled={isLoadingPreview || exportVisitCount === 0}
+                            title={exportVisitCount === 0 ? 'ไม่มีรายการพร้อมส่ง กรุณาตรวจสถานะหรือตัวกรอง' : 'ตรวจข้อมูล Preflight แล้วจึงยืนยันส่ง FDH API'}
+                        >
+                            {isLoadingPreview
+                                ? '⏳ กำลังตรวจข้อมูล...'
+                                : `🚀 ตรวจและส่งเบิก FDH (${exportVisitCount})`}
+                        </button>
+                    </div>
                 </div>
             )}
 

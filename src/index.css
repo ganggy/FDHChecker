@@ -2538,6 +2538,60 @@ p {
   border-right: 1px solid var(--border-light);
 }
 
+.fdh-submit-action-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: rgba(239, 246, 255, 0.96);
+  box-shadow: 0 12px 30px rgba(30, 64, 175, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.fdh-submit-action-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: #1e3a8a;
+}
+
+.fdh-submit-action-copy span {
+  color: #475569;
+  font-size: 13px;
+}
+
+.fdh-submit-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.fdh-submit-primary {
+  min-width: 230px;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .fdh-submit-action-bar {
+    align-items: stretch;
+    flex-direction: column;
+    bottom: 6px;
+  }
+
+  .fdh-submit-action-buttons,
+  .fdh-submit-action-buttons .btn {
+    width: 100%;
+  }
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

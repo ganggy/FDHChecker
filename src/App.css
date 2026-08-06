@@ -2630,6 +2630,25 @@ button.ipd-monitor-kpi:hover { transform: translateY(-1px); box-shadow: 0 10px 2
 .ipd-preaudit-finding--risk { background: #fff1f2; border-left-color: #e11d48; }
 .ipd-preaudit-finding strong { font-size: 11px; color: #334155; }
 .ipd-preaudit-finding span, .ipd-preaudit-finding small { font-size: 10px; line-height: 1.4; color: #475569; }
+.ipd-preaudit-summary { margin-bottom: 20px; padding: 14px; border: 1px solid #bbf7d0; border-left: 4px solid #16a34a; border-radius: 10px; background: #f0fdf4; }
+.ipd-preaudit-summary--review { border-color: #fde68a; border-left-color: #f59e0b; background: #fffbeb; }
+.ipd-preaudit-summary--risk { border-color: #fecdd3; border-left-color: #e11d48; background: #fff1f2; }
+.ipd-preaudit-summary__header { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
+.ipd-preaudit-summary__header strong { color: #334155; }
+.ipd-preaudit-summary__header span { padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,.8); color: #475569; font-size: 11px; font-weight: 800; }
+.ipd-preaudit-summary__findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
+.ipd-rules-modal { width: min(1050px, calc(100vw - 32px)); max-height: 88vh; overflow: auto; padding: 0; border-radius: 14px; }
+.ipd-rules-modal__header { position: sticky; top: 0; z-index: 1; display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 18px 22px; border-bottom: 1px solid #dbeafe; background: #eff6ff; }
+.ipd-rules-modal__header h2 { margin: 0 0 3px; color: #1e3a8a; font-size: 20px; }
+.ipd-rules-modal__header small { color: #64748b; }
+.ipd-rules-modal__header button { width: 34px; height: 34px; border: 0; border-radius: 50%; background: #fff; color: #475569; cursor: pointer; font-size: 22px; }
+.ipd-rules-modal__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 18px; }
+.ipd-rules-modal__grid article { padding: 13px 14px; border: 1px solid #dbeafe; border-radius: 10px; background: #fff; }
+.ipd-rules-modal__grid article > div { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.ipd-rules-modal__grid article strong { color: #1d4ed8; }
+.ipd-rules-modal__grid article span { padding: 3px 7px; border-radius: 999px; background: #fef3c7; color: #92400e; font-size: 10px; font-weight: 800; }
+.ipd-rules-modal__grid h3 { margin: 8px 0 5px; color: #334155; font-size: 14px; }
+.ipd-rules-modal__grid p { margin: 0; color: #64748b; font-size: 12px; line-height: 1.5; }
 .ipd-monitor-id { color: #2563eb; }
 .ipd-monitor-money { color: #0f766e; font-weight: 800; text-align: right; white-space: nowrap; }
 .btn-sm { padding: 5px 9px; font-size: 11px; white-space: nowrap; }
@@ -2643,6 +2662,7 @@ button.ipd-monitor-kpi:hover { transform: translateY(-1px); box-shadow: 0 10px 2
 @media (max-width: 760px) {
   .ipd-monitor-hero { align-items: flex-start; flex-direction: column; }
   .ipd-monitor-filter-grid, .ipd-monitor-kpi-grid, .ipd-monitor-stage-grid, .ipd-monitor-money-grid, .ipd-monitor-import-health, .ipd-audit-guide__grid { grid-template-columns: 1fr; }
+  .ipd-rules-modal__grid { grid-template-columns: 1fr; }
 }
 
 /* REP/STM/INV management */

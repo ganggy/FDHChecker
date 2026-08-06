@@ -10,6 +10,8 @@ const ready = (row: Record<string, unknown>) => row.ready === true;
 
 test('explicit FDH not-found responses are not counted as submitted', () => {
   assert.equal(isMissingFdhStatus('ยังไม่พบข้อมูลใน FDH'), true);
+  assert.equal(isMissingFdhStatus('UNCLAIMED'), true);
+  assert.equal(isMissingFdhStatus('ไม่มีรายการนี้ส่งเข้ามาในระบบ'), true);
   assert.equal(hasFdhSubmissionData({ fdh_claim_status_message: 'ยังไม่พบข้อมูลใน FDH' }), false);
   assert.equal(hasFdhSubmissionData({ fdh_claim_status_message: 'ส่งข้อมูลสำเร็จ' }), true);
   assert.equal(hasFdhSubmissionData({ has_fdh_import: true }), true);

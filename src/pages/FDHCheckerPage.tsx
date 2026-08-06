@@ -5,6 +5,7 @@ import { evaluateBillingLogic } from '../utils/billingUtils';
 import { FDHPreviewModal } from '../components/FDHPreviewModal';
 import { formatLocalDateInput, formatLocalDateStamp } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
+import { isMissingFdhStatus } from '../utils/fdhClaimProgress';
 
 interface EligibleVisit {
     vn: string;
@@ -54,6 +55,7 @@ interface EligibleVisit {
     fdh_claim_status_message?: string | null;
     fdh_error_code?: string | null;
     fdh_updated_at?: string | null;
+    fdh_has_submission?: boolean;
 }
 
 type FdhExportProfile = 'standard' | 'fwf-migrants';
@@ -93,6 +95,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [fcodeByHn, setFcodeByHn] = useState<Record<string, string>>({});
     const [previewValidation, setPreviewValidation] = useState<FdhValidationResult | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [confirmResend, setConfirmResend] = useState(false);
 
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
@@ -166,6 +169,22 @@ export const FDHCheckerPage: React.FC = () => {
         && (exportFund === ALL_SPECIAL_FUNDS
             || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund));
 
+    const hasFdhSubmission = (item: EligibleVisit) => Boolean(
+        item.fdh_has_submission ||
+        item.fdh_claim_code ||
+        item.fdh_upload_uid ||
+        item.fdh_sent_at ||
+        item.fdh_error_code ||
+        !isMissingFdhStatus(
+            item.fdh_claim_detail_status ||
+            item.fdh_reservation_status ||
+            item.fdh_claim_status_message
+        )
+    );
+
+    const isSelectableForExport = (item: EligibleVisit) => isReadyForExportFund(item)
+        && (confirmResend || !hasFdhSubmission(item));
+
     const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLowerCase();
 
     const matchesSearchTerm = (item: EligibleVisit) => {
@@ -206,7 +225,7 @@ export const FDHCheckerPage: React.FC = () => {
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
             // Select only those that are ready
-            const readyVns = filtered.filter(isReadyForExportFund).map(i => i.vn);
+            const readyVns = filtered.filter(isSelectableForExport).map(i => i.vn);
             setSelectedVns(readyVns);
         } else {
             setSelectedVns([]);
@@ -220,7 +239,7 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const getReadyVns = () => {
-        const visibleReadyVns = filtered.filter(isReadyForExportFund).map(i => i.vn).filter(Boolean);
+        const visibleReadyVns = filtered.filter(isSelectableForExport).map(i => i.vn).filter(Boolean);
         if (selectedVns.length === 0) return visibleReadyVns;
         const visibleReadySet = new Set(visibleReadyVns);
         return selectedVns.filter((vn) => visibleReadySet.has(vn));
@@ -361,7 +380,11 @@ export const FDHCheckerPage: React.FC = () => {
     const handleSubmitFdhApi = async () => {
         const vnsToSubmit = getReadyVns();
         if (vnsToSubmit.length === 0) return alert('ไม่มีรายการพร้อมส่งสำหรับส่ง FDH API');
-        if (!window.confirm(`ยืนยันส่ง ${vnsToSubmit.length} visit ไป FDH API จริง?`)) return;
+        const resendCount = filtered.filter((item) => vnsToSubmit.includes(item.vn) && hasFdhSubmission(item)).length;
+        const confirmationText = confirmResend
+            ? `ยืนยันส่ง ${vnsToSubmit.length} visit ไป FDH API จริง?\n\nมี ${resendCount} รายการที่เคยส่ง/มีสถานะ FDH และจะถูกส่งซ้ำ`
+            : `ยืนยันส่ง ${vnsToSubmit.length} visit ที่ยังไม่เคยส่งไป FDH API จริง?`;
+        if (!window.confirm(confirmationText)) return;
         setSubmitting(true);
         try {
             const response = await fetch('/api/fdh/submit', {
@@ -390,6 +413,7 @@ export const FDHCheckerPage: React.FC = () => {
     const exportVisitCount = getReadyVns().length;
     const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
     const visiblePendingCount = filtered.length - visibleReadyCount;
+    const visibleAlreadySentCount = filtered.filter((item) => isReadyForExportFund(item) && hasFdhSubmission(item)).length;
 
 
 
@@ -421,6 +445,22 @@ export const FDHCheckerPage: React.FC = () => {
                                 onChange={(e) => setExportWithHeader(e.target.checked)}
                             />
                             TXT มีหัวคอลัมน์
+                        </label>
+                        <label
+                            className={`btn ${confirmResend ? 'btn-danger' : 'btn-secondary'}`}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
+                            title="เมื่อเลือก ระบบจะรวมรายการที่เคยส่งหรือมีสถานะใน FDH กลับมาส่งอีกครั้ง"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={confirmResend}
+                                onChange={(event) => {
+                                    setConfirmResend(event.target.checked);
+                                    setSelectedVns([]);
+                                    setPreviewValidation(null);
+                                }}
+                            />
+                            ยืนยันส่งซ้ำ
                         </label>
                         <button
                             className="btn btn-info"
@@ -516,6 +556,7 @@ export const FDHCheckerPage: React.FC = () => {
                             </select>
                             <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
                                 ตาราง ตรวจสอบก่อนส่ง และ ZIP จะใช้กองทุนเดียวกัน
+                                {!confirmResend && visibleAlreadySentCount > 0 ? ` • ไม่รวม ${visibleAlreadySentCount} รายการที่มีสถานะ FDH แล้ว` : ''}
                             </div>
                         </div>
                         <div className="form-group">
@@ -611,9 +652,9 @@ export const FDHCheckerPage: React.FC = () => {
                                 <th style={{ width: 40, textAlign: 'center' }}>
                                     <input
                                         type="checkbox"
-                                        checked={selectedVns.length > 0 && selectedVns.length === filtered.filter(isReadyForExportFund).length}
+                                        checked={selectedVns.length > 0 && selectedVns.length === filtered.filter(isSelectableForExport).length}
                                         onChange={handleSelectAll}
-                                        disabled={filtered.filter(isReadyForExportFund).length === 0}
+                                        disabled={filtered.filter(isSelectableForExport).length === 0}
                                     />
                                 </th>
                                 <th style={{ width: 40 }}>#</th>
@@ -666,7 +707,12 @@ export const FDHCheckerPage: React.FC = () => {
                                                         type="checkbox"
                                                         checked={selectedVns.includes(item.vn)}
                                                         onChange={() => handleSelect(item.vn)}
-                                                        disabled={!isReadyForExportFund(item)}
+                                                        disabled={!isSelectableForExport(item)}
+                                                        title={!readyForSelectedFund
+                                                            ? 'ข้อมูลยังไม่พร้อมส่ง'
+                                                            : hasFdhSubmission(item) && !confirmResend
+                                                                ? 'รายการนี้มีสถานะ FDH แล้ว หากต้องการเลือกให้กด “ยืนยันส่งซ้ำ”'
+                                                                : undefined}
                                                     />
                                                 </td>
                                                 <td style={{ textAlign: 'center', opacity: 0.6, fontSize: 13 }}>{index + 1}</td>

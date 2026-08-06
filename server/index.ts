@@ -114,6 +114,7 @@ import {
   replyLineMessages,
   verifyLineWebhookSignature,
 } from './lineMessaging.js';
+import { isMissingFdhStatus } from '../src/utils/fdhClaimProgress.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1814,6 +1815,20 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         status,
         isPotentialClaim: isSpecialFund,
         isBillable,
+        // Keep this separate from EP/Authen.  The export screen uses it to
+        // exclude visits that already have evidence of an FDH submission,
+        // unless the operator explicitly confirms a resend.
+        fdh_has_submission: Boolean(
+          item.fdh_claim_code ||
+          item.fdh_upload_uid ||
+          item.fdh_sent_at ||
+          item.fdh_error_code ||
+          !isMissingFdhStatus(
+            item.fdh_claim_detail_status ||
+            item.fdh_reservation_status ||
+            item.fdh_claim_status_message
+          )
+        ),
         _dataSource: 'HOSxP-Database'
       };
     });

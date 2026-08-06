@@ -3,8 +3,10 @@ import { pushLineMessages, type LineMessage } from './lineMessaging.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import {
   ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+  ANC_DENTAL_CLEAN_ICD9,
   ANC_DENTAL_EXAM_PROCEDURE_CODES,
-  getMatchingDentalProcedureAdpCodes,
+  ANC_DENTAL_EXAM_ICD9,
+  hasMatchingDentalProcedureIcd9,
 } from '../src/utils/ancDentalRules.js';
 
 type FundRow = Record<string, unknown>;
@@ -200,6 +202,7 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
     case 'anc_dental_clean': {
       const exam = fundId === 'anc_dental_exam';
       const dentalProcedureCodes = exam ? ANC_DENTAL_EXAM_PROCEDURE_CODES : ANC_DENTAL_CLEAN_PROCEDURE_CODES;
+      const requiredIcd9 = exam ? ANC_DENTAL_EXAM_ICD9 : ANC_DENTAL_CLEAN_ICD9;
       addWebNearStatusMissing(
         missing,
         flag(row[exam ? 'has_anc_dental_exam' : 'has_anc_dental_clean']) || hasListedCode(row.anc_adp_codes, [exam ? '30008' : '30009']),
@@ -208,8 +211,9 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
           { met: female, label: 'เพศหญิง' },
           { met: ancDiag, label: 'Diagnosis Z34/Z35' },
           {
-            met: getMatchingDentalProcedureAdpCodes(row.dental_procedure_codes, row.dental_adp_codes, dentalProcedureCodes).length > 0,
-            label: `หัตถการและ ADP รหัสเดียวกัน ${dentalProcedureCodes.join('/')}`,
+            met: flag(row[exam ? 'has_anc_dental_exam_procedure' : 'has_anc_dental_clean_procedure'])
+              || hasMatchingDentalProcedureIcd9(row.dental_procedure_pairs, dentalProcedureCodes, requiredIcd9),
+            label: `ICD10TM ${dentalProcedureCodes.join('/')} + หัตถการ ICD-9 ${requiredIcd9}`,
           },
         ],
       );

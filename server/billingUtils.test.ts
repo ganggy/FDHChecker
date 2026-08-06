@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { evaluateBillingLogic } from '../src/utils/billingUtils.js';
+import {
+  ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+  ANC_DENTAL_EXAM_PROCEDURE_CODES,
+  hasMatchingDentalProcedureIcd9,
+} from '../src/utils/ancDentalRules.js';
 
 const opdVisit = {
   serviceType: 'ผู้ป่วยนอก',
@@ -56,7 +61,12 @@ test('normal OFC remains a UUC1 whole-visit claim', () => {
   assert.equal(result.isUUC1, true);
 });
 
-test('ANC dental cleaning accepts 2338610 only when the same ADP code exists', () => {
+test('ANC dental rules require the approved ICD10TM and ICD-9 pair', () => {
+  assert.equal(hasMatchingDentalProcedureIcd9('2330011:8931', ANC_DENTAL_EXAM_PROCEDURE_CODES, '8931'), true);
+  assert.equal(hasMatchingDentalProcedureIcd9('2330010:8931', ANC_DENTAL_EXAM_PROCEDURE_CODES, '8931'), true);
+  assert.equal(hasMatchingDentalProcedureIcd9('2387010:9654', ANC_DENTAL_CLEAN_PROCEDURE_CODES, '9654'), true);
+  assert.equal(hasMatchingDentalProcedureIcd9('2338610:2499', ANC_DENTAL_CLEAN_PROCEDURE_CODES, '9654'), false);
+
   const complete = evaluateBillingLogic({
     serviceType: 'ผู้ป่วยนอก',
     hipdata_code: 'UCS',
@@ -64,8 +74,8 @@ test('ANC dental cleaning accepts 2338610 only when the same ADP code exists', (
     main_diag: 'Z340',
     has_anc_diag: 1,
     has_anc_dental_clean: 1,
-    dental_procedure_codes: '2338610',
-    dental_adp_codes: '2338610',
+    dental_procedure_codes: '2387010',
+    dental_procedure_pairs: '2387010:9654',
   });
   const missingMatchingAdp = evaluateBillingLogic({
     serviceType: 'ผู้ป่วยนอก',
@@ -74,10 +84,10 @@ test('ANC dental cleaning accepts 2338610 only when the same ADP code exists', (
     main_diag: 'Z340',
     has_anc_diag: 1,
     has_anc_dental_clean: 1,
-    dental_procedure_codes: '2338610',
-    dental_adp_codes: '2387010',
+    dental_procedure_codes: '2387010',
+    dental_procedure_pairs: '2387010:8931',
   });
 
   assert.equal(complete.specialFundNotes.includes('🪥 ANC ขัดทำความสะอาดฟัน'), true);
-  assert.equal(missingMatchingAdp.specialFundNotes.some((note: string) => note.includes('หัตถการและ ADP รหัสเดียวกัน')), true);
+  assert.equal(missingMatchingAdp.specialFundNotes.some((note: string) => note.includes('ICD-9 9654')), true);
 });

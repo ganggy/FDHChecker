@@ -11253,7 +11253,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       SELECT 
         ov.hn as HN,
         COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), NULLIF(ov.an, ''), '') as AN,
-        DATE_FORMAT(COALESCE(o.rxdate, ov.vstdate), '%Y%m%d') as DATE,
+        DATE_FORMAT(MAX(COALESCE(o.rxdate, ov.vstdate)), '%Y%m%d') as DATE,
         COALESCE(CASE WHEN o.paidst IN ('03') THEN drg.chrgitem_code2 ELSE drg.chrgitem_code1 END, LPAD(COALESCE(inc.drg_chrgitem_id, 18), 2, '0')) as CHRGITEM,
         SUM(o.sum_price) as AMOUNT,
         pt.cid as PERSON_ID,
@@ -11265,7 +11265,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       LEFT JOIN income inc ON inc.income = o.income
       LEFT JOIN drg_chrgitem drg ON drg.drg_chrgitem_id = inc.drg_chrgitem_id
       WHERE ov.vn IN (?)
-      GROUP BY ov.vn, ov.hn, o.an, i.an, ov.an, DATE, pt.cid, CHRGITEM
+      GROUP BY ov.vn, ov.hn, o.an, i.an, ov.an, pt.cid, CHRGITEM
     `, [vns]);
 
     // 13. AER (Accident/Emergency)
@@ -11309,7 +11309,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       SELECT 
         base.HN,
         base.AN,
-        base.DATEOPD,
+        MAX(base.DATEOPD) AS DATEOPD,
         base.TYPE,
         base.CODE,
         SUM(base.QTY) AS QTY,
@@ -11326,7 +11326,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         MAX(base.TMLTCODE) AS TMLTCODE,
         '' AS STATUS1,
         MAX(base.BI) AS BI,
-        base.CLINIC,
+        MAX(base.CLINIC) AS CLINIC,
         '2' AS ITEMSRC,
         MAX(base.PROVIDER) AS PROVIDER,
         MAX(base.ICODE) AS _ICODE,
@@ -11395,13 +11395,11 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       GROUP BY
         base.HN,
         base.AN,
-        base.DATEOPD,
         base.TYPE,
         base.CODE,
         base.RATE,
-        base.SEQ,
-        base.CLINIC,
-        base.ICODE
+        base.SEQ
+        ${profile === 'fwf-migrants' ? ', base.ICODE' : ''}
     `, [vns]);
 
     // ข้อมูลครรภ์สำหรับฟิลด์ ADP ที่เพิ่มในคู่มือรุ่นปัจจุบัน
@@ -11466,23 +11464,23 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         ? AS HCODE,
         base.HN,
         base.AN,
-        base.CLINIC,
-        base.PERSON_ID,
+        MAX(base.CLINIC) AS CLINIC,
+        MAX(base.PERSON_ID) AS PERSON_ID,
         DATE_FORMAT(MAX(base.RXDATE), '%Y%m%d') AS DATE_SERV,
         base.DID,
-        base.DIDNAME,
+        MAX(base.DIDNAME) AS DIDNAME,
         SUM(base.QTY) AS AMOUNT,
         base.DRUGPRIC,
-        base.DRUGCOST,
-        base.DIDSTD,
-        base.UNIT,
+        MAX(base.DRUGCOST) AS DRUGCOST,
+        MAX(base.DIDSTD) AS DIDSTD,
+        MAX(base.UNIT) AS UNIT,
         MAX(base.UNIT_PACK) AS UNIT_PACK,
         base.SEQ,
         '' AS DRUGTYPE,
         MAX(base.DRUGREMARK) AS DRUGREMARK,
         MAX(base.PA_NO) AS PA_NO,
         SUM(base.TOTCOPAY) AS TOTCOPAY,
-        base.USE_STATUS,
+        MAX(base.USE_STATUS) AS USE_STATUS,
         SUM(base.TOTAL) AS TOTAL,
         MAX(base.SIGCODE) AS SIGCODE,
         MAX(base.SIGTEXT) AS SIGTEXT,
@@ -11529,15 +11527,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         base.SEQ,
         base.HN,
         base.AN,
-        base.CLINIC,
-        base.PERSON_ID,
         base.DID,
-        base.DIDNAME,
-        base.UNIT,
-        base.DRUGPRIC,
-        base.DRUGCOST,
-        base.DIDSTD,
-        base.USE_STATUS
+        base.DRUGPRIC
       HAVING SUM(base.TOTAL) <> 0
     `, [hcode, vns]);
 

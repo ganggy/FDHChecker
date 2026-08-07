@@ -399,6 +399,7 @@ const APP_SESSION_TABLE_SQL = `
 
 export const DEFAULT_MENU_PAGES = [
   'staff', 'ipd', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
+  'sssExport', 'sssRepStm',
   'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'revenueOpportunity', 'reconciliation',
@@ -406,7 +407,7 @@ export const DEFAULT_MENU_PAGES = [
 ];
 
 const DEFAULT_STAFF_MENU_PAGES = [
-  'staff', 'ipd', 'fdh', 'nhsoClose', 'preValidator', 'workQueue', 'guide'
+  'staff', 'ipd', 'fdh', 'nhsoClose', 'sssExport', 'sssRepStm', 'preValidator', 'workQueue', 'guide'
 ];
 
 const FDH_STATUS_IMPORT_LOG_TABLE_SQL = `

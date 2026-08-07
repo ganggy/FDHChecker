@@ -118,6 +118,13 @@ import {
 import { isMissingFdhStatus } from '../src/utils/fdhClaimProgress.js';
 import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
 import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
+import {
+  buildSssExportZip,
+  getSssCandidates,
+  getSssImportHistory,
+  importSssResponseRows,
+  type SssNetworkType,
+} from './sssClaim.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

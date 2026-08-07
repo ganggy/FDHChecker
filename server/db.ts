@@ -3570,6 +3570,104 @@ export const syncNhsoAuthenCodes = async (options: {
   return summary;
 };
 
+const getNhsoIpdAuthenCandidates = async (
+  startDate: string,
+  endDate: string,
+  options: { force?: boolean; fundCodes?: string[] } = {},
+) => {
+  const connection = await getUTFConnection();
+  try {
+    const fundCodes = Array.from(new Set(
+      (options.fundCodes || ['UCS', 'LGO', 'WEL'])
+        .map((code) => normalizeImportCellValue(code).toUpperCase())
+        .filter((code) => ['UCS', 'LGO', 'WEL'].includes(code)),
+    ));
+    const cooldownCondition = options.force ? '' : `AND NOT EXISTS (
+      SELECT 1 FROM ${repstmDatabaseName}.authen_sync_log asl
+      WHERE asl.vn=i.vn AND asl.status IN ('not_found','error')
+        AND asl.synced_at >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
+    )`;
+    const [rows] = await connection.query(
+      `SELECT i.vn,i.an,i.hn,pt.cid,i.regdate AS vstdate,i.dchdate,
+              TIMESTAMP(i.regdate,i.regtime) AS service_datetime
+       FROM ipt i
+       JOIN patient pt ON pt.hn=i.hn
+       JOIN pttype ptt ON ptt.pttype=i.pttype
+       WHERE (i.regdate BETWEEN ? AND ? OR i.dchdate BETWEEN ? AND ?)
+         AND ptt.hipdata_code IN (?)
+         AND NOT EXISTS (SELECT 1 FROM authenhos ah WHERE ah.vn IN (i.vn,i.an) AND COALESCE(ah.claim_code,'')<>'')
+         AND NOT EXISTS (SELECT 1 FROM visit_pttype vp WHERE vp.vn=i.vn AND COALESCE(vp.auth_code,'')<>'')
+         ${cooldownCondition}
+       ORDER BY i.dchdate DESC,i.an DESC
+       LIMIT 200`,
+      [startDate,endDate,startDate,endDate,fundCodes],
+    );
+    return Array.isArray(rows) ? rows as Record<string,unknown>[] : [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const syncNhsoIpdAuthenCodes = async (options: {
+  token: string;
+  baseUrl: string;
+  hospitalCode: string;
+  startDate: string;
+  endDate: string;
+  maxDays?: number;
+  force?: boolean;
+  fundCodes?: string[];
+}) => {
+  const start = new Date(options.startDate);
+  const end = new Date(options.endDate);
+  const dayDiff = Math.floor((end.getTime()-start.getTime())/86400000);
+  if (Number.isNaN(dayDiff) || dayDiff < 0) throw new Error('ช่วงวันที่ไม่ถูกต้อง');
+  if (dayDiff > (options.maxDays ?? 31)) throw new Error(`การตรวจ Authen อัตโนมัติรองรับช่วงวันที่ไม่เกิน ${options.maxDays ?? 31} วัน`);
+
+  await getAuthenSyncLogs(1); // Ensure the shared sync-log table exists before applying the cooldown filter.
+  const candidates = await getNhsoIpdAuthenCandidates(options.startDate,options.endDate,{
+    force:Boolean(options.force),
+    fundCodes:options.fundCodes,
+  });
+  const summary = { total:candidates.length,updated:0,skipped:0,notFound:0,errors:0 };
+  for (const row of candidates) {
+    const vn=normalizeImportCellValue(row.vn), an=normalizeImportCellValue(row.an), cid=normalizeImportCellValue(row.cid), hn=normalizeImportCellValue(row.hn), admitDate=formatDateOnly(row.vstdate);
+    if (!cid || !isValidThaiCid(cid)) {
+      summary.skipped+=1;
+      await saveAuthenSyncLog({vn,cid,hn,vstdate:admitDate,status:'skipped',message:`FDH IPD ${an}: CID ไม่ถูกต้อง`});
+      continue;
+    }
+    try {
+      const apiResult=await callNhsoAuthenApi(options.baseUrl,options.token,cid,admitDate);
+      const payload=apiResult.payload as Record<string,unknown>|null;
+      const histories=Array.isArray(payload?.serviceHistories)?payload.serviceHistories as Record<string,unknown>[]:[];
+      const matched=histories.find((history)=>{
+        const hospital=history.hospital as Record<string,unknown>|undefined;
+        return normalizeImportCellValue(hospital?.hcode)===options.hospitalCode
+          && formatDateOnly(history.serviceDateTime)===admitDate
+          && Boolean(normalizeImportCellValue(history.claimCode));
+      });
+      if (!matched) {
+        summary.notFound+=1;
+        await saveAuthenSyncLog({vn,cid,hn,vstdate:admitDate,status:'not_found',message:`FDH IPD ${an}: ไม่พบ Authen Code ที่ตรงกับโรงพยาบาล/วัน Admit`,requestUrl:apiResult.requestUrl,responsePayload:payload});
+        continue;
+      }
+      const service=matched.service as Record<string,unknown>|undefined;
+      const claimCode=normalizeImportCellValue(matched.claimCode);
+      const authenType=normalizeImportCellValue(service?.code);
+      const serviceDateTime=normalizeImportCellValue(matched.serviceDateTime);
+      const authenDateTime=parseFlexibleDateTime(serviceDateTime)||`${admitDate} 00:00:00`;
+      await upsertAuthenForVisit({vn,cid,claimCode,authenType,authenDateTime});
+      await saveAuthenSyncLog({vn,cid,hn,vstdate:admitDate,claimCode,authenType,authenDateTime,status:'updated',message:`FDH IPD ${an}: นำเข้า Authen Code จาก NHSO API สำเร็จ`,requestUrl:apiResult.requestUrl,responsePayload:payload});
+      summary.updated+=1;
+    } catch (error) {
+      summary.errors+=1;
+      await saveAuthenSyncLog({vn,cid,hn,vstdate:admitDate,status:'error',message:`FDH IPD ${an}: ${error instanceof Error?error.message:'Sync Authen ไม่สำเร็จ'}`});
+    }
+  }
+  return summary;
+};
+
 const normalizeImportCellValue = (value: unknown): string => {
   if (value == null) return '';
   if (typeof value === 'string') return value.trim();
@@ -14225,7 +14323,24 @@ export const getEligibleIPD = async (
           ELSE DATEDIFF(ipt.dchdate, ipt.regdate) 
         END as los,
         pttype.name as pttype,
-        COALESCE(ipt.pttype, pttype.hipdata_code) as hipdata_code,
+        COALESCE(pttype.hipdata_code, ipt.pttype) as hipdata_code,
+        COALESCE(
+          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = ipt.vn AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
+          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = ipt.an AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
+          (SELECT vp.auth_code FROM visit_pttype vp WHERE vp.vn = ipt.vn AND COALESCE(vp.auth_code, '') <> '' LIMIT 1),
+          ''
+        ) as authen_code,
+        COALESCE(
+          (SELECT DATE_FORMAT(TIMESTAMP(ah.created_date, ah.created_time), '%Y-%m-%d %H:%i:%s') FROM authenhos ah WHERE ah.vn = ipt.vn AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
+          (SELECT DATE_FORMAT(TIMESTAMP(ah.created_date, ah.created_time), '%Y-%m-%d %H:%i:%s') FROM authenhos ah WHERE ah.vn = ipt.an AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
+          (SELECT DATE_FORMAT(vp.Auth_DateTime, '%Y-%m-%d %H:%i:%s') FROM visit_pttype vp WHERE vp.vn = ipt.vn AND COALESCE(vp.auth_code, '') <> '' LIMIT 1),
+          ''
+        ) as authen_datetime,
+        CASE
+          WHEN EXISTS (SELECT 1 FROM authenhos ah WHERE ah.vn IN (ipt.vn, ipt.an) AND COALESCE(ah.claim_code, '') <> '') THEN 'authenhos'
+          WHEN EXISTS (SELECT 1 FROM visit_pttype vp WHERE vp.vn = ipt.vn AND COALESCE(vp.auth_code, '') <> '') THEN 'visit_pttype'
+          ELSE ''
+        END as authen_source,
         
         -- DRG & RW
         (SELECT drg FROM an_stat WHERE an = ipt.an LIMIT 1) as drg,

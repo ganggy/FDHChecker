@@ -7,7 +7,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
 import crypto from 'crypto';
-import { getVisitsCached } from './cacheManager.js';
+import { clearCache, getVisitsCached } from './cacheManager.js';
 import {
   getCheckData,
   testDatabaseConnection,
@@ -66,6 +66,7 @@ import {
   getRepDailyVisitDetail,
   saveReceivableBatch,
   syncNhsoAuthenCodes,
+  syncNhsoIpdAuthenCodes,
   getAuthenSyncLogs,
   ensureNhsoClosePrivilegeTable,
   getNhsoClosePrivilegeCandidates,
@@ -1723,6 +1724,39 @@ app.get('/api/hosxp/ipd-list', async (req, res) => {
   } catch (error) {
     console.error('Error fetching IPD list:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+app.post('/api/fdh/ipd/authen/sync', async (req, res) => {
+  try {
+    const startDate = String(req.body?.startDate || '').trim();
+    const endDate = String(req.body?.endDate || '').trim();
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่ Admit/D/C' });
+    }
+    const authenConfig = await getResolvedNhsoAuthenConfig();
+    const token = String(authenConfig.token || '').trim();
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า NHSO Token สำหรับตรวจ Authen Code' });
+    }
+    const summary = await syncNhsoIpdAuthenCodes({
+      token,
+      baseUrl: String(authenConfig.apiBaseUrl || '').trim(),
+      hospitalCode: await getResolvedHospitalCode(),
+      startDate,
+      endDate,
+      maxDays: 31,
+      force: Boolean(req.body?.force),
+      fundCodes: ['UCS', 'LGO', 'WEL'],
+    });
+    if (summary.updated > 0) clearCache();
+    return res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error auto-syncing FDH IPD Authen Code:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ตรวจ Authen Code ผู้ป่วยในจาก API ไม่สำเร็จ',
+    });
   }
 });
 

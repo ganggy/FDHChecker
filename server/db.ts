@@ -14089,6 +14089,8 @@ export const getEligibleIPD = async (
         ipt.hn,
         ipt.vn,
         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
+        pt.sex as sex,
+        DATEDIFF(ipt.regdate, pt.birthday) as ageDays,
         w.name as ward,
         DATE_FORMAT(ipt.regdate, '%Y-%m-%d') as admDate,
         TIME_FORMAT(ipt.regtime, '%H:%i:%s') as regTime,
@@ -14109,6 +14111,36 @@ export const getEligibleIPD = async (
         (SELECT icd10 FROM iptdiag WHERE an = ipt.an AND diagtype = '1' LIMIT 1) as pdx,
         (SELECT GROUP_CONCAT(DISTINCT icd10 ORDER BY diagtype, icd10 SEPARATOR ',') FROM iptdiag WHERE an = ipt.an) as diagnosis_codes,
         (SELECT GROUP_CONCAT(icd9) FROM iptoprt WHERE an = ipt.an) as or_codes,
+        EXISTS(
+          SELECT 1
+          FROM opitemrece oi
+          JOIN s_drugitems sd ON sd.icode = oi.icode
+          WHERE oi.an = ipt.an
+            AND UPPER(COALESCE(sd.name, '')) REGEXP 'TAMIFLU|OSELTAMIVIR'
+        ) as hasTamiflu,
+        EXISTS(
+          SELECT 1
+          FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+          WHERE lh.vn IN (ipt.an, ipt.vn)
+            AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP 'INFLUENZA|FLU A|FLU B'
+            AND COALESCE(lo.lab_order_result, '') <> ''
+        ) as hasInfluenzaTest,
+        EXISTS(
+          SELECT 1
+          FROM opitemrece oi
+          JOIN nondrugitems nd ON nd.icode = oi.icode
+          WHERE oi.an = ipt.an
+            AND (
+              UPPER(COALESCE(nd.name, '')) REGEXP '(^|[^A-Z])CT([^A-Z]|$)|COMPUTED TOMOGRAPHY'
+              OR COALESCE(nd.name, '') LIKE '%เอกซเรย์คอมพิวเตอร์%'
+            )
+        ) as hasCtScan,
+        (
+          EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = ipt.vn)
+          OR EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = ipt.vn)
+        ) as hasReferral,
         (SELECT CONCAT(DATE_FORMAT(prev.dchdate, '%Y-%m-%d'), ' ', TIME_FORMAT(prev.dchtime, '%H:%i:%s'))
           FROM ipt prev
           WHERE prev.hn = ipt.hn

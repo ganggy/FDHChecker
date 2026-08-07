@@ -33,6 +33,18 @@ const IPD_PRE_AUDIT_RULES = [
     { code: 'CR45', title: 'Ischemic heart disease', condition: 'I25.1/I25.5 ต้องมี CAG/imaging, stenosis, LVEF หรือประวัติสนับสนุน', result: 'ทบทวน Chart' },
     { code: 'CR58', title: 'PCI / Stent coding', condition: '00.66 ต้องมี 00.40-00.44 และจำนวน stent 00.45-00.48 ต้องครบคู่ 36.06/36.07', result: 'เสี่ยง' },
     { code: 'CR5 / CR8', title: 'Acidosis / Volume overload', condition: 'E87.2 ต้องมีผล lab สนับสนุน; E87.7 ร่วม I50.- อาจเป็นรหัสซ้ำ', result: 'ทบทวน/เสี่ยง' },
+    { code: 'INS-IPD03', title: 'รหัสเฉพาะเพศหญิง', condition: 'ตรวจรายการ A34, B37.3, C51-C58, C79.6, D06/D07.0-D07.3, D25-D28, D39, E28, E89.4, F52.5, F53, I86.3, L29.2, L70.5, M80.0-M81.1, M83.0, N70-N98, N99.2-N99.3, O00-O99, P54.6, Q50/Q52, R87, S31.4, S37.4-S37.6, T19.2-T19.3, T83.3, Y76 และกลุ่ม Z ที่กำหนด', result: 'เสี่ยง' },
+    { code: 'INS-IPD04 / 06', title: 'Injury / Burn coding', condition: 'S/T ต้องมี external cause V/W/X/Y; ห้าม T31.0-T31.9 เป็น PDx; T36-T50 ต้องมีอักขระตำแหน่งที่ 5', result: 'เสี่ยง' },
+    { code: 'INS-IPD05', title: 'Delivery PDx', condition: 'O80.0-O84.9 เป็น PDx ต้องไม่มีรหัส O อื่นร่วม', result: 'เสี่ยง' },
+    { code: 'INS-IPD07 / 08', title: 'รหัสคู่และรหัสห้ามร่วม', condition: 'B45.1 ต้องคู่ G02.1; R75/Z21/B20-B24 เลือกได้เพียงสถานะเดียว', result: 'เสี่ยง' },
+    { code: 'INS-IPD09 / 12', title: 'Diabetes coding', condition: 'DM ใช้กลุ่ม E10-E14 และเมื่อมี E10-E14 ต้องไม่มี R73.-', result: 'เสี่ยง' },
+    { code: 'INS-IPD10 / 11', title: 'Z38.0 / Z37.0', condition: 'Z38.0 เฉพาะอายุ 0-15 วัน; Z37.0 เฉพาะเพศหญิงและต้องคู่ O80.0', result: 'เสี่ยง' },
+    { code: 'INS-T01-T06', title: 'กฎคู่รหัสจากงานประกัน', condition: 'ตรวจ D68+Y44.2, F10-F18 หลายกลุ่ม, N10+N20.0 และ A15-A19 ร่วม B24 ตามตารางงานประกัน', result: 'ทบทวน/เสี่ยง' },
+    { code: 'INS-T07-T09', title: 'I69.3 / Pressure ulcer', condition: 'I69.3 ห้ามเป็น PDx; L89 ต้องระบุหลักให้ครบ; L89.3 ห้าม Admit Home ward', result: 'เสี่ยง' },
+    { code: 'INS-T10-T14', title: 'หลักฐานยา Lab Imaging และ Refer', condition: 'J11.1 ตรวจ Tamiflu, J10 ตรวจ Influenza, I60-I63 ตรวจ CT scan และ I64 ต้องมี Refer', result: 'ทบทวน/เสี่ยง' },
+    { code: 'INS-T15 / 16', title: 'A41.9 / R57.2 ตามเกณฑ์ท้องถิ่น', condition: 'งานประกันกำหนดทบทวน A41.9 และ R57.2 ต้องมี A41.9 ร่วม', result: 'เสี่ยง' },
+    { code: 'INS-T17 / 19', title: 'เพศชายและทารกแรกเกิด', condition: 'N40-N51 เฉพาะเพศชาย; O00-O99 เฉพาะเพศหญิง; P00-P96 เฉพาะอายุ 0-28 วัน', result: 'เสี่ยง' },
+    { code: 'INS-T20', title: 'Blood transfusion 99.04', condition: 'หัตถการ 99.04 ต้องมี PDx/SDx D56, D64, D62, D63.0 หรือ D63.8', result: 'เสี่ยง' },
 ] as const;
 
 const readResponseError = async (response: Response) => {
@@ -893,7 +905,7 @@ export const IPDPage: React.FC = () => {
                 <div className="modal-overlay" onClick={() => setShowPreAuditRules(false)}>
                     <div className="modal-content ipd-rules-modal" onClick={(event) => event.stopPropagation()}>
                         <div className="ipd-rules-modal__header">
-                            <div><h2>เงื่อนไข IPD Pre-audit ที่ระบบใช้</h2><small>กฎจาก Diagnosis, Procedure และวันเวลา Admit/D/C</small></div>
+                            <div><h2>เงื่อนไข IPD Pre-audit ที่ระบบใช้</h2><small>กฎจาก Auditor โรงพยาบาล งานประกัน Diagnosis, Procedure, เพศ, อายุ และหลักฐานบริการ</small></div>
                             <button type="button" aria-label="ปิด" onClick={() => setShowPreAuditRules(false)}>&times;</button>
                         </div>
                         <div className="ipd-rules-modal__grid">

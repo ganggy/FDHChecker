@@ -20,10 +20,13 @@ test('checks PTCA vessel count and stent count/type pairing', () => {
 });
 
 test('marks sepsis as chart review and septic shock without sepsis as risk', () => {
-  assert.equal(evaluateIpdPreAudit({ diagnoses: ['A41.9'] }).status, 'review');
+  const sepsis = evaluateIpdPreAudit({ diagnoses: ['A41.9'] });
+  assert.equal(sepsis.status, 'risk');
+  assert.equal(sepsis.findings.some((finding) => finding.code === 'CR1'), true);
+  assert.equal(sepsis.findings.some((finding) => finding.code === 'INS-T15'), true);
   const shock = evaluateIpdPreAudit({ diagnoses: ['R57.2'] });
   assert.equal(shock.status, 'risk');
-  assert.equal(shock.findings[0]?.code, 'CR37');
+  assert.equal(shock.findings.some((finding) => finding.code === 'CR37'), true);
 });
 
 test('flags redundant volume overload with heart failure', () => {
@@ -67,4 +70,53 @@ test('flags possible split admission within 24 hours', () => {
   });
   assert.equal(result.status, 'risk');
   assert.equal(result.findings[0]?.code, 'IPD-DOC04');
+});
+
+test('applies sex and newborn restrictions from hospital insurance audit', () => {
+  const femaleOnly = evaluateIpdPreAudit({ diagnoses: ['N80.0'], sex: '1', ageDays: 10000 });
+  assert.equal(femaleOnly.findings.some((finding) => finding.code === 'INS-IPD03'), true);
+
+  const maleOnly = evaluateIpdPreAudit({ diagnoses: ['N40.0'], sex: '2' });
+  assert.equal(maleOnly.findings.some((finding) => finding.code === 'INS-T17'), true);
+
+  const newborn = evaluateIpdPreAudit({ diagnoses: ['P07.0', 'Z38.0'], sex: '1', ageDays: 30 });
+  assert.deepEqual(newborn.findings.filter((finding) => ['INS-IPD10', 'INS-T19'].includes(finding.code)).map((finding) => finding.code), ['INS-IPD10', 'INS-T19']);
+});
+
+test('requires external causes and validates delivery principal coding', () => {
+  const injury = evaluateIpdPreAudit({ diagnoses: ['S37.4'], sex: '2' });
+  assert.equal(injury.findings.some((finding) => finding.code === 'INS-IPD04'), true);
+
+  const injuryWithCause = evaluateIpdPreAudit({ diagnoses: ['S37.4', 'V89.2'], sex: '2' });
+  assert.equal(injuryWithCause.findings.some((finding) => finding.code === 'INS-IPD04'), false);
+
+  const delivery = evaluateIpdPreAudit({ diagnoses: ['O80.0', 'O72.1'], principalDiagnosis: 'O80.0', sex: '2' });
+  assert.equal(delivery.findings.some((finding) => finding.code === 'INS-IPD05'), true);
+  assert.equal(evaluateIpdPreAudit({ diagnoses: ['T31.2'], principalDiagnosis: 'T31.2' }).findings.some((finding) => finding.code === 'INS-IPD06'), true);
+});
+
+test('checks required and mutually exclusive diagnosis pairs', () => {
+  assert.equal(evaluateIpdPreAudit({ diagnoses: ['B45.1'] }).findings.some((finding) => finding.code === 'INS-IPD07'), true);
+  assert.equal(evaluateIpdPreAudit({ diagnoses: ['B45.1', 'G02.1'] }).findings.some((finding) => finding.code === 'INS-IPD07'), false);
+  assert.equal(evaluateIpdPreAudit({ diagnoses: ['Z21', 'B20.0'] }).findings.some((finding) => finding.code === 'INS-IPD08'), true);
+  assert.equal(evaluateIpdPreAudit({ diagnoses: ['E11.9', 'R73.9'] }).findings.some((finding) => finding.code === 'INS-IPD09'), true);
+  assert.equal(evaluateIpdPreAudit({ diagnoses: ['Z37.0'], sex: '2' }).findings.some((finding) => finding.code === 'INS-IPD11'), true);
+});
+
+test('checks local insurance evidence for medicine lab imaging and referral', () => {
+  const missingEvidence = evaluateIpdPreAudit({ diagnoses: ['J11.1', 'J10.1', 'I63.9', 'I64'] });
+  assert.deepEqual(
+    missingEvidence.findings.filter((finding) => ['INS-T10', 'INS-T11', 'INS-T13', 'INS-T14'].includes(finding.code)).map((finding) => finding.code),
+    ['INS-T10', 'INS-T11', 'INS-T13', 'INS-T14'],
+  );
+  const completeEvidence = evaluateIpdPreAudit({ diagnoses: ['J11.1', 'J10.1', 'I63.9', 'I64'], hasTamiflu: 1, hasInfluenzaTest: 1, hasCtScan: 1, hasReferral: 1 });
+  assert.equal(completeEvidence.findings.some((finding) => ['INS-T10', 'INS-T11', 'INS-T13', 'INS-T14'].includes(finding.code)), false);
+});
+
+test('checks hospital insurance table rules and transfusion support', () => {
+  const result = evaluateIpdPreAudit({ diagnoses: ['D68.9', 'I69.3', 'L89'], principalDiagnosis: 'I69.3', procedures: ['99.04'] });
+  for (const expected of ['INS-T01', 'INS-T07', 'INS-T09', 'INS-T20']) {
+    assert.equal(result.findings.some((finding) => finding.code === expected), true, expected);
+  }
+  assert.equal(evaluateIpdPreAudit({ diagnoses: ['D64.9'], procedures: ['99.04'] }).findings.some((finding) => finding.code === 'INS-T20'), false);
 });

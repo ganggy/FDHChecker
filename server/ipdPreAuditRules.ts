@@ -20,6 +20,13 @@ export type IpdPreAuditInput = {
   diagnoses?: unknown[];
   procedures?: unknown[];
   principalDiagnosis?: unknown;
+  sex?: unknown;
+  ageDays?: unknown;
+  wardName?: unknown;
+  hasTamiflu?: unknown;
+  hasInfluenzaTest?: unknown;
+  hasCtScan?: unknown;
+  hasReferral?: unknown;
   admissionAt?: unknown;
   dischargeAt?: unknown;
   previousDischargeAt?: unknown;
@@ -31,6 +38,14 @@ const uniqueCodes = (values: unknown[] = []) => Array.from(new Set(values.map(no
 const hasPrefix = (codes: string[], ...prefixes: string[]) => codes.some((code) => prefixes.some((prefix) => code.startsWith(normalize(prefix))));
 const hasExact = (codes: string[], ...values: string[]) => values.some((value) => codes.includes(normalize(value)));
 const matching = (codes: string[], predicate: (code: string) => boolean) => codes.filter(predicate);
+const numericCodeRange = (code: string, prefix: string, start: number, end: number) => {
+  if (!code.startsWith(prefix)) return false;
+  const value = Number(code.slice(prefix.length, prefix.length + 2));
+  return Number.isInteger(value) && value >= start && value <= end;
+};
+const truthy = (value: unknown) => value === true || value === 1 || String(value ?? '').trim() === '1';
+const isFemaleSex = (value: unknown) => ['2', 'F', 'FEMALE', 'หญิง'].includes(String(value ?? '').trim().toUpperCase());
+const isMaleSex = (value: unknown) => ['1', 'M', 'MALE', 'ชาย'].includes(String(value ?? '').trim().toUpperCase());
 const parseDateTime = (value: unknown) => {
   const text = String(value ?? '').trim();
   if (!text) return null;
@@ -75,6 +90,142 @@ export const evaluateIpdPreAudit = (input: IpdPreAuditInput): IpdPreAuditResult 
   const cancerCodes = matching(diagnoses, (code) => /^C[0-9]{2}/.test(code));
   if (input.includeDocumentAudit && cancerCodes.length > 0) {
     add({ code: 'IPD-DOC06', severity: 'review', title: 'Active cancer documentation', message: 'ทบทวนชนิด ระยะ ตำแหน่งรอยโรค สถานะโรค ประวัติการรักษา และหลักฐาน pathology/radiology ที่สนับสนุนมะเร็งระยะ active', evidence: cancerCodes });
+  }
+
+  // เงื่อนไขเพิ่มเติมจากงานประกันของโรงพยาบาล
+  const femaleOnlyCodes = matching(diagnoses, (code) => (
+    code === 'A34' || code === 'B373' || numericCodeRange(code, 'C', 51, 58) || code === 'C796'
+    || code.startsWith('D06') || ['D070', 'D071', 'D072', 'D073'].some((prefix) => code.startsWith(prefix))
+    || numericCodeRange(code, 'D', 25, 28) || code.startsWith('D39') || code.startsWith('E28')
+    || code === 'E894' || code === 'F525' || code.startsWith('F53') || code === 'I863'
+    || code === 'L292' || code === 'L705' || code.startsWith('M800') || code.startsWith('M801')
+    || code.startsWith('M810') || code.startsWith('M811') || code.startsWith('M830')
+    || numericCodeRange(code, 'N', 70, 98) || code.startsWith('N992') || code.startsWith('N993')
+    || numericCodeRange(code, 'O', 0, 99) || code === 'P546' || code.startsWith('Q50') || code.startsWith('Q52')
+    || code.startsWith('R87') || code === 'S314' || ['S374', 'S375', 'S376'].some((prefix) => code.startsWith(prefix))
+    || ['T192', 'T193'].some((prefix) => code.startsWith(prefix)) || code === 'T833' || code.startsWith('Y76')
+    || ['Z014', 'Z124', 'Z301', 'Z303', 'Z305', 'Z311', 'Z312', 'Z437', 'Z875', 'Z975'].includes(code)
+    || numericCodeRange(code, 'Z', 32, 36) || code.startsWith('Z39')
+  ));
+  if (femaleOnlyCodes.length > 0 && !isFemaleSex(input.sex)) {
+    add({ code: 'INS-IPD03', severity: 'risk', title: 'รหัสโรคที่ใช้ได้เฉพาะเพศหญิง', message: 'พบ ICD ในกลุ่มที่งานประกันกำหนดให้ใช้กับผู้ป่วยเพศหญิงเท่านั้น แต่ข้อมูลเพศไม่ใช่หญิง', evidence: femaleOnlyCodes });
+  }
+
+  const injuryCodes = matching(diagnoses, (code) => code.startsWith('S') || code.startsWith('T'));
+  const externalCauseCodes = matching(diagnoses, (code) => /^[VWXY]/.test(code));
+  if (injuryCodes.length > 0 && externalCauseCodes.length === 0) {
+    add({ code: 'INS-IPD04', severity: 'risk', title: 'Injury / External cause', message: 'เมื่อให้รหัส S หรือ T ต้องมีรหัสสาเหตุภายนอก V/W/X/Y ร่วมด้วย', evidence: injuryCodes });
+  }
+
+  if (/^O8[0-4]/.test(principal)) {
+    const otherOCodes = diagnoses.filter((code) => code.startsWith('O') && code !== principal);
+    if (otherOCodes.length > 0) {
+      add({ code: 'INS-IPD05', severity: 'risk', title: 'Delivery code as principal diagnosis', message: 'เมื่อ O80.0-O84.9 เป็น PDx ต้องไม่มีรหัส O กลุ่มอื่นร่วมในการให้รหัสครั้งนี้', evidence: [principal, ...otherOCodes] });
+    }
+  }
+
+  if (/^T31[0-9]/.test(principal)) {
+    add({ code: 'INS-IPD06', severity: 'risk', title: 'Burn extent code as PDx', message: 'ห้ามใช้ T31.0-T31.9 เป็น Principal diagnosis', evidence: [principal] });
+  }
+
+  const hasB451 = hasExact(diagnoses, 'B451');
+  const hasG021 = hasExact(diagnoses, 'G021');
+  if (hasB451 !== hasG021) {
+    add({ code: 'INS-IPD07', severity: 'risk', title: 'Cryptococcal meningitis dagger/asterisk pair', message: 'B45.1 และ G02.1 ต้องให้รหัสคู่กัน', evidence: matching(diagnoses, (code) => code === 'B451' || code === 'G021') });
+  }
+
+  const hivCodes = matching(diagnoses, (code) => code === 'R75' || code === 'Z21' || /^B2[0-4]/.test(code));
+  const hivGroups = new Set(hivCodes.map((code) => code === 'R75' || code === 'Z21' ? code : code.slice(0, 3)));
+  if (hivGroups.size > 1) {
+    add({ code: 'INS-IPD08', severity: 'risk', title: 'HIV status codes are mutually exclusive', message: 'R75, Z21 และกลุ่ม B20-B24 ใช้ร่วมกันไม่ได้ ให้เลือกสถานะที่ตรงที่สุดเพียงกลุ่มเดียว', evidence: hivCodes });
+  }
+
+  const dmCodes = matching(diagnoses, (code) => numericCodeRange(code, 'E', 10, 14));
+  const abnormalGlucoseCodes = matching(diagnoses, (code) => code.startsWith('R73'));
+  if (dmCodes.length > 0 && abnormalGlucoseCodes.length > 0) {
+    add({ code: 'INS-IPD09', severity: 'risk', title: 'Diabetes with abnormal glucose code', message: 'เมื่อวินิจฉัย DM ด้วย E10-E14 แล้ว ต้องไม่มี R73.- ร่วม', evidence: [...dmCodes, ...abnormalGlucoseCodes] });
+  }
+
+  const ageDays = Number(input.ageDays);
+  if (hasExact(diagnoses, 'Z380') && (!Number.isFinite(ageDays) || ageDays < 0 || ageDays > 15)) {
+    add({ code: 'INS-IPD10', severity: 'risk', title: 'Singleton liveborn infant', message: 'Z38.0 ใช้ได้เฉพาะทารกแรกเกิดอายุ 0-15 วัน', evidence: ['Z380', Number.isFinite(ageDays) ? `อายุ ${ageDays} วัน` : 'ไม่พบอายุเป็นวัน'] });
+  }
+
+  if (hasExact(diagnoses, 'Z370') && (!isFemaleSex(input.sex) || !hasExact(diagnoses, 'O800'))) {
+    add({ code: 'INS-IPD11', severity: 'risk', title: 'Outcome of delivery', message: 'Z37.0 ใช้ได้เฉพาะผู้ป่วยเพศหญิงและต้องมี O80.0 ร่วม', evidence: ['Z370', ...matching(diagnoses, (code) => code === 'O800')] });
+  }
+
+  const d68Codes = matching(diagnoses, (code) => /^D68[0-9]/.test(code));
+  if (d68Codes.length > 0 && !hasExact(diagnoses, 'Y442')) {
+    add({ code: 'INS-T01', severity: 'risk', title: 'Coagulation defect / drug external cause', message: 'D68.0-D68.9 ต้องมี Y44.2 ร่วมตามเงื่อนไขงานประกัน', evidence: d68Codes });
+  }
+
+  const incompletePoisoningCodes = matching(diagnoses, (code) => numericCodeRange(code, 'T', 36, 50) && code.length < 5);
+  if (incompletePoisoningCodes.length > 0) {
+    add({ code: 'INS-T02', severity: 'risk', title: 'Poisoning code fifth character', message: 'T36-T50 ต้องระบุอักขระตำแหน่งที่ 5 ของรหัสให้ครบ', evidence: incompletePoisoningCodes });
+  }
+
+  const substanceSpecific = matching(diagnoses, (code) => /^F1[0-8]/.test(code));
+  if (/^F1[0-8]/.test(principal) && substanceSpecific.some((code) => code.slice(0, 3) !== principal.slice(0, 3))) {
+    add({ code: 'INS-T03', severity: 'risk', title: 'Multiple substance categories', message: 'เมื่อ PDx และ SDx อยู่ต่างกลุ่มใน F10-F18 ให้ทบทวนการใช้ F19 ตามเงื่อนไขงานประกัน', evidence: substanceSpecific });
+  }
+
+  if (hasExact(diagnoses, 'N10') && hasExact(diagnoses, 'N200')) {
+    add({ code: 'INS-T04', severity: 'review', title: 'N10 with N20.0', message: 'พบ N10 และ N20.0 ร่วมกัน งานประกันระบุให้ทบทวนการเปลี่ยนรหัสเป็น F19 ก่อนส่งเบิก', evidence: ['N10', 'N200'] });
+  }
+
+  const tbCodes = matching(diagnoses, (code) => numericCodeRange(code, 'A', 15, 19));
+  if (tbCodes.length > 0 && hasExact(diagnoses, 'B24')) {
+    add({ code: 'INS-T06', severity: 'review', title: 'Tuberculosis with HIV disease', message: 'พบ A15-A19 ร่วม B24 งานประกันระบุให้ทบทวน PDx B20.0 และ SDx A15-A16', evidence: [...tbCodes, 'B24'] });
+  }
+
+  if (principal === 'I693') {
+    add({ code: 'INS-T07', severity: 'risk', title: 'Sequelae of cerebral infarction as PDx', message: 'I69.3 ไม่ควรเป็น PDx; ใช้เพื่อระบุความพิการหรือความบกพร่องที่เหลืออยู่', evidence: ['I693'] });
+  }
+
+  if (hasExact(diagnoses, 'L893') && /HOME|โฮม|บ้าน/i.test(String(input.wardName ?? ''))) {
+    add({ code: 'INS-T08', severity: 'risk', title: 'Pressure ulcer in Home ward', message: 'งานประกันกำหนดห้าม Admit รหัส L89.3 ใน Home ward', evidence: ['L893', String(input.wardName || 'Home ward')] });
+  }
+  if (hasExact(diagnoses, 'L89')) {
+    add({ code: 'INS-T09', severity: 'risk', title: 'Incomplete pressure ulcer code', message: 'ห้ามใช้ L89 ที่ไม่ครบหลัก ควรระบุ L89.0-L89.3 ให้ชัดเจน', evidence: ['L89'] });
+  }
+
+  if (hasExact(diagnoses, 'J111') && !truthy(input.hasTamiflu)) {
+    add({ code: 'INS-T10', severity: 'review', title: 'Influenza with other respiratory manifestations', message: 'J11.1 ต้องทบทวนหลักฐานการให้ Tamiflu/Oseltamivir', evidence: ['J111'] });
+  }
+  if (hasPrefix(diagnoses, 'J10') && !truthy(input.hasInfluenzaTest)) {
+    add({ code: 'INS-T11', severity: 'review', title: 'Influenza virus identified', message: 'J10 ต้องมีผลตรวจ Influenza สนับสนุน', evidence: matching(diagnoses, (code) => code.startsWith('J10')) });
+  }
+
+  const strokeCtCodes = matching(diagnoses, (code) => numericCodeRange(code, 'I', 60, 63));
+  if (strokeCtCodes.length > 0 && !truthy(input.hasCtScan)) {
+    add({ code: 'INS-T13', severity: 'review', title: 'Stroke imaging evidence', message: 'I60-I63 ต้องมีหลักฐาน CT scan ตามเงื่อนไขงานประกัน', evidence: strokeCtCodes });
+  }
+  if (hasExact(diagnoses, 'I64') && !truthy(input.hasReferral)) {
+    add({ code: 'INS-T14', severity: 'risk', title: 'Unspecified stroke referral', message: 'I64 ใช้ในกรณี Refer เท่านั้น แต่ไม่พบหลักฐานส่งต่อ/รับส่งต่อ', evidence: ['I64'] });
+  }
+
+  if (hasExact(diagnoses, 'A419')) {
+    add({ code: 'INS-T15', severity: 'risk', title: 'A41.9 local insurance restriction', message: 'งานประกันกำหนดห้ามใช้ A41.9 และให้ทบทวน R50.9 ตามเอกสารเงื่อนไขของโรงพยาบาล', evidence: ['A419'] });
+  }
+  if (hasExact(diagnoses, 'R572') && !hasExact(diagnoses, 'A419')) {
+    add({ code: 'INS-T16', severity: 'risk', title: 'Septic shock local pair', message: 'R57.2 ต้องมี A41.9 ร่วมตามเงื่อนไขงานประกัน', evidence: ['R572'] });
+  }
+
+  const maleOnlyCodes = matching(diagnoses, (code) => numericCodeRange(code, 'N', 40, 51));
+  if (maleOnlyCodes.length > 0 && !isMaleSex(input.sex)) {
+    add({ code: 'INS-T17', severity: 'risk', title: 'Male-only diagnosis', message: 'N40-N51 ใช้ได้เฉพาะผู้ป่วยเพศชาย', evidence: maleOnlyCodes });
+  }
+  const perinatalCodes = matching(diagnoses, (code) => numericCodeRange(code, 'P', 0, 96));
+  if (perinatalCodes.length > 0 && (!Number.isFinite(ageDays) || ageDays < 0 || ageDays > 28)) {
+    add({ code: 'INS-T19', severity: 'risk', title: 'Perinatal diagnosis age', message: 'P00-P96 ใช้ได้เฉพาะทารกอายุ 0-28 วัน', evidence: [...perinatalCodes, Number.isFinite(ageDays) ? `อายุ ${ageDays} วัน` : 'ไม่พบอายุเป็นวัน'] });
+  }
+
+  if (hasExact(procedures, '9904')) {
+    const transfusionDx = matching(diagnoses, (code) => ['D56', 'D64', 'D62', 'D630', 'D638'].some((prefix) => code.startsWith(prefix)));
+    if (transfusionDx.length === 0) {
+      add({ code: 'INS-T20', severity: 'risk', title: 'Blood transfusion diagnosis support', message: 'หัตถการ 99.04 ต้องมี PDx หรือ SDx กลุ่ม D56, D64, D62, D63.0 หรือ D63.8 สนับสนุน', evidence: ['9904'] });
+    }
   }
 
   const sepsisCodes = matching(diagnoses, (code) => code.startsWith('A40') || code.startsWith('A41'));

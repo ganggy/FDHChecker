@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FundEligibilityRules } from '../components/FundEligibilityRules';
 import * as XLSX from 'xlsx';
 import { evaluateBillingLogic } from '../utils/billingUtils';
@@ -9,6 +9,7 @@ import { isFailedFdhSubmission, isMissingFdhStatus } from '../utils/fdhClaimProg
 
 interface EligibleVisit {
     vn: string;
+    an?: string;
     hn: string;
     serviceDate: string;
     patientName: string;
@@ -99,18 +100,49 @@ export const FDHCheckerPage: React.FC = () => {
     const [previewValidation, setPreviewValidation] = useState<FdhValidationResult | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [confirmResend, setConfirmResend] = useState(false);
+    const [ipdAuthenSyncing, setIpdAuthenSyncing] = useState(false);
+    const [ipdAuthenNotice, setIpdAuthenNotice] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
+    const lastIpdAuthenSyncKey = useRef('');
 
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
     const [endDate, setEndDate] = useState(todayStr);
 
-    const fetchEligibleData = async (dateRange?: { startDate?: string; endDate?: string }) => {
+    const syncFdhIpdAuthen = async (rangeStart: string, rangeEnd: string, force = false) => {
+        setIpdAuthenSyncing(true);
+        setIpdAuthenNotice(null);
+        try {
+            const response = await fetch('/api/fdh/ipd/authen/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startDate: rangeStart, endDate: rangeEnd, force }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.success) throw new Error(result.error || 'ตรวจ Authen IPD จาก API ไม่สำเร็จ');
+            const summary = result.summary || {};
+            setIpdAuthenNotice({
+                type: 'success',
+                text: `ตรวจ Authen ผู้ป่วยในสำหรับ FDH แล้ว ${Number(summary.total || 0)} AN — นำเข้าใหม่ ${Number(summary.updated || 0)}, ไม่พบ ${Number(summary.notFound || 0)}, ข้าม ${Number(summary.skipped || 0)}, ผิดพลาด ${Number(summary.errors || 0)}`,
+            });
+        } catch (err) {
+            setIpdAuthenNotice({ type: 'warning', text: err instanceof Error ? err.message : 'ตรวจ Authen IPD จาก API ไม่สำเร็จ' });
+        } finally {
+            setIpdAuthenSyncing(false);
+        }
+    };
+
+    const fetchEligibleData = async (dateRange?: { startDate?: string; endDate?: string; forceIpdAuthen?: boolean }) => {
         const rangeStart = dateRange?.startDate ?? startDate;
         const rangeEnd = dateRange?.endDate ?? endDate;
         setLoading(true);
         setError(null);
         setSelectedVns([]); // Clear selection on refresh
         try {
+            const syncKey = `${rangeStart}:${rangeEnd}`;
+            if (dateRange?.forceIpdAuthen || lastIpdAuthenSyncKey.current !== syncKey) {
+                lastIpdAuthenSyncKey.current = syncKey;
+                await syncFdhIpdAuthen(rangeStart, rangeEnd, Boolean(dateRange?.forceIpdAuthen));
+            }
             const response = await fetch(`/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}`);
             const result = await response.json();
             if (result.success) {
@@ -605,14 +637,29 @@ export const FDHCheckerPage: React.FC = () => {
                         <button
                             className="btn btn-primary"
                             onClick={() => fetchEligibleData()}
-                            disabled={loading || exporting}
+                            disabled={loading || exporting || ipdAuthenSyncing}
                             style={{ height: 'fit-content' }}
                         >
                             🔄 ดึงข้อมูลใหม่
                         </button>
+                        <button
+                            className="btn btn-secondary"
+                            onClick={() => fetchEligibleData({ forceIpdAuthen: true })}
+                            disabled={loading || exporting || ipdAuthenSyncing}
+                            style={{ height: 'fit-content' }}
+                        >
+                            {ipdAuthenSyncing ? '⏳ กำลังตรวจ Authen IPD...' : '🪪 ตรวจ Authen IPD ใหม่'}
+                        </button>
                     </div>
                 </div>
             </div>
+
+            {(ipdAuthenSyncing || ipdAuthenNotice) && (
+                <div className={`alert ${ipdAuthenNotice?.type === 'warning' ? 'alert-warning' : 'alert-info'}`} style={{ marginBottom: 16 }}>
+                    <span>{ipdAuthenSyncing ? '⏳' : ipdAuthenNotice?.type === 'warning' ? '⚠️' : '✅'}</span>
+                    <span>{ipdAuthenSyncing ? 'กำลังตรวจสอบและนำเข้า Authen Code ของผู้ป่วยในก่อนส่ง FDH...' : ipdAuthenNotice?.text}</span>
+                </div>
+            )}
 
             {loading && (
                 <div className="loading-container">
@@ -665,6 +712,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 <th style={{ textAlign: 'center' }}>CID</th>
                                 <th style={{ textAlign: 'center' }}>Diagnosis</th>
                                 <th style={{ textAlign: 'center' }}>Invoice</th>
+                                <th style={{ minWidth: 150, textAlign: 'center' }}>Authen Code<br /><span style={{ fontSize: 10, fontWeight: 400 }}>FDH IPD</span></th>
                                 <th style={{ textAlign: 'center' }}>ปิดสิทธิ (EP)</th>
                                 <th style={{ minWidth: 200 }}>สถานะกองทุน (สปสช.)</th>
                                 <th style={{ minWidth: 180 }}>สถานะ FDH</th>
@@ -763,6 +811,18 @@ export const FDHCheckerPage: React.FC = () => {
                                                         </div>
                                                     ) : (
                                                         <span style={{ color: 'var(--danger)' }}>✗</span>
+                                                    )}
+                                                </td>
+                                                <td style={{ textAlign: 'center' }}>
+                                                    {item.authen_code ? (
+                                                        <div>
+                                                            <span className="badge badge-success">พบแล้ว</span>
+                                                            <div style={{ marginTop: 4, fontSize: 11, fontWeight: 800, color: '#0e7490' }}>{item.authen_code}</div>
+                                                        </div>
+                                                    ) : item.an ? (
+                                                        <span className="badge badge-warning">ยังไม่พบ</span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--text-muted)' }}>{item.has_authen ? '✓' : '-'}</span>
                                                     )}
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
@@ -869,7 +929,7 @@ export const FDHCheckerPage: React.FC = () => {
                                     })
                                 ) : (
                                     <tr>
-                                        <td colSpan={exportProfile === 'fwf-migrants' ? 14 : 13} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
+                                        <td colSpan={exportProfile === 'fwf-migrants' ? 15 : 14} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
                                             ไม่พบข้อมูล Visit ในช่วงวันที่เลือก
                                         </td>
                                     </tr>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import * as XLSX from 'xlsx';
 
@@ -428,11 +428,42 @@ export const IPDPage: React.FC = () => {
     const [search, setSearch] = useState('');
     const [selectedAN, setSelectedAN] = useState<string | null>(null);
     const [showPreAuditRules, setShowPreAuditRules] = useState(false);
+    const [authenSyncing, setAuthenSyncing] = useState(false);
+    const [authenSyncNotice, setAuthenSyncNotice] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
+    const lastAutoAuthenSyncKey = useRef('');
 
-    const fetchIPDData = async () => {
+    const syncIpdAuthen = async (force = false) => {
+        setAuthenSyncing(true);
+        setAuthenSyncNotice(null);
+        try {
+            const response = await fetch('/api/fdh/ipd/authen/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startDate, endDate, force }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.success) throw new Error(result.error || 'ตรวจ Authen Code จาก API ไม่สำเร็จ');
+            const summary = result.summary || {};
+            setAuthenSyncNotice({
+                type: 'success',
+                text: `ตรวจ NHSO API สำหรับ FDH IPD แล้ว ${Number(summary.total || 0)} AN — นำเข้าใหม่ ${Number(summary.updated || 0)}, ไม่พบ ${Number(summary.notFound || 0)}, ข้าม ${Number(summary.skipped || 0)}, ผิดพลาด ${Number(summary.errors || 0)}`,
+            });
+        } catch (err) {
+            setAuthenSyncNotice({ type: 'warning', text: err instanceof Error ? err.message : 'ตรวจ Authen Code จาก API ไม่สำเร็จ' });
+        } finally {
+            setAuthenSyncing(false);
+        }
+    };
+
+    const fetchIPDData = async (options: { forceAuthen?: boolean } = {}) => {
         setLoading(true);
         setError(null);
         try {
+            const syncKey = `${startDate}:${endDate}`;
+            if (options.forceAuthen || lastAutoAuthenSyncKey.current !== syncKey) {
+                lastAutoAuthenSyncKey.current = syncKey;
+                await syncIpdAuthen(Boolean(options.forceAuthen));
+            }
             const result = await fetchJsonOrThrow(`/api/hosxp/ipd-list?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&statusFilter=${encodeURIComponent(statusFilter)}`);
             if (result.success) {
                 setData(result.data);
@@ -457,7 +488,7 @@ export const IPDPage: React.FC = () => {
             return;
         }
 
-        const headers = ['ลำดับ', 'AN', 'HN', 'ชื่อ-สกุล', 'ตึกผู้ป่วย', 'สิทธิ', 'วันที่ Admit', 'วันที่ D/C', 'วันนอน (LOS)', 'รหัสโรค (PDx)', 'รหัสหัตถการ (OR)', 'DRG', 'RW', 'ค่าใช้จ่าย', 'สถานะ FDH', 'วันที่ส่ง FDH', 'วันหลัง D/C ถึง FDH', 'Error FDH', 'สถานะ', 'ผล IPD Pre-audit', 'รหัสที่พบ', 'รายละเอียด'];
+        const headers = ['ลำดับ', 'AN', 'HN', 'ชื่อ-สกุล', 'ตึกผู้ป่วย', 'สิทธิ', 'Authen Code', 'วันที่ Authen', 'วันที่ Admit', 'วันที่ D/C', 'วันนอน (LOS)', 'รหัสโรค (PDx)', 'รหัสหัตถการ (OR)', 'DRG', 'RW', 'ค่าใช้จ่าย', 'สถานะ FDH', 'วันที่ส่ง FDH', 'วันหลัง D/C ถึง FDH', 'Error FDH', 'สถานะ', 'ผล IPD Pre-audit', 'รหัสที่พบ', 'รายละเอียด'];
 
         const rows = filteredData.map((item, index) => {
             const statusStr = !item.pdx || item.pdx === '-' ? 'รอสรุปชาร์ต' : (item.dchdate ? 'จำหน่าย (D/C)' : 'กำลังรักษา');
@@ -468,6 +499,8 @@ export const IPDPage: React.FC = () => {
                 item.patientName || '',
                 item.ward || '-',
                 item.pttype || item.hipdata_code || '',
+                item.authen_code || '',
+                item.authen_datetime || '',
                 item.regdate || '',
                 item.dchdate || '',
                 item.los || '0',
@@ -513,6 +546,8 @@ export const IPDPage: React.FC = () => {
                 'ชื่อ-สกุล': item.patientName || '',
                 'ตึกผู้ป่วย': item.ward || '-',
                 'สิทธิ': item.pttype || item.hipdata_code || '',
+                'Authen Code': item.authen_code || '',
+                'วันที่ Authen': item.authen_datetime || '',
                 'วันที่ Admit': item.regdate || '',
                 'วันที่ D/C': item.dchdate || '',
                 'วันนอน (LOS)': item.los || '0',
@@ -568,6 +603,9 @@ export const IPDPage: React.FC = () => {
     const pendingChartCount = data.filter(i => i.chartStatus === 'รอแพทย์สรุปชาร์ต').length;
     const auditedCount = data.filter(i => i.audit_status === 'AUDITED').length;
     const fdhSubmittedCount = data.filter(i => i.fdh_transaction_uid || i.fdh_reservation_status || i.fdh_updated_at).length;
+    const authenRequiredRows = data.filter(i => ['UCS', 'LGO', 'WEL'].includes(String(i.hipdata_code || '').trim().toUpperCase()));
+    const authenFoundCount = authenRequiredRows.filter(i => String(i.authen_code || '').trim()).length;
+    const authenMissingCount = authenRequiredRows.length - authenFoundCount;
     const preAuditRiskCount = data.filter(i => i.pre_audit?.status === 'risk').length;
     const preAuditReviewCount = data.filter(i => i.pre_audit?.status === 'review').length;
     const selectedVisit = selectedAN ? data.find((item) => item.an === selectedAN) : null;
@@ -649,6 +687,13 @@ export const IPDPage: React.FC = () => {
                         <div style={{ fontSize: 13, color: 'var(--primary)', fontWeight: 600 }}>มีสถานะจาก FDH</div>
                         <div style={{ fontSize: 24, fontWeight: '700', color: 'var(--primary)' }}>{fdhSubmittedCount} <span style={{ fontSize: 14 }}>ราย</span></div>
                     </div>
+                    <div className="card" style={{ padding: '12px 16px', textAlign: 'center', background: 'rgba(6, 182, 212, 0.08)', border: '1px solid rgba(6, 182, 212, 0.28)', minWidth: 185 }}>
+                        <div style={{ fontSize: 13, color: '#0e7490', fontWeight: 700 }}>Authen สำหรับ FDH IPD</div>
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginTop: 5 }}>
+                            <span style={{ color: 'var(--success)', fontWeight: 800 }}>พบ {authenFoundCount}</span>
+                            <span style={{ color: authenMissingCount ? 'var(--danger)' : 'var(--success)', fontWeight: 800 }}>ขาด {authenMissingCount}</span>
+                        </div>
+                    </div>
                     <div className="card" style={{ padding: '12px 16px', textAlign: 'center', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.28)', minWidth: 190 }}>
                         <div style={{ fontSize: 13, color: 'var(--warning)', fontWeight: 700 }}>IPD Pre-audit ใหม่</div>
                         <div style={{ display: 'flex', justifyContent: 'center', gap: 14, marginTop: 5 }}>
@@ -714,8 +759,11 @@ export const IPDPage: React.FC = () => {
                         </select>
                     </div>
 
-                    <button className="btn btn-primary" onClick={fetchIPDData} disabled={loading}>
+                    <button className="btn btn-primary" onClick={() => void fetchIPDData()} disabled={loading}>
                         {loading ? '⏳ กำลังโหลด...' : '🔄 กรองข้อมูล'}
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => void fetchIPDData({ forceAuthen: true })} disabled={loading || authenSyncing}>
+                        {authenSyncing ? '⏳ กำลังตรวจ Authen...' : '🪪 ตรวจ Authen API ใหม่'}
                     </button>
                     <button className="btn" style={{ background: 'var(--surface-3)', color: 'var(--text-primary)' }} onClick={exportToCSV} disabled={loading || filteredData.length === 0}>
                         ⬇️ ออกรายงาน (CSV)
@@ -724,18 +772,26 @@ export const IPDPage: React.FC = () => {
                         📊 ออกรายงาน (Excel)
                     </button>
                 </div>
-            </div>            {error && (
+            </div>
+            {(authenSyncing || authenSyncNotice) && (
+                <div className={`alert ${authenSyncNotice?.type === 'warning' ? 'alert-warning' : 'alert-info'}`} style={{ marginBottom: 16 }}>
+                    <span>{authenSyncing ? '⏳' : authenSyncNotice?.type === 'warning' ? '⚠️' : '✅'}</span>
+                    <span>{authenSyncing ? 'กำลังตรวจสอบและนำเข้า Authen Code สำหรับผู้ป่วยในที่จะส่ง FDH จาก NHSO API...' : authenSyncNotice?.text}</span>
+                </div>
+            )}
+            {error && (
                 <div className="alert alert-danger" style={{ marginBottom: 16 }}>
                     <span>⚠️</span> <span>{error}</span>
                 </div>
             )}            <div className="card" style={{ overflow: 'visible' }}>
                 <div style={{ overflowX: 'auto' }}>
-                    <table className="data-table ipd-status-table" style={{ minWidth: 1640 }}>
+                    <table className="data-table ipd-status-table" style={{ minWidth: 1810 }}>
                         <thead>
                             <tr>
                                 <th style={{ width: 40, textAlign: 'center' }}>#</th>
                                 <th style={{ width: 100 }}>AN / HN</th>
                                 <th style={{ minWidth: 160 }}>ชื่อผู้ป่วย / สิทธิการรักษา</th>
+                                <th style={{ width: 170, textAlign: 'center', background: 'rgba(6, 182, 212, 0.06)' }}>Authen Code<br /><span style={{ fontSize: 11, fontWeight: 'normal' }}>สำหรับส่ง FDH</span></th>
                                 <th style={{ width: 120 }}>ตึกผู้ป่วย (Ward)</th>
                                 <th style={{ width: 110, textAlign: 'center' }}>วันที่ Admit <br /><span style={{ fontSize: 11, fontWeight: 'normal' }}>และจำนวนวันนอน (LOS)</span></th>
                                 <th style={{ width: 160, background: 'rgba(37, 99, 235, 0.05)' }}>ข้อมูลทางคลินิก (รหัสโรค/หัตถการ)</th>
@@ -750,7 +806,7 @@ export const IPDPage: React.FC = () => {
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={12} style={{ textAlign: 'center', padding: '40px 0' }}>
+                                    <td colSpan={13} style={{ textAlign: 'center', padding: '40px 0' }}>
                                         <div className="spinner" style={{ margin: '0 auto 10px' }} />
                                         กำลังดึงข้อมูลจากระบบ HOSxP...
                                     </td>
@@ -772,6 +828,19 @@ export const IPDPage: React.FC = () => {
                                         <td>
                                             <div style={{ fontWeight: 600 }}>{item.patientName}</div>
                                             <div style={{ fontSize: 11, color: 'var(--teal)' }}>{item.pttype || item.hipdata_code}</div>
+                                        </td>
+                                        <td style={{ textAlign: 'center', background: 'rgba(6, 182, 212, 0.03)' }}>
+                                            {item.authen_code ? (
+                                                <div>
+                                                    <span className="badge badge-success">พบแล้ว</span>
+                                                    <div style={{ marginTop: 4, fontWeight: 800, color: '#0e7490' }}>{item.authen_code}</div>
+                                                    <div style={{ marginTop: 2, fontSize: 10, color: 'var(--text-muted)' }}>{item.authen_datetime || item.authen_source || ''}</div>
+                                                </div>
+                                            ) : (
+                                                <span className={`badge ${['UCS', 'LGO', 'WEL'].includes(String(item.hipdata_code || '').trim().toUpperCase()) ? 'badge-danger' : 'badge-secondary'}`}>
+                                                    {['UCS', 'LGO', 'WEL'].includes(String(item.hipdata_code || '').trim().toUpperCase()) ? 'ยังไม่พบ' : 'ไม่อยู่ในสิทธิ์ที่ตรวจ'}
+                                                </span>
+                                            )}
                                         </td>
                                         <td>
                                             <span className="badge" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>{item.ward || '-'}</span>
@@ -883,7 +952,7 @@ export const IPDPage: React.FC = () => {
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={12} style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
+                                    <td colSpan={13} style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-muted)' }}>
                                         ไม่พบข้อมูลผู้ป่วยใน ตามเงื่อนไขที่ระบุ
                                     </td>
                                 </tr>

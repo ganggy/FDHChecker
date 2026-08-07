@@ -418,7 +418,6 @@ export const FDHCheckerPage: React.FC = () => {
     const readyCount = fundFilteredData.filter(isReadyForExportFund).length;
     const pendingCount = fundFilteredData.length - readyCount;
     const exportVisitCount = getReadyVns().length;
-    const visibleSelectableCount = filtered.filter(isSelectableForExport).length;
     const selectedVisibleCount = selectedVns.filter((vn) => filtered.some((item) => item.vn === vn && isSelectableForExport(item))).length;
     const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
     const visiblePendingCount = filtered.length - visibleReadyCount;
@@ -432,83 +431,8 @@ export const FDHCheckerPage: React.FC = () => {
     return (
         <div className="page-container">
             <div className="page-header">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                        <h1 className="page-title">🔍 ตรวจสอบสิทธิเบิก FDH</h1>
-                        <p className="page-subtitle">เช็คความพร้อมของ Visit ว่ามีข้อมูลครบถ้วนสำหรับส่งเบิก 16 แฟ้ม หรือไม่</p>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        <button className="btn btn-success" onClick={handleExportCSV}>📥 CSV</button>
-                        <button className="btn btn-warning" onClick={handleExportExcel}>📊 Excel</button>
-                        <label
-                            className="btn btn-secondary"
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                cursor: 'pointer',
-                                userSelect: 'none'
-                            }}
-                            title="ให้ตรงกับตัวเลือก TXT มีหัวคอลัมน์ บนหน้า FDH"
-                        >
-                            <input
-                                type="checkbox"
-                                checked={exportWithHeader}
-                                onChange={(e) => setExportWithHeader(e.target.checked)}
-                            />
-                            TXT มีหัวคอลัมน์
-                        </label>
-                        <label
-                            className={`btn ${confirmResend ? 'btn-danger' : 'btn-secondary'}`}
-                            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
-                            title="เมื่อเลือก ระบบจะรวมรายการที่เคยส่งหรือมีสถานะใน FDH กลับมาส่งอีกครั้ง"
-                        >
-                            <input
-                                type="checkbox"
-                                checked={confirmResend}
-                                onChange={(event) => {
-                                    setConfirmResend(event.target.checked);
-                                    setSelectedVns([]);
-                                    setPreviewValidation(null);
-                                }}
-                            />
-                            ยืนยันส่งซ้ำ
-                        </label>
-                        <button
-                            className="btn btn-info"
-                            onClick={handlePreviewData}
-                            disabled={isLoadingPreview || data.length === 0}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                background: '#0ea5e9',
-                                color: 'white',
-                                fontWeight: 600
-                            }}
-                        >
-                            {isLoadingPreview ? '⏳ กำลังโหลด...' : '🔍 ตรวจสอบข้อมูล 16 แฟ้ม'}
-                        </button>
-                        <button
-                            className="btn btn-primary"
-                            onClick={handleExportZip}
-                            disabled={exporting || data.length === 0}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '10px 20px',
-                                fontSize: 15,
-                                fontWeight: 700,
-                                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)'
-                            }}
-                        >
-                            {exporting
-                                ? '⏳ กำลังสร้าง ZIP...'
-                                : `📦 ส่งออก 16 แฟ้ม ZIP (${exportVisitCount} รายการ)`}
-                        </button>
-                    </div>
-                </div>
+                <h1 className="page-title">📤 ส่งออกผู้ป่วยนอก (OPD 16 แฟ้ม)</h1>
+                <p className="page-subtitle">คัดเลือกด้วย VN ตรวจความพร้อม/Preflight และส่ง FDH แยกจากรายการ IPD</p>
             </div>
 
             {dashboardContextItems.length > 0 && (
@@ -529,7 +453,14 @@ export const FDHCheckerPage: React.FC = () => {
                 </div>
             )}
 
-            <FundEligibilityRules />
+            <details className="card" style={{ marginBottom: 16 }}>
+                <summary style={{ cursor: 'pointer', padding: '14px 16px', fontWeight: 700 }}>
+                    📋 ดูเงื่อนไขกองทุนและเกณฑ์ตรวจสอบ OPD
+                </summary>
+                <div style={{ padding: '0 16px 16px' }}>
+                    <FundEligibilityRules />
+                </div>
+            </details>
 
             <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-body" style={{ padding: '14px 16px' }}>
@@ -570,6 +501,17 @@ export const FDHCheckerPage: React.FC = () => {
                                 ตาราง ตรวจสอบก่อนส่ง และ ZIP จะใช้กองทุนเดียวกัน
                                 {!confirmResend && visibleAlreadySentCount > 0 ? ` • ไม่รวม ${visibleAlreadySentCount} รายการที่มีสถานะ FDH แล้ว` : ''}
                             </div>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">รูปแบบไฟล์ TXT</label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 38, cursor: 'pointer' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={exportWithHeader}
+                                    onChange={(event) => setExportWithHeader(event.target.checked)}
+                                />
+                                มีหัวคอลัมน์
+                            </label>
                         </div>
                         <div className="form-group">
                             <label className="form-label">🔍 สถานะความพร้อม</label>
@@ -686,48 +628,22 @@ export const FDHCheckerPage: React.FC = () => {
             )}
 
             {!loading && !error && (
-                <div className="fdh-submit-action-bar no-print" role="region" aria-label="คำสั่งส่งเบิก FDH">
-                    <div className="fdh-submit-action-copy">
-                        <strong>ส่งเบิก FDH</strong>
-                        <span>
-                            {visibleSelectableCount === 0
-                                ? (visibleAlreadySentCount > 0 && !confirmResend
-                                    ? 'รายการที่แสดงเคยส่งแล้ว หากต้องการส่งอีกครั้งให้เปิด “ยืนยันส่งซ้ำ”'
-                                    : 'ไม่มีรายการสถานะพร้อมส่งตามตัวกรองปัจจุบัน')
-                                : (selectedVisibleCount > 0
-                                    ? `เลือกแล้ว ${selectedVisibleCount} รายการ — ระบบจะตรวจ Preflight ก่อนส่งจริง`
-                                    : `ยังไม่ได้ติ๊กเลือก — ระบบจะใช้รายการพร้อมส่งที่แสดงอยู่ทั้งหมด ${visibleSelectableCount} รายการ`)}
-                        </span>
-                    </div>
-                    <div className="fdh-submit-action-buttons">
-                        {visibleSelectableCount > 0 && (
-                            <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => setSelectedVns(selectedVisibleCount > 0
-                                    ? []
-                                    : filtered.filter(isSelectableForExport).map((item) => item.vn))}
-                            >
-                                {selectedVisibleCount > 0 ? 'ล้างรายการที่เลือก' : 'เลือกทั้งหมดที่พร้อมส่ง'}
-                            </button>
-                        )}
-                        <button
-                            type="button"
-                            className="btn btn-primary fdh-submit-primary"
-                            onClick={handlePreviewData}
-                            disabled={isLoadingPreview || exportVisitCount === 0}
-                            title={exportVisitCount === 0 ? 'ไม่มีรายการพร้อมส่ง กรุณาตรวจสถานะหรือตัวกรอง' : 'ตรวจข้อมูล Preflight แล้วจึงยืนยันส่ง FDH API'}
-                        >
-                            {isLoadingPreview
-                                ? '⏳ กำลังตรวจข้อมูล...'
-                                : `🚀 ตรวจและส่งเบิก FDH (${exportVisitCount})`}
-                        </button>
-                    </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+                    <span className="badge badge-primary">OPD Visit {fundFilteredData.length}</span>
+                    <span className="badge badge-success">พร้อมส่ง {readyCount}</span>
+                    <span className="badge badge-warning">รอแก้ไข {pendingCount}</span>
+                    <span className="badge badge-info">ยังไม่ส่ง {notSubmittedFdhCount}</span>
+                    <span className="badge badge-danger">ส่งไม่ผ่าน {failedFdhCount}</span>
+                    <span className="badge">เคยส่งแล้ว {submittedFdhCount}</span>
+                    <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                        <button className="btn btn-success" type="button" onClick={handleExportCSV}>📥 CSV</button>
+                        <button className="btn btn-warning" type="button" onClick={handleExportExcel}>📊 Excel</button>
+                    </span>
                 </div>
             )}
 
             {!loading && !error && (
-                <div className="card overflow-hidden">
+                <div className="card overflow-hidden" style={{ marginBottom: 110 }}>
                     <div style={{ overflowX: 'auto' }}>
                         <table className="table">
                             <thead>
@@ -961,6 +877,39 @@ export const FDHCheckerPage: React.FC = () => {
                             </tbody>
                         </table>
                     </div>
+                </div>
+            )}
+            {!loading && !error && (
+                <div
+                    className="no-print"
+                    role="region"
+                    aria-label="คำสั่งส่งออก OPD"
+                    style={{ position: 'fixed', left: 24, right: 24, bottom: 18, zIndex: 90, padding: '14px 18px', borderRadius: 14, background: 'rgba(255,255,255,.96)', border: '1px solid var(--border)', boxShadow: '0 12px 35px rgba(15,23,42,.18)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}
+                >
+                    <strong style={{ marginRight: 'auto' }}>
+                        เลือกส่ง {exportVisitCount} VN {selectedVisibleCount === 0 && exportVisitCount > 0 ? '(รายการพร้อมส่งที่มองเห็นทั้งหมด)' : ''}
+                    </strong>
+                    <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13, cursor: 'pointer' }} title="เปิดเพื่อเลือกรายการที่เคยส่งสำเร็จหรือมีสถานะ FDH แล้ว">
+                        <input
+                            type="checkbox"
+                            checked={confirmResend}
+                            onChange={(event) => {
+                                setConfirmResend(event.target.checked);
+                                setSelectedVns([]);
+                                setPreviewValidation(null);
+                            }}
+                        />
+                        ยืนยันให้เลือกและส่งรายการที่เคยส่งซ้ำ
+                    </label>
+                    <button className="btn btn-secondary" type="button" onClick={handlePreviewData} disabled={isLoadingPreview || exportVisitCount === 0}>
+                        {isLoadingPreview ? 'กำลังตรวจ...' : '🔎 Preview / Preflight'}
+                    </button>
+                    <button className="btn btn-warning" type="button" onClick={handleExportZip} disabled={exporting || exportVisitCount === 0}>
+                        {exporting ? 'กำลังสร้าง ZIP...' : '📦 ดาวน์โหลด 16 แฟ้ม'}
+                    </button>
+                    <button className="btn btn-success" type="button" onClick={handleSubmitFdhApi} disabled={submitting || exportVisitCount === 0}>
+                        {submitting ? 'กำลังส่ง...' : '🚀 ส่ง FDH API'}
+                    </button>
                 </div>
             )}
             <FDHPreviewModal

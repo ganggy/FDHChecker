@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FDHPreviewModal } from '../components/FDHPreviewModal';
 import { formatLocalDateInput, formatLocalDateStamp } from '../utils/dateUtils';
 import { isFailedFdhSubmission, isMissingFdhStatus } from '../utils/fdhClaimProgress';
@@ -18,6 +18,9 @@ type IpdExportRow = {
   los?: number;
   pttype?: string;
   hipdata_code?: string;
+  authen_code?: string;
+  authen_datetime?: string;
+  authen_source?: string;
   pdx?: string;
   drg?: string;
   rw?: number;
@@ -103,12 +106,41 @@ export const IpdFdhExportPage: React.FC = () => {
   const [previewing, setPreviewing] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [authenSyncing, setAuthenSyncing] = useState(false);
+  const [authenNotice, setAuthenNotice] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
+  const lastAutoAuthenSyncKey = useRef('');
 
-  const loadRows = async () => {
+  const syncAuthen = async (force = false) => {
+    setAuthenSyncing(true);
+    setAuthenNotice(null);
+    try {
+      const response = await fetch('/api/fdh/ipd/authen/sync', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ startDate, endDate, force }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'ตรวจ Authen IPD จาก API ไม่สำเร็จ');
+      const summary = payload.summary || {};
+      setAuthenNotice({
+        type: 'success',
+        text: `ตรวจ NHSO API แล้ว ${Number(summary.total || 0)} AN — นำเข้าใหม่ ${Number(summary.updated || 0)}, ไม่พบ ${Number(summary.notFound || 0)}, ข้าม ${Number(summary.skipped || 0)}, ผิดพลาด ${Number(summary.errors || 0)}`,
+      });
+    } catch (syncError) {
+      setAuthenNotice({ type: 'warning', text: syncError instanceof Error ? syncError.message : 'ตรวจ Authen IPD จาก API ไม่สำเร็จ' });
+    } finally {
+      setAuthenSyncing(false);
+    }
+  };
+
+  const loadRows = async (forceAuthen = false) => {
     setLoading(true);
     setError('');
     setSelectedAns([]);
     try {
+      const syncKey = `${startDate}:${endDate}`;
+      if (forceAuthen || lastAutoAuthenSyncKey.current !== syncKey) {
+        lastAutoAuthenSyncKey.current = syncKey;
+        await syncAuthen(forceAuthen);
+      }
       const query = new URLSearchParams({ startDate, endDate, statusFilter: 'discharged' });
       const response = await fetch(`/api/hosxp/ipd-list?${query}`);
       const payload = await response.json();
@@ -140,7 +172,7 @@ export const IpdFdhExportPage: React.FC = () => {
     if (fdhStatusFilter === 'failed' && !isFailedFdhSubmission(row)) return false;
     const query = search.trim().toLowerCase();
     if (!query) return true;
-    return [row.an, row.hn, row.patientName, row.ward, row.pttype, row.hipdata_code, row.pdx, row.drg, fdhLabel(row)]
+    return [row.an, row.hn, row.patientName, row.ward, row.pttype, row.hipdata_code, row.authen_code, row.pdx, row.drg, fdhLabel(row)]
       .some((value) => String(value || '').toLowerCase().includes(query));
   }), [rows, readinessFilter, auditFilter, fdhStatusFilter, search]);
 
@@ -243,6 +275,9 @@ export const IpdFdhExportPage: React.FC = () => {
   const notSubmittedCount = rows.filter((row) => !hasFdhSubmission(row)).length;
   const failedCount = rows.filter(isFailedFdhSubmission).length;
   const submittedCount = rows.length - notSubmittedCount;
+  const authenRequiredRows = rows.filter((row) => ['UCS', 'LGO', 'WEL'].includes(String(row.hipdata_code || '').trim().toUpperCase()));
+  const authenFoundCount = authenRequiredRows.filter((row) => String(row.authen_code || '').trim()).length;
+  const authenMissingCount = authenRequiredRows.length - authenFoundCount;
 
   return (
     <div className="page-container">
@@ -259,10 +294,12 @@ export const IpdFdhExportPage: React.FC = () => {
           <div className="form-group"><label className="form-label">ความพร้อม</label><select className="form-control" value={readinessFilter} onChange={(event) => setReadinessFilter(event.target.value as ReadinessFilter)}><option value="all">ทั้งหมด</option><option value="ready">พร้อมส่ง</option><option value="pending">รอแก้ไข</option></select></div>
           <div className="form-group"><label className="form-label">IPD Pre-audit</label><select className="form-control" value={auditFilter} onChange={(event) => setAuditFilter(event.target.value as AuditStatus | 'all')}><option value="all">ทุกผลตรวจ</option><option value="risk">พบความเสี่ยง</option><option value="review">ต้องทบทวน</option><option value="clear">ผ่านอัตโนมัติ</option></select></div>
           <div className="form-group"><label className="form-label">สถานะ FDH</label><select className="form-control" value={fdhStatusFilter} onChange={(event) => setFdhStatusFilter(event.target.value as FdhStatusFilter)}><option value="all">ทั้งหมด</option><option value="not-submitted">ยังไม่ส่ง</option><option value="failed">ส่งไม่ผ่าน</option><option value="submitted">เคยส่งแล้ว</option></select></div>
-          <button className="btn btn-primary" type="button" onClick={loadRows} disabled={loading}>{loading ? 'กำลังประมวลผล...' : '🔄 ดึงข้อมูลใหม่'}</button>
+          <button className="btn btn-primary" type="button" onClick={() => void loadRows()} disabled={loading}>{loading ? 'กำลังประมวลผล...' : '🔄 ดึงข้อมูลใหม่'}</button>
+          <button className="btn btn-secondary" type="button" onClick={() => void loadRows(true)} disabled={loading || authenSyncing}>{authenSyncing ? 'กำลังตรวจ Authen...' : '🪪 ตรวจ Authen API ใหม่'}</button>
         </div>
       </div>
 
+      {(authenSyncing || authenNotice) && <div className={`alert ${authenNotice?.type === 'warning' ? 'alert-warning' : 'alert-info'}`} style={{ marginBottom: 16 }}><span>{authenSyncing ? '⏳ กำลังตรวจสอบและนำเข้า Authen Code ของผู้ป่วยในจาก NHSO API...' : authenNotice?.text}</span></div>}
       {error && <div className="alert alert-danger" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -272,13 +309,15 @@ export const IpdFdhExportPage: React.FC = () => {
         <span className="badge badge-info">ยังไม่ส่ง {notSubmittedCount}</span>
         <span className="badge badge-danger">ส่งไม่ผ่าน {failedCount}</span>
         <span className="badge">เคยส่งแล้ว {submittedCount}</span>
+        <span className="badge badge-success">มี Authen {authenFoundCount}</span>
+        <span className="badge badge-warning">ไม่มี Authen {authenMissingCount}</span>
       </div>
 
       <div className="card" style={{ marginBottom: 110, overflow: 'hidden' }}>
         {loading ? <div className="loading-container"><div className="spinner" /><span>กำลังโหลดและประมวลผล IPD Pre-audit...</span></div> : (
           <div className="modal-table-wrap">
             <table className="data-table">
-              <thead><tr><th style={{ width: 44, textAlign: 'center' }}><input type="checkbox" checked={allVisibleSelected} onChange={(event) => toggleAll(event.target.checked)} /></th><th>AN / HN</th><th>ผู้ป่วย</th><th>Admit / D/C</th><th>สิทธิ / Ward</th><th>PDx / DRG</th><th>IPD Pre-audit</th><th>สถานะ FDH</th><th>ความพร้อม</th><th style={{ textAlign: 'right' }}>ค่าใช้จ่าย</th></tr></thead>
+              <thead><tr><th style={{ width: 44, textAlign: 'center' }}><input type="checkbox" checked={allVisibleSelected} onChange={(event) => toggleAll(event.target.checked)} /></th><th>AN / HN</th><th>ผู้ป่วย</th><th>Admit / D/C</th><th>สิทธิ / Ward</th><th>Authen Code</th><th>PDx / DRG</th><th>IPD Pre-audit</th><th>สถานะ FDH</th><th>ความพร้อม</th><th style={{ textAlign: 'right' }}>ค่าใช้จ่าย</th></tr></thead>
               <tbody>
                 {filteredRows.map((row) => {
                   const selectable = isSelectable(row);
@@ -289,6 +328,7 @@ export const IpdFdhExportPage: React.FC = () => {
                     <td>{row.patientName}<br /><small>LOS {row.los ?? '-'} วัน</small></td>
                     <td>{row.admDate || '-'}<br /><small>D/C {row.dchdate || '-'}</small></td>
                     <td>{row.pttype || row.hipdata_code || '-'}<br /><small>{row.ward || '-'}</small></td>
+                    <td>{row.authen_code ? <><span className="badge badge-success">พบแล้ว</span><div style={{ marginTop: 4, fontWeight: 700 }}>{row.authen_code}</div><small>{row.authen_datetime || row.authen_source || ''}</small></> : <span className={`badge ${['UCS', 'LGO', 'WEL'].includes(String(row.hipdata_code || '').trim().toUpperCase()) ? 'badge-danger' : 'badge-secondary'}`}>{['UCS', 'LGO', 'WEL'].includes(String(row.hipdata_code || '').trim().toUpperCase()) ? 'ยังไม่พบ' : 'ไม่ต้องตรวจ'}</span>}</td>
                     <td><strong>{row.pdx || '-'}</strong><br /><small>DRG {row.drg || '-'} · RW {row.rw || '-'}</small></td>
                     <td><span className={`badge ${audit?.status === 'risk' ? 'badge-danger' : audit?.status === 'review' ? 'badge-warning' : 'badge-success'}`}>{audit?.status === 'risk' ? `เสี่ยง ${audit.riskCount}` : audit?.status === 'review' ? `ทบทวน ${audit.reviewCount}` : 'ผ่านอัตโนมัติ'}</span>{audit?.findings?.length ? <details style={{ marginTop: 5, maxWidth: 290 }}><summary style={{ cursor: 'pointer', fontSize: 11 }}>{audit.findings.map((finding) => finding.code).join(', ')}</summary>{audit.findings.map((finding, index) => <div key={`${finding.code}-${index}`} style={{ fontSize: 11, marginTop: 4, color: finding.severity === 'risk' ? '#b91c1c' : '#92400e' }}><strong>{finding.code}</strong>: {finding.message}</div>)}</details> : null}</td>
                     <td><span className={`badge ${isFailedFdhSubmission(row) ? 'badge-danger' : hasFdhSubmission(row) ? 'badge-info' : 'badge-warning'}`}>{fdhLabel(row)}</span>{row.fdh_error_code ? <div style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>{row.fdh_error_code}</div> : null}</td>
@@ -296,7 +336,7 @@ export const IpdFdhExportPage: React.FC = () => {
                     <td style={{ textAlign: 'right', fontWeight: 700 }}>{money(row.totalPrice)}</td>
                   </tr>;
                 })}
-                {filteredRows.length === 0 && <tr><td colSpan={10} style={{ textAlign: 'center', padding: 36, color: 'var(--text-muted)' }}>ไม่พบรายการตามเงื่อนไข</td></tr>}
+                {filteredRows.length === 0 && <tr><td colSpan={11} style={{ textAlign: 'center', padding: 36, color: 'var(--text-muted)' }}>ไม่พบรายการตามเงื่อนไข</td></tr>}
               </tbody>
             </table>
           </div>

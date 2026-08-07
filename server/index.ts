@@ -118,6 +118,7 @@ import {
   verifyLineWebhookSignature,
 } from './lineMessaging.js';
 import { isMissingFdhStatus } from '../src/utils/fdhClaimProgress.js';
+import { hasPalliativeAuthenReady } from '../src/utils/billingUtils.js';
 import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
 import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 import {
@@ -2014,8 +2015,9 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       const isOFC_LGO = item.hipdata_code === 'OFC' || item.hipdata_code === 'LGO';
       const isUCS = item.hipdata_code === 'UCS' || item.hipdata_code === 'WEL';
       const isBillable = !item.an && (isOFC_LGO || (isUCS && isSpecialFund));
+      const palliativeAuthenReady = !item.an && hasPalliativeAuthenReady(item);
 
-      if (isBillable && !hasCloseEp) {
+      if (isBillable && !hasCloseEp && !palliativeAuthenReady) {
         issues.push('ER108: ยังไม่ปิดสิทธิ NHSO (EP)');
         if (status === 'ready') status = 'pending';
       }
@@ -2024,6 +2026,7 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         ...item,
         has_authen: item.has_authen ? 1 : 0,
         has_close: hasCloseEp ? 1 : 0,
+        palliative_authen_ready: palliativeAuthenReady ? 1 : 0,
         serviceType,
         missing: issues.map(iss => iss.split(': ')[1] || iss), // Extract display label
         issues, // Combined error codes

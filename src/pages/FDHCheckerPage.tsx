@@ -20,6 +20,7 @@ interface EligibleVisit {
     has_receipt: number;
     has_authen: number;
     has_close?: number;
+    palliative_authen_ready?: number;
     authen_code?: string;
     close_code?: string;
     main_diag: string | null;
@@ -337,7 +338,9 @@ export const FDHCheckerPage: React.FC = () => {
                 item.main_diag || '-',
                 logic.isUUC1 ? 'UUC1' : 'UUC2',
                 item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
-                item.status === 'ready' ? 'พร้อมส่ง (ปิดสิทธิแล้ว)' : 'รอแก้ไข/รอปิดสิทธิ',
+                item.status === 'ready'
+                    ? (item.palliative_authen_ready && !item.has_close ? 'พร้อมส่ง (Palliative/Authen)' : 'พร้อมส่ง (ปิดสิทธิแล้ว)')
+                    : 'รอแก้ไข/รอปิดสิทธิ',
                 item.total_price
             ].join(',')
         });
@@ -363,7 +366,9 @@ export const FDHCheckerPage: React.FC = () => {
                 'DIAG': item.main_diag || '-',
                 'สถานะกองทุน': logic.isUUC1 ? 'UUC1' : 'UUC2',
                 'สถานะ FDH': item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
-                'สถานะข้อมูล': item.status === 'ready' ? 'พร้อมส่ง (ปิดสิทธิแล้ว)' : 'รอแก้ไข/รอปิดสิทธิ',
+                'สถานะข้อมูล': item.status === 'ready'
+                    ? (item.palliative_authen_ready && !item.has_close ? 'พร้อมส่ง (Palliative/Authen)' : 'พร้อมส่ง (ปิดสิทธิแล้ว)')
+                    : 'รอแก้ไข/รอปิดสิทธิ',
                 'ราคา (บาท)': item.total_price
             };
         });
@@ -826,7 +831,13 @@ export const FDHCheckerPage: React.FC = () => {
                                                     )}
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
-                                                    {item.has_close ? <span style={{ color: 'var(--success)' }}>✓</span> : <span style={{ color: 'var(--danger)' }}>✗</span>}
+                                                    {item.has_close ? (
+                                                        <span style={{ color: 'var(--success)' }}>✓</span>
+                                                    ) : item.palliative_authen_ready ? (
+                                                        <span className="badge badge-success">Authen ผ่าน</span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--danger)' }}>✗</span>
+                                                    )}
                                                 </td>
                                                 <td>
                                                     <div className="fund-status-block">

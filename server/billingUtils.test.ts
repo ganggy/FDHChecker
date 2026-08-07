@@ -61,6 +61,41 @@ test('normal OFC remains a UUC1 whole-visit claim', () => {
   assert.equal(result.isUUC1, true);
 });
 
+test('OPD Palliative with Authen Code is ready without a close EP', () => {
+  const result = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    fund: 'บัตรประกันสุขภาพ',
+    main_diag: 'Z515',
+    has_pal_diag: 1,
+    has_pal_adp: 1,
+    has_authen: 1,
+    authen_code: 'AUTHEN-PAL-001',
+    has_close: 0,
+  });
+
+  assert.equal(result.isUUC1, true);
+  assert.equal(result.billingStatusLabel, 'UUC1 Palliative พร้อมส่ง (Authen)');
+  assert.equal(result.specialFundNotes.some((note: string) => note.includes('ยังไม่ปิดสิทธิ')), false);
+  assert.equal(result.specialFundNotes.some((note: string) => note.includes('Authen Code')), true);
+});
+
+test('OPD Palliative without Authen Code or close EP still waits for EP', () => {
+  const result = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    fund: 'บัตรประกันสุขภาพ',
+    main_diag: 'Z515',
+    has_pal_diag: 1,
+    has_pal_adp: 1,
+    has_authen: 0,
+    has_close: 0,
+  });
+
+  assert.equal(result.isUUC1, true);
+  assert.equal(result.billingStatusLabel, 'UUC1 รอปิดสิทธิ (EP)');
+});
+
 test('ANC dental rules require the approved ICD10TM and ICD-9 pair', () => {
   assert.equal(hasMatchingDentalProcedureIcd9('2330011:8931', ANC_DENTAL_EXAM_PROCEDURE_CODES, '8931'), true);
   assert.equal(hasMatchingDentalProcedureIcd9('2330010:8931', ANC_DENTAL_EXAM_PROCEDURE_CODES, '8931'), true);

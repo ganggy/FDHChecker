@@ -134,6 +134,11 @@ const requestedFormat = (question: string): ReportFormat | undefined => {
 
 export const parsePatientTopicFollowup = (question: string): Pick<PatientLookupIntent, 'topic' | 'format'> | null => {
   const normalized = question.trim().toLowerCase();
+  // A topic follow-up is only about the patient already selected in the
+  // conversation. Cohort/report wording must continue to the dynamic query
+  // planner instead of incorrectly asking for a single HN.
+  const asksForCohortReport = /รายชื่อ|รายการ|คนไข้ที่|ผู้ป่วยที่|ทั้งหมด|ช่วง(?:วัน|เวลา)|ตั้งแต่|วันที่รับบริการ|ปีงบประมาณ|ปีนี้|เดือนนี้/.test(normalized);
+  if (asksForCohortReport) return null;
   const asksFollowup = /(?:ขอ|ดู|แสดง|เอา|แล้ว).*(?:แล็บ|แลบ|\blab\b|ยา|นัด|วินิจฉัย|โรค)|(?:แล็บ|แลบ|\blab\b|ยา|นัด|วินิจฉัย|โรค).*(?:ล่ะ|ล่าสุด|ด้วย)/i.test(normalized);
   if (!asksFollowup) return null;
   const topic = /(?:ผล(?:ตรวจ)?(?:แล็บ|แลบ)|\blab\b)/i.test(normalized)

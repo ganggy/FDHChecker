@@ -122,6 +122,7 @@ import {
   importSssResponseRows,
   type SssNetworkType,
 } from './sssClaim.js';
+import { buildSssIpdExportZip, getSssIpdCandidates } from './sssIpdClaim.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -840,6 +841,53 @@ app.post('/api/sss/export', async (req, res) => {
   } catch (error) {
     console.error('Error exporting SSS SSOP:', error);
     return res.status(422).json({ success: false, error: (error as Error).message || 'ส่งออก SSOP ไม่สำเร็จ' });
+  }
+});
+
+app.get('/api/sss/ipd/candidates', async (req, res) => {
+  try {
+    const startDate = String(req.query.startDate || '').trim();
+    const endDate = String(req.query.endDate || '').trim();
+    if (!startDate || !endDate) return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่จำหน่าย' });
+    const data = await getSssIpdCandidates({ startDate, endDate, networkType: normalizeSssNetworkType(req.query.networkType) });
+    const summary = data.reduce((acc, row) => {
+      acc.total += 1;
+      acc[row.network_type === 'OUT' ? 'outNetwork' : 'inNetwork'] += 1;
+      acc[row.validation_status] += 1;
+      acc.amount += Number(row.income || 0);
+      return acc;
+    }, { total: 0, inNetwork: 0, outNetwork: 0, ready: 0, warning: 0, error: 0, amount: 0 });
+    return res.json({ success: true, data, summary, format: 'AIPN-2.1', closePrivilegeCheck: false });
+  } catch (error) {
+    console.error('Error loading SSS IPD candidates:', error);
+    return res.status(500).json({ success: false, error: 'โหลดรายการผู้ป่วยในประกันสังคมไม่สำเร็จ' });
+  }
+});
+
+app.post('/api/sss/ipd/export', async (req, res) => {
+  try {
+    const startDate = String(req.body?.startDate || '').trim();
+    const endDate = String(req.body?.endDate || '').trim();
+    const ans = Array.isArray(req.body?.ans) ? req.body.ans.map(String).map((value: string) => value.trim()).filter(Boolean) : [];
+    const dateValidation = validateDateRange(startDate, endDate, 366);
+    if (!dateValidation.ok) return res.status(400).json({ success: false, error: dateValidation.error });
+    if (!ans.length || ans.length > 1000) return res.status(400).json({ success: false, error: 'กรุณาเลือก 1-1,000 AN' });
+    const siteSettings = (businessRules as { site_settings?: { hospital_code?: string; hospital_name?: string } }).site_settings || {};
+    const result = await buildSssIpdExportZip({
+      startDate,
+      endDate,
+      networkType: normalizeSssNetworkType(req.body?.networkType),
+      ans,
+      hcode: String(process.env.HOSXP_HCODE || siteSettings.hospital_code || '').trim(),
+      hospitalName: String(siteSettings.hospital_name || 'โรงพยาบาล').trim(),
+    });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.setHeader('X-SSS-Admission-Count', String(result.summary.admissionCount));
+    return res.send(result.buffer);
+  } catch (error) {
+    console.error('Error exporting SSS AIPN:', error);
+    return res.status(422).json({ success: false, error: (error as Error).message || 'ส่งออก AIPN ไม่สำเร็จ' });
   }
 });
 

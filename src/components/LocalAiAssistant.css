@@ -6,6 +6,10 @@
   font-family: inherit;
 }
 
+.local-ai--raised:not(.local-ai--open) {
+  bottom: 108px;
+}
+
 .local-ai-toggle {
   width: 58px;
   height: 58px;
@@ -393,5 +397,9 @@
 
   .local-ai-panel {
     height: calc(100vh - 24px);
+  }
+
+  .local-ai--raised:not(.local-ai--open) {
+    bottom: 210px;
   }
 }

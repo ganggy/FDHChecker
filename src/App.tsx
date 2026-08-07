@@ -365,7 +365,9 @@ function App() {
           </section>
         </div>
       )}
-      {currentPage !== 'aiReports' && <LocalAiAssistant />}
+      {currentPage !== 'aiReports' && (
+        <LocalAiAssistant avoidBottomActionBar={currentPage === 'fdh' || currentPage === 'ipdExport'} />
+      )}
     </div>
   );
 }

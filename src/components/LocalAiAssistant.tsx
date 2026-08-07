@@ -39,7 +39,11 @@ type ConversationContext = {
   lastAction?: { kind: 'patient-report' | 'operational' | 'hospital-report' | 'dynamic-query'; label: string };
 };
 
-export function LocalAiAssistant() {
+type LocalAiAssistantProps = {
+  avoidBottomActionBar?: boolean;
+};
+
+export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssistantProps) {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -228,7 +232,7 @@ export function LocalAiAssistant() {
   };
 
   return (
-    <div className={`local-ai ${open ? 'local-ai--open' : ''}`}>
+    <div className={`local-ai ${open ? 'local-ai--open' : ''} ${avoidBottomActionBar ? 'local-ai--raised' : ''}`}>
       {open && (
         <section className="local-ai-panel" aria-label="ผู้ช่วย FDH Local AI">
           <header className="local-ai-header">

@@ -10872,6 +10872,7 @@ export const getEligibleVisits = async (
 };
 
 export interface FdhExportOptions {
+  patientType?: 'ALL' | 'OPD' | 'IPD';
   profile?: FdhExportProfile;
   fcodeByHn?: Record<string, string>;
   uucByVn?: Record<string, string>;
@@ -10905,6 +10906,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     }
 
     const profile = options.profile === 'fwf-migrants' ? 'fwf-migrants' : 'standard';
+    const isIpdExport = options.patientType === 'IPD';
     const fcodeByHn = options.fcodeByHn || {};
     const uucByVn = options.uucByVn || {};
     console.log(`📦 Generating 16-file export data for ${vns.length} visits (HCODE: ${hcode}, profile: ${profile})...`);
@@ -11225,7 +11227,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     const cht = await runQuery('CHT', `
       SELECT 
         o.hn AS HN,
-        COALESCE(o.an, '') AS AN,
+        COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), '') AS AN,
         DATE_FORMAT(COALESCE(i.dchdate, o.vstdate), '%Y%m%d') AS DATE,
         SUM(COALESCE(oo.sum_price, 0)) AS TOTAL,
         SUM(CASE WHEN oo.paidst IN ('01', '03') THEN COALESCE(oo.sum_price, 0) ELSE 0 END) AS PAID,
@@ -11239,30 +11241,31 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         ) AS INVOICE_NO,
         '' AS INVOICE_LT
       FROM ovst o
-      LEFT JOIN opitemrece oo ON oo.vn = o.vn
       LEFT JOIN ipt i ON i.vn = o.vn
+      LEFT JOIN opitemrece oo ON ${isIpdExport ? 'oo.an = i.an' : 'oo.vn = o.vn'}
       LEFT JOIN patient pt ON o.hn = pt.hn
       WHERE o.vn IN (?)
-      GROUP BY o.vn, o.hn, o.an, o.vstdate, i.dchdate, o.pttype, pt.cid
+      GROUP BY o.vn, o.hn, o.an, i.an, o.vstdate, i.dchdate, o.pttype, pt.cid
     `, [hcode, vns]);
 
     // 12. CHA (Financial Details)
     const cha = await runQuery('CHA', `
       SELECT 
-        o.hn as HN,
-        COALESCE(NULLIF(o.an, ''), NULLIF(ov.an, ''), '') as AN,
+        ov.hn as HN,
+        COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), NULLIF(ov.an, ''), '') as AN,
         DATE_FORMAT(COALESCE(o.rxdate, ov.vstdate), '%Y%m%d') as DATE,
         COALESCE(CASE WHEN o.paidst IN ('03') THEN drg.chrgitem_code2 ELSE drg.chrgitem_code1 END, LPAD(COALESCE(inc.drg_chrgitem_id, 18), 2, '0')) as CHRGITEM,
         SUM(o.sum_price) as AMOUNT,
         pt.cid as PERSON_ID,
-        o.vn as SEQ
-      FROM opitemrece o
-      JOIN ovst ov ON ov.vn = o.vn
-      JOIN patient pt ON o.hn = pt.hn
+        ov.vn as SEQ
+      FROM ovst ov
+      LEFT JOIN ipt i ON i.vn = ov.vn
+      JOIN opitemrece o ON ${isIpdExport ? 'o.an = i.an' : 'o.vn = ov.vn'}
+      JOIN patient pt ON ov.hn = pt.hn
       LEFT JOIN income inc ON inc.income = o.income
       LEFT JOIN drg_chrgitem drg ON drg.drg_chrgitem_id = inc.drg_chrgitem_id
-      WHERE o.vn IN (?)
-      GROUP BY o.vn, o.hn, o.an, ov.an, DATE, pt.cid, CHRGITEM
+      WHERE ov.vn IN (?)
+      GROUP BY ov.vn, ov.hn, o.an, i.an, ov.an, DATE, pt.cid, CHRGITEM
     `, [vns]);
 
     // 13. AER (Accident/Emergency)
@@ -11334,8 +11337,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         '' AS SP_ITEM
       FROM (
         SELECT
-          o.hn AS HN,
-          COALESCE(NULLIF(o.an, ''), NULLIF(ov.an, ''), '') AS AN,
+          ov.hn AS HN,
+          COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), NULLIF(ov.an, ''), '') AS AN,
           DATE_FORMAT(COALESCE(o.rxdate, ov.vstdate), '%Y%m%d') AS DATEOPD,
           CASE
             WHEN inc.drg_chrgitem_id = 1 THEN '10'
@@ -11364,7 +11367,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           END AS CODE,
           CASE WHEN o.paidst IN ('03') THEN 0 ELSE COALESCE(o.qty, 0) END AS QTY,
           COALESCE(o.unitprice, 0) AS RATE,
-          o.vn AS SEQ,
+          ov.vn AS SEQ,
           CASE WHEN o.paidst IN ('03') THEN COALESCE(o.sum_price, 0) ELSE 0 END AS TOTCOPAY,
           COALESCE(o.sum_price, 0) AS TOTAL,
           COALESCE(sd.tmlt_code, '') AS TMLTCODE,
@@ -11373,12 +11376,13 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           COALESCE(ov.main_dep, '') AS CLINIC,
           COALESCE(o.doctor, '') AS PROVIDER,
           o.icode AS ICODE
-        FROM opitemrece o
-        JOIN ovst ov ON ov.vn = o.vn
+        FROM ovst ov
+        LEFT JOIN ipt i ON i.vn = ov.vn
+        JOIN opitemrece o ON ${isIpdExport ? 'o.an = i.an' : 'o.vn = ov.vn'}
         LEFT JOIN income inc ON inc.income = o.income
         LEFT JOIN s_drugitems sd ON o.icode = sd.icode
         LEFT JOIN nondrugitems n ON o.icode = n.icode
-        WHERE o.vn IN (?)
+        WHERE ov.vn IN (?)
           AND (
             ${profile === 'fwf-migrants' ? 'COALESCE(o.sum_price, 0) <> 0' : 'inc.drg_chrgitem_id IN (1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19)'}
             OR COALESCE(sd.nhso_adp_code, '') <> ''
@@ -11485,8 +11489,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         MAX(base.PROVIDER) AS PROVIDER
       FROM (
         SELECT
-          o.hn AS HN,
-          COALESCE(NULLIF(o.an, ''), NULLIF(ov.an, ''), '') AS AN,
+          ov.hn AS HN,
+          COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), NULLIF(ov.an, ''), '') AS AN,
           COALESCE(sp.provis_code, ov.main_dep, '') AS CLINIC,
           COALESCE(pt.cid, '') AS PERSON_ID,
           COALESCE(o.rxdate, ov.vstdate) AS RXDATE,
@@ -11507,18 +11511,19 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           '' AS PA_NO,
           CASE WHEN o.paidst IN ('03') THEN COALESCE(o.sum_price, 0) ELSE 0 END AS TOTCOPAY,
           COALESCE(o.sum_price, 0) AS TOTAL,
-          o.vn AS SEQ,
+          ov.vn AS SEQ,
           COALESCE(NULLIF(du.opi_usage_code, ''), NULLIF(du.code, ''), NULLIF(o.drugusage, ''), '') AS SIGCODE,
           CONCAT_WS(' ', NULLIF(du.name1, ''), NULLIF(du.name2, ''), NULLIF(du.name3, '')) AS SIGTEXT,
           COALESCE(o.doctor, '') AS PROVIDER
-        FROM opitemrece o
-        JOIN ovst ov ON ov.vn = o.vn
+        FROM ovst ov
+        LEFT JOIN ipt i ON i.vn = ov.vn
+        JOIN opitemrece o ON ${isIpdExport ? 'o.an = i.an' : 'o.vn = ov.vn'}
         JOIN drugitems d ON o.icode = d.icode
         LEFT JOIN s_drugitems s ON o.icode = s.icode
         LEFT JOIN drugusage du ON du.drugusage = o.drugusage
-        LEFT JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN patient pt ON ov.hn = pt.hn
         LEFT JOIN spclty sp ON sp.spclty = ov.spclty
-        WHERE o.vn IN (?)
+        WHERE ov.vn IN (?)
       ) base
       GROUP BY
         base.SEQ,

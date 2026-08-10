@@ -1,7 +1,7 @@
 module.exports = {
   apps: [{
     name: 'fdh-checker-api',
-    cwd: '/opt/fdh_migrade',
+    cwd: '/opt/FDHChecker',
     script: 'server/dist/server/index.js',
     instances: 1,
     exec_mode: 'fork',

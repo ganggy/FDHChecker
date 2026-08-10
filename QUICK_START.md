@@ -35,7 +35,7 @@ API ยกเว้น health และการเข้าสู่ระบ�
 ## อัปเดตบน AlmaLinux 9 + PM2
 
 ```bash
-cd /opt/fdh_migrade
+cd /opt/FDHChecker
 git pull --ff-only
 npm ci
 npm run check

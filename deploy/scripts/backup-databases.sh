@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project_dir="${FDH_PROJECT_DIR:-/opt/fdh_migrade}"
+project_dir="${FDH_PROJECT_DIR:-/opt/FDHChecker}"
 env_file="${FDH_ENV_FILE:-${project_dir}/.env}"
 backup_root="${FDH_BACKUP_DIR:-${project_dir}/backups}"
 

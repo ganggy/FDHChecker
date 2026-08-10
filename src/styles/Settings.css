@@ -391,6 +391,62 @@
     gap: 15px;
 }
 
+.ipd-los-settings__header,
+.ipd-los-settings__actions,
+.ipd-los-settings__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.ipd-los-settings__header h3 {
+    margin: 0;
+}
+
+.ipd-los-settings__actions {
+    justify-content: flex-end;
+}
+
+.ipd-los-settings__guide {
+    margin: 18px 0;
+}
+
+.ipd-los-settings__toolbar {
+    justify-content: flex-start;
+    margin-bottom: 14px;
+}
+
+.ipd-los-settings__toolbar .form-control {
+    width: min(360px, 100%);
+}
+
+.ipd-los-settings__table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+}
+
+.ipd-los-settings__table {
+    min-width: 850px;
+}
+
+.ipd-los-settings__table th:first-child,
+.ipd-los-settings__table td:first-child,
+.ipd-los-settings__table th:last-child,
+.ipd-los-settings__table td:last-child {
+    width: 64px;
+    text-align: center;
+}
+
+.ipd-los-settings__table th:nth-child(2) { width: 150px; }
+.ipd-los-settings__table th:nth-child(3) { width: 160px; }
+.ipd-los-settings__table th:nth-child(4) { width: 160px; }
+.ipd-los-settings__table tr.is-disabled { opacity: 0.55; }
+.ipd-los-settings__empty { padding: 32px !important; text-align: center; color: var(--text-muted); }
+.ipd-los-code-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 800; }
+
 .save-btn {
     padding: 12px 30px;
     background: var(--success);

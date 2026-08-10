@@ -424,6 +424,7 @@ export const IPDPage: React.FC = () => {
     const [endDate, setEndDate] = useState(todayStr);
     const [statusFilter, setStatusFilter] = useState('all');
     const [preAuditFilter, setPreAuditFilter] = useState<'all' | 'risk' | 'review' | 'clear'>('all');
+    const [losFilter, setLosFilter] = useState<'all' | 'over' | 'within' | 'no_rule'>('all');
     const [wardFilter, setWardFilter] = useState('all');
     const [search, setSearch] = useState('');
     const [selectedAN, setSelectedAN] = useState<string | null>(null);
@@ -488,7 +489,7 @@ export const IPDPage: React.FC = () => {
             return;
         }
 
-        const headers = ['ลำดับ', 'AN', 'HN', 'ชื่อ-สกุล', 'ตึกผู้ป่วย', 'สิทธิ', 'Authen Code', 'วันที่ Authen', 'วันที่ Admit', 'วันที่ D/C', 'วันนอน (LOS)', 'รหัสโรค (PDx)', 'รหัสหัตถการ (OR)', 'DRG', 'RW', 'ค่าใช้จ่าย', 'สถานะ FDH', 'วันที่ส่ง FDH', 'วันหลัง D/C ถึง FDH', 'Error FDH', 'สถานะ', 'ผล IPD Pre-audit', 'รหัสที่พบ', 'รายละเอียด'];
+        const headers = ['ลำดับ', 'AN', 'HN', 'ชื่อ-สกุล', 'ตึกผู้ป่วย', 'สิทธิ', 'Authen Code', 'วันที่ Authen', 'วันที่ Admit', 'วันที่ D/C', 'วันนอน (LOS)', 'LOS เป้าหมาย', 'ส่วนต่าง LOS', 'ผลเทียบ LOS', 'กฎ LOS', 'รหัสโรค (PDx)', 'รหัสหัตถการ (OR)', 'DRG', 'RW', 'ค่าใช้จ่าย', 'สถานะ FDH', 'วันที่ส่ง FDH', 'วันหลัง D/C ถึง FDH', 'Error FDH', 'สถานะ', 'ผล IPD Pre-audit', 'รหัสที่พบ', 'รายละเอียด'];
 
         const rows = filteredData.map((item, index) => {
             const statusStr = !item.pdx || item.pdx === '-' ? 'รอสรุปชาร์ต' : (item.dchdate ? 'จำหน่าย (D/C)' : 'กำลังรักษา');
@@ -504,6 +505,10 @@ export const IPDPage: React.FC = () => {
                 item.regdate || '',
                 item.dchdate || '',
                 item.los || '0',
+                item.los_target ?? '',
+                item.los_variance ?? '',
+                item.los_status === 'over' ? 'เกินเป้าหมาย' : item.los_status === 'within' ? 'อยู่ในเป้าหมาย' : 'ยังไม่มีกฎ',
+                item.los_rule_code || '',
                 (item.pdx || '').replace(/,/g, ' '),
                 (item.or_codes || '').replace(/,/g, ' '),
                 item.drg || '',
@@ -551,6 +556,10 @@ export const IPDPage: React.FC = () => {
                 'วันที่ Admit': item.regdate || '',
                 'วันที่ D/C': item.dchdate || '',
                 'วันนอน (LOS)': item.los || '0',
+                'LOS เป้าหมาย': item.los_target ?? '',
+                'ส่วนต่าง LOS': item.los_variance ?? '',
+                'ผลเทียบ LOS': item.los_status === 'over' ? 'เกินเป้าหมาย' : item.los_status === 'within' ? 'อยู่ในเป้าหมาย' : 'ยังไม่มีกฎ',
+                'กฎ LOS': item.los_rule_code || '',
                 'รหัสโรค (PDx)': item.pdx || '',
                 'รหัสหัตถการ (OR)': item.or_codes || '',
                 'DRG': item.drg || '',
@@ -588,6 +597,7 @@ export const IPDPage: React.FC = () => {
     const filteredData = data.filter(item => {
         if (wardFilter !== 'all' && item.ward !== wardFilter) return false;
         if (preAuditFilter !== 'all' && (item.pre_audit?.status || 'clear') !== preAuditFilter) return false;
+        if (losFilter !== 'all' && (item.los_status || 'no_rule') !== losFilter) return false;
 
         if (!search) return true;
         const q = search.toLowerCase();
@@ -608,6 +618,8 @@ export const IPDPage: React.FC = () => {
     const authenMissingCount = authenRequiredRows.length - authenFoundCount;
     const preAuditRiskCount = data.filter(i => i.pre_audit?.status === 'risk').length;
     const preAuditReviewCount = data.filter(i => i.pre_audit?.status === 'review').length;
+    const losOverCount = data.filter(i => i.los_status === 'over').length;
+    const losRuleCount = data.filter(i => i.los_status !== 'no_rule').length;
     const selectedVisit = selectedAN ? data.find((item) => item.an === selectedAN) : null;
 
     const getFdhStatusTone = (item: any) => {
@@ -701,6 +713,16 @@ export const IPDPage: React.FC = () => {
                             <button type="button" onClick={() => setPreAuditFilter(preAuditFilter === 'review' ? 'all' : 'review')} style={{ border: 0, background: 'transparent', color: 'var(--warning)', cursor: 'pointer', fontWeight: 800 }}>ทบทวน {preAuditReviewCount}</button>
                         </div>
                     </div>
+                    <button
+                        type="button"
+                        className="card"
+                        onClick={() => setLosFilter(losFilter === 'over' ? 'all' : 'over')}
+                        style={{ padding: '12px 16px', textAlign: 'center', background: 'rgba(239, 68, 68, 0.07)', border: '1px solid rgba(239, 68, 68, 0.25)', minWidth: 185, cursor: 'pointer', color: 'inherit' }}
+                    >
+                        <div style={{ fontSize: 13, color: 'var(--danger)', fontWeight: 700 }}>LOS เกินเป้าหมาย</div>
+                        <div style={{ marginTop: 5, fontWeight: 800, color: 'var(--danger)' }}>{losOverCount} ราย</div>
+                        <div style={{ marginTop: 3, fontSize: 10, color: 'var(--text-secondary)' }}>มีกฎครอบคลุม {losRuleCount}/{data.length}</div>
+                    </button>
                 </div>
             </div>
 
@@ -756,6 +778,16 @@ export const IPDPage: React.FC = () => {
                             <option value="risk">พบความเสี่ยง</option>
                             <option value="review">ต้องทบทวนเวชระเบียน</option>
                             <option value="clear">ผ่านกฎอัตโนมัติ</option>
+                        </select>
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 0, width: 190 }}>
+                        <label className="form-label">LOS ตามรหัสโรค</label>
+                        <select className="form-control" value={losFilter} onChange={e => setLosFilter(e.target.value as typeof losFilter)}>
+                            <option value="all">ทุกสถานะ LOS</option>
+                            <option value="over">เกินเป้าหมาย</option>
+                            <option value="within">อยู่ในเป้าหมาย</option>
+                            <option value="no_rule">ยังไม่มีกฎ</option>
                         </select>
                     </div>
 
@@ -848,8 +880,14 @@ export const IPDPage: React.FC = () => {
                                         <td style={{ textAlign: 'center' }}>
                                             <div>{item.admDate}</div>
                                             <div style={{ fontSize: 12, marginTop: 4 }}>
-                                                <span className={`badge ${Number(item.los) > 5 ? 'badge-warning' : 'badge-success'}`}>LOS: {item.los || 0} วัน</span>
+                                                <span className={`badge ${item.los_status === 'over' ? 'badge-danger' : item.los_status === 'within' ? 'badge-success' : 'badge-secondary'}`}>LOS: {item.los || 0} วัน</span>
                                             </div>
+                                            {item.los_target != null ? (
+                                                <div style={{ marginTop: 5, fontSize: 10, color: item.los_status === 'over' ? 'var(--danger)' : 'var(--success)', fontWeight: 700 }} title={item.los_rule_note || ''}>
+                                                    เป้า {item.los_target} วัน · {Number(item.los_variance) > 0 ? `เกิน ${item.los_variance}` : `เหลือ ${Math.abs(Number(item.los_variance))}`} วัน
+                                                    <div style={{ color: 'var(--text-muted)', fontWeight: 500 }}>กฎ {item.los_rule_code}{item.los_rule_match_type === 'prefix' ? '*' : ''}</div>
+                                                </div>
+                                            ) : <div style={{ marginTop: 5, fontSize: 10, color: 'var(--text-muted)' }}>ยังไม่มีกฎ LOS</div>}
                                         </td>
                                         <td style={{ background: 'rgba(37, 99, 235, 0.02)', maxWidth: 160 }}>
                                             <div style={{ fontSize: 13, marginBottom: 4, whiteSpace: 'normal', wordBreak: 'break-word' }}>
@@ -933,8 +971,11 @@ export const IPDPage: React.FC = () => {
                                                 {item.or_codes && item.or_codes !== '-' && (!item.rw || Number(item.rw) === 0) && (
                                                     <span style={{ color: 'var(--warning)', fontWeight: 600 }}>🟠 OR but RW=0</span>
                                                 )}
-                                                {Number(item.los) > 10 && (!item.rw || Number(item.rw) < 0.8) && (
-                                                    <span style={{ color: 'var(--warning)', fontWeight: 600 }}>🟠 High LOS / Low RW</span>
+                                                {item.los_status === 'over' && (
+                                                    <span style={{ color: 'var(--danger)', fontWeight: 600 }}>🔴 LOS เกินเป้าหมาย {item.los_variance} วัน</span>
+                                                )}
+                                                {item.los_status === 'over' && (!item.rw || Number(item.rw) < 0.8) && (
+                                                    <span style={{ color: 'var(--warning)', fontWeight: 600 }}>🟠 LOS เกินเป้า / RW ต่ำ</span>
                                                 )}
                                             </div>
                                         </td>                                        <td style={{ textAlign: 'center' }}>

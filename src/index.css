@@ -1657,6 +1657,200 @@ p {
   box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1), 0 10px 18px rgba(37, 99, 235, 0.08);
 }
 
+/* FDH OPD export filters: keep long fund/status values readable and group actions by task. */
+.fdh-filter-card {
+  overflow: hidden;
+  border-color: #cbdcf8;
+}
+
+.fdh-filter-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, #f8fbff 0%, #eef5ff 100%);
+  border-bottom: 1px solid #dbe7f7;
+}
+
+.fdh-filter-title {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.fdh-filter-subtitle {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.fdh-filter-clear {
+  flex: 0 0 auto;
+  min-height: 38px;
+}
+
+.fdh-filter-body {
+  padding: 0 18px;
+}
+
+.fdh-filter-section {
+  display: grid;
+  grid-template-columns: 185px minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid #e6edf7;
+}
+
+.fdh-filter-section--last {
+  border-bottom: 0;
+}
+
+.fdh-filter-section-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding-top: 3px;
+  color: #1e3a68;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.fdh-filter-step {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 8px;
+  background: #e2ebff;
+  color: #2455d6;
+  font-size: 12px;
+}
+
+.fdh-filter-grid {
+  display: grid;
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+
+.fdh-filter-grid--export {
+  grid-template-columns: minmax(190px, 0.8fr) minmax(330px, 1.7fr) minmax(175px, 0.7fr);
+}
+
+.fdh-filter-grid--list {
+  grid-template-columns: minmax(210px, 0.8fr) minmax(300px, 1.15fr) minmax(300px, 1.2fr);
+}
+
+.fdh-filter-grid--dates {
+  grid-template-columns: minmax(180px, 0.75fr) minmax(180px, 0.75fr) minmax(190px, 0.9fr) minmax(220px, 1fr);
+  align-items: end;
+}
+
+.fdh-filter-select {
+  min-height: 46px;
+  padding-right: 36px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.fdh-filter-help {
+  min-height: 16px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.fdh-filter-help--danger {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.fdh-checkbox-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 7px 12px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.fdh-checkbox-card input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--primary);
+}
+
+.fdh-checkbox-card span {
+  display: grid;
+  gap: 1px;
+}
+
+.fdh-checkbox-card strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.fdh-checkbox-card small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.fdh-search-control {
+  display: flex;
+  gap: 8px;
+}
+
+.fdh-search-control .btn {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1360px) {
+  .fdh-filter-section {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .fdh-filter-grid--export,
+  .fdh-filter-grid--list {
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+  }
+
+  .fdh-filter-fund,
+  .fdh-filter-search {
+    grid-column: span 1;
+  }
+
+  .fdh-filter-grid--dates {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .fdh-filter-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fdh-filter-clear {
+    width: 100%;
+  }
+
+  .fdh-filter-body {
+    padding: 0 14px;
+  }
+
+  .fdh-filter-grid--export,
+  .fdh-filter-grid--list,
+  .fdh-filter-grid--dates {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ========== Table ========== */
 .data-table {
   width: 100%;

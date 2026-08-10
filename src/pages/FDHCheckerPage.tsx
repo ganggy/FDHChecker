@@ -463,6 +463,16 @@ export const FDHCheckerPage: React.FC = () => {
     const notSubmittedFdhCount = fundFilteredData.filter((item) => !hasFdhSubmission(item)).length;
     const submittedFdhCount = fundFilteredData.length - notSubmittedFdhCount;
 
+    const clearListFilters = () => {
+        setExportFund(ALL_SPECIAL_FUNDS);
+        setStatusFilter('all');
+        setFdhStatusFilter('all');
+        setSearchTerm('');
+        setConfirmResend(false);
+        setSelectedVns([]);
+        setPreviewValidation(null);
+    };
+
 
 
     return (
@@ -499,13 +509,33 @@ export const FDHCheckerPage: React.FC = () => {
                 </div>
             </details>
 
-            <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-body" style={{ padding: '14px 16px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, alignItems: 'end' }}>
+            <div className="card fdh-filter-card" style={{ marginBottom: 16 }}>
+                <div className="fdh-filter-heading">
+                    <div>
+                        <div className="fdh-filter-title">ตั้งค่าชุดส่งออกและตัวกรอง</div>
+                        <div className="fdh-filter-subtitle">เลือกชุดข้อมูลก่อน แล้วจึงกรองรายการที่ต้องการตรวจหรือส่งออก</div>
+                    </div>
+                    <button
+                        type="button"
+                        className="btn btn-secondary fdh-filter-clear"
+                        onClick={clearListFilters}
+                        disabled={exportFund === ALL_SPECIAL_FUNDS && statusFilter === 'all' && fdhStatusFilter === 'all' && !searchTerm}
+                    >
+                        ล้างตัวกรอง
+                    </button>
+                </div>
+
+                <div className="fdh-filter-body">
+                    <section className="fdh-filter-section">
+                        <div className="fdh-filter-section-label">
+                            <span className="fdh-filter-step">1</span>
+                            <span>กำหนดชุดส่งออก</span>
+                        </div>
+                        <div className="fdh-filter-grid fdh-filter-grid--export">
                         <div className="form-group">
                             <label className="form-label">มาตรฐานส่งออก</label>
                             <select
-                                className="form-control"
+                                className="form-control fdh-filter-select"
                                 value={exportProfile}
                                 onChange={(event) => {
                                     setExportProfile(event.target.value as FdhExportProfile);
@@ -516,10 +546,10 @@ export const FDHCheckerPage: React.FC = () => {
                                 <option value="fwf-migrants">FWF Migrants (แรงงานต่างด้าว)</option>
                             </select>
                         </div>
-                        <div className="form-group">
+                        <div className="form-group fdh-filter-fund">
                             <label className="form-label">🏷️ กองทุนที่จะส่งออก</label>
                             <select
-                                className="form-control"
+                                className="form-control fdh-filter-select"
                                 value={exportFund}
                                 onChange={(event) => {
                                     setExportFund(event.target.value);
@@ -534,26 +564,38 @@ export const FDHCheckerPage: React.FC = () => {
                                     </option>
                                 ))}
                             </select>
-                            <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+                            <div className="fdh-filter-help">
                                 ตาราง ตรวจสอบก่อนส่ง และ ZIP จะใช้กองทุนเดียวกัน
                                 {!confirmResend && visibleAlreadySentCount > 0 ? ` • ไม่รวม ${visibleAlreadySentCount} รายการที่มีสถานะ FDH แล้ว` : ''}
                             </div>
                         </div>
-                        <div className="form-group">
+                        <div className="form-group fdh-header-option">
                             <label className="form-label">รูปแบบไฟล์ TXT</label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 38, cursor: 'pointer' }}>
+                            <label className="fdh-checkbox-card">
                                 <input
                                     type="checkbox"
                                     checked={exportWithHeader}
                                     onChange={(event) => setExportWithHeader(event.target.checked)}
                                 />
-                                มีหัวคอลัมน์
+                                <span>
+                                    <strong>มีหัวคอลัมน์</strong>
+                                    <small>ใส่ชื่อฟิลด์ในแถวแรก</small>
+                                </span>
                             </label>
                         </div>
+                        </div>
+                    </section>
+
+                    <section className="fdh-filter-section">
+                        <div className="fdh-filter-section-label">
+                            <span className="fdh-filter-step">2</span>
+                            <span>กรองรายการในตาราง</span>
+                        </div>
+                        <div className="fdh-filter-grid fdh-filter-grid--list">
                         <div className="form-group">
                             <label className="form-label">🔍 สถานะความพร้อม</label>
                             <select
-                                className="form-control"
+                                className="form-control fdh-filter-select"
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value as any)}
                             >
@@ -566,7 +608,7 @@ export const FDHCheckerPage: React.FC = () => {
                         <div className="form-group">
                             <label className="form-label">📡 สถานะการส่ง FDH</label>
                             <select
-                                className="form-control"
+                                className="form-control fdh-filter-select"
                                 value={fdhStatusFilter}
                                 onChange={(event) => {
                                     const nextFilter = event.target.value as FdhStatusFilter;
@@ -586,16 +628,16 @@ export const FDHCheckerPage: React.FC = () => {
                                 <option value="failed">🔴 ประมวลผลไม่ผ่าน — ส่งซ้ำ ({failedFdhCount})</option>
                                 <option value="submitted">เคยส่ง / มีสถานะ FDH ({submittedFdhCount})</option>
                             </select>
-                            <div style={{ marginTop: 5, color: fdhStatusFilter === 'failed' ? 'var(--danger)' : 'var(--text-muted)', fontSize: 11, fontWeight: fdhStatusFilter === 'failed' ? 700 : 400 }}>
+                            <div className={`fdh-filter-help${fdhStatusFilter === 'failed' ? ' fdh-filter-help--danger' : ''}`}>
                                 {fdhStatusFilter === 'failed'
                                     ? 'เปิด “ยืนยันส่งซ้ำ” แล้ว • เลือกได้เฉพาะรายการไม่ผ่านที่ข้อมูลพร้อมส่ง'
                                     : 'ใช้กรองรายการตามผลตอบกลับล่าสุดจาก FDH'}
                             </div>
                         </div>
 
-                        <div className="form-group">
+                        <div className="form-group fdh-filter-search">
                             <label className="form-label">🔎 ค้นหาในตาราง</label>
-                            <div style={{ display: 'flex', gap: 8 }}>
+                            <div className="fdh-search-control">
                                 <input
                                     type="text"
                                     className="form-control"
@@ -613,12 +655,20 @@ export const FDHCheckerPage: React.FC = () => {
                                     </button>
                                 )}
                             </div>
-                            <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+                            <div className="fdh-filter-help">
                                 แสดง {filtered.length} รายการ จากทั้งหมด {fundFilteredData.length} รายการ
                                 {searchTerm ? ` • พร้อมส่ง ${visibleReadyCount} • รอแก้ ${visiblePendingCount}` : ''}
                             </div>
                         </div>
+                        </div>
+                    </section>
 
+                    <section className="fdh-filter-section fdh-filter-section--last">
+                        <div className="fdh-filter-section-label">
+                            <span className="fdh-filter-step">3</span>
+                            <span>เลือกช่วงบริการและดึงข้อมูล</span>
+                        </div>
+                        <div className="fdh-filter-grid fdh-filter-grid--dates">
                         <div className="form-group">
                             <label className="form-label">📅 วันที่เริ่ม</label>
                             <input
@@ -656,6 +706,7 @@ export const FDHCheckerPage: React.FC = () => {
                             {ipdAuthenSyncing ? '⏳ กำลังตรวจ Authen IPD...' : '🪪 ตรวจ Authen IPD ใหม่'}
                         </button>
                     </div>
+                    </section>
                 </div>
             </div>
 

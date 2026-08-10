@@ -25,7 +25,8 @@ npm run dev
 ## ตรวจระบบ
 
 ```powershell
-Invoke-WebRequest http://localhost:3506/api/health
+Invoke-WebRequest http://localhost:3506/api/live
+Invoke-WebRequest http://localhost:3506/api/ready
 npm run check
 ```
 
@@ -38,10 +39,12 @@ cd /opt/fdh_migrade
 git pull --ff-only
 npm ci
 npm run check
-npm run build
-pm2 restart all --update-env
+npm run build:all
+bash deploy/scripts/backup-databases.sh
+pm2 startOrReload deploy/pm2/ecosystem.config.cjs --update-env
 pm2 status
 pm2 logs --lines 100
 ```
 
 เก็บ `.env` ไว้เฉพาะเครื่อง server และสำรองก่อนปรับค่า ห้ามนำ password/token จริงขึ้น Git
+รายละเอียดการติดตั้ง Nginx, health checks และ rollback อยู่ที่ [deploy/README.md](./deploy/README.md)

@@ -1,222 +1,84 @@
-# FDH Checker Backlog
+# FDH Checker Roadmap
 
-อัปเดตล่าสุด: 2026-03-31
+อัปเดตล่าสุด: 2026-08-10
 
-ไฟล์นี้ใช้บันทึกงานพัฒนาต่อของระบบ FDH Checker เพื่อให้การเบิกค่ารักษาพยาบาลของโรงพยาบาลครบถ้วนขึ้น ทั้งด้านความถูกต้อง, การติดตามงาน, และการลดเงินตกหล่น
+เอกสารนี้บันทึกเฉพาะงานที่ยังต้องทำต่อ สถานะความสามารถที่มีแล้วให้ดูใน `README.md` และ automated tests เพื่อไม่ให้ roadmap ขัดกับโค้ดจริง
 
-## เป้าหมายหลัก
+## มีใช้งานแล้ว
 
-- ลดรายการเบิกตกหล่นก่อนส่ง FDH
-- ตรวจจับข้อมูลผิดพลาดให้ได้ก่อน export
-- ติดตามรายการส่งออกจนถึงผลรับเงินจริง
-- รองรับการใช้งานจริงหลายโรงพยาบาลด้วย config กลาง
-- ทำให้ทีมเวชระเบียน, การเงิน, coder, IT และผู้บริหารใช้ข้อมูลชุดเดียวกัน
+- Pre-submit validation และ export FDH 16 แฟ้ม
+- FDH submission/import status และ submission logs
+- REP/STM/INV import, history, management และ reconciliation
+- Rejected claim tracking, work queue และ receivable workflow
+- OPD/IPD pre-audit และกองทุนเฉพาะ
+- NHSO Authen/Close/eClaim, MOPH Claim และ Social Security OPD/IPD
+- ผู้ใช้ กลุ่ม สิทธิ์เมนู และ bootstrap admin แบบ one-time
+- LINE operational reports และ duplicate appointment alert
+- Unit tests, TypeScript check, ESLint, production frontend/backend build และ CI workflow
+- PM2/Nginx deployment template, liveness/readiness และ graceful shutdown
 
-## ลำดับความสำคัญสูงสุด
+## P0 — ก่อนเปิดใช้งานวงกว้าง
 
-### 1. Pre-submit Validator ระดับ 16 แฟ้ม
+### Data privacy และ repository hygiene
 
-เป้าหมาย:
-- ตรวจความถูกต้องก่อนส่งออกจริงระดับแฟ้ม `INS/PAT/OPD/ORF/ODX/OOP/IPD/IRF/IDX/IOP/CHT/CHA/AER/ADP/LVD/DRU`
-- ตรวจ field บังคับ, รูปแบบวันที่, code ที่จำเป็น, data type, ความสอดคล้องข้ามแฟ้ม
+- ยืนยันว่าไฟล์ตัวอย่างทุกไฟล์เป็นข้อมูลนิรนาม
+- นำไฟล์ HN/VN/CID/ชื่อผู้ป่วยออกจาก Git และล้าง history เมื่อเป็นข้อมูลจริง
+- เพิ่ม data-retention policy สำหรับ import payload, logs และ backups
 
-สิ่งที่ควรมี:
-- หน้าสรุป error/warning ก่อน export
-- บอกได้ว่าเคสไหนตกเพราะอะไร
-- แยก error ระดับ `ห้ามส่ง` กับ `ควรตรวจสอบ`
+### Dependency security
 
-สถานะ:
-- ยังไม่ได้ทำ
+- อัปเดต `adm-zip` และ Express dependency chain
+- เปลี่ยนหรือ isolate ตัวอ่าน `xlsx` ที่มี known vulnerabilities
+- จำกัดขนาดไฟล์, จำนวน ZIP entries, expanded size และเวลาประมวลผล
 
-### 2. Rejected Claim Tracking
+### Audit trail
 
-เป้าหมาย:
-- ติดตามรายการที่ถูก reject จาก FDH/NHSO
-- รู้ว่า reject เพราะอะไร, ถูกแก้หรือยัง, ส่งซ้ำหรือยัง
+- ทำ append-only audit event กลาง
+- ใช้ actor จาก authenticated session เท่านั้น
+- ครอบคลุม config, export, external submit, import, delete, user และ permission changes
 
-สิ่งที่ควรมี:
-- ตารางรายการ reject
-- filter ตามวันที่, กองทุน, สาเหตุ, สถานะ
-- เก็บประวัติการแก้ไข
+## P1 — ความเสถียรและดูแลรักษา
 
-สถานะ:
-- ยังไม่ได้ทำ
+### แยก backend ตาม domain
 
-### 3. Reconciliation
+เริ่มแล้วโดยแยก `claimTrackingRoutes`, `sssRoutes` และ `healthRoutes` งานถัดไป:
 
-เป้าหมาย:
-- เทียบข้อมูล 3 ฝั่ง:
-  - HOSxP
-  - ไฟล์ส่งออก
-  - ผลตอบกลับ/ยอดรับเงินจริง
+1. ย้าย Auth/Admin routes และ repository ออกจาก `index.ts`/`db.ts`
+2. ย้าย REP/STM/INV และ receivable เป็น domain modules
+3. ย้าย FDH/NHSO/MOPH integrations เป็น services + routes
+4. ใช้ versioned database migrations แทน runtime DDL
 
-สิ่งที่ควรมี:
-- เคสที่ควรเบิกแต่ยังไม่ส่ง
-- เคสที่ส่งแล้วแต่ไม่ผ่าน
-- เคสที่ผ่านแล้วแต่ยอดไม่ตรง
+### Permission ระดับ action
 
-สถานะ:
-- ยังไม่ได้ทำ
+- แยก view/import/export/submit/delete/admin ออกจาก menu permission
+- เพิ่ม approval step สำหรับการส่งข้อมูลออกภายนอกและการลบข้อมูล
 
-### 4. Audit Trail
+### Tests
 
-เป้าหมาย:
-- บันทึกว่าใครทำอะไร เมื่อไร
+- Database integration tests ด้วย schema/fixture ที่นิรนาม
+- Browser E2E สำหรับ login, permission และ claim lifecycle
+- Golden-file/snapshot tests สำหรับ export ทุก format
+- Failure tests สำหรับ timeout, partial import, duplicate และ malformed ZIP/XLSX
 
-สิ่งที่ควรมี:
-- log การแก้ settings
-- log การ export 16 แฟ้ม
-- log การเปลี่ยนสถานะรายการ
-- log การ import feedback / reject
+### Observability
 
-สถานะ:
-- ยังไม่ได้ทำ
+- Structured JSON logging และ secret/PII redaction
+- Metrics สำหรับ latency, error rate, queue/import/submission failures
+- Error monitoring และ deployment release tag
 
-## ความสำคัญระดับสูง
+## P2 — การขยายระบบ
 
-### 5. Rule Engine / Config กลาง
+- Rule catalog ที่มีแหล่งอ้างอิง รุ่น วันเริ่มใช้ ผู้อนุมัติ และประวัติการเปลี่ยนแปลง
+- Config template และ validation สำหรับโรงพยาบาลใหม่
+- Dashboard SLA/aging ของ work queue และ reject resolution
+- Automated restore drill report และ disaster-recovery target (RPO/RTO)
 
-เป้าหมาย:
-- ย้าย hardcode ทั้งหมดเข้า settings/config กลาง
+## Definition of done
 
-รายการที่ควรย้าย:
-- ADP codes
-- diagnosis patterns
-- project codes
-- เงื่อนไขอายุ/เพศ
-- authen rules
-- mapping สิทธิ์แต่ละโรงพยาบาล
-- ค่าใช้จ่ายและกลุ่ม lab/service/drug
+งาน production ถือว่าเสร็จเมื่อ:
 
-สถานะ:
-- เริ่มทำแล้วบางส่วน
-
-### 6. Work Queue สำหรับทีมงาน
-
-เป้าหมาย:
-- ทำสถานะงานเบิกให้ไหลตาม workflow จริง
-
-สถานะที่ควรมี:
-- รอแก้เวชระเบียน
-- รอ authen
-- รอ ICD/ICD9
-- รอการเงิน
-- พร้อมส่ง
-- ส่งแล้ว
-- ตีกลับ
-
-สถานะ:
-- ยังไม่ได้ทำ
-
-### 7. Dashboard การเงินจริง
-
-เป้าหมาย:
-- ให้ผู้บริหารและการเงินเห็นภาพรวมการเบิกจริง
-
-ตัวชี้วัดที่ควรมี:
-- มูลค่าที่ควรเบิก
-- มูลค่าที่ส่งแล้ว
-- มูลค่าที่ผ่าน
-- มูลค่าที่ถูก reject
-- เงินตกหล่น
-- top สาเหตุ reject
-- แยกตามกองทุน/หน่วยงาน/เดือน
-
-สถานะ:
-- ยังไม่ได้ทำ
-
-### 8. Import Feedback จากระบบภายนอก
-
-เป้าหมาย:
-- รับไฟล์ตอบกลับจาก FDH/NHSO/ระบบการเงินเข้ามาในระบบ
-
-สิ่งที่ควรมี:
-- import file
-- map เข้ารายการเดิม
-- เปลี่ยนสถานะอัตโนมัติ
-- สรุปผลนำเข้า
-
-สถานะ:
-- ยังไม่ได้ทำ
-
-## ความสำคัญระดับกลาง
-
-### 9. Role / Permission
-
-บทบาทที่ควรมี:
-- coder
-- การเงิน
-- เวชระเบียน
-- IT
-- admin
-- ผู้บริหาร
-
-สถานะ:
-- ยังไม่ได้ทำ
-
-### 10. การแจ้งเตือน
-
-สิ่งที่ควรแจ้ง:
-- authen ขาด
-- DX/หัตถการขาด
-- เคสพร้อมส่งค้าง
-- เคส reject ใหม่
-- export ล้มเหลว
-
-สถานะ:
-- ยังไม่ได้ทำ
-
-### 11. Test สำหรับ 16 แฟ้ม
-
-เป้าหมาย:
-- มี test ว่าเคสตัวอย่างควรออกข้อมูลอะไรในแต่ละแฟ้ม
-
-สิ่งที่ควรมี:
-- fixture ตัวอย่าง OPD/IPD
-- validator test
-- export snapshot test
-
-สถานะ:
-- ยังไม่ได้ทำ
-
-### 12. Template สำหรับโรงพยาบาลใหม่
-
-เป้าหมาย:
-- ย้ายระบบไปใช้โรงพยาบาลอื่นได้เร็ว
-
-สิ่งที่ควรมี:
-- template config
-- import/export config
-- คู่มือ setup
-
-สถานะ:
-- เริ่มทำแล้วบางส่วน
-
-## Roadmap แนะนำ
-
-### ระยะสั้น
-
-1. ทำ pre-submit validator 16 แฟ้ม
-2. แสดงผล validation ก่อน export
-3. ทำ rejected tracking ขั้นต้น
-4. เริ่ม audit trail ของ export และ settings
-
-### ระยะกลาง
-
-1. ทำ reconciliation dashboard
-2. ทำ work queue
-3. ทำ import feedback
-4. ย้าย hardcode ที่เหลือเข้า config กลาง
-
-### ระยะใช้งานจริงเต็มระบบ
-
-1. ทำ role/permission
-2. ทำ notification
-3. ทำ automated tests สำหรับ export
-4. ทำ deployment template สำหรับหลายโรงพยาบาล
-
-## หมายเหตุ
-
-- งานที่ควรทำก่อนที่สุดในเชิงผลกระทบต่อเงินจริง คือ `Pre-submit Validator`
-- งานที่ช่วยลดเงินตกหล่นระยะกลางมากที่สุด คือ `Rejected Tracking` และ `Reconciliation`
-- งานที่ช่วยให้ระบบใช้ขยายไปหลายโรงพยาบาลได้ดี คือ `Config กลาง` และ `Template Setup`
+1. มี automated test สำหรับ behavior สำคัญ
+2. `npm run check` และ `npm run build:all` ผ่าน
+3. ระบุผลกระทบต่อข้อมูล สิทธิ์ และ audit แล้ว
+4. มี deployment/rollback note เมื่อเปลี่ยน runtime หรือ schema
+5. เอกสาร README/roadmap ถูกอัปเดตใน change เดียวกัน

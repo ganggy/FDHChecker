@@ -3639,6 +3639,10 @@ export const syncNhsoAuthenCodes = async (options: {
   return summary;
 };
 
+export const closeDatabasePools = async () => {
+  await Promise.allSettled([pool.end(), repstmPool.end()]);
+};
+
 const getNhsoIpdAuthenCandidates = async (
   startDate: string,
   endDate: string,

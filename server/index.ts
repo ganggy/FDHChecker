@@ -74,6 +74,7 @@ import {
   testNhsoClosePrivilegeToken,
   submitNhsoClosePrivileges,
   importFdhStatusForDateRange,
+  closeDatabasePools,
 } from './db.js';
 import businessRules from './config/business_rules.json';
 import { promises as fs } from 'fs';
@@ -92,6 +93,8 @@ import {
   validateDateRange,
 } from './requestSafety.js';
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
+import { createHealthRouter } from './routes/healthRoutes.js';
+import { sssRouter } from './routes/sssRoutes.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -116,14 +119,6 @@ import {
   verifyLineWebhookSignature,
 } from './lineMessaging.js';
 import { isMissingFdhStatus } from '../src/utils/fdhClaimProgress.js';
-import {
-  buildSssExportZip,
-  getSssCandidates,
-  getSssImportHistory,
-  importSssResponseRows,
-  type SssNetworkType,
-} from './sssClaim.js';
-import { buildSssIpdExportZip, getSssIpdCandidates } from './sssIpdClaim.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -729,8 +724,10 @@ app.post('/api/admin/line/test', requireAdmin, async (req, res) => {
 
 // All API routes declared below this point require an approved, active user.
 // Health remains public for PM2/reverse-proxy readiness checks and contains no infrastructure details.
+const publicHealthPaths = new Set(['/health', '/live', '/ready']);
+
 app.use('/api', (req: AuthenticatedRequest, res, next) => {
-  if (req.path === '/health') return next();
+  if (publicHealthPaths.has(req.path)) return next();
   return void requireAuth(req, res, next);
 });
 
@@ -774,7 +771,7 @@ const apiPageRules: ApiPageRule[] = [
 ];
 
 app.use('/api', (req: AuthenticatedRequest, res, next) => {
-  if (req.path === '/health') return next();
+  if (publicHealthPaths.has(req.path)) return next();
   const user = req.authUser;
   if (!user) return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ' });
   if (user.is_admin || user.group_is_admin) return next();
@@ -788,139 +785,7 @@ app.use('/api', (req: AuthenticatedRequest, res, next) => {
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);
-
-const normalizeSssNetworkType = (value: unknown): SssNetworkType => {
-  const normalized = String(value || 'ALL').trim().toUpperCase();
-  return normalized === 'IN' || normalized === 'OUT' ? normalized : 'ALL';
-};
-
-app.get('/api/sss/candidates', async (req, res) => {
-  try {
-    const startDate = String(req.query.startDate || '').trim();
-    const endDate = String(req.query.endDate || '').trim();
-    if (!startDate || !endDate) return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่' });
-    const data = await getSssCandidates({
-      startDate,
-      endDate,
-      networkType: normalizeSssNetworkType(req.query.networkType),
-    });
-    const summary = data.reduce((acc, row) => {
-      acc.total += 1;
-      acc[row.network_type === 'OUT' ? 'outNetwork' : 'inNetwork'] += 1;
-      acc[row.validation_status] += 1;
-      acc.amount += Number(row.income || 0);
-      return acc;
-    }, { total: 0, inNetwork: 0, outNetwork: 0, ready: 0, warning: 0, error: 0, amount: 0 });
-    return res.json({ success: true, data, summary, closePrivilegeCheck: false });
-  } catch (error) {
-    console.error('Error loading SSS export candidates:', error);
-    return res.status(500).json({ success: false, error: 'โหลดรายการสิทธิ์ประกันสังคมไม่สำเร็จ' });
-  }
-});
-
-app.post('/api/sss/export', async (req, res) => {
-  try {
-    const startDate = String(req.body?.startDate || '').trim();
-    const endDate = String(req.body?.endDate || '').trim();
-    const vns = Array.isArray(req.body?.vns) ? req.body.vns.map(String).map((value: string) => value.trim()).filter(Boolean) : [];
-    const dateValidation = validateDateRange(startDate, endDate, 366);
-    if (!dateValidation.ok) return res.status(400).json({ success: false, error: dateValidation.error });
-    if (!vns.length || vns.length > 5000) return res.status(400).json({ success: false, error: 'กรุณาเลือก 1-5,000 รายการ' });
-    const siteSettings = (businessRules as { site_settings?: { hospital_code?: string; hospital_name?: string } }).site_settings || {};
-    const result = await buildSssExportZip({
-      startDate,
-      endDate,
-      networkType: normalizeSssNetworkType(req.body?.networkType),
-      vns,
-      hcode: String(process.env.HOSXP_HCODE || siteSettings.hospital_code || '').trim(),
-      hospitalName: String(siteSettings.hospital_name || 'โรงพยาบาล').trim(),
-    });
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-    res.setHeader('X-SSS-Visit-Count', String(result.summary.visitCount));
-    return res.send(result.buffer);
-  } catch (error) {
-    console.error('Error exporting SSS SSOP:', error);
-    return res.status(422).json({ success: false, error: (error as Error).message || 'ส่งออก SSOP ไม่สำเร็จ' });
-  }
-});
-
-app.get('/api/sss/ipd/candidates', async (req, res) => {
-  try {
-    const startDate = String(req.query.startDate || '').trim();
-    const endDate = String(req.query.endDate || '').trim();
-    if (!startDate || !endDate) return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่จำหน่าย' });
-    const data = await getSssIpdCandidates({ startDate, endDate, networkType: normalizeSssNetworkType(req.query.networkType) });
-    const summary = data.reduce((acc, row) => {
-      acc.total += 1;
-      acc[row.network_type === 'OUT' ? 'outNetwork' : 'inNetwork'] += 1;
-      acc[row.validation_status] += 1;
-      acc.amount += Number(row.income || 0);
-      return acc;
-    }, { total: 0, inNetwork: 0, outNetwork: 0, ready: 0, warning: 0, error: 0, amount: 0 });
-    return res.json({ success: true, data, summary, format: 'AIPN-2.1', closePrivilegeCheck: false });
-  } catch (error) {
-    console.error('Error loading SSS IPD candidates:', error);
-    return res.status(500).json({ success: false, error: 'โหลดรายการผู้ป่วยในประกันสังคมไม่สำเร็จ' });
-  }
-});
-
-app.post('/api/sss/ipd/export', async (req, res) => {
-  try {
-    const startDate = String(req.body?.startDate || '').trim();
-    const endDate = String(req.body?.endDate || '').trim();
-    const ans = Array.isArray(req.body?.ans) ? req.body.ans.map(String).map((value: string) => value.trim()).filter(Boolean) : [];
-    const dateValidation = validateDateRange(startDate, endDate, 366);
-    if (!dateValidation.ok) return res.status(400).json({ success: false, error: dateValidation.error });
-    if (!ans.length || ans.length > 1000) return res.status(400).json({ success: false, error: 'กรุณาเลือก 1-1,000 AN' });
-    const siteSettings = (businessRules as { site_settings?: { hospital_code?: string; hospital_name?: string } }).site_settings || {};
-    const result = await buildSssIpdExportZip({
-      startDate,
-      endDate,
-      networkType: normalizeSssNetworkType(req.body?.networkType),
-      ans,
-      hcode: String(process.env.HOSXP_HCODE || siteSettings.hospital_code || '').trim(),
-      hospitalName: String(siteSettings.hospital_name || 'โรงพยาบาล').trim(),
-    });
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-    res.setHeader('X-SSS-Admission-Count', String(result.summary.admissionCount));
-    return res.send(result.buffer);
-  } catch (error) {
-    console.error('Error exporting SSS AIPN:', error);
-    return res.status(422).json({ success: false, error: (error as Error).message || 'ส่งออก AIPN ไม่สำเร็จ' });
-  }
-});
-
-app.post('/api/sss/repstm/import', async (req, res) => {
-  try {
-    const importType = String(req.body?.importType || '').toUpperCase();
-    if (!['REP', 'STM'].includes(importType)) return res.status(400).json({ success: false, error: 'ประเภทไฟล์ต้องเป็น REP หรือ STM' });
-    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-    const result = await importSssResponseRows({
-      importType: importType as 'REP' | 'STM',
-      sourceFilename: String(req.body?.sourceFilename || '').trim() || `${importType}.txt`,
-      networkType: normalizeSssNetworkType(req.body?.networkType),
-      importedBy: String(req.body?.importedBy || '').trim() || undefined,
-      notes: String(req.body?.notes || '').trim() || undefined,
-      rows,
-    });
-    return res.json({ success: true, ...result, message: result.duplicate ? 'ข้อมูลชุดนี้ถูกนำเข้าแล้ว' : `นำเข้า ${importType} สำเร็จ` });
-  } catch (error) {
-    console.error('Error importing SSS REP/STM:', error);
-    return res.status(500).json({ success: false, error: (error as Error).message || 'นำเข้า REP/STM ประกันสังคมไม่สำเร็จ' });
-  }
-});
-
-app.get('/api/sss/repstm/history', async (req, res) => {
-  try {
-    const data = await getSssImportHistory(Number(req.query.limit || 30));
-    return res.json({ success: true, data });
-  } catch (error) {
-    console.error('Error loading SSS REP/STM history:', error);
-    return res.status(500).json({ success: false, error: 'โหลดประวัตินำเข้า REP/STM ประกันสังคมไม่สำเร็จ' });
-  }
-});
+app.use('/api/sss', sssRouter);
 
 const getResolvedHospitalCode = async (): Promise<string> => {
   const siteSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
@@ -3967,8 +3832,8 @@ app.post('/api/receivables/batches', async (req, res) => {
 // GET: ดึงข้อมูลการตั้งค่าธุรกิจ (Frontend)
 app.get('/api/config/business-rules/frontend', async (req, res) => {
   try {
-    // Frontend config is in ../src/config/business_rules.json relative to server/index.ts
-    const configPath = path.join(__dirname, '..', 'src', 'config', 'business_rules.json');
+    // Keep the source fallback stable in both tsx development and compiled production layouts.
+    const configPath = path.resolve(process.cwd(), 'src', 'config', 'business_rules.json');
     const data = await readConfigWithFallback(configPath);
     res.json(data);
   } catch (error) {
@@ -5468,25 +5333,10 @@ app.post('/api/nhso-eclaim/download', async (req, res) => {
   }
 });
 
-app.get('/api/health', async (req, res) => {
-  try {
-    const { testConnection } = await import('./db.js');
-    const isConnected = await testConnection();
-
-    res.json({
-      status: 'ok',
-      database: isConnected ? 'connected' : 'unavailable',
-      timestamp: new Date().toISOString(),
-    });
-  } catch {
-    res.json({
-      status: 'ok',
-      database: 'unavailable',
-      error: 'Database connection test failed',
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
+app.use('/api', createHealthRouter(async () => {
+  const { testConnection } = await import('./db.js');
+  return testConnection();
+}));
 
 app.use('/api', claimTrackingRouter);
 
@@ -5494,8 +5344,39 @@ app.use('/api', apiNotFoundHandler);
 app.use(apiErrorHandler);
 
 const PORT = Number(process.env.PORT) || 3506;
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ FDH Checker Server running on port ${PORT}`);
   console.log(`📡 Listening on all interfaces (0.0.0.0)`);
   console.log(`🌐 API Endpoint: http://localhost:${PORT}/api`);
 });
+
+let shuttingDown = false;
+const shutdown = async (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] ${signal} received; stopping new requests`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('[shutdown] graceful shutdown timed out');
+    process.exit(1);
+  }, 30_000);
+  forceExitTimer.unref();
+
+  server.close(async (error) => {
+    if (eclaimBrowserSession) {
+      try { await eclaimBrowserSession.browser.close(); } catch { /* best effort */ }
+      eclaimBrowserSession = null;
+    }
+    await closeDatabasePools();
+    clearTimeout(forceExitTimer);
+    if (error) {
+      console.error('[shutdown] HTTP server close failed:', error);
+      process.exit(1);
+    }
+    console.log('[shutdown] complete');
+    process.exit(0);
+  });
+};
+
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
+process.once('SIGINT', () => void shutdown('SIGINT'));

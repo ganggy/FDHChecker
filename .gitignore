@@ -17,6 +17,11 @@ dist-ssr
 .env.*
 !.env.example
 outputs/
+.codex-tmp/
+tmp/
+tmp_*
+server/test_out.json
+backups/
 
 # Editor directories and files
 .vscode/*

@@ -5,15 +5,15 @@
 ## เตรียมเครื่องครั้งแรก
 
 1. ติดตั้ง Node.js 22 LTS, Nginx, PM2, MySQL client และ `mysqldump`
-2. clone repository ไว้ที่ `/opt/fdh_migrade`
-3. สร้าง `/opt/fdh_migrade/.env` จาก `.env.example` และจำกัดสิทธิ์เป็น `600`
+2. clone repository ไว้ที่ `/opt/FDHChecker` ซึ่งตรงกับ systemd service เดิม
+3. สร้าง `/opt/FDHChecker/.env` จาก `.env.example` และจำกัดสิทธิ์เป็น `600`
 4. สร้าง log directory: `sudo install -d -o "$USER" -g "$USER" /var/log/fdh-checker`
 5. แก้ hostname และ certificate path ใน `deploy/nginx/fdh-checker.conf` ก่อนติดตั้ง
 
 ## Deploy
 
 ```bash
-cd /opt/fdh_migrade
+cd /opt/FDHChecker
 git fetch --all --prune
 git pull --ff-only
 npm ci
@@ -41,7 +41,7 @@ pwsh -File deploy/scripts/backup-databases.ps1
 บันทึก commit ก่อน deploy ทุกครั้ง จากนั้น rollback เฉพาะ application ก่อน:
 
 ```bash
-cd /opt/fdh_migrade
+cd /opt/FDHChecker
 git switch --detach <previous-tested-commit>
 npm ci
 npm run build:all

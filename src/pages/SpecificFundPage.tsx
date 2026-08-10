@@ -1191,9 +1191,30 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         setTrackResult(null);
         setTrackProgress({ done: 0, total: vns.length, updated: 0, errors: 0 });
         try {
+            let authenUpdated = 0;
+            let authenErrors = 0;
+            let authenErrorMessage = '';
+            try {
+                const authenRes = await fetch('/api/fdh/sync-authen-vns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ startDate, endDate, vns }),
+                });
+                const authenJson = await authenRes.json();
+                if (authenJson.success) {
+                    authenUpdated = authenJson.summary?.updated ?? 0;
+                    authenErrors = authenJson.summary?.errors ?? 0;
+                } else {
+                    authenErrorMessage = authenJson.error || 'Sync NHSO Authen ไม่สำเร็จ';
+                }
+            } catch (e) {
+                authenErrorMessage = e instanceof Error ? e.message : 'เชื่อมต่อ NHSO Authen ไม่สำเร็จ';
+            }
+
             const chunkSize = 50;
             let totalUpdated = 0;
             let totalErrors = 0;
+            let fdhErrorMessage = '';
             for (let i = 0; i < vns.length; i += chunkSize) {
                 const chunk = vns.slice(i, i + chunkSize);
                 const res = await fetch('/api/fdh/track-vns', {
@@ -1206,16 +1227,23 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     totalUpdated += json.summary?.updated ?? 0;
                     totalErrors += json.summary?.errors ?? 0;
                 } else {
-                    setTrackResult({ success: false, message: json.error || 'เกิดข้อผิดพลาด' });
-                    setTrackingFdh(false);
-                    setTrackProgress(null);
-                    return;
+                    fdhErrorMessage = json.error || 'ตรวจสอบ FDH ไม่สำเร็จ';
+                    totalErrors += chunk.length;
+                    break;
                 }
                 setTrackProgress({ done: Math.min(i + chunkSize, vns.length), total: vns.length, updated: totalUpdated, errors: totalErrors });
             }
-            setTrackResult({ success: true, message: `ตรวจสอบสำเร็จ ${totalUpdated} รายการ${totalErrors > 0 ? ` (ผิดพลาด ${totalErrors} รายการ)` : ''}` });
-            // Refresh data to show new FDH status
-            void fetchFundData();
+            const resultParts = [
+                `NHSO Authen อัปเดต ${authenUpdated} รายการ${authenErrors > 0 ? ` (ผิดพลาด ${authenErrors})` : ''}`,
+                `FDH อัปเดต ${totalUpdated} รายการ${totalErrors > 0 ? ` (ผิดพลาด ${totalErrors})` : ''}`,
+            ];
+            if (authenErrorMessage) resultParts.push(`NHSO: ${authenErrorMessage}`);
+            if (fdhErrorMessage) resultParts.push(`FDH: ${fdhErrorMessage}`);
+            setTrackResult({
+                success: !authenErrorMessage && !fdhErrorMessage && authenErrors === 0 && totalErrors === 0,
+                message: resultParts.join(' | '),
+            });
+            await fetchFundData();
         } catch (e) {
             setTrackResult({ success: false, message: e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
         } finally {

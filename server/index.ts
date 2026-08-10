@@ -4207,6 +4207,49 @@ app.post('/api/nhso/authen/sync', async (req, res) => {
   }
 });
 
+app.post('/api/fdh/sync-authen-vns', async (req, res) => {
+  try {
+    const { startDate, endDate, vns } = req.body as {
+      startDate?: string;
+      endDate?: string;
+      vns?: string[];
+    };
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุวันที่เริ่มต้นและสิ้นสุด' });
+    }
+    if (!Array.isArray(vns) || vns.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุรายการ VN (vns[])' });
+    }
+    if (vns.length > 500) {
+      return res.status(400).json({ success: false, error: 'Sync Authen ได้ครั้งละไม่เกิน 500 รายการ' });
+    }
+
+    const authenConfig = await getResolvedNhsoAuthenConfig();
+    const token = String(authenConfig.token || '').trim();
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า NHSO Token' });
+    }
+
+    const summary = await syncNhsoAuthenCodes({
+      token,
+      baseUrl: String(authenConfig.apiBaseUrl || '').trim(),
+      hospitalCode: await getResolvedHospitalCode(),
+      startDate,
+      endDate,
+      maxDays: Number(authenConfig.maxDays || 4),
+      mode: 'close-status',
+      vns,
+    });
+    return res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error syncing targeted NHSO Authen codes:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการ sync Authen Code',
+    });
+  }
+});
+
 app.get('/api/nhso/authen/logs', async (req, res) => {
   try {
     const limit = Number(req.query.limit || 100);

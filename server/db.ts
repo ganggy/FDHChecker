@@ -1982,6 +1982,12 @@ const isValidThaiCid = (cid: string) => {
 };
 
 const formatDateOnly = (value: unknown) => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
   const text = normalizeImportCellValue(value);
   if (!text) return '';
   const parsed = new Date(text);
@@ -3365,7 +3371,7 @@ export const getMophClaimDashboardSummary = async (options: {
 const getNhsoAuthenCandidates = async (
   startDate: string,
   endDate: string,
-  options: { mode?: 'missing' | 'close-status'; fundCodes?: string[] } = {},
+  options: { mode?: 'missing' | 'close-status'; fundCodes?: string[]; vns?: string[] } = {},
 ) => {
   const connection = await getUTFConnection();
   try {
@@ -3388,6 +3394,12 @@ const getNhsoAuthenCandidates = async (
       : `AND IFNULL(vp.auth_code, '') = ''
          AND IFNULL(ah.claim_code, '') = ''`;
     const fundCondition = fundCodes.length > 0 ? 'AND ptt.hipdata_code IN (?)' : '';
+    const vns = Array.from(new Set(
+      (options.vns || [])
+        .map((vn) => normalizeImportCellValue(vn))
+        .filter(Boolean),
+    )).slice(0, 500);
+    const vnCondition = vns.length > 0 ? 'AND o.vn IN (?)' : '';
     const cancelCondition = options.mode === 'close-status'
       ? `AND NOT EXISTS (
            SELECT 1 FROM ${repstmDatabaseName}.authen_sync_cancel ac
@@ -3418,9 +3430,15 @@ const getNhsoAuthenCandidates = async (
        WHERE o.vstdate BETWEEN ? AND ?
          ${authenCondition}
          ${fundCondition}
+         ${vnCondition}
          ${cancelCondition}
        ORDER BY o.vstdate DESC, o.vn DESC`,
-      fundCodes.length > 0 ? [startDate, endDate, fundCodes] : [startDate, endDate]
+      [
+        startDate,
+        endDate,
+        ...(fundCodes.length > 0 ? [fundCodes] : []),
+        ...(vns.length > 0 ? [vns] : []),
+      ]
     );
     return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
   } finally {
@@ -3503,6 +3521,7 @@ export const syncNhsoAuthenCodes = async (options: {
   maxDays?: number;
   mode?: 'missing' | 'close-status';
   fundCodes?: string[];
+  vns?: string[];
 }) => {
   const start = new Date(options.startDate);
   const end = new Date(options.endDate);
@@ -3510,13 +3529,14 @@ export const syncNhsoAuthenCodes = async (options: {
   if (Number.isNaN(dayDiff) || dayDiff < 0) {
     throw new Error('ช่วงวันที่ไม่ถูกต้อง');
   }
-  if (dayDiff > (options.maxDays ?? 4)) {
+  if (dayDiff > (options.maxDays ?? 4) && !options.vns?.length) {
     throw new Error(`ช่วงวันที่มากเกินไป ระบบนี้รองรับไม่เกิน ${options.maxDays ?? 4} วัน`);
   }
 
   const candidates = await getNhsoAuthenCandidates(options.startDate, options.endDate, {
     mode: options.mode,
     fundCodes: options.fundCodes,
+    vns: options.vns,
   });
   const summary = {
     total: candidates.length,

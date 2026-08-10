@@ -87,9 +87,12 @@ npm run check
 
 1. ตั้งค่า `.env` บนเครื่องปลายทางโดยไม่เก็บใน Git
 2. รัน `npm ci` และ `npm run check`
-3. build frontend ด้วย `npm run build`
-4. รัน backend ผ่าน PM2 และวาง reverse proxy/HTTPS ด้านหน้า
-5. เปลี่ยน bootstrap password และ token ที่ใช้ติดตั้งทันที
+3. build frontend และ backend ด้วย `npm run build:all`
+4. สำรองฐานข้อมูล แล้วรัน backend ผ่าน PM2 และวาง Nginx/HTTPS ด้านหน้า
+5. ตรวจ `/api/live` และ `/api/ready` หลัง deploy
+6. เปลี่ยน bootstrap password และ token ที่ใช้ติดตั้งทันที
+
+ตัวอย่าง PM2, Nginx, backup และ rollback อยู่ที่ [deploy/README.md](./deploy/README.md)
 
 ## โครงสร้างหลัก
 
@@ -101,6 +104,8 @@ server/requestSafety.ts HTTP validation และ error handling
 server/httpClient.ts    HTTP client พร้อม timeout
 server/db.ts            data-access เดิมที่กำลังทยอยแยกตาม domain
 public/                 static assets ที่โหลดตามต้องการ
+deploy/                 PM2, Nginx, backup และ runbook สำหรับ production
 ```
 
 ดูวิธีเปิดระบบแบบย่อที่ [QUICK_START.md](./QUICK_START.md)
+ดูงานที่ยังเหลือและลำดับความสำคัญที่ [BACKLOG.md](./BACKLOG.md)

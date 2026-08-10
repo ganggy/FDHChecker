@@ -124,7 +124,7 @@ import { isMissingFdhStatus } from '../src/utils/fdhClaimProgress.js';
 import { hasPalliativeAuthenReady } from '../src/utils/billingUtils.js';
 import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
 import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
-import { assessIpdLos, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
+import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1590,7 +1590,7 @@ app.get('/api/hosxp/ipd-list', async (req, res) => {
       getEligibleIPD(startDate as string, endDate as string, statusFilter as string),
       getAppSetting<unknown>(IPD_LOS_SETTINGS_KEY),
     ]);
-    const losRules = normalizeIpdLosRules(storedLosRules);
+    const losRules = storedLosRules == null ? DEFAULT_IPD_LOS_RULES : normalizeIpdLosRules(storedLosRules);
     const enrichedData = data.map((row: Record<string, unknown>) => {
       const diagnoses = String(row.diagnosis_codes || '').split(',').map((code) => code.trim()).filter(Boolean);
       const procedures = String(row.or_codes || '').split(',').map((code) => code.trim()).filter(Boolean);
@@ -3946,8 +3946,8 @@ app.post('/api/config/app-settings', async (req, res) => {
 app.get('/api/config/ipd-los-settings', async (_req, res) => {
   try {
     const storedRules = await getAppSetting<unknown>(IPD_LOS_SETTINGS_KEY);
-    const rules = normalizeIpdLosRules(storedRules);
-    return res.json({ success: true, data: rules, source: storedRules ? 'database' : 'empty' });
+    const rules = storedRules == null ? DEFAULT_IPD_LOS_RULES : normalizeIpdLosRules(storedRules);
+    return res.json({ success: true, data: rules, source: storedRules == null ? 'document-default' : 'database' });
   } catch (error) {
     console.error('Error reading IPD LOS settings:', error);
     return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านค่ามาตรฐาน LOS ได้' });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { assessIpdLos, findIpdLosRule, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
+import { assessIpdLos, DEFAULT_IPD_LOS_RULES, findIpdLosRule, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 
 const rules = normalizeIpdLosRules([
   { id: 'pneumonia', diagnosisCode: 'J18', matchType: 'prefix', targetLos: 5, note: 'Pneumonia', active: true },
@@ -33,4 +33,12 @@ test('rejects duplicate and invalid LOS rules', () => {
     { diagnosisCode: 'J18', matchType: 'prefix', targetLos: 5 },
     { diagnosisCode: 'J18', matchType: 'prefix', targetLos: 6 },
   ]).ok, false);
+});
+
+test('document-derived defaults use maximum appropriate LOS and cover clinical groups', () => {
+  assert.equal(DEFAULT_IPD_LOS_RULES.length, 49);
+  assert.equal(assessIpdLos('J18.9', 12, DEFAULT_IPD_LOS_RULES).los_target, 11);
+  assert.equal(assessIpdLos('D64.9', 5, DEFAULT_IPD_LOS_RULES).los_target, 4);
+  assert.equal(assessIpdLos('F10.1', 20, DEFAULT_IPD_LOS_RULES).los_target, 27);
+  assert.equal(validateIpdLosRules(DEFAULT_IPD_LOS_RULES).ok, true);
 });

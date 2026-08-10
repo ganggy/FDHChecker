@@ -132,6 +132,51 @@ const buildAnemiaAgeEligibleSql = (visitAlias: string) => `
   )
 `;
 
+const buildSameDayEpCodeFallbackSql = (visitAlias: string) => `
+  COALESCE(
+    (
+      SELECT ncp2.nhso_authen_code
+      FROM ovst o2
+      JOIN nhso_confirm_privilege ncp2 ON ncp2.vn = o2.vn
+      WHERE o2.hn = ${visitAlias}.hn
+        AND DATE(o2.vstdate) = DATE(${visitAlias}.vstdate)
+        AND ncp2.nhso_status = 'Y'
+        AND ncp2.nhso_authen_code REGEXP '^EP'
+      ORDER BY o2.vsttime DESC, o2.vn DESC
+      LIMIT 1
+    ),
+    (
+      SELECT ah2.claim_code
+      FROM ovst o2
+      JOIN authenhos ah2 ON ah2.vn = o2.vn
+      WHERE o2.hn = ${visitAlias}.hn
+        AND DATE(o2.vstdate) = DATE(${visitAlias}.vstdate)
+        AND ah2.claim_code REGEXP '^EP'
+      ORDER BY o2.vsttime DESC, o2.vn DESC
+      LIMIT 1
+    ),
+    (
+      SELECT vp2.auth_code
+      FROM ovst o2
+      JOIN visit_pttype vp2 ON vp2.vn = o2.vn
+      WHERE o2.hn = ${visitAlias}.hn
+        AND DATE(o2.vstdate) = DATE(${visitAlias}.vstdate)
+        AND vp2.auth_code REGEXP '^EP'
+      ORDER BY o2.vsttime DESC, o2.vn DESC
+      LIMIT 1
+    )
+  )
+`;
+
+const buildVisitEpCodeSql = (visitAlias: string) => `
+  COALESCE(
+    (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ${visitAlias}.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
+    (SELECT claim_code FROM authenhos WHERE vn = ${visitAlias}.vn AND claim_code REGEXP '^EP' LIMIT 1),
+    (SELECT auth_code FROM visit_pttype WHERE vn = ${visitAlias}.vn AND auth_code REGEXP '^EP' LIMIT 1),
+    ${buildSameDayEpCodeFallbackSql(visitAlias)}
+  )
+`;
+
 const buildFpgLabExistsSql = (alias: string) => `
   (
     EXISTS (
@@ -2344,7 +2389,9 @@ export const getNhsoClosePrivilegeHistory = async (limit = 100): Promise<Record<
     const [rows] = await connection.query(
       `SELECT
          nhso_confirm_privilege_id,
-         vn,
+         ncp.vn,
+         o.hn,
+         pt.cid,
          nhso_seq,
          nhso_authen_code,
          nhso_status,
@@ -2357,7 +2404,9 @@ export const getNhsoClosePrivilegeHistory = async (limit = 100): Promise<Record<
          nhso_response_datetime,
          nhso_reponse_json,
          nhso_cancel_response
-       FROM nhso_confirm_privilege
+       FROM nhso_confirm_privilege ncp
+       LEFT JOIN ovst o ON o.vn = ncp.vn
+       LEFT JOIN patient pt ON pt.hn = o.hn
        ORDER BY COALESCE(nhso_response_datetime, nhso_requst_datetime) DESC, nhso_confirm_privilege_id DESC
        LIMIT ?`,
       [limit]
@@ -10153,16 +10202,10 @@ export const getCheckData = async (
           ''
         ) as authen_code,
         CASE
-          WHEN COALESCE(
-            (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ovst.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
-            (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND claim_code REGEXP '^EP' LIMIT 1),
-            (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^EP' LIMIT 1)
-          ) IS NOT NULL THEN 1 ELSE 0
+          WHEN ${buildVisitEpCodeSql('ovst')} IS NOT NULL THEN 1 ELSE 0
         END as has_close_ep,
         COALESCE(
-          (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ovst.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
-          (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND claim_code REGEXP '^EP' LIMIT 1),
-          (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^EP' LIMIT 1),
+          ${buildVisitEpCodeSql('ovst')},
           ''
         ) as close_code,
         COALESCE(
@@ -10969,16 +11012,10 @@ export const getEligibleVisits = async (
           ''
         ) as authen_code,
         CASE
-          WHEN COALESCE(
-            (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ovst.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
-            (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND claim_code REGEXP '^EP' LIMIT 1),
-            (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^EP' LIMIT 1)
-          ) IS NOT NULL THEN 1 ELSE 0
+          WHEN ${buildVisitEpCodeSql('ovst')} IS NOT NULL THEN 1 ELSE 0
         END as has_close,
         COALESCE(
-          (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ovst.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
-          (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND claim_code REGEXP '^EP' LIMIT 1),
-          (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^EP' LIMIT 1),
+          ${buildVisitEpCodeSql('ovst')},
           ''
         ) as close_code,
         COALESCE(
@@ -13633,17 +13670,9 @@ export const getRevenueOpportunitySourceRows = async (startDate: string, endDate
         (SELECT dx.icd10 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.diagtype = '1' LIMIT 1) AS main_diag,
         CASE WHEN EXISTS(SELECT 1 FROM opitemrece oi WHERE oi.vn = o.vn AND COALESCE(oi.sum_price, 0) > 0) THEN 1 ELSE 0 END AS has_receipt,
         COALESCE((SELECT SUM(oi.sum_price) FROM opitemrece oi WHERE oi.vn = o.vn), 0) AS total_price,
-        CASE WHEN COALESCE(
-          (SELECT ncp.nhso_authen_code FROM nhso_confirm_privilege ncp
-           WHERE ncp.vn = o.vn AND ncp.nhso_status = 'Y' AND ncp.nhso_authen_code REGEXP '^EP' LIMIT 1),
-          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = o.vn AND ah.claim_code REGEXP '^EP' LIMIT 1),
-          (SELECT vp.auth_code FROM visit_pttype vp WHERE vp.vn = o.vn AND vp.auth_code REGEXP '^EP' LIMIT 1)
-        ) IS NOT NULL THEN 1 ELSE 0 END AS has_close,
+        CASE WHEN ${buildVisitEpCodeSql('o')} IS NOT NULL THEN 1 ELSE 0 END AS has_close,
         COALESCE(
-          (SELECT ncp.nhso_authen_code FROM nhso_confirm_privilege ncp
-           WHERE ncp.vn = o.vn AND ncp.nhso_status = 'Y' AND ncp.nhso_authen_code REGEXP '^EP' LIMIT 1),
-          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = o.vn AND ah.claim_code REGEXP '^EP' LIMIT 1),
-          (SELECT vp.auth_code FROM visit_pttype vp WHERE vp.vn = o.vn AND vp.auth_code REGEXP '^EP' LIMIT 1),
+          ${buildVisitEpCodeSql('o')},
           ''
         ) AS close_code,
         'OP Refer' AS project_code

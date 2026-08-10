@@ -37,6 +37,8 @@ interface CloseCandidateRow {
 interface CloseHistoryRow {
   nhso_confirm_privilege_id: number;
   vn: string;
+  hn?: string;
+  cid?: string;
   nhso_seq?: string;
   nhso_authen_code?: string;
   nhso_status?: string;
@@ -636,6 +638,8 @@ export const NhsoClosePage: React.FC = () => {
               <thead>
                 <tr>
                   <th>VN</th>
+                  <th>HN</th>
+                  <th>เลขบัตรประชาชน</th>
                   <th>Seq</th>
                   <th>Authen Code</th>
                   <th>สถานะ</th>
@@ -649,6 +653,8 @@ export const NhsoClosePage: React.FC = () => {
                 {history.length > 0 ? history.map((row) => (
                   <tr key={row.nhso_confirm_privilege_id}>
                     <td className="table-cell-nowrap workflow-id-cell">{row.vn}</td>
+                    <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
+                    <td className="table-cell-nowrap workflow-code-cell">{row.cid || '-'}</td>
                     <td className="table-cell-nowrap workflow-code-cell">{row.nhso_seq || '-'}</td>
                     <td className="table-cell-nowrap workflow-code-cell">{row.nhso_authen_code || '-'}</td>
                     <td className="table-cell-nowrap">
@@ -670,7 +676,7 @@ export const NhsoClosePage: React.FC = () => {
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                       ยังไม่มีประวัติการปิดสิทธิ NHSO
                     </td>
                   </tr>

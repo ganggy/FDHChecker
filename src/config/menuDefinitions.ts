@@ -20,6 +20,7 @@ export const primaryNavItems: NavItem[] = [
   { page: 'ipd', icon: '🛏️', label: 'รายการ IPD' },
   { page: 'ipdExport', icon: '📤', label: 'ส่งออก IPD' },
   { page: 'ipdClaimMonitor', icon: '📡', label: 'Monitor IPD Claim' },
+  { page: 'preValidator', icon: '🛡️', label: 'ศูนย์ตรวจสอบ' },
   { page: 'nhsoClose', icon: '🔐', label: 'ปิดสิทธิ NHSO' },
 ];
 
@@ -33,7 +34,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'sssExport', icon: '📦', label: 'ส่งออก SSOP' },
   { page: 'sssRepStm', icon: '📥', label: 'REP/STM ประกันสังคม' },
   { page: 'authenSync', icon: '🪪', label: 'Authen Code' },
-  { page: 'preValidator', icon: '✅', label: 'Pre-submit' },
+  { page: 'preValidator', icon: '🛡️', label: 'ศูนย์ตรวจสอบ' },
   { page: 'workQueue', icon: '📋', label: 'คิวงาน' },
   { page: 'rejectTracking', icon: '🔴', label: 'ติดตาม Reject' },
   { page: 'uuc1Tracking', icon: '📌', label: 'ติดตาม UUC1' },

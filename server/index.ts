@@ -125,6 +125,8 @@ import {
   type SssNetworkType,
 } from './sssClaim.js';
 import { buildSssIpdExportZip, getSssIpdCandidates } from './sssIpdClaim.js';
+import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
+import { assessIpdLos, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -340,6 +342,7 @@ const NHSO_AUTHEN_SETTINGS_KEY = 'nhso_authen_settings';
 const NHSO_CLOSE_SETTINGS_KEY = 'nhso_close_settings';
 const NHSO_ECLAIM_SETTINGS_KEY = 'nhso_eclaim_settings';
 const MOPH_CLAIM_SETTINGS_KEY = 'moph_claim_settings';
+const IPD_LOS_SETTINGS_KEY = 'ipd_los_settings';
 const MOPH_DMHT_ACTION_LIMIT = 20000;
 
 ensureAuthTables().catch((error) => {
@@ -753,6 +756,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/config\/nhso-authen-settings(\/|$)/, pages: ['settings', 'authenSync'] },
   { pattern: /^\/config\/nhso-close-settings(\/|$)/, pages: ['settings', 'nhsoClose'] },
   { pattern: /^\/config\/nhso-eclaim-settings(\/|$)/, pages: ['settings', 'repstm'] },
+  { pattern: /^\/config\/ipd-los-settings(\/|$)/, pages: ['settings', 'ipd'] },
   { pattern: /^\/nhso\/authen(\/|$)/, pages: ['authenSync'] },
   { pattern: /^\/nhso\/close(\/|$)/, pages: ['nhsoClose'] },
   { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
@@ -4011,6 +4015,29 @@ app.post('/api/config/app-settings', async (req, res) => {
   } catch (error) {
     console.error('Error updating app settings:', error);
     res.status(500).json({ success: false, error: 'Cannot update app settings' });
+  }
+});
+
+app.get('/api/config/ipd-los-settings', async (_req, res) => {
+  try {
+    const storedRules = await getAppSetting<unknown>(IPD_LOS_SETTINGS_KEY);
+    const rules = normalizeIpdLosRules(storedRules);
+    return res.json({ success: true, data: rules, source: storedRules ? 'database' : 'empty' });
+  } catch (error) {
+    console.error('Error reading IPD LOS settings:', error);
+    return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านค่ามาตรฐาน LOS ได้' });
+  }
+});
+
+app.post('/api/config/ipd-los-settings', async (req, res) => {
+  try {
+    const validation = validateIpdLosRules(req.body?.rules);
+    if (!validation.ok) return res.status(400).json({ success: false, error: validation.error });
+    await setAppSetting(IPD_LOS_SETTINGS_KEY, validation.rules);
+    return res.json({ success: true, data: validation.rules, message: 'บันทึกค่ามาตรฐาน LOS เรียบร้อยแล้ว' });
+  } catch (error) {
+    console.error('Error saving IPD LOS settings:', error);
+    return res.status(500).json({ success: false, error: 'ไม่สามารถบันทึกค่ามาตรฐาน LOS ได้' });
   }
 });
 

@@ -38,6 +38,12 @@ interface FundNote {
     group: FundNoteGroup;
 }
 
+const getSpecialFundSelectionName = (label: string) => label
+    .replace(/^⚠️\s*/, '')
+    .replace(/^[^\p{L}\p{N}]+/u, '')
+    .split(':')[0]
+    .trim();
+
 const toBool = (value: unknown) => value === true || value === 1 || value === '1' || value === 'Y' || value === 'y';
 const cleanDiag = (value: unknown) => String(value ?? '').replace(/\./g, '').trim().toUpperCase();
 const cleanCode = (value: unknown) => String(value ?? '').replace(/\./g, '').trim().toUpperCase();
@@ -64,6 +70,23 @@ const hasDiagCode = (item: any, codes: string[]) => {
         item?.dx4,
         item?.dx5,
     ].some((value) => targets.has(cleanDiag(value)));
+};
+const hasDiagPrefix = (item: any, prefixes: string | string[]) => {
+    const targets = (Array.isArray(prefixes) ? prefixes : [prefixes]).map((prefix) => cleanDiag(prefix));
+    return [
+        item?.pdx,
+        item?.main_diag,
+        item?.diag_code,
+        item?.dx0,
+        item?.dx1,
+        item?.dx2,
+        item?.dx3,
+        item?.dx4,
+        item?.dx5,
+    ].some((value) => {
+        const diag = cleanDiag(value);
+        return targets.some((target) => diag.startsWith(target));
+    });
 };
 const collectDiagValues = (item: any) => {
     const baseValues = [
@@ -93,11 +116,6 @@ const collectDiagValues = (item: any) => {
     return Array.from(new Set(baseValues));
 };
 const hasDiagRegex = (item: any, regex: RegExp) => collectDiagValues(item).some((code) => regex.test(code));
-const hasText = (value: unknown, regex: RegExp) => regex.test(String(value ?? ''));
-const hasDiagPrefix = (item: any, prefix: string) => {
-    const normalizedPrefix = cleanDiag(prefix);
-    return collectDiagValues(item).some((code) => code.startsWith(normalizedPrefix));
-};
 const getAnemiaAgeBandLabel = (item: any) => {
     const band = getAnemiaRuleBand(item);
     if (band) return band.ageLabel;
@@ -222,12 +240,18 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '💊 Clopidogrel', kind: 'matched', group: 'drug' });
         }
 
-        const hasKneeService = toBool(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
-        if (hasKneeService) {
-            if (age >= 40) {
-                fundNotes.push({ label: '🦵 พอกเข่า', kind: 'matched', group: 'other' });
+        const hasKneeDiagM17 = toBool(item?.has_knee_diag_m17) || hasDiagPrefix(item, ['M17']);
+        const hasKneeDiagU5753 = toBool(item?.has_knee_diag_u5753) || hasDiagCode(item, ['U57.53', 'U5753']);
+        const hasKneeDiag = hasKneeDiagM17 && hasKneeDiagU5753;
+        if (age >= 40 && hasKneeDiag) {
+            if (age >= 40 && hasKneeDiag && toBool(item?.has_knee_oper)) {
+                fundNotes.push({ label: '🦵 พอกเข่า (43 แฟ้ม)', kind: 'matched', group: 'other' });
             } else {
-                addWarningFundNote(fundNotes, 'พอกเข่า', [' อายุ 40 ปีขึ้นไป'], 'other');
+                addWarningFundNote(fundNotes, 'พอกเข่า', [
+                    age >= 40 ? '' : ' อายุ 40 ปีขึ้นไป',
+                    hasKneeDiag ? '' : ' Diagnosis ต้องมีทั้ง M17 และ U57.53',
+                    toBool(item?.has_knee_oper) ? '' : ' หัตถการ/กิจกรรม 43 แฟ้มยังไม่ครบ',
+                ].filter(Boolean), 'other');
             }
         }
 
@@ -251,14 +275,14 @@ export const evaluateBillingLogic = (item: any) => {
         const hasCholLab = toBool(item?.has_chol_lab);
         const hasCholDiag = toBool(item?.has_chol_diag) || hasDiagCode(item, ['Z136']);
         const cholNearMissing = getNearFundMissingParts(hasCholAdp, ' ADP 12004', [
-            { met: hasCholAge, label: ' อายุ 45-59 ปี' },
-            { met: hasCholLab, label: ' Lab Cholesterol/HDL' },
+            { met: hasCholAge, label: ' อายุ 45-70 ปี' },
+            { met: hasCholLab, label: ' Lab Total Cholesterol และ HDL' },
             { met: hasCholDiag, label: ' DX Z136' },
         ], hasCholAge && (hasCholLab || hasCholDiag));
         if (hasCholAge && hasCholAdp && hasCholLab && hasCholDiag) {
-            fundNotes.push({ label: '🧪 คัดกรองไขมัน', kind: 'matched', group: 'other' });
+            fundNotes.push({ label: '❤️ คัดกรองหัวใจหลอดเลือด', kind: 'matched', group: 'other' });
         } else {
-            addWarningFundNote(fundNotes, 'คัดกรองไขมัน', cholNearMissing);
+            addWarningFundNote(fundNotes, 'คัดกรองหัวใจหลอดเลือด', cholNearMissing);
         }
 
         const anemiaAgeYears = Number(item?.age_y ?? item?.age ?? -1);
@@ -284,7 +308,7 @@ export const evaluateBillingLogic = (item: any) => {
             { met: hasAnemiaDiag, label: ' DX Z130' },
         ], hasAnemiaAge && (hasAnemiaLab || hasAnemiaDiag));
         if (hasAnemiaAge && hasAnemiaAdp && hasAnemiaLab && hasAnemiaDiag) {
-            const anemiaSummaryLabel = `🩸 ${getAnemiaRuleBand(item)?.fullCondition || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก Diagnosis Z130 ADP 13001'}`;
+            const anemiaSummaryLabel = `🩸 ${getAnemiaRuleBand(item)?.fullCondition || 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก Diagnosis Z130/Z138 ADP 13001'}`;
             fundNotes.push({
                 label: anemiaSummaryLabel,
                 kind: 'matched',
@@ -309,11 +333,9 @@ export const evaluateBillingLogic = (item: any) => {
             addWarningFundNote(fundNotes, 'เสริมธาตุเหล็ก', ironNearMissing, 'drug');
         }
 
-        const ferrokidAgeYears = Number(item?.age_y ?? item?.age ?? -1);
         const ferrokidAgeMonths = Number(item?.age_month ?? -1);
         const hasFerrokidAge = toBool(item?.ferrokid_age_eligible)
-            || (ferrokidAgeMonths >= 2 && ferrokidAgeMonths <= 144)
-            || (ferrokidAgeYears >= 0 && ferrokidAgeYears <= 12);
+            || (ferrokidAgeMonths >= 6 && ferrokidAgeMonths <= 12);
         const hasFerrokidDiag = toBool(item?.has_ferrokid_diag) || hasDiagCode(item, ['Z130']);
         const hasFerrokidMed = toBool(item?.has_ferrokid_med) || toBool(item?.has_ferrokid);
         const ferrokidNearMissing = [
@@ -390,27 +412,30 @@ export const evaluateBillingLogic = (item: any) => {
         } else if (ancLab2NearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC Lab 2', ancLab2NearMissing);
         }
-        const hasDentalDiagK = hasDiagPrefix(item, 'K');
         const hasAncDentalExamAdp = toBool(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
+        const hasAncDentalExamProcedure = toBool(item?.has_anc_dental_exam_procedure)
+            || hasAnyCodeValue(item?.dental_procedure_codes, ['2330011', '2330013']);
         const ancDentalExamNearMissing = getNearFundMissingParts(hasAncDentalExamAdp, ' ADP 30008', [
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-            { met: hasDentalDiagK, label: ' Diagnosis K*' },
-        ], isFemale && hasAncDiag && hasDentalDiagK);
-        if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasDentalDiagK) {
+            { met: hasAncDentalExamProcedure, label: ' หัตถการ 2330011/2330013' },
+        ], isFemale && hasAncDiag && hasAncDentalExamProcedure);
+        if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasAncDentalExamProcedure) {
             fundNotes.push({ label: '🦷 ANC ตรวจฟัน', kind: 'matched', group: 'other' });
-        } else if (isFemale && (hasAncDentalExamAdp || hasAncDiag || hasDentalDiagK) && ancDentalExamNearMissing.length > 0) {
+        } else if (isFemale && (hasAncDentalExamAdp || hasAncDiag || hasAncDentalExamProcedure) && ancDentalExamNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ตรวจฟัน', ancDentalExamNearMissing);
         }
         const hasAncDentalCleanAdp = toBool(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
+        const hasAncDentalCleanProcedure = toBool(item?.has_anc_dental_clean_procedure)
+            || hasAnyCodeValue(item?.dental_procedure_codes, ['2387010', '2277310', '2277320', '2287310', '2287320']);
         const ancDentalCleanNearMissing = getNearFundMissingParts(hasAncDentalCleanAdp, ' ADP 30009', [
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-            { met: hasDentalDiagK, label: ' Diagnosis K*' },
-        ], isFemale && hasAncDiag && hasDentalDiagK);
-        if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasDentalDiagK) {
+            { met: hasAncDentalCleanProcedure, label: ' หัตถการ 2387010/2277310/2277320/2287310/2287320' },
+        ], isFemale && hasAncDiag && hasAncDentalCleanProcedure);
+        if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasAncDentalCleanProcedure) {
             fundNotes.push({ label: '🪥 ANC ขัดทำความสะอาดฟัน', kind: 'matched', group: 'other' });
-        } else if (isFemale && (hasAncDentalCleanAdp || hasAncDiag || hasDentalDiagK) && ancDentalCleanNearMissing.length > 0) {
+        } else if (isFemale && (hasAncDentalCleanAdp || hasAncDiag || hasAncDentalCleanProcedure) && ancDentalCleanNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ขัดทำความสะอาดฟัน', ancDentalCleanNearMissing);
         }
 
@@ -454,13 +479,13 @@ export const evaluateBillingLogic = (item: any) => {
         } else {
             addWarningFundNote(fundNotes, 'ยาคุมกำเนิด', fpPillNearMissing, 'drug');
         }
-        const fpCondomNearMissing = getNearFundMissingParts(toBool(item?.has_fp_condom), ' ADP FP003_4', [
+        const fpInjectionNearMissing = getNearFundMissingParts(toBool(item?.has_fp_condom), ' ADP FP003_4', [
             { met: hasFpDiag, label: ' Diagnosis Z30x' },
         ], hasFpDiag);
         if (toBool(item?.has_fp_condom) && hasFpDiag) {
-            fundNotes.push({ label: '🛡️ ถุงยางอนามัย', kind: 'matched', group: 'other' });
+            fundNotes.push({ label: '💉 ยาฉีดคุมกำเนิด', kind: 'matched', group: 'drug' });
         } else {
-            addWarningFundNote(fundNotes, 'ถุงยางอนามัย', fpCondomNearMissing);
+            addWarningFundNote(fundNotes, 'ยาฉีดคุมกำเนิด', fpInjectionNearMissing, 'drug');
         }
         const fpNearMissing = getNearFundMissingParts(hasFpAnyAdp, ' ADP/หัตถการ FP', [
             { met: hasFpDiag, label: ' Diagnosis Z30x' },
@@ -574,6 +599,13 @@ export const evaluateBillingLogic = (item: any) => {
             bgStyle,
             billingStatusLabel,
             specialFundNotes: visibleFundNotes.map((note) => note.label),
+            matchedSpecialFundNotes: visibleFundNotes
+                .filter((note) => note.kind === 'matched')
+                .map((note) => getSpecialFundSelectionName(note.label)),
+            detectedSpecialFundNotes: visibleFundNotes
+                .filter((note) => note.kind === 'matched' || note.kind === 'warning')
+                .map((note) => getSpecialFundSelectionName(note.label))
+                .filter((label) => label && !label.startsWith('ขาด Diag')),
             isUUC1,
             incompleteFund,
             hasNoDiagnosis,
@@ -593,6 +625,13 @@ export const evaluateBillingLogic = (item: any) => {
         bgStyle,
         billingStatusLabel,
         specialFundNotes: fundNotes.map((note) => note.label),
+        matchedSpecialFundNotes: fundNotes
+            .filter((note) => note.kind === 'matched')
+            .map((note) => getSpecialFundSelectionName(note.label)),
+        detectedSpecialFundNotes: fundNotes
+            .filter((note) => note.kind === 'matched' || note.kind === 'warning')
+            .map((note) => getSpecialFundSelectionName(note.label))
+            .filter((label) => label && !label.startsWith('ขาด Diag')),
         isUUC1,
         incompleteFund: false,
         hasNoDiagnosis,

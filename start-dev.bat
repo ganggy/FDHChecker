@@ -6,7 +6,7 @@ REM Wait a bit
 timeout /t 2 /nobreak
 
 REM Change to project directory
-cd /d D:\react\fdh_rect
+cd /d "%~dp0"
 
 REM Clear npm cache to avoid issues
 cls
@@ -20,9 +20,9 @@ echo Starting servers...
 echo.
 
 REM Start both servers in one window (Backend in bg, Frontend in fg)
-start cmd /k "npm run server"
+start "FDH-SERVER-3506" cmd /k "cd /d ""%~dp0"" && npm run server"
 timeout /t 3 /nobreak
-start cmd /k "npm run dev"
+start "FDH-FRONTEND-3507" cmd /k "cd /d ""%~dp0"" && npm run dev"
 
 echo.
 echo ========================================

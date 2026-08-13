@@ -10,7 +10,7 @@ echo.
 echo Starting backend server on port 3506...
 echo.
 
-cd /d d:\react\fdh_rect\server
-npm run dev
+cd /d "%~dp0"
+npm run server
 
 pause

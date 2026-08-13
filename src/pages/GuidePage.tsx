@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { FUND_DEFINITIONS } from '../config/fundDefinitions';
+import { buildFundOperationalGuide } from '../config/fundOperationalGuideCatalog';
+import { formatPalliativeIcd10, PALLIATIVE_DIAGNOSIS_CODE_COUNT, PALLIATIVE_DIAGNOSIS_GROUPS } from '../config/palliativeDiagnosisCatalog';
 
 interface FundGuide {
     id: string;
@@ -15,15 +18,15 @@ interface FundGuide {
 const guides: FundGuide[] = [
     {
         id: 'anemia_screening',
-        title: 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (CBC / Hb-Hct + Z130 + 13001)',
+        title: 'คัดกรองโลหิตจางจากการขาดธาตุเหล็ก (CBC / Hb-Hct + Z130/Z138 + 13001)',
         description: 'กองทุนคัดกรองโลหิตจางจากการขาดธาตุเหล็กตามช่วงอายุ โดยต้องดูว่าช่วงอายุใดต้องคู่กับ CBC หรือ Hb/Hct ให้ตรงกับ visit ที่รับบริการ',
         conditions: [
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130 ADP 13001',
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130 ADP 13001',
-            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130 ADP 13001'
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab CBC 13-24 ปี Diagnosis Z130/Z138 ADP 13001',
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 6-12 เดือน Diagnosis Z130/Z138 ADP 13001',
+            'คัดกรองโลหิตจางจากการขาดธาตุเหล็กLab Hb/Hct 3-6 ปี Diagnosis Z130/Z138 ADP 13001'
         ],
-        codes: ['ADP 13001', 'Lab CBC', 'Hb/Hct / Hemoglobin / Hematocrit', 'ICD-10: Z130'],
-        payment: 'ให้ยึดตามกติกาโครงการคัดกรองโลหิตจางของหน่วยบริการและประกาศ สปสช. ล่าสุด',
+        codes: ['ADP 13001', 'Lab CBC', 'Hb/Hct / Hemoglobin / Hematocrit', 'ICD-10: Z130/Z138'],
+        payment: 'อัตรา 75 บาทต่อคนต่อปี ตามประกาศ PPFS ปีงบประมาณ 2569',
         icon: '🩸',
         color: 'var(--danger)'
     },
@@ -40,6 +43,21 @@ const guides: FundGuide[] = [
         payment: 'ใช้ตามรายการค่าบริการของ ANC และ Fee Schedule ที่ สปสช. กำหนด',
         icon: '🤰',
         color: 'var(--danger)'
+    },
+    {
+        id: 'anc_ultrasound',
+        title: 'ANC Ultrasound',
+        description: 'ตรวจความครบของบริการอัลตราซาวด์หญิงตั้งครรภ์ โดยใช้ ADP 30010 เป็นหลักฐานบริการ ไม่ตรวจ xray_head ซ้ำ',
+        conditions: [
+            'เป็นผู้รับบริการเพศหญิง',
+            'มี Diagnosis ฝากครรภ์ Z34 หรือ Z35',
+            'มี ADP 30010 ซึ่งถือเป็นหลักฐานบริการ ANC Ultrasound',
+            'visit ฝากครรภ์ทั่วไปที่ไม่มี 30010 จะไม่ถูกแจ้งเป็นข้อผิดพลาดของ ANC Ultrasound'
+        ],
+        codes: ['ICD-10: Z34 / Z35', 'ADP 30010', 'ไม่ตรวจ xray_head'],
+        payment: 'ระบบตรวจความครบจาก ADP 30010 ตามรายการบริการที่บันทึกใน visit และไม่บังคับหลักฐานรังสีซ้ำ',
+        icon: '📽️',
+        color: 'var(--info)'
     },
     {
         id: 'anc_labs',
@@ -77,24 +95,24 @@ const guides: FundGuide[] = [
             'อายุ 35-59 ปี ตามเกณฑ์คัดกรอง',
             'ต้องมี ADP code 12003 ใน visit นั้น',
             'ต้องมีผลแล็บ FPG / Fasting Plasma Glucose / FBS ใน visit เดียวกัน',
-            'เลข 40 บาทเป็นอัตราค่าชดเชย ไม่ใช่เงื่อนไขให้ติดกองทุน',
+            'อัตรา 50 บาทเป็นอัตราค่าชดเชย ไม่ใช่เงื่อนไขให้ติดกองทุน',
             'ควรบันทึกผลตรวจและ diagnosis ให้ครบกับ visit ที่เกี่ยวข้อง'
         ],
         codes: ['ADP 12003', 'FPG', 'ICD-10: Z131 / Z133 / Z136'],
-        payment: 'อ้างอิงรายการคัดกรองและประกาศ สปสช. ล่าสุด',
+        payment: 'อัตรา 50 บาทต่อครั้ง ตามประกาศ PPFS ปีงบประมาณ 2569',
         icon: '🧁',
         color: 'var(--success)'
     },
     {
         id: 'lipid_screening',
-        title: 'คัดกรองไขมันในเลือด',
-        description: 'แนวทางคัดกรองไขมันในเลือดสำหรับกลุ่มเสี่ยงหรือประชาชนที่เข้าเกณฑ์โครงการ',
+        title: 'คัดกรองหัวใจและหลอดเลือด',
+        description: 'ปี 2568: อายุ 45-70 ปี ตรวจทั้ง Total Cholesterol และ HDL พร้อม Dx Z136 และ ADP 12004',
         conditions: [
             'กลุ่มอายุหรือกลุ่มเสี่ยงตามเกณฑ์คัดกรอง',
             'มีผลตรวจ lipid profile ที่เชื่อมกับ visit ถูกต้อง',
             'ลง diagnosis / code ให้ครบก่อนสรุปกองทุน'
         ],
-        codes: ['Lipid profile', 'คัดกรองไขมัน', 'รหัสโครงการตามประกาศ'],
+        codes: ['Total Cholesterol', 'HDL', 'Z136', 'ADP 12004'],
         payment: 'ใช้ตาม Fee Schedule และแนวทางคัดกรองของ สปสช.',
         icon: '🫀',
         color: 'var(--warning)'
@@ -142,17 +160,31 @@ const guides: FundGuide[] = [
     },
     {
         id: 'hepc',
-        title: 'รักษาโรคไวรัสตับอักเสบซี (HepC)',
-        description: 'บริการคัดกรองและให้ยาต้านไวรัสสำหรับผู้ป่วยที่ติดเชื้อไวรัสตับอักเสบซีเรื้อรัง (HCV)',
+        title: 'คัดกรองไวรัสตับอักเสบซี (Anti-HCV)',
+        description: 'บริการคัดกรองไวรัสตับอักเสบซีสำหรับผู้ที่เกิดก่อน พ.ศ. 2535',
         conditions: [
-            'ผลตรวจ Anti-HCV เป็นบวก หรือ HCV RNA เป็นบวก',
-            'อายุ 15 ปีขึ้นไป (และกลุ่มเสี่ยงตามประกาศ)',
-            'ได้รับยาสูตรผสม เช่น Sofosbuvir/Velpatasvir'
+            'เกิดก่อน พ.ศ. 2535',
+            'Diagnosis Z11.5',
+            'มี Lab Anti-HCV'
         ],
-        codes: ['ICD-10: B18.2 (Chronic viral hepatitis C)', 'ค่าแล็บ HCV RNA'],
-        payment: 'ชดเชยค่ายาต้านไวรัสตามจริง (หลักหมื่นบาท/คอร์ส) และ ค่ายืนยันผล 1,500 บาท',
+        codes: ['ICD-10: Z11.5', 'Lab Anti-HCV'],
+        payment: 'ใช้ตาม Fee Schedule/ประกาศกองทุนปัจจุบัน',
         icon: '💊',
         color: 'var(--warning)'
+    },
+    {
+        id: 'hepb',
+        title: 'คัดกรองไวรัสตับอักเสบบี (HBsAg)',
+        description: 'บริการคัดกรองไวรัสตับอักเสบบีสำหรับผู้ที่เกิดก่อน พ.ศ. 2535',
+        conditions: [
+            'เกิดก่อน พ.ศ. 2535',
+            'Diagnosis Z11.5',
+            'มี Lab HBsAg'
+        ],
+        codes: ['ICD-10: Z11.5', 'Lab HBsAg'],
+        payment: 'ใช้ตาม Fee Schedule/ประกาศกองทุนปัจจุบัน',
+        icon: '🧫',
+        color: 'var(--info)'
     },
     {
         id: 'cxr',
@@ -235,15 +267,34 @@ const guides: FundGuide[] = [
     {
         id: 'palliative',
         title: 'ดูแลประคับประคอง (Palliative Care)',
-        description: 'การดูแลผู้ป่วยระยะท้ายและครอบครัวแบบประคับประคอง เพื่อลดความทุกข์ทรมานทั้งร่างกาย จิตใจ สังคม และจิตวิญญาณ',
+        description: `คู่มือตรวจ Palliative Care พร้อมบัญชีโรคที่เข้าเกณฑ์ ${PALLIATIVE_DIAGNOSIS_CODE_COUNT} รหัส แบ่งเป็น ${PALLIATIVE_DIAGNOSIS_GROUPS.length} กลุ่ม`,
         conditions: [
-            'เป็นผู้ป่วยที่ได้รับการวินิจฉัยว่าอยู่ในระยะท้ายของโรค (Life-limiting illness)',
-            'มีการลงทะเบียนในระบบ Palliative Care ของหน่วยบริการ'
+            'สิทธิ UCS และโรคหลักอยู่ในบัญชี ICD-10 ที่กำหนด',
+            'บันทึก Z51.5 สำหรับ Palliative Care',
+            'กรณี Advance care planning ให้บันทึก Z71.8 คู่กับ Z51.5',
+            'มี ADP 30001 หรือ Cons01 หรือ Eva001',
+            'หน้ารายกองทุนแสดง Diag หลักของผู้ป่วยเพื่อช่วยตรวจสอบก่อนส่งเบิก'
         ],
-        codes: ['ICD-10: Z51.5 (Palliative care)'],
-        payment: 'เหมาจ่ายดูแลต่อเนื่องที่บ้าน หรือชดเชยตาม Fee Schedule บริการอุปกรณ์',
+        codes: ['ICD-10: Z51.5', 'ICD-10: Z71.8 (ใช้คู่ Z51.5)', 'ADP 30001 / Cons01 / Eva001', `${PALLIATIVE_DIAGNOSIS_CODE_COUNT} รหัสโรคที่เข้าเกณฑ์`],
+        payment: 'ตรวจสอบช่องทาง FDH/e-Claim และ Fee Schedule ล่าสุดก่อนส่งเบิก',
         icon: '🕊️',
         color: 'var(--slate)'
+    },
+    {
+        id: 'line_automation',
+        title: 'การแจ้งเตือน LINE อัตโนมัติ',
+        description: 'สรุปงานตรวจสอบที่ระบบส่งอัตโนมัติ เพื่อให้หน้าเว็บและข้อความ LINE ใช้เงื่อนไขเดียวกัน',
+        conditions: [
+            'เวลา 11.00 น. ตรวจนัดหมายวันพรุ่งนี้ที่มี HN ซ้ำในตาราง oapp',
+            'เวลา 15.00 น. ส่งรายงานข้อผิดพลาดรายกองทุน/43 แฟ้ม เฉพาะข้อมูลภายในวัน',
+            'เวลา 15.00 น. ส่งภาพรวมงานประจำวันเป็นจำนวนผู้รับบริการ',
+            'ไม่ส่งรายงานคัดกรองไวรัสตับอักเสบบี/ซีที่ยังจัดทำไม่เสร็จ',
+            'ไม่ส่งแจ้งเตือนคัดกรอง Latent TB ซึ่งใช้ช่องทาง NTIP/TB Data Hub'
+        ],
+        codes: ['11.00 นัดซ้ำ', '15.00 รายกองทุน', '15.00 ภาพรวม', 'ยกเว้น NTIP/TB Data Hub'],
+        payment: 'เป็นระบบช่วยตรวจสอบก่อนส่งเบิก ไม่ใช่ผลอนุมัติการจ่ายจากกองทุน',
+        icon: '🔔',
+        color: 'var(--warning)'
     },
     {
         id: 'thalassemia',
@@ -413,6 +464,19 @@ const guides: FundGuide[] = [
     }
 ];
 
+const ChecklistBlock: React.FC<{ title: string; items: string[]; color: string; background: string }> = ({ title, items, color, background }) => (
+    <div style={{ padding: 11, borderRadius: 9, background, borderLeft: `3px solid ${color}` }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color, marginBottom: 6 }}>{title}</div>
+        {items.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: 18, color: '#334155', fontSize: 11, lineHeight: 1.55 }}>
+                {items.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+        ) : (
+            <div style={{ color: '#64748b', fontSize: 11 }}>ตรวจสอบตามประกาศกองทุนล่าสุด</div>
+        )}
+    </div>
+);
+
 export const GuidePage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [copiedPathGuideId, setCopiedPathGuideId] = useState<string | null>(null);
@@ -427,11 +491,31 @@ export const GuidePage: React.FC = () => {
         }
     };
 
-    const filteredGuides = guides.filter(g =>
-        g.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        g.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        g.conditions.some(c => c.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const normalizedSearchTerm = searchTerm.trim().replace('.', '').toLowerCase();
+    const operationalGuides = FUND_DEFINITIONS.map(buildFundOperationalGuide);
+    const filteredOperationalGuides = operationalGuides.filter((guide) => {
+        const searchableText = [
+            guide.name,
+            guide.description,
+            guide.claimChannel,
+            guide.recordingSystem,
+            ...guide.requiredData,
+            ...guide.automatedChecks,
+            ...guide.manualChecks,
+            ...guide.commonErrors,
+        ].filter(Boolean).join(' ').replaceAll('.', '').toLowerCase();
+        if (searchableText.includes(normalizedSearchTerm)) return true;
+        return guide.id === 'palliative' && PALLIATIVE_DIAGNOSIS_GROUPS.some((group) =>
+            group.codes.some((code) => code.toLowerCase().includes(normalizedSearchTerm))
+        );
+    });
+    const filteredGuides = guides.filter(g => {
+        const regularText = [g.title, g.description, ...g.conditions, ...g.codes].join(' ').replaceAll('.', '').toLowerCase();
+        if (regularText.includes(normalizedSearchTerm)) return true;
+        return g.id === 'palliative' && PALLIATIVE_DIAGNOSIS_GROUPS.some((group) =>
+            group.codes.some((code) => code.toLowerCase().includes(normalizedSearchTerm))
+        );
+    });
 
     return (
         <div className="page-container" style={{ padding: '0 16px' }}>
@@ -455,6 +539,54 @@ export const GuidePage: React.FC = () => {
                 </div>
             </div>
 
+            <section style={{ marginBottom: 28 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div>
+                        <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: 20 }}>✅ Checklist ก่อนส่งเบิกทุกกองทุน</h2>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13 }}>ข้อมูลที่ต้องกรอก • ระบบตรวจอัตโนมัติ • จุดตรวจด้วยตนเอง • ข้อผิดพลาดที่พบบ่อย</p>
+                    </div>
+                    <span className="badge badge-primary" style={{ padding: '7px 12px', fontSize: 12 }}>
+                        แสดง {filteredOperationalGuides.length} / {operationalGuides.length} กองทุน
+                    </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 12 }}>
+                    {filteredOperationalGuides.map((guide) => (
+                        <details key={guide.id} className="card" style={{ overflow: 'hidden', borderLeft: '4px solid var(--primary)' }}>
+                            <summary style={{ cursor: 'pointer', padding: 16, listStylePosition: 'inside' }}>
+                                <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: 15 }}>{guide.name}</span>
+                                <span style={{ display: 'inline-block', marginLeft: 8, padding: '2px 7px', borderRadius: 999, background: '#eef2ff', color: '#4338ca', fontSize: 10, fontWeight: 700 }}>
+                                    {guide.claimChannel || 'ตรวจสอบช่องทาง'}
+                                </span>
+                                <div style={{ margin: '5px 0 0 20px', color: 'var(--text-secondary)', fontSize: 11 }}>{guide.description}</div>
+                            </summary>
+                            <div style={{ padding: '0 16px 16px', display: 'grid', gap: 10 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
+                                    <ChecklistBlock title="📝 ข้อมูลที่ต้องกรอก/ต้องมี" items={guide.requiredData} color="#2563eb" background="#eff6ff" />
+                                    <ChecklistBlock title="🤖 ระบบตรวจอัตโนมัติ" items={guide.automatedChecks} color="#7c3aed" background="#f5f3ff" />
+                                    <ChecklistBlock title="👀 เจ้าหน้าที่ต้องตรวจ" items={guide.manualChecks} color="#047857" background="#ecfdf5" />
+                                    <ChecklistBlock title="⚠️ ข้อผิดพลาดที่พบบ่อย" items={guide.commonErrors} color="#c2410c" background="#fff7ed" />
+                                </div>
+                                {guide.caution && (
+                                    <div style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid #fbbf24', background: '#fffbeb', color: '#92400e', fontSize: 11, lineHeight: 1.5 }}>
+                                        <strong>ข้อควรระวัง:</strong> {guide.caution}
+                                    </div>
+                                )}
+                                <div style={{ padding: '9px 11px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', fontSize: 11, lineHeight: 1.5 }}>
+                                    <strong>พร้อมส่งเมื่อ:</strong> ข้อมูลผู้ป่วย สิทธิ/Authen เวชระเบียน และเงื่อนไขอัตโนมัติครบทั้งหมด ไม่มีรายการผิด VN/ผิดวัน และเจ้าหน้าที่ตรวจหลักฐานจริงแล้ว
+                                </div>
+                            </div>
+                        </details>
+                    ))}
+                </div>
+                {filteredOperationalGuides.length === 0 && (
+                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>ไม่พบ Checklist กองทุนที่ตรงกับคำค้นหา</div>
+                )}
+            </section>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '0 0 12px' }}>
+                <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: 20 }}>📖 บทความและคำอธิบายเพิ่มเติม</h2>
+                <span className="badge">{filteredGuides.length} รายการ</span>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 20 }}>
                 {filteredGuides.map(guide => (
                     <div key={guide.id} className="card" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -484,6 +616,33 @@ export const GuidePage: React.FC = () => {
                                     ))}
                                 </div>
                             </div>
+                            {guide.id === 'palliative' && (
+                                <div style={{ padding: 12, borderRadius: 10, border: '1px solid #c7d2fe', background: '#f8fafc' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                                        <div style={{ fontSize: 12, fontWeight: 800, color: '#312e81' }}>📚 บัญชีโรค Palliative Care</div>
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: '#4338ca' }}>{PALLIATIVE_DIAGNOSIS_GROUPS.length} กลุ่ม • {PALLIATIVE_DIAGNOSIS_CODE_COUNT} รหัส</span>
+                                    </div>
+                                    <div style={{ display: 'grid', gap: 6 }}>
+                                        {PALLIATIVE_DIAGNOSIS_GROUPS.map((group) => (
+                                            <details key={group.id} open={group.codes.length <= 5} style={{ border: `1px solid ${group.accent}33`, borderLeft: `3px solid ${group.accent}`, borderRadius: 7, background: group.background }}>
+                                                <summary style={{ cursor: 'pointer', padding: '7px 9px', color: group.accent, fontWeight: 700, fontSize: 11 }}>
+                                                    {group.title} ({group.codes.length} รหัส)
+                                                </summary>
+                                                <div style={{ padding: '0 9px 9px' }}>
+                                                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6 }}>{group.summary}</div>
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, maxHeight: group.codes.length > 40 ? 170 : 'none', overflowY: group.codes.length > 40 ? 'auto' : 'visible' }}>
+                                                        {group.codes.map((code) => (
+                                                            <span key={code} style={{ padding: '2px 6px', borderRadius: 5, border: `1px solid ${group.accent}44`, background: '#fff', fontFamily: 'monospace', fontSize: 10, fontWeight: 700 }}>
+                                                                {formatPalliativeIcd10(code)}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </details>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                             {guide.referencePath && (
                                 <div style={{ background: 'rgba(37, 99, 235, 0.06)', border: '1px solid rgba(37, 99, 235, 0.18)', padding: 12, borderRadius: 8 }}>
                                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>📚 Vale Reference</div>

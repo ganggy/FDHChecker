@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatLocalDateDaysAgo, formatLocalDateInput } from '../utils/dateUtils';
 
 interface NhsoCloseSettings {
@@ -20,6 +20,8 @@ interface CloseCandidateRow {
   maininscl?: string;
   pttypename?: string;
   vst_datetime?: string;
+  service_date?: string;
+  service_time?: string;
   income?: number;
   uc_money?: number;
   rcpt_money?: number;
@@ -35,6 +37,8 @@ interface CloseCandidateRow {
 interface CloseHistoryRow {
   nhso_confirm_privilege_id: number;
   vn: string;
+  hn?: string;
+  cid?: string;
   nhso_seq?: string;
   nhso_authen_code?: string;
   nhso_status?: string;
@@ -73,6 +77,41 @@ const defaultSettings: NhsoCloseSettings = {
   maxDays: 4,
 };
 
+const bangkokDateTimeFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Bangkok',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+});
+
+const splitDateTime = (value?: string) => {
+  const source = String(value || '').trim();
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(source)) {
+    const parsed = new Date(source);
+    if (!Number.isNaN(parsed.getTime())) {
+      const parts = Object.fromEntries(
+        bangkokDateTimeFormatter
+          .formatToParts(parsed)
+          .filter((part) => part.type !== 'literal')
+          .map((part) => [part.type, part.value]),
+      );
+      return {
+        date: `${parts.year}-${parts.month}-${parts.day}`,
+        time: `${parts.hour}:${parts.minute}:${parts.second}`,
+      };
+    }
+  }
+
+  const raw = source.replace('T', ' ');
+  if (!raw) return { date: '-', time: '' };
+  const [date, time] = raw.split(' ');
+  return { date: date || '-', time: time ? time.slice(0, 8) : '' };
+};
+
 export const NhsoClosePage: React.FC = () => {
   const [settings, setSettings] = useState<NhsoCloseSettings>(defaultSettings);
   const [startDate, setStartDate] = useState(formatLocalDateDaysAgo(1));
@@ -91,6 +130,11 @@ export const NhsoClosePage: React.FC = () => {
   const [selectedVns, setSelectedVns] = useState<string[]>([]);
   const [testingToken, setTestingToken] = useState(false);
   const [tokenTestResult, setTokenTestResult] = useState<TokenTestResult | null>(null);
+  const [autoSyncStatus, setAutoSyncStatus] = useState<'checking' | 'success' | 'warning'>('checking');
+  const [autoSyncMessage, setAutoSyncMessage] = useState('กำลังเตรียมตรวจสอบสถานะปิดสิทธิ UCS/LGO/WEL...');
+  const [autoSyncSummary, setAutoSyncSummary] = useState<Record<string, number> | null>(null);
+  const initialLoadStarted = useRef(false);
+  const filtersReady = useRef(false);
   const parseHistoryDetail = (row: CloseStatusDetailSource) => {
     const candidates = [row.nhso_reponse_json, row.nhso_cancel_response];
     for (const candidate of candidates) {
@@ -155,10 +199,46 @@ export const NhsoClosePage: React.FC = () => {
   }, [closeStatus, endDate, mainInscl, search, startDate]);
 
   useEffect(() => {
-    void loadSettingsAndHistory();
-  }, []);
+    if (initialLoadStarted.current) return;
+    initialLoadStarted.current = true;
+
+    const initializePage = async () => {
+      let syncWarning = '';
+      try {
+        setAutoSyncStatus('checking');
+        setAutoSyncMessage('กำลังโหลดค่าการเชื่อมต่อและประวัติปิดสิทธิ...');
+        await loadSettingsAndHistory();
+
+        setAutoSyncMessage('กำลังเช็ค NHSO และอัปเดต Authen Code/สถานะปิดสิทธิของ UCS, LGO และ WEL...');
+        const response = await fetch('/api/nhso/authen/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startDate, endDate, mode: 'close-status', fundCodes: ['UCS', 'LGO', 'WEL'] }),
+        });
+        const json = await response.json();
+        if (!response.ok || !json.success) throw new Error(json.error || 'ตรวจสอบสถานะ Authen ไม่สำเร็จ');
+        setAutoSyncSummary(json.summary || null);
+      } catch (err) {
+        syncWarning = err instanceof Error ? err.message : 'ตรวจสอบสถานะ Authen ไม่สำเร็จ';
+      } finally {
+        setAutoSyncMessage('กำลังโหลดรายการปิดสิทธิ UCS/LGO/WEL ล่าสุด...');
+        await loadCandidates();
+        filtersReady.current = true;
+        if (syncWarning) {
+          setAutoSyncStatus('warning');
+          setAutoSyncMessage(`โหลดรายการแล้ว แต่ Auto Sync ไม่สำเร็จ: ${syncWarning}`);
+        } else {
+          setAutoSyncStatus('success');
+          setAutoSyncMessage('ตรวจสอบและอัปเดต Authen Code/สถานะปิดสิทธิ UCS/LGO/WEL เรียบร้อยแล้ว');
+        }
+      }
+    };
+
+    void initializePage();
+  }, [endDate, loadCandidates, startDate]);
 
   useEffect(() => {
+    if (!filtersReady.current) return;
     void loadCandidates();
   }, [loadCandidates]);
 
@@ -288,7 +368,24 @@ export const NhsoClosePage: React.FC = () => {
         <div className="card-body">
           <div className="alert alert-info" style={{ marginBottom: 16 }}>
             <span>ℹ️</span>
-            <span>หน้านี้โฟกัสงาน `ปิดสิทธิ (EP)` อย่างเดียว ระบบจะพาเฉพาะเคสที่ยังต้องปิดสิทธิมาให้ และตัวที่ปิดแล้วจะไม่ถูกรวมเข้ากลุ่มงานค้าง</span>
+            <span>หน้านี้โฟกัสงาน `ปิดสิทธิ (EP)` เฉพาะสิทธิ <strong>UCS, LGO และ WEL</strong> ระบบจะไม่ส่งสิทธิ OFC หรือ SSS ไปยัง endpoint ปิดสิทธิ</span>
+          </div>
+
+          <div
+            className={`alert ${autoSyncStatus === 'warning' ? 'alert-warning' : autoSyncStatus === 'success' ? 'alert-success' : 'alert-info'}`}
+            style={{ marginBottom: 16, display: 'block' }}
+            role="status"
+            aria-live="polite"
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: autoSyncStatus === 'checking' ? 8 : 0 }}>
+              <span>{autoSyncStatus === 'checking' ? '⏳' : autoSyncStatus === 'success' ? '✅' : '⚠️'} {autoSyncMessage}</span>
+              {autoSyncSummary && autoSyncStatus !== 'checking' && (
+                <span className="badge badge-info">ตรวจ {Number(autoSyncSummary.total || 0)} / อัปเดต {Number(autoSyncSummary.updated || 0)}</span>
+              )}
+            </div>
+            {autoSyncStatus === 'checking' && (
+              <progress aria-label="กำลังตรวจสอบสถานะปิดสิทธิ" style={{ width: '100%', height: 10 }} />
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -444,12 +541,10 @@ export const NhsoClosePage: React.FC = () => {
             <div className="form-group">
               <label className="form-label">สิทธิหลัก</label>
               <select className="form-control" value={mainInscl} onChange={(e) => setMainInscl(e.target.value)}>
-                <option value="all">ทั้งหมด</option>
+                <option value="all">UCS + LGO + WEL ทั้งหมด</option>
                 <option value="UCS">UCS</option>
-                <option value="WEL">WEL</option>
-                <option value="OFC">OFC</option>
-                <option value="SSS">SSS</option>
                 <option value="LGO">LGO</option>
+                <option value="WEL">WEL</option>
               </select>
             </div>
             <div className="form-group">
@@ -460,21 +555,22 @@ export const NhsoClosePage: React.FC = () => {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card nhso-close-table-card" style={{ marginBottom: 16 }}>
         <div className="card-header">
           <div className="card-title">รายการพร้อมปิดสิทธิ NHSO</div>
           <span className="badge badge-info">{loading ? 'กำลังโหลด...' : `${rows.length} รายการ`}</span>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           <div className="modal-table-wrap">
-            <table className="data-table">
+            <table className="data-table long-id-table long-id-table--nhso-close">
               <thead>
                 <tr>
                   <th>เลือก</th>
                   <th>VN</th>
                   <th>HN</th>
                   <th>ผู้ป่วย</th>
-                  <th>วันรับบริการ</th>
+                  <th>วันที่รับบริการ</th>
+                  <th>เวลารับบริการ</th>
                   <th>สิทธิ</th>
                   <th>ปิดสิทธิ (EP)</th>
                   <th>สถานะปิดสิทธิ</th>
@@ -487,36 +583,40 @@ export const NhsoClosePage: React.FC = () => {
                 {rows.length > 0 ? rows.map((row) => {
                   const disabled = Number(row.can_close || 0) !== 1;
                   const isSelected = selectedVns.includes(row.vn);
+                  const visitDateTime = splitDateTime(row.vst_datetime);
+                  const serviceDate = row.service_date || visitDateTime.date;
+                  const serviceTime = row.service_time || visitDateTime.time || '-';
                   return (
-                    <tr key={row.vn} className={isSelected ? 'row-selected' : ''}>
-                      <td className="table-cell-nowrap">
+                    <tr key={row.vn} className={`${isSelected ? 'row-selected' : ''} ${disabled ? 'row-muted' : ''}`}>
+                      <td className="table-index-cell nhso-select-cell">
                         <input type="checkbox" checked={isSelected} disabled={disabled} onChange={() => toggleSelection(row.vn)} />
                       </td>
-                      <td className="table-cell-nowrap">{row.vn}</td>
-                      <td className="table-cell-nowrap">{row.hn || '-'}</td>
-                      <td>
-                        <div style={{ fontWeight: 700 }}>{row.patient_name || '-'}</div>
-                        <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{row.cid || '-'}</div>
+                      <td className="table-cell-nowrap workflow-id-cell">{row.vn}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
+                      <td className="workflow-person-cell">
+                        <div className="nhso-patient-name">{row.patient_name || '-'}</div>
+                        <div className="nhso-subtext mono">{row.cid || '-'}</div>
                       </td>
-                      <td className="table-cell-nowrap">{row.vst_datetime || '-'}</td>
-                      <td>
-                        <div>{row.maininscl || '-'}</div>
-                        <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{row.pttypename || '-'}</div>
+                      <td className="table-cell-nowrap nhso-datetime-cell mono">{serviceDate}</td>
+                      <td className="table-cell-nowrap nhso-datetime-cell mono">{serviceTime}</td>
+                      <td className="nhso-right-cell">
+                        <div className="nhso-maininscl">{row.maininscl || '-'}</div>
+                        <div className="nhso-subtext">{row.pttypename || '-'}</div>
                       </td>
-                      <td className="table-cell-nowrap">{row.close_code || '-'}</td>
+                      <td className="table-cell-nowrap workflow-code-cell">{row.close_code || '-'}</td>
                       <td className="table-cell-nowrap">
-                        <span className={`badge ${row.close_status === 'OK' ? 'badge-success' : row.close_status === 'Error' ? 'badge-danger' : row.close_status === 'Cancel' ? 'badge-warning' : 'badge-info'}`}>
+                        <span className={`nhso-status-pill ${row.close_status === 'OK' ? 'nhso-status-pill--success' : row.close_status === 'Error' ? 'nhso-status-pill--danger' : row.close_status === 'Cancel' ? 'nhso-status-pill--warning' : 'nhso-status-pill--info'}`}>
                           {row.close_status || (disabled ? 'ปิดสิทธิแล้ว' : 'ต้องปิดสิทธิ')}
                         </span>
                       </td>
-                      <td className="table-cell-nowrap">{Number(row.income || 0).toLocaleString()}</td>
-                      <td className="table-cell-nowrap">{Number(row.uc_money || 0).toLocaleString()}</td>
-                      <td className="table-cell-nowrap">{Number(row.rcpt_money || 0).toLocaleString()}</td>
+                      <td className="table-cell-nowrap workflow-money-cell">{Number(row.income || 0).toLocaleString()}</td>
+                      <td className="table-cell-nowrap workflow-money-cell">{Number(row.uc_money || 0).toLocaleString()}</td>
+                      <td className="table-cell-nowrap workflow-money-cell">{Number(row.rcpt_money || 0).toLocaleString()}</td>
                     </tr>
                   );
                 }) : (
                   <tr>
-                    <td colSpan={11} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                    <td colSpan={12} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                       {loading ? 'กำลังโหลดรายการ...' : 'ไม่พบรายการตามตัวกรองที่เลือก'}
                     </td>
                   </tr>
@@ -534,10 +634,12 @@ export const NhsoClosePage: React.FC = () => {
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           <div className="modal-table-wrap">
-            <table className="data-table">
+            <table className="data-table long-id-table long-id-table--nhso-history">
               <thead>
                 <tr>
                   <th>VN</th>
+                  <th>HN</th>
+                  <th>เลขบัตรประชาชน</th>
                   <th>Seq</th>
                   <th>Authen Code</th>
                   <th>สถานะ</th>
@@ -550,17 +652,19 @@ export const NhsoClosePage: React.FC = () => {
               <tbody>
                 {history.length > 0 ? history.map((row) => (
                   <tr key={row.nhso_confirm_privilege_id}>
-                    <td className="table-cell-nowrap">{row.vn}</td>
-                    <td className="table-cell-nowrap">{row.nhso_seq || '-'}</td>
-                    <td className="table-cell-nowrap">{row.nhso_authen_code || '-'}</td>
+                    <td className="table-cell-nowrap workflow-id-cell">{row.vn}</td>
+                    <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
+                    <td className="table-cell-nowrap workflow-code-cell">{row.cid || '-'}</td>
+                    <td className="table-cell-nowrap workflow-code-cell">{row.nhso_seq || '-'}</td>
+                    <td className="table-cell-nowrap workflow-code-cell">{row.nhso_authen_code || '-'}</td>
                     <td className="table-cell-nowrap">
                       <span className={`badge ${row.nhso_status === 'Y' ? 'badge-success' : row.nhso_status === 'C' ? 'badge-warning' : row.nhso_status === 'E' ? 'badge-danger' : 'badge-info'}`}>
                         {row.nhso_status === 'Y' ? 'OK' : row.nhso_status === 'C' ? 'Cancel' : row.nhso_status === 'E' ? 'Error' : '-'}
                       </span>
                     </td>
-                    <td className="table-cell-nowrap">{Number(row.nhso_total_amount || 0).toLocaleString()}</td>
-                    <td className="table-cell-nowrap">{row.sourceID || '-'}</td>
-                    <td className="table-cell-nowrap">{row.confirm_staff || '-'}</td>
+                    <td className="table-cell-nowrap workflow-money-cell">{Number(row.nhso_total_amount || 0).toLocaleString()}</td>
+                    <td className="table-cell-nowrap workflow-code-cell">{row.sourceID || '-'}</td>
+                    <td className="table-cell-nowrap workflow-owner-cell">{row.confirm_staff || '-'}</td>
                     <td className="table-cell-nowrap">
                       <div>{row.nhso_response_datetime || row.nhso_requst_datetime || '-'}</div>
                       {parseHistoryDetail(row) && (
@@ -572,7 +676,7 @@ export const NhsoClosePage: React.FC = () => {
                   </tr>
                 )) : (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                       ยังไม่มีประวัติการปิดสิทธิ NHSO
                     </td>
                   </tr>

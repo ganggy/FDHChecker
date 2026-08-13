@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { fetchAppSettings, fetchRcmdbData, saveAppSettings } from '../services/hosxpService';
+import { loadRepErrorCatalog, type RepErrorCatalogEntry } from '../services/repErrorCatalogService';
 import { formatLocalDateStamp } from '../utils/dateUtils';
 
 type RepCategory = 'all' | 'c' | 'deny' | 'other';
@@ -31,6 +32,18 @@ interface RepRow {
   diff?: number | null;
   raw_data?: Record<string, unknown> | string;
   created_at?: string;
+  latest_fdh_status?: string;
+  latest_fdh_at?: string;
+}
+
+type TrackingStatus = 'unresolved' | 'resolved' | 'cancelled';
+
+interface RepTrackingItem {
+  visitKey: string;
+  status: TrackingStatus;
+  latest: RepRow;
+  attempts: RepRow[];
+  latestCodes: string[];
 }
 
 interface CodeSummary {
@@ -39,6 +52,8 @@ interface CodeSummary {
   category: Exclude<RepCategory, 'all'>;
   latestAt: string;
   sampleRows: RepRow[];
+  description?: string;
+  guide?: string;
 }
 
 interface RepDenyNotes {
@@ -139,12 +154,21 @@ const DEFAULT_GUIDE: Record<Exclude<RepCategory, 'all'>, RepGuide> = {
 };
 
 const normalizeText = (value: unknown) => String(value ?? '').trim();
+const normalizeIdentifier = (value: unknown) => {
+  const text = normalizeText(value);
+  return ['', '-', 'NULL', 'N/A', '0'].includes(text.toUpperCase()) ? '' : text;
+};
 
 const splitCodes = (value?: string) =>
   normalizeText(value)
     .split(/[,|;/\n]+/)
     .map((part) => part.trim().toUpperCase().replace(/\s+/g, ''))
-    .filter(Boolean);
+    .filter((code) => Boolean(code) && !['-', 'NULL', 'N/A', '0'].includes(code));
+
+const findCatalogEntry = (catalog: Record<string, RepErrorCatalogEntry>, code: string) => {
+  const normalized = code.toUpperCase().replace(/\s+/g, '');
+  return catalog[normalized] || (/^C\d+$/.test(normalized) ? catalog[normalized.slice(1)] : undefined);
+};
 
 const getCategory = (code: string): Exclude<RepCategory, 'all'> => {
   if (code.startsWith('C')) return 'c';
@@ -181,17 +205,19 @@ export const RepDenyPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<RepCategory>('all');
+  const [trackingStatus, setTrackingStatus] = useState<TrackingStatus | 'all'>('unresolved');
   const [selectedCode, setSelectedCode] = useState<string>('all');
   const [notes, setNotes] = useState<RepDenyNotes>({});
   const [notesDraft, setNotesDraft] = useState('');
   const [lastSaved, setLastSaved] = useState<string | null>(null);
+  const [errorCatalog, setErrorCatalog] = useState<Record<string, RepErrorCatalogEntry>>({});
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
       const [repResponse, appSettingsResponse] = await Promise.all([
-        fetchRcmdbData('REP', 1000),
+        fetchRcmdbData('REP', 100000),
         fetchAppSettings<RepDenySettings>(),
       ]);
 
@@ -209,7 +235,42 @@ export const RepDenyPage: React.FC = () => {
 
   useEffect(() => {
     void loadData();
+    loadRepErrorCatalog()
+      .then(setErrorCatalog)
+      .catch(() => setErrorCatalog({}));
   }, []);
+
+  const trackingItems = useMemo<RepTrackingItem[]>(() => {
+    const groups = new Map<string, RepRow[]>();
+    rows.forEach((row) => {
+      const visitKey = normalizeIdentifier(row.an)
+        ? `AN:${normalizeIdentifier(row.an)}`
+        : normalizeIdentifier(row.vn)
+          ? `VN:${normalizeIdentifier(row.vn)}`
+          : normalizeIdentifier(row.tran_id)
+            ? `TRAN:${normalizeIdentifier(row.tran_id)}`
+            : '';
+      if (!visitKey) return;
+      const current = groups.get(visitKey) || [];
+      current.push(row);
+      groups.set(visitKey, current);
+    });
+
+    return Array.from(groups.entries()).flatMap(([visitKey, attempts]) => {
+      const sorted = [...attempts].sort((a, b) => {
+        const aTime = normalizeText(a.senddate || a.created_at);
+        const bTime = normalizeText(b.senddate || b.created_at);
+        return aTime.localeCompare(bTime) || Number(a.id) - Number(b.id);
+      });
+      const everHadIssue = sorted.some((row) => splitCodes(row.errorcode).length > 0 || splitCodes(row.verifycode).length > 0);
+      if (!everHadIssue) return [];
+      const latest = sorted[sorted.length - 1];
+      const latestCodes = [...splitCodes(latest.errorcode), ...splitCodes(latest.verifycode)];
+      const isUnclaim = normalizeText(latest.latest_fdh_status).toLowerCase().includes('unclaim');
+      const status: TrackingStatus = isUnclaim ? 'cancelled' : latestCodes.length > 0 ? 'unresolved' : 'resolved';
+      return [{ visitKey, status, latest, attempts: sorted, latestCodes }];
+    }).sort((a, b) => normalizeText(b.latest.senddate || b.latest.created_at).localeCompare(normalizeText(a.latest.senddate || a.latest.created_at)));
+  }, [rows]);
 
   const codeSummaries = useMemo<CodeSummary[]>(() => {
     const map = new Map<string, CodeSummary>();
@@ -219,7 +280,8 @@ export const RepDenyPage: React.FC = () => {
       if (codes.length === 0) return;
 
       codes.forEach((code) => {
-        const category = getCategory(code);
+        const catalogType = findCatalogEntry(errorCatalog, code)?.type.toLowerCase();
+        const category = catalogType === 'corrective' ? 'c' : catalogType === 'deny' ? 'deny' : getCategory(code);
         const current = map.get(code);
         if (!current) {
           map.set(code, {
@@ -228,6 +290,8 @@ export const RepDenyPage: React.FC = () => {
             category,
             latestAt: row.created_at || row.senddate || '',
             sampleRows: [row],
+            description: findCatalogEntry(errorCatalog, code)?.description,
+            guide: findCatalogEntry(errorCatalog, code)?.guide,
           });
           return;
         }
@@ -241,9 +305,9 @@ export const RepDenyPage: React.FC = () => {
     });
 
     return Array.from(map.values()).sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
-  }, [rows]);
+  }, [errorCatalog, rows]);
 
-  const issueRows = useMemo(() => rows.filter((row) => splitCodes(row.errorcode).length > 0), [rows]);
+  const issueRows = useMemo(() => trackingItems.filter((item) => item.status === 'unresolved').map((item) => item.latest), [trackingItems]);
 
   const filteredSummaries = useMemo(() => {
     return codeSummaries.filter((item) => {
@@ -282,13 +346,18 @@ export const RepDenyPage: React.FC = () => {
   }, [codeSummaries, selectedCode]);
 
   const selectedGuide = getGuideForCategory(selectedSummary?.category || (categoryFilter === 'deny' ? 'deny' : categoryFilter === 'c' ? 'c' : 'other'));
+  const selectedCatalogEntry = selectedSummary ? findCatalogEntry(errorCatalog, selectedSummary.code) : undefined;
 
   const visibleRows = useMemo(() => {
+    const statusRows = trackingStatus === 'all' ? trackingItems : trackingItems.filter((item) => item.status === trackingStatus);
     const baseRows = selectedCode === 'all'
-      ? issueRows
-      : issueRows.filter((row) => splitCodes(row.errorcode).includes(selectedCode));
+      ? statusRows
+      : statusRows.filter((item) => item.attempts.some((row) => (
+        [...splitCodes(row.errorcode), ...splitCodes(row.verifycode)].includes(selectedCode)
+      )));
 
-    return baseRows.filter((row) => {
+    return baseRows.filter((item) => {
+      const row = item.latest;
       if (!searchTerm.trim()) return true;
       const haystack = [
         row.rep_no,
@@ -300,6 +369,8 @@ export const RepDenyPage: React.FC = () => {
         row.patient_name,
         row.patient_type,
         row.department,
+        row.admdate,
+        row.dchdate,
         row.maininscl,
         row.subinscl,
         row.errorcode,
@@ -309,7 +380,7 @@ export const RepDenyPage: React.FC = () => {
       ].map((value) => normalizeText(value)).join(' ').toLowerCase();
       return haystack.includes(searchTerm.toLowerCase());
     });
-  }, [issueRows, searchTerm, selectedCode]);
+  }, [searchTerm, selectedCode, trackingItems, trackingStatus]);
 
   const stats = useMemo(() => ({
     imported: rows.length,
@@ -317,7 +388,10 @@ export const RepDenyPage: React.FC = () => {
     codes: codeSummaries.length,
     cCodes: codeSummaries.filter((item) => item.category === 'c').length,
     denyCodes: codeSummaries.filter((item) => item.category === 'deny').length,
-  }), [codeSummaries, issueRows.length, rows.length]);
+    unresolved: trackingItems.filter((item) => item.status === 'unresolved').length,
+    resolved: trackingItems.filter((item) => item.status === 'resolved').length,
+    cancelled: trackingItems.filter((item) => item.status === 'cancelled').length,
+  }), [codeSummaries, issueRows.length, rows.length, trackingItems]);
 
   const handleSaveNotes = async () => {
     try {
@@ -352,7 +426,7 @@ export const RepDenyPage: React.FC = () => {
       <div className="page-header repdeny-hero">
         <h1 className="page-title">⚠️ ตรวจ C / Deny REP</h1>
         <p className="page-subtitle">
-          หน้ารวมสำหรับไล่รายการที่ติด C / Deny หลังนำเข้า REP/STM/INV พร้อมสรุปเงื่อนไข วิธีแก้ และข้อมูลที่ควรกลับไปแก้ที่ต้นทาง
+          ติดตามผลจากข้อมูล REP ที่นำเข้าทุกครั้ง: ครั้งล่าสุดไม่ติด error = แก้สำเร็จ, ยังติด C/Deny = ยังไม่สำเร็จ และ FDH unclaim = ยกเลิกการเบิก
         </p>
         <div className="repdeny-reference-row">
           {OFFICIAL_REFERENCES.map((item) => (
@@ -367,22 +441,22 @@ export const RepDenyPage: React.FC = () => {
         <div className="repdeny-metric-card">
           <div className="repdeny-metric-label">ข้อมูล REP ที่โหลด</div>
           <div className="repdeny-metric-value">{stats.imported.toLocaleString()}</div>
-          <div className="repdeny-metric-sub">ล่าสุดจากฐาน repstminv</div>
+          <div className="repdeny-metric-sub">ทุกครั้งที่นำเข้าในฐาน repstminv</div>
         </div>
         <div className="repdeny-metric-card repdeny-metric-card--warning">
-          <div className="repdeny-metric-label">รายการที่มีปัญหา</div>
-          <div className="repdeny-metric-value">{stats.issueRows.toLocaleString()}</div>
-          <div className="repdeny-metric-sub">errorcode ไม่ว่าง</div>
+          <div className="repdeny-metric-label">ยังแก้ไม่สำเร็จ</div>
+          <div className="repdeny-metric-value">{stats.unresolved.toLocaleString()}</div>
+          <div className="repdeny-metric-sub">ครั้งล่าสุดยังติด C/Deny</div>
         </div>
         <div className="repdeny-metric-card repdeny-metric-card--info">
-          <div className="repdeny-metric-label">รหัส C ที่พบ</div>
-          <div className="repdeny-metric-value">{stats.cCodes.toLocaleString()}</div>
-          <div className="repdeny-metric-sub">จัดกลุ่มจาก errorcode</div>
+          <div className="repdeny-metric-label">แก้ไขสำเร็จ</div>
+          <div className="repdeny-metric-value">{stats.resolved.toLocaleString()}</div>
+          <div className="repdeny-metric-sub">REP ครั้งล่าสุดไม่ติด error</div>
         </div>
         <div className="repdeny-metric-card repdeny-metric-card--danger">
-          <div className="repdeny-metric-label">รหัส Deny ที่พบ</div>
-          <div className="repdeny-metric-value">{stats.denyCodes.toLocaleString()}</div>
-          <div className="repdeny-metric-sub">ตรวจสอบกับเงื่อนไขจ่ายจริง</div>
+          <div className="repdeny-metric-label">ยกเลิกการเบิก</div>
+          <div className="repdeny-metric-value">{stats.cancelled.toLocaleString()}</div>
+          <div className="repdeny-metric-sub">สถานะล่าสุดจาก FDH เป็น unclaim</div>
         </div>
       </div>
 
@@ -397,6 +471,15 @@ export const RepDenyPage: React.FC = () => {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 placeholder="ค้นหา code, VN, HN, ชื่อผู้ป่วย..."
               />
+            </div>
+            <div className="form-group">
+              <label className="form-label">สถานะการติดตาม</label>
+              <select className="form-control" value={trackingStatus} onChange={(e) => setTrackingStatus(e.target.value as TrackingStatus | 'all')}>
+                <option value="unresolved">ยังแก้ไม่สำเร็จ</option>
+                <option value="resolved">แก้ไขสำเร็จ</option>
+                <option value="cancelled">ยกเลิกการเบิก</option>
+                <option value="all">ทุกสถานะ</option>
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">กลุ่มรหัส</label>
@@ -418,13 +501,12 @@ export const RepDenyPage: React.FC = () => {
                 ))}
               </select>
             </div>
-            <div className="form-group repdeny-filter-actions">
-              <label className="form-label">การทำงาน</label>
-              <button className="btn btn-secondary" type="button" onClick={loadData} disabled={loading}>
-                {loading ? 'กำลังโหลด...' : 'รีเฟรชข้อมูล'}
+            <div className="repdeny-filter-actions">
+              <button className="btn btn-primary" type="button" onClick={loadData} disabled={loading}>
+                {loading ? '⏳ กำลังโหลด...' : '↻ รีเฟรชข้อมูล'}
               </button>
-              <button className="btn btn-secondary" type="button" onClick={clearSelection}>
-                ล้างการเลือก
+              <button className="btn btn-outline" type="button" onClick={clearSelection} disabled={selectedCode === 'all'}>
+                ✕ ล้างรหัสที่เลือก
               </button>
             </div>
           </div>
@@ -456,19 +538,12 @@ export const RepDenyPage: React.FC = () => {
                       className={`repdeny-code-item ${isActive ? 'active' : ''}`}
                       onClick={() => setSelectedCode(item.code)}
                     >
-                      <div className="repdeny-code-item-row">
-                        <div>
-                          <div className="repdeny-code-name">{item.code}</div>
-                          <div className="repdeny-code-meta">
-                            ล่าสุด {getDisplayDate(item.latestAt)}
-                          </div>
-                        </div>
-                        <span className={`badge ${getBadgeClass(item.category)}`}>{getCategoryLabel(item.category)}</span>
-                      </div>
-                      <div className="repdeny-code-footer">
-                        <span>พบ {item.count.toLocaleString()} ครั้ง</span>
-                        <span>ดูรายละเอียด</span>
-                      </div>
+                      <span className="repdeny-code-name">{item.code}</span>
+                      <span className="repdeny-code-count">{item.count.toLocaleString()} ครั้ง</span>
+                      <span className="repdeny-code-description" title={item.description || 'ยังไม่มีคำอธิบายรหัส'}>
+                        {item.description || 'ยังไม่มีคำอธิบายรหัส'}
+                      </span>
+                      <span className={`badge ${getBadgeClass(item.category)}`}>{getCategoryLabel(item.category)}</span>
                     </button>
                   );
                 })}
@@ -494,8 +569,12 @@ export const RepDenyPage: React.FC = () => {
           </div>
           <div className="card-body">
             <div className="repdeny-detail-banner">
-              <div className="repdeny-detail-banner-title">{selectedGuide.title}</div>
-              <div className="repdeny-detail-banner-subtitle">{selectedGuide.summary}</div>
+              <div className="repdeny-detail-banner-title">
+                {selectedCatalogEntry ? `${selectedSummary?.code}: ${selectedCatalogEntry.description}` : selectedGuide.title}
+              </div>
+              <div className="repdeny-detail-banner-subtitle">
+                {selectedCatalogEntry?.guide || selectedGuide.summary}
+              </div>
             </div>
 
             <div className="repdeny-detail-columns">
@@ -558,42 +637,75 @@ export const RepDenyPage: React.FC = () => {
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-header">
-          <div className="card-title">รายการที่ติด C / Deny</div>
+          <div className="card-title">ประวัติ Visit ที่เคยติด C / Deny</div>
           <span className="badge badge-info">{visibleRows.length.toLocaleString()} รายการ</span>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
           {visibleRows.length > 0 ? (
             <div className="modal-table-wrap repdeny-table-wrap">
-              <table className="data-table">
+              <table className="data-table workflow-readable-table repdeny-readable-table">
                 <thead>
                   <tr>
+                    <th>สถานะล่าสุด</th>
                     <th>REP</th>
+                    <th>จำนวนครั้ง</th>
                     <th>VN / AN</th>
                     <th>HN</th>
                     <th>ชื่อผู้ป่วย</th>
                     <th>สิทธิ</th>
+                    <th>วันที่–เวลารับบริการ</th>
                     <th>วันที่ส่ง</th>
                     <th>errorcode</th>
                     <th>verifycode</th>
                     <th>projectcode</th>
+                    <th>FDH ล่าสุด</th>
                     <th>ชดเชย</th>
                     <th>Income</th>
                     <th>Diff</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.slice(0, 80).map((row) => {
+                  {visibleRows.map((item) => {
+                    const row = item.latest;
                     const codes = splitCodes(row.errorcode);
                     return (
-                      <tr key={`${row.id}-${row.tran_id || row.vn || row.an || 'row'}`}>
-                        <td className="table-cell-nowrap">{row.rep_no || '-'}</td>
-                        <td className="table-cell-nowrap">{row.vn || row.an || '-'}</td>
-                        <td className="table-cell-nowrap">{row.hn || '-'}</td>
-                        <td>
+                      <tr key={item.visitKey}>
+                        <td className="table-cell-nowrap">
+                          <span className={`badge ${item.status === 'resolved' ? 'badge-success' : item.status === 'cancelled' ? 'badge-secondary' : 'badge-danger'}`}>
+                            {item.status === 'resolved' ? 'แก้สำเร็จ' : item.status === 'cancelled' ? 'ยกเลิกเบิก' : 'ยังไม่สำเร็จ'}
+                          </span>
+                        </td>
+                        <td className="workflow-id-cell">
+                          <div className="table-cell-nowrap">{row.rep_no || '-'}</div>
+                          <details className="repdeny-timeline">
+                            <summary>ดูประวัติ {item.attempts.length} ครั้ง</summary>
+                            <div className="repdeny-timeline-list">
+                              {item.attempts.map((attempt, attemptIndex) => {
+                                const attemptCodes = [...splitCodes(attempt.errorcode), ...splitCodes(attempt.verifycode)];
+                                return (
+                                  <div className="repdeny-timeline-item" key={`${attempt.id}-${attemptIndex}`}>
+                                    <strong>ครั้งที่ {attemptIndex + 1}: {attempt.rep_no || '-'}</strong>
+                                    <span>รับบริการ {getDisplayDate(attempt.admdate)}</span>
+                                    <span>ส่ง REP {getDisplayDate(attempt.senddate || attempt.created_at)}</span>
+                                    <span>{attemptCodes.length > 0 ? `ติด ${attemptCodes.join(', ')}` : 'ไม่ติด error'}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </details>
+                        </td>
+                        <td className="table-cell-nowrap">{item.attempts.length.toLocaleString()} ครั้ง</td>
+                        <td className="table-cell-nowrap workflow-id-cell">{row.vn || row.an || '-'}</td>
+                        <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
+                        <td className="workflow-person-cell">
                           <div style={{ fontWeight: 700 }}>{row.patient_name || '-'}</div>
                           <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.pid || '-'}</div>
                         </td>
                         <td className="table-cell-nowrap">{row.maininscl || row.patient_type || '-'}</td>
+                        <td className="table-cell-nowrap">
+                          <div style={{ fontWeight: 700 }}>{getDisplayDate(row.admdate)}</div>
+                          {row.dchdate && <div style={{ marginTop: 2, fontSize: 10, color: 'var(--text-muted)' }}>D/C {getDisplayDate(row.dchdate)}</div>}
+                        </td>
                         <td className="table-cell-nowrap">{getDisplayDate(row.senddate || row.created_at)}</td>
                         <td>
                           <div className="repdeny-cell-tags">
@@ -604,11 +716,12 @@ export const RepDenyPage: React.FC = () => {
                             ))}
                           </div>
                         </td>
-                        <td className="table-cell-nowrap">{row.verifycode || '-'}</td>
-                        <td className="table-cell-nowrap">{row.projectcode || '-'}</td>
-                        <td className="table-cell-nowrap">{row.compensated != null ? Number(row.compensated).toLocaleString() : '-'}</td>
-                        <td className="table-cell-nowrap">{row.income != null ? Number(row.income).toLocaleString() : '-'}</td>
-                        <td className="table-cell-nowrap">{row.diff != null ? Number(row.diff).toLocaleString() : '-'}</td>
+                        <td className="table-cell-nowrap workflow-code-cell">{row.verifycode || '-'}</td>
+                        <td className="table-cell-nowrap workflow-code-cell">{row.projectcode || '-'}</td>
+                        <td className="table-cell-nowrap workflow-code-cell">{row.latest_fdh_status || '-'}</td>
+                        <td className="table-cell-nowrap workflow-money-cell">{row.compensated != null ? Number(row.compensated).toLocaleString() : '-'}</td>
+                        <td className="table-cell-nowrap workflow-money-cell">{row.income != null ? Number(row.income).toLocaleString() : '-'}</td>
+                        <td className="table-cell-nowrap workflow-money-cell">{row.diff != null ? Number(row.diff).toLocaleString() : '-'}</td>
                       </tr>
                     );
                   })}

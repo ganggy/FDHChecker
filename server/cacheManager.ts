@@ -1,4 +1,5 @@
 import { getEligibleVisits } from './db.js';
+import { boundedInteger } from './httpClient.js';
 
 interface CacheEntry {
     data: Record<string, unknown>[];
@@ -7,6 +8,25 @@ interface CacheEntry {
 
 // In-Memory Database (Cache Temp)
 const dailyCache = new Map<string, CacheEntry>();
+const maxCachedDays = boundedInteger(process.env.HOSXP_CACHE_MAX_DAYS, 400, 31, 730);
+const maxQueryDays = boundedInteger(process.env.HOSXP_QUERY_MAX_DAYS, 93, 1, 366);
+
+const parseIsoDate = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+    return date;
+};
+
+const saveDailyCache = (date: string, entry: CacheEntry) => {
+    if (!dailyCache.has(date) && dailyCache.size >= maxCachedDays) {
+        const oldestKey = dailyCache.keys().next().value as string | undefined;
+        if (oldestKey) dailyCache.delete(oldestKey);
+    }
+    dailyCache.delete(date);
+    dailyCache.set(date, entry);
+};
 
 export const clearCache = () => {
     dailyCache.clear();
@@ -23,8 +43,12 @@ export const getVisitsCached = async (
     fund: string | undefined
 ): Promise<Record<string, unknown>[]> => {
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = parseIsoDate(startDate);
+    const end = parseIsoDate(endDate);
+    if (!start || !end) throw new Error('รูปแบบวันที่ต้องเป็น YYYY-MM-DD และเป็นวันที่ที่ถูกต้อง');
+    if (start > end) throw new Error('วันที่เริ่มต้องไม่มากกว่าวันที่สิ้นสุด');
+    const requestedDays = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+    if (requestedDays > maxQueryDays) throw new Error(`รองรับช่วงข้อมูลไม่เกิน ${maxQueryDays} วันต่อครั้ง`);
     const datesToFetch: string[] = [];
 
     const current = new Date(start);
@@ -57,7 +81,7 @@ export const getVisitsCached = async (
             console.log(`[Cache] ⏳ FETCHING from HOSxP for ${date}...`);
             // ดึงข้อมูลทั้งหมดของวันนั้น (applyLimit = false) แบบไม่สนกองทุนมาเก็บไว้ก่อน (เอาแค่วันเดียว HOSxP ไม่ค้างแน่นอน)
             dayData = await getEligibleVisits(date, date, undefined, false);
-            dailyCache.set(date, { data: dayData, timestamp: now });
+            saveDailyCache(date, { data: dayData, timestamp: now });
             console.log(`[Cache] ✅ SAVED ${date} (${dayData.length} visits)`);
         }
 

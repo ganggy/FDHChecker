@@ -1,0 +1,857 @@
+ 
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 
+เพื่อบริการสาธารณสุข (e-Claim) สำหรับหน่วยบริการ 
+ 
+ 
+Version 1.0 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+วันเดือนปี 
+เวอร์ชัน 
+รายละเอียด 
+ผู้สร้าง/แก้ไข 
+หมายเหตุ 
+31/3/2565 
+1.0 
+สร้างเอกสาร 
+นพพล มาลีสุวรรณชัย 
+ 
+ 
+ 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 1 
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 
+เพื่อบริการสาธารณสุข (e-Claim) สำหรับหน่วยบริการ 
+1. POST https://nhsoapi.nhso.go.th/FMU/ecimp/v1/auth 
+บริการยืนยันตัวตน ด้วยชื่อผู้ใช้และรหัสผ่านจากระบบ DCenter (dc.nhso.go.th) 
+Request method 
+Request methods/headers 
+Value 
+Method 
+POST 
+User-Agent 
+<platform>/<version> <hcode> 
+ 
+Request parameters 
+ส่งข้อมูลในรูปแบบ JSON โดยประกอบด้วย 
+Parameter name 
+Required/optional 
+Type 
+Description 
+username 
+Required 
+string 
+Username จาก ระบบ สปสช. DCenter 
+password 
+Required 
+string 
+Password จาก ระบบ สปสช. DCenter 
+ 
+Request example 
+{ 
+    "username": "", 
+    "password": "" 
+} 
+ 
+ 
+Response 
+กรณีส่งข้อมูลสำเร็จ (HTTP response status code = 200) ข้อมูลตอบกลับจะอยู่ในรูปแบบ JSON โดยมีรายละเอียดข้อมูลดังนี้ 
+Parameter name 
+Type 
+Description 
+token 
+string 
+Token เพื่อนำไปใช้ในการส่งข้อมูล 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 2 
+ 
+ 
+กรณีส่งข้อมูลไม่สำเร็จ (HTTP response status code = 4xx|5xx) ข้อมูลตอบกลับจะอยู่ในรูปแบบ JSON โดยมีรายละเอียด
+ข้อมูลดังนี้ 
+Parameter name 
+Type 
+Description 
+status 
+int 
+HTTP response status code 
+message 
+string 
+รายละเอียดข้อผิดพลาด 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 3 
+ 
+2. POST https://nhsoapi.nhso.go.th/FMU/ecimp/v1/send 
+บริการรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่ายเพื่อบริการสาธารสุข (e-Claim)  
+โดยต้องมีการจัดทำในรูปแบบไฟล์ชุดข้อมูลเพื่อการเรียกเก็บค่าใช้จ่ายเพื่อบริการสาธารณสุข (e-Claim) ซึ่งแบ่งประเภทการส่ง
+ข้อมูลตามสิทธิการรักษาพยาบาล และมีขนาดไฟล์รวมไม่เกิน 10MB 
+Request method 
+Request methods/headers 
+Value 
+Method 
+POST 
+Authorization 
+Bearer <token> 
+User-Agent 
+<platform>/<version> <hcode> 
+ 
+Request parameters 
+ส่งข้อมูลในรูปแบบ JSON โดยประกอบด้วย 
+Parameter name Required/optional Type 
+Description 
+Example 
+fileType 
+Required 
+string 
+ชนิดของข้อมูล (“dbf”,”txt”) 
+“txt” 
+maininscl 
+Required 
+string 
+สิทธิการรักษา 
+“UCS” คือ สิทธิหลักประกันสุขภาพแห่งชาติ 
+”OFC” คือ สิทธิข้าราชการ/สิทธิรัฐวิสาหกิจ 
+”LGO” คือ สิทธิพนักงานส่วนท้องถิ่น 
+”SSS” คือ สิทธิประกันสังคม 
+“UCS” 
+dataTypes 
+Required 
+array 
+ประเภทผู้ป่วย 
+“IP” คือ ผู้ป่วยใน 
+“OP” คือ ผู้ป่วยนอก 
+[“IP”,”OP”] 
+opRefer 
+Required 
+bool 
+ข้อมูล OP Refer 
+false 
+importDup 
+Required 
+bool 
+นำเข้าซ้ำ กรณีพบข้อมูลยังไม่ส่งเบิกชดเชย 
+false 
+assignToMe 
+Required 
+bool 
+กำหนดข้อมูลให้แสดงผลเฉพาะผู้นำเข้า
+เท่านั้น 
+false 
+file 
+ไฟล์ชุดข้อมูลเพื่อการเรียกเก็บค่าใช้จ่ายเพื่อ
+บริการสาธารณสุข (e-Claim) 
+ 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 4 
+ 
+  ins 
+แฟ้มผู้มีสิทธิการรักษาพยาบาล 
+ 
+    blobName 
+Required 
+string 
+ชื่อไฟล์ 
+“INS.txt” 
+    blobType 
+Required 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Required 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Required 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Required 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  pat 
+แฟ้มข้อมูลผู้ป่วยกลาง 
+ 
+    blobName 
+Required 
+string 
+ชื่อไฟล์ 
+“PAT.txt” 
+    blobType 
+Required 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Required 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Required 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Required 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  opd 
+แฟ้มข้อมูลการมารับบริการผู้ป่วยนอก 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“OPD.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  orf 
+แฟ้มข้อมูลผู้ป่วยนอกที่ต้องส่งต่อ 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“ORF.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  odx 
+แฟ้มข้อมูลวินิจฉัยโรคผู้ป่วยนอก 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“ODX.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 5 
+ 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  oop 
+แฟ้มข้อมูลหัตถการผู้ป่วยนอก 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“OOP.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  ipd 
+แฟ้มข้อมูลผู้ป่วยใน 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“IPD.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  irf 
+แฟ้มข้อมูลผู้ป่วยในที่ต้องส่งต่อ 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“IRF.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  idx 
+แฟ้มข้อมูลวินิจฉัยโรคผู้ป่วยใน 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“IDX.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 6 
+ 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  iop 
+แฟ้มข้อมูลหัตถการผู้ป่วยใน 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“IOP.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  cht 
+แฟ้มข้อมูลการเงิน (แบบสรุป) 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“CHT.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  cha 
+แฟ้มข้อมูลการเงิน (แบบละเอียด) 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“CHA.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  aer 
+แฟ้มข้อมูลอุบัติเหตุ ฉุกเฉิน และรับส่งเพื่อ
+รักษา 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“AER.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 7 
+ 
+  adp 
+แฟ้มข้อมูลค่าใช้จ่ายเพิ่ม และบริการที่ยังไม่ได้
+จัดหมวด 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“ADP.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  ldv 
+แฟ้มข้อมูลกรณีที่ผู้ป่วยมีการลากลับบ้าน 
+(Leave day) 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“LDV.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  dru 
+แฟ้มข้อมูลการใช้ยา 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“DRU.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+  lab 
+แฟ้มข้อมูลการตรวจทางห้องปฏิบัติการของ
+ผู้ป่วยเรื้อรัง (เฉพาะ OPBKK) 
+ 
+    blobName 
+Optional 
+string 
+ชื่อไฟล์ 
+“LAB.txt” 
+    blobType 
+Optional 
+string 
+MIME type ของไฟล์ 
+“text/plain” 
+    blob 
+Optional 
+string 
+ข้อมูล binary ของไฟล์ในรูปแบบ base64 
+“SE58SU5T” 
+    size 
+Optional 
+int 
+ขนาดของไฟล์ข้อมูลก่อน encode base64 
+หน่วยเป็น byte 
+32 
+    encoding 
+Optional 
+string 
+รูปแบบการ encode ไฟล์ 
+“UTF-8” 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 8 
+ 
+ 
+ 
+Request example 
+{ 
+    "fileType": "txt", 
+    "maininscl": "UCS", 
+    "importDup": false, 
+    "assignToMe": false, 
+    "dataTypes": [ 
+        "IP", 
+        "OP" 
+    ], 
+    "opRefer": false, 
+    "file": { 
+        "ins": { 
+            "blobName": "INS.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "pat": { 
+            "blobName": "PAT.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "CP1251" 
+        }, 
+        "opd": { 
+            "blobName": "OPD.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "orf": { 
+            "blobName": "ORF.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "odx": { 
+            "blobName": "ODX.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 9 
+ 
+        }, 
+        "oop": { 
+            "blobName": "OOP.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "ipd": { 
+            "blobName": "IPD.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "irf": { 
+            "blobName": "IRF.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "idx": { 
+            "blobName": "IDX.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "iop": { 
+            "blobName": "IOP.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "cht": { 
+            "blobName": "CHT.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "cha": { 
+            "blobName": "CHA.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 10 
+ 
+        }, 
+        "aer": { 
+            "blobName": "AER.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "adp": { 
+            "blobName": "ADP.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "lvd": { 
+            "blobName": "LVD.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "UTF-8" 
+        }, 
+        "dru": { 
+            "blobName": "DRUG.txt", 
+            "blobType": "text/plain", 
+            "blob": "", 
+            "size": 0, 
+            "encoding": "CP1251" 
+        }, 
+        "lab": null 
+    } 
+} 
+ 
+ 
+Response 
+กรณีส่งข้อมูลสำเร็จ (HTTP response status code = 200) ข้อมูลตอบกลับจะอยู่ในรูปแบบ JSON โดยมีรายละเอียดข้อมูลดังนี้ 
+Parameter name 
+Type 
+Description 
+status 
+int 
+200 
+message 
+string 
+“Successful” 
+ 
+กรณีส่งข้อมูลไม่สำเร็จ (HTTP response status code = 4xx|5xx) ข้อมูลตอบกลับจะอยู่ในรูปแบบ JSON โดยมีรายละเอียด
+ข้อมูลดังนี้ 
+
+ 
+เอกสารรายละเอียด API การรับข้อมูลเพื่อเรียกเก็บค่าใช้จ่าย 11 
+ 
+Parameter name 
+Type 
+Description 
+status 
+int 
+HTTP response status code 
+message 
+string 
+รายละเอียดข้อผิดพลาด 
+ 
+ 
+ 

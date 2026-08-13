@@ -1,0 +1,11 @@
+[Unit]
+Description=Check tomorrow's duplicate appointments every day at 11:00
+
+[Timer]
+OnCalendar=*-*-* 11:00:00
+Persistent=true
+AccuracySec=1min
+Unit=fdh-duplicate-appointment.service
+
+[Install]
+WantedBy=timers.target

@@ -357,7 +357,7 @@ export const FDHImportStatusPage: React.FC = () => {
         <div className="card-body" style={{ padding: 0 }}>
           {results.length > 0 ? (
             <div className="modal-table-wrap">
-              <table className="data-table">
+              <table className="data-table long-id-table long-id-table--fdh-import-result">
                 <thead>
                   <tr>
                     <th>#</th>
@@ -370,15 +370,15 @@ export const FDHImportStatusPage: React.FC = () => {
                 <tbody>
                   {results.map((item, index) => (
                     <tr key={`${item.transaction_uid}-${index}`}>
-                      <td>{index + 1}</td>
-                      <td className="table-cell-nowrap" style={{ fontFamily: 'monospace' }}>{item.transaction_uid}</td>
+                      <td className="table-index-cell">{index + 1}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.transaction_uid}</td>
                       <td>
                         <span className={`badge ${item.response_status === 200 ? 'badge-success' : item.response_status ? 'badge-warning' : 'badge-danger'}`}>
                           {item.response_status || '-'}
                         </span>
                       </td>
-                      <td>{item.response_message || '-'}</td>
-                      <td>{item.response_message_th || '-'}</td>
+                      <td className="long-message-cell">{item.response_message || '-'}</td>
+                      <td className="long-message-cell">{item.response_message_th || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -400,7 +400,7 @@ export const FDHImportStatusPage: React.FC = () => {
         <div className="card-body" style={{ padding: 0 }}>
           {logs.length > 0 ? (
             <div className="modal-table-wrap">
-              <table className="data-table">
+              <table className="data-table long-id-table long-id-table--fdh-import-history">
                 <thead>
                   <tr>
                     <th>#</th>
@@ -415,13 +415,13 @@ export const FDHImportStatusPage: React.FC = () => {
                 <tbody>
                   {logs.map((item, index) => (
                     <tr key={item.id}>
-                      <td>{index + 1}</td>
-                      <td className="table-cell-nowrap" style={{ fontFamily: 'monospace' }}>{item.transaction_uid}</td>
-                      <td className="table-cell-nowrap">{item.hcode}</td>
+                      <td className="table-index-cell">{index + 1}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.transaction_uid}</td>
+                      <td className="table-cell-nowrap workflow-code-cell">{item.hcode}</td>
                       <td><span className="badge badge-primary">{item.environment.toUpperCase()}</span></td>
                       <td><span className={`badge ${item.response_status === 200 ? 'badge-success' : 'badge-warning'}`}>{item.response_status || '-'}</span></td>
-                      <td>{item.response_message_th || item.response_message || '-'}</td>
-                      <td className="table-cell-nowrap">{item.imported_at}</td>
+                      <td className="long-message-cell">{item.response_message_th || item.response_message || '-'}</td>
+                      <td className="table-cell-nowrap workflow-code-cell">{item.imported_at}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -1,12 +1,13 @@
 import mysql from 'mysql2/promise';
 import fs from 'fs';
+import 'dotenv/config';
 
 async function test() {
     const conn = await mysql.createConnection({
-        host: '192.168.2.254',
-        user: 'opd',
-        password: 'opd',
-        database: 'hos'
+        host: process.env.HOSXP_HOST,
+        user: process.env.HOSXP_USER,
+        password: process.env.HOSXP_PASSWORD,
+        database: process.env.HOSXP_DB,
     });
 
     const query = `

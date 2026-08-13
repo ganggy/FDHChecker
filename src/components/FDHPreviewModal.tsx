@@ -4,16 +4,27 @@ interface FDHPreviewModalProps {
     isOpen: boolean;
     onClose: () => void;
     data: any;
+    validation?: {
+        valid: boolean;
+        totalRows: number;
+        errors: Array<{ code: string; file?: string; row?: number; field?: string; message: string }>;
+        warnings: Array<{ code: string; file?: string; row?: number; field?: string; message: string }>;
+    } | null;
     onDownload: () => void;
     isDownloading: boolean;
+    onSubmit: () => void;
+    isSubmitting: boolean;
 }
 
 export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
     isOpen,
     onClose,
     data,
+    validation,
     onDownload,
-    isDownloading
+    isDownloading,
+    onSubmit,
+    isSubmitting,
 }) => {
     const [activeTab, setActiveTab] = useState('INS');
     
@@ -77,10 +88,19 @@ export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
                         </p>
                     </div>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                        <button
+                            className="btn btn-success"
+                            onClick={onSubmit}
+                            disabled={isSubmitting || isDownloading || validation?.valid !== true}
+                            style={{ padding: '8px 20px', fontSize: 14 }}
+                            title={validation?.valid ? 'ส่ง multipart ไป FDH API จริง' : 'ต้องแก้ข้อผิดพลาด Preflight ก่อน'}
+                        >
+                            {isSubmitting ? '⏳ กำลังส่ง FDH...' : '🚀 ส่ง FDH API'}
+                        </button>
                         <button 
                             className="btn btn-primary" 
                             onClick={onDownload} 
-                            disabled={isDownloading}
+                            disabled={isDownloading || isSubmitting || validation?.valid !== true}
                             style={{ padding: '8px 20px', fontSize: 14 }}
                         >
                             {isDownloading ? '⏳ กำลังสร้าง ZIP...' : '📦 ดาวน์โหลดไฟล์ ZIP'}
@@ -100,6 +120,27 @@ export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
                         }}>×</button>
                     </div>
                 </div>
+
+                {validation && (
+                    <div style={{ padding: '12px 20px', borderBottom: '1px solid #e2e8f0', background: validation.valid ? '#ecfdf5' : '#fff7ed' }}>
+                        <div style={{ fontWeight: 700, color: validation.valid ? '#047857' : '#c2410c' }}>
+                            {validation.valid
+                                ? `✓ Preflight ผ่าน — ${validation.totalRows.toLocaleString()} แถว พร้อมส่ง API`
+                                : `✗ Preflight ไม่ผ่าน — ${validation.errors.length} ข้อผิดพลาด`}
+                            {validation.warnings.length > 0 && ` / ${validation.warnings.length} คำเตือน`}
+                        </div>
+                        {!validation.valid && (
+                            <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 8, fontSize: 12, color: '#9a3412' }}>
+                                {validation.errors.slice(0, 50).map((issue, index) => (
+                                    <div key={`${issue.code}-${issue.file}-${issue.row}-${index}`}>
+                                        {index + 1}. {issue.message}
+                                    </div>
+                                ))}
+                                {validation.errors.length > 50 && <div>…และอีก {validation.errors.length - 50} รายการ</div>}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Tabs */}
                 <div className="fdh-preview-tabs">

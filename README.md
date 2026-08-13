@@ -1,292 +1,111 @@
-# 🏥 HOSxP Fund Check System
+# FDH Checker
 
-ระบบตรวจสอบความสมบูรณ์ของข้อมูลการเบิกจ่ายกองทุนต่างๆ จากฐานข้อมูล HOSxP
+ระบบตรวจสอบความพร้อมการเบิกจ่ายจาก HOSxP และติดตามวงจร FDH, REP, STM และ INV ราย Visit สำหรับงาน OPD/IPD กองทุนเฉพาะ การเงิน และผู้บริหาร
 
-![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+## ความสามารถหลัก
 
-## 🎯 วัตถุประสงค์
+- ตรวจความครบถ้วนของ Visit ก่อนส่งเคลม
+- นำเข้าและจับคู่ REP/STM/INV โดย VN, AN และ Tran ID
+- ติดตาม C/Deny พร้อมคำอธิบายและประวัติการแก้ไข
+- ติดตามลูกหนี้ การกระทบยอด และ UC นอก CUP ตาม HMAIN
+- เชื่อมต่อ FDH, NHSO e-Claim และ MOPH Claim
+- กำหนดผู้ใช้ กลุ่ม และสิทธิ์เมนู
 
-- ✅ ตรวจสอบความสมบูรณ์ของข้อมูลเบิกจ่ายแบบ Real-time
-- ✅ ระบุปัญหาและข้อมูลที่ขาดหาย
-- ✅ ส่งข้อมูลไปยังระบบ FDH อย่างถูกต้อง
-- ✅ ให้ภาพรวมแก่ผู้บริหารและรายละเอียดแก่เจ้าหน้าที่
-- ✅ รองรับทุกกองทุน (16+ กองทุนและกองทุนย่อย)
+## เทคโนโลยี
 
-## 🎓 ระบบตรวจสอบสามชั้น
+- React 19 + TypeScript + Vite
+- Node.js + Express
+- MySQL/MariaDB สำหรับ HOSxP และฐาน REP/STM/INV
+- PM2 สำหรับ production
 
-### 1. Basic Validation (6 ฟิลด์)
-```
-✅ HN (เลขประจำตัวผู้ป่วย)
-✅ ชื่อผู้ป่วย
-✅ กองทุน
-✅ ราคา
-✅ วันที่บริการ
-✅ ประเภทบริการ
-```
+## เริ่มพัฒนา
 
-### 2. Detailed Validation (+ 3 รหัส)
-```
-✅ รหัสยา (Drug Code)
-✅ รหัสหัตถการ (Procedure Code)
-✅ รหัสสิทธิ์ (Right Code)
-```
-
-### 3. Sub-fund Intelligence
-```
-✅ Auto-detect กองทุนย่อย (AE suffix)
-✅ Categorize fund type
-✅ Track complex fund names
-```
-
-## 🚀 เริ่มต้นอย่างรวดเร็ว
-
-### ติดตั้ง
-```bash
-cd c:\xampp\htdocs\fdh_rect
+```powershell
 npm install
-```
-
-### รัน Frontend
-```bash
-npm run dev
-```
-จากนั้นเปิด: **http://localhost:5174**
-
-### รัน Backend Server (ตัวเลือก)
-```bash
+Copy-Item .env.example .env
 npm run server
 ```
-Server จะรัน: **http://localhost:3001**
 
-## 📋 ฟีเจอร์
+เปิดอีก terminal:
 
-### 👤 หน้างานเจ้าหน้าที่
-- ค้นหารายการตามเลขที่ HN หรือชื่อผู้ป่วย
-- กรองตามสถานะ (สมบูรณ์/ไม่สมบูรณ์)
-- กรองตามช่วงวันที่
-- ดูรายละเอียดเชิงลึก (Modal)
-- Export CSV และ Excel
-- รายการปัญหาและข้อเสนอแนะ
-
-### 📊 แดชบอร์ดผู้บริหาร
-- สถิติรวม (ทั้งหมด, สมบูรณ์, ไม่สมบูรณ์, ตรวจสอบแล้ว)
-- อัตราความสมบูรณ์
-- มูลค่ารวมของเบิกจ่าย
-- แยกสถิติตามกองทุน
-- ข้อมูลสำคัญและการเตือน
-
-## 🔧 โครงสร้างเทคนิค
-
-```
-Frontend: React 19 + TypeScript + Vite
-Backend: Node.js + Express.js
-Database: MySQL (HOSxP + rcmdb)
-API: RESTful API
+```powershell
+npm run dev
 ```
 
-## 📁 โครงสร้างไฟล์
+- Frontend: `http://localhost:3507`
+- Backend: `http://localhost:3506`
+- Health check: `http://localhost:3506/api/health`
 
-```
-fdh_rect/
-├── src/
-│   ├── components/          # React Components
-│   ├── pages/               # Pages (Staff, Admin)
-│   ├── services/            # API Services
-│   ├── hooks/               # Custom Hooks
-│   ├── mockData.ts          # Mock Data
-│   └── App.tsx              # Main App
-├── server/
-│   └── index.ts             # Express Server
-├── public/                  # Static Assets
-└── package.json             # Dependencies
+ระบบไม่สร้างรหัสผู้ดูแลแบบ hardcode หากฐานข้อมูลยังไม่มี Admin ให้ตั้งค่า `APP_BOOTSTRAP_ADMIN_USERNAME` และ `APP_BOOTSTRAP_ADMIN_PASSWORD` ชั่วคราว รันระบบหนึ่งครั้ง แล้วนำสองค่านี้ออกจาก `.env`
+
+## ตรวจคุณภาพก่อนส่งขึ้นระบบ
+
+```powershell
+npm run check
 ```
 
-## 🌐 API Endpoints
+คำสั่งนี้รัน automated tests, ตรวจ TypeScript backend, ESLint และ production build
 
-| Endpoint | Method | ใช้งาน |
-|----------|--------|-------|
-| `/api/hosxp/checks` | GET | ดึงรายการตรวจสอบ |
-| `/api/hosxp/patients/:hn` | GET | ดึงข้อมูลผู้ป่วย |
-| `/api/hosxp/services/:code` | GET | ดึงข้อมูลบริการ |
-| `/api/hosxp/drugs/:code` | GET | ดึงข้อมูลยา |
-| `/api/rcmdb/:type` | GET | ดึงข้อมูล REP/STM/INV |
-| `/api/fdh/submit` | POST | ส่งข้อมูลไปยัง FDH |
-| `/api/health` | GET | Health Check |
+## FDH 16 แฟ้ม API
 
-## 🔐 การตั้งค่าฐานข้อมูล
+ทุก endpoint ต้องส่ง App access token ใน `Authorization: Bearer ...` และรับ JSON ยกเว้นผลลัพธ์ ZIP
 
-### ไฟล์ `.env`
-```env
-HOSXP_HOST=192.168.2.254
-HOSXP_USER=opd
-HOSXP_PASSWORD=opd
-HOSXP_DB=hos
+- `POST /api/fdh/preflight` ตรวจ schema, required fields, ความสัมพันธ์ข้ามแฟ้ม และยอด CHT/CHA โดยไม่ส่งออกภายนอก
+- `POST /api/fdh/view-data` แสดงข้อมูล 16 แฟ้มพร้อมผล preflight
+- `POST /api/fdh/export-zip` ส่งออกไฟล์ `.txt` ทั้ง 16 แฟ้ม (ต้องผ่าน preflight)
+- `POST /api/fdh/submit` ขอ FDH token และส่ง `multipart/form-data` ไป FDH จริง (ต้องผ่าน preflight และกำหนด `confirm: true`)
+- `GET /api/fdh/submission-logs?limit=50` อ่าน audit log ของการส่ง API
 
-RCMDB_HOST=localhost
-RCMDB_USER=root
-RCMDB_PASSWORD=
-RCMDB_DB=rcmdb
-
-PORT=3001
-```
-
-## 📊 ตัวอย่างข้อมูล
+ตัวอย่าง request body:
 
 ```json
 {
-  "id": 1,
-  "hn": "123456",
-  "patientName": "นายสมชาย ใจดี",
-  "fund": "UCS",
-  "serviceDate": "2026-03-15",
-  "serviceType": "OPD",
-  "status": "สมบูรณ์",
-  "issues": [],
-  "price": 1200
+  "vns": ["690720004252"],
+  "profile": "fwf-migrants",
+  "fcodeByHn": { "000024977": "FCODE_FROM_FDH" },
+  "uucByVn": { "690720004252": "1" },
+  "confirm": true
 }
 ```
 
-## 🎨 UI Preview
+`profile` รองรับ `standard` และ `fwf-migrants` โดย v1 จะส่ง TXT ไม่มี header ส่วน v2 จะส่ง TXT มี header อัตโนมัติตาม URL ที่ตั้งค่าไว้ ระบบไม่ส่งข้อมูลเมื่อมี FCode, invoice, auth code, catalog mapping หรือความสัมพันธ์ระหว่างแฟ้มไม่ครบ
 
-- **Navbar**: Navigation ระหว่าง Staff และ Admin
-- **CheckTable**: ตารางรายการตรวจสอบสี
-- **DetailModal**: Pop-up รายละเอียดเชิงลึก
-- **DashboardStats**: บัตรสถิติแดชบอร์ด
-- **Filters**: ค้นหา กรอง วันที่
+## การตั้งค่า
 
-## 📝 Scripts
+ใช้ [.env.example](./.env.example) เป็นแม่แบบ ห้าม commit `.env`, password หรือ token จริงเข้า Git
 
-```bash
-npm run dev          # รัน dev server
-npm run build        # Build for production
-npm run server       # รัน backend server
-npm run lint         # Run ESLint
-npm run preview      # Preview production build
+ตัวแปรสำคัญ:
+
+- `HOSXP_*` การเชื่อมต่อ HOSxP
+- `REPSTM_*` ฐานข้อมูล REP/STM/INV
+- `CORS_ORIGINS` URL ที่อนุญาตให้เรียก API
+- `TRUST_PROXY=1` เมื่อวางหลัง reverse proxy
+- `HOSXP_QUERY_MAX_DAYS` เพดานช่วงค้นหา Visit
+- `OUTBOUND_HTTP_TIMEOUT_MS` timeout สำหรับ FDH/NHSO/MOPH
+
+## Production
+
+1. ตั้งค่า `.env` บนเครื่องปลายทางโดยไม่เก็บใน Git
+2. รัน `npm ci` และ `npm run check`
+3. build frontend และ backend ด้วย `npm run build:all`
+4. สำรองฐานข้อมูล แล้วรัน backend ผ่าน PM2 และวาง Nginx/HTTPS ด้านหน้า
+5. ตรวจ `/api/live` และ `/api/ready` หลัง deploy
+6. เปลี่ยน bootstrap password และ token ที่ใช้ติดตั้งทันที
+
+ตัวอย่าง PM2, Nginx, backup และ rollback อยู่ที่ [deploy/README.md](./deploy/README.md)
+
+## โครงสร้างหลัก
+
+```text
+src/                    React application
+server/index.ts         Express composition root
+server/routes/          API routers แยกตามงาน
+server/requestSafety.ts HTTP validation และ error handling
+server/httpClient.ts    HTTP client พร้อม timeout
+server/db.ts            data-access เดิมที่กำลังทยอยแยกตาม domain
+public/                 static assets ที่โหลดตามต้องการ
+deploy/                 PM2, Nginx, backup และ runbook สำหรับ production
 ```
 
-## 🔄 Real-time Updates
-
-ระบบสามารถอัปเดตข้อมูลแบบ Real-time:
-- Polling ทุก 5 นาที
-- Manual refresh
-- WebSocket (future)
-
-## ⚠️ สถานะข้อมูล
-
-| สถานะ | ความหมาย |
-|------|---------|
-| สมบูรณ์ | ข้อมูลครบถ้วน พร้อมเบิก |
-| ไม่สมบูรณ์ | ขาดข้อมูล ต้องแก้ไข |
-| ตรวจสอบแล้ว | ผ่านการตรวจสอบ ส่งไปแล้ว |
-
-## 🐛 Troubleshooting
-
-### Port 5173 อยู่ใช้งาน
-```bash
-npm run dev -- --port 5174
-```
-
-### ไม่สามารถเชื่อมต่อฐานข้อมูล
-- ตรวจสอบไฟล์ `.env`
-- ตรวจสอบ IP address และ port
-- ตรวจสอบ username/password
-
-### API ไม่ตอบสนอง
-- ตรวจสอบว่า backend server กำลังรัน
-- ตรวจสอบ proxy ใน vite.config.ts
-- ดูข้อมูล CORS settings
-
-## 📚 เอกสารเพิ่มเติม
-
-- [DEVELOPMENT.md](./DEVELOPMENT.md) - คู่มือการพัฒนา
-- [SERVER_SETUP.md](./SERVER_SETUP.md) - การตั้งค่าเซิร์ฟเวอร์
-- API Documentation (ในไฟล์ services)
-
-## 🤝 การมีส่วนร่วม
-
-ยินดีต้อนรับการมีส่วนร่วม! โปรดส่ง Pull Request หรือเปิด Issue
-
-## 📄 License
-
-MIT License - ใช้ได้ตามสิทธิ์
-
-## 👨‍💻 Developer
-
-สร้างโดย GitHub Copilot  
-เขียนวันที่: 15 มีนาคม 2026
-
-## 📞 ติดต่อ
-
-สำหรับคำถามหรือปัญหา:
-- Email: support@example.com
-- GitHub Issues: https://github.com/example/issues
-- Documentation: Wiki
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
-#   F D H C h e c k e r  
- 
+ดูวิธีเปิดระบบแบบย่อที่ [QUICK_START.md](./QUICK_START.md)
+ดูงานที่ยังเหลือและลำดับความสำคัญที่ [BACKLOG.md](./BACKLOG.md)

@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FundEligibilityRules } from '../components/FundEligibilityRules';
 import * as XLSX from 'xlsx';
 import { evaluateBillingLogic } from '../utils/billingUtils';
 import { FDHPreviewModal } from '../components/FDHPreviewModal';
 import { formatLocalDateInput, formatLocalDateStamp } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
+import { isMissingFdhStatus } from '../utils/fdhClaimProgress';
 
 interface EligibleVisit {
     vn: string;
+    an?: string;
     hn: string;
     serviceDate: string;
     patientName: string;
@@ -45,6 +47,35 @@ interface EligibleVisit {
     has_pal_diag: number;
     has_pal_adp: number;
     age_y: number;
+    fdh_status_label?: string | null;
+    fdh_claim_detail_status?: string | null;
+    fdh_claim_code?: string | null;
+    fdh_upload_uid?: string | null;
+    fdh_sent_at?: string | null;
+    fdh_reservation_status?: string | null;
+    fdh_claim_status_message?: string | null;
+    fdh_error_code?: string | null;
+    fdh_updated_at?: string | null;
+    fdh_has_submission?: boolean;
+}
+
+type FdhExportProfile = 'standard' | 'fwf-migrants';
+const ALL_SPECIAL_FUNDS = '__all_special_funds__';
+
+interface FdhValidationIssue {
+    code: string;
+    file?: string;
+    row?: number;
+    field?: string;
+    message: string;
+}
+
+interface FdhValidationResult {
+    valid: boolean;
+    errors: FdhValidationIssue[];
+    warnings: FdhValidationIssue[];
+    counts: Record<string, number>;
+    totalRows: number;
 }
 
 export const FDHCheckerPage: React.FC = () => {
@@ -52,24 +83,63 @@ export const FDHCheckerPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'pending'>('all');
+    const [searchTerm, setSearchTerm] = useState('');
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [selectedVns, setSelectedVns] = useState<string[]>([]);
     const [exporting, setExporting] = useState(false);
     const [previewData, setPreviewData] = useState<any>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+    const [exportWithHeader, setExportWithHeader] = useState(true);
+    const [exportProfile, setExportProfile] = useState<FdhExportProfile>('standard');
+    const [exportFund, setExportFund] = useState(ALL_SPECIAL_FUNDS);
+    const [fcodeByHn, setFcodeByHn] = useState<Record<string, string>>({});
+    const [previewValidation, setPreviewValidation] = useState<FdhValidationResult | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    const [confirmResend, setConfirmResend] = useState(false);
+    const [ipdAuthenSyncing, setIpdAuthenSyncing] = useState(false);
+    const [ipdAuthenNotice, setIpdAuthenNotice] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
+    const lastIpdAuthenSyncKey = useRef('');
 
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
     const [endDate, setEndDate] = useState(todayStr);
 
-    const fetchEligibleData = async (dateRange?: { startDate?: string; endDate?: string }) => {
+    const syncFdhIpdAuthen = async (rangeStart: string, rangeEnd: string, force = false) => {
+        setIpdAuthenSyncing(true);
+        setIpdAuthenNotice(null);
+        try {
+            const response = await fetch('/api/fdh/ipd/authen/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startDate: rangeStart, endDate: rangeEnd, force }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.success) throw new Error(result.error || 'ตรวจ Authen IPD จาก API ไม่สำเร็จ');
+            const summary = result.summary || {};
+            setIpdAuthenNotice({
+                type: 'success',
+                text: `ตรวจ Authen ผู้ป่วยในสำหรับ FDH แล้ว ${Number(summary.total || 0)} AN — นำเข้าใหม่ ${Number(summary.updated || 0)}, ไม่พบ ${Number(summary.notFound || 0)}, ข้าม ${Number(summary.skipped || 0)}, ผิดพลาด ${Number(summary.errors || 0)}`,
+            });
+        } catch (err) {
+            setIpdAuthenNotice({ type: 'warning', text: err instanceof Error ? err.message : 'ตรวจ Authen IPD จาก API ไม่สำเร็จ' });
+        } finally {
+            setIpdAuthenSyncing(false);
+        }
+    };
+
+    const fetchEligibleData = async (dateRange?: { startDate?: string; endDate?: string; forceIpdAuthen?: boolean }) => {
         const rangeStart = dateRange?.startDate ?? startDate;
         const rangeEnd = dateRange?.endDate ?? endDate;
         setLoading(true);
         setError(null);
         setSelectedVns([]); // Clear selection on refresh
         try {
+            const syncKey = `${rangeStart}:${rangeEnd}`;
+            if (dateRange?.forceIpdAuthen || lastIpdAuthenSyncKey.current !== syncKey) {
+                lastIpdAuthenSyncKey.current = syncKey;
+                await syncFdhIpdAuthen(rangeStart, rangeEnd, Boolean(dateRange?.forceIpdAuthen));
+            }
             const response = await fetch(`/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}`);
             const result = await response.json();
             if (result.success) {
@@ -107,16 +177,87 @@ export const FDHCheckerPage: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    const specialFundOptions = Array.from(data.reduce((options, item) => {
+        const logic = evaluateBillingLogic(item);
+        new Set<string>(logic.detectedSpecialFundNotes).forEach((fundName) => {
+            const current = options.get(fundName) || { total: 0, ready: 0, pending: 0 };
+            current.total += 1;
+            if (item.status === 'ready' && logic.matchedSpecialFundNotes.includes(fundName)) {
+                current.ready += 1;
+            } else {
+                current.pending += 1;
+            }
+            options.set(fundName, current);
+        });
+        return options;
+    }, new Map<string, { total: number; ready: number; pending: number }>()).entries())
+        .map(([name, counts]) => ({ name, ...counts }))
+        .sort((left, right) => left.name.localeCompare(right.name, 'th'));
+
+    const matchesExportFund = (item: EligibleVisit) => exportFund === ALL_SPECIAL_FUNDS
+        || evaluateBillingLogic(item).detectedSpecialFundNotes.includes(exportFund);
+
+    const isReadyForExportFund = (item: EligibleVisit) => item.status === 'ready'
+        && (exportFund === ALL_SPECIAL_FUNDS
+            || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund));
+
+    const hasFdhSubmission = (item: EligibleVisit) => Boolean(
+        item.fdh_has_submission ||
+        item.fdh_claim_code ||
+        item.fdh_upload_uid ||
+        item.fdh_sent_at ||
+        item.fdh_error_code ||
+        !isMissingFdhStatus(
+            item.fdh_claim_detail_status ||
+            item.fdh_reservation_status ||
+            item.fdh_claim_status_message
+        )
+    );
+
+    const isSelectableForExport = (item: EligibleVisit) => isReadyForExportFund(item)
+        && (confirmResend || !hasFdhSubmission(item));
+
+    const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+    const matchesSearchTerm = (item: EligibleVisit) => {
+        const query = normalizeSearchValue(searchTerm);
+        if (!query) return true;
+
+        const logic = evaluateBillingLogic(item);
+        const haystack = [
+            item.vn,
+            item.hn,
+            item.patientName,
+            item.fund,
+            item.hipdata_code,
+            item.serviceDate,
+            item.main_diag,
+            item.project_code,
+            item.fdh_status_label,
+            item.fdh_claim_code,
+            item.fdh_error_code,
+            item.fdh_claim_detail_status,
+            logic.billingStatusLabel,
+            logic.matchedFund ? 'พร้อมส่ง' : '',
+            logic.incompleteFund ? 'รอแก้ไข' : '',
+            ...logic.specialFundNotes,
+            ...item.missing,
+        ].map(normalizeSearchValue);
+
+        return haystack.some((value) => value.includes(query));
+    };
+
     const filtered = data.filter(item => {
-        if (statusFilter === 'ready') return item.status === 'ready';
-        if (statusFilter === 'pending') return item.status === 'pending';
-        return true;
+        if (!matchesExportFund(item)) return false;
+        if (statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
+        if (statusFilter === 'pending' && isReadyForExportFund(item)) return false;
+        return matchesSearchTerm(item);
     });
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
             // Select only those that are ready
-            const readyVns = filtered.filter(i => i.status === 'ready').map(i => i.vn);
+            const readyVns = filtered.filter(isSelectableForExport).map(i => i.vn);
             setSelectedVns(readyVns);
         } else {
             setSelectedVns([]);
@@ -129,10 +270,25 @@ export const FDHCheckerPage: React.FC = () => {
         );
     };
 
+    const getReadyVns = () => {
+        const visibleReadyVns = filtered.filter(isSelectableForExport).map(i => i.vn).filter(Boolean);
+        if (selectedVns.length === 0) return visibleReadyVns;
+        const visibleReadySet = new Set(visibleReadyVns);
+        return selectedVns.filter((vn) => visibleReadySet.has(vn));
+    };
+
+    const buildFdhPayload = (vns: string[]) => ({
+        vns,
+        profile: exportProfile,
+        fcodeByHn,
+        uucByVn: Object.fromEntries(vns.map((vn) => {
+            const visit = data.find((item) => item.vn === vn);
+            return [vn, visit && evaluateBillingLogic(visit).isUUC1 ? '1' : '2'];
+        })),
+    });
+
     const handlePreviewData = async () => {
-        const vnsToPreview = selectedVns.length > 0
-            ? selectedVns
-            : filtered.filter(i => i.status === 'ready').map(i => i.vn).filter(Boolean);
+        const vnsToPreview = getReadyVns();
 
         if (vnsToPreview.length === 0) return alert('ไม่มีรายการพร้อมส่ง (Ready) สำหรับดูข้อมูล');
 
@@ -141,12 +297,13 @@ export const FDHCheckerPage: React.FC = () => {
             const response = await fetch('/api/fdh/view-data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vns: vnsToPreview })
+                body: JSON.stringify(buildFdhPayload(vnsToPreview))
             });
 
             const result = await response.json();
             if (result.success) {
                 setPreviewData(result.data);
+                setPreviewValidation(result.validation || null);
                 setIsPreviewOpen(true);
             } else {
                 alert(`Error: ${result.error || 'Failed to fetch preview data'}`);
@@ -159,7 +316,7 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const handleExportCSV = () => {
-        const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะข้อมูล,ราคา (บาท)';
+        const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะ FDH,สถานะข้อมูล,ราคา (บาท)';
         const rows = filtered.map((item, index) => {
             const logic = evaluateBillingLogic(item);
             return [
@@ -172,6 +329,7 @@ export const FDHCheckerPage: React.FC = () => {
                 'ผู้ป่วยนอก', // FDH Checker logic usually targets OPD for now or use item._dataSource
                 item.main_diag || '-',
                 logic.isUUC1 ? 'UUC1' : 'UUC2',
+                item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
                 item.status === 'ready' ? 'พร้อมส่ง (ปิดสิทธิแล้ว)' : 'รอแก้ไข/รอปิดสิทธิ',
                 item.total_price
             ].join(',')
@@ -197,6 +355,7 @@ export const FDHCheckerPage: React.FC = () => {
                 'ประเภท': 'ผู้ป่วยนอก',
                 'DIAG': item.main_diag || '-',
                 'สถานะกองทุน': logic.isUUC1 ? 'UUC1' : 'UUC2',
+                'สถานะ FDH': item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
                 'สถานะข้อมูล': item.status === 'ready' ? 'พร้อมส่ง (ปิดสิทธิแล้ว)' : 'รอแก้ไข/รอปิดสิทธิ',
                 'ราคา (บาท)': item.total_price
             };
@@ -209,7 +368,7 @@ export const FDHCheckerPage: React.FC = () => {
         const colWidths = [
             { wch: 5 }, { wch: 15 }, { wch: 12 }, { wch: 30 },
             { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 10 },
-            { wch: 15 }, { wch: 12 }, { wch: 12 }
+            { wch: 15 }, { wch: 24 }, { wch: 12 }, { wch: 12 }
         ];
         worksheet['!cols'] = colWidths;
 
@@ -218,9 +377,7 @@ export const FDHCheckerPage: React.FC = () => {
 
     const handleExportZip = async () => {
         // If no rows selected, export all ready records in current filtered view
-        const vnsToExport = selectedVns.length > 0
-            ? selectedVns
-            : filtered.filter(i => i.status === 'ready').map(i => i.vn).filter(Boolean);
+        const vnsToExport = getReadyVns();
 
         if (vnsToExport.length === 0) return alert('ไม่มีรายการพร้อมส่ง (Ready) สำหรับส่งออก');
 
@@ -229,7 +386,7 @@ export const FDHCheckerPage: React.FC = () => {
             const response = await fetch('/api/fdh/export-zip', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ vns: vnsToExport })
+                body: JSON.stringify({ ...buildFdhPayload(vnsToExport), includeHeader: exportWithHeader })
             });
 
             if (response.ok) {
@@ -252,8 +409,43 @@ export const FDHCheckerPage: React.FC = () => {
         }
     };
 
-    const readyCount = data.filter(i => i.status === 'ready').length;
-    const pendingCount = data.filter(i => i.status === 'pending').length;
+    const handleSubmitFdhApi = async () => {
+        const vnsToSubmit = getReadyVns();
+        if (vnsToSubmit.length === 0) return alert('ไม่มีรายการพร้อมส่งสำหรับส่ง FDH API');
+        const resendCount = filtered.filter((item) => vnsToSubmit.includes(item.vn) && hasFdhSubmission(item)).length;
+        const confirmationText = confirmResend
+            ? `ยืนยันส่ง ${vnsToSubmit.length} visit ไป FDH API จริง?\n\nมี ${resendCount} รายการที่เคยส่ง/มีสถานะ FDH และจะถูกส่งซ้ำ`
+            : `ยืนยันส่ง ${vnsToSubmit.length} visit ที่ยังไม่เคยส่งไป FDH API จริง?`;
+        if (!window.confirm(confirmationText)) return;
+        setSubmitting(true);
+        try {
+            const response = await fetch('/api/fdh/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ...buildFdhPayload(vnsToSubmit), confirm: true }),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                setPreviewValidation(result.validation || previewValidation);
+                const firstIssues = result.validation?.errors?.slice(0, 5).map((issue: FdhValidationIssue) => issue.message).join('\n');
+                return alert(`${result.error || result.message || 'FDH API ปฏิเสธข้อมูล'}${firstIssues ? `\n\n${firstIssues}` : ''}`);
+            }
+            alert(`ส่ง FDH สำเร็จ\nBatch: ${result.batchUid}\n${result.submittedVisits} visits / ${result.submittedFiles?.length || 0} files`);
+            setIsPreviewOpen(false);
+        } catch {
+            alert('เชื่อมต่อเซิร์ฟเวอร์เพื่อส่ง FDH API ไม่สำเร็จ');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const fundFilteredData = data.filter(matchesExportFund);
+    const readyCount = fundFilteredData.filter(isReadyForExportFund).length;
+    const pendingCount = fundFilteredData.length - readyCount;
+    const exportVisitCount = getReadyVns().length;
+    const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
+    const visiblePendingCount = filtered.length - visibleReadyCount;
+    const visibleAlreadySentCount = filtered.filter((item) => isReadyForExportFund(item) && hasFdhSubmission(item)).length;
 
 
 
@@ -268,6 +460,40 @@ export const FDHCheckerPage: React.FC = () => {
                     <div style={{ display: 'flex', gap: 8 }}>
                         <button className="btn btn-success" onClick={handleExportCSV}>📥 CSV</button>
                         <button className="btn btn-warning" onClick={handleExportExcel}>📊 Excel</button>
+                        <label
+                            className="btn btn-secondary"
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                cursor: 'pointer',
+                                userSelect: 'none'
+                            }}
+                            title="ให้ตรงกับตัวเลือก TXT มีหัวคอลัมน์ บนหน้า FDH"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={exportWithHeader}
+                                onChange={(e) => setExportWithHeader(e.target.checked)}
+                            />
+                            TXT มีหัวคอลัมน์
+                        </label>
+                        <label
+                            className={`btn ${confirmResend ? 'btn-danger' : 'btn-secondary'}`}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
+                            title="เมื่อเลือก ระบบจะรวมรายการที่เคยส่งหรือมีสถานะใน FDH กลับมาส่งอีกครั้ง"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={confirmResend}
+                                onChange={(event) => {
+                                    setConfirmResend(event.target.checked);
+                                    setSelectedVns([]);
+                                    setPreviewValidation(null);
+                                }}
+                            />
+                            ยืนยันส่งซ้ำ
+                        </label>
                         <button
                             className="btn btn-info"
                             onClick={handlePreviewData}
@@ -299,9 +525,7 @@ export const FDHCheckerPage: React.FC = () => {
                         >
                             {exporting
                                 ? '⏳ กำลังสร้าง ZIP...'
-                                : selectedVns.length > 0
-                                    ? `📦 ส่งออก 16 แฟ้ม ZIP (${selectedVns.length} รายการ)`
-                                    : `📦 ส่งออก 16 แฟ้ม ZIP (พร้อมส่งทั้งหมด)`}
+                                : `📦 ส่งออก 16 แฟ้ม ZIP (${exportVisitCount} รายการ)`}
                         </button>
                     </div>
                 </div>
@@ -331,6 +555,43 @@ export const FDHCheckerPage: React.FC = () => {
                 <div className="card-body" style={{ padding: '14px 16px' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, alignItems: 'end' }}>
                         <div className="form-group">
+                            <label className="form-label">มาตรฐานส่งออก</label>
+                            <select
+                                className="form-control"
+                                value={exportProfile}
+                                onChange={(event) => {
+                                    setExportProfile(event.target.value as FdhExportProfile);
+                                    setPreviewValidation(null);
+                                }}
+                            >
+                                <option value="standard">FDH 16 แฟ้มทั่วไป</option>
+                                <option value="fwf-migrants">FWF Migrants (แรงงานต่างด้าว)</option>
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">🏷️ กองทุนที่จะส่งออก</label>
+                            <select
+                                className="form-control"
+                                value={exportFund}
+                                onChange={(event) => {
+                                    setExportFund(event.target.value);
+                                    setSelectedVns([]);
+                                    setPreviewValidation(null);
+                                }}
+                            >
+                                <option value={ALL_SPECIAL_FUNDS}>ทุกกองทุน / ทุก Visit ({data.length})</option>
+                                {specialFundOptions.map((fund) => (
+                                    <option key={fund.name} value={fund.name}>
+                                        {fund.name} (พร้อมส่ง {fund.ready} / รอแก้ {fund.pending})
+                                    </option>
+                                ))}
+                            </select>
+                            <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+                                ตาราง ตรวจสอบก่อนส่ง และ ZIP จะใช้กองทุนเดียวกัน
+                                {!confirmResend && visibleAlreadySentCount > 0 ? ` • ไม่รวม ${visibleAlreadySentCount} รายการที่มีสถานะ FDH แล้ว` : ''}
+                            </div>
+                        </div>
+                        <div className="form-group">
                             <label className="form-label">🔍 สถานะความพร้อม</label>
                             <select
                                 className="form-control"
@@ -341,6 +602,32 @@ export const FDHCheckerPage: React.FC = () => {
                                 <option value="ready">🟢 ข้อมูลพร้อมส่ง ({readyCount})</option>
                                 <option value="pending">🟡 ข้อมูลรอแก้ไข ({pendingCount})</option>
                             </select>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">🔎 ค้นหาในตาราง</label>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    placeholder="ค้นหา VN, HN, ชื่อ, สิทธิ์, DIAG, สถานะ"
+                                />
+                                {searchTerm && (
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={() => setSearchTerm('')}
+                                    >
+                                        ล้าง
+                                    </button>
+                                )}
+                            </div>
+                            <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+                                แสดง {filtered.length} รายการ จากทั้งหมด {fundFilteredData.length} รายการ
+                                {searchTerm ? ` • พร้อมส่ง ${visibleReadyCount} • รอแก้ ${visiblePendingCount}` : ''}
+                            </div>
                         </div>
 
                         <div className="form-group">
@@ -366,14 +653,29 @@ export const FDHCheckerPage: React.FC = () => {
                         <button
                             className="btn btn-primary"
                             onClick={() => fetchEligibleData()}
-                            disabled={loading || exporting}
+                            disabled={loading || exporting || ipdAuthenSyncing}
                             style={{ height: 'fit-content' }}
                         >
                             🔄 ดึงข้อมูลใหม่
                         </button>
+                        <button
+                            className="btn btn-secondary"
+                            onClick={() => fetchEligibleData({ forceIpdAuthen: true })}
+                            disabled={loading || exporting || ipdAuthenSyncing}
+                            style={{ height: 'fit-content' }}
+                        >
+                            {ipdAuthenSyncing ? '⏳ กำลังตรวจ Authen IPD...' : '🪪 ตรวจ Authen IPD ใหม่'}
+                        </button>
                     </div>
                 </div>
             </div>
+
+            {(ipdAuthenSyncing || ipdAuthenNotice) && (
+                <div className={`alert ${ipdAuthenNotice?.type === 'warning' ? 'alert-warning' : 'alert-info'}`} style={{ marginBottom: 16 }}>
+                    <span>{ipdAuthenSyncing ? '⏳' : ipdAuthenNotice?.type === 'warning' ? '⚠️' : '✅'}</span>
+                    <span>{ipdAuthenSyncing ? 'กำลังตรวจสอบและนำเข้า Authen Code ของผู้ป่วยในก่อนส่ง FDH...' : ipdAuthenNotice?.text}</span>
+                </div>
+            )}
 
             {loading && (
                 <div className="loading-container">
@@ -391,26 +693,30 @@ export const FDHCheckerPage: React.FC = () => {
             {!loading && !error && (
                 <div className="card overflow-hidden">
                     <div style={{ overflowX: 'auto' }}>
-                        <table className="table">                            <thead>
+                        <table className="table">
+                            <thead>
                             <tr>
                                 <th style={{ width: 40, textAlign: 'center' }}>
                                     <input
                                         type="checkbox"
-                                        checked={selectedVns.length > 0 && selectedVns.length === filtered.filter(i => i.status === 'ready').length}
+                                        checked={selectedVns.length > 0 && selectedVns.length === filtered.filter(isSelectableForExport).length}
                                         onChange={handleSelectAll}
-                                        disabled={filtered.filter(i => i.status === 'ready').length === 0}
+                                        disabled={filtered.filter(isSelectableForExport).length === 0}
                                     />
                                 </th>
                                 <th style={{ width: 40 }}>#</th>
                                 <th>VN / HN</th>
+                                {exportProfile === 'fwf-migrants' && <th style={{ minWidth: 150 }}>FCode (FDH-Migrants)</th>}
                                 <th>ชื่อผู้ป่วย</th>
                                 <th style={{ minWidth: 100 }}>📅 วันที่รับบริการ</th>
                                 <th>สิทธิ์</th>
                                 <th style={{ textAlign: 'center' }}>CID</th>
                                 <th style={{ textAlign: 'center' }}>Diagnosis</th>
                                 <th style={{ textAlign: 'center' }}>Invoice</th>
+                                <th style={{ minWidth: 150, textAlign: 'center' }}>Authen Code<br /><span style={{ fontSize: 10, fontWeight: 400 }}>FDH IPD</span></th>
                                 <th style={{ textAlign: 'center' }}>ปิดสิทธิ (EP)</th>
                                 <th style={{ minWidth: 200 }}>สถานะกองทุน (สปสช.)</th>
+                                <th style={{ minWidth: 180 }}>สถานะ FDH</th>
                                 <th>สถานะส่งออก / ข้อมูล</th>
                             </tr>
                         </thead>
@@ -418,6 +724,16 @@ export const FDHCheckerPage: React.FC = () => {
                                 {filtered.length > 0 ? (
                                     filtered.map((item, index) => {
                                         const logic = evaluateBillingLogic(item);
+                                        const readyForSelectedFund = isReadyForExportFund(item);
+                                        const fdhStatus = String(item.fdh_status_label || '').trim();
+                                        const fdhStatusText = `${fdhStatus} ${item.fdh_error_code || ''}`.trim();
+                                        const fdhStatusClass = /ประมวลผลไม่ผ่าน|ไม่ผ่าน|reject|deny|failed|error/i.test(fdhStatusText)
+                                            ? 'badge-danger'
+                                            : /ผ่าน|สำเร็จ|accepted|approved|อนุมัติ/i.test(fdhStatusText)
+                                                ? 'badge-success'
+                                                : fdhStatus
+                                                    ? 'badge-info'
+                                                    : 'badge-secondary';
                                         const specialFundNotes = logic.specialFundNotes.filter((note) => !note.includes('ปิดสิทธิ'));
                                         const epNotes = logic.specialFundNotes.filter((note) => note.includes('ปิดสิทธิ'));
                                         const hasSpecialFundBlock = specialFundNotes.length > 0;
@@ -439,7 +755,12 @@ export const FDHCheckerPage: React.FC = () => {
                                                         type="checkbox"
                                                         checked={selectedVns.includes(item.vn)}
                                                         onChange={() => handleSelect(item.vn)}
-                                                        disabled={item.status !== 'ready'}
+                                                        disabled={!isSelectableForExport(item)}
+                                                        title={!readyForSelectedFund
+                                                            ? 'ข้อมูลยังไม่พร้อมส่ง'
+                                                            : hasFdhSubmission(item) && !confirmResend
+                                                                ? 'รายการนี้มีสถานะ FDH แล้ว หากต้องการเลือกให้กด “ยืนยันส่งซ้ำ”'
+                                                                : undefined}
                                                     />
                                                 </td>
                                                 <td style={{ textAlign: 'center', opacity: 0.6, fontSize: 13 }}>{index + 1}</td>
@@ -447,6 +768,22 @@ export const FDHCheckerPage: React.FC = () => {
                                                     <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: 13 }}>{item.vn}</div>
                                                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>HN: {item.hn}</div>
                                                 </td>
+                                                {exportProfile === 'fwf-migrants' && (
+                                                    <td>
+                                                        <input
+                                                            className="form-control"
+                                                            value={fcodeByHn[item.hn] || ''}
+                                                            onChange={(event) => setFcodeByHn((current) => ({
+                                                                ...current,
+                                                                [item.hn]: event.target.value.trim(),
+                                                            }))}
+                                                            placeholder="กรอก FCode"
+                                                            maxLength={16}
+                                                            aria-label={`FCode ของ HN ${item.hn}`}
+                                                            style={{ minWidth: 140, padding: '6px 8px' }}
+                                                        />
+                                                    </td>
+                                                )}
                                                 <td>
                                                     <div style={{ fontSize: 14, fontWeight: 600 }}>{item.patientName}</div>
                                                 </td>
@@ -473,6 +810,18 @@ export const FDHCheckerPage: React.FC = () => {
                                                         </div>
                                                     ) : (
                                                         <span style={{ color: 'var(--danger)' }}>✗</span>
+                                                    )}
+                                                </td>
+                                                <td style={{ textAlign: 'center' }}>
+                                                    {item.authen_code ? (
+                                                        <div>
+                                                            <span className="badge badge-success">พบแล้ว</span>
+                                                            <div style={{ marginTop: 4, fontSize: 11, fontWeight: 800, color: '#0e7490' }}>{item.authen_code}</div>
+                                                        </div>
+                                                    ) : item.an ? (
+                                                        <span className="badge badge-warning">ยังไม่พบ</span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--text-muted)' }}>{item.has_authen ? '✓' : '-'}</span>
                                                     )}
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
@@ -507,7 +856,7 @@ export const FDHCheckerPage: React.FC = () => {
                                                                 if (note.match(/Telemedicine|EMS/)) {
                                                                     return <span key={idx} className="badge" style={{...badgeStyle, background: '#faf5ff', color: '#6b21a8', border: '1px solid #e9d5ff'}}>{note}</span>;
                                                                 }
-                                                                if (note.match(/คุมกำเนิด|ถุงยาง/)) {
+                                                                if (note.match(/คุมกำเนิด|ถุงยาง|ยาฉีด/)) {
                                                                     return <span key={idx} className="badge" style={{...badgeStyle, background: '#fff1f2', color: '#9f1239', border: '1px solid #fecdd3'}}>{note}</span>;
                                                                 }
                                                                 if (note.match(/ล้างไต/)) {
@@ -539,7 +888,31 @@ export const FDHCheckerPage: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    {item.status === 'ready' ? (
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                                                        <span className={`badge ${fdhStatusClass}`} style={{ fontSize: 10 }}>
+                                                            {fdhStatus || 'ยังไม่พบข้อมูล FDH'}
+                                                        </span>
+                                                        {item.fdh_error_code && (
+                                                            <span style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 700 }}>
+                                                                Error: {item.fdh_error_code}
+                                                            </span>
+                                                        )}
+                                                        {(item.fdh_claim_code || item.fdh_sent_at || item.fdh_updated_at) && (
+                                                            <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>
+                                                                {item.fdh_claim_code ? `Claim: ${item.fdh_claim_code}` : ''}
+                                                                {item.fdh_claim_code && (item.fdh_sent_at || item.fdh_updated_at) ? ' • ' : ''}
+                                                                {item.fdh_sent_at || item.fdh_updated_at || ''}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {exportFund !== ALL_SPECIAL_FUNDS && !readyForSelectedFund ? (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                            <span className="badge badge-warning">🟡 รอแก้เงื่อนไขกองทุน</span>
+                                                            <div style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 600 }}>{exportFund}</div>
+                                                        </div>
+                                                    ) : item.status === 'ready' ? (
                                                         <span className="badge badge-success">🟢 พร้อมส่ง</span>
                                                     ) : item.status === 'pending' ? (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -555,7 +928,7 @@ export const FDHCheckerPage: React.FC = () => {
                                     })
                                 ) : (
                                     <tr>
-                                        <td colSpan={12} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
+                                        <td colSpan={exportProfile === 'fwf-migrants' ? 15 : 14} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
                                             ไม่พบข้อมูล Visit ในช่วงวันที่เลือก
                                         </td>
                                     </tr>
@@ -569,8 +942,11 @@ export const FDHCheckerPage: React.FC = () => {
                 isOpen={isPreviewOpen}
                 onClose={() => setIsPreviewOpen(false)}
                 data={previewData}
+                validation={previewValidation}
                 onDownload={handleExportZip}
                 isDownloading={exporting}
+                onSubmit={handleSubmitFdhApi}
+                isSubmitting={submitting}
             />
         </div>
     );

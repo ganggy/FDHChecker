@@ -25,7 +25,21 @@ type ReceivableSettings = {
   };
 };
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+type ReceivableBatch = {
+  id: number;
+  batch_no?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  item_count?: number | string | null;
+  total_receivable?: number | string | null;
+  created_at?: string | null;
+};
+
+const todayIso = () => {
+  const now = new Date();
+  const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return localDate.toISOString().slice(0, 10);
+};
 
 const toNumber = (value: unknown) => {
   const numberValue = Number(value ?? 0);
@@ -58,6 +72,17 @@ const optionLabel = (code?: string | null, name?: string | null) => {
   return safeName || safeCode || '-';
 };
 
+const candidateIssues = (row: ReceivableCandidate) => {
+  const issues: string[] = [];
+  if (toNumber(row.claimable_amount) <= 0) issues.push('ยอดตั้งลูกหนี้ต้องมากกว่า 0');
+  if (!String(row.finance_right_code || '').trim()) issues.push('ไม่พบสิทธิการเงิน');
+  if (!String(row.debtor_code || '').trim()) issues.push('ไม่พบรหัสลูกหนี้');
+  if (!String(row.revenue_code || '').trim()) issues.push('ไม่พบรหัสรายรับ');
+  return issues;
+};
+
+const isCandidateReady = (row: ReceivableCandidate) => candidateIssues(row).length === 0;
+
 export const ReceivablePage = () => {
   const [startDate, setStartDate] = useState(todayIso());
   const [endDate, setEndDate] = useState(todayIso());
@@ -72,8 +97,12 @@ export const ReceivablePage = () => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [notes, setNotes] = useState('');
+  const [search, setSearch] = useState('');
+  const [readiness, setReadiness] = useState<'ALL' | 'READY' | 'REVIEW'>('ALL');
   const [settings, setSettings] = useState<ReceivableSettings | null>(null);
-  const [batches, setBatches] = useState<any[]>([]);
+  const [batches, setBatches] = useState<ReceivableBatch[]>([]);
+  const [loadedSignature, setLoadedSignature] = useState<string | null>(null);
+  const [lastSavedSelection, setLastSavedSelection] = useState('');
 
   useEffect(() => {
     fetchAppSettings<ReceivableSettings>()
@@ -92,6 +121,38 @@ export const ReceivablePage = () => {
     [rows, selected],
   );
 
+  const querySignature = useMemo(
+    () => [startDate, endDate, patientType, hosxpRight, financeRight].join('|'),
+    [startDate, endDate, patientType, hosxpRight, financeRight],
+  );
+
+  const isStale = loadedSignature !== null && loadedSignature !== querySignature;
+
+  const readyRows = useMemo(() => rows.filter(isCandidateReady), [rows]);
+  const reviewRows = useMemo(() => rows.filter((row) => !isCandidateReady(row)), [rows]);
+
+  const visibleRows = useMemo(() => {
+    const keyword = search.trim().toLocaleLowerCase('th-TH');
+    return rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => {
+        const ready = isCandidateReady(row);
+        if (readiness === 'READY' && !ready) return false;
+        if (readiness === 'REVIEW' && ready) return false;
+        if (!keyword) return true;
+        return [
+          row.vn, row.an, row.hn, row.cid, row.patient_name,
+          row.pttype, row.pttype_name, row.finance_right_code, row.finance_right_name,
+          row.debtor_code, row.revenue_code, row.account_group,
+        ].some((value) => String(value || '').toLocaleLowerCase('th-TH').includes(keyword));
+      });
+  }, [rows, search, readiness]);
+
+  const selectedSignature = useMemo(
+    () => selectedRows.map((row) => `${row.patient_type}:${row.vn || row.an || ''}`).sort().join('|'),
+    [selectedRows],
+  );
+
   const totalClaimable = useMemo(
     () => selectedRows.reduce((sum, row) => sum + toNumber(row.claimable_amount), 0),
     [selectedRows],
@@ -99,6 +160,11 @@ export const ReceivablePage = () => {
 
   const debtorCodeCount = useMemo(
     () => new Set(selectedRows.map((row) => String(row.debtor_code || '').trim()).filter(Boolean)).size,
+    [selectedRows],
+  );
+
+  const revenueCodeCount = useMemo(
+    () => new Set(selectedRows.map((row) => String(row.revenue_code || '').trim()).filter(Boolean)).size,
     [selectedRows],
   );
 
@@ -126,14 +192,27 @@ export const ReceivablePage = () => {
     : optionLabel(financeRight, filterOptions.financeRights.find((item) => item.code === financeRight)?.name);
 
   const loadData = async () => {
+    if (!startDate || !endDate) {
+      setError('กรุณาระบุวันที่เริ่มและวันที่สิ้นสุด');
+      return;
+    }
+    if (startDate > endDate) {
+      setError('วันที่เริ่มต้องไม่มากกว่าวันที่สิ้นสุด');
+      return;
+    }
     try {
       setLoading(true);
       setError('');
       setMessage('');
       const data = await fetchReceivableCandidates({ startDate, endDate, patientType, hosxpRight, financeRight });
       setRows(data);
-      setSelected(Object.fromEntries(data.map((row, index) => [rowKey(row, index), true])));
-      setMessage(`โหลดข้อมูล ${data.length.toLocaleString('th-TH')} รายการ`);
+      setSelected(Object.fromEntries(data.map((row, index) => [rowKey(row, index), isCandidateReady(row)])));
+      setLoadedSignature(querySignature);
+      setLastSavedSelection('');
+      const issueCount = data.filter((row) => !isCandidateReady(row)).length;
+      setMessage(issueCount > 0
+        ? `โหลด ${data.length.toLocaleString('th-TH')} รายการ เลือกเฉพาะรายการพร้อมตั้งลูกหนี้ และพักตรวจสอบ ${issueCount.toLocaleString('th-TH')} รายการ`
+        : `โหลดข้อมูล ${data.length.toLocaleString('th-TH')} รายการ พร้อมตั้งลูกหนี้ทั้งหมด`);
     } catch (err) {
       setRows([]);
       setSelected({});
@@ -143,11 +222,22 @@ export const ReceivablePage = () => {
     }
   };
 
-  const toggleAll = (checked: boolean) => {
-    setSelected(Object.fromEntries(rows.map((row, index) => [rowKey(row, index), checked])));
+  const toggleVisible = (checked: boolean) => {
+    setSelected((previous) => {
+      const next = { ...previous };
+      visibleRows.forEach(({ row, index }) => {
+        if (isCandidateReady(row)) next[rowKey(row, index)] = checked;
+      });
+      return next;
+    });
+    setLastSavedSelection('');
   };
 
   const exportExcel = () => {
+    if (isStale) {
+      setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนส่งออก');
+      return;
+    }
     const exportRows = selectedRows.map((row, index) => ({
       ลำดับ: index + 1,
       ประเภท: row.patient_type,
@@ -159,6 +249,10 @@ export const ReceivablePage = () => {
       สิทธิ์_HOSxP: optionLabel(row.hosxp_right_code || row.pttype, row.hosxp_right_name || row.pttype_name),
       สิทธิการเงิน: optionLabel(row.finance_right_code, row.finance_right_name),
       รหัสลูกหนี้: row.debtor_code || '',
+      รหัสรายรับ: row.revenue_code || '',
+      กลุ่มบัญชี: row.account_group || '',
+      แหล่งเงิน: row.payment_source || '',
+      วิธีคิดอัตรา: row.pricing_method || '',
       เลขที่ใบเสร็จ: row.receipt_no || '',
       ยอดใบเสร็จ: row.receipt_amount == null || row.receipt_amount === '' ? '' : toNumber(row.receipt_amount),
       วันที่ใบเสร็จ: formatDate(row.receipt_date),
@@ -175,8 +269,16 @@ export const ReceivablePage = () => {
   };
 
   const saveBatch = async () => {
+    if (isStale) {
+      setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนบันทึก');
+      return;
+    }
     if (selectedRows.length === 0) {
       setError('กรุณาเลือกรายการก่อนบันทึกชุดบัญชีลูกหนี้');
+      return;
+    }
+    if (selectedRows.some((row) => !isCandidateReady(row))) {
+      setError('มีรายการที่รหัสบัญชีหรือยอดเงินไม่พร้อม กรุณาตรวจสอบก่อนบันทึก');
       return;
     }
 
@@ -192,7 +294,8 @@ export const ReceivablePage = () => {
         notes,
         items: selectedRows,
       });
-      setMessage(`บันทึกชุดบัญชีลูกหนี้สำเร็จ เลขที่ชุด ${result.batchId || '-'}`);
+      setMessage(`บันทึกชุดบัญชีลูกหนี้สำเร็จ เลขที่ชุด ${result.batchNo || result.batchId || '-'}`);
+      setLastSavedSelection(selectedSignature);
       const latest = await fetchReceivableBatches(10);
       setBatches(latest);
     } catch (err) {
@@ -221,11 +324,11 @@ export const ReceivablePage = () => {
       <section className="receivable-filter-panel no-print">
         <div className="form-group">
           <label>วันที่เริ่ม</label>
-          <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+          <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} />
         </div>
         <div className="form-group">
           <label>วันที่สิ้นสุด</label>
-          <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+          <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />
         </div>
         <div className="form-group">
           <label>ประเภทผู้ป่วย</label>
@@ -255,7 +358,23 @@ export const ReceivablePage = () => {
         </div>
         <div className="form-group form-group--wide">
           <label>หมายเหตุชุดลูกหนี้</label>
-          <input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="เช่น ลูกหนี้เดือนเมษายน 2569" />
+          <input value={notes} maxLength={2000} onChange={(event) => setNotes(event.target.value)} placeholder="เช่น ลูกหนี้เดือนเมษายน 2569" />
+        </div>
+        <div className="form-group form-group--wide">
+          <label>ค้นหาในผลลัพธ์</label>
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="VN / AN / HN / ชื่อผู้ป่วย / รหัสบัญชี"
+          />
+        </div>
+        <div className="form-group">
+          <label>ความพร้อม</label>
+          <select value={readiness} onChange={(event) => setReadiness(event.target.value as typeof readiness)}>
+            <option value="ALL">ทั้งหมด</option>
+            <option value="READY">พร้อมตั้งลูกหนี้</option>
+            <option value="REVIEW">ต้องตรวจสอบ</option>
+          </select>
         </div>
         <div className="receivable-actions">
           <button
@@ -268,24 +387,24 @@ export const ReceivablePage = () => {
           </button>
           <button
             className="btn receivable-btn receivable-btn--soft"
-            onClick={() => toggleAll(true)}
-            disabled={!rows.length}
+            onClick={() => toggleVisible(true)}
+            disabled={!visibleRows.some(({ row }) => isCandidateReady(row))}
           >
             <span className="receivable-btn__icon">✓</span>
-            <span className="receivable-btn__label">เลือกทั้งหมด</span>
+            <span className="receivable-btn__label">เลือกที่แสดง</span>
           </button>
           <button
             className="btn receivable-btn receivable-btn--soft"
-            onClick={() => toggleAll(false)}
-            disabled={!rows.length}
+            onClick={() => toggleVisible(false)}
+            disabled={!visibleRows.length}
           >
             <span className="receivable-btn__icon">×</span>
-            <span className="receivable-btn__label">ล้างเลือก</span>
+            <span className="receivable-btn__label">ล้างที่แสดง</span>
           </button>
           <button
             className={`btn btn-success receivable-btn receivable-btn--save${saving ? ' is-loading' : ''}`}
             onClick={saveBatch}
-            disabled={saving || selectedRows.length === 0}
+            disabled={saving || isStale || selectedRows.length === 0 || lastSavedSelection === selectedSignature}
           >
             <span className="receivable-btn__icon">💾</span>
             <span className="receivable-btn__label">{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
@@ -293,15 +412,18 @@ export const ReceivablePage = () => {
           <button
             className="btn receivable-btn receivable-btn--excel"
             onClick={exportExcel}
-            disabled={selectedRows.length === 0}
+            disabled={isStale || selectedRows.length === 0}
           >
             <span className="receivable-btn__icon">📊</span>
             <span className="receivable-btn__label">ส่งออก Excel</span>
           </button>
           <button
             className="btn receivable-btn receivable-btn--print"
-            onClick={() => window.print()}
-            disabled={selectedRows.length === 0}
+            onClick={() => {
+              if (isStale) return setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนพิมพ์');
+              window.print();
+            }}
+            disabled={isStale || selectedRows.length === 0}
           >
             <span className="receivable-btn__icon">🖨</span>
             <span className="receivable-btn__label">พิมพ์หลักฐาน</span>
@@ -311,6 +433,11 @@ export const ReceivablePage = () => {
 
       {message && <div className="success-message no-print">✅ {message}</div>}
       {error && <div className="error-message no-print">⚠️ {error}</div>}
+      {isStale && (
+        <div className="receivable-stale-warning no-print" role="alert">
+          ตัวกรองเปลี่ยนจากข้อมูลที่แสดงอยู่ กรุณากด “ดึงข้อมูล” อีกครั้งก่อนบันทึก ส่งออก หรือพิมพ์
+        </div>
+      )}
 
       <section className="receivable-summary-grid">
         <div className="summary-card">
@@ -322,12 +449,12 @@ export const ReceivablePage = () => {
           <strong>{formatMoney(totalClaimable)} บาท</strong>
         </div>
         <div className="summary-card">
-          <span>รหัสลูกหนี้ที่ใช้</span>
-          <strong>{debtorCodeCount.toLocaleString('th-TH')}</strong>
+          <span>พร้อมตั้ง / ต้องตรวจสอบ</span>
+          <strong>{readyRows.length.toLocaleString('th-TH')} / {reviewRows.length.toLocaleString('th-TH')}</strong>
         </div>
         <div className="summary-card">
-          <span>ตัวกรองสิทธิ</span>
-          <strong>{selectedFinanceRightLabel}</strong>
+          <span>รหัสลูกหนี้ / รายรับที่ใช้</span>
+          <strong>{debtorCodeCount.toLocaleString('th-TH')} / {revenueCodeCount.toLocaleString('th-TH')}</strong>
         </div>
       </section>
 
@@ -337,13 +464,17 @@ export const ReceivablePage = () => {
             <h2>รายการสำหรับตั้งลูกหนี้</h2>
             <p>OPD ใช้เฉพาะรายการที่เบิกได้ ส่วน IPD ตั้งยอดเบื้องต้นจากยอดค้างสิทธิ์ตามสิทธิ์ผู้ป่วย</p>
           </div>
-          <span className="badge badge-info">{rows.length.toLocaleString('th-TH')} รายการ</span>
+          <div className="receivable-result-counts">
+            <span className="badge badge-info">แสดง {visibleRows.length.toLocaleString('th-TH')} / {rows.length.toLocaleString('th-TH')}</span>
+            {reviewRows.length > 0 && <span className="badge receivable-review-badge">ตรวจสอบ {reviewRows.length.toLocaleString('th-TH')}</span>}
+          </div>
         </div>
         <div className="receivable-table-wrap">
           <table className="receivable-table">
             <thead>
               <tr>
                 <th className="no-print">เลือก</th>
+                <th>สถานะ</th>
                 <th>ประเภท</th>
                 <th>VN / AN</th>
                 <th>HN</th>
@@ -351,6 +482,9 @@ export const ReceivablePage = () => {
                 <th>สิทธิ์ HOSxP</th>
                 <th>สิทธิการเงิน</th>
                 <th>รหัสลูกหนี้</th>
+                <th>รหัสรายรับ</th>
+                <th>กลุ่มบัญชี</th>
+                <th>แหล่งเงิน/วิธีคิด</th>
                 <th>เลขที่ใบเสร็จ</th>
                 <th className="text-right">ยอดใบเสร็จ</th>
                 <th>วันที่ใบเสร็จ</th>
@@ -362,19 +496,42 @@ export const ReceivablePage = () => {
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={14} className="empty-cell">ยังไม่มีข้อมูล กด “ดึงข้อมูล” เพื่อเริ่มคำนวณบัญชีลูกหนี้</td>
+                  <td colSpan={18} className="empty-cell">
+                    {loadedSignature === null
+                      ? 'ยังไม่มีข้อมูล กด “ดึงข้อมูล” เพื่อเริ่มคำนวณบัญชีลูกหนี้'
+                      : 'ไม่พบรายการที่เข้าเงื่อนไขในช่วงวันที่และสิทธิ์ที่เลือก'}
+                  </td>
                 </tr>
               )}
-              {rows.map((row, index) => {
+              {rows.length > 0 && visibleRows.length === 0 && (
+                <tr>
+                  <td colSpan={18} className="empty-cell">ไม่พบรายการที่ตรงกับคำค้นหรือสถานะที่เลือก</td>
+                </tr>
+              )}
+              {visibleRows.map(({ row, index }) => {
                 const key = rowKey(row, index);
+                const issues = candidateIssues(row);
+                const ready = issues.length === 0;
                 return (
-                  <tr key={key} className={selected[key] ? 'is-selected' : ''}>
+                  <tr key={key} className={`${selected[key] ? 'is-selected' : ''}${ready ? '' : ' row-review'}`}>
                     <td className="no-print">
                       <input
                         type="checkbox"
                         checked={selected[key] || false}
-                        onChange={(event) => setSelected((prev) => ({ ...prev, [key]: event.target.checked }))}
+                        disabled={!ready}
+                        aria-label={`เลือกรายการ ${row.vn || row.an || row.hn || index + 1}`}
+                        title={ready ? 'เลือกรายการตั้งลูกหนี้' : issues.join(', ')}
+                        onChange={(event) => {
+                          setSelected((prev) => ({ ...prev, [key]: event.target.checked }));
+                          setLastSavedSelection('');
+                        }}
                       />
+                    </td>
+                    <td>
+                      <span className={`receivable-status ${ready ? 'receivable-status--ready' : 'receivable-status--review'}`} title={issues.join(', ')}>
+                        {ready ? 'พร้อมตั้ง' : 'ตรวจสอบ'}
+                      </span>
+                      {!ready && <small className="receivable-issue-text">{issues.join(' · ')}</small>}
                     </td>
                     <td><span className="type-pill">{row.patient_type}</span></td>
                     <td className="mono">{row.vn || row.an || '-'}</td>
@@ -383,6 +540,12 @@ export const ReceivablePage = () => {
                     <td>{optionLabel(row.hosxp_right_code || row.pttype, row.hosxp_right_name || row.pttype_name)}</td>
                     <td>{optionLabel(row.finance_right_code, row.finance_right_name)}</td>
                     <td className="mono">{row.debtor_code || '-'}</td>
+                    <td className="mono">{row.revenue_code || '-'}</td>
+                    <td>{row.account_group || '-'}</td>
+                    <td className="claim-account-note">
+                      <span>{row.payment_source || '-'}</span>
+                      <small>{row.pricing_method || '-'}</small>
+                    </td>
                     <td className="mono">{row.receipt_no || '-'}</td>
                     <td className="mono text-right">{formatReceiptAmount(row.receipt_amount)}</td>
                     <td>{formatDate(row.receipt_date)}</td>
@@ -403,8 +566,8 @@ export const ReceivablePage = () => {
           {batches.length === 0 && <span className="muted-text">ยังไม่มีประวัติการบันทึก</span>}
           {batches.map((batch) => (
             <div key={batch.id} className="history-item">
-              <strong>#{batch.id}</strong>
-              <span>{batch.start_date} ถึง {batch.end_date}</span>
+              <strong title={batch.batch_no || `#${batch.id}`}>{batch.batch_no || `#${batch.id}`}</strong>
+              <span>{formatDate(batch.start_date)} ถึง {formatDate(batch.end_date)}</span>
               <span>{Number(batch.item_count || 0).toLocaleString('th-TH')} รายการ</span>
               <span>{formatMoney(batch.total_receivable)} บาท</span>
             </div>
@@ -425,6 +588,8 @@ export const ReceivablePage = () => {
               <th>ผู้ป่วย</th>
               <th>สิทธิ์การเงิน</th>
               <th>รหัสลูกหนี้</th>
+              <th>รหัสรายรับ</th>
+              <th>กลุ่มบัญชี</th>
               <th>เลขที่ใบเสร็จ</th>
               <th>ยอดใบเสร็จ</th>
               <th>วันที่ใบเสร็จ</th>
@@ -442,6 +607,8 @@ export const ReceivablePage = () => {
                 <td>{row.patient_name || ''}</td>
                 <td>{optionLabel(row.finance_right_code, row.finance_right_name)}</td>
                 <td>{row.debtor_code || ''}</td>
+                <td>{row.revenue_code || ''}</td>
+                <td>{row.account_group || ''}</td>
                 <td>{row.receipt_no || ''}</td>
                 <td>{formatReceiptAmount(row.receipt_amount)}</td>
                 <td>{formatDate(row.receipt_date)}</td>
@@ -453,7 +620,7 @@ export const ReceivablePage = () => {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={11}>รวม</td>
+              <td colSpan={13}>รวม</td>
               <td>{formatMoney(totalClaimable)}</td>
             </tr>
           </tfoot>

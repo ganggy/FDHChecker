@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { DetailModal } from '../components/DetailModal';
 import { DetailKidneyModal } from '../components/DetailKidneyModal';
+import { OpReferMonitorPanel } from '../components/OpReferMonitorPanel';
 import type { CheckRecord } from '../mockData';
 import type { KidneyMonitorRecord } from '../mockKidneyData';
 import businessRules from '../config/business_rules.json';
@@ -38,6 +39,49 @@ interface MonitorCategory {
     description: string;
 }
 
+type KidneyTrackingRight = 'civilServant' | 'socialSecurity' | 'nhso' | 'localGovernment' | 'other';
+
+interface KidneyTrackingSummary {
+    totalSessions: number;
+    totalPatients: number;
+    byRight: Record<KidneyTrackingRight, { sessions: number; patients: number }>;
+}
+
+type KidneyTrackingIssueKind = 'RIGHT_CHANGED' | 'MISSING_EVIDENCE' | 'UNKNOWN_RIGHT' | 'MISSING_HN';
+
+interface KidneyTrackingIssue {
+    kind: KidneyTrackingIssueKind;
+    hn: string;
+    patientName: string;
+    visits: Array<{
+        vn: string;
+        serviceDate: string;
+        right: KidneyTrackingRight;
+        hipdataCode: string;
+        pttypeName: string;
+    }>;
+}
+
+interface KidneyTrackingIssueSummary {
+    total: number;
+    rightChanged: number;
+    missingEvidence: number;
+    unknownRight: number;
+    missingHn: number;
+    issues: KidneyTrackingIssue[];
+}
+
+interface KidneyMonitorMeta {
+    total: number;
+    returned: number;
+    truncated: boolean;
+    limit: number;
+    candidateTotal?: number;
+    excludedWithoutEvidence?: number;
+    trackingSummary?: KidneyTrackingSummary;
+    trackingIssues?: KidneyTrackingIssueSummary;
+}
+
 const RIGHT_LABEL_MAP: Record<string, string> = {
     all: 'ทั้งหมด',
     ucs: 'UCS + SSS',
@@ -60,7 +104,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
     const [allKidneyData, setAllKidneyData] = useState<MonitorItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [dataMeta, setDataMeta] = useState<{ total: number; returned: number; truncated: boolean; limit: number } | null>(null);
+    const [dataMeta, setDataMeta] = useState<KidneyMonitorMeta | null>(null);
     const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
     const [selectedKidneyRecord, setSelectedKidneyRecord] = useState<KidneyMonitorRecord | null>(null);
     const siteSettings = businessRules.site_settings as {
@@ -92,9 +136,9 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
         },
         {
             id: 'special',
-            name: 'สิทธิพิเศษ',
+            name: 'OP Refer',
             icon: '⭐',
-            description: 'หน่วยฉุกเฉิน, OP Refer, AE และโครงการพิเศษอื่นๆ',
+            description: 'ตรวจสิทธิรับส่งต่อ ข้อมูล Refer, Diagnosis, ค่าใช้จ่าย และการปิดสิทธิ',
         },
     ];    const fetchMonitorData = useCallback(async (): Promise<void> => {
         setLoading(true);
@@ -220,7 +264,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
             const analysis = getAnalysis(item);
             // Filter by active monitor type
             if (activeMonitor === 'kidney') {
-                // Only show kidney records (main_dep='060' ห้องไตเทียม)
+                // Backend returns only department 060 visits with dialysis evidence.
                 if (!('insuranceGroup' in item && 'dialysisFee' in item)) return false;
             }
     
@@ -458,8 +502,36 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
         otherCount: ucEpoSummary.count + otherSummary.count
     };
 
+    const trackingRightCards: Array<{
+        key: Exclude<KidneyTrackingRight, 'other'>;
+        label: string;
+        code: string;
+        color: string;
+        background: string;
+    }> = [
+        { key: 'civilServant', label: 'ขรก.', code: 'OFC', color: '#7c3aed', background: '#f3e8ff' },
+        { key: 'socialSecurity', label: 'ปกส.', code: 'SSS', color: '#0284c7', background: '#e0f2fe' },
+        { key: 'nhso', label: 'สปสช.', code: 'UCS/UC', color: '#059669', background: '#d1fae5' },
+        { key: 'localGovernment', label: 'อปท.', code: 'LGO', color: '#d97706', background: '#fef3c7' },
+    ];
+
+    const trackingRightLabels: Record<KidneyTrackingRight, string> = {
+        civilServant: 'ขรก.',
+        socialSecurity: 'ปกส.',
+        nhso: 'สปสช.',
+        localGovernment: 'อปท.',
+        other: 'อื่น/ไม่ระบุ',
+    };
+
+    const trackingIssueLabels: Record<KidneyTrackingIssueKind, { label: string; color: string; background: string }> = {
+        RIGHT_CHANGED: { label: 'สิทธิ์เปลี่ยนภายในช่วง', color: '#b91c1c', background: '#fee2e2' },
+        MISSING_EVIDENCE: { label: 'หลักฐานฟอกไตไม่ครบ', color: '#b45309', background: '#fef3c7' },
+        UNKNOWN_RIGHT: { label: 'สิทธิ์อื่น/ไม่ระบุ', color: '#7c3aed', background: '#f3e8ff' },
+        MISSING_HN: { label: 'ไม่มี HN', color: '#be123c', background: '#ffe4e6' },
+    };
+
     return (
-        <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>            {/* Header */}
+        <div style={{ padding: '20px', width: '100%', maxWidth: 'var(--content-max)', margin: '0 auto' }}>            {/* Header */}
             <div style={{ marginBottom: '30px' }}>
                 <h1 style={{ fontSize: '28px', fontWeight: 800, marginBottom: '10px' }}>
                     📊 รายการมอนิเตอร์พิเศษ (เวอร์ชันแก้ไขแล้ว)
@@ -589,6 +661,95 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
 
             {/* Dialysis Service Summary Section - shown for kidney monitor */}
             {activeMonitor === 'kidney' && (
+                <>
+                    {dataMeta?.trackingSummary && (
+                        <div
+                            style={{
+                                background: 'white',
+                                padding: '20px',
+                                borderRadius: '8px',
+                                marginTop: '30px',
+                                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                            }}
+                        >
+                            <div style={{ fontSize: '14px', fontWeight: 700, color: '#333' }}>
+                                📋 สรุป Session หน่วยไตตาม 4 สิทธิ
+                            </div>
+                            <div style={{ color: '#64748b', fontSize: '12px', marginTop: 5, lineHeight: 1.6 }}>
+                                นับทุก visit ที่มารับบริการหน่วยไต (main_dep 060) ในช่วงวันที่ โดยสรุปและตารางด้านล่างใช้ visit ชุดเดียวกัน
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginTop: '16px' }}>
+                                {trackingRightCards.map((card) => {
+                                    const value = dataMeta.trackingSummary!.byRight[card.key];
+                                    return (
+                                        <div key={card.key} style={{ padding: '14px', borderRadius: '8px', borderLeft: `4px solid ${card.color}`, background: card.background }}>
+                                            <div style={{ fontSize: '12px', fontWeight: 700, color: card.color }}>{card.label} <span style={{ opacity: 0.75 }}>({card.code})</span></div>
+                                            <div style={{ fontSize: '24px', fontWeight: 800, color: card.color, marginTop: 5 }}>{value.sessions.toLocaleString('th-TH')}</div>
+                                            <div style={{ fontSize: '11px', color: '#475569' }}>session · {value.patients.toLocaleString('th-TH')} คน</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 18px', marginTop: '14px', padding: '12px 14px', borderRadius: '8px', background: '#f8fafc', color: '#475569', fontSize: '12px' }}>
+                                <strong>รวม {dataMeta.trackingSummary.totalSessions.toLocaleString('th-TH')} session / {dataMeta.trackingSummary.totalPatients.toLocaleString('th-TH')} คน</strong>
+                                <span>แสดงรายละเอียดครบ {dataMeta.returned.toLocaleString('th-TH')} visit</span>
+                                <span style={{ color: (dataMeta.excludedWithoutEvidence || 0) > 0 ? '#b45309' : '#15803d' }}>
+                                    ต้องตรวจหลักฐาน N185/Z49/รายการฟอกไต {(dataMeta.excludedWithoutEvidence || 0).toLocaleString('th-TH')} visit (ยังรวมในยอด)
+                                </span>
+                                {dataMeta.trackingSummary.byRight.other.sessions > 0 && (
+                                    <span style={{ color: '#dc2626' }}>สิทธิอื่น/ไม่ระบุ {dataMeta.trackingSummary.byRight.other.sessions.toLocaleString('th-TH')} session</span>
+                                )}
+                            </div>
+                            {dataMeta.trackingIssues && (
+                                <div style={{ marginTop: '16px', border: `1px solid ${dataMeta.trackingIssues.total > 0 ? '#fecaca' : '#bbf7d0'}`, borderRadius: '8px', overflow: 'hidden' }}>
+                                    <div style={{ padding: '12px 14px', background: dataMeta.trackingIssues.total > 0 ? '#fff7ed' : '#f0fdf4' }}>
+                                        <div style={{ fontWeight: 800, color: dataMeta.trackingIssues.total > 0 ? '#9a3412' : '#166534', fontSize: '13px' }}>
+                                            {dataMeta.trackingIssues.total > 0 ? `⚠️ จุดที่ต้องตรวจสอบ ${dataMeta.trackingIssues.total.toLocaleString('th-TH')} รายการ` : '✅ ไม่พบจุดผิดปกติจากการตรวจสอบอัตโนมัติ'}
+                                        </div>
+                                        {dataMeta.trackingIssues.total > 0 && (
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginTop: '7px', color: '#7c2d12', fontSize: '11px' }}>
+                                                <span>สิทธิ์เปลี่ยน {dataMeta.trackingIssues.rightChanged.toLocaleString('th-TH')} คน</span>
+                                                <span>หลักฐานไม่ครบ {dataMeta.trackingIssues.missingEvidence.toLocaleString('th-TH')} visit</span>
+                                                <span>สิทธิ์อื่น/ไม่ระบุ {dataMeta.trackingIssues.unknownRight.toLocaleString('th-TH')} visit</span>
+                                                {dataMeta.trackingIssues.missingHn > 0 && <span>ไม่มี HN {dataMeta.trackingIssues.missingHn.toLocaleString('th-TH')} visit</span>}
+                                            </div>
+                                        )}
+                                    </div>
+                                    {dataMeta.trackingIssues.issues.length > 0 && (
+                                        <div style={{ overflowX: 'auto', maxHeight: '360px', overflowY: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                                                <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', color: '#475569' }}>
+                                                    <tr>
+                                                        <th style={{ padding: '9px', textAlign: 'left' }}>จุดที่พบ</th>
+                                                        <th style={{ padding: '9px', textAlign: 'left' }}>HN</th>
+                                                        <th style={{ padding: '9px', textAlign: 'left' }}>ชื่อ-สกุล</th>
+                                                        <th style={{ padding: '9px', textAlign: 'left' }}>วันที่และสิทธิ์ของ visit</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {dataMeta.trackingIssues.issues.map((issue, issueIndex) => {
+                                                        const issueStyle = trackingIssueLabels[issue.kind];
+                                                        return (
+                                                            <tr key={`${issue.kind}-${issue.hn}-${issueIndex}`} style={{ borderTop: '1px solid #e2e8f0', verticalAlign: 'top' }}>
+                                                                <td style={{ padding: '9px' }}>
+                                                                    <span style={{ display: 'inline-block', padding: '3px 7px', borderRadius: '999px', fontWeight: 700, color: issueStyle.color, background: issueStyle.background }}>{issueStyle.label}</span>
+                                                                </td>
+                                                                <td style={{ padding: '9px', fontWeight: 700 }}>{issue.hn || '-'}</td>
+                                                                <td style={{ padding: '9px' }}>{issue.patientName || '-'}</td>
+                                                                <td style={{ padding: '9px', color: '#475569', lineHeight: 1.6 }}>
+                                                                    {issue.visits.map((visit) => `${visit.serviceDate || '-'} · ${visit.hipdataCode || trackingRightLabels[visit.right]}${visit.vn ? ` (VN ${visit.vn})` : ''}`).join(', ')}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
                     <div
                         style={{
                             background: 'white',
@@ -611,7 +772,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
                                     <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '6px', borderLeft: '3px solid #2196f3' }}>
-                                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#2196f3', marginBottom: '4px' }}>📊 จำนวนเคส</div>
+                                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#2196f3', marginBottom: '4px' }}>📊 จำนวน visit</div>
                                         <div style={{ fontSize: '18px', fontWeight: 800, color: '#2196f3' }}>
                                             {ucsSssSummary.count}
                                         </div>
@@ -735,7 +896,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                                 </div>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
                                     <div style={{ padding: '12px', background: '#f3e5f5', borderRadius: '6px', borderLeft: '3px solid #9c27b0' }}>
-                                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#9c27b0', marginBottom: '4px' }}>📊 จำนวนเคส</div>
+                                        <div style={{ fontSize: '11px', fontWeight: 600, color: '#9c27b0', marginBottom: '4px' }}>📊 จำนวน visit</div>
                                         <div style={{ fontSize: '18px', fontWeight: 800, color: '#9c27b0' }}>
                                             {ofcLgoSummary.count}
                                         </div>
@@ -857,6 +1018,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                         )}
 
                     </div>
+                </>
                 )}
 
             {activeMonitor === 'chronic' && (
@@ -864,9 +1026,12 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                     🚧 โรคเรื้อรัง (NCD) - ยังไม่พร้อมใช้งาน (Coming Soon)
                 </div>
             )}            {activeMonitor === 'special' && (
-                <div style={{ padding: '20px', background: '#f5f5f5', borderRadius: '8px', marginBottom: '30px', textAlign: 'center', color: '#999' }}>
-                    🚧 สิทธิพิเศษ - ยังไม่พร้อมใช้งาน (Coming Soon)
-                </div>
+                <OpReferMonitorPanel
+                    startDate={startDate}
+                    endDate={endDate}
+                    onStartDateChange={setStartDate}
+                    onEndDateChange={setEndDate}
+                />
             )}
 
             {/* Filter Controls */}
@@ -1006,6 +1171,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '120px', backgroundColor: '#1565c0' }}>📅 วันที่</th>
                         <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, minWidth: '140px' }}>สิทธิ์</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>กลุ่ม</th>
+                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '130px' }}>หลักฐานฟอกไต</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>รายรับ (Revenue)</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '120px' }}>จ่ายหน่วยไต (Cost)</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>กำไร รพ.</th>
@@ -1086,6 +1252,19 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                                                     const displayValue = isKidneyRecord && kidneyRecord ? kidneyRecord.insuranceGroup : analysis.right;
                                                     return displayValue;
                                                 })()}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '12px', textAlign: 'center', minWidth: '130px' }}>
+                                            <span style={{
+                                                display: 'inline-block',
+                                                padding: '3px 7px',
+                                                borderRadius: '999px',
+                                                fontSize: '10px',
+                                                fontWeight: 700,
+                                                color: item.hasDialysisEvidence === false ? '#92400e' : '#166534',
+                                                background: item.hasDialysisEvidence === false ? '#fef3c7' : '#dcfce7',
+                                            }}>
+                                                {item.hasDialysisEvidence === false ? '⚠️ ต้องตรวจสอบ' : '✓ ครบ'}
                                             </span>
                                         </td>
                                         <td style={{ padding: '12px', textAlign: 'center', fontWeight: 800, color: '#1976d2', minWidth: '100px' }}>

@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { DetailModal } from '../components/DetailModal';
+import { RepStmVisitModal } from '../components/RepStmVisitModal';
 import type { CheckRecord } from '../mockData';
 import businessRules from '../config/business_rules.json';
 import { FUND_DEFINITIONS, type FundDefinition } from '../config/fundDefinitions';
 import { getAnemiaRuleBand, getFundRule } from '../config/fundRuleCatalog';
+import { formatPalliativeIcd10, PALLIATIVE_DIAGNOSIS_CODE_COUNT, PALLIATIVE_DIAGNOSIS_GROUPS } from '../config/palliativeDiagnosisCatalog';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
+import { buildFdhClaimProgress, hasFdhSubmissionData } from '../utils/fdhClaimProgress';
 import { fetchAppSettings } from '../services/hosxpService';
 
 const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
@@ -14,7 +17,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'telemedicine', name: 'Telemedicine', description: 'บริการแพทย์ทางไกล / Telemed' },
     { id: 'drugp', name: 'ส่งยาไปรษณีย์', description: 'ยา EMS / ส่งยาถึงบ้าน' },
     { id: 'herb', name: 'สมุนไพร / ยาไทย', description: 'รายการสมุนไพรและยาไทย' },
-    { id: 'knee', name: 'ยาพอกเข่า', description: 'บริการยาพอก/ประคบเข่า' },
+    { id: 'knee', name: 'ยาพอกเข่า', description: 'บริการพอกเข่าในชุดข้อมูล 43 แฟ้ม' },
     { id: 'instrument', name: 'อวัยวะเทียม', description: 'วัสดุ/อุปกรณ์เบิกได้' },
     { id: 'preg_test', name: 'ตรวจครรภ์ (UPT)', description: 'คัดกรองการตั้งครรภ์' },
     { id: 'anc', name: 'ANC Visit', description: 'ตรวจครรภ์คุณภาพ / ฝากครรภ์' },
@@ -26,16 +29,23 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'fluoride', name: 'เคลือบฟลูออไรด์', description: 'ทันตกรรมป้องกันฟันผุ' },
     { id: 'fp', name: 'วางแผนครอบครัว', description: 'บริการคุมกำเนิดและวางแผนครอบครัว' },
     { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด', description: 'ยาคุมชนิดเม็ด' },
-    { id: 'condom', name: 'ถุงยางอนามัย', description: 'บริการถุงยางอนามัย' },
+    { id: 'condom', name: 'ยาฉีดคุมกำเนิด', description: 'ADP FP003_4 อัตรา 60 บาท' },
     { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก', description: 'Pap smear / Cervix screening' },
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
-    { id: 'cholesterol_screening', name: 'คัดกรองไขมัน', description: 'ตรวจไขมันในเลือด' },
-    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130 + 13001' },
+    { id: 'cholesterol_screening', name: 'คัดกรองหัวใจหลอดเลือด', description: 'Total Cholesterol และ HDL อายุ 45-70 ปี' },
+    { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
+    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
-    { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 2 เดือน-12 ปี (PP-B FS)' },
+    { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)' },
+    { id: 'mental_health_counselling', name: 'ปรึกษาสุขภาพจิต', description: 'อายุ 12 ปีขึ้นไป + ST-5/9Q + counselling' },
+    { id: 'gender_affirming_hormone', name: 'ฮอร์โมนยืนยันเพศสภาพ', description: 'KTB/VMI + hormone protocol' },
+    { id: 'latent_tb_screening', name: 'คัดกรอง Latent TB', description: 'IGRA / NTIP/TB Data Hub' },
+    { id: 'osteoporosis_screening', name: 'คัดกรองกระดูกพรุน', description: 'หญิง 60 ปีขึ้นไป + FRAX/DXA/BMD' },
+    { id: 'autism_tdas_screening', name: 'คัดกรอง TDAS', description: 'เด็ก 12-60 เดือน + TDAS' },
     { id: 'chemo', name: 'เคมีบำบัด', description: 'ผู้ป่วยเคมีบำบัด' },
-    { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'Hep C / HCV' },
+    { id: 'hepc', name: 'ไวรัสตับอักเสบซี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + Anti-HCV' },
+    { id: 'hepb', name: 'ไวรัสตับอักเสบบี', description: 'เกิดก่อน พ.ศ.2535 + Z11.5 + HBsAg' },
     { id: 'rehab', name: 'ฟื้นฟูสมรรถภาพ', description: 'งานฟื้นฟู / กายภาพ' },
     { id: 'crrt', name: 'ฟอกเลือด (CRRT)', description: 'ผู้ป่วยฟอกเลือด / ไต' },
     { id: 'robot', name: 'ผ่าตัดหุ่นยนต์', description: 'Robotic surgery' },
@@ -44,7 +54,72 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'clopidogrel', name: 'Clopidogrel', description: 'ยาต้านเกล็ดเลือด' },
 ];
 
-export const SpecificFundPage: React.FC = () => {
+type ClaimChannelView = 'all' | 'fdh' | '43' | 'ktb' | 'other';
+
+type DentalProcedureDisplay = {
+    code: string;
+    name: string;
+};
+
+const parseDentalProcedureDisplay = (value: unknown): DentalProcedureDisplay[] => {
+    const raw = String(value || '').trim();
+    if (!raw) return [];
+
+    return raw
+        .split(/\s*\|\s*/)
+        .map((entry) => {
+            const match = entry.trim().match(/^([A-Z0-9.]+)\s*(.*)$/i);
+            return {
+                code: match?.[1] || '',
+                name: match?.[2] || entry.trim(),
+            };
+        })
+        .filter((entry) => entry.code || entry.name);
+};
+
+const CHANNEL_VIEW_LABELS: Record<ClaimChannelView, { title: string; subtitle: string; empty: string }> = {
+    all: {
+        title: 'ตรวจสอบเงื่อนไขรายกองทุน/43 แฟ้ม',
+        subtitle: 'แสดงรายการแยกตามเงื่อนไขการเบิกและความพร้อมข้อมูลส่งออก เช่น Palliative Care และบริการ 43 แฟ้ม',
+        empty: 'ไม่มีเมนูกองทุนที่แสดง',
+    },
+    fdh: {
+        title: 'ตรวจสอบรายการ FDH/e-Claim',
+        subtitle: 'รวมรายการที่ต้องเตรียมส่งเบิกผ่าน FDH หรือ e-Claim โดยแยกจาก 43 แฟ้มและ MOPH Claim',
+        empty: 'ไม่มีรายการ FDH/e-Claim ที่เปิดแสดง',
+    },
+    '43': {
+        title: 'ตรวจสอบรายการ 43 แฟ้ม',
+        subtitle: 'รวมรายการที่เน้นความครบของข้อมูลมาตรฐาน 43 แฟ้ม เช่น Dx, procedure และ visit linkage',
+        empty: 'ไม่มีรายการ 43 แฟ้มที่เปิดแสดง',
+    },
+    ktb: {
+        title: 'ตรวจสอบรายการ KTB/NTIP',
+        subtitle: 'รวมรายการที่ FDHChecker ใช้ตรวจความครบก่อนนำไปบันทึกใน KTB, NTIP หรือ TB Data Hub',
+        empty: 'ไม่มีรายการ KTB/NTIP ที่เปิดแสดง',
+    },
+    other: {
+        title: 'ตรวจสอบรายการช่องทางอื่น',
+        subtitle: 'รวมรายการที่มีระบบเฉพาะหรือ approval workflow แยกจาก FDH, 43 แฟ้ม และ MOPH Claim',
+        empty: 'ไม่มีรายการช่องทางอื่นที่เปิดแสดง',
+    },
+};
+
+const isFundInChannelView = (fund: FundDefinition, view: ClaimChannelView) => {
+    if (view === 'all') return true;
+    const channel = `${fund.claimChannel || ''} ${fund.recordingSystem || ''}`.toLowerCase();
+    if (view === 'fdh') return channel.includes('fdh') || channel.includes('e-claim');
+    if (view === '43') return channel.includes('43');
+    if (view === 'ktb') return channel.includes('ktb') || channel.includes('ntip') || channel.includes('tb data hub');
+    if (view === 'other') return channel.includes('อื่น') || channel.includes('renal') || channel.includes('approval') || channel.includes('vmi');
+    return true;
+};
+
+interface SpecificFundPageProps {
+    channelView?: ClaimChannelView;
+}
+
+export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView = 'all' }) => {
     const [activeFund, setActiveFund] = useState('palliative');
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
@@ -53,10 +128,15 @@ export const SpecificFundPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
+    const [repstmVisit, setRepstmVisit] = useState<any | null>(null);
     const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
+    const [showRepCOnly, setShowRepCOnly] = useState(false);
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [fundVisibility, setFundVisibility] = useState<Record<string, boolean>>({});
     const [exportingFundId, setExportingFundId] = useState<string | null>(null);
+    const [trackingFdh, setTrackingFdh] = useState(false);
+    const [trackProgress, setTrackProgress] = useState<{ done: number; total: number; updated: number; errors: number } | null>(null);
+    const [trackResult, setTrackResult] = useState<{ success: boolean; message: string } | null>(null);
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
     const siteSettings = rules.site_settings as {
@@ -76,9 +156,16 @@ export const SpecificFundPage: React.FC = () => {
     const clopidogrelLabel = (siteSettings.lab_costs?.rules?.find(r => r.key === 'clopidogrel')?.label) || 'Clopidogrel';
     const funds: FundDefinition[] = (FUND_DEFINITIONS && FUND_DEFINITIONS.length > 0 ? FUND_DEFINITIONS : FALLBACK_FUND_DEFINITIONS);
     const visibleFunds = useMemo(
-        () => funds.filter((fund) => fundVisibility[fund.id] !== false),
-        [fundVisibility, funds]
+        () => funds.filter((fund) => fundVisibility[fund.id] !== false && isFundInChannelView(fund, channelView)),
+        [channelView, fundVisibility, funds]
     );
+
+    useEffect(() => {
+        if (visibleFunds.length === 0) return;
+        if (!visibleFunds.some((fund) => fund.id === activeFund)) {
+            setActiveFund(visibleFunds[0].id);
+        }
+    }, [activeFund, visibleFunds]);
 
     const fetchFundDataByType = useCallback(async (fundId: string) => {
         const res = await fetch(`/api/hosxp/specific-funds?fundType=${fundId}&startDate=${startDate}&endDate=${endDate}`);
@@ -166,6 +253,7 @@ export const SpecificFundPage: React.FC = () => {
             'er_emergency': { bg: 'linear-gradient(135deg, #ff6e7f 0%, #bfe9ff 100%)', shadow: 'rgba(255, 110, 127, 0.2)' },
             'chemo': { bg: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)', shadow: 'rgba(161, 196, 253, 0.2)' },
             'hepc': { bg: 'linear-gradient(135deg, #d299c2 0%, #fef9d7 100%)', shadow: 'rgba(210, 153, 194, 0.2)' },
+            'hepb': { bg: 'linear-gradient(135deg, #38bdf8 0%, #0f766e 100%)', shadow: 'rgba(14, 116, 144, 0.22)' },
             'rehab': { bg: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', shadow: 'rgba(250, 112, 154, 0.2)' },
             'crrt': { bg: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)', shadow: 'rgba(48, 207, 208, 0.2)' },
             'robot': { bg: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', shadow: 'rgba(168, 237, 234, 0.2)' },
@@ -175,8 +263,14 @@ export const SpecificFundPage: React.FC = () => {
             'fpg_screening': { bg: 'linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)', shadow: 'rgba(255, 75, 43, 0.2)' },
             'cholesterol_screening': { bg: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)', shadow: 'rgba(247, 151, 30, 0.2)' },
             'anemia_screening': { bg: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)', shadow: 'rgba(238, 156, 167, 0.2)' },
+            'syphilis_screening_male': { bg: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)', shadow: 'rgba(20, 184, 166, 0.22)' },
             'iron_supplement': { bg: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', shadow: 'rgba(135, 0, 0, 0.2)' },
             'ferrokid_child': { bg: 'linear-gradient(135deg, #c31432 0%, #240b36 100%)', shadow: 'rgba(195, 20, 50, 0.22)' },
+            'mental_health_counselling': { bg: 'linear-gradient(135deg, #2563eb 0%, #14b8a6 100%)', shadow: 'rgba(37, 99, 235, 0.2)' },
+            'gender_affirming_hormone': { bg: 'linear-gradient(135deg, #db2777 0%, #f97316 100%)', shadow: 'rgba(219, 39, 119, 0.2)' },
+            'latent_tb_screening': { bg: 'linear-gradient(135deg, #334155 0%, #0f766e 100%)', shadow: 'rgba(51, 65, 85, 0.2)' },
+            'osteoporosis_screening': { bg: 'linear-gradient(135deg, #64748b 0%, #38bdf8 100%)', shadow: 'rgba(100, 116, 139, 0.2)' },
+            'autism_tdas_screening': { bg: 'linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)', shadow: 'rgba(124, 58, 237, 0.2)' },
             'anc_ultrasound': { bg: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', shadow: 'rgba(33, 147, 176, 0.2)' },
             'anc_lab_1': { bg: 'linear-gradient(135deg, #3a1c71 0%, #d76d77 50%, #ffaf7b 100%)', shadow: 'rgba(58, 28, 113, 0.2)' },
             'anc_lab_2': { bg: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', shadow: 'rgba(30, 60, 114, 0.2)' },
@@ -260,16 +354,10 @@ export const SpecificFundPage: React.FC = () => {
         if (value === 'pending' || value === 'rejected' || value === 'ยังไม่เข้าเงื่อนไข') return 'badge-warning';
         return 'badge-secondary';
     };
-    /** Returns true when any FDH settlement field carries data, meaning this visit was already submitted to FDH */
-    const hasFdhData = (item: any) =>
-        Boolean(String(item?.fdh_claim_status_message ?? '').trim()) ||
-        Boolean(String(item?.fdh_stm_period ?? '').trim()) ||
-        (item?.fdh_act_amt != null && item?.fdh_act_amt !== '') ||
-        Boolean(String(item?.fdh_settle_at ?? '').trim());
     const getEffectiveSendStatusLabel = (item: any) =>
-        hasFdhData(item) ? 'ส่งแล้ว' : getSendStatusLabel(item.status);
+        hasFdhSubmissionData(item) ? 'ส่งแล้ว' : getSendStatusLabel(item.status);
     const getEffectiveSendStatusBadgeClass = (item: any) =>
-        hasFdhData(item) ? 'badge-success' : getSendStatusBadgeClass(item.status);
+        hasFdhSubmissionData(item) ? 'badge-success' : getSendStatusBadgeClass(item.status);
     const getFdhStatusLabel = (item: any) => (
         String(item?.fdh_status_label ?? '').trim()
         || (toFlag(item?.has_close)
@@ -285,6 +373,39 @@ export const SpecificFundPage: React.FC = () => {
                 ? 'badge-info'
                 : 'badge-warning'
     );
+    const getImportedFdhLabel = (item: any) => item?.has_fdh_import
+        ? (String(item?.fdh_import_status ?? '').trim() || 'พบในไฟล์ FDH')
+        : 'ยังไม่พบไฟล์ FDH';
+    const isFdhProcessingFailed = (item: any) => {
+        const statusText = `${item?.fdh_import_status || ''} ${item?.fdh_claim_status_message || ''}`.trim();
+        return /ประมวลผลไม่ผ่าน|ไม่ผ่าน|reject|deny|failed/i.test(statusText);
+    };
+    const hasDedicatedAncService = (item: any) => (
+        toFlag(item?.has_anc_us)
+        || toFlag(item?.has_anc_lab1)
+        || toFlag(item?.has_anc_lab2)
+        || toFlag(item?.has_anc_dental_exam)
+        || toFlag(item?.has_anc_dental_clean)
+    );
+    const hasMeaningfulRepCode = (value: unknown) => {
+        const normalized = String(value ?? '').trim().toUpperCase();
+        return !['', '-', '--', '0', 'N/A', 'NA', 'NONE', 'NULL'].includes(normalized);
+    };
+    const hasRepCError = (item: any) => Boolean(item?.has_rep_import) && hasMeaningfulRepCode(item?.rep_errorcode);
+    const hasRepDenyError = (item: any) => Boolean(item?.has_rep_import) && hasMeaningfulRepCode(item?.rep_verifycode);
+    const getRepImportLabel = (item: any) => {
+        if (!item?.has_rep_import) return 'ยังไม่พบ REP';
+        const errorCode = String(item?.rep_errorcode ?? '').trim();
+        const verifyCode = String(item?.rep_verifycode ?? '').trim();
+        if (hasRepCError(item)) return `REP C: ${errorCode}`;
+        if (hasRepDenyError(item)) return `REP D: ${verifyCode}`;
+        return 'REP';
+    };
+    const getStatementImportLabel = (item: any) => Number(item?.inv_net_amount ?? 0) > 0
+        ? 'เสร็จสิ้น (INV)'
+        : item?.has_stm_import
+        ? (Number(item?.stm_paid_amount ?? 0) === 0 ? 'STM จ่าย 0' : 'พบ STM')
+        : item?.has_inv_import ? 'พบ INV' : 'ยังไม่พบ STM/INV';
     const getAncLab1Requirements = (item: any, hasAncDiag: boolean) => {
         const isFemale = String(item?.sex ?? '').trim() === '2';
         return [
@@ -380,7 +501,7 @@ export const SpecificFundPage: React.FC = () => {
         };
     };
 
-    const getStatusForFund = (item: any, fundId: string = activeFund) => {
+    const getFundRuleStatus = (item: any, fundId: string = activeFund) => {
         const subfunds: string[] = [];
         const age = Number(item?.age_y ?? item?.age ?? 0);
         const hipdataText = `${item?.hipdata_code || ''} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.toUpperCase();
@@ -394,6 +515,7 @@ export const SpecificFundPage: React.FC = () => {
         const hasFpDiag = toFlag(item?.has_fp_diag) || hasDiagRegex(item, /^Z30/);
 
         if (fundId === 'palliative') {
+            if (!isUcsLike) return buildStatusResult([], [], undefined, false);
             const isMatched = hasPalliativeDiag && hasPalliativeAdp;
             if (hasPalliativeDiag || hasPalliativeAdp) subfunds.push('🕊️ Palliative Care');
             return buildStatusResult(
@@ -404,38 +526,72 @@ export const SpecificFundPage: React.FC = () => {
                     [{ met: hasPalliativeDiag, label: ' Diagnosis Z515/Z718' }],
                     hasPalliativeDiag
                 ),
-                !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined,
+                undefined,
                 isMatched
             );
         }
 
         if (fundId === 'telemedicine') {
+            if (!isUcsLike) return buildStatusResult([], [], undefined, false);
             const hasTelmed =
                 toFlag(item?.has_telmed) ||
                 String(item?.ovstist_export_code ?? '').trim() === telmedExportCode;
             if (hasTelmed) subfunds.push(`📱 ${telmedCode}`);
-            return buildStatusResult(subfunds, [hasTelmed ? '' : ` ADP/Export ${telmedCode}`].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
+            return buildStatusResult(subfunds, [hasTelmed ? '' : ` ADP/Export ${telmedCode}`].filter(Boolean));
         }
 
         if (fundId === 'drugp') {
+            if (!isUcsLike) return buildStatusResult([], [], undefined, false);
             const hasDrugp = toFlag(item?.has_drugp);
+            const hasDrugItems = Number(item?.drug_count ?? 0) > 0;
             if (hasDrugp) subfunds.push('📦 EMS ส่งยา');
-            return buildStatusResult(subfunds, [hasDrugp ? '' : ' ADP DRUGP'].filter(Boolean), !isUcsLike ? `ไม่ใช่สิทธิ์ UCS (${item.hipdata_code || 'ไม่มี'})` : undefined);
+            return buildStatusResult(subfunds, [
+                hasDrugp ? '' : ' ADP DRUGP',
+                hasDrugItems ? '' : ' รายการยา',
+            ].filter(Boolean));
         }
 
         if (fundId === 'herb') {
+            if (!(isUcsLike || hipdataText.includes('WEL'))) return buildStatusResult([], [], undefined, false);
             const hasHerb = Number(item?.herb_total_price || 0) > 0 || toFlag(item?.has_herb);
             if (hasHerb) subfunds.push('🌿 สมุนไพร');
-            return buildStatusResult(subfunds, [hasHerb ? '' : ' รายการสมุนไพร/ยอดราคา'].filter(Boolean), !(isUcsLike || hipdataText.includes('WEL')) ? 'ไม่ใช่สิทธิ์ UCS/WEL' : undefined);
+            return buildStatusResult(subfunds, [hasHerb ? '' : ' รายการสมุนไพร/ยอดราคา'].filter(Boolean));
         }
 
         if (fundId === 'knee') {
-            const hasKneeService = toFlag(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
-            if (hasKneeService) subfunds.push('🦵 พอกเข่า');
-            return buildStatusResult(subfunds, [
-                age >= 40 ? '' : ' อายุ 40 ปีขึ้นไป',
-                hasKneeService ? '' : ' บริการพอก/ประคบเข่า',
-            ].filter(Boolean));
+            const hasAge = toFlag(item?.knee_age_eligible) || age >= 40;
+            const hasDiagM17 = toFlag(item?.has_knee_diag_m17) || hasDiagPrefix(item, 'M17');
+            const hasDiagU5753 = toFlag(item?.has_knee_diag_u5753) || hasDiagCodes(item, ['U57.53', 'U5753']);
+            const hasDiag = hasDiagM17 && hasDiagU5753;
+            const hasThigh = toFlag(item?.has_knee_massage_thigh);
+            const hasKnee = toFlag(item?.has_knee_massage_knee);
+            const hasLowerLeg = toFlag(item?.has_knee_massage_lower_leg);
+            const hasPoultice = toFlag(item?.has_knee_poultice);
+            const hasAllOperations = hasThigh && hasKnee && hasLowerLeg && hasPoultice;
+            const hasKneeEvidence = hasDiag || hasThigh || hasKnee || hasLowerLeg || hasPoultice || toFlag(item?.has_knee_oper) || hasText(item?.proc_name, /KNEE|เข่า/) || hasText(item?.service_name, /KNEE|เข่า/);
+            const withinLimit = Number(item?.knee_poultice_14d_count ?? 0) <= 5;
+            const isMatched = hasAge && hasDiag && hasAllOperations && withinLimit;
+            if (hasKneeEvidence || (hasAge && hasDiag)) subfunds.push('🦵 พอกเข่า');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasAge ? '' : ' อายุ 40 ปีขึ้นไป',
+                    hasDiag ? '' : ' Diagnosis ต้องมีทั้ง M17 และ U57.53',
+                    hasThigh ? '' : ' หัตถการ 872-78-11',
+                    hasKnee ? '' : ' หัตถการ 873-78-11',
+                    hasLowerLeg ? '' : ' หัตถการ 874-78-11',
+                    hasPoultice ? '' : ' หัตถการ 873-78-35',
+                    withinLimit ? '' : ' เกิน 5 ครั้งใน 2 สัปดาห์',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasAge ? 'อายุ 40 ปีขึ้นไป' : '',
+                    hasDiag ? 'Diagnosis M17 และ U57.53' : '',
+                    hasAllOperations ? 'หัตถการครบ 4 กิจกรรม' : '',
+                    withinLimit ? 'ไม่เกิน 5 ครั้ง/2 สัปดาห์' : '',
+                ].filter(Boolean)
+            );
         }
 
         if (fundId === 'preg_test') {
@@ -510,12 +666,12 @@ export const SpecificFundPage: React.FC = () => {
             const hasAdp = toFlag(item?.has_chol_adp) || hasAnyCodeValue(item?.adp_names, ['12004']) || hasAnyCodeValue(item?.anc_adp_codes, ['12004']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
             const cholServiceEvidence = hasAge && (hasLab || hasDiag || hasAdp);
-            if (isMatched || cholServiceEvidence) subfunds.push('🧪 คัดกรองไขมัน');
+            if (isMatched || cholServiceEvidence) subfunds.push('❤️ คัดกรองหัวใจหลอดเลือด');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 12004', [
-                    { met: hasAge, label: ' อายุ 45-59 ปี' },
-                    { met: hasLab, label: ' Lab Cholesterol/HDL' },
+                    { met: hasAge, label: ' อายุ 45-70 ปี' },
+                    { met: hasLab, label: ' Lab Total Cholesterol และ HDL' },
                     { met: hasDiag, label: ' Diagnosis Z136' },
                 ], hasAge && (hasLab || hasDiag)),
                 undefined,
@@ -534,7 +690,7 @@ export const SpecificFundPage: React.FC = () => {
             const requiresCbc = anemiaCriteria.hasAgeBand13To24Years;
             const requiresHbHct = anemiaCriteria.hasAgeBand6To12Months || anemiaCriteria.hasAgeBand3To6Years;
             const hasLab = requiresCbc ? hasCbc : (requiresHbHct ? hasHbHct : toFlag(item?.has_anemia_lab));
-            const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z130']);
+            const hasDiag = toFlag(item?.has_anemia_diag) || hasDiagCodes(item, ['Z130', 'Z138']);
             const hasAdp = toFlag(item?.has_anemia_adp) || hasAnyCodeValue(item?.adp_names, ['13001']) || hasAnyCodeValue(item?.anc_adp_codes, ['13001']);
             const isMatched = hasAge && hasLab && hasDiag && hasAdp;
             const bandRule = anemiaCriteria.bandRule;
@@ -546,7 +702,7 @@ export const SpecificFundPage: React.FC = () => {
             const matchedConditions = [
                 hasAge ? `อายุ ${anemiaCriteria.ageLabel}` : '',
                 hasLab ? anemiaCriteria.labLabel : '',
-                hasDiag ? 'Diagnosis Z130' : '',
+                hasDiag ? 'Diagnosis Z130/Z138' : '',
                 hasAdp ? 'ADP 13001' : '',
             ].filter(Boolean);
             return buildStatusResult(
@@ -554,11 +710,31 @@ export const SpecificFundPage: React.FC = () => {
                 getNearStatusMissing(hasAdp, ' ADP 13001', [
                     { met: hasAge, label: ` อายุ ${anemiaCriteria.ageLabel}` },
                     { met: hasLab, label: ` ${anemiaCriteria.labLabel}` },
-                    { met: hasDiag, label: ' Diagnosis Z130' },
+                    { met: hasDiag, label: ' Diagnosis Z130/Z138' },
                 ], hasAge && (hasLab || hasDiag)),
                 undefined,
                 isMatched,
                 matchedConditions
+            );
+        }
+
+        if (fundId === 'syphilis_screening_male') {
+            const isMale = String(item?.sex ?? '').trim() === '1';
+            const hasLab = toFlag(item?.has_syphilis_lab) || hasValue(item?.syphilis_lab_names) || hasValue(item?.syphilis_service_names);
+            const isMatched = isMale && hasLab;
+            if (hasLab || isMale) subfunds.push('🧪 คัดกรองซิฟิลิส (ชาย)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    isMale ? '' : ' เพศชาย',
+                    hasLab ? '' : ' Lab Treponema/Syphilis',
+                ].filter(Boolean),
+                hasLab && !isMale ? 'ไม่ใช่ประชาชนทั่วไปเพศชาย' : undefined,
+                isMatched,
+                [
+                    isMale ? 'เพศชาย' : '',
+                    hasLab ? 'Lab Treponema/Syphilis' : '',
+                ].filter(Boolean)
             );
         }
 
@@ -583,11 +759,9 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (fundId === 'ferrokid_child') {
-            const ageYears = Number(item?.age_y ?? item?.age ?? -1);
             const ageMonths = Number(item?.age_month ?? -1);
             const hasAge = toFlag(item?.ferrokid_age_eligible)
-                || (ageMonths >= 2 && ageMonths <= 144)
-                || (ageYears >= 0 && ageYears <= 12);
+                || (ageMonths >= 6 && ageMonths <= 12);
             const hasDiag = toFlag(item?.has_ferrokid_diag) || hasDiagCodes(item, ['Z130']);
             const hasMed = toFlag(item?.has_ferrokid_med) || toFlag(item?.has_ferrokid);
             const isMatched = hasAge && hasDiag && hasMed;
@@ -595,7 +769,7 @@ export const SpecificFundPage: React.FC = () => {
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(true, '', [
-                    { met: hasAge, label: ' อายุ 2 เดือน-12 ปี' },
+                    { met: hasAge, label: ' อายุ 6-12 เดือน' },
                     { met: hasDiag, label: ' Diagnosis Z130' },
                     { met: hasMed, label: ' ยา Ferrokid' },
                 ], hasMed || hasDiag),
@@ -604,8 +778,74 @@ export const SpecificFundPage: React.FC = () => {
             );
         }
 
+        const pp2569Labels: Record<string, { label: string; age: string; evidence: string; channel: string; requireSex?: string }> = {
+            mental_health_counselling: {
+                label: 'ปรึกษาสุขภาพจิต',
+                age: 'อายุ 12 ปีขึ้นไป',
+                evidence: 'ST-5/9Q หรือบริการ counselling',
+                channel: 'e-Claim',
+            },
+            gender_affirming_hormone: {
+                label: 'ฮอร์โมนยืนยันเพศสภาพ',
+                age: 'ตาม protocol 1-4',
+                evidence: 'บริการ/แล็บ/ยา hormone',
+                channel: 'KTB/VMI',
+            },
+            latent_tb_screening: {
+                label: 'คัดกรอง Latent TB',
+                age: 'กลุ่มเสี่ยงตามแนวทาง TB',
+                evidence: 'IGRA หรือบริการคัดกรองวัณโรคระยะแฝง',
+                channel: 'NTIP/TB Data Hub',
+            },
+            osteoporosis_screening: {
+                label: 'คัดกรองกระดูกพรุน',
+                age: 'หญิงอายุ 60 ปีขึ้นไป',
+                evidence: 'FRAX/DXA/BMD',
+                channel: 'KTB',
+                requireSex: '2',
+            },
+            autism_tdas_screening: {
+                label: 'คัดกรอง TDAS',
+                age: 'เด็ก 12-60 เดือน',
+                evidence: 'TDAS หรือบริการคัดกรองออทิสติก',
+                channel: 'KTB',
+            },
+        };
+
+        if (pp2569Labels[fundId]) {
+            const meta = pp2569Labels[fundId];
+            const hasAge = toFlag(item?.age_eligible) || !item?.age_eligible;
+            const hasSex = meta.requireSex ? String(item?.sex ?? '').trim() === meta.requireSex : true;
+            const hasEvidence = toFlag(item?.has_specific_evidence) || hasValue(item?.specific_lab_names) || hasValue(item?.specific_service_names);
+            const hasDiag = toFlag(item?.has_specific_diag) || hasValue(item?.specific_diags);
+            const isMatched = hasAge && hasSex && hasEvidence;
+            if (hasAge || hasEvidence || hasDiag) subfunds.push(`${meta.label} (${meta.channel})`);
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasAge ? '' : ` ${meta.age}`,
+                    hasSex ? '' : ' เพศหญิง',
+                    hasEvidence ? '' : ` ${meta.evidence}`,
+                ].filter(Boolean),
+                hasDiag && !hasEvidence ? 'พบ diagnosis ใกล้เคียง แต่ยังไม่พบหลักฐานบริการ/lab' : undefined,
+                isMatched,
+                [
+                    hasAge ? meta.age : '',
+                    hasSex ? '' : '',
+                    hasEvidence ? meta.evidence : '',
+                    meta.channel,
+                ].filter(Boolean)
+            );
+        }
+
         if (fundId === 'anc') {
             const hasVisitAdp = toFlag(item?.has_anc_visit) || hasAnyCodeValue(item?.anc_adp_codes, ['30011']);
+            // ANC sub-services (ultrasound, lab and dental) are separate claim
+            // items. Do not label them as a near-miss ANC Visit merely because
+            // the visit also carries Z34/Z35.
+            if (!hasVisitAdp && hasDedicatedAncService(item)) {
+                return buildStatusResult([], [], undefined, false);
+            }
             const ancVisitEvidence = hasVisitAdp || hasAncDiag;
             const isMatched = isFemale && hasAncDiag && hasVisitAdp;
             if (ancVisitEvidence) subfunds.push('🤰 ANC Visit');
@@ -622,10 +862,10 @@ export const SpecificFundPage: React.FC = () => {
 
         if (fundId === 'anc_ultrasound') {
             const hasAncUs = toFlag(item?.has_anc_us) || hasAnyCodeValue(item?.anc_adp_codes, ['30010']);
-            const hasAncUsProc = toFlag(item?.has_anc_us_proc);
-            // ANC Ultrasound ต้องมีทั้ง ADP 30010 และหลักฐาน Ultrasound ANC
-            const hasUltrasoundEvidence = hasAncUs && hasAncUsProc;
-            const ancUsEvidence = hasAncUs || hasAncUsProc;
+            // ADP 30010 เป็นหลักฐานบริการ ANC Ultrasound โดยไม่ตรวจ xray_head ซ้ำ
+            if (!hasAncUs) return buildStatusResult([], [], undefined, false);
+            const hasUltrasoundEvidence = hasAncUs;
+            const ancUsEvidence = hasAncUs;
             const isMatched = isFemale && hasAncDiag && hasUltrasoundEvidence;
             if (ancUsEvidence) subfunds.push('📽️ ANC Ultrasound');
             return buildStatusResult(
@@ -633,8 +873,7 @@ export const SpecificFundPage: React.FC = () => {
                 getNearStatusMissing(hasAncUs, ' ADP 30010', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasAncUsProc, label: ' Ultrasound ANC' },
-                ], isFemale && hasAncDiag && hasAncUsProc),
+                ], isFemale && hasAncDiag),
                 ancUsEvidence && !isFemale ? 'เพศชาย ไม่สามารถรับบริการ ANC Ultrasound' : undefined,
                 isMatched
             );
@@ -670,17 +909,18 @@ export const SpecificFundPage: React.FC = () => {
 
         if (fundId === 'anc_dental_exam') {
             const hasExam = toFlag(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
-            const hasDentalDiagK = hasDiagPrefix(item, 'K');
-            const ancDentalExamEvidence = isFemale && (hasExam || hasAncDiag || hasDentalDiagK);
-            const isMatched = isFemale && hasAncDiag && hasDentalDiagK && hasExam;
+            const hasExamProcedure = toFlag(item?.has_anc_dental_exam_procedure)
+                || hasAnyCodeValue(item?.dental_procedure_codes, ['2330011', '2330013']);
+            const ancDentalExamEvidence = isFemale && (hasExam || hasAncDiag || hasExamProcedure);
+            const isMatched = isFemale && hasAncDiag && hasExamProcedure && hasExam;
             if (ancDentalExamEvidence) subfunds.push('🦷 ANC ตรวจฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasExam, ' ADP 30008', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasDentalDiagK, label: ' Diagnosis K*' },
-                ], isFemale && hasAncDiag && hasDentalDiagK),
+                    { met: hasExamProcedure, label: ' หัตถการ 2330011/2330013' },
+                ], isFemale && hasAncDiag && hasExamProcedure),
                 undefined,
                 isMatched
             );
@@ -688,17 +928,18 @@ export const SpecificFundPage: React.FC = () => {
 
         if (fundId === 'anc_dental_clean') {
             const hasClean = toFlag(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
-            const hasDentalDiagK = hasDiagPrefix(item, 'K');
-            const ancDentalCleanEvidence = isFemale && (hasClean || hasAncDiag || hasDentalDiagK);
-            const isMatched = isFemale && hasAncDiag && hasDentalDiagK && hasClean;
+            const hasCleanProcedure = toFlag(item?.has_anc_dental_clean_procedure)
+                || hasAnyCodeValue(item?.dental_procedure_codes, ['2387010', '2277310', '2277320', '2287310', '2287320']);
+            const ancDentalCleanEvidence = isFemale && (hasClean || hasAncDiag || hasCleanProcedure);
+            const isMatched = isFemale && hasAncDiag && hasCleanProcedure && hasClean;
             if (ancDentalCleanEvidence) subfunds.push('🪥 ANC ขัดทำความสะอาดฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasClean, ' ADP 30009', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasDentalDiagK, label: ' Diagnosis K*' },
-                ], isFemale && hasAncDiag && hasDentalDiagK),
+                    { met: hasCleanProcedure, label: ' หัตถการ 2387010/2277310/2277320/2287310/2287320' },
+                ], isFemale && hasAncDiag && hasCleanProcedure),
                 undefined,
                 isMatched
             );
@@ -765,12 +1006,12 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (fundId === 'condom') {
-            const hasCondom = toFlag(item?.has_fp_condom) || toFlag(item?.has_specific_adp) || hasAnyCodeValue(item?.fp_adp_codes, ['FP003_4']);
-            const isMatched = hasFpDiag && hasCondom;
-            if (hasFpDiag || hasCondom) subfunds.push('🛡️ ถุงยางอนามัย');
+            const hasInjection = toFlag(item?.has_fp_condom) || toFlag(item?.has_specific_adp) || hasAnyCodeValue(item?.fp_adp_codes, ['FP003_4']);
+            const isMatched = hasFpDiag && hasInjection;
+            if (hasFpDiag || hasInjection) subfunds.push('💉 ยาฉีดคุมกำเนิด');
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasCondom, ' ADP FP003_4', [
+                getNearStatusMissing(hasInjection, ' ADP FP003_4', [
                     { met: hasFpDiag, label: ' Diagnosis Z30x' },
                 ], hasFpDiag),
                 undefined,
@@ -805,9 +1046,49 @@ export const SpecificFundPage: React.FC = () => {
         }
 
         if (fundId === 'hepc') {
-            const hasHepc = toFlag(item?.has_hepc_diag) || hasDiagCodes(item, ['B182']);
-            if (hasHepc) subfunds.push('🩹 ไวรัสตับอักเสบซี');
-            return buildStatusResult(subfunds, [hasHepc ? '' : ' Diagnosis B182'].filter(Boolean));
+            const birthBefore2535 = toFlag(item?.birth_before_2535) || (item?.birthday ? new Date(item.birthday).getTime() < new Date('1992-01-01').getTime() : false);
+            const hasDiag = toFlag(item?.has_z115_diag) || hasDiagCodes(item, ['Z115']);
+            const hasLab = toFlag(item?.has_hepc_lab) || hasValue(item?.hepc_lab_names) || hasValue(item?.hepc_service_names);
+            if (!hasLab) return buildStatusResult([], [], undefined, false);
+            const isMatched = birthBefore2535 && hasDiag && hasLab;
+            subfunds.push('🩹 คัดกรองไวรัสตับอักเสบซี');
+            return buildStatusResult(
+                subfunds,
+                [
+                    birthBefore2535 ? '' : ' เกิดก่อน พ.ศ.2535',
+                    hasDiag ? '' : ' Diagnosis Z11.5',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    birthBefore2535 ? 'เกิดก่อน พ.ศ.2535' : '',
+                    hasDiag ? 'Diagnosis Z11.5' : '',
+                    hasLab ? 'Lab Anti-HCV' : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'hepb') {
+            const birthBefore2535 = toFlag(item?.birth_before_2535) || (item?.birthday ? new Date(item.birthday).getTime() < new Date('1992-01-01').getTime() : false);
+            const hasDiag = toFlag(item?.has_z115_diag) || hasDiagCodes(item, ['Z115']);
+            const hasLab = toFlag(item?.has_hepb_lab) || hasValue(item?.hepb_lab_names) || hasValue(item?.hepb_service_names);
+            if (!hasLab) return buildStatusResult([], [], undefined, false);
+            const isMatched = birthBefore2535 && hasDiag && hasLab;
+            subfunds.push('🧫 คัดกรองไวรัสตับอักเสบบี');
+            return buildStatusResult(
+                subfunds,
+                [
+                    birthBefore2535 ? '' : ' เกิดก่อน พ.ศ.2535',
+                    hasDiag ? '' : ' Diagnosis Z11.5',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    birthBefore2535 ? 'เกิดก่อน พ.ศ.2535' : '',
+                    hasDiag ? 'Diagnosis Z11.5' : '',
+                    hasLab ? 'Lab HBsAg' : '',
+                ].filter(Boolean)
+            );
         }
 
         if (fundId === 'rehab') {
@@ -847,9 +1128,129 @@ export const SpecificFundPage: React.FC = () => {
         return { status: 'ยังไม่เข้าเงื่อนไข', class: 'badge-warning', icon: '❓', subfunds, matchedConditions: [] as string[], missingConditions: [] as string[] };
     };
 
+    const getManualEvidenceItems = (fundId: string) => {
+        const evidence: Record<string, string[]> = {
+            instrument: ['ตรวจ sticker/serial number หรือใบรับอุปกรณ์จากเอกสาร'],
+            er_emergency: ['ตรวจใบส่งต่อ/หลักฐานรถและบันทึกดูแลระหว่างนำส่ง'],
+            rehab: ['ตรวจแผนรักษา เวลาเริ่ม–สิ้นสุด และลายมือชื่อผู้ให้บริการ'],
+            knee: ['ตรวจรายละเอียดตำแหน่ง เวลา และผู้ให้บริการแพทย์แผนไทย'],
+            fluoride: ['ตรวจซี่ฟัน/ตำแหน่งและผู้ให้บริการในเวชระเบียนทันตกรรม'],
+            anc_ultrasound: ['ตรวจคำสั่งแพทย์และรายงานผล Ultrasound'],
+        };
+        return evidence[fundId] || [];
+    };
+    const getStatusForFund = (item: any, fundId: string = activeFund) => {
+        const base = getFundRuleStatus(item, fundId);
+        const manualEvidenceConditions = getManualEvidenceItems(fundId);
+        if (base.status === 'ยังไม่เข้าเงื่อนไข' || !toFlag(item?.opd_evidence_checked)) {
+            return { ...base, manualEvidenceConditions };
+        }
+
+        const evidenceMissing = [
+            toFlag(item?.has_provider) ? '' : 'แพทย์/ผู้ให้บริการประจำ visit',
+            toFlag(item?.has_clinical_note) ? '' : 'บันทึกอาการสำคัญ/ประวัติ',
+            toFlag(item?.has_lab_order) && !toFlag(item?.has_lab_result) ? 'ผล LAB ตามคำสั่ง' : '',
+            Number(item?.invalid_charge_qty_count ?? 0) > 0 ? 'จำนวนรายการค่าใช้จ่ายต้องมากกว่า 0' : '',
+            Number(item?.duplicate_charge_count ?? 0) > 0 ? 'ตรวจรายการค่าใช้จ่ายซ้ำ' : '',
+            toFlag(item?.has_55020) && toFlag(item?.has_55021) ? 'เลือกค่าบริการ 55020 หรือ 55021 เพียงรายการเดียว' : '',
+            toFlag(item?.has_observation_charge) && (toFlag(item?.has_55020) || toFlag(item?.has_55021))
+                ? 'ห้ามเบิกเตียงสังเกตอาการร่วมกับ 55020/55021'
+                : '',
+        ].filter(Boolean);
+        if (evidenceMissing.length === 0) return { ...base, manualEvidenceConditions };
+
+        const missingConditions = Array.from(new Set([...(base.missingConditions || []), ...evidenceMissing]));
+        return {
+            ...base,
+            status: `ขาด ${missingConditions.join(' + ')}`,
+            class: missingConditions.length <= 2 ? 'badge-warning' : 'badge-danger',
+            icon: missingConditions.length <= 2 ? '⚠️' : '❌',
+            missingConditions,
+            manualEvidenceConditions,
+        };
+    };
     const getStatus = (item: any) => getStatusForFund(item, activeFund);
+    const getFdhFailureGuidance = (item: any, status = getStatus(item)) => {
+        if (!isFdhProcessingFailed(item)) return '';
+        if (status.missingConditions?.length > 0) {
+            return `ข้อมูลต้นทางยังขาด: ${status.missingConditions.join(', ')}`;
+        }
+        if (hasRepCError(item) || hasRepDenyError(item)) {
+            return `พบ REP: ${getRepImportLabel(item)} — คลิกปุ่ม REP เพื่อดูแนวทางแก้`;
+        }
+        return 'ข้อมูลต้นทางครบตามเกณฑ์เบื้องต้น แต่ ClaimDetail ไม่ระบุสาเหตุ ต้องนำเข้า REP เพื่อดูรหัสปฏิเสธ C/D';
+    };
     const getStatusForFundRef = useRef(getStatusForFund);
     getStatusForFundRef.current = getStatusForFund;
+
+    const trackFdhStatus = async () => {
+        if (filteredData.length === 0) return;
+        const vns = filteredData.map((item: any) => String(item.vn || '')).filter(Boolean);
+        if (vns.length === 0) return;
+        setTrackingFdh(true);
+        setTrackResult(null);
+        setTrackProgress({ done: 0, total: vns.length, updated: 0, errors: 0 });
+        try {
+            let authenUpdated = 0;
+            let authenErrors = 0;
+            let authenErrorMessage = '';
+            try {
+                const authenRes = await fetch('/api/fdh/sync-authen-vns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ startDate, endDate, vns }),
+                });
+                const authenJson = await authenRes.json();
+                if (authenJson.success) {
+                    authenUpdated = authenJson.summary?.updated ?? 0;
+                    authenErrors = authenJson.summary?.errors ?? 0;
+                } else {
+                    authenErrorMessage = authenJson.error || 'Sync NHSO Authen ไม่สำเร็จ';
+                }
+            } catch (e) {
+                authenErrorMessage = e instanceof Error ? e.message : 'เชื่อมต่อ NHSO Authen ไม่สำเร็จ';
+            }
+
+            const chunkSize = 50;
+            let totalUpdated = 0;
+            let totalErrors = 0;
+            let fdhErrorMessage = '';
+            for (let i = 0; i < vns.length; i += chunkSize) {
+                const chunk = vns.slice(i, i + chunkSize);
+                const res = await fetch('/api/fdh/track-vns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ vns: chunk }),
+                });
+                const json = await res.json();
+                if (json.success) {
+                    totalUpdated += json.summary?.updated ?? 0;
+                    totalErrors += json.summary?.errors ?? 0;
+                } else {
+                    fdhErrorMessage = json.error || 'ตรวจสอบ FDH ไม่สำเร็จ';
+                    totalErrors += chunk.length;
+                    break;
+                }
+                setTrackProgress({ done: Math.min(i + chunkSize, vns.length), total: vns.length, updated: totalUpdated, errors: totalErrors });
+            }
+            const resultParts = [
+                `NHSO Authen อัปเดต ${authenUpdated} รายการ${authenErrors > 0 ? ` (ผิดพลาด ${authenErrors})` : ''}`,
+                `FDH อัปเดต ${totalUpdated} รายการ${totalErrors > 0 ? ` (ผิดพลาด ${totalErrors})` : ''}`,
+            ];
+            if (authenErrorMessage) resultParts.push(`NHSO: ${authenErrorMessage}`);
+            if (fdhErrorMessage) resultParts.push(`FDH: ${fdhErrorMessage}`);
+            setTrackResult({
+                success: !authenErrorMessage && !fdhErrorMessage && authenErrors === 0 && totalErrors === 0,
+                message: resultParts.join(' | '),
+            });
+            await fetchFundData();
+        } catch (e) {
+            setTrackResult({ success: false, message: e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+        } finally {
+            setTrackingFdh(false);
+            setTrackProgress(null);
+        }
+    };
 
     const handleRowClick = (item: any) => {
         const mockRecord: CheckRecord = {
@@ -869,9 +1270,19 @@ export const SpecificFundPage: React.FC = () => {
 
     // Show only visits that either match the fund or are close enough to warn what is missing.
     const actionableData = data.filter((item) => getStatus(item).status !== 'ยังไม่เข้าเงื่อนไข');
-    const filteredData = showIncompleteOnly
-        ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
-        : actionableData;
+    const excludedAncServiceRows = activeFund === 'anc'
+        ? data.filter((item) => (
+            !toFlag(item?.has_anc_visit)
+            && !hasAnyCodeValue(item?.anc_adp_codes, ['30011'])
+            && hasDedicatedAncService(item)
+        ))
+        : [];
+    const excludedAncFailedRows = excludedAncServiceRows.filter(isFdhProcessingFailed);
+    const filteredData = showRepCOnly
+        ? actionableData.filter(hasRepCError)
+        : showIncompleteOnly
+            ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
+            : actionableData;
 
     const buildExportRows = useCallback((items: any[], fundId: string): Array<Record<string, string | number>> => {
         const evaluateStatus = getStatusForFundRef.current;
@@ -890,16 +1301,27 @@ export const SpecificFundPage: React.FC = () => {
                 'FDH Status': item.fdh_claim_status_message || '',
                 'Fdh_Stm_Period': item.fdh_stm_period || '',
                 'Fdh_Act_Amt': item.fdh_act_amt != null ? Number(item.fdh_act_amt) : '',
+                'FDH File Status': item.fdh_import_status || '',
+                'FDH Claim Code': item.fdh_import_claim_code || '',
+                'REP No': item.rep_no || '',
+                'REP Amount': item.rep_amount ?? '',
+                'REP Error': [item.rep_errorcode, item.rep_verifycode].filter(Boolean).join(' / '),
+                'STM/INV No': item.stm_statement_no || '',
+                'STM Amount': item.stm_amount ?? '',
+                'STM Paid': item.stm_paid_amount ?? '',
+                'STM Error': [item.stm_errorcode, item.stm_verifycode].filter(Boolean).join(' / '),
                 'Fdh_Settle_At': item.fdh_settle_at || '',
                 'สถานะ': status.status,
                 'บริการ': status.subfunds.join(' | ') || '',
                 'เงื่อนไขที่ตรง': status.matchedConditions?.join(' | ') || '',
                 'เงื่อนไขที่ขาด': status.missingConditions?.join(' | ') || '',
+                'หลักฐานเอกสารที่ต้องตรวจ': status.manualEvidenceConditions?.join(' | ') || '',
             };
 
             if (fundId === 'palliative') {
                 return {
                     ...baseRow,
+                    'Diag หลัก': item.pdx || '',
                     'Diag Z515': item.z515_code || '',
                     'Diag Z718': item.z718_code || '',
                     'ADP Code': item.adp_code || '',
@@ -928,9 +1350,23 @@ export const SpecificFundPage: React.FC = () => {
                     'ADP Codes': item.fp_adp_codes || '',
                 };
             }
+            if (fundId === 'anc_dental_exam' || fundId === 'anc_dental_clean') {
+                return {
+                    ...baseRow,
+                    'Diagnosis ฝากครรภ์': item.anc_diags || '',
+                    'ADP Codes': item.anc_adp_codes || '',
+                    'ชื่อรายการ ADP': item.adp_names || '',
+                    'รหัสหัตถการทันตกรรม': item.dental_procedure_codes || '',
+                    'หัตถการทันตกรรม': item.dental_procedure_names || '',
+                    'บันทึกตรวจช่องปาก': toFlag(item.has_dental_care_record) ? 'มี' : 'ไม่มี',
+                };
+            }
 
             return baseRow;
         });
+    // The label helpers are pure formatters declared in this component; export data is
+    // evaluated only when the user clicks export, so recreating this callback adds no value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const writeExportFile = useCallback((fundId: string, items: any[]) => {
@@ -983,12 +1419,31 @@ export const SpecificFundPage: React.FC = () => {
     const activeRule = getFundRule(activeFund);
     const activeConditions = activeRule?.conditions || activeFundDefinition?.conditions || [];
     const activeCaution = activeRule?.caution || activeFundDefinition?.caution;
+    const activeClaimChannel = activeFundDefinition?.claimChannel || 'ยังไม่ได้จัดช่องทาง';
+    const activeRecordingSystem = activeFundDefinition?.recordingSystem || 'ตรวจสอบตามประกาศ/คู่มือกองทุนล่าสุด';
+    const activeClaimChannelNote = activeFundDefinition?.claimChannelNote;
+    const showFdhClaimProgress = activeFundDefinition
+        ? isFundInChannelView(activeFundDefinition, 'fdh')
+        : channelView === 'fdh';
+    const fdhClaimProgress = buildFdhClaimProgress(
+        actionableData,
+        (item) => getStatusForFund(item, activeFund).status === 'สมบูรณ์',
+    );
+    const fdhStageIndex = fdhClaimProgress.stage === 'no-data'
+        ? 0
+        : ['prepare-data', 'ready-to-submit', 'partially-submitted'].includes(fdhClaimProgress.stage)
+            ? 1
+            : ['rep-correction', 'awaiting-rep'].includes(fdhClaimProgress.stage)
+                ? 2
+                : fdhClaimProgress.stage === 'awaiting-statement'
+                    ? 3
+                    : 4;
 
     return (
         <div className="page-container" style={{ display: 'flex', flexDirection: 'column' }}>
             <div className="page-header">
-                <h1 className="page-title">🎯 ตรวจสอบเงื่อนไขรายกองทุน</h1>
-                <p className="page-subtitle">แสดงรายการแยกตามเงื่อนไขพิเศษของแต่ละโครงการ เช่น Palliative Care</p>
+                <h1 className="page-title">🎯 {CHANNEL_VIEW_LABELS[channelView].title}</h1>
+                <p className="page-subtitle">{CHANNEL_VIEW_LABELS[channelView].subtitle}</p>
             </div>
 
             {dashboardContextItems.length > 0 && (
@@ -1023,9 +1478,9 @@ export const SpecificFundPage: React.FC = () => {
                     {visibleFunds.length === 0 && (
                         <div className="specific-fund-empty" style={{ marginBottom: 12, gridColumn: '1 / -1' }}>
                             <div className="specific-fund-empty__icon">🚫</div>
-                            <div className="specific-fund-empty__title">ไม่มีเมนูกองทุนที่แสดง</div>
+                            <div className="specific-fund-empty__title">{CHANNEL_VIEW_LABELS[channelView].empty}</div>
                             <div className="specific-fund-empty__text">
-                                กรุณาไปที่ <strong>ตั้งค่า</strong> แล้วเปิดกองทุนที่ต้องการแสดงในหน้า <strong>รายกองทุน (พิเศษ)</strong>
+                                กรุณาไปที่ <strong>ตั้งค่า</strong> แล้วเปิดรายการที่ต้องการแสดงในหน้า <strong>รายกองทุน/43 แฟ้ม</strong>
                             </div>
                         </div>
                     )}
@@ -1046,6 +1501,7 @@ export const SpecificFundPage: React.FC = () => {
                             er_emergency: { gradient: 'linear-gradient(135deg, #ff6e7f 0%, #bfe9ff 100%)', accent: '#bfe9ff', light: '#e0f7ff' },
                             chemo: { gradient: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)', accent: '#c2e9fb', light: '#e0f7ff' },
                             hepc: { gradient: 'linear-gradient(135deg, #d299c2 0%, #fef9d7 100%)', accent: '#fef9d7', light: '#fffce0' },
+                            hepb: { gradient: 'linear-gradient(135deg, #38bdf8 0%, #0f766e 100%)', accent: '#0f766e', light: '#ccfbf1' },
                             rehab: { gradient: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', accent: '#38ef7d', light: '#e0f7f0' },
                             crrt: { gradient: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', accent: '#6dd5ed', light: '#e0f7ff' },
                             robot: { gradient: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)', accent: '#fed6e3', light: '#ffe5f0' },
@@ -1055,8 +1511,14 @@ export const SpecificFundPage: React.FC = () => {
                             fpg_screening: { gradient: 'linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)', accent: '#ff4b2b', light: '#ffe5e0' },
                             cholesterol_screening: { gradient: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)', accent: '#ffd200', light: '#fffce0' },
                             anemia_screening: { gradient: 'linear-gradient(135deg, #ee9ca7 0%, #ffdde1 100%)', accent: '#ffdde1', light: '#ffe5e8' },
+                            syphilis_screening_male: { gradient: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)', accent: '#14b8a6', light: '#ccfbf1' },
                             iron_supplement: { gradient: 'linear-gradient(135deg, #870000 0%, #190a05 100%)', accent: '#c86464', light: '#ffe0e0' },
                             ferrokid_child: { gradient: 'linear-gradient(135deg, #c31432 0%, #240b36 100%)', accent: '#c31432', light: '#ffe1ea' },
+                            mental_health_counselling: { gradient: 'linear-gradient(135deg, #2563eb 0%, #14b8a6 100%)', accent: '#14b8a6', light: '#e0f7f4' },
+                            gender_affirming_hormone: { gradient: 'linear-gradient(135deg, #db2777 0%, #f97316 100%)', accent: '#f97316', light: '#fff1e6' },
+                            latent_tb_screening: { gradient: 'linear-gradient(135deg, #334155 0%, #0f766e 100%)', accent: '#0f766e', light: '#e2e8f0' },
+                            osteoporosis_screening: { gradient: 'linear-gradient(135deg, #64748b 0%, #38bdf8 100%)', accent: '#38bdf8', light: '#e0f7ff' },
+                            autism_tdas_screening: { gradient: 'linear-gradient(135deg, #7c3aed 0%, #06b6d4 100%)', accent: '#06b6d4', light: '#eef2ff' },
                             anc_ultrasound: { gradient: 'linear-gradient(135deg, #2193b0 0%, #6dd5ed 100%)', accent: '#6dd5ed', light: '#e0f7ff' },
                             anc_lab_1: { gradient: 'linear-gradient(135deg, #3a1c71 0%, #d76d77 50%, #ffaf7b 100%)', accent: '#ffaf7b', light: '#fff5e6' },
                             anc_lab_2: { gradient: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', accent: '#2a5298', light: '#e0ebff' },
@@ -1137,6 +1599,7 @@ export const SpecificFundPage: React.FC = () => {
                                             'er_emergency': '🚨',
                                             'chemo': '⚗️',
                                             'hepc': '🩹',
+                                            'hepb': '🧫',
                                             'rehab': '♿',
                                             'crrt': '🏥',
                                             'robot': '🤖',
@@ -1146,8 +1609,14 @@ export const SpecificFundPage: React.FC = () => {
                                             'fpg_screening': '🩸',
                                             'cholesterol_screening': '🧪',
                                             'anemia_screening': '🩸',
+                                            'syphilis_screening_male': '🧪',
                                             'iron_supplement': '💊',
                                             'ferrokid_child': '🧒',
+                                            'mental_health_counselling': '🧠',
+                                            'gender_affirming_hormone': '🧬',
+                                            'latent_tb_screening': '🫁',
+                                            'osteoporosis_screening': '🦴',
+                                            'autism_tdas_screening': '🧩',
                                             'anc_ultrasound': '🔊',
                                             'anc_lab_1': '🧬',
                                             'anc_lab_2': '🧪',
@@ -1215,6 +1684,28 @@ export const SpecificFundPage: React.FC = () => {
                         <h2 style={{ fontSize: '14px', fontWeight: 700, marginBottom: '12px', color: '#1a1a1a' }}>
                             ✓ เงื่อนไขการตรวจสอบ: {activeFundDefinition?.name}
                         </h2>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                            gap: '10px',
+                            marginBottom: '12px',
+                            fontSize: '12px'
+                        }}>
+                            <div style={{ padding: '12px', background: '#eef2ff', borderRadius: '8px', borderLeft: '3px solid #4f46e5' }}>
+                                <div style={{ fontWeight: 700, color: '#4338ca', marginBottom: '4px' }}>ส่งเบิกที่ไหน</div>
+                                <div style={{ color: '#1e1b4b', lineHeight: '1.45' }}>{activeClaimChannel}</div>
+                            </div>
+                            <div style={{ padding: '12px', background: '#ecfeff', borderRadius: '8px', borderLeft: '3px solid #0891b2' }}>
+                                <div style={{ fontWeight: 700, color: '#0e7490', marginBottom: '4px' }}>ระบบบันทึก/ส่งข้อมูล</div>
+                                <div style={{ color: '#164e63', lineHeight: '1.45' }}>{activeRecordingSystem}</div>
+                            </div>
+                            {activeClaimChannelNote && (
+                                <div style={{ padding: '12px', background: '#fefce8', borderRadius: '8px', borderLeft: '3px solid #ca8a04' }}>
+                                    <div style={{ fontWeight: 700, color: '#a16207', marginBottom: '4px' }}>ข้อแยกสำคัญ</div>
+                                    <div style={{ color: '#713f12', lineHeight: '1.45' }}>{activeClaimChannelNote}</div>
+                                </div>
+                            )}
+                        </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px', fontSize: '12px', marginBottom: '10px' }}>
                             {activeConditions.map((condition, index) => {
                                 const cardBg = ['#e3f2fd', '#fff3e0', '#f3e5f5', '#e8f5e9'][index % 4];
@@ -1239,6 +1730,41 @@ export const SpecificFundPage: React.FC = () => {
                                 </div>
                             )}
                         </div>
+                        {activeFund === 'palliative' && (
+                            <section style={{ marginBottom: 12, padding: 14, border: '1px solid #c7d2fe', borderRadius: 12, background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                                    <div>
+                                        <div style={{ fontWeight: 800, color: '#312e81', fontSize: 15 }}>📚 บัญชี Diagnosis ที่เข้าเกณฑ์ Palliative Care</div>
+                                        <div style={{ color: '#475569', fontSize: 12, marginTop: 3 }}>จัดกลุ่มจากบัญชี ICD-10 ที่หน่วยงานกำหนด กดแต่ละกลุ่มเพื่อดูรหัสทั้งหมด</div>
+                                    </div>
+                                    <span style={{ padding: '5px 10px', borderRadius: 999, background: '#4338ca', color: '#fff', fontWeight: 700, fontSize: 12 }}>
+                                        {PALLIATIVE_DIAGNOSIS_GROUPS.length} กลุ่ม • {PALLIATIVE_DIAGNOSIS_CODE_COUNT} รหัส
+                                    </span>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 9 }}>
+                                    {PALLIATIVE_DIAGNOSIS_GROUPS.map((group) => (
+                                        <details key={group.id} open={group.codes.length <= 5} style={{ border: `1px solid ${group.accent}33`, borderLeft: `4px solid ${group.accent}`, borderRadius: 9, background: group.background, overflow: 'hidden' }}>
+                                            <summary style={{ cursor: 'pointer', padding: '10px 12px', listStylePosition: 'inside', color: group.accent, fontWeight: 750, fontSize: 12 }}>
+                                                {group.title} <span style={{ opacity: 0.75, fontWeight: 600 }}>({group.codes.length} รหัส)</span>
+                                            </summary>
+                                            <div style={{ padding: '0 12px 12px' }}>
+                                                <div style={{ color: '#475569', fontSize: 11, lineHeight: 1.45, marginBottom: 8 }}>{group.summary}</div>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: group.codes.length > 40 ? 210 : 'none', overflowY: group.codes.length > 40 ? 'auto' : 'visible', paddingRight: 3 }}>
+                                                    {group.codes.map((code) => (
+                                                        <span key={code} title={group.summary} style={{ padding: '3px 7px', borderRadius: 6, background: '#fff', border: `1px solid ${group.accent}55`, color: '#1e293b', fontFamily: 'monospace', fontSize: 11, fontWeight: 700 }}>
+                                                            {formatPalliativeIcd10(code)}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </details>
+                                    ))}
+                                </div>
+                                <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 11, lineHeight: 1.5 }}>
+                                    <strong>หมายเหตุ:</strong> Z71.8 ใช้ระบุ Advance care planning เมื่อบันทึกคู่กับ Z51.5 และควรตรวจสอบโรคหลักของผู้ป่วยจากกลุ่มด้านบนก่อนส่งเบิก
+                                </div>
+                            </section>
+                        )}
                         <div style={{ display: 'none', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px', fontSize: '12px' }}>
                             {activeFund === 'palliative' && (
                                 <>
@@ -1279,11 +1805,24 @@ export const SpecificFundPage: React.FC = () => {
                                         <div style={{ color: '#e65100' }}>{'> 0 บาท'}</div>
                                     </div>
                                 </>
-                            )}                            {activeFund === 'knee' && (
+                            )}
+                            {activeFund === 'knee' && (
                                 <>
                                     <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
                                         <div style={{ fontWeight: 700, color: '#4caf50', marginBottom: '4px' }}>✓ อายุ</div>
                                         <div style={{ color: '#2e7d32' }}>{'>= 40 ปี'}</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ Diagnosis</div>
+                                        <div style={{ color: '#1565c0' }}>M17 และ U57.53</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
+                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ หัตถการ</div>
+                                        <div style={{ color: '#e65100' }}>872-78-11, 873-78-11, 874-78-11, 873-78-35</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#f3e5f5', borderRadius: '8px', borderLeft: '3px solid #9c27b0' }}>
+                                        <div style={{ fontWeight: 700, color: '#9c27b0', marginBottom: '4px' }}>✓ จำกัดครั้ง</div>
+                                        <div style={{ color: '#6a1b9a' }}>ไม่เกินวันละ 1 ครั้ง รวมไม่เกิน 5 ครั้งใน 2 สัปดาห์</div>
                                     </div>
                                 </>
                             )}
@@ -1298,8 +1837,32 @@ export const SpecificFundPage: React.FC = () => {
                             {activeFund === 'hepc' && (
                                 <>
                                     <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
-                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ Diagnosis</div>
-                                        <div style={{ color: '#e65100' }}>B18.2</div>
+                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ กลุ่มเป้าหมาย</div>
+                                        <div style={{ color: '#e65100' }}>เกิดก่อน พ.ศ.2535</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ Diagnosis</div>
+                                        <div style={{ color: '#1565c0' }}>Z11.5</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
+                                        <div style={{ fontWeight: 700, color: '#4caf50', marginBottom: '4px' }}>✓ Lab</div>
+                                        <div style={{ color: '#2e7d32' }}>Anti-HCV</div>
+                                    </div>
+                                </>
+                            )}
+                            {activeFund === 'hepb' && (
+                                <>
+                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
+                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ กลุ่มเป้าหมาย</div>
+                                        <div style={{ color: '#e65100' }}>เกิดก่อน พ.ศ.2535</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ Diagnosis</div>
+                                        <div style={{ color: '#1565c0' }}>Z11.5</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
+                                        <div style={{ fontWeight: 700, color: '#4caf50', marginBottom: '4px' }}>✓ Lab</div>
+                                        <div style={{ color: '#2e7d32' }}>HBsAg</div>
                                     </div>
                                 </>
                             )}
@@ -1342,7 +1905,8 @@ export const SpecificFundPage: React.FC = () => {
                                         <div style={{ color: '#1565c0' }}>อ่านฟิล์ม CXR</div>
                                     </div>
                                 </>
-                            )}                            {activeFund === 'fp' && (
+                            )}
+                            {activeFund === 'fp' && (
                                 <>
                                     <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
                                         <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ Diagnosis Z30</div>
@@ -1366,12 +1930,153 @@ export const SpecificFundPage: React.FC = () => {
                                     </div>
                                 </>
                             )}
-                            {!['palliative', 'telemedicine', 'herb', 'knee', 'chemo', 'hepc', 'rehab', 'crrt', 'robot', 'proton', 'cxr', 'fp', 'preg_test'].includes(activeFund) && (
+                            {(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') && (
+                                <>
+                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
+                                        <div style={{ fontWeight: 700, color: '#e65100', marginBottom: '4px' }}>✓ Diagnosis ฝากครรภ์</div>
+                                        <div style={{ color: '#bf360c' }}>Z34 หรือ Z35</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
+                                        <div style={{ fontWeight: 700, color: '#2e7d32', marginBottom: '4px' }}>✓ ADP Code</div>
+                                        <div style={{ color: '#1b5e20' }}>{activeFund === 'anc_dental_exam' ? '30008' : '30009'}</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: 'span 2' }}>
+                                        <div style={{ fontWeight: 700, color: '#1565c0', marginBottom: '4px' }}>✓ หัตถการทันตกรรม</div>
+                                        <div style={{ color: '#0d47a1', fontFamily: 'monospace', lineHeight: 1.6 }}>
+                                            {activeFund === 'anc_dental_exam'
+                                                ? '2330011, 2330013'
+                                                : '2387010, 2277310, 2277320, 2287310, 2287320'}
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: '10px 12px', background: '#f3e5f5', borderRadius: '8px', borderLeft: '3px solid #9c27b0', gridColumn: '1 / -1', color: '#6a1b9a', fontSize: 12 }}>
+                                        ตรวจช่องปากและขัดทำความสะอาดฟันรวมอัตรา 500 บาทต่อการตั้งครรภ์ และไม่จำเป็นต้องให้บริการในวันเดียวกัน
+                                    </div>
+                                </>
+                            )}
+                            {['mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
+                                <>
+                                    <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '8px', borderLeft: '3px solid #4caf50' }}>
+                                        <div style={{ fontWeight: 700, color: '#4caf50', marginBottom: '4px' }}>✓ กลุ่มเป้าหมาย</div>
+                                        <div style={{ color: '#2e7d32' }}>
+                                            {activeFund === 'mental_health_counselling' ? 'อายุ 12 ปีขึ้นไป'
+                                                : activeFund === 'osteoporosis_screening' ? 'หญิงอายุ 60 ปีขึ้นไป'
+                                                    : activeFund === 'autism_tdas_screening' ? 'เด็ก 12-60 เดือน'
+                                                        : 'ตาม protocol/กลุ่มเสี่ยง'}
+                                        </div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#2196f3', marginBottom: '4px' }}>✓ หลักฐาน</div>
+                                        <div style={{ color: '#1565c0' }}>
+                                            {activeFund === 'latent_tb_screening' ? 'IGRA / Latent TB'
+                                                : activeFund === 'osteoporosis_screening' ? 'FRAX / DXA / BMD'
+                                                    : activeFund === 'autism_tdas_screening' ? 'TDAS'
+                                                        : activeFund === 'gender_affirming_hormone' ? 'Hormone / Lab / VMI'
+                                                            : 'ST-5 / 9Q / Counselling'}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                            {!['palliative', 'telemedicine', 'herb', 'knee', 'chemo', 'hepc', 'hepb', 'rehab', 'crrt', 'robot', 'proton', 'cxr', 'fp', 'preg_test', 'anc_dental_exam', 'anc_dental_clean', 'mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
                                 <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: '1 / -1' }}>
                                     <div style={{ fontWeight: 700, color: '#2196f3' }}>ℹ️ เลือกกองทุนด้านซ้ายเพื่อดูเงื่อนไข</div>
                                 </div>                            )}
                         </div>
-                    </div>                    {/* Data Table Section */}
+                    </div>
+                    {showFdhClaimProgress && !loading && !error && (
+                        <section
+                            className={`specific-fund-fdh-monitor specific-fund-fdh-monitor--${fdhClaimProgress.stage}`}
+                            data-testid="fdh-claim-progress"
+                        >
+                            <div className="specific-fund-fdh-monitor__header">
+                                <div>
+                                    <div className="specific-fund-fdh-monitor__kicker">FDH CLAIM MONITOR</div>
+                                    <h2>{fdhClaimProgress.stageTitle}</h2>
+                                    <p>{fdhClaimProgress.stageDescription}</p>
+                                </div>
+                                <div className={`specific-fund-fdh-monitor__verdict ${fdhClaimProgress.isFullySubmitted ? 'is-complete' : 'is-incomplete'}`}>
+                                    <span>ส่งออกไปเบิกครบหรือไม่</span>
+                                    <strong>
+                                        {fdhClaimProgress.total === 0
+                                            ? 'ยังไม่มีข้อมูล'
+                                            : fdhClaimProgress.isFullySubmitted
+                                                ? 'ส่งครบแล้ว'
+                                                : 'ยังส่งไม่ครบ'}
+                                    </strong>
+                                    <small>
+                                        พบใน FDH {fdhClaimProgress.submitted}/{fdhClaimProgress.total} รายการ
+                                        {fdhClaimProgress.total > 0 ? ` (${fdhClaimProgress.coveragePercent}%)` : ''}
+                                    </small>
+                                </div>
+                            </div>
+
+                            <div className="specific-fund-fdh-monitor__metrics">
+                                <div className="specific-fund-fdh-metric">
+                                    <span>รายการที่ระบบพบ</span>
+                                    <strong>{fdhClaimProgress.total}</strong>
+                                    <small>เข้าเกณฑ์/ใกล้เข้าเกณฑ์</small>
+                                </div>
+                                <div className="specific-fund-fdh-metric is-ready">
+                                    <span>ข้อมูลพร้อมส่ง</span>
+                                    <strong>{fdhClaimProgress.ready}</strong>
+                                    <small>เงื่อนไขในระบบครบ</small>
+                                </div>
+                                <div className="specific-fund-fdh-metric is-submitted">
+                                    <span>ส่งเบิกแล้ว</span>
+                                    <strong>{fdhClaimProgress.submitted}</strong>
+                                    <small>พบข้อมูลจาก FDH</small>
+                                </div>
+                                <div className="specific-fund-fdh-metric is-pending">
+                                    <span>ยังไม่พบใน FDH</span>
+                                    <strong>{fdhClaimProgress.notSubmitted}</strong>
+                                    <small>ต้องส่งหรือตรวจสอบเพิ่ม</small>
+                                </div>
+                            </div>
+
+                            <div className="specific-fund-fdh-monitor__flow" aria-label="ลำดับขั้นตอนการเบิก FDH">
+                                {[
+                                    { label: 'ตรวจข้อมูล', value: `${fdhClaimProgress.ready}/${fdhClaimProgress.total}` },
+                                    { label: 'ส่ง FDH', value: `${fdhClaimProgress.submitted}/${fdhClaimProgress.total}` },
+                                    { label: 'รับ REP', value: `${fdhClaimProgress.repReceived}/${fdhClaimProgress.submitted}` },
+                                    { label: 'รับ STM/INV', value: `${fdhClaimProgress.statementReceived}/${fdhClaimProgress.submitted}` },
+                                ].map((step, index) => (
+                                    <div
+                                        key={step.label}
+                                        className={`specific-fund-fdh-step ${index < fdhStageIndex ? 'is-done' : ''} ${index === fdhStageIndex ? 'is-current' : ''}`}
+                                    >
+                                        <span className="specific-fund-fdh-step__dot">{index < fdhStageIndex ? '✓' : index + 1}</span>
+                                        <div>
+                                            <strong>{step.label}</strong>
+                                            <small>{step.value} รายการ</small>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {(fdhClaimProgress.readyNotSubmitted > 0
+                                || fdhClaimProgress.needsFixNotSubmitted > 0
+                                || fdhClaimProgress.submittedButIncomplete > 0
+                                || fdhClaimProgress.repErrors > 0) && (
+                                <div className="specific-fund-fdh-monitor__actions">
+                                    {fdhClaimProgress.readyNotSubmitted > 0 && (
+                                        <span className="is-urgent">พร้อมแต่ยังไม่ส่ง {fdhClaimProgress.readyNotSubmitted}</span>
+                                    )}
+                                    {fdhClaimProgress.needsFixNotSubmitted > 0 && (
+                                        <span className="is-warning">ต้องแก้ข้อมูลก่อนส่ง {fdhClaimProgress.needsFixNotSubmitted}</span>
+                                    )}
+                                    {fdhClaimProgress.submittedButIncomplete > 0 && (
+                                        <span className="is-review">ส่งแล้วแต่ข้อมูลปัจจุบันไม่ครบ {fdhClaimProgress.submittedButIncomplete}</span>
+                                    )}
+                                    {fdhClaimProgress.repErrors > 0 && (
+                                        <span className="is-urgent">REP ติด C/D {fdhClaimProgress.repErrors}</span>
+                                    )}
+                                </div>
+                            )}
+                            <div className="specific-fund-fdh-monitor__note">
+                                หลักการเทียบ: รายการที่พบใน ClaimDetail FDH หรือมีสถานะธุรกรรมจาก FDH ถือว่า “ส่งเบิกแล้ว”; คำตอบ “ไม่พบข้อมูล” ไม่นับเป็นการส่งเบิก
+                            </div>
+                        </section>
+                    )}
+                    {/* Data Table Section */}
                     <div style={{ display: 'flex', flexDirection: 'column' }}>                        {/* Date Filter */}
                         <div className="card" style={{ marginBottom: 10, flexShrink: 0 }}>
                             <div className="card-body specific-fund-filters" style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', padding: '12px 16px' }}>
@@ -1395,9 +2100,29 @@ export const SpecificFundPage: React.FC = () => {
                                         padding: '6px 12px',
                                         fontSize: '12px'
                                     }}
-                                    onClick={() => setShowIncompleteOnly(!showIncompleteOnly)}
+                                    onClick={() => {
+                                        setShowIncompleteOnly(!showIncompleteOnly);
+                                        setShowRepCOnly(false);
+                                    }}
                                 >
                                     {showIncompleteOnly ? '✓ เฉพาะไม่สมบูรณ์' : '○ ทั้งหมด'}
+                                </button>
+                                <button
+                                    className="btn"
+                                    style={{
+                                        background: showRepCOnly ? 'var(--danger)' : 'var(--surface-2)',
+                                        color: showRepCOnly ? 'white' : 'var(--text-primary)',
+                                        borderColor: showRepCOnly ? 'var(--danger)' : 'var(--border)',
+                                        padding: '6px 12px',
+                                        fontSize: '12px'
+                                    }}
+                                    onClick={() => {
+                                        setShowRepCOnly(!showRepCOnly);
+                                        setShowIncompleteOnly(false);
+                                    }}
+                                    title="แสดงเฉพาะรายการที่ REP มี Error Code (C)"
+                                >
+                                    {showRepCOnly ? '✓ เฉพาะติด C' : '○ เฉพาะติด C'}
                                 </button>
                                 <button 
                                     className="btn btn-success" 
@@ -1407,8 +2132,56 @@ export const SpecificFundPage: React.FC = () => {
                                 >
                                     📥 ส่งออก Excel
                                 </button>
+                                <button
+                                    className="btn"
+                                    style={{
+                                        padding: '6px 14px',
+                                        fontSize: '12px',
+                                        background: trackingFdh ? '#6c757d' : 'linear-gradient(135deg, #1e3c72, #2a5298)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: trackingFdh || filteredData.length === 0 ? 'not-allowed' : 'pointer',
+                                        opacity: filteredData.length === 0 ? 0.5 : 1,
+                                        fontWeight: 600,
+                                    }}
+                                    onClick={trackFdhStatus}
+                                    disabled={trackingFdh || filteredData.length === 0}
+                                    title="ตรวจสอบสถานะ FDH จาก NHSO API สำหรับรายการทั้งหมดในตาราง"
+                                >
+                                    {trackingFdh ? '⏳ กำลังตรวจสอบ...' : '🔍 ตรวจสอบสถานะ FDH'}
+                                </button>
                             </div>
                         </div>
+                        {trackProgress && (
+                            <div style={{ margin: '0 0 8px 0', padding: '10px 14px', background: 'linear-gradient(135deg,#1e3c72,#2a5298)', borderRadius: 8, color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <span style={{ flex: 1 }}>🔍 กำลังตรวจสอบสถานะ FDH: {trackProgress.done}/{trackProgress.total} รายการ (อัปเดตแล้ว {trackProgress.updated})</span>
+                                <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 4, height: 6, width: 120, overflow: 'hidden' }}>
+                                    <div style={{ background: '#00f2fe', height: '100%', width: `${Math.round((trackProgress.done / Math.max(trackProgress.total, 1)) * 100)}%`, transition: 'width 0.3s' }} />
+                                </div>
+                            </div>
+                        )}
+                        {trackResult && (
+                            <div style={{ margin: '0 0 8px 0', padding: '10px 14px', background: trackResult.success ? '#e8f5e9' : '#ffebee', borderRadius: 8, fontSize: 12, color: trackResult.success ? '#2e7d32' : '#c62828', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${trackResult.success ? '#a5d6a7' : '#ef9a9a'}` }}>
+                                <span>{trackResult.success ? '✅' : '❌'} {trackResult.message}</span>
+                                <button onClick={() => setTrackResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit' }}>✕</button>
+                            </div>
+                        )}
+                        {!loading && activeFund === 'anc' && excludedAncServiceRows.length > 0 && (
+                            <div className="anc-claim-classification-note">
+                                <div className="anc-claim-classification-note__icon">ℹ️</div>
+                                <div>
+                                    <strong>แยกบริการ ANC ประเภทย่อยออกจาก ANC Visit แล้ว {excludedAncServiceRows.length} รายการ</strong>
+                                    <p>
+                                        รายการเหล่านี้มีบริการ Ultrasound/Lab/ทันตกรรม แต่ไม่มี ADP 30011
+                                        จึงไม่ควรถูกนับเป็น ANC Visit
+                                        {excludedAncFailedRows.length > 0 && (
+                                            <> — พบสถานะ FDH “ประมวลผลไม่ผ่าน” {excludedAncFailedRows.length} รายการ ให้ตรวจต่อในเมนูกองทุนย่อยและนำเข้า REP เพื่อดูรหัสปฏิเสธ</>
+                                        )}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                         {loading && <div className="loading-container"><div className="spinner" /><span>กำลังโหลดข้อมูล...</span></div>}
                         {error && <div className="alert alert-danger">{error}</div>}
                         {!loading && !error && (
@@ -1420,15 +2193,20 @@ export const SpecificFundPage: React.FC = () => {
                         <div className="badge badge-primary">รวม {filteredData.length} / {data.length} รายการ</div>
                     </div>
                     <div className="specific-fund-table-wrap" style={{ overflowX: 'auto' }}>
-                        <table className="data-table" style={{ width: '100%', tableLayout: 'fixed', fontSize: 12 }}>
+                        <table
+                            className={`data-table ${(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') ? 'specific-fund-table--dental' : ''}`}
+                            style={{ width: '100%', tableLayout: 'fixed', fontSize: 12 }}
+                        >
                             <thead>
                                 <tr>
                                     <th style={{ width: 36, textAlign: 'center', padding: '8px 4px' }}>#</th>
                                     <th style={{ width: 120 }}>VN / HN</th>
                                     <th style={{ width: 150 }}>ชื่อผู้ป่วย / CID</th>
                                     <th style={{ width: 140 }}>สิทธิ์ (PTType)</th>
-                                    <th style={{ width: 105 }}>วันที่รับบริการ</th>                                    {activeFund === 'palliative' && (
+                                    <th style={{ width: 105 }}>วันที่รับบริการ</th>
+                                    {activeFund === 'palliative' && (
                                         <>
+                                            <th style={{ width: 90, textAlign: 'center' }}>Diag หลัก</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z515)</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z718)</th>
                                             <th style={{ width: 110, textAlign: 'center' }}>ADP Code</th>
@@ -1441,7 +2219,10 @@ export const SpecificFundPage: React.FC = () => {
                                         </>
                                     )}
                                     {activeFund === 'drugp' && (
-                                        <th style={{ width: 100, textAlign: 'center' }}>ADP Code</th>
+                                        <>
+                                            <th style={{ width: 100, textAlign: 'center' }}>ADP Code</th>
+                                            <th style={{ width: 100, textAlign: 'center' }}>รายการยา</th>
+                                        </>
                                     )}
                                     {activeFund === 'herb' && (
                                         <>
@@ -1453,8 +2234,9 @@ export const SpecificFundPage: React.FC = () => {
                                     {activeFund === 'knee' && (
                                         <>
                                             <th style={{ width: 60, textAlign: 'center' }}>อายุ</th>
-                                            <th style={{ width: 90, textAlign: 'center' }}>Diag</th>
-                                            <th style={{ width: 130, textAlign: 'center' }}>รหัสหัตถการ</th>
+                                            <th style={{ width: 140, textAlign: 'center' }}>Diag M17 + U57.53</th>
+                                            <th style={{ width: 240, textAlign: 'left' }}>หัตถการพอกเข่า</th>
+                                            <th style={{ width: 95, textAlign: 'center' }}>ครั้ง/2 สัปดาห์</th>
                                         </>
                                     )}
                                     {activeFund === 'instrument' && (
@@ -1476,6 +2258,14 @@ export const SpecificFundPage: React.FC = () => {
                                             <th style={{ width: 140, textAlign: 'center' }}>Diag ฝากครรภ์</th>
                                             <th style={{ width: 120, textAlign: 'center' }}>รหัส ANC</th>
                                             {activeFund === 'anc_ultrasound' && <th style={{ width: 120, textAlign: 'center' }}>อัลตราซาวนด์</th>}
+                                        </>
+                                    )}
+                                    {(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') && (
+                                        <>
+                                            <th style={{ width: 130, textAlign: 'center' }}>Diag ฝากครรภ์</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>ADP Code</th>
+                                            <th className="dental-procedure-column" style={{ width: 360, textAlign: 'left' }}>หัตถการทันตกรรม</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>บันทึกช่องปาก</th>
                                         </>
                                     )}
                                     {activeFund === 'cacervix' && (
@@ -1502,8 +2292,12 @@ export const SpecificFundPage: React.FC = () => {
                                     {activeFund === 'chemo' && (
                                         <th style={{ width: 120, textAlign: 'center' }}>Diag เคมีบำบัด</th>
                                     )}
-                                    {activeFund === 'hepc' && (
-                                        <th style={{ width: 120, textAlign: 'center' }}>Diag ตับอักเสบซี</th>
+                                    {(activeFund === 'hepc' || activeFund === 'hepb') && (
+                                        <>
+                                            <th style={{ width: 100, textAlign: 'center' }}>เกิดก่อน 2535</th>
+                                            <th style={{ width: 90, textAlign: 'center' }}>Dx Z11.5</th>
+                                            <th style={{ width: 190, textAlign: 'left' }}>{activeFund === 'hepc' ? 'Lab Anti-HCV' : 'Lab HBsAg'}</th>
+                                        </>
                                     )}
                                     {activeFund === 'rehab' && (
                                         <th style={{ width: 100, textAlign: 'center' }}>Diag ฟื้นฟู</th>
@@ -1541,6 +2335,21 @@ export const SpecificFundPage: React.FC = () => {
                                             <th style={{ width: 110, textAlign: 'center' }}>Authen Code</th>
                                         </>
                                     )}
+                                    {activeFund === 'syphilis_screening_male' && (
+                                        <>
+                                            <th style={{ width: 70, textAlign: 'center' }}>เพศ</th>
+                                            <th style={{ width: 220, textAlign: 'left' }}>Lab ซิฟิลิส</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>Authen Code</th>
+                                        </>
+                                    )}
+                                    {['mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
+                                        <>
+                                            <th style={{ width: 120, textAlign: 'center' }}>กลุ่มเป้าหมาย</th>
+                                            <th style={{ width: 120, textAlign: 'center' }}>Dx ใกล้เคียง</th>
+                                            <th style={{ width: 240, textAlign: 'left' }}>หลักฐานบริการ/Lab</th>
+                                            <th style={{ width: 120, textAlign: 'center' }}>ช่องทาง</th>
+                                        </>
+                                    )}
                                     {(activeFund === 'iron_supplement' || activeFund === 'ferrokid_child') && (
                                         <>
                                             <th style={{ width: 60, textAlign: 'center' }}>อายุ</th>
@@ -1564,17 +2373,18 @@ export const SpecificFundPage: React.FC = () => {
                                         🏷️ SUBFUNDS TAGS
                                     </th>
                                     <th style={{ width: 90, textAlign: 'center' }}>สถานะ</th>
-                                    <th style={{ width: 140, textAlign: 'center' }}>สถานะการส่งเบิก</th>
-                                    <th style={{ width: 150, textAlign: 'center' }}>สถานะ FDH</th>
-                                    <th style={{ width: 110, textAlign: 'center' }}>FDH Status</th>
-                                    <th style={{ width: 110, textAlign: 'center' }}>Fdh_Stm_Period</th>
-                                    <th style={{ width: 100, textAlign: 'right' }}>Fdh_Act_Amt</th>
-                                    <th style={{ width: 120, textAlign: 'center' }}>Fdh_Settle_At</th>
+                                    <th style={{ width: 120, textAlign: 'center' }}>สถานะส่งเบิก</th>
+                                    <th style={{ width: 130, textAlign: 'center' }}>สถานะ FDH</th>
+                                    <th style={{ width: 100, textAlign: 'center' }}>FDH Status</th>
+                                    <th style={{ width: 170, textAlign: 'center' }}>ไฟล์ FDH / เหตุผล</th>
+                                    <th style={{ width: 90, textAlign: 'center' }}>REP</th>
+                                    <th style={{ width: 110, textAlign: 'center' }}>STM/INV</th>
                                 </tr>
-                            </thead>                            <tbody>
+                            </thead>
+                            <tbody>
                                 {filteredData.length === 0 ? (
-                                    <tr><td colSpan={100} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>ไม่พบข้อมูล{showIncompleteOnly ? ' ไม่สมบูรณ์' : 'ในช่วงวันที่เลือก'}</td></tr>
-                                ) : (                                    filteredData.map((item, index) => {
+                                    <tr><td colSpan={100} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>ไม่พบข้อมูล{showRepCOnly ? ' ที่ติด C' : showIncompleteOnly ? ' ไม่สมบูรณ์' : 'ในช่วงวันที่เลือก'}</td></tr>
+                                ) : (filteredData.map((item, index) => {
                                         const st = getStatus(item);
                                         const sendStatusLabel = getEffectiveSendStatusLabel(item);
                                         const sendStatusClass = getEffectiveSendStatusBadgeClass(item);
@@ -1602,6 +2412,11 @@ export const SpecificFundPage: React.FC = () => {
                                                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.vsttime}</div>
                                                 </td>{activeFund === 'palliative' && (
                                                     <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.pdx
+                                                                ? <span className="badge badge-primary">{item.pdx}</span>
+                                                                : <span className="badge badge-danger">✗ ไม่มี Diag หลัก</span>}
+                                                        </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.z515_code
                                                                 ? <span className="badge badge-success">✓ มี Z515</span>
@@ -1641,9 +2456,14 @@ export const SpecificFundPage: React.FC = () => {
                                                 {activeFund === 'drugp' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {item.has_drugp === 'Y'
+                                                            {toFlag(item?.has_drugp)
                                                                 ? <span className="badge badge-primary">DRUGP</span>
                                                                 : <span className="badge badge-danger">✗ ขาด DRUGP</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {Number(item.drug_count ?? 0) > 0
+                                                                ? <span className="badge badge-success">{Number(item.drug_count).toLocaleString()} รายการ</span>
+                                                                : <span className="badge badge-danger">✗ ต้องมียา</span>}
                                                         </td>
                                                     </>
                                                 )}
@@ -1668,10 +2488,27 @@ export const SpecificFundPage: React.FC = () => {
                                                             <strong style={{ color: item.age_y >= 40 ? 'var(--success)' : 'var(--danger)' }}>{item.age_y}</strong>
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {item.diag_code ? <div style={{ fontSize: 11, color: 'var(--text-secondary)', maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.diag_code}>{item.diag_code}</div> : '-'}
+                                                            {toFlag(item.has_knee_diag)
+                                                                ? <span className="badge badge-primary">{item.diag_code || 'M17 + U57.53'}</span>
+                                                                : <span className="badge badge-danger">✗ ขาด Dx</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                                <span className={`badge ${toFlag(item.has_knee_massage_thigh) ? 'badge-success' : 'badge-danger'}`}>872-78-11</span>
+                                                                <span className={`badge ${toFlag(item.has_knee_massage_knee) ? 'badge-success' : 'badge-danger'}`}>873-78-11</span>
+                                                                <span className={`badge ${toFlag(item.has_knee_massage_lower_leg) ? 'badge-success' : 'badge-danger'}`}>874-78-11</span>
+                                                                <span className={`badge ${toFlag(item.has_knee_poultice) ? 'badge-success' : 'badge-danger'}`}>873-78-35</span>
+                                                            </div>
+                                                            {item.oper_names && (
+                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.oper_names}>
+                                                                    {item.oper_names}
+                                                                </div>
+                                                            )}
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            <span className="badge badge-success">{item.oper_code}</span>
+                                                            <span className={`badge ${Number(item.knee_poultice_14d_count || 0) <= 5 ? 'badge-success' : 'badge-danger'}`}>
+                                                                {item.knee_poultice_14d_count || 0}/5
+                                                            </span>
                                                         </td>
                                                     </>
                                                 )}
@@ -1723,13 +2560,52 @@ export const SpecificFundPage: React.FC = () => {
                                                         </td>
                                                         {activeFund === 'anc_ultrasound' && (
                                                             <td style={{ textAlign: 'center' }}>
-                                                                {(item.has_anc_us === 'Y' || item.has_anc_us_proc === 'Y')
-                                                                    ? ((item.has_anc_us === 'Y' && item.has_anc_us_proc === 'Y')
-                                                                        ? <span className="badge badge-success">✓ มี 30010 + Ultrasound ANC</span>
-                                                                        : <span className="badge badge-warning">⚠️ ขาด 30010 หรือ Ultrasound ANC</span>)
-                                                                    : <span className="badge badge-danger">✗ ขาด 30010 + Ultrasound ANC</span>}
+                                                                {(toFlag(item?.has_anc_us) || hasAnyCodeValue(item?.anc_adp_codes, ['30010']))
+                                                                    ? <span className="badge badge-success">✓ มี 30010 (ANC Ultrasound)</span>
+                                                                    : <span className="badge badge-danger">✗ ขาด ADP 30010</span>}
                                                             </td>
                                                         )}
+                                                    </>
+                                                )}
+                                                {(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.anc_diags
+                                                                ? <span className="badge badge-primary">{item.anc_diags}</span>
+                                                                : <span className="badge badge-danger">✗ ขาด Z34/Z35</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {activeFund === 'anc_dental_exam'
+                                                                ? (toFlag(item.has_anc_dental_exam)
+                                                                    ? <span className="badge badge-primary" title={item.adp_names || 'ADP 30008'}>30008</span>
+                                                                    : <span className="badge badge-danger">✗ ขาด 30008</span>)
+                                                                : (toFlag(item.has_anc_dental_clean)
+                                                                    ? <span className="badge badge-primary" title={item.adp_names || 'ADP 30009'}>30009</span>
+                                                                    : <span className="badge badge-danger">✗ ขาด 30009</span>)}
+                                                        </td>
+                                                        <td className="dental-procedure-column" style={{ textAlign: 'left', padding: '8px' }}>
+                                                            {item.dental_procedure_names ? (
+                                                                <div className="dental-procedure-list" title={item.dental_procedure_names}>
+                                                                    {parseDentalProcedureDisplay(item.dental_procedure_names).map((procedure, procedureIndex) => (
+                                                                        <span
+                                                                            className="dental-procedure-chip"
+                                                                            key={`${procedure.code}-${procedure.name}-${procedureIndex}`}
+                                                                            title={`${procedure.code}${procedure.name ? ` ${procedure.name}` : ''}`}
+                                                                        >
+                                                                            {procedure.code && <strong>{procedure.code}</strong>}
+                                                                            {procedure.name && <span>{procedure.name}</span>}
+                                                                        </span>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <span className="badge badge-danger">✗ ไม่พบหัตถการใน dtmain</span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {toFlag(item.has_dental_care_record)
+                                                                ? <span className="badge badge-success">✓ มีบันทึก</span>
+                                                                : <span className="badge badge-warning">ไม่พบบันทึก</span>}
+                                                        </td>
                                                     </>
                                                 )}
                                                 {activeFund === 'cacervix' && (
@@ -1743,7 +2619,8 @@ export const SpecificFundPage: React.FC = () => {
                                                             </div>
                                                         </td>
                                                     </>
-                                                )}                                                {activeFund === 'fp' && (
+                                                )}
+                                                {activeFund === 'fp' && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.fp_diags ? <span className="badge badge-primary" style={{ maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-block' }} title={item.fp_diags}>{item.fp_diags}</span> : <span className="badge badge-danger">✗ ขาด Z30</span>}
@@ -1785,10 +2662,39 @@ export const SpecificFundPage: React.FC = () => {
                                                         {item.has_chemo_diag ? <span className="badge badge-primary">Z511/Z512</span> : <span className="badge badge-danger">✗ ขาด Diag</span>}
                                                     </td>
                                                 )}
-                                                {activeFund === 'hepc' && (
-                                                    <td style={{ textAlign: 'center' }}>
-                                                        {item.has_hepc_diag ? <span className="badge badge-primary">B18.2</span> : <span className="badge badge-danger">✗ ขาด Diag</span>}
-                                                    </td>
+                                                {(activeFund === 'hepc' || activeFund === 'hepb') && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {toFlag(item.birth_before_2535)
+                                                                ? <span className="badge badge-success">{item.birthday || 'ก่อน 2535'}</span>
+                                                                : <span className="badge badge-danger">✗ อายุไม่เข้าเกณฑ์</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {toFlag(item.has_z115_diag)
+                                                                ? <span className="badge badge-primary">Z11.5</span>
+                                                                : <span className="badge badge-danger">✗ ขาด Dx</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            {(() => {
+                                                                const labName = activeFund === 'hepc'
+                                                                    ? (item.hepc_lab_names || item.hepc_service_names)
+                                                                    : (item.hepb_lab_names || item.hepb_service_names);
+                                                                const labResult = activeFund === 'hepc' ? item.hepc_results : item.hepb_results;
+                                                                return (
+                                                                    <>
+                                                                        <div style={{ fontWeight: 700, fontSize: 11, color: labName ? 'var(--primary)' : 'var(--danger)' }}>
+                                                                            {labName || `✗ ขาด ${activeFund === 'hepc' ? 'Anti-HCV' : 'HBsAg'}`}
+                                                                        </div>
+                                                                        {labResult && (
+                                                                            <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+                                                                                ผล: {labResult}
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                );
+                                                            })()}
+                                                        </td>
+                                                    </>
                                                 )}
                                                 {activeFund === 'rehab' && (
                                                     <td style={{ textAlign: 'center' }}>
@@ -1809,7 +2715,8 @@ export const SpecificFundPage: React.FC = () => {
                                                     <td style={{ textAlign: 'center' }}>
                                                         {item.has_proton_diag ? <span className="badge badge-primary">Z51.0</span> : <span className="badge badge-danger">✗ ขาด Diag</span>}
                                                     </td>
-                                                )}                                                {activeFund === 'cxr' && (
+                                                )}
+                                                {activeFund === 'cxr' && (
                                                     <td style={{ textAlign: 'center' }}>
                                                         {item.has_cxr_item ? <span className="badge badge-primary">Chest X-Ray</span> : <span className="badge badge-danger">✗ ไม่มี</span>}
                                                     </td>
@@ -1873,12 +2780,72 @@ export const SpecificFundPage: React.FC = () => {
                                                         </td>
                                                     </>
                                                 )}
+                                                {activeFund === 'syphilis_screening_male' && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <span className={`badge ${String(item.sex ?? '').trim() === '1' ? 'badge-success' : 'badge-danger'}`}>
+                                                                {String(item.sex ?? '').trim() === '1' ? 'ชาย' : String(item.sex ?? '').trim() === '2' ? 'หญิง' : '-'}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--primary)' }}>
+                                                                {item.syphilis_lab_names || item.syphilis_service_names || '-'}
+                                                            </div>
+                                                            {item.syphilis_results && (
+                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+                                                                    ผล: {item.syphilis_results}
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <span className="badge badge-success">{item.authencode || '-'}</span>
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {['mental_health_counselling', 'gender_affirming_hormone', 'latent_tb_screening', 'osteoporosis_screening', 'autism_tdas_screening'].includes(activeFund) && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                                                                <span className={`badge ${toFlag(item.age_eligible) ? 'badge-success' : 'badge-danger'}`}>
+                                                                    {activeFund === 'autism_tdas_screening' && item.age_month != null
+                                                                        ? `${item.age_month} เดือน`
+                                                                        : activeFund === 'osteoporosis_screening'
+                                                                            ? `${item.age ?? '-'} ปี`
+                                                                            : toFlag(item.age_eligible) ? 'อายุเข้าเกณฑ์' : 'อายุไม่เข้า'}
+                                                                </span>
+                                                                {activeFund === 'osteoporosis_screening' && (
+                                                                    <span className={`badge ${String(item.sex ?? '').trim() === '2' ? 'badge-success' : 'badge-danger'}`}>
+                                                                        {String(item.sex ?? '').trim() === '2' ? 'หญิง' : 'ไม่ใช่หญิง'}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {(toFlag(item.has_specific_diag) || item.specific_diags)
+                                                                ? <span className="badge badge-primary">{item.specific_diags || item.pdx || 'มี Dx'}</span>
+                                                                : <span className="badge badge-muted">-</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left', padding: '6px 8px' }}>
+                                                            <div style={{ fontWeight: 700, fontSize: 11, color: toFlag(item.has_specific_evidence) ? 'var(--primary)' : 'var(--danger)' }}>
+                                                                {item.specific_lab_names || item.specific_service_names || `✗ ขาด ${item.specific_evidence_label || 'หลักฐานบริการ/Lab'}`}
+                                                            </div>
+                                                            {item.specific_results && (
+                                                                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>
+                                                                    ผล: {item.specific_results}
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <span className="badge badge-info">{item.specific_channel_note || funds.find(f => f.id === activeFund)?.claimChannel || '-'}</span>
+                                                        </td>
+                                                    </>
+                                                )}
                                                 {(activeFund === 'iron_supplement' || activeFund === 'ferrokid_child') && (
                                                     <>
                                                         <td style={{ textAlign: 'center' }}>
                                                             <strong style={{
                                                                 color: activeFund === 'ferrokid_child'
-                                                                    ? (Number(item.age_month ?? -1) >= 2 && Number(item.age_month ?? -1) <= 144 ? 'var(--success)' : 'var(--danger)')
+                                                                    ? (Number(item.age_month ?? -1) >= 6 && Number(item.age_month ?? -1) <= 12 ? 'var(--success)' : 'var(--danger)')
                                                                     : (item.age >= 13 && item.age <= 45 ? 'var(--success)' : 'var(--danger)')
                                                             }}>
                                                                 {activeFund === 'ferrokid_child' && item.age_month != null
@@ -1944,7 +2911,21 @@ export const SpecificFundPage: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                                                    <span className={`badge ${st.class}`} style={{ fontSize: 11 }}>{st.icon} {st.status}</span>
+                                                    <span
+                                                        className={`badge ${st.class}`}
+                                                        style={{ fontSize: 11 }}
+                                                        title={[
+                                                            ...(st.missingConditions || []),
+                                                            ...(st.manualEvidenceConditions || []).map((text: string) => `ตรวจเอกสาร: ${text}`),
+                                                        ].join('\n')}
+                                                    >
+                                                        {st.icon} {st.status}
+                                                    </span>
+                                                    {st.manualEvidenceConditions?.length > 0 && (
+                                                        <div style={{ marginTop: 4, fontSize: 9, color: 'var(--text-muted)' }}>
+                                                            📎 มีหลักฐานเอกสารต้องตรวจ
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <span className={`badge ${sendStatusClass}`} style={{ fontSize: 10 }}>{sendStatusLabel}</span>
@@ -1958,15 +2939,44 @@ export const SpecificFundPage: React.FC = () => {
                                                         : <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>-</span>}
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                                                    <span style={{ fontSize: 11 }}>{item.fdh_stm_period || '-'}</span>
-                                                </td>
-                                                <td style={{ textAlign: 'right', padding: '6px 8px' }}>
-                                                    {item.fdh_act_amt != null && item.fdh_act_amt !== ''
-                                                        ? <strong style={{ color: 'var(--teal)', fontSize: 11 }}>{Number(item.fdh_act_amt).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
-                                                        : <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>-</span>}
+                                                    <span className={`badge ${item.has_fdh_import ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: 10 }} title={item.fdh_import_claim_code || ''}>
+                                                        {getImportedFdhLabel(item)}
+                                                    </span>
+                                                    {getFdhFailureGuidance(item, st) && (
+                                                        <div className="fdh-failure-guidance" title={getFdhFailureGuidance(item, st)}>
+                                                            {getFdhFailureGuidance(item, st)}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                                                    <span style={{ fontSize: 11 }}>{item.fdh_settle_at || '-'}</span>
+                                                    <button
+                                                        type="button"
+                                                        className={`badge repstm-visit-trigger ${item.has_rep_import ? ((hasRepCError(item) || hasRepDenyError(item)) ? 'badge-danger' : 'badge-success') : 'badge-warning'}`}
+                                                        style={{ fontSize: 10 }}
+                                                        title={item.has_rep_import ? `คลิกดู REP ${item.rep_no || ''}` : 'ยังไม่มีข้อมูล REP'}
+                                                        disabled={!item.has_rep_import}
+                                                        onClick={() => setRepstmVisit(item)}
+                                                    >
+                                                        {getRepImportLabel(item)}
+                                                    </button>
+                                                </td>
+                                                <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                    <button
+                                                        type="button"
+                                                        className={`badge repstm-visit-trigger ${Number(item.inv_net_amount ?? 0) > 0 ? 'badge-success' : item.has_stm_import ? (Number(item.stm_paid_amount ?? 0) === 0 ? 'badge-danger' : 'badge-success') : item.has_inv_import ? 'badge-info' : 'badge-warning'}`}
+                                                        style={{ fontSize: 10 }}
+                                                        title={(item.has_stm_import || item.has_inv_import) ? 'คลิกดู STM/INV ของ visit นี้' : 'ยังไม่มีข้อมูล STM/INV'}
+                                                        disabled={!item.has_stm_import && !item.has_inv_import}
+                                                        onClick={() => setRepstmVisit(item)}
+                                                    >
+                                                        {getStatementImportLabel(item)}
+                                                    </button>
+                                                    {item.has_stm_import && item.stm_paid_amount != null && (
+                                                        <div style={{ fontSize: 10, marginTop: 3 }}>{Number(item.stm_paid_amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
+                                                    )}
+                                                    {Number(item.inv_net_amount ?? 0) > 0 && (
+                                                        <div style={{ fontSize: 10, marginTop: 3, color: '#047857', fontWeight: 700 }}>สุทธิ {Number(item.inv_net_amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</div>
+                                                    )}
                                                 </td></tr>
                                         );
                                     })
@@ -1982,6 +2992,12 @@ export const SpecificFundPage: React.FC = () => {
 
             {selectedRecord && (
                 <DetailModal record={selectedRecord} onClose={() => setSelectedRecord(null)} />
+            )}
+            {repstmVisit && (
+                <RepStmVisitModal
+                    visit={{ vn: repstmVisit.vn, an: repstmVisit.an, hn: repstmVisit.hn, patientName: repstmVisit.patientName }}
+                    onClose={() => setRepstmVisit(null)}
+                />
             )}
 
         </div>

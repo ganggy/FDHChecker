@@ -11,7 +11,7 @@ echo Starting frontend dev server on port 3507...
 echo Please wait for the build to complete...
 echo.
 
-cd /d d:\react\fdh_rect
+cd /d "%~dp0"
 npm run dev
 
 pause

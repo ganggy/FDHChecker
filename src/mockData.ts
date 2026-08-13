@@ -26,6 +26,22 @@ export interface PrescriptionItem {
   nhso_code?: string;
   nhso_name?: string;
   has_adp_mapping?: number;
+  itemType?: string;
+  incomeName?: string;
+}
+
+export interface OpdPreAuditFinding {
+  code: string;
+  message: string;
+  severity: 'blocking' | 'warning';
+}
+
+export interface OpdPreAuditResult {
+  status: 'clear' | 'review' | 'blocking';
+  findingCount: number;
+  blockingCount: number;
+  reviewCount: number;
+  findings: OpdPreAuditFinding[];
 }
 
 export interface CheckRecord {
@@ -35,6 +51,7 @@ export interface CheckRecord {
   patientName: string;
   fund: string;
   serviceDate: string;
+  serviceTime?: string;
   serviceType: string;
   status: 'ready' | 'pending' | 'rejected';
   issues: string[];
@@ -71,6 +88,7 @@ export interface CheckRecord {
   has_pal_adp?: number;
   has_telmed?: number;
   has_drugp?: number;
+  drug_count?: number;
   age_y?: number;
   age?: number;
   sex?: string;
@@ -82,6 +100,7 @@ export interface CheckRecord {
   pttype_eclaim_id?: string;
   pttype_eclaim_name?: string;
   fdh_status_label?: string;
+  opd_pre_audit?: OpdPreAuditResult | null;
 }
 
 export const mockChecks: CheckRecord[] = [

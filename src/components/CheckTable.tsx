@@ -7,6 +7,25 @@ interface CheckTableProps {
   onRowClick?: (record: CheckRecord) => void;
 }
 
+const THAI_SHORT_MONTHS = [
+  'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+];
+
+const formatThaiServiceDate = (value?: string) => {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return value || '-';
+
+  const [, year, month, day] = match;
+  const monthLabel = THAI_SHORT_MONTHS[Number(month) - 1];
+  return monthLabel ? `${Number(day)} ${monthLabel} ${Number(year) + 543}` : value || '-';
+};
+
+const formatServiceTime = (value?: string) => {
+  const match = String(value || '').match(/^(\d{2}):(\d{2})/);
+  return match ? `${match[1]}:${match[2]} น.` : '-';
+};
+
 export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => {
   if (items.length === 0) return null;
 
@@ -21,11 +40,12 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
               <th>HN</th>
               <th>ชื่อผู้ป่วย</th>
               <th>สิทธิ์</th>
-              <th style={{ textAlign: 'center' }}>วันที่รับบริการ</th>
+              <th className="opd-service-datetime-header">วัน–เวลารับบริการ</th>
               <th style={{ textAlign: 'center' }}>ประเภท</th>
               <th style={{ textAlign: 'center' }}>Diag</th>
               <th style={{ minWidth: 150 }}>สถานะกองทุน</th>
               <th style={{ minWidth: 180 }}>สถานะ FDH / ECLAIM</th>
+              <th style={{ minWidth: 210 }}>OPD Pre-audit</th>
               <th style={{ textAlign: 'center' }}>สถานะข้อมูล</th>
               <th style={{ textAlign: 'right' }}>ราคา (บาท)</th>
             </tr>
@@ -48,6 +68,7 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                 : 'ไม่ระบุ';
               const fdhLabel = item.fdh_status_label
                 || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
+              const opdAudit = item.opd_pre_audit;
 
               return (
                 <tr
@@ -76,7 +97,15 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                       {item.fund || item.hipdata_code}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'center', fontSize: 13 }}>{item.serviceDate || '-'}</td>
+                  <td className="opd-service-datetime-cell">
+                    <div className="opd-service-datetime">
+                      <span className="opd-service-date">{formatThaiServiceDate(item.serviceDate)}</span>
+                      <span className="opd-service-time">
+                        <span className="opd-service-time-dot" />
+                        {formatServiceTime(item.serviceTime)}
+                      </span>
+                    </div>
+                  </td>
                   <td style={{ textAlign: 'center' }}>
                     <span style={{
                       padding: '2px 8px',
@@ -125,7 +154,7 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                               if (note.match(/Telemedicine|EMS/)) {
                                  return <span key={idx} className="badge" style={{...badgeStyle, background: '#faf5ff', color: '#6b21a8', border: '1px solid #e9d5ff'}}>{note}</span>;
                               }
-                              if (note.match(/คุมกำเนิด|ถุงยาง/)) {
+                              if (note.match(/คุมกำเนิด|ถุงยาง|ยาฉีด/)) {
                                  return <span key={idx} className="badge" style={{...badgeStyle, background: '#fff1f2', color: '#9f1239', border: '1px solid #fecdd3'}}>{note}</span>;
                               }
                               if (note.match(/ล้างไต/)) {
@@ -161,6 +190,36 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                         ECLAIM: {eclaimLabel}
                       </span>
                     </div>
+                  </td>
+                  <td onClick={(event) => event.stopPropagation()}>
+                    {!opdAudit ? (
+                      <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>ไม่ใช่รายการ OPD</span>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
+                        <span className={`badge ${opdAudit.status === 'clear' ? 'badge-success' : opdAudit.status === 'blocking' ? 'badge-danger' : 'badge-warning'}`}>
+                          {opdAudit.status === 'clear'
+                            ? 'ผ่านกฎ OPD'
+                            : opdAudit.status === 'blocking'
+                              ? `ห้ามส่ง ${opdAudit.blockingCount} จุด`
+                              : `ควรตรวจ ${opdAudit.reviewCount} จุด`}
+                        </span>
+                        {opdAudit.findings.length > 0 && (
+                          <details style={{ fontSize: 11, color: 'var(--text-secondary)', maxWidth: 280 }}>
+                            <summary style={{ cursor: 'pointer' }}>
+                              {opdAudit.findings.slice(0, 2).map((finding) => finding.code).join(', ')}
+                              {opdAudit.findings.length > 2 ? ` +${opdAudit.findings.length - 2}` : ''}
+                            </summary>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 5 }}>
+                              {opdAudit.findings.map((finding) => (
+                                <div key={finding.code} style={{ color: finding.severity === 'blocking' ? '#b91c1c' : '#92400e' }}>
+                                  <strong>{finding.code}</strong>: {finding.message}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>

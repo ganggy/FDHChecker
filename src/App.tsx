@@ -16,7 +16,7 @@ const StaffPage = lazyNamed(() => import('./pages/StaffPage'), 'StaffPage');
 const IPDPage = lazyNamed(() => import('./pages/IPDPage'), 'IPDPage');
 const IpdFdhExportPage = lazyNamed(() => import('./pages/IpdFdhExportPage'), 'IpdFdhExportPage');
 const IpdClaimMonitorPage = lazyNamed(() => import('./pages/IpdClaimMonitorPage'), 'IpdClaimMonitorPage');
-const CollaborationPage = lazyNamed(() => import('./pages/CollaborationPage'), 'CollaborationPage');
+const CollaborationHubPage = lazy(() => import('./pages/CollaborationHubPage'));
 const AiReportWorkspacePage = lazyNamed(() => import('./pages/AiReportWorkspacePage'), 'AiReportWorkspacePage');
 const HospitalReportHubPage = lazyNamed(() => import('./pages/HospitalReportHubPage'), 'HospitalReportHubPage');
 const AdminDashboard = lazyNamed(() => import('./pages/AdminDashboard'), 'AdminDashboard');
@@ -307,7 +307,7 @@ function App() {
         {currentPage === 'ipd' && <IPDPage />}
         {currentPage === 'ipdExport' && <IpdFdhExportPage />}
         {currentPage === 'ipdClaimMonitor' && <IpdClaimMonitorPage />}
-        {currentPage === 'collaboration' && <CollaborationPage />}
+        {currentPage === 'collaboration' && <CollaborationHubPage currentUser={authSession.user} />}
         {currentPage === 'aiReports' && <AiReportWorkspacePage />}
         {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}

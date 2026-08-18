@@ -37,3 +37,14 @@ test('shows missing REP and waiting STM distinctly', () => {
   assert.equal(result.summary.pendingRep, 1);
   assert.equal(result.summary.pendingStm, 1);
 });
+
+test('does not treat REP placeholder and success values as errors', () => {
+  const result = attachKidneyRepStmTracking(
+    [{ vn: 'V400', hn: 'H400', serviceDate: '2026-07-04' }],
+    [{ id: 6, vn: 'V400', errorcode: '-', verifycode: 'ผ่าน', compensated: 0 }],
+    [{ id: 7, matched_visit_code: 'V400', paid_amount: 0 }],
+  );
+  assert.equal(result.data[0].claimTrackingStatus, 'MATCHED');
+  assert.deepEqual(result.data[0].repStmErrors, []);
+  assert.equal(result.summary.errorVisits, 0);
+});

@@ -59,6 +59,10 @@ const amountValue = (value: unknown) => {
 };
 const dateValue = (value: unknown) => textValue(value).slice(0, 10);
 const uniqueTexts = (values: unknown[]) => Array.from(new Set(values.map(textValue).filter(Boolean)));
+const issueTexts = (values: unknown[]) => uniqueTexts(values).filter((value) => {
+  const normalized = value.toUpperCase().replace(/\s+/g, '');
+  return !['-', '0', '00', '000', 'A', 'OK', 'PASS', 'SUCCESS', 'ผ่าน', 'ปกติ'].includes(normalized);
+});
 const visitKey = (visit: KidneyTrackingVisit) => `${textValue(visit.vn)}|${textValue(visit.hn)}|${dateValue(visit.serviceDate)}`;
 
 export const attachKidneyRepStmTracking = <T extends KidneyTrackingVisit>(
@@ -116,7 +120,7 @@ export const attachKidneyRepStmTracking = <T extends KidneyTrackingVisit>(
     const stmAmount = stms.reduce((sum, row) => sum + amountValue(row.amount), 0);
     const stmPaidAmount = stms.reduce((sum, row) => sum + amountValue(row.paid_amount), 0);
     const amountDiff = Number((stmPaidAmount - repAmount).toFixed(2));
-    const errors = uniqueTexts([
+    const errors = issueTexts([
       ...reps.flatMap((row) => [row.errorcode, row.verifycode]),
       ...stms.flatMap((row) => [row.errorcode, row.verifycode]),
     ]);

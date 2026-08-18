@@ -117,6 +117,11 @@ export const evaluateIpdPreAudit = (input: IpdPreAuditInput): IpdPreAuditResult 
     add({ code: 'INS-IPD04', severity: 'risk', title: 'Injury / External cause', message: 'เมื่อให้รหัส S หรือ T ต้องมีรหัสสาเหตุภายนอก V/W/X/Y ร่วมด้วย', evidence: injuryCodes });
   }
 
+  const incompleteAccidentCodes = matching(diagnoses, (code) => /^[STVWXY]/.test(code) && code.length < 5);
+  if (incompleteAccidentCodes.length > 0) {
+    add({ code: 'INS-IPD04A', severity: 'risk', title: 'รหัสอุบัติเหตุไม่ครบ 5 หลัก', message: 'รหัสอุบัติเหตุ/การบาดเจ็บกลุ่ม S, T, V, W, X, Y ต้องมีอย่างน้อย 5 หลักหลังตัดจุดออก', evidence: incompleteAccidentCodes });
+  }
+
   if (/^O8[0-4]/.test(principal)) {
     const otherOCodes = diagnoses.filter((code) => code.startsWith('O') && code !== principal);
     if (otherOCodes.length > 0) {

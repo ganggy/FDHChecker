@@ -95,6 +95,15 @@ test('requires external causes and validates delivery principal coding', () => {
   assert.equal(evaluateIpdPreAudit({ diagnoses: ['T31.2'], principalDiagnosis: 'T31.2' }).findings.some((finding) => finding.code === 'INS-IPD06'), true);
 });
 
+test('requires five-character injury and external-cause diagnosis codes', () => {
+  const incomplete = evaluateIpdPreAudit({ diagnoses: ['S37.4', 'W19'] });
+  const finding = incomplete.findings.find((item) => item.code === 'INS-IPD04A');
+  assert.deepEqual(finding?.evidence, ['S374', 'W19']);
+
+  const complete = evaluateIpdPreAudit({ diagnoses: ['S37.40', 'W19.00'] });
+  assert.equal(complete.findings.some((item) => item.code === 'INS-IPD04A'), false);
+});
+
 test('checks required and mutually exclusive diagnosis pairs', () => {
   assert.equal(evaluateIpdPreAudit({ diagnoses: ['B45.1'] }).findings.some((finding) => finding.code === 'INS-IPD07'), true);
   assert.equal(evaluateIpdPreAudit({ diagnoses: ['B45.1', 'G02.1'] }).findings.some((finding) => finding.code === 'INS-IPD07'), false);

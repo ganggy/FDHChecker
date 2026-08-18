@@ -34,7 +34,7 @@ const IPD_PRE_AUDIT_RULES = [
     { code: 'CR58', title: 'PCI / Stent coding', condition: '00.66 ต้องมี 00.40-00.44 และจำนวน stent 00.45-00.48 ต้องครบคู่ 36.06/36.07', result: 'เสี่ยง' },
     { code: 'CR5 / CR8', title: 'Acidosis / Volume overload', condition: 'E87.2 ต้องมีผล lab สนับสนุน; E87.7 ร่วม I50.- อาจเป็นรหัสซ้ำ', result: 'ทบทวน/เสี่ยง' },
     { code: 'INS-IPD03', title: 'รหัสเฉพาะเพศหญิง', condition: 'ตรวจรายการ A34, B37.3, C51-C58, C79.6, D06/D07.0-D07.3, D25-D28, D39, E28, E89.4, F52.5, F53, I86.3, L29.2, L70.5, M80.0-M81.1, M83.0, N70-N98, N99.2-N99.3, O00-O99, P54.6, Q50/Q52, R87, S31.4, S37.4-S37.6, T19.2-T19.3, T83.3, Y76 และกลุ่ม Z ที่กำหนด', result: 'เสี่ยง' },
-    { code: 'INS-IPD04 / 06', title: 'Injury / Burn coding', condition: 'S/T ต้องมี external cause V/W/X/Y; ห้าม T31.0-T31.9 เป็น PDx; T36-T50 ต้องมีอักขระตำแหน่งที่ 5', result: 'เสี่ยง' },
+    { code: 'INS-IPD04 / 04A / 06', title: 'Injury / Burn coding', condition: 'S/T ต้องมี external cause V/W/X/Y; รหัส S/T/V/W/X/Y ต้องมีอย่างน้อย 5 หลักหลังตัดจุด; ห้าม T31.0-T31.9 เป็น PDx; T36-T50 ต้องมีอักขระตำแหน่งที่ 5', result: 'เสี่ยง' },
     { code: 'INS-IPD05', title: 'Delivery PDx', condition: 'O80.0-O84.9 เป็น PDx ต้องไม่มีรหัส O อื่นร่วม', result: 'เสี่ยง' },
     { code: 'INS-IPD07 / 08', title: 'รหัสคู่และรหัสห้ามร่วม', condition: 'B45.1 ต้องคู่ G02.1; R75/Z21/B20-B24 เลือกได้เพียงสถานะเดียว', result: 'เสี่ยง' },
     { code: 'INS-IPD09 / 12', title: 'Diabetes coding', condition: 'DM ใช้กลุ่ม E10-E14 และเมื่อมี E10-E14 ต้องไม่มี R73.-', result: 'เสี่ยง' },

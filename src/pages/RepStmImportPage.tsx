@@ -990,9 +990,14 @@ export const RepStmImportPage: React.FC = () => {
 
         if (parsedSheets.length === 1) {
           const { sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName } = parsedSheets[0];
-          const detectedType = isSubfile
-            ? hintType || detectImportType(queueItem.fileName, headers, rows)
-            : detectImportType(queueItem.fileName, headers, rows) || hintType;
+          // Server-side archive importers know the source schema exactly. Keep their
+          // declared type authoritative; generic column detection sees invoice fields
+          // inside STM and would otherwise misclassify CHI STM ZIPs as INV.
+          const detectedType = importerId && hintType
+            ? hintType
+            : isSubfile
+              ? hintType || detectImportType(queueItem.fileName, headers, rows)
+              : detectImportType(queueItem.fileName, headers, rows) || hintType;
           const parsedItem: ImportQueueItem = {
             ...queueItem,
             sheetName,
@@ -1023,9 +1028,11 @@ export const RepStmImportPage: React.FC = () => {
         } else {
           // Multiple relevant sheets – expand one file into multiple queue items
           const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName }, i) => {
-            const detectedType = isSubfile
-              ? hintType || detectImportType(queueItem.fileName, headers, rows)
-              : detectImportType(queueItem.fileName, headers, rows) || hintType;
+            const detectedType = importerId && hintType
+              ? hintType
+              : isSubfile
+                ? hintType || detectImportType(queueItem.fileName, headers, rows)
+                : detectImportType(queueItem.fileName, headers, rows) || hintType;
             return {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,
@@ -1104,6 +1111,7 @@ export const RepStmImportPage: React.FC = () => {
           updateQueueItem(item.id, (current) => ({
             ...current,
             status: 'error',
+            progress: 100,
             message: 'ไม่สามารถระบุประเภทไฟล์ได้',
           }));
           failedCount += 1;
@@ -1140,6 +1148,7 @@ export const RepStmImportPage: React.FC = () => {
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'duplicate',
+              progress: 100,
               message: result.message || `ไฟล์ ${item.detectedType} นี้ถูกนำเข้าแล้ว`,
             }));
           } else {
@@ -1150,6 +1159,7 @@ export const RepStmImportPage: React.FC = () => {
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'success',
+              progress: 100,
               message: result.message || `นำเข้า ${item.detectedType} สำเร็จ ${Number(result.rowCount || 0).toLocaleString()} แถว`,
             }));
           }
@@ -1159,6 +1169,7 @@ export const RepStmImportPage: React.FC = () => {
           updateQueueItem(item.id, (current) => ({
             ...current,
             status: 'error',
+            progress: 100,
             message: err instanceof Error ? err.message : 'นำเข้าไม่สำเร็จ',
           }));
         }
@@ -1312,6 +1323,13 @@ export const RepStmImportPage: React.FC = () => {
               disabled={importing}
             >
               เปิดหน้าตรวจ C/Deny
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => navigateFromDashboard('reconciliation', { source: 'dashboard', contextLabel: 'จากหน้ารับ REP/STM' })}
+              disabled={importing}
+            >
+              เปิดหน้ากระทบยอด visit
             </button>
           </div>
         </div>

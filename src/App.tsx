@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { LoginPage } from './pages/LoginPage';
-import { adminOnlyPages, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
+import { adminOnlyPages, menuLabelByPage, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
 import { changePassword, fetchMe, logout, type AuthSession } from './services/authService';
 import { LocalAiAssistant } from './components/LocalAiAssistant';
 import type { AppPage } from './utils/navigationState';
 import businessRules from './config/business_rules.json';
 import './App.css';
+import './styles/mobile.css';
 
 const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
   loader: () => Promise<T>,
@@ -16,6 +17,7 @@ const StaffPage = lazyNamed(() => import('./pages/StaffPage'), 'StaffPage');
 const IPDPage = lazyNamed(() => import('./pages/IPDPage'), 'IPDPage');
 const IpdFdhExportPage = lazyNamed(() => import('./pages/IpdFdhExportPage'), 'IpdFdhExportPage');
 const IpdClaimMonitorPage = lazyNamed(() => import('./pages/IpdClaimMonitorPage'), 'IpdClaimMonitorPage');
+const CollaborationHubPage = lazy(() => import('./pages/CollaborationHubPage'));
 const AiReportWorkspacePage = lazyNamed(() => import('./pages/AiReportWorkspacePage'), 'AiReportWorkspacePage');
 const HospitalReportHubPage = lazyNamed(() => import('./pages/HospitalReportHubPage'), 'HospitalReportHubPage');
 const AdminDashboard = lazyNamed(() => import('./pages/AdminDashboard'), 'AdminDashboard');
@@ -53,6 +55,7 @@ const MemberAdminPage = lazyNamed(() => import('./pages/MemberAdminPage'), 'Memb
 function App() {
   const [requestedPage, setCurrentPage] = useState<AppPage>('staff');
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
@@ -81,6 +84,20 @@ function App() {
       .then((session) => setAuthSession(session))
       .finally(() => setAuthLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMenuOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -129,6 +146,7 @@ function App() {
     if (!canOpenPage(page)) return;
     setCurrentPage(page);
     setOpenNavGroup(null);
+    setMobileMenuOpen(false);
   };
 
   const handleLogout = async () => {
@@ -198,6 +216,14 @@ function App() {
     );
   }
 
+  const mobilePagePriority: AppPage[] = ['collaboration', 'staff', 'ipd', 'ipdClaimMonitor'];
+  const mobilePageRank = new Map(mobilePagePriority.map((page, index) => [page, index]));
+  const mobilePrimaryItems = [...visiblePrimaryNavItems]
+    .sort((left, right) => (mobilePageRank.get(left.page) ?? 99) - (mobilePageRank.get(right.page) ?? 99))
+    .slice(0, 4);
+  const mobilePrimaryPageSet = new Set(mobilePrimaryItems.map((item) => item.page));
+  const mobileMoreActive = Boolean(currentPage && !mobilePrimaryPageSet.has(currentPage));
+
   return (
     <div className="app-shell">
       <nav className="navbar">
@@ -234,6 +260,15 @@ function App() {
             )}
             <button className="nav-btn nav-icon-btn" onClick={handleLogout} title="ออกจากระบบ">
               <span style={{ fontSize: '1.15rem' }}>⏻</span>
+            </button>
+            <button
+              className="nav-btn nav-icon-btn mobile-menu-toggle"
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="เปิดเมนูทั้งหมด"
+              aria-expanded={mobileMenuOpen}
+            >
+              <span aria-hidden="true">☰</span>
             </button>
           </div>
         </div>
@@ -300,12 +335,93 @@ function App() {
         </div>
       </nav>
 
+      {mobileMenuOpen && (
+        <div className="mobile-nav-layer">
+          <button
+            className="mobile-nav-backdrop"
+            type="button"
+            aria-label="ปิดเมนู"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <aside className="mobile-nav-drawer" aria-label="เมนูหลัก">
+            <header className="mobile-nav-header">
+              <div className="mobile-nav-brand">
+                <span className="mobile-nav-brand-icon">🏥</span>
+                <div>
+                  <strong>FDH Checker</strong>
+                  <span>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</span>
+                </div>
+              </div>
+              <button type="button" onClick={() => setMobileMenuOpen(false)} aria-label="ปิดเมนู">✕</button>
+            </header>
+
+            <div className="mobile-nav-profile">
+              <span className="mobile-nav-avatar" aria-hidden="true">👤</span>
+              <div>
+                <strong>{authSession.user.display_name || authSession.user.username}</strong>
+                <span>{authSession.user.group_name || (authSession.user.is_admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน')}</span>
+              </div>
+            </div>
+
+            <div className="mobile-nav-scroll">
+              <section className="mobile-nav-section">
+                <h2>งานประจำ</h2>
+                <div className="mobile-nav-grid">
+                  {visiblePrimaryNavItems.map((item) => (
+                    <button
+                      key={item.page}
+                      type="button"
+                      className={currentPage === item.page ? 'active' : ''}
+                      onClick={() => goToPage(item.page)}
+                    >
+                      <span aria-hidden="true">{item.icon}</span>
+                      <b>{item.label}</b>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {visibleToolNavGroups.map((group) => (
+                <section className="mobile-nav-section" key={group.label}>
+                  <h2><span aria-hidden="true">{group.icon}</span>{group.label}</h2>
+                  <div className="mobile-nav-list">
+                    {group.pages.map((page) => {
+                      const item = toolNavItemByPage.get(page);
+                      if (!item) return null;
+                      return (
+                        <button
+                          key={item.page}
+                          type="button"
+                          className={currentPage === item.page ? 'active' : ''}
+                          onClick={() => goToPage(item.page)}
+                        >
+                          <span aria-hidden="true">{item.icon}</span>
+                          <b>{item.label}</b>
+                          <span aria-hidden="true">›</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            <footer className="mobile-nav-actions">
+              <button type="button" onClick={() => { setMobileMenuOpen(false); setPasswordDialogOpen(true); }}>🔑 เปลี่ยนรหัสผ่าน</button>
+              {canOpenPage('settings') && <button type="button" onClick={() => goToPage('settings')}>⚙️ ตั้งค่า</button>}
+              <button type="button" className="is-danger" onClick={() => void handleLogout()}>⏻ ออกจากระบบ</button>
+            </footer>
+          </aside>
+        </div>
+      )}
+
       <div className="app-main">
         <Suspense fallback={<div className="page-loading" role="status">กำลังโหลดหน้าจอ...</div>}>
         {currentPage === 'staff' && <StaffPage />}
         {currentPage === 'ipd' && <IPDPage />}
         {currentPage === 'ipdExport' && <IpdFdhExportPage />}
         {currentPage === 'ipdClaimMonitor' && <IpdClaimMonitorPage />}
+        {currentPage === 'collaboration' && <CollaborationHubPage currentUser={authSession.user} />}
         {currentPage === 'aiReports' && <AiReportWorkspacePage />}
         {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
@@ -345,6 +461,29 @@ function App() {
         {currentPage === 'memberAdmin' && <MemberAdminPage />}
         </Suspense>
       </div>
+      <nav className="mobile-bottom-nav" aria-label="เมนูลัด">
+        {mobilePrimaryItems.map((item) => (
+          <button
+            key={item.page}
+            type="button"
+            className={currentPage === item.page ? 'active' : ''}
+            onClick={() => goToPage(item.page)}
+            aria-current={currentPage === item.page ? 'page' : undefined}
+          >
+            <span aria-hidden="true">{item.icon}</span>
+            <b>{item.label}</b>
+          </button>
+        ))}
+        <button
+          type="button"
+          className={mobileMoreActive ? 'active' : ''}
+          onClick={() => setMobileMenuOpen(true)}
+          aria-label={`เมนูทั้งหมด หน้าปัจจุบัน ${currentPage ? menuLabelByPage[currentPage] || '' : ''}`}
+        >
+          <span aria-hidden="true">☰</span>
+          <b>เมนู</b>
+        </button>
+      </nav>
       {passwordDialogOpen && (
         <div className="password-dialog-backdrop" role="presentation" onMouseDown={closePasswordDialog}>
           <section className="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -369,7 +508,7 @@ function App() {
           </section>
         </div>
       )}
-      {currentPage !== 'aiReports' && (
+      {!mobileMenuOpen && currentPage !== 'aiReports' && (
         <LocalAiAssistant avoidBottomActionBar={currentPage === 'fdh' || currentPage === 'ipdExport'} />
       )}
     </div>

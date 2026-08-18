@@ -186,3 +186,4 @@ export const buildSssIpdExportZip = async (options: SssCandidateOptions & { ans:
     return {buffer:zip.toBuffer(),filename:`${options.hcode}AIPN${stamp.slice(-6)}.ZIP`,summary:{admissionCount:selected.length,diagnosisCount:diagnoses.length,operationCount:operations.length,chargeCount:charges.length}};
   } finally { connection.release(); }
 };
+

@@ -74,6 +74,13 @@ test('recognizes patient-topic follow-ups without guessing a patient', () => {
   assert.equal(parsePatientTopicFollowup('ผล lab คืออะไร'), null);
 });
 
+test('does not mistake a diagnosis cohort report for a patient follow-up', () => {
+  assert.equal(
+    parsePatientTopicFollowup('ขอรายชื่อ วันที่รับบริการ โรค ของคนไข้ที่ diag ตั้งแต่ O240 ถึง O249 ปีงบประมาณ 2569 เป็น excel'),
+    null,
+  );
+});
+
 test('recognizes a natural Thai patient-name visit-count question', () => {
   assert.deepEqual(parsePatientReportIntent('นายเปรมศักดิ์ เทพวงสา เคยมาโรงพยาบาลกี่ครั้ง', now), {
     kind: 'patient-lookup',

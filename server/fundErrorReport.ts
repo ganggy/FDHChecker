@@ -1,13 +1,7 @@
 import { getRevenueOpportunitySourceRows, getSpecificFundData } from './db.js';
 import { pushLineMessages, type LineMessage } from './lineMessaging.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
-import {
-  ANC_DENTAL_CLEAN_PROCEDURE_CODES,
-  ANC_DENTAL_CLEAN_ICD9,
-  ANC_DENTAL_EXAM_PROCEDURE_CODES,
-  ANC_DENTAL_EXAM_ICD9,
-  hasMatchingDentalProcedureIcd9,
-} from '../src/utils/ancDentalRules.js';
+import { publishCollaborationBotMessages } from './collaboration.js';
 
 type FundRow = Record<string, unknown>;
 
@@ -201,21 +195,11 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
     case 'anc_dental_exam':
     case 'anc_dental_clean': {
       const exam = fundId === 'anc_dental_exam';
-      const dentalProcedureCodes = exam ? ANC_DENTAL_EXAM_PROCEDURE_CODES : ANC_DENTAL_CLEAN_PROCEDURE_CODES;
-      const requiredIcd9 = exam ? ANC_DENTAL_EXAM_ICD9 : ANC_DENTAL_CLEAN_ICD9;
       addWebNearStatusMissing(
         missing,
         flag(row[exam ? 'has_anc_dental_exam' : 'has_anc_dental_clean']) || hasListedCode(row.anc_adp_codes, [exam ? '30008' : '30009']),
         `ADP ${exam ? '30008' : '30009'}`,
-        [
-          { met: female, label: 'เพศหญิง' },
-          { met: ancDiag, label: 'Diagnosis Z34/Z35' },
-          {
-            met: flag(row[exam ? 'has_anc_dental_exam_procedure' : 'has_anc_dental_clean_procedure'])
-              || hasMatchingDentalProcedureIcd9(row.dental_procedure_pairs, dentalProcedureCodes, requiredIcd9),
-            label: `ICD10TM ${dentalProcedureCodes.join('/')} + หัตถการ ICD-9 ${requiredIcd9}`,
-          },
-        ],
+        [{ met: female, label: 'เพศหญิง' }, { met: ancDiag, label: 'Diagnosis Z34/Z35' }, { met: hasPrefix(row, 'K'), label: 'Diagnosis K*' }],
       );
       break;
     }
@@ -449,9 +433,22 @@ const pushTextMessages = async (messages: string[]) => {
   return messages.length;
 };
 
-export const sendDailyFundErrorReportToLine = async (sections: FundErrorSection[], reportDate: string) => (
-  pushTextMessages(buildDailyFundLineMessages(sections, reportDate))
-);
+export const sendDailyFundErrorReportToLine = async (sections: FundErrorSection[], reportDate: string) => {
+  const messages = buildDailyFundLineMessages(sections, reportDate);
+  const sent = await pushTextMessages(messages);
+  try {
+    await publishCollaborationBotMessages({
+      botKey: 'fund-errors',
+      senderName: text(process.env.LINE_FUND_BOT_DISPLAY_NAME) || 'พี่นกหมายเลขสอง',
+      reportDate,
+      messages,
+      metadata: { reportType: 'special_fund', mirroredFrom: 'line' },
+    });
+  } catch (error) {
+    console.warn('Unable to mirror fund report to collaboration chat:', errorMessage(error));
+  }
+  return sent;
+};
 
 export const sendFundErrorReportToLine = async (report: string, startChunk = 0) => {
   const chunks = chunkLineText(report).slice(Math.max(0, startChunk));

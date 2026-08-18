@@ -78,6 +78,20 @@ const hasDiagCode = (item: any, codes: string[]) => {
         item?.dx5,
     ].some((value) => targets.has(cleanDiag(value)));
 };
+
+export const hasPalliativeClaimData = (item: any) => {
+    const hasPalliativeDiagnosis = toBool(item?.has_pal_diag) || hasDiagCode(item, ['Z515', 'Z718']);
+    const hasPalliativeService = toBool(item?.has_pal_adp)
+        || toBool(item?.has_30001)
+        || toBool(item?.has_cons01)
+        || toBool(item?.has_eva001);
+
+    return hasPalliativeDiagnosis && hasPalliativeService;
+};
+
+export const hasPalliativeAuthenReady = (item: any) => hasPalliativeClaimData(item) && (
+    toBool(item?.has_authen) || hasValue(item?.authen_code)
+);
 const hasDiagPrefix = (item: any, prefixes: string | string[]) => {
     const targets = (Array.isArray(prefixes) ? prefixes : [prefixes]).map((prefix) => cleanDiag(prefix));
     return [
@@ -241,7 +255,8 @@ export const evaluateBillingLogic = (item: any) => {
 
         const palliativeDiag = toBool(item?.has_pal_diag) || hasDiagCode(item, ['Z515', 'Z718']);
         const palliativeAdp = toBool(item?.has_pal_adp) || toBool(item?.has_30001) || toBool(item?.has_cons01) || toBool(item?.has_eva001);
-        const palliativeMatch = palliativeDiag && palliativeAdp;
+        const palliativeMatch = hasPalliativeClaimData(item);
+        const palliativeAuthenReady = hasPalliativeAuthenReady(item);
 
         if (toBool(item?.has_telmed) || String(item?.ovstist_export_code ?? '').trim() === String(rules.project_codes?.ovstist_tele ?? '5').trim()) {
             fundNotes.push({ label: '📱 Telemedicine', kind: 'matched', group: 'other' });
@@ -618,6 +633,9 @@ export const evaluateBillingLogic = (item: any) => {
 
         if (item?.serviceType !== 'ผู้ป่วยใน' && toBool(item?.has_close)) {
             visibleFundNotes.push({ label: '🔐 ปิดสิทธิแล้ว (EP)', kind: 'ep', group: 'other' });
+        } else if (item?.serviceType !== 'ผู้ป่วยใน' && isUUC1 && palliativeAuthenReady) {
+            visibleFundNotes.push({ label: '🪪 Palliative มี Authen Code — พร้อมส่ง', kind: 'ep', group: 'palliative' });
+            billingStatusLabel = 'UUC1 Palliative พร้อมส่ง (Authen)';
         } else if (item?.serviceType !== 'ผู้ป่วยใน' && isUUC1) {
             visibleFundNotes.push({ label: '🔐 ยังไม่ปิดสิทธิ (EP)', kind: 'ep', group: 'other' });
             billingStatusLabel = 'UUC1 รอปิดสิทธิ (EP)';

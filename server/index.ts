@@ -2697,6 +2697,7 @@ app.get('/api/hosxp/kidney-monitor', async (req, res) => {
         excludedWithoutEvidence: result.excludedCount,
         trackingSummary: result.trackingSummary,
         trackingIssues: result.trackingIssues,
+        repstmSummary: result.repstmSummary,
       }
     });
   } catch (error) {

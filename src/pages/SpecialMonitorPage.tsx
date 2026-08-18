@@ -80,7 +80,28 @@ interface KidneyMonitorMeta {
     excludedWithoutEvidence?: number;
     trackingSummary?: KidneyTrackingSummary;
     trackingIssues?: KidneyTrackingIssueSummary;
+    repstmSummary?: {
+        totalVisits: number;
+        repVisits: number;
+        pendingRep: number;
+        stmVisits: number;
+        pendingStm: number;
+        matchedVisits: number;
+        differentVisits: number;
+        errorVisits: number;
+        repAmount: number;
+        stmPaidAmount: number;
+        amountDiff: number;
+    };
 }
+
+const CLAIM_TRACKING_LABELS = {
+    NO_REP: { label: 'ยังไม่มี REP', color: '#92400e', background: '#fef3c7' },
+    WAITING_STM: { label: 'พบ REP · รอ STM', color: '#1d4ed8', background: '#dbeafe' },
+    MATCHED: { label: 'REP/STM ตรง', color: '#166534', background: '#dcfce7' },
+    AMOUNT_DIFFERENT: { label: 'REP/STM ยอดต่าง', color: '#b91c1c', background: '#fee2e2' },
+    REP_ERROR: { label: 'REP/STM มี Error', color: '#9a3412', background: '#ffedd5' },
+} as const;
 
 const RIGHT_LABEL_MAP: Record<string, string> = {
     all: 'ทั้งหมด',
@@ -351,6 +372,13 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                         : item.profit ?? analysis.profit ?? 0
                 ),
                 สถานะ: analysis.error ? analysis.error : (analysis.category || 'ปกติ'),
+                สถานะ_REP_STM: kidneyRecord?.claimTrackingStatus ? CLAIM_TRACKING_LABELS[kidneyRecord.claimTrackingStatus].label : '-',
+                เลข_REP: kidneyRecord?.repNos?.join(', ') || '-',
+                ยอด_REP: Number(kidneyRecord?.repAmount || 0),
+                เลข_STM: kidneyRecord?.stmNos?.join(', ') || '-',
+                ยอดจ่าย_STM: Number(kidneyRecord?.stmPaidAmount || 0),
+                ผลต่าง_REP_STM: Number(kidneyRecord?.repStmDiff || 0),
+                Error_REP_STM: kidneyRecord?.repStmErrors?.join(', ') || '',
                 หมายเหตุ: analysis.epoDetail || '',
             };
         });
@@ -748,6 +776,35 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                                     )}
                                 </div>
                             )}
+                        </div>
+                    )}
+                    {dataMeta?.repstmSummary && (
+                        <div style={{ background: 'white', padding: '20px', borderRadius: '8px', marginTop: '18px', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' }}>
+                            <div style={{ fontSize: '14px', fontWeight: 800, color: '#1e3a8a' }}>🔗 ติดตาม REP / STM หน่วยไต</div>
+                            <div style={{ color: '#64748b', fontSize: '12px', marginTop: 5 }}>
+                                เชื่อม session ที่นำเข้าไว้กับ visit หน่วยไตด้วย VN และตรวจสำรองด้วย HN + วันที่รับบริการ
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: '10px', marginTop: '14px' }}>
+                                {[
+                                    { label: 'พบ REP', value: dataMeta.repstmSummary.repVisits, color: '#2563eb', background: '#eff6ff' },
+                                    { label: 'ยังไม่มี REP', value: dataMeta.repstmSummary.pendingRep, color: '#b45309', background: '#fffbeb' },
+                                    { label: 'ได้รับ STM', value: dataMeta.repstmSummary.stmVisits, color: '#059669', background: '#ecfdf5' },
+                                    { label: 'รอ STM', value: dataMeta.repstmSummary.pendingStm, color: '#7c3aed', background: '#f5f3ff' },
+                                    { label: 'ยอดตรงกัน', value: dataMeta.repstmSummary.matchedVisits, color: '#15803d', background: '#f0fdf4' },
+                                    { label: 'ยอดต่าง / Error', value: dataMeta.repstmSummary.differentVisits + dataMeta.repstmSummary.errorVisits, color: '#dc2626', background: '#fef2f2' },
+                                ].map((card) => (
+                                    <div key={card.label} style={{ padding: '12px', borderRadius: '8px', borderLeft: `4px solid ${card.color}`, background: card.background }}>
+                                        <div style={{ fontSize: '11px', fontWeight: 700, color: card.color }}>{card.label}</div>
+                                        <div style={{ fontSize: '22px', fontWeight: 800, color: card.color, marginTop: 4 }}>{card.value.toLocaleString('th-TH')}</div>
+                                        <div style={{ fontSize: '10px', color: '#64748b' }}>visit</div>
+                                    </div>
+                                ))}
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 22px', marginTop: '12px', padding: '11px 13px', borderRadius: '8px', background: '#f8fafc', fontSize: '12px', color: '#475569' }}>
+                                <span>ยอด REP <strong style={{ color: '#1d4ed8' }}>฿{dataMeta.repstmSummary.repAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></span>
+                                <span>ยอดจ่าย STM <strong style={{ color: '#047857' }}>฿{dataMeta.repstmSummary.stmPaidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></span>
+                                <span>ผลต่าง STM − REP <strong style={{ color: Math.abs(dataMeta.repstmSummary.amountDiff) > 0.01 ? '#dc2626' : '#15803d' }}>฿{dataMeta.repstmSummary.amountDiff.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></span>
+                            </div>
                         </div>
                     )}
                     <div
@@ -1172,6 +1229,8 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                         <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, minWidth: '140px' }}>สิทธิ์</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>กลุ่ม</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '130px' }}>หลักฐานฟอกไต</th>
+                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '150px' }}>สถานะ REP / STM</th>
+                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '145px' }}>ยอด REP / STM</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>รายรับ (Revenue)</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '120px' }}>จ่ายหน่วยไต (Cost)</th>
                         <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>กำไร รพ.</th>
@@ -1266,6 +1325,34 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                                             }}>
                                                 {item.hasDialysisEvidence === false ? '⚠️ ต้องตรวจสอบ' : '✓ ครบ'}
                                             </span>
+                                        </td>
+                                        <td style={{ padding: '12px', textAlign: 'center', minWidth: '150px' }}>
+                                            {kidneyRecord?.claimTrackingStatus ? (() => {
+                                                const status = CLAIM_TRACKING_LABELS[kidneyRecord.claimTrackingStatus];
+                                                return (
+                                                    <div>
+                                                        <span style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '999px', fontSize: '10px', fontWeight: 800, color: status.color, background: status.background }}>
+                                                            {status.label}
+                                                        </span>
+                                                        {(kidneyRecord.repNos?.length || kidneyRecord.stmNos?.length) ? (
+                                                            <div style={{ marginTop: 5, fontSize: '9px', color: '#64748b', lineHeight: 1.5 }}>
+                                                                {kidneyRecord.repNos?.length ? `REP ${kidneyRecord.repNos.join(', ')}` : ''}
+                                                                {kidneyRecord.repNos?.length && kidneyRecord.stmNos?.length ? <br /> : null}
+                                                                {kidneyRecord.stmNos?.length ? `STM ${kidneyRecord.stmNos.join(', ')}` : ''}
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })() : <span style={{ color: '#94a3b8', fontSize: '11px' }}>ยังไม่มีข้อมูลนำเข้า</span>}
+                                        </td>
+                                        <td style={{ padding: '12px', textAlign: 'right', minWidth: '145px', fontSize: '11px', lineHeight: 1.7 }}>
+                                            <div>REP <strong style={{ color: '#1d4ed8' }}>฿{Number(kidneyRecord?.repAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></div>
+                                            <div>STM <strong style={{ color: '#047857' }}>฿{Number(kidneyRecord?.stmPaidAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></div>
+                                            {(kidneyRecord?.stmFound && kidneyRecord?.repFound) && (
+                                                <div style={{ color: Math.abs(Number(kidneyRecord.repStmDiff || 0)) > 0.01 ? '#dc2626' : '#15803d', fontWeight: 700 }}>
+                                                    ต่าง ฿{Number(kidneyRecord.repStmDiff || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                                </div>
+                                            )}
                                         </td>
                                         <td style={{ padding: '12px', textAlign: 'center', fontWeight: 800, color: '#1976d2', minWidth: '100px' }}>
                                             ฿{displayCost.toLocaleString()}

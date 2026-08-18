@@ -18,6 +18,18 @@ export interface KidneyMonitorRecord {
   profit: number;
   profitMargin: number;
   insuranceGroup: string;
+  claimTrackingStatus?: 'NO_REP' | 'WAITING_STM' | 'MATCHED' | 'AMOUNT_DIFFERENT' | 'REP_ERROR';
+  repFound?: boolean;
+  repCount?: number;
+  repAmount?: number;
+  repNos?: string[];
+  stmFound?: boolean;
+  stmCount?: number;
+  stmAmount?: number;
+  stmPaidAmount?: number;
+  stmNos?: string[];
+  repStmDiff?: number;
+  repStmErrors?: string[];
   drugs?: Array<{
     drugName: string;
     qty: number;

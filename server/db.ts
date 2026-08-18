@@ -8,6 +8,7 @@ import { getApVaccineRule, validateApVaccineEligibility } from './mophVaccineRul
 import type { FdhExportProfile } from './fdhExport.js';
 import { evaluateFsRate, FS_PROJECT_ITEMS_2569 } from './fsRateRules.js';
 import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVisit, summarizeKidneyTrackingVisits } from './kidneyMonitorRules.js';
+import { attachKidneyRepStmTracking } from './kidneyRepStmTracking.js';
 
 dotenv.config();
 
@@ -13878,10 +13879,57 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
         console.log(`  - HN: ${r.hn}, insuranceType: "${r.insuranceType}"`);
       });
     }    connection.release();
-    const returned = detailedData.length;
+
+    let enrichedData = detailedData;
+    let repstmSummary = attachKidneyRepStmTracking(detailedData, [], []).summary;
+    let repstmConnection: mysql.PoolConnection | null = null;
+    try {
+      const visitVns = Array.from(new Set(detailedData.map((row) => String(row.vn || '').trim()).filter(Boolean)));
+      const visitHns = Array.from(new Set(detailedData.map((row) => String(row.hn || '').trim()).filter(Boolean)));
+      if (detailedData.length > 0 && visitVns.length > 0 && visitHns.length > 0) {
+        repstmConnection = await getRepstmConnection();
+        const [repResult] = await repstmConnection.query(
+          `SELECT r.id, r.vn, r.hn, DATE_FORMAT(r.admdate, '%Y-%m-%d') AS service_date,
+                  r.rep_no, r.tran_id, r.compensated, r.errorcode, r.verifycode
+             FROM rep_data r
+            WHERE r.vn IN (?)
+               OR (r.hn IN (?) AND r.admdate >= ? AND r.admdate < DATE_ADD(?, INTERVAL 1 DAY))`,
+          [visitVns, visitHns, startDate, endDate],
+        );
+        const repRows = repResult as any[];
+        const repTranIds = Array.from(new Set(repRows.map((row) => String(row.tran_id || '').trim()).filter(Boolean)));
+        const stmConditions = [
+          's.matched_visit_code IN (?)',
+          's.vn IN (?)',
+          '(s.hn IN (?) AND s.service_datetime >= ? AND s.service_datetime < DATE_ADD(?, INTERVAL 1 DAY))',
+        ];
+        const stmParams: unknown[] = [visitVns, visitVns, visitHns, startDate, endDate];
+        if (repTranIds.length > 0) {
+          stmConditions.push('s.tran_id IN (?)');
+          stmParams.push(repTranIds);
+        }
+        const [stmResult] = await repstmConnection.query(
+          `SELECT s.id, s.vn, s.matched_visit_code, s.hn,
+                  DATE_FORMAT(s.service_datetime, '%Y-%m-%d') AS service_date,
+                  s.statement_no, s.tran_id, s.amount, s.paid_amount, s.errorcode, s.verifycode
+             FROM repstm_statement_data s
+            WHERE s.data_type = 'STM' AND (${stmConditions.join(' OR ')})`,
+          stmParams,
+        );
+        const attached = attachKidneyRepStmTracking(detailedData, repRows, stmResult as any[]);
+        enrichedData = attached.data;
+        repstmSummary = attached.summary;
+      }
+    } catch (repstmError) {
+      console.error('⚠️ Kidney REP/STM linkage unavailable; returning visit data without claim tracking:', repstmError);
+    } finally {
+      repstmConnection?.release();
+    }
+
+    const returned = enrichedData.length;
     console.log(`✅ Processed ${returned} kidney monitor records - No truncation (all records shown)`);
     return {
-      data: detailedData,
+      data: enrichedData,
       totalCount,
       returned,
       truncated: false,
@@ -13889,6 +13937,7 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
       excludedCount,
       trackingSummary,
       trackingIssues,
+      repstmSummary,
     };
   } catch (error) {
     console.error('Error in getKidneyMonitorDetailed:', error);
@@ -13901,6 +13950,7 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
       excludedCount: 0,
       trackingSummary: summarizeKidneyTrackingVisits([]),
       trackingIssues: findKidneyTrackingIssues([]),
+      repstmSummary: attachKidneyRepStmTracking([], [], []).summary,
     };
   }
 };

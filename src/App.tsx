@@ -3,6 +3,7 @@ import { LoginPage } from './pages/LoginPage';
 import { adminOnlyPages, menuLabelByPage, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
 import { changePassword, fetchMe, logout, type AuthSession } from './services/authService';
 import { LocalAiAssistant } from './components/LocalAiAssistant';
+import { TableScrollNavigator } from './components/TableScrollNavigator';
 import type { AppPage } from './utils/navigationState';
 import businessRules from './config/business_rules.json';
 import './App.css';
@@ -511,6 +512,7 @@ function App() {
       {!mobileMenuOpen && currentPage !== 'aiReports' && (
         <LocalAiAssistant avoidBottomActionBar={currentPage === 'fdh' || currentPage === 'ipdExport'} />
       )}
+      {!mobileMenuOpen && <TableScrollNavigator />}
     </div>
   );
 }

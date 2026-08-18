@@ -1951,6 +1951,69 @@ p {
   border-top: 2px solid var(--border);
 }
 
+/* Every page keeps wide tables inside its own viewport. The global navigator
+   below makes hidden right-hand columns reachable even when a table has many rows. */
+.app-main :where(div, section):has(> table) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.table-scroll-navigator {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 1150;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+  color: #334155;
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
+}
+
+.table-scroll-navigator button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.table-scroll-navigator button:disabled {
+  background: #cbd5e1;
+  cursor: default;
+}
+
+.table-scroll-navigator span {
+  min-width: 104px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+  .table-scroll-navigator {
+    bottom: calc(var(--mobile-nav-height, 72px) + var(--safe-bottom, 0px) + 10px);
+  }
+}
+
 /* ========== Fund Menu Tabs ========== */
 .fund-tabs {
   display: flex;

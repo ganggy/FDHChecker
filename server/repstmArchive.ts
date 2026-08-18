@@ -230,7 +230,7 @@ const parseChiHdRep = (bilEntry: AdmZip.IZipEntry, dbfEntry: AdmZip.IZipEntry): 
     return {
       'ลำดับ': index + 1,
       'REP No.': bil.responseNo,
-      'transaction_uid': `CHIHD:${bil.responseNo}:${bilRow.sessionNo}`,
+      'transaction_uid': `CHIHD:${bilRow.sessionNo}`,
       'HOSPCODE': cleanChiText(dbf.HCODE || bil.hcode),
       'HN': cleanChiText(dbf.HN || bilRow.hn),
       'HCEXT': cleanChiText(dbf.HCEXT || bilRow.station),
@@ -327,17 +327,20 @@ const parseCocdStatement = (root: Record<string, unknown>, entryName: string): R
 
   const rows = bills.map((bill, index) => {
     const sourceAmount = xmlValue(bill.amount);
+    const sessionNo = xmlValue(bill.invno);
     const extP = bill.ExtP;
     return {
       'ลำดับ': index + 1,
       'STM No.': statementNo,
+      'transaction_uid': sessionNo ? `CHIHD:${sessionNo}` : '',
       'HOSPCODE': hcode,
       'กองทุน': xmlValue(bill.sys) || containerFundCode,
       'สถานี': xmlValue(bill.station),
       'HREG': xmlValue(bill.hreg),
       'HN': xmlValue(bill.hn),
       'ชื่อ - สกุล': xmlValue(bill.namepat),
-      'เลขที่ใบแจ้งหนี้': xmlValue(bill.invno),
+      'เลขที่ใบแจ้งหนี้': sessionNo,
+      'SESSNO': sessionNo,
       'วันที่รับบริการ': xmlValue(bill.dttran),
       'เลขรอบ': xmlValue(bill.rid),
       'สถานะ': xmlValue(bill.cstat),
@@ -368,9 +371,97 @@ const parseCocdStatement = (root: Record<string, unknown>, entryName: string): R
   };
 };
 
+const parseSocdStatement = (root: Record<string, unknown>, entryName: string): RepstmArchiveDataset | null => {
+  const patientBills = asArray(asRecord(root.HDBills).HDBill).map(asRecord).filter((row) => Object.keys(row).length > 0);
+  if (patientBills.length === 0) return null;
+
+  const statementNo = xmlValue(root.STMdoc);
+  const hcode = xmlValue(root.hcode);
+  const stmDat = asRecord(root.STMdat);
+  const rows: Record<string, unknown>[] = [];
+  patientBills.forEach((patientBill) => {
+    const benefit = asRecord(patientBill.benefit);
+    const patientEpo = asRecord(patientBill.EPO);
+    const bills = asArray(patientBill.TBill).map(asRecord).filter((row) => Object.keys(row).length > 0);
+    bills.forEach((bill) => {
+      const epo = asRecord(bill.EPOs);
+      const epoDetail = asRecord(epo.EPO);
+      const epoPayment = xmlValue(epo.EPOpay);
+      const epoAdmin = xmlValue(epo.EPOadm);
+      const sessionNo = xmlValue(bill.invno);
+      const hdAmount = Number(xmlValue(bill.amount) || 0);
+      const paidAmount = hdAmount + Number(epoPayment || 0) + Number(epoAdmin || 0);
+      rows.push({
+        'ลำดับ': rows.length + 1,
+        'STM No.': statementNo,
+        'transaction_uid': sessionNo ? `CHIHD:${sessionNo}` : '',
+        'HOSPCODE': xmlValue(bill.hcode) || hcode,
+        'กองทุน': 'SSS-HD',
+        'สถานี': xmlValue(bill.station),
+        'HREG': xmlValue(bill.hreg) || xmlValue(patientBill.hreg),
+        'HN': xmlValue(bill.hn) || xmlValue(patientBill.hn),
+        'PID': xmlValue(patientBill.pid),
+        'ชื่อ - สกุล': xmlValue(patientBill.name),
+        'สิทธิหลัก': xmlAttribute(patientBill.benefit, 'main'),
+        'สิทธิย่อย': xmlAttribute(patientBill.benefit, 'sub'),
+        'Benefit Marker': xmlAttribute(patientBill.benefit, 'marker'),
+        'WK No.': xmlValue(bill.wkno) || xmlValue(patientBill.wkno),
+        'เลขที่ใบแจ้งหนี้': sessionNo,
+        'SESSNO': sessionNo,
+        'วันที่รับบริการ': xmlValue(bill.dttran),
+        'เลขรอบ': xmlValue(bill.rid),
+        'สถานะ': xmlValue(bill.cstat || bill.pstat),
+        'HD Flag': xmlValue(bill.HDflag),
+        'HD Rate': xmlValue(bill.hdrate),
+        'HD Charge': xmlValue(bill.hdcharge),
+        'Pay Check': xmlValue(bill.paychk),
+        'EPO Status': xmlValue(bill.EPOstat),
+        'EPO Code': xmlAttribute(epo.EPO, 'code'),
+        'EPO Name': xmlAttribute(epo.EPO, 'eponame'),
+        'EPO IU': xmlValue(epo.EPOiu),
+        'HCT': xmlValue(epo.HCT),
+        'EPO Payment': epoPayment,
+        'EPO Administration': epoAdmin,
+        'amount': paidAmount.toFixed(2),
+        'paid_amount': paidAmount.toFixed(2),
+        'invoice_amount': paidAmount.toFixed(2),
+        'source_hd_amount': xmlValue(bill.amount),
+        'source_paid': xmlValue(bill.paid),
+        'Patient HD Sessions': xmlValue(patientBill.hds),
+        'Patient HD Payable': xmlValue(patientBill.payable),
+        'Patient EPO Payment': xmlValue(patientEpo.epoPay),
+        'Benefit Main': xmlAttribute(benefit, 'main'),
+        'EPO Item': xmlValue(epoDetail.item),
+      });
+    });
+  });
+  if (rows.length === 0) return null;
+
+  const totalAmount = rows.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+  const summary = {
+    documentKind: 'statement', entryName,
+    accountId: xmlValue(root.stmAccountID), hcode,
+    hcodeReference: xmlAttribute(root.hcode, 'id'), hospitalName: xmlValue(root.hname),
+    accountingPeriod: xmlValue(root.AccPeriod), statementNo,
+    dateStart: xmlValue(root.dateStart), dateEnd: xmlValue(root.dateEnd),
+    dateDue: xmlValue(root.dateData), dateIssue: xmlValue(root.dateIssue),
+    fundCode: xmlAttribute(root.STMdat, 'code'), fundName: xmlAttribute(root.STMdat, 'name'),
+    description: xmlAttribute(root.STMdat, 'desc'), patientCount: patientBills.length,
+    rowCount: rows.length, totalAmount: Number(totalAmount.toFixed(2)),
+    sourceTotalAmount: Number(xmlValue(root.amount) || 0),
+    sourceDetailTotal: Number(xmlValue(stmDat.amount) || 0),
+  };
+  return {
+    id: `${entryName}:socd-statement`, entryName,
+    importerId: 'socd-statement', importerLabel: 'STM ไตประกันสังคม CHI (SOCD)',
+    detectedType: 'STM', sheetName: [statementNo, 'SSS-HD'].filter(Boolean).join(' · ') || entryName,
+    headers: Object.keys(rows[0] || {}), rows, summary,
+  };
+};
+
 const parseSummaryDocument = (root: Record<string, unknown>, entryName: string) => {
   const stmDat = asRecord(asArray(root.STMdat)[0]);
-  const dat = asRecord(asArray(stmDat.Dat)[0]);
+  const dat = asRecord(asArray(stmDat.Dat || stmDat.dat)[0]);
   return {
     documentKind: 'summary',
     entryName,
@@ -383,12 +474,12 @@ const parseSummaryDocument = (root: Record<string, unknown>, entryName: string) 
     detailDocument: xmlValue(asRecord(root.atth).doc),
     dateStart: xmlValue(root.dateStart),
     dateEnd: xmlValue(root.dateEnd),
-    dateDue: xmlValue(root.dateDue),
+    dateDue: xmlValue(root.dateDue || root.dateData),
     dateIssue: xmlValue(root.dateIssue),
     fundCode: xmlAttribute(stmDat, 'code'),
     fundName: xmlAttribute(stmDat, 'name'),
     description: xmlAttribute(stmDat, 'desc'),
-    rowCount: Number(xmlValue(root.acount || dat.Tcount) || 0),
+    rowCount: Number(xmlValue(root.acount || dat.Tcount || dat.count) || 0),
     totalAmount: Number(xmlValue(root.amount || dat.Tamount) || 0),
   };
 };
@@ -435,7 +526,10 @@ export const analyzeRepstmArchive = (archiveBuffer: Buffer, archiveName: string)
     try {
       const parsed = asRecord(parser.parse(entry.getData().toString('utf8')));
       if (parsed.STMSTM) {
-        const dataset = parseCocdStatement(asRecord(parsed.STMSTM), entryName);
+        const root = asRecord(parsed.STMSTM);
+        const dataset = root.HDBills
+          ? parseSocdStatement(root, entryName)
+          : parseCocdStatement(root, entryName);
         if (dataset) {
           datasets.push(dataset);
           summaries.push(dataset.summary);

@@ -36,6 +36,7 @@ const SUMMARY_LABELS: Record<string, string> = {
   fundName: 'ชื่อกองทุน',
   description: 'ประเภทบริการ',
   rowCount: 'จำนวนรายการ',
+  patientCount: 'จำนวนผู้ป่วย',
   acceptedCount: 'ตรวจผ่าน',
   rejectedCount: 'ตรวจไม่ผ่าน',
   csmbsCount: 'กรมบัญชีกลาง',
@@ -46,7 +47,7 @@ const SUMMARY_LABELS: Record<string, string> = {
 
 const formatSummaryValue = (key: string, value: unknown) => {
   if (key === 'totalAmount') return Number(value || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (['rowCount', 'acceptedCount', 'rejectedCount', 'csmbsCount', 'sssCount'].includes(key)) {
+  if (['rowCount', 'patientCount', 'acceptedCount', 'rejectedCount', 'csmbsCount', 'sssCount'].includes(key)) {
     return Number(value || 0).toLocaleString('th-TH');
   }
   return String(value ?? '-');

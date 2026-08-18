@@ -55,6 +55,8 @@ test('reads COCD STM ZIP and preserves identifiers with leading zeroes', () => {
   assert.equal(result.datasets[0].detectedType, 'STM');
   assert.equal(result.datasets[0].importerId, 'cocd-statement');
   assert.equal(result.datasets[0].rows[0].HN, '0014302');
+  assert.equal(result.datasets[0].rows[0].SESSNO, '863059381');
+  assert.equal(result.datasets[0].rows[0].transaction_uid, 'CHIHD:863059381');
   assert.equal(result.datasets[0].rows[0].paid_amount, '3295.0000');
   assert.equal(result.datasets[0].rows[0].source_paid, '0.0000');
 });
@@ -91,8 +93,44 @@ test('reads CHI kidney REP from paired BIL and DBF and keeps rejected error deta
   assert.equal(dataset.summary.acceptedCount, 1);
   assert.equal(dataset.summary.rejectedCount, 1);
   assert.equal(dataset.rows[0].SESSNO, '872134990');
+  assert.equal(dataset.rows[0].transaction_uid, 'CHIHD:872134990');
   assert.equal(dataset.rows[0]['ชดเชยสุทธิ'], 1884);
   assert.equal(dataset.rows[1].errorcode, '44');
   assert.equal(dataset.rows[1]['รายละเอียดข้อผิดพลาด'], 'เบิกยา ESA สูงกว่าราคาที่ให้เบิก');
   assert.equal(dataset.rows[1]['ชดเชยสุทธิ'], 0);
+});
+
+test('flattens SOCD social-security kidney STM into session rows and reconciles the source total', () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  <STMSTM>
+    <stmAccountID>SOCD</stmAccountID><hcode id="EA0011101">11101</hcode><hname>Test Hospital</hname>
+    <AccPeriod>260601</AccPeriod><STMdoc>11101_SOCDSTM_20260601</STMdoc>
+    <dateStart>1 มิถุนายน 2569</dateStart><dateEnd>15 มิถุนายน 2569</dateEnd><dateData>17 มิถุนายน 2569</dateData><dateIssue>17 มิถุนายน 2569</dateIssue>
+    <acount>1</acount><amount>1934.0000</amount>
+    <STMdat code="HD" name="ประกันสังคม" desc="บริการไตเทียม"><amount>1934.0000</amount></STMdat>
+    <HDBills><HDBill>
+      <hreg>11101</hreg><hn>00000001</hn><name>Patient One</name><pid>1234567890123</pid>
+      <benefit main="S" sub="" marker=""/><wkno>0710</wkno><hds>1</hds><payable>1500.00</payable>
+      <EPO><epoPay>384.00</epoPay></EPO>
+      <TBill><hcode>11101</hcode><station>01</station><wkno>0710</wkno><hreg>11101</hreg><hn>00000001</hn>
+        <invno>863059590</invno><dttran>2026-05-18T14:12:00</dttran><hdrate>1500.00</hdrate><hdcharge>1500.00</hdcharge>
+        <amount>1500.00</amount><paid>0.00</paid><rid>1295</rid><HDflag>COS</HDflag><paychk>1</paychk><EPOstat>E</EPOstat>
+        <EPOs><EPOiu>8000</EPOiu><EPOpay>384.00</EPOpay><HCT>23</HCT><EPOadm>50.00</EPOadm><EPO code="1033097" eponame="EPIAO"><item code="01">384.00</item></EPO></EPOs>
+      </TBill>
+    </HDBill></HDBills>
+  </STMSTM>`;
+  const zip = new AdmZip();
+  zip.addFile('11101_SOCDSTM_20260601.XML', Buffer.from(xml, 'utf8'));
+
+  const result = analyzeRepstmArchive(zip.toBuffer(), '11101_SOCDSTM_20260601.ZIP');
+  const dataset = result.datasets[0];
+  assert.equal(dataset.importerId, 'socd-statement');
+  assert.equal(dataset.importerLabel, 'STM ไตประกันสังคม CHI (SOCD)');
+  assert.equal(dataset.rows.length, 1);
+  assert.equal(dataset.rows[0].SESSNO, '863059590');
+  assert.equal(dataset.rows[0].transaction_uid, 'CHIHD:863059590');
+  assert.equal(dataset.rows[0].paid_amount, '1934.00');
+  assert.equal(dataset.rows[0]['EPO Payment'], '384.00');
+  assert.equal(dataset.summary.totalAmount, 1934);
+  assert.equal(dataset.summary.sourceTotalAmount, 1934);
 });

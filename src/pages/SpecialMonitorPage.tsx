@@ -86,6 +86,7 @@ interface KidneyMonitorMeta {
         pendingRep: number;
         stmVisits: number;
         pendingStm: number;
+        zeroAmountVisits: number;
         matchedVisits: number;
         differentVisits: number;
         errorVisits: number;
@@ -98,6 +99,7 @@ interface KidneyMonitorMeta {
 const CLAIM_TRACKING_LABELS = {
     NO_REP: { label: 'ยังไม่มี REP', color: '#92400e', background: '#fef3c7' },
     WAITING_STM: { label: 'พบ REP · รอ STM', color: '#1d4ed8', background: '#dbeafe' },
+    WAITING_PAYMENT: { label: 'พบ REP · รอยอดชดเชย', color: '#b45309', background: '#fef3c7' },
     MATCHED: { label: 'REP/STM ตรง', color: '#166534', background: '#dcfce7' },
     AMOUNT_DIFFERENT: { label: 'REP/STM ยอดต่าง', color: '#b91c1c', background: '#fee2e2' },
     REP_ERROR: { label: 'REP/STM มี Error', color: '#9a3412', background: '#ffedd5' },
@@ -790,6 +792,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                                     { label: 'ยังไม่มี REP', value: dataMeta.repstmSummary.pendingRep, color: '#b45309', background: '#fffbeb' },
                                     { label: 'ได้รับ STM', value: dataMeta.repstmSummary.stmVisits, color: '#059669', background: '#ecfdf5' },
                                     { label: 'รอ STM', value: dataMeta.repstmSummary.pendingStm, color: '#7c3aed', background: '#f5f3ff' },
+                                    { label: 'REP ยังไม่มียอด', value: dataMeta.repstmSummary.zeroAmountVisits, color: '#b45309', background: '#fffbeb' },
                                     { label: 'ยอดตรงกัน', value: dataMeta.repstmSummary.matchedVisits, color: '#15803d', background: '#f0fdf4' },
                                     { label: 'ยอดต่าง / Error', value: dataMeta.repstmSummary.differentVisits + dataMeta.repstmSummary.errorVisits, color: '#dc2626', background: '#fef2f2' },
                                 ].map((card) => (

@@ -18,7 +18,7 @@ export interface KidneyMonitorRecord {
   profit: number;
   profitMargin: number;
   insuranceGroup: string;
-  claimTrackingStatus?: 'NO_REP' | 'WAITING_STM' | 'MATCHED' | 'AMOUNT_DIFFERENT' | 'REP_ERROR';
+  claimTrackingStatus?: 'NO_REP' | 'WAITING_STM' | 'WAITING_PAYMENT' | 'MATCHED' | 'AMOUNT_DIFFERENT' | 'REP_ERROR';
   repFound?: boolean;
   repCount?: number;
   repAmount?: number;

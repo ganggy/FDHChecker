@@ -1,6 +1,7 @@
 export type KidneyClaimTrackingStatus =
   | 'NO_REP'
   | 'WAITING_STM'
+  | 'WAITING_PAYMENT'
   | 'MATCHED'
   | 'AMOUNT_DIFFERENT'
   | 'REP_ERROR';
@@ -44,6 +45,7 @@ export interface KidneyRepStmSummary {
   pendingRep: number;
   stmVisits: number;
   pendingStm: number;
+  zeroAmountVisits: number;
   matchedVisits: number;
   differentVisits: number;
   errorVisits: number;
@@ -58,12 +60,16 @@ const amountValue = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 const dateValue = (value: unknown) => textValue(value).slice(0, 10);
+const hnValue = (value: unknown) => {
+  const cleaned = textValue(value).replace(/_/g, '').replace(/\s+/g, '');
+  return cleaned.replace(/^0+/, '') || (cleaned ? '0' : '');
+};
 const uniqueTexts = (values: unknown[]) => Array.from(new Set(values.map(textValue).filter(Boolean)));
 const issueTexts = (values: unknown[]) => uniqueTexts(values).filter((value) => {
   const normalized = value.toUpperCase().replace(/\s+/g, '');
   return !['-', '0', '00', '000', 'A', 'OK', 'PASS', 'SUCCESS', 'ผ่าน', 'ปกติ'].includes(normalized);
 });
-const visitKey = (visit: KidneyTrackingVisit) => `${textValue(visit.vn)}|${textValue(visit.hn)}|${dateValue(visit.serviceDate)}`;
+const visitKey = (visit: KidneyTrackingVisit) => `${textValue(visit.vn)}|${hnValue(visit.hn)}|${dateValue(visit.serviceDate)}`;
 
 export const attachKidneyRepStmTracking = <T extends KidneyTrackingVisit>(
   visits: T[],
@@ -78,9 +84,9 @@ export const attachKidneyRepStmTracking = <T extends KidneyTrackingVisit>(
     const key = visitKey(visit);
     visitKeys.add(key);
     const vn = textValue(visit.vn);
-    const hnDate = `${textValue(visit.hn)}|${dateValue(visit.serviceDate)}`;
+    const hnDate = `${hnValue(visit.hn)}|${dateValue(visit.serviceDate)}`;
     if (vn) visitByVn.set(vn, key);
-    if (textValue(visit.hn) && dateValue(visit.serviceDate) && !visitByHnDate.has(hnDate)) {
+    if (hnValue(visit.hn) && dateValue(visit.serviceDate) && !visitByHnDate.has(hnDate)) {
       visitByHnDate.set(hnDate, key);
     }
   });
@@ -93,7 +99,7 @@ export const attachKidneyRepStmTracking = <T extends KidneyTrackingVisit>(
     if (!list.some((item) => String(item.id) === String(row.id))) list.push(row);
     map.set(key, list);
   };
-  const fallbackKey = (hn: unknown, serviceDate: unknown) => visitByHnDate.get(`${textValue(hn)}|${dateValue(serviceDate)}`);
+  const fallbackKey = (hn: unknown, serviceDate: unknown) => visitByHnDate.get(`${hnValue(hn)}|${dateValue(serviceDate)}`);
 
   repRows.forEach((row) => {
     const key = visitByVn.get(textValue(row.vn)) || fallbackKey(row.hn, row.service_date);
@@ -126,6 +132,7 @@ export const attachKidneyRepStmTracking = <T extends KidneyTrackingVisit>(
     ]);
     let claimTrackingStatus: KidneyClaimTrackingStatus = 'NO_REP';
     if (reps.length > 0 && errors.length > 0) claimTrackingStatus = 'REP_ERROR';
+    else if (reps.length > 0 && repAmount <= 0.01 && (!stms.length || stmPaidAmount <= 0.01)) claimTrackingStatus = 'WAITING_PAYMENT';
     else if (reps.length > 0 && stms.length === 0) claimTrackingStatus = 'WAITING_STM';
     else if (reps.length > 0 && stms.length > 0 && Math.abs(amountDiff) <= 0.01) claimTrackingStatus = 'MATCHED';
     else if (reps.length > 0 && stms.length > 0) claimTrackingStatus = 'AMOUNT_DIFFERENT';
@@ -153,6 +160,7 @@ export const attachKidneyRepStmTracking = <T extends KidneyTrackingVisit>(
     pendingRep: data.filter((row) => !row.repFound).length,
     stmVisits: data.filter((row) => row.stmFound).length,
     pendingStm: data.filter((row) => row.repFound && !row.stmFound).length,
+    zeroAmountVisits: data.filter((row) => row.claimTrackingStatus === 'WAITING_PAYMENT').length,
     matchedVisits: data.filter((row) => row.claimTrackingStatus === 'MATCHED').length,
     differentVisits: data.filter((row) => row.claimTrackingStatus === 'AMOUNT_DIFFERENT').length,
     errorVisits: data.filter((row) => row.claimTrackingStatus === 'REP_ERROR').length,

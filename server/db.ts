@@ -13886,24 +13886,28 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
     try {
       const visitVns = Array.from(new Set(detailedData.map((row) => String(row.vn || '').trim()).filter(Boolean)));
       const visitHns = Array.from(new Set(detailedData.map((row) => String(row.hn || '').trim()).filter(Boolean)));
+      const normalizedVisitHns = Array.from(new Set(visitHns.map((hn) => hn.replace(/_/g, '').replace(/^0+/, '') || '0')));
       if (detailedData.length > 0 && visitVns.length > 0 && visitHns.length > 0) {
         repstmConnection = await getRepstmConnection();
         const [repResult] = await repstmConnection.query(
           `SELECT r.id, r.vn, r.hn, DATE_FORMAT(r.admdate, '%Y-%m-%d') AS service_date,
                   r.rep_no, r.tran_id, r.compensated, r.errorcode, r.verifycode
              FROM rep_data r
-            WHERE r.vn IN (?)
-               OR (r.hn IN (?) AND r.admdate >= ? AND r.admdate < DATE_ADD(?, INTERVAL 1 DAY))`,
-          [visitVns, visitHns, startDate, endDate],
+            WHERE r.tran_id LIKE 'CHIHD:%'
+              AND (r.vn IN (?)
+               OR (TRIM(LEADING '0' FROM REPLACE(TRIM(r.hn), '_', '')) IN (?)
+                   AND r.admdate >= ? AND r.admdate < DATE_ADD(?, INTERVAL 1 DAY)))`,
+          [visitVns, normalizedVisitHns, startDate, endDate],
         );
         const repRows = repResult as any[];
         const repTranIds = Array.from(new Set(repRows.map((row) => String(row.tran_id || '').trim()).filter(Boolean)));
         const stmConditions = [
           's.matched_visit_code IN (?)',
           's.vn IN (?)',
-          '(s.hn IN (?) AND s.service_datetime >= ? AND s.service_datetime < DATE_ADD(?, INTERVAL 1 DAY))',
+          `(TRIM(LEADING '0' FROM REPLACE(TRIM(s.hn), '_', '')) IN (?)
+            AND s.service_datetime >= ? AND s.service_datetime < DATE_ADD(?, INTERVAL 1 DAY))`,
         ];
-        const stmParams: unknown[] = [visitVns, visitVns, visitHns, startDate, endDate];
+        const stmParams: unknown[] = [visitVns, visitVns, normalizedVisitHns, startDate, endDate];
         if (repTranIds.length > 0) {
           stmConditions.push('s.tran_id IN (?)');
           stmParams.push(repTranIds);
@@ -13913,7 +13917,8 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
                   DATE_FORMAT(s.service_datetime, '%Y-%m-%d') AS service_date,
                   s.statement_no, s.tran_id, s.amount, s.paid_amount, s.errorcode, s.verifycode
              FROM repstm_statement_data s
-            WHERE s.data_type = 'STM' AND (${stmConditions.join(' OR ')})`,
+            WHERE s.data_type = 'STM' AND s.tran_id LIKE 'CHIHD:%'
+              AND (${stmConditions.join(' OR ')})`,
           stmParams,
         );
         const attached = attachKidneyRepStmTracking(detailedData, repRows, stmResult as any[]);

@@ -44,7 +44,18 @@ test('does not treat REP placeholder and success values as errors', () => {
     [{ id: 6, vn: 'V400', errorcode: '-', verifycode: 'ผ่าน', compensated: 0 }],
     [{ id: 7, matched_visit_code: 'V400', paid_amount: 0 }],
   );
-  assert.equal(result.data[0].claimTrackingStatus, 'MATCHED');
+  assert.equal(result.data[0].claimTrackingStatus, 'WAITING_PAYMENT');
   assert.deepEqual(result.data[0].repStmErrors, []);
   assert.equal(result.summary.errorVisits, 0);
+});
+
+test('matches a CHI HN without leading zeroes to the HOSxP HN', () => {
+  const result = attachKidneyRepStmTracking(
+    [{ vn: 'V500', hn: '000049831', serviceDate: '2025-09-25' }],
+    [{ id: 8, hn: '49831____', service_date: '2025-09-25', tran_id: 'CHIHD:839534466', compensated: 4590 }],
+    [],
+  );
+  assert.equal(result.data[0].repFound, true);
+  assert.equal(result.data[0].repAmount, 4590);
+  assert.equal(result.data[0].claimTrackingStatus, 'WAITING_STM');
 });

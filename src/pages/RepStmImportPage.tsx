@@ -848,7 +848,7 @@ export const RepStmImportPage: React.FC = () => {
     const selectedFiles = Array.from(files).filter((file) => /\.(xlsx|xls|csv|zip)$/i.test(file.name));
     if (selectedFiles.length === 0) {
       const receivedNames = Array.from(files).map((file) => file.name).filter(Boolean).join(', ');
-      setError(`รูปแบบไฟล์ยังไม่รองรับ ต้องเป็น Excel, CSV หรือ ZIP/XML จากระบบจ่ายเงิน${receivedNames ? ` (${receivedNames})` : ''}`);
+      setError(`รูปแบบไฟล์ยังไม่รองรับ ต้องเป็น Excel, CSV หรือ ZIP ที่มี BIL+DBF/XML จากระบบจ่ายเงิน${receivedNames ? ` (${receivedNames})` : ''}`);
       return [];
     }
     const initialQueue: ImportQueueItem[] = selectedFiles.map((file, index) => ({
@@ -1208,7 +1208,7 @@ export const RepStmImportPage: React.FC = () => {
           <div className="alert alert-info repstm-alert" style={{ marginBottom: 16 }}>
             <span>ℹ️</span>
             <span>
-              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
+              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV, <code>REP ไต CHI</code> จาก ZIP ที่มี BIL+DBF และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
             </span>
           </div>
 
@@ -1265,7 +1265,7 @@ export const RepStmImportPage: React.FC = () => {
               }}
             />
             <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\REP</code>
+              ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง BIL+DBF/XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\FDH_STAT</code>
             </div>
             <label className="repstm-subfile-option">
               <input

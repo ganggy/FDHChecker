@@ -31,6 +31,12 @@ export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
     if (!isOpen || !data) return null;
 
     const folders = ['INS', 'PAT', 'OPD', 'ORF', 'ODX', 'OOP', 'IPD', 'IRF', 'IDX', 'IOP', 'CHT', 'CHA', 'AER', 'ADP', 'LVD', 'DRU'];
+    const errorsForFile = (folder: string) => validation?.errors.filter(
+        issue => String(issue.file || '').toUpperCase() === folder,
+    ) || [];
+    const errorsForRow = (folder: string, rowNumber: number) => errorsForFile(folder).filter(
+        issue => Number(issue.row) === rowNumber,
+    );
 
     const renderTable = (folder: string) => {
         const rows = data[folder] || [];
@@ -58,14 +64,32 @@ export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map((row: any, idx: number) => (
-                            <tr key={idx}>
-                                <td style={{ textAlign: 'center', color: '#64748b', fontSize: 12 }}>{idx + 1}</td>
+                        {rows.map((row: any, idx: number) => {
+                            const rowErrors = errorsForRow(folder, idx + 1);
+                            const errorTitle = rowErrors.map(issue => issue.message).join('\n');
+                            return (
+                            <tr
+                                key={idx}
+                                className={rowErrors.length > 0 ? 'fdh-preview-row--error' : undefined}
+                                title={errorTitle || undefined}
+                                aria-label={rowErrors.length > 0 ? `แถว ${idx + 1} มีข้อผิดพลาด ${rowErrors.length} รายการ` : undefined}
+                            >
+                                <td style={{ textAlign: 'center', color: rowErrors.length > 0 ? '#991b1b' : '#64748b', fontSize: 12, fontWeight: rowErrors.length > 0 ? 800 : 400 }}>
+                                    {rowErrors.length > 0 && <span className="fdh-preview-error-icon" aria-hidden="true">!</span>}
+                                    {idx + 1}
+                                </td>
                                 {columns.map(col => (
-                                    <td key={col} style={{ whiteSpace: 'nowrap', fontSize: 13 }}>{row[col] ?? ''}</td>
+                                    <td
+                                        key={col}
+                                        className={rowErrors.some(issue => issue.field === col) ? 'fdh-preview-cell--error' : undefined}
+                                        style={{ whiteSpace: 'nowrap', fontSize: 13 }}
+                                    >
+                                        {row[col] ?? ''}
+                                    </td>
                                 ))}
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -132,9 +156,16 @@ export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
                         {!validation.valid && (
                             <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 8, fontSize: 12, color: '#9a3412' }}>
                                 {validation.errors.slice(0, 50).map((issue, index) => (
-                                    <div key={`${issue.code}-${issue.file}-${issue.row}-${index}`}>
+                                    <button
+                                        type="button"
+                                        className="fdh-preview-error-link"
+                                        key={`${issue.code}-${issue.file}-${issue.row}-${index}`}
+                                        onClick={() => issue.file && setActiveTab(String(issue.file).toUpperCase())}
+                                        disabled={!issue.file}
+                                        title={issue.file ? `เปิดแฟ้ม ${issue.file}${issue.row ? ` แถว ${issue.row}` : ''}` : undefined}
+                                    >
                                         {index + 1}. {issue.message}
-                                    </div>
+                                    </button>
                                 ))}
                                 {validation.errors.length > 50 && <div>…และอีก {validation.errors.length - 50} รายการ</div>}
                             </div>
@@ -146,6 +177,7 @@ export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
                 <div className="fdh-preview-tabs">
                     {folders.map(folder => {
                         const count = data[folder]?.length || 0;
+                        const errorCount = errorsForFile(folder).length;
                         return (
                             <button
                                 key={folder}
@@ -157,6 +189,11 @@ export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
                                 {count > 0 && (
                                     <span className="modal-tab-count">
                                         {count}
+                                    </span>
+                                )}
+                                {errorCount > 0 && (
+                                    <span className="fdh-preview-tab-error" title={`${errorCount} ข้อผิดพลาด`}>
+                                        ! {errorCount}
                                     </span>
                                 )}
                             </button>

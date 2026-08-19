@@ -6,11 +6,29 @@ import {
   scopeFdhData,
   serializeFdhFile,
   buildFdhFiles,
+  consolidateFdhOopRows,
   selectFdhUploadFiles,
   uploadFdhFiles,
   validateFdhData,
   type FdhExportData,
 } from './fdhExport.js';
+
+test('OOP consolidation prefers specialist sources and keeps different procedures', () => {
+  const result = consolidateFdhOopRows([
+    { HN: '0001', SEQ: 'VN1', OPER: '8959', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0001', SEQ: 'VN1', OPER: '8959', DROPID: 'OPER_DOCTOR', _SOURCE_PRIORITY: 2 },
+    { HN: '0001', SEQ: 'VN1', OPER: '8952', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0002', SEQ: 'VN2', OPER: '9654', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0002', SEQ: 'VN2', OPER: '9654', DROPID: 'DENTIST', _SOURCE_PRIORITY: 3 },
+  ]);
+
+  assert.equal(result.rows.length, 3);
+  assert.equal(result.duplicateGroups, 2);
+  assert.equal(result.mergedRows, 2);
+  assert.equal(result.rows.find((row) => row.OPER === '8959')?.DROPID, 'OPER_DOCTOR');
+  assert.equal(result.rows.find((row) => row.OPER === '9654')?.DROPID, 'DENTIST');
+  assert.equal(result.rows.every((row) => !('_SOURCE_PRIORITY' in row)), true);
+});
 
 const emptyData = (): FdhExportData => ({
   INS: [], PAT: [], OPD: [], ORF: [], ODX: [], OOP: [], IPD: [], IRF: [],

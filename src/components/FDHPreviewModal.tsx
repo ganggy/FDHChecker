@@ -170,6 +170,22 @@ export const FDHPreviewModal: React.FC<FDHPreviewModalProps> = ({
                                 {validation.errors.length > 50 && <div>…และอีก {validation.errors.length - 50} รายการ</div>}
                             </div>
                         )}
+                        {validation.warnings.length > 0 && (
+                            <div className="fdh-preview-warning-list">
+                                {validation.warnings.slice(0, 50).map((issue, index) => (
+                                    <button
+                                        type="button"
+                                        className="fdh-preview-warning-link"
+                                        key={`warning-${issue.code}-${issue.file}-${issue.row}-${index}`}
+                                        onClick={() => issue.file && setActiveTab(String(issue.file).toUpperCase())}
+                                        disabled={!issue.file}
+                                        title={issue.file ? `เปิดแฟ้ม ${issue.file}` : undefined}
+                                    >
+                                        ⚠ {issue.message}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 

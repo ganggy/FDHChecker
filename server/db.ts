@@ -5,7 +5,7 @@ import businessRules from './config/business_rules.json';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
 import { fetchWithTimeout } from './httpClient.js';
 import { getApVaccineRule, validateApVaccineEligibility } from './mophVaccineRules.js';
-import type { FdhExportProfile } from './fdhExport.js';
+import { consolidateFdhOopRows, type FdhExportProfile } from './fdhExport.js';
 import { evaluateFsRate, FS_PROJECT_ITEMS_2569 } from './fsRateRules.js';
 import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVisit, summarizeKidneyTrackingVisits } from './kidneyMonitorRules.js';
 import { attachKidneyRepStmTracking } from './kidneyRepStmTracking.js';
@@ -11200,7 +11200,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           dx.doctor AS DROPID,
           COALESCE(pt.cid, '') AS PERSON_ID,
           o.vn AS SEQ,
-          '' AS SERVPRICE
+          '' AS SERVPRICE,
+          1 AS _SOURCE_PRIORITY
         FROM ovstdiag dx
         JOIN ovst o ON dx.vn = o.vn
         LEFT JOIN spclty sp ON sp.spclty = o.spclty
@@ -11215,7 +11216,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           dro.doctor AS DROPID,
           COALESCE(pt.cid, '') AS PERSON_ID,
           o.vn AS SEQ,
-          '' AS SERVPRICE
+          '' AS SERVPRICE,
+          2 AS _SOURCE_PRIORITY
         FROM doctor_operation dro
         JOIN ovst o ON dro.vn = o.vn
         LEFT JOIN er_oper_code eoc ON eoc.er_oper_code = dro.er_oper_code
@@ -11235,7 +11237,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           dm.doctor AS DROPID,
           COALESCE(pt.cid, '') AS PERSON_ID,
           o.vn AS SEQ,
-          '' AS SERVPRICE
+          '' AS SERVPRICE,
+          3 AS _SOURCE_PRIORITY
         FROM dtmain dm
         JOIN ovst o ON dm.vn = o.vn
         LEFT JOIN dttm tm ON tm.code = dm.tmcode
@@ -11659,6 +11662,10 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         UUC: sourceVn && ['1', '2'].includes(String(uucByVn[sourceVn] || '')) ? String(uucByVn[sourceVn]) : row.UUC,
       };
     });
+    const consolidatedOop = consolidateFdhOopRows(oop as Record<string, unknown>[]);
+    if (consolidatedOop.mergedRows > 0) {
+      console.info(`OOP: consolidated ${consolidatedOop.mergedRows} duplicate rows across ${consolidatedOop.duplicateGroups} keys`);
+    }
     const ancBySeq = new Map((anc as Record<string, unknown>[]).map((row) => [String(row.SEQ || ''), row]));
     const fwfCodeByIcode = new Map((fwfMappings as Record<string, unknown>[]).map((row) => [String(row.ICODE || ''), String(row.FWF_CODE || '')]));
     const normalizedAdp = (adp as Record<string, unknown>[]).map((row) => {
@@ -11689,7 +11696,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       OPD: normalizedOpd,
       ORF: orf as any[],
       ODX: odx as any[],
-      OOP: oop as any[],
+      OOP: consolidatedOop.rows,
       IPD: normalizedIpd,
       IRF: irf as any[],
       IDX: idx as any[],
@@ -11699,7 +11706,11 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       AER: aer as any[],
       ADP: normalizedAdp,
       LVD: normalizedLvd,
-      DRU: dru as any[]
+      DRU: dru as any[],
+      _meta: {
+        oopDuplicateGroups: consolidatedOop.duplicateGroups,
+        oopMergedRows: consolidatedOop.mergedRows,
+      },
     };
   } catch (error) {
     console.error('Error fetching export data:', error);

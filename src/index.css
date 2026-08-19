@@ -2851,6 +2851,34 @@ p {
   cursor: default;
 }
 
+.fdh-preview-warning-list {
+  max-height: 100px;
+  margin-top: 8px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.fdh-preview-warning-link {
+  display: block;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: #fef3c7;
+  color: #92400e;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fdh-preview-warning-link:hover:not(:disabled) {
+  background: #fde68a;
+}
+
+.fdh-preview-warning-link:disabled {
+  cursor: default;
+}
+
 .fdh-preview-tab-error {
   margin-left: 4px;
   padding: 1px 5px;

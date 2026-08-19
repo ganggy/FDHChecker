@@ -1975,6 +1975,19 @@ const prepareFdhExport = async (body: Record<string, unknown>) => {
   if (!rawData) throw new Error('ไม่สามารถดึงข้อมูล 16 แฟ้มจากฐานข้อมูลได้');
   const data = scopeFdhData(projectFdhData(rawData, request.profile), request.patientType);
   const validation = validateFdhData(data, request.profile, hcode);
+  const exportMeta = (rawData as typeof rawData & {
+    _meta?: { oopDuplicateGroups?: number; oopMergedRows?: number };
+  })._meta;
+  const oopMergedRows = Number(exportMeta?.oopMergedRows || 0);
+  const oopDuplicateGroups = Number(exportMeta?.oopDuplicateGroups || 0);
+  if (oopMergedRows > 0) {
+    validation.warnings.push({
+      severity: 'warning',
+      code: 'OOP_DUPLICATE_MERGED',
+      file: 'OOP',
+      message: `รวม OOP ซ้ำจากหลายแหล่ง ${oopDuplicateGroups.toLocaleString('th-TH')} คีย์ ตัดแถวซ้ำ ${oopMergedRows.toLocaleString('th-TH')} แถวแล้ว`,
+    });
+  }
   const estimatedBytes = buildFdhFiles(data, request.profile, true, process.env.FDH_EXPORT_ENCODING)
     .reduce((sum, file) => sum + file.content.length, 0);
   if (estimatedBytes > MAX_FDH_UPLOAD_BYTES) {

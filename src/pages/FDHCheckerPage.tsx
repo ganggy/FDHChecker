@@ -104,6 +104,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [ipdAuthenSyncing, setIpdAuthenSyncing] = useState(false);
     const [ipdAuthenNotice, setIpdAuthenNotice] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
     const lastIpdAuthenSyncKey = useRef('');
+    const visitTableScrollRef = useRef<HTMLDivElement>(null);
 
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
@@ -180,6 +181,21 @@ export const FDHCheckerPage: React.FC = () => {
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    useEffect(() => {
+        const scroller = visitTableScrollRef.current;
+        if (!scroller) return undefined;
+
+        const forwardVerticalWheelToPage = (event: WheelEvent) => {
+            if (event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+            if (scroller.scrollHeight > scroller.clientHeight + 2) return;
+            event.preventDefault();
+            window.scrollBy({ top: event.deltaY, behavior: 'auto' });
+        };
+
+        scroller.addEventListener('wheel', forwardVerticalWheelToPage, { passive: false });
+        return () => scroller.removeEventListener('wheel', forwardVerticalWheelToPage);
+    }, [loading, error]);
 
     const specialFundOptions = Array.from(data.reduce((options, item) => {
         const logic = evaluateBillingLogic(item);
@@ -476,7 +492,7 @@ export const FDHCheckerPage: React.FC = () => {
 
 
     return (
-        <div className="page-container">
+        <div className="page-container fdh-checker-page">
             <div className="page-header">
                 <h1 className="page-title">📤 ส่งออกผู้ป่วยนอก (OPD 16 แฟ้ม)</h1>
                 <p className="page-subtitle">คัดเลือกด้วย VN ตรวจความพร้อม/Preflight และส่ง FDH แยกจากรายการ IPD</p>
@@ -746,9 +762,9 @@ export const FDHCheckerPage: React.FC = () => {
             )}
 
             {!loading && !error && (
-                <div className="card overflow-hidden" style={{ marginBottom: 110 }}>
-                    <div style={{ overflowX: 'auto' }}>
-                        <table className="table">
+                <div className="card overflow-hidden fdh-visit-table-card">
+                    <div ref={visitTableScrollRef} className="fdh-visit-table-scroll">
+                        <table className="table fdh-visit-table">
                             <thead>
                             <tr>
                                 <th style={{ width: 40, textAlign: 'center' }}>

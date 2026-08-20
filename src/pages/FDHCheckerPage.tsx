@@ -786,7 +786,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 <th style={{ textAlign: 'center' }}>Invoice</th>
                                 <th style={{ minWidth: 150, textAlign: 'center' }}>Authen Code<br /><span style={{ fontSize: 10, fontWeight: 400 }}>FDH IPD</span></th>
                                 <th style={{ textAlign: 'center' }}>ปิดสิทธิ (EP)</th>
-                                <th style={{ minWidth: 200 }}>สถานะกองทุน (สปสช.)</th>
+                                <th className="fdh-fund-status-column">สถานะกองทุน (สปสช.)</th>
                                 <th style={{ minWidth: 180 }}>สถานะ FDH</th>
                                 <th>สถานะส่งออก / ข้อมูล</th>
                             </tr>
@@ -906,7 +906,7 @@ export const FDHCheckerPage: React.FC = () => {
                                                         <span style={{ color: 'var(--danger)' }}>✗</span>
                                                     )}
                                                 </td>
-                                                <td>
+                                                <td className="fdh-fund-status-column">
                                                     <div className="fund-status-block">
                                                         <div className="fund-status-title">{logic.billingStatusLabel}</div>
                                                         {hasSpecialFundBlock && (

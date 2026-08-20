@@ -1940,7 +1940,7 @@ p {
   white-space: normal;
 }
 
-.fdh-visit-table .fund-status-block--two-lines {
+.fund-status-block--two-lines {
   display: grid;
   grid-template-rows: 15px 15px;
   gap: 2px;
@@ -1948,7 +1948,7 @@ p {
   overflow: hidden;
 }
 
-.fdh-visit-table .fund-status-line {
+.fund-status-line {
   display: block;
   min-width: 0;
   height: 15px;
@@ -1959,18 +1959,25 @@ p {
   white-space: nowrap;
 }
 
-.fdh-visit-table .fund-status-line--primary {
+.fund-status-line--primary {
   color: #334155;
   font-size: 10px;
   font-weight: 700;
 }
 
-.fdh-visit-table .fund-status-line--secondary.is-success {
+.fund-status-line--secondary.is-success {
   color: #15803d;
 }
 
-.fdh-visit-table .fund-status-line--secondary.is-warning {
+.fund-status-line--secondary.is-warning {
   color: #c2410c;
+}
+
+.fund-status-column {
+  width: 170px;
+  min-width: 170px;
+  max-width: 170px;
+  white-space: normal;
 }
 
 .fdh-checker-page [aria-label='คำสั่งส่งออก OPD'] {

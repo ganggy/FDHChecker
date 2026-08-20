@@ -909,8 +909,13 @@ export const FDHCheckerPage: React.FC = () => {
                                                 <td className="fdh-fund-status-column">
                                                     <div className="fund-status-block">
                                                         <div className="fund-status-title">{logic.billingStatusLabel}</div>
-                                                        {hasSpecialFundBlock && (
-                                                            <>
+                                                        {(hasSpecialFundBlock || epNotes.length > 0) && (
+                                                            <div
+                                                                className="fund-status-secondary"
+                                                                title={[specialSummary, ...specialFundNotes, ...epNotes].filter(Boolean).join(' • ')}
+                                                            >
+                                                                {hasSpecialFundBlock && (
+                                                                    <>
                                                                 <div className={`fund-status-summary ${logic.matchedFund ? 'fund-status-summary--success' : 'fund-status-summary--warning'}`}>
                                                                     <span>{specialSummary}</span>
                                                                 </div>
@@ -949,19 +954,21 @@ export const FDHCheckerPage: React.FC = () => {
                                                                 );
                                                                     })}
                                                                 </div>
-                                                            </>
-                                                        )}
-                                                        {epNotes.length > 0 && (
-                                                            <div className="fund-status-badges fund-status-badges--ep">
-                                                                {epNotes.map((note, idx) => (
-                                                                    <span
-                                                                        key={idx}
-                                                                        className={`badge ${item.has_close ? 'badge-success' : 'badge-warning'}`}
-                                                                        style={{ fontSize: 10 }}
-                                                                    >
-                                                                        {note}
-                                                                    </span>
-                                                                ))}
+                                                                    </>
+                                                                )}
+                                                                {epNotes.length > 0 && (
+                                                                    <div className="fund-status-badges fund-status-badges--ep">
+                                                                        {epNotes.map((note, idx) => (
+                                                                            <span
+                                                                                key={idx}
+                                                                                className={`badge ${item.has_close ? 'badge-success' : 'badge-warning'}`}
+                                                                                style={{ fontSize: 10 }}
+                                                                            >
+                                                                                {note}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         )}
                                                     </div>

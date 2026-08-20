@@ -36,6 +36,7 @@ const reports: ReportDefinition[] = [
   { id: 'complaint-satisfaction', category: 'quality', title: 'ข้อร้องเรียนและความพึงพอใจ', english: 'Complaint & Satisfaction', description: 'คะแนน ประเด็นร้องเรียน และสถานะการปรับปรุง', icon: '💬', status: 'source-required', requirement: 'ต้องเชื่อมแบบประเมิน/ศูนย์รับเรื่อง และกำหนด taxonomy ข้อร้องเรียน' },
   { id: 'cost-per-drg', category: 'financial', title: 'ค่าใช้จ่ายต่อกลุ่มโรค', english: 'Cost per DRG', description: 'จำนวนเคส RW และยอดเรียกเก็บเฉลี่ยแยก DRG', icon: '🧮', status: 'partial', input: 'date', defaultFormat: 'xlsx', requirement: 'ปัจจุบันเป็นยอดเรียกเก็บจาก HOSxP ยังไม่ใช่ต้นทุนบัญชีจริง' },
   { id: 'payer-mix', category: 'financial', title: 'สัดส่วนสิทธิการรักษา', english: 'Payer Mix', description: 'จำนวนคน จำนวนครั้ง และสัดส่วน OPD แยกตามสิทธิ', icon: '💳', status: 'ready', input: 'date', defaultFormat: 'xlsx' },
+  { id: 'pcu-patient-service', category: 'operations', title: 'ผู้รับบริการแยกราย รพ.สต.', english: 'PCU Patient Services', description: 'รายชื่อผู้ป่วย จำนวน visit ค่าใช้จ่าย ประเภทบริการ สิทธิ และ Refer แยกตามหน่วยบริการประจำ', icon: '🏘️', status: 'ready', input: 'date', defaultFormat: 'xlsx' },
 ];
 
 type ReportOutput = {

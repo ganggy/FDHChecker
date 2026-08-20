@@ -32,6 +32,10 @@ const suggestedReports = [
     icon: '💳', title: 'สัดส่วนสิทธิการรักษา', description: 'จำนวนคนและจำนวนครั้ง แยกตามสิทธิ',
     prompt: 'ขอรายงานสัดส่วนสิทธิการรักษาเดือนนี้ ออกเป็น Excel', ready: true,
   },
+  {
+    icon: '🏘️', title: 'ผู้รับบริการแยกราย รพ.สต.', description: 'รายชื่อ จำนวน visit ค่าใช้จ่าย ประเภทบริการ และ Refer',
+    prompt: 'ขอข้อมูลคนไข้ที่มารับบริการเดือนนี้ แยกราย รพ.สต. พร้อมค่าใช้จ่าย จำนวน visit ประเภทบริการ และ refer ออกเป็น Excel', ready: true,
+  },
 ];
 
 const createConversationId = () => {

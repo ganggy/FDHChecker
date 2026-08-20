@@ -51,6 +51,9 @@ test('routes verified bed and payer templates without model-generated SQL', () =
   assert.deepEqual(parseHospitalReportIntent('รวมทุกตึก 30 เตียงตามการขึ้นทะเบียน และ 38 ตาม กบรส'), {
     reportId: 'bed-occupancy', registeredBeds: 30, operationalBeds: 38, aiSummary: true,
   });
+  assert.deepEqual(parseHospitalReportIntent('อยากได้ข้อมูลคนไข้แยกราย รพ.สต. ค่าใช้จ่าย visit และ refer เป็น Excel', new Date('2026-08-05T01:00:00Z')), {
+    reportId: 'pcu-patient-service', dateStart: '2026-08-01', dateEnd: '2026-08-31', format: 'xlsx', aiSummary: true,
+  });
 });
 
 test('rejects patient reports without an exact identifier before querying HOSxP', async () => {

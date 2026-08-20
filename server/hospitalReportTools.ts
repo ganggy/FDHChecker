@@ -3,7 +3,7 @@ import { answerPatientReportQuestion } from './aiReportTools.js';
 import { buildReportAttachment, type ExportableReport, type ReportFormat } from './aiReportExport.js';
 import { generateAgentText } from './aiService.js';
 
-export type HospitalReportId = 'discharge-summary' | 'operative-note' | 'lab-report' | 'bed-occupancy' | 'cost-per-drg' | 'payer-mix' | 'pcu-death';
+export type HospitalReportId = 'discharge-summary' | 'operative-note' | 'lab-report' | 'bed-occupancy' | 'cost-per-drg' | 'payer-mix' | 'pcu-death' | 'pcu-patient-service';
 
 export type HospitalReportRequest = {
   reportId: HospitalReportId;
@@ -134,6 +134,19 @@ export const parseHospitalReportIntent = (
     return {
       reportId: 'payer-mix', dateStart: `${yearMonth}-01`, dateEnd: `${yearMonth}-${String(lastDay).padStart(2, '0')}`,
       ...(requestedFormat ? { format: requestedFormat as ReportFormat } : {}), aiSummary: true,
+    };
+  }
+  if (/(รพ\.?\s*สต|โรงพยาบาลส่งเสริมสุขภาพตำบล|หน่วยบริการประจำ)/.test(normalized)
+    && /(คนไข้|ผู้ป่วย|รับบริการ|visit|ค่าใช้จ่าย|refer|ส่งต่อ)/.test(normalized)) {
+    const current = bangkokDateParts(referenceDate);
+    const yearMonth = `${current.year}-${String(current.month).padStart(2, '0')}`;
+    const lastDay = new Date(Date.UTC(current.year, current.month, 0)).getUTCDate();
+    return {
+      reportId: 'pcu-patient-service',
+      dateStart: `${yearMonth}-01`,
+      dateEnd: `${yearMonth}-${String(lastDay).padStart(2, '0')}`,
+      ...(requestedFormat ? { format: requestedFormat as ReportFormat } : {}),
+      aiSummary: true,
     };
   }
   return null;
@@ -402,6 +415,90 @@ const payerMix = async (request: HospitalReportRequest): Promise<ReportResult> =
   }
 };
 
+const pcuPatientService = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT
+         COALESCE(NULLIF(o.hospsub, ''), 'ไม่ระบุ') AS pcuCode,
+         COALESCE(NULLIF(hc.name, ''), IF(NULLIF(o.hospsub, '') IS NULL, 'ไม่ระบุหน่วยบริการประจำ', o.hospsub)) AS pcuName,
+         o.hn,
+         TRIM(CONCAT(COALESCE(p.pname, ''), COALESCE(p.fname, ''), ' ', COALESCE(p.lname, ''))) AS patientName,
+         COALESCE(p.cid, '') AS cid,
+         CASE p.sex WHEN '1' THEN 'ชาย' WHEN '2' THEN 'หญิง' ELSE COALESCE(p.sex, '') END AS sex,
+         TIMESTAMPDIFF(YEAR, p.birthday, MAX(o.vstdate)) AS ageAtLastVisit,
+         COUNT(DISTINCT o.vn) AS visitCount,
+         DATE_FORMAT(MIN(o.vstdate), '%Y-%m-%d') AS firstVisitDate,
+         DATE_FORMAT(MAX(o.vstdate), '%Y-%m-%d') AS lastVisitDate,
+         ROUND(SUM(COALESCE(vs.income, 0)), 2) AS totalCharge,
+         ROUND(AVG(COALESCE(vs.income, 0)), 2) AS averageChargePerVisit,
+         GROUP_CONCAT(DISTINCT COALESCE(NULLIF(vt.visit_type_name, ''), NULLIF(o.visit_type, ''), 'ไม่ระบุ') ORDER BY COALESCE(vt.visit_type_name, o.visit_type) SEPARATOR ', ') AS serviceTypes,
+         GROUP_CONCAT(DISTINCT COALESCE(NULLIF(pt.name, ''), NULLIF(o.pttype, ''), 'ไม่ระบุ') ORDER BY COALESCE(pt.name, o.pttype) SEPARATOR ', ') AS payers,
+         GROUP_CONCAT(DISTINCT COALESCE(NULLIF(k.department, ''), NULLIF(o.main_dep, '')) ORDER BY COALESCE(k.department, o.main_dep) SEPARATOR ', ') AS serviceDepartments,
+         SUM(COALESCE(rf.referInCount, 0)) AS referInCount,
+         SUM(COALESCE(rf.referOutCount, 0)) AS referOutCount,
+         GROUP_CONCAT(DISTINCT NULLIF(rf.referDetails, '') ORDER BY rf.referDetails SEPARATOR '; ') AS referDetails,
+         GROUP_CONCAT(DISTINCT NULLIF(vs.pdx, '') ORDER BY vs.pdx SEPARATOR ', ') AS mainDiagnoses
+       FROM ovst o
+       JOIN patient p ON p.hn = o.hn
+       LEFT JOIN vn_stat vs ON vs.vn = o.vn
+       LEFT JOIN hospcode hc ON hc.hospcode = o.hospsub
+       LEFT JOIN visit_type vt ON vt.visit_type = o.visit_type
+       LEFT JOIN pttype pt ON pt.pttype = o.pttype
+       LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+       LEFT JOIN (
+         SELECT x.vn,
+           SUM(CASE WHEN x.direction = 'IN' THEN 1 ELSE 0 END) AS referInCount,
+           SUM(CASE WHEN x.direction = 'OUT' THEN 1 ELSE 0 END) AS referOutCount,
+           GROUP_CONCAT(DISTINCT CONCAT(x.direction, ':', COALESCE(NULLIF(rh.name, ''), NULLIF(x.hospcode, ''), 'ไม่ระบุ')) ORDER BY x.direction, x.hospcode SEPARATOR ', ') AS referDetails
+         FROM (
+           SELECT vn, 'IN' AS direction, COALESCE(NULLIF(refer_hospcode, ''), NULLIF(hospcode, '')) AS hospcode FROM referin
+           UNION ALL
+           SELECT vn, 'OUT' AS direction, COALESCE(NULLIF(refer_hospcode, ''), NULLIF(hospcode, '')) AS hospcode FROM referout
+         ) x
+         LEFT JOIN hospcode rh ON rh.hospcode = x.hospcode
+         WHERE NULLIF(x.vn, '') IS NOT NULL
+         GROUP BY x.vn
+       ) rf ON rf.vn = o.vn
+       WHERE o.vstdate BETWEEN ? AND ?
+         AND NULLIF(o.hn, '') IS NOT NULL
+       GROUP BY o.hospsub, hc.name, o.hn, p.pname, p.fname, p.lname, p.cid, p.sex, p.birthday
+       ORDER BY pcuName, visitCount DESC, patientName
+       LIMIT 20000`,
+      [dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานผู้มารับบริการแยกราย รพ.สต.',
+      subtitle: `ผู้ป่วยนอก ${dateStart} ถึง ${dateEnd} จัดกลุ่มตามหน่วยบริการประจำใน visit`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'pcuCode', label: 'รหัสหน่วยบริการ' }, { key: 'pcuName', label: 'รพ.สต./หน่วยบริการประจำ', width: 32 },
+        { key: 'hn', label: 'HN' }, { key: 'patientName', label: 'ชื่อ-สกุล', width: 24 }, { key: 'cid', label: 'CID', width: 16 },
+        { key: 'sex', label: 'เพศ' }, { key: 'ageAtLastVisit', label: 'อายุ ณ ครั้งล่าสุด' },
+        { key: 'visitCount', label: 'จำนวนครั้งรับบริการ' }, { key: 'firstVisitDate', label: 'วันที่มาครั้งแรก' },
+        { key: 'lastVisitDate', label: 'วันที่มาครั้งล่าสุด' }, { key: 'totalCharge', label: 'ค่าใช้จ่ายรวม' },
+        { key: 'averageChargePerVisit', label: 'ค่าใช้จ่ายเฉลี่ย/visit' }, { key: 'serviceTypes', label: 'ประเภทรับบริการ', width: 22 },
+        { key: 'payers', label: 'สิทธิการรักษา', width: 30 }, { key: 'serviceDepartments', label: 'แผนกที่รับบริการ', width: 30 },
+        { key: 'referInCount', label: 'Refer in (ครั้ง)' }, { key: 'referOutCount', label: 'Refer out (ครั้ง)' },
+        { key: 'referDetails', label: 'รายละเอียด Refer', width: 35 }, { key: 'mainDiagnoses', label: 'วินิจฉัยหลัก', width: 24 },
+      ],
+      metadata: [
+        { label: 'ระดับข้อมูล', value: '1 แถวต่อ HN ต่อหน่วยบริการประจำ' },
+        { label: 'แหล่งค่าใช้จ่าย', value: 'vn_stat.income (ยอดค่าใช้จ่ายของ visit)' },
+      ],
+      notes: [
+        'จัดกลุ่ม รพ.สต./หน่วยบริการจาก ovst.hospsub ของแต่ละ visit ไม่ใช่จากที่อยู่ปัจจุบันของผู้ป่วย',
+        'ค่าใช้จ่ายเป็นยอดค่าใช้จ่ายใน HOSxP ไม่ใช่ต้นทุนทางบัญชีหรือยอดชดเชยที่ได้รับ',
+        'ข้อมูลชื่อและ CID เป็นข้อมูลส่วนบุคคล ใช้เฉพาะผู้มีสิทธิ์และเก็บไฟล์อย่างปลอดภัย',
+        'รายงานจำกัดไม่เกิน 20,000 แถวต่อครั้ง; หากข้อมูลมากให้แบ่งช่วงวันที่',
+      ],
+    };
+  } finally {
+    connection.release();
+  }
+};
+
 const aiSummary = async (report: ReportResult, instructions = '') => {
   try {
     return await generateAgentText(
@@ -432,6 +529,7 @@ export const runHospitalReport = async (input: HospitalReportRequest) => {
   else if (request.reportId === 'cost-per-drg') report = await costPerDrg(request);
   else if (request.reportId === 'payer-mix') report = await payerMix(request);
   else if (request.reportId === 'pcu-death') report = await communityDeathReport(request);
+  else if (request.reportId === 'pcu-patient-service') report = await pcuPatientService(request);
   else throw new Error('รายงานนี้ยังไม่พร้อมใช้งาน');
 
   const exportable: ExportableReport = {

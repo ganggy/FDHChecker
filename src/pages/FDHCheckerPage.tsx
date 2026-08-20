@@ -807,12 +807,16 @@ export const FDHCheckerPage: React.FC = () => {
                                                     : 'badge-secondary';
                                         const specialFundNotes = logic.specialFundNotes.filter((note) => !note.includes('ปิดสิทธิ'));
                                         const epNotes = logic.specialFundNotes.filter((note) => note.includes('ปิดสิทธิ'));
-                                        const hasSpecialFundBlock = specialFundNotes.length > 0;
                                         const specialSummary = logic.matchedFund
                                             ? 'เข้าเงื่อนไขกองทุนพิเศษ'
                                             : logic.incompleteFund
                                                 ? 'ใกล้เข้าเงื่อนไขกองทุนพิเศษ'
                                                 : '';
+                                        const fundSecondaryText = [
+                                            specialSummary,
+                                            ...specialFundNotes,
+                                            ...epNotes,
+                                        ].filter(Boolean).join(' • ');
                                         return (
                                             <tr key={item.vn} style={{
                                                 opacity: logic.opacity,
@@ -907,70 +911,16 @@ export const FDHCheckerPage: React.FC = () => {
                                                     )}
                                                 </td>
                                                 <td className="fdh-fund-status-column">
-                                                    <div className="fund-status-block">
-                                                        <div className="fund-status-title">{logic.billingStatusLabel}</div>
-                                                        {(hasSpecialFundBlock || epNotes.length > 0) && (
-                                                            <div
-                                                                className="fund-status-secondary"
-                                                                title={[specialSummary, ...specialFundNotes, ...epNotes].filter(Boolean).join(' • ')}
-                                                            >
-                                                                {hasSpecialFundBlock && (
-                                                                    <>
-                                                                <div className={`fund-status-summary ${logic.matchedFund ? 'fund-status-summary--success' : 'fund-status-summary--warning'}`}>
-                                                                    <span>{specialSummary}</span>
-                                                                </div>
-                                                                <div className="fund-status-kicker">กองทุนพิเศษ</div>
-                                                                <div className="fund-status-badges">
-                                                                    {specialFundNotes.map((note, idx) => {
-                                                                const badgeStyle: React.CSSProperties = { fontSize: 10, padding: '2px 6px' };
-                                                                
-                                                                if (note.includes('ขาด') || note.includes('ไม่ผ่าน') || note.includes('ไม่ถึงเกณฑ์') || note.includes('เบิกไม่ได้')) {
-                                                                    return <span key={idx} className="badge badge-danger" style={badgeStyle}>{note}</span>;
-                                                                }
-                                                                
-                                                                if (note.match(/ANC|ตรวจครรภ์/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/ตรวจหลังคลอด/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/คัดกรอง|ตรวจมะเร็ง/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/Telemedicine|EMS/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#faf5ff', color: '#6b21a8', border: '1px solid #e9d5ff'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/คุมกำเนิด|ถุงยาง|ยาฉีด/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#fff1f2', color: '#9f1239', border: '1px solid #fecdd3'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/ล้างไต/)) {
-                                                                    return <span key={idx} className="badge badge-info" style={badgeStyle}>{note}</span>;
-                                                                }
-
-                                                                return (
-                                                                    <span key={idx} className="badge badge-success" style={badgeStyle}>
-                                                                        {note}
-                                                                    </span>
-                                                                );
-                                                                    })}
-                                                                </div>
-                                                                    </>
-                                                                )}
-                                                                {epNotes.length > 0 && (
-                                                                    <div className="fund-status-badges fund-status-badges--ep">
-                                                                        {epNotes.map((note, idx) => (
-                                                                            <span
-                                                                                key={idx}
-                                                                                className={`badge ${item.has_close ? 'badge-success' : 'badge-warning'}`}
-                                                                                style={{ fontSize: 10 }}
-                                                                            >
-                                                                                {note}
-                                                                            </span>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
+                                                    <div
+                                                        className="fund-status-block fund-status-block--two-lines"
+                                                        title={[logic.billingStatusLabel, fundSecondaryText].filter(Boolean).join(' — ')}
+                                                    >
+                                                        <div className="fund-status-line fund-status-line--primary">
+                                                            {logic.billingStatusLabel}
+                                                        </div>
+                                                        <div className={`fund-status-line fund-status-line--secondary ${logic.matchedFund ? 'is-success' : 'is-warning'}`}>
+                                                            {fundSecondaryText || '—'}
+                                                        </div>
                                                     </div>
                                                 </td>
                                                 <td>

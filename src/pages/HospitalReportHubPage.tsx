@@ -37,6 +37,7 @@ const reports: ReportDefinition[] = [
   { id: 'cost-per-drg', category: 'financial', title: 'ค่าใช้จ่ายต่อกลุ่มโรค', english: 'Cost per DRG', description: 'จำนวนเคส RW และยอดเรียกเก็บเฉลี่ยแยก DRG', icon: '🧮', status: 'partial', input: 'date', defaultFormat: 'xlsx', requirement: 'ปัจจุบันเป็นยอดเรียกเก็บจาก HOSxP ยังไม่ใช่ต้นทุนบัญชีจริง' },
   { id: 'payer-mix', category: 'financial', title: 'สัดส่วนสิทธิการรักษา', english: 'Payer Mix', description: 'จำนวนคน จำนวนครั้ง และสัดส่วน OPD แยกตามสิทธิ', icon: '💳', status: 'ready', input: 'date', defaultFormat: 'xlsx' },
   { id: 'pcu-patient-service', category: 'operations', title: 'ผู้รับบริการแยกราย รพ.สต.', english: 'PCU Patient Services', description: 'รายชื่อผู้ป่วย จำนวน visit ค่าใช้จ่าย ประเภทบริการ สิทธิ และ Refer แยกตามหน่วยบริการประจำ', icon: '🏘️', status: 'ready', input: 'date', defaultFormat: 'xlsx' },
+  { id: 'pcu-visit-service-detail', category: 'operations', title: 'สรุปบริการราย Visit แยก รพ.สต.', english: 'PCU Visit Service Detail', description: 'เหตุผลที่มา วินิจฉัย ค่าใช้จ่าย ค่ายา รายการยา Lab หัตถการ และ Refer รายครั้ง', icon: '🧾', status: 'ready', input: 'date', defaultFormat: 'xlsx' },
 ];
 
 type ReportOutput = {
@@ -181,7 +182,7 @@ export function HospitalReportHubPage() {
               )}
               {selected.input === 'date' && <div className="report-date-row"><label><span>วันที่เริ่ม</span><input type="date" value={dateStart} onChange={(event) => setDateStart(event.target.value)} /></label><label><span>วันที่สิ้นสุด</span><input type="date" value={dateEnd} onChange={(event) => setDateEnd(event.target.value)} /></label></div>}
               <label><span>รูปแบบไฟล์</span><select value={format} onChange={(event) => setFormat(event.target.value as typeof format)}><option value="docx">Word (.docx)</option><option value="xlsx">Excel (.xlsx)</option><option value="csv">CSV</option><option value="json">JSON</option></select></label>
-              <label><span>สิ่งที่ต้องการเน้น (ไม่บังคับ)</span><textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={3} maxLength={500} placeholder="เช่น เน้นความเสี่ยงที่ต้องติดตาม หรือสรุปสำหรับประชุมเช้า" /></label>
+              <label><span>ตัวกรอง/สิ่งที่ต้องการเน้น (ไม่บังคับ)</span><textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} rows={3} maxLength={500} placeholder={'เช่น "เฉพาะสิทธิ์ UC" หรือสรุปสำหรับประชุมเช้า'} /></label>
               <label className="report-ai-toggle"><input type="checkbox" checked={useAi} onChange={(event) => setUseAi(event.target.checked)} /><span><strong>ให้ Local AI ช่วยสรุป</strong><small>AI ใช้เฉพาะผลที่ Backend ดึงมาและไม่แก้ไขฐานข้อมูล</small></span></label>
               <button className="report-run" onClick={() => void runReport()} disabled={loading || ((selected.input === 'patient' || selected.input === 'visit' || selected.input === 'admission') && !identifier.trim())}>{loading ? 'กำลังค้นและจัดทำรายงาน…' : 'สร้างรายงาน'}</button>
             </div>

@@ -4,9 +4,17 @@ import {
   fiscalYearDateRange,
   HOSPITAL_PCU_SCOPE,
   parseCommunityDeathReportIntent,
+  parseHospitalReportInstructionFilters,
   parseHospitalReportIntent,
   runHospitalReport,
 } from './hospitalReportTools.js';
+
+test('turns an explicit UC-only instruction into a real payer filter', () => {
+  assert.deepEqual(parseHospitalReportInstructionFilters('เอาเฉพาะสิทธิ์ uc'), { payerGroup: 'uc' });
+  assert.deepEqual(parseHospitalReportInstructionFilters('บัตรทองเท่านั้น'), { payerGroup: 'uc' });
+  assert.deepEqual(parseHospitalReportInstructionFilters('สรุปสำหรับประชุมเช้า'), { payerGroup: undefined });
+  assert.deepEqual(parseHospitalReportInstructionFilters('ไม่เอา UC'), { payerGroup: undefined });
+});
 
 test('maps the hospital PCU villages from the confirmed area image', () => {
   assert.equal(HOSPITAL_PCU_SCOPE.addressId, '471501');
@@ -53,6 +61,9 @@ test('routes verified bed and payer templates without model-generated SQL', () =
   });
   assert.deepEqual(parseHospitalReportIntent('อยากได้ข้อมูลคนไข้แยกราย รพ.สต. ค่าใช้จ่าย visit และ refer เป็น Excel', new Date('2026-08-05T01:00:00Z')), {
     reportId: 'pcu-patient-service', dateStart: '2026-08-01', dateEnd: '2026-08-31', format: 'xlsx', aiSummary: true,
+  });
+  assert.deepEqual(parseHospitalReportIntent('ขอสรุปบริการแยก รพ.สต. ว่ามาทำอะไร ค่ายา ยาอะไร lab และอื่นๆ เป็น Excel', new Date('2026-08-05T01:00:00Z')), {
+    reportId: 'pcu-visit-service-detail', dateStart: '2026-08-01', dateEnd: '2026-08-31', format: 'xlsx', aiSummary: true,
   });
 });
 

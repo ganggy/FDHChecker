@@ -36,6 +36,10 @@ const suggestedReports = [
     icon: '🏘️', title: 'ผู้รับบริการแยกราย รพ.สต.', description: 'รายชื่อ จำนวน visit ค่าใช้จ่าย ประเภทบริการ และ Refer',
     prompt: 'ขอข้อมูลคนไข้ที่มารับบริการเดือนนี้ แยกราย รพ.สต. พร้อมค่าใช้จ่าย จำนวน visit ประเภทบริการ และ refer ออกเป็น Excel', ready: true,
   },
+  {
+    icon: '🧾', title: 'รายละเอียดบริการราย Visit', description: 'มาทำอะไร ค่ายา รายการยา Lab หัตถการ และ Refer',
+    prompt: 'ขอสรุปบริการราย visit แยก รพ.สต. ว่ามาทำอะไร ค่าใช้จ่ายเท่าไร มีค่ายา ยาอะไร Lab และบริการอื่นอะไรบ้าง ออกเป็น Excel', ready: true,
+  },
 ];
 
 const createConversationId = () => {

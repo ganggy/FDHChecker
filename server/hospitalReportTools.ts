@@ -3,7 +3,7 @@ import { answerPatientReportQuestion } from './aiReportTools.js';
 import { buildReportAttachment, type ExportableReport, type ReportFormat } from './aiReportExport.js';
 import { generateAgentText } from './aiService.js';
 
-export type HospitalReportId = 'discharge-summary' | 'operative-note' | 'lab-report' | 'bed-occupancy' | 'cost-per-drg' | 'payer-mix' | 'pcu-death' | 'pcu-patient-service';
+export type HospitalReportId = 'discharge-summary' | 'operative-note' | 'lab-report' | 'bed-occupancy' | 'cost-per-drg' | 'payer-mix' | 'pcu-death' | 'pcu-patient-service' | 'pcu-visit-service-detail';
 
 export type HospitalReportRequest = {
   reportId: HospitalReportId;
@@ -137,6 +137,19 @@ export const parseHospitalReportIntent = (
     };
   }
   if (/(รพ\.?\s*สต|โรงพยาบาลส่งเสริมสุขภาพตำบล|หน่วยบริการประจำ)/.test(normalized)
+    && /(สรุปบริการ|รายละเอียดบริการ|มาทำอะไร|ค่ายา|รายการยา|ยาอะไร|lab|แล็บ|ห้องปฏิบัติการ|หัตถการ)/.test(normalized)) {
+    const current = bangkokDateParts(referenceDate);
+    const yearMonth = `${current.year}-${String(current.month).padStart(2, '0')}`;
+    const lastDay = new Date(Date.UTC(current.year, current.month, 0)).getUTCDate();
+    return {
+      reportId: 'pcu-visit-service-detail',
+      dateStart: `${yearMonth}-01`,
+      dateEnd: `${yearMonth}-${String(lastDay).padStart(2, '0')}`,
+      ...(requestedFormat ? { format: requestedFormat as ReportFormat } : {}),
+      aiSummary: true,
+    };
+  }
+  if (/(รพ\.?\s*สต|โรงพยาบาลส่งเสริมสุขภาพตำบล|หน่วยบริการประจำ)/.test(normalized)
     && /(คนไข้|ผู้ป่วย|รับบริการ|visit|ค่าใช้จ่าย|refer|ส่งต่อ)/.test(normalized)) {
     const current = bangkokDateParts(referenceDate);
     const yearMonth = `${current.year}-${String(current.month).padStart(2, '0')}`;
@@ -158,6 +171,17 @@ const requireDateRange = (request: HospitalReportRequest) => {
   const days = (Date.parse(`${request.dateEnd}T00:00:00Z`) - Date.parse(`${request.dateStart}T00:00:00Z`)) / 86_400_000;
   if (days > 366) throw new Error('ช่วงรายงานต้องไม่เกิน 366 วัน');
   return { dateStart: request.dateStart!, dateEnd: request.dateEnd! };
+};
+
+export const parseHospitalReportInstructionFilters = (instructions = '') => {
+  const normalized = String(instructions || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  const ucTerm = '(?:uc|ucs|บัตรทอง|หลักประกันสุขภาพ)';
+  const excludesUc = new RegExp(`(?:ไม่เอา|ไม่รวม|ยกเว้น|ตัด).{0,20}${ucTerm}`, 'i').test(normalized);
+  const onlyUc = !excludesUc && (
+    new RegExp(`(?:เฉพาะ|เท่านั้น|only).{0,24}(?:สิทธิ(?:์)?\\s*)?${ucTerm}`, 'i').test(normalized)
+    || new RegExp(`${ucTerm}.{0,24}(?:เฉพาะ|เท่านั้น|only)`, 'i').test(normalized)
+  );
+  return { payerGroup: onlyUc ? 'uc' as const : undefined };
 };
 
 const dischargeSummary = async (request: HospitalReportRequest): Promise<ReportResult> => {
@@ -417,6 +441,8 @@ const payerMix = async (request: HospitalReportRequest): Promise<ReportResult> =
 
 const pcuPatientService = async (request: HospitalReportRequest): Promise<ReportResult> => {
   const { dateStart, dateEnd } = requireDateRange(request);
+  const filters = parseHospitalReportInstructionFilters(request.instructions);
+  const payerFilterClause = filters.payerGroup === 'uc' ? " AND COALESCE(pt.uc, 'N') = 'Y'" : '';
   const connection = await getUTFConnection();
   try {
     const [rows] = await connection.query(
@@ -463,6 +489,7 @@ const pcuPatientService = async (request: HospitalReportRequest): Promise<Report
        ) rf ON rf.vn = o.vn
        WHERE o.vstdate BETWEEN ? AND ?
          AND NULLIF(o.hn, '') IS NOT NULL
+         ${payerFilterClause}
        GROUP BY o.hospsub, hc.name, o.hn, p.pname, p.fname, p.lname, p.cid, p.sex, p.birthday
        ORDER BY pcuName, visitCount DESC, patientName
        LIMIT 20000`,
@@ -470,7 +497,7 @@ const pcuPatientService = async (request: HospitalReportRequest): Promise<Report
     );
     return {
       title: 'รายงานผู้มารับบริการแยกราย รพ.สต.',
-      subtitle: `ผู้ป่วยนอก ${dateStart} ถึง ${dateEnd} จัดกลุ่มตามหน่วยบริการประจำใน visit`,
+      subtitle: `ผู้ป่วยนอก ${dateStart} ถึง ${dateEnd} จัดกลุ่มตามหน่วยบริการประจำใน visit${filters.payerGroup === 'uc' ? ' · เฉพาะสิทธิ UC' : ''}`,
       rows: rows as Array<Record<string, unknown>>,
       columns: [
         { key: 'pcuCode', label: 'รหัสหน่วยบริการ' }, { key: 'pcuName', label: 'รพ.สต./หน่วยบริการประจำ', width: 32 },
@@ -486,12 +513,157 @@ const pcuPatientService = async (request: HospitalReportRequest): Promise<Report
       metadata: [
         { label: 'ระดับข้อมูล', value: '1 แถวต่อ HN ต่อหน่วยบริการประจำ' },
         { label: 'แหล่งค่าใช้จ่าย', value: 'vn_stat.income (ยอดค่าใช้จ่ายของ visit)' },
+        ...(filters.payerGroup === 'uc' ? [{ label: 'ตัวกรองสิทธิ', value: "UC ตาม pttype.uc = 'Y'" }] : []),
       ],
       notes: [
         'จัดกลุ่ม รพ.สต./หน่วยบริการจาก ovst.hospsub ของแต่ละ visit ไม่ใช่จากที่อยู่ปัจจุบันของผู้ป่วย',
+        ...(filters.payerGroup === 'uc' ? ["กรองเฉพาะ visit ที่สิทธิใน HOSxP กำหนด pttype.uc = 'Y'"] : []),
         'ค่าใช้จ่ายเป็นยอดค่าใช้จ่ายใน HOSxP ไม่ใช่ต้นทุนทางบัญชีหรือยอดชดเชยที่ได้รับ',
         'ข้อมูลชื่อและ CID เป็นข้อมูลส่วนบุคคล ใช้เฉพาะผู้มีสิทธิ์และเก็บไฟล์อย่างปลอดภัย',
         'รายงานจำกัดไม่เกิน 20,000 แถวต่อครั้ง; หากข้อมูลมากให้แบ่งช่วงวันที่',
+      ],
+    };
+  } finally {
+    connection.release();
+  }
+};
+
+export const pcuVisitServiceDetail = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const filters = parseHospitalReportInstructionFilters(request.instructions);
+  const payerFilterClause = filters.payerGroup === 'uc' ? " AND COALESCE(pt.uc, 'N') = 'Y'" : '';
+  const connection = await getUTFConnection();
+  try {
+    await connection.query('SET SESSION group_concat_max_len = 65535');
+    const [rows] = await connection.query(
+      `SELECT
+         COALESCE(NULLIF(o.hospsub, ''), 'ไม่ระบุ') AS pcuCode,
+         COALESCE(NULLIF(hc.name, ''), IF(NULLIF(o.hospsub, '') IS NULL, 'ไม่ระบุหน่วยบริการประจำ', o.hospsub)) AS pcuName,
+         DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS serviceDate,
+         TIME_FORMAT(o.vsttime, '%H:%i') AS serviceTime,
+         o.vn, o.hn,
+         TRIM(CONCAT(COALESCE(p.pname, ''), COALESCE(p.fname, ''), ' ', COALESCE(p.lname, ''))) AS patientName,
+         COALESCE(p.cid, '') AS cid,
+         COALESCE(NULLIF(scr.cc, ''), NULLIF(o.diag_text, ''), NULLIF(vs.pdx, ''), 'ไม่ระบุอาการสำคัญ') AS chiefComplaint,
+         COALESCE(NULLIF(vs.pdx, ''), '') AS mainDiagnosisCode,
+         COALESCE(NULLIF(icd.tname, ''), NULLIF(icd.name, ''), '') AS mainDiagnosisName,
+         COALESCE(NULLIF(k.department, ''), NULLIF(o.main_dep, ''), 'ไม่ระบุแผนก') AS serviceDepartment,
+         COALESCE(NULLIF(vt.visit_type_name, ''), NULLIF(o.visit_type, ''), 'ไม่ระบุ') AS serviceType,
+         COALESCE(NULLIF(pt.name, ''), NULLIF(o.pttype, ''), 'ไม่ระบุสิทธิ') AS payer,
+         ROUND(COALESCE(vs.income, items.calculatedTotal, 0), 2) AS totalCharge,
+         ROUND(COALESCE(items.drugCost, 0), 2) AS drugCost,
+         COALESCE(items.drugItems, '') AS drugItems,
+         ROUND(COALESCE(items.labCost, 0), 2) AS labCost,
+         COALESCE(labs.labItems, '') AS labItems,
+         ROUND(COALESCE(items.otherServiceCost, 0), 2) AS otherServiceCost,
+         COALESCE(items.otherServiceItems, '') AS otherServiceItems,
+         COALESCE(proc.procedures, '') AS procedures,
+         COALESCE(rf.referInCount, 0) AS referInCount,
+         COALESCE(rf.referOutCount, 0) AS referOutCount,
+         COALESCE(rf.referDetails, '') AS referDetails
+       FROM ovst o
+       JOIN patient p ON p.hn = o.hn
+       LEFT JOIN vn_stat vs ON vs.vn = o.vn
+       LEFT JOIN opdscreen scr ON scr.vn = o.vn
+       LEFT JOIN icd101 icd ON icd.code = vs.pdx
+       LEFT JOIN hospcode hc ON hc.hospcode = o.hospsub
+       LEFT JOIN visit_type vt ON vt.visit_type = o.visit_type
+       LEFT JOIN pttype pt ON pt.pttype = o.pttype
+       LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+       LEFT JOIN (
+         SELECT oi.vn,
+           ROUND(SUM(COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0)), 2) AS calculatedTotal,
+           ROUND(SUM(CASE WHEN COALESCE(sd.is_medication, 'N') = 'Y' OR inc.name LIKE '%ค่ายา%' THEN COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0) ELSE 0 END), 2) AS drugCost,
+           GROUP_CONCAT(DISTINCT CASE WHEN COALESCE(sd.is_medication, 'N') = 'Y' OR inc.name LIKE '%ค่ายา%'
+             THEN CONCAT(CONVERT(COALESCE(NULLIF(sd.name, ''), NULLIF(ndi.name, ''), oi.icode) USING utf8mb4),
+               ' x', COALESCE(oi.qty, 0), ' = ', ROUND(COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0), 2), ' บาท') END
+             ORDER BY COALESCE(sd.name, ndi.name, oi.icode) SEPARATOR '; ') AS drugItems,
+           ROUND(SUM(CASE WHEN inc.income_group = '01' OR inc.name LIKE '%ห้องปฏิบัติการ%' THEN COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0) ELSE 0 END), 2) AS labCost,
+           ROUND(SUM(CASE WHEN NOT (COALESCE(sd.is_medication, 'N') = 'Y' OR COALESCE(inc.name, '') LIKE '%ค่ายา%' OR inc.income_group = '01' OR COALESCE(inc.name, '') LIKE '%ห้องปฏิบัติการ%')
+             THEN COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0) ELSE 0 END), 2) AS otherServiceCost,
+           GROUP_CONCAT(DISTINCT CASE WHEN NOT (COALESCE(sd.is_medication, 'N') = 'Y' OR COALESCE(inc.name, '') LIKE '%ค่ายา%' OR inc.income_group = '01' OR COALESCE(inc.name, '') LIKE '%ห้องปฏิบัติการ%')
+             THEN CONCAT(CONVERT(COALESCE(NULLIF(ndi.name, ''), NULLIF(sd.name, ''), oi.icode) USING utf8mb4),
+               ' x', COALESCE(oi.qty, 0), ' = ', ROUND(COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0), 2), ' บาท') END
+             ORDER BY COALESCE(ndi.name, sd.name, oi.icode) SEPARATOR '; ') AS otherServiceItems
+         FROM opitemrece oi
+         LEFT JOIN s_drugitems sd ON sd.icode = oi.icode
+         LEFT JOIN nondrugitems ndi ON ndi.icode = oi.icode
+         LEFT JOIN income inc ON inc.income = oi.income
+         WHERE oi.vstdate BETWEEN ? AND ? AND NULLIF(oi.vn, '') IS NOT NULL
+         GROUP BY oi.vn
+       ) items ON items.vn = o.vn
+       LEFT JOIN (
+         SELECT lh.vn,
+           GROUP_CONCAT(DISTINCT CONCAT(CONVERT(COALESCE(NULLIF(li.lab_items_name, ''), NULLIF(lo.lab_items_name_ref, ''), lo.lab_items_code) USING utf8mb4),
+             CASE WHEN NULLIF(lo.lab_order_result, '') IS NOT NULL THEN CONCAT(' = ', CONVERT(lo.lab_order_result USING utf8mb4), COALESCE(CONCAT(' ', CONVERT(NULLIF(li.lab_items_unit, '') USING utf8mb4)), '')) ELSE ' (สั่งตรวจ)' END,
+             CASE WHEN lo.abnormal_result = 'Y' THEN ' [ผิดปกติ]' ELSE '' END)
+             ORDER BY COALESCE(li.lab_items_name, lo.lab_items_name_ref) SEPARATOR '; ') AS labItems
+         FROM lab_head lh
+         JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+         LEFT JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+         WHERE lh.order_date BETWEEN ? AND ? AND NULLIF(lh.vn, '') IS NOT NULL
+         GROUP BY lh.vn
+       ) labs ON labs.vn = o.vn
+       LEFT JOIN (
+         SELECT dop.vn,
+           GROUP_CONCAT(DISTINCT CONCAT(CONVERT(COALESCE(NULLIF(dop.icd9, ''), '') USING utf8mb4),
+             CASE WHEN NULLIF(i9.name, '') IS NOT NULL THEN CONCAT(' ', CONVERT(i9.name USING utf8mb4)) ELSE '' END)
+             ORDER BY dop.icd9 SEPARATOR '; ') AS procedures
+         FROM doctor_operation dop
+         LEFT JOIN icd9cm1 i9 ON i9.code = dop.icd9
+         WHERE dop.begin_date_time >= ? AND dop.begin_date_time < DATE_ADD(?, INTERVAL 1 DAY)
+         GROUP BY dop.vn
+       ) proc ON proc.vn = o.vn
+       LEFT JOIN (
+         SELECT x.vn,
+           SUM(CASE WHEN x.direction = 'IN' THEN 1 ELSE 0 END) AS referInCount,
+           SUM(CASE WHEN x.direction = 'OUT' THEN 1 ELSE 0 END) AS referOutCount,
+           GROUP_CONCAT(DISTINCT CONCAT(x.direction, ':', CONVERT(COALESCE(NULLIF(rh.name, ''), NULLIF(x.hospcode, ''), 'ไม่ระบุ') USING utf8mb4)) ORDER BY x.direction, x.hospcode SEPARATOR ', ') AS referDetails
+         FROM (
+           SELECT vn, 'IN' AS direction, COALESCE(NULLIF(refer_hospcode, ''), NULLIF(hospcode, '')) AS hospcode FROM referin
+           UNION ALL
+           SELECT vn, 'OUT' AS direction, COALESCE(NULLIF(refer_hospcode, ''), NULLIF(hospcode, '')) AS hospcode FROM referout
+         ) x
+         LEFT JOIN hospcode rh ON rh.hospcode = x.hospcode
+         WHERE NULLIF(x.vn, '') IS NOT NULL
+         GROUP BY x.vn
+       ) rf ON rf.vn = o.vn
+       WHERE o.vstdate BETWEEN ? AND ? AND NULLIF(o.vn, '') IS NOT NULL
+         ${payerFilterClause}
+       ORDER BY pcuName, o.vstdate, o.vsttime, patientName
+       LIMIT 20000`,
+      [dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd],
+    );
+    return {
+      title: 'สรุปรายละเอียดบริการราย Visit แยกราย รพ.สต.',
+      subtitle: `ผู้ป่วยนอก ${dateStart} ถึง ${dateEnd} · 1 แถวต่อ VN${filters.payerGroup === 'uc' ? ' · เฉพาะสิทธิ UC' : ''}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'pcuCode', label: 'รหัสหน่วยบริการ' }, { key: 'pcuName', label: 'รพ.สต./หน่วยบริการประจำ', width: 32 },
+        { key: 'serviceDate', label: 'วันที่รับบริการ' }, { key: 'serviceTime', label: 'เวลา' },
+        { key: 'vn', label: 'VN' }, { key: 'hn', label: 'HN' }, { key: 'patientName', label: 'ชื่อ-สกุล', width: 24 },
+        { key: 'cid', label: 'CID', width: 16 }, { key: 'chiefComplaint', label: 'มารับบริการด้วยเรื่อง', width: 36 },
+        { key: 'mainDiagnosisCode', label: 'รหัสวินิจฉัยหลัก' }, { key: 'mainDiagnosisName', label: 'วินิจฉัยหลัก', width: 32 },
+        { key: 'serviceDepartment', label: 'แผนก', width: 24 }, { key: 'serviceType', label: 'ประเภทบริการ' },
+        { key: 'payer', label: 'สิทธิการรักษา', width: 28 }, { key: 'totalCharge', label: 'ค่าใช้จ่ายรวม' },
+        { key: 'drugCost', label: 'ค่ายา' }, { key: 'drugItems', label: 'รายการยา/จำนวน/ราคา', width: 48 },
+        { key: 'labCost', label: 'ค่า Lab' }, { key: 'labItems', label: 'รายการและผล Lab', width: 50 },
+        { key: 'otherServiceCost', label: 'ค่าบริการอื่น' }, { key: 'otherServiceItems', label: 'รายการบริการอื่น', width: 50 },
+        { key: 'procedures', label: 'หัตถการ', width: 36 }, { key: 'referInCount', label: 'Refer in' },
+        { key: 'referOutCount', label: 'Refer out' }, { key: 'referDetails', label: 'รายละเอียด Refer', width: 35 },
+      ],
+      metadata: [
+        { label: 'ระดับข้อมูล', value: '1 แถวต่อ Visit (VN)' },
+        { label: 'แหล่งค่าใช้จ่าย', value: 'vn_stat.income และรายละเอียด opitemrece' },
+        ...(filters.payerGroup === 'uc' ? [{ label: 'ตัวกรองสิทธิ', value: "UC ตาม pttype.uc = 'Y'" }] : []),
+      ],
+      notes: [
+        ...(filters.payerGroup === 'uc' ? ["กรองเฉพาะ visit ที่สิทธิใน HOSxP กำหนด pttype.uc = 'Y'"] : []),
+        'ค่ายาและค่าบริการคำนวณจากรายการ opitemrece; ยอดรวมหลักใช้ vn_stat.income เมื่อมีข้อมูล',
+        'ค่า Lab มาจากหมวดค่าใช้จ่ายห้องปฏิบัติการ ส่วนรายการ/ผล Lab มาจาก lab_head และ lab_order',
+        'ช่องมารับบริการด้วยเรื่องใช้ Chief Complaint ก่อน แล้วจึงใช้ข้อความวินิจฉัยหรือรหัสวินิจฉัยเป็นข้อมูลสำรอง',
+        'ข้อมูลชื่อ CID รายการยา และผล Lab เป็นข้อมูลสุขภาพส่วนบุคคล ใช้เฉพาะผู้มีสิทธิ์และเก็บไฟล์อย่างปลอดภัย',
+        'รายงานจำกัดไม่เกิน 20,000 visits ต่อครั้ง; หากข้อมูลมากให้แบ่งช่วงวันที่',
       ],
     };
   } finally {
@@ -530,6 +702,7 @@ export const runHospitalReport = async (input: HospitalReportRequest) => {
   else if (request.reportId === 'payer-mix') report = await payerMix(request);
   else if (request.reportId === 'pcu-death') report = await communityDeathReport(request);
   else if (request.reportId === 'pcu-patient-service') report = await pcuPatientService(request);
+  else if (request.reportId === 'pcu-visit-service-detail') report = await pcuVisitServiceDetail(request);
   else throw new Error('รายงานนี้ยังไม่พร้อมใช้งาน');
 
   const exportable: ExportableReport = {

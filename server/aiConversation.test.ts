@@ -2,15 +2,60 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   clearConversationState,
+  formatVerifiedAggregateAnswer,
   getConversationLastAction,
   getConversationHistory,
   getConversationPatientContext,
   getConversationUiContext,
   parseFormatOnlyFollowup,
+  plannedQueryAccuracyIssue,
   rememberConversationExchange,
   setConversationLastAction,
   setConversationPatientContext,
 } from './aiConversationalAgent.js';
+
+test('requires backend aggregate counting with the correct person or visit key', () => {
+  assert.match(
+    plannedQueryAccuracyIssue('เดือนนี้มีผู้ป่วย OPD กี่คน', "SELECT hn FROM ovst WHERE vstdate BETWEEN '2026-08-01' AND '2026-08-24'"),
+    /COUNT/,
+  );
+  assert.match(
+    plannedQueryAccuracyIssue('เดือนนี้มีผู้ป่วย OPD กี่คน', "SELECT COUNT(DISTINCT vn) total FROM ovst WHERE vstdate BETWEEN '2026-08-01' AND '2026-08-24'"),
+    /DISTINCT hn/,
+  );
+  assert.equal(
+    plannedQueryAccuracyIssue('เดือนนี้มีผู้ป่วย OPD กี่คน', "SELECT COUNT(DISTINCT hn) patients FROM ovst WHERE vstdate BETWEEN '2026-08-01' AND '2026-08-24'"),
+    '',
+  );
+});
+
+test('requires an explicit date scope for time-bound questions', () => {
+  assert.match(
+    plannedQueryAccuracyIssue('เดือนนี้มีผู้ป่วยกี่คน', 'SELECT COUNT(DISTINCT hn) patients FROM ovst'),
+    /YYYY-MM-DD/,
+  );
+});
+
+test('requires monetary totals to use SUM instead of model-side arithmetic', () => {
+  assert.match(
+    plannedQueryAccuracyIssue('ยอดค่าใช้จ่ายเดือนนี้เท่าไร', "SELECT sum_price FROM opitemrece WHERE vstdate = '2026-08-24'"),
+    /SUM/,
+  );
+});
+
+test('requires averages to be calculated by the database', () => {
+  assert.match(
+    plannedQueryAccuracyIssue('ค่าใช้จ่ายเฉลี่ยเดือนนี้เท่าไร', "SELECT SUM(sum_price) total FROM opitemrece WHERE order_date = '2026-08-24'"),
+    /AVG/,
+  );
+});
+
+test('formats verified aggregate totals without asking the model to recalculate', () => {
+  assert.equal(
+    formatVerifiedAggregateAnswer('วันนี้มีผู้ป่วยกี่คน', 'สรุป OPD วันนี้', [{ patients: 125, visits: '140' }]),
+    'สรุป OPD วันนี้\n- จำนวนผู้ป่วย: 125\n- จำนวนครั้งรับบริการ: 140\nตัวเลขคำนวณโดยฐานข้อมูล HOSxP โดยตรง',
+  );
+});
 
 test('keeps ordered conversation history for follow-up questions', () => {
   const key = `conversation-test-${Date.now()}-${Math.random()}`;

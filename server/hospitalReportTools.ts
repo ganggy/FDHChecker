@@ -3,7 +3,13 @@ import { answerPatientReportQuestion } from './aiReportTools.js';
 import { buildReportAttachment, type ExportableReport, type ReportFormat } from './aiReportExport.js';
 import { generateAgentText } from './aiService.js';
 
-export type HospitalReportId = 'discharge-summary' | 'operative-note' | 'lab-report' | 'bed-occupancy' | 'cost-per-drg' | 'payer-mix' | 'pcu-death' | 'pcu-patient-service' | 'pcu-visit-service-detail';
+export type HospitalReportId =
+  | 'discharge-summary' | 'operative-note' | 'lab-report' | 'bed-occupancy'
+  | 'daily-service-summary' | 'opd-department-workload' | 'opd-diagnosis-ranking'
+  | 'ipd-admission-discharge' | 'ipd-ward-performance' | 'referral-report'
+  | 'drug-utilization' | 'lab-workload' | 'claim-data-completeness'
+  | 'cost-per-drg' | 'payer-mix' | 'revenue-by-category'
+  | 'pcu-death' | 'pcu-patient-service' | 'pcu-visit-service-detail';
 
 export type HospitalReportRequest = {
   reportId: HospitalReportId;
@@ -379,6 +385,338 @@ const communityDeathReport = async (request: HospitalReportRequest): Promise<Rep
   }
 };
 
+const dailyServiceSummary = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT d.serviceDate,
+         COALESCE(opd.opdVisits, 0) AS opdVisits,
+         COALESCE(opd.opdPatients, 0) AS opdPatients,
+         COALESCE(opd.opdCharge, 0) AS opdCharge,
+         COALESCE(ipd.admissions, 0) AS ipdAdmissions,
+         COALESCE(dch.discharges, 0) AS ipdDischarges,
+         COALESCE(dch.ipdCharge, 0) AS ipdDischargeCharge
+       FROM (
+         SELECT vstdate AS serviceDate FROM ovst WHERE vstdate BETWEEN ? AND ?
+         UNION SELECT regdate FROM ipt WHERE regdate BETWEEN ? AND ?
+         UNION SELECT dchdate FROM ipt WHERE dchdate BETWEEN ? AND ?
+       ) d
+       LEFT JOIN (
+         SELECT o.vstdate, COUNT(DISTINCT o.vn) AS opdVisits, COUNT(DISTINCT o.hn) AS opdPatients,
+           ROUND(SUM(COALESCE(v.income, 0)), 2) AS opdCharge
+         FROM ovst o LEFT JOIN vn_stat v ON v.vn = o.vn
+         WHERE o.vstdate BETWEEN ? AND ? GROUP BY o.vstdate
+       ) opd ON opd.vstdate = d.serviceDate
+       LEFT JOIN (
+         SELECT regdate, COUNT(DISTINCT an) AS admissions FROM ipt
+         WHERE regdate BETWEEN ? AND ? GROUP BY regdate
+       ) ipd ON ipd.regdate = d.serviceDate
+       LEFT JOIN (
+         SELECT i.dchdate, COUNT(DISTINCT i.an) AS discharges, ROUND(SUM(COALESCE(a.income, 0)), 2) AS ipdCharge
+         FROM ipt i LEFT JOIN an_stat a ON a.an = i.an
+         WHERE i.dchdate BETWEEN ? AND ? GROUP BY i.dchdate
+       ) dch ON dch.dchdate = d.serviceDate
+       ORDER BY d.serviceDate`,
+      [dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd, dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานภาพรวมบริการประจำวัน', subtitle: `${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'serviceDate', label: 'วันที่' }, { key: 'opdVisits', label: 'OPD (ครั้ง)' },
+        { key: 'opdPatients', label: 'OPD (คน)' }, { key: 'opdCharge', label: 'ค่าใช้จ่าย OPD' },
+        { key: 'ipdAdmissions', label: 'รับเข้า IPD' }, { key: 'ipdDischarges', label: 'จำหน่าย IPD' },
+        { key: 'ipdDischargeCharge', label: 'ค่าใช้จ่าย IPD ที่จำหน่าย' },
+      ],
+      notes: ['ยอด OPD อิงวันรับบริการ ส่วนยอด IPD อิงวันจำหน่าย จึงไม่ควรนำมารวมเป็นรายรับทางบัญชีโดยตรง'],
+    };
+  } finally { connection.release(); }
+};
+
+const opdDepartmentWorkload = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT COALESCE(NULLIF(o.main_dep, ''), 'ไม่ระบุ') AS departmentCode,
+         COALESCE(NULLIF(k.department, ''), NULLIF(o.main_dep, ''), 'ไม่ระบุแผนก') AS department,
+         COUNT(DISTINCT o.vn) AS visits, COUNT(DISTINCT o.hn) AS patients,
+         ROUND(COUNT(DISTINCT o.vn) / NULLIF(COUNT(DISTINCT o.vstdate), 0), 1) AS averageVisitsPerServiceDay,
+         ROUND(SUM(COALESCE(v.income, 0)), 2) AS totalCharge,
+         ROUND(AVG(COALESCE(v.income, 0)), 2) AS averageChargePerVisit
+       FROM ovst o
+       LEFT JOIN vn_stat v ON v.vn = o.vn
+       LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+       WHERE o.vstdate BETWEEN ? AND ?
+       GROUP BY o.main_dep, k.department ORDER BY visits DESC`,
+      [dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานภาระงานผู้ป่วยนอกแยกแผนก', subtitle: `${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'departmentCode', label: 'รหัสแผนก' }, { key: 'department', label: 'แผนก', width: 30 },
+        { key: 'visits', label: 'จำนวนครั้ง' }, { key: 'patients', label: 'จำนวนคน' },
+        { key: 'averageVisitsPerServiceDay', label: 'เฉลี่ยครั้ง/วันบริการ' }, { key: 'totalCharge', label: 'ค่าใช้จ่ายรวม' },
+        { key: 'averageChargePerVisit', label: 'เฉลี่ย/ครั้ง' },
+      ],
+      notes: ['แผนกอิง main_dep ที่บันทึกใน ovst และอาจต่างจากจุดให้บริการจริงหากไม่ได้ปิด visit สมบูรณ์'],
+    };
+  } finally { connection.release(); }
+};
+
+const opdDiagnosisRanking = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT COALESCE(NULLIF(v.pdx, ''), 'ไม่ระบุ') AS diagnosisCode,
+         COALESCE(NULLIF(i.tname, ''), NULLIF(i.name, ''), 'ไม่ระบุชื่อโรค') AS diagnosis,
+         COUNT(DISTINCT v.vn) AS visits, COUNT(DISTINCT v.hn) AS patients,
+         ROUND(COUNT(DISTINCT v.vn) * 100.0 / NULLIF((SELECT COUNT(DISTINCT x.vn) FROM vn_stat x WHERE x.vstdate BETWEEN ? AND ?), 0), 2) AS visitPercent,
+         ROUND(SUM(COALESCE(v.income, 0)), 2) AS totalCharge
+       FROM vn_stat v LEFT JOIN icd101 i ON i.code = v.pdx
+       WHERE v.vstdate BETWEEN ? AND ?
+       GROUP BY v.pdx, i.tname, i.name ORDER BY visits DESC LIMIT 500`,
+      [dateStart, dateEnd, dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานอันดับโรคผู้ป่วยนอก', subtitle: `วินิจฉัยหลัก ${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'diagnosisCode', label: 'ICD-10' }, { key: 'diagnosis', label: 'ชื่อโรค', width: 38 },
+        { key: 'visits', label: 'จำนวนครั้ง' }, { key: 'patients', label: 'จำนวนคน' },
+        { key: 'visitPercent', label: 'สัดส่วน (%)' }, { key: 'totalCharge', label: 'ค่าใช้จ่ายรวม' },
+      ],
+      notes: ['นับตามวินิจฉัยหลัก (pdx) ของ visit และแยก “ไม่ระบุ” เพื่อใช้ติดตามความครบถ้วนของการลงรหัส'],
+    };
+  } finally { connection.release(); }
+};
+
+const ipdAdmissionDischarge = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT i.an, i.hn,
+         TRIM(CONCAT(COALESCE(p.pname, ''), COALESCE(p.fname, ''), ' ', COALESCE(p.lname, ''))) AS patientName,
+         DATE_FORMAT(i.regdate, '%Y-%m-%d') AS admitDate, DATE_FORMAT(i.dchdate, '%Y-%m-%d') AS dischargeDate,
+         COALESCE(NULLIF(w.name, ''), i.ward, 'ไม่ระบุวอร์ด') AS ward,
+         COALESCE(NULLIF(a.pdx, ''), '') AS primaryDiagnosis,
+         COALESCE(NULLIF(a.drg, ''), '') AS drg, COALESCE(a.rw, 0) AS rw,
+         CASE WHEN i.dchdate IS NULL THEN DATEDIFF(CURDATE(), i.regdate) ELSE DATEDIFF(i.dchdate, i.regdate) END AS stayDays,
+         ROUND(COALESCE(a.income, 0), 2) AS totalCharge,
+         CASE WHEN i.dchdate IS NULL THEN 'กำลังรักษา' ELSE 'จำหน่ายแล้ว' END AS status
+       FROM ipt i JOIN patient p ON p.hn = i.hn
+       LEFT JOIN an_stat a ON a.an = i.an LEFT JOIN ward w ON w.ward = i.ward
+       WHERE i.regdate BETWEEN ? AND ? OR i.dchdate BETWEEN ? AND ?
+       ORDER BY i.regdate, i.an LIMIT 20000`,
+      [dateStart, dateEnd, dateStart, dateEnd],
+    );
+    return {
+      title: 'ทะเบียนรับเข้าและจำหน่ายผู้ป่วยใน', subtitle: `รับเข้าหรือจำหน่ายระหว่าง ${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'an', label: 'AN' }, { key: 'hn', label: 'HN' }, { key: 'patientName', label: 'ชื่อ-สกุล', width: 25 },
+        { key: 'admitDate', label: 'วันที่รับเข้า' }, { key: 'dischargeDate', label: 'วันที่จำหน่าย' },
+        { key: 'ward', label: 'วอร์ด', width: 24 }, { key: 'primaryDiagnosis', label: 'วินิจฉัยหลัก' },
+        { key: 'drg', label: 'DRG' }, { key: 'rw', label: 'RW' }, { key: 'stayDays', label: 'วันนอน' },
+        { key: 'totalCharge', label: 'ค่าใช้จ่าย' }, { key: 'status', label: 'สถานะ' },
+      ],
+      notes: ['เป็นข้อมูลระดับบุคคล จำกัด 20,000 รายการต่อครั้ง และรวมเคสที่รับเข้าหรือจำหน่ายอยู่ในช่วงที่เลือก'],
+    };
+  } finally { connection.release(); }
+};
+
+const ipdWardPerformance = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT COALESCE(NULLIF(w.name, ''), i.ward, 'ไม่ระบุวอร์ด') AS ward,
+         COUNT(DISTINCT i.an) AS dischargedCases,
+         ROUND(AVG(GREATEST(DATEDIFF(i.dchdate, i.regdate), 1)), 1) AS averageStayDays,
+         SUM(GREATEST(DATEDIFF(i.dchdate, i.regdate), 1)) AS patientDays,
+         ROUND(AVG(COALESCE(a.rw, 0)), 4) AS averageRw,
+         ROUND(SUM(COALESCE(a.rw, 0)), 4) AS totalRw,
+         ROUND(SUM(COALESCE(a.income, 0)), 2) AS totalCharge,
+         ROUND(AVG(COALESCE(a.income, 0)), 2) AS averageChargePerCase
+       FROM ipt i LEFT JOIN an_stat a ON a.an = i.an LEFT JOIN ward w ON w.ward = i.ward
+       WHERE i.dchdate BETWEEN ? AND ?
+       GROUP BY i.ward, w.name ORDER BY dischargedCases DESC`,
+      [dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานผลงานผู้ป่วยในแยกวอร์ด', subtitle: `เคสจำหน่าย ${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'ward', label: 'วอร์ด', width: 28 }, { key: 'dischargedCases', label: 'เคสจำหน่าย' },
+        { key: 'averageStayDays', label: 'วันนอนเฉลี่ย' }, { key: 'patientDays', label: 'วันนอนรวม' },
+        { key: 'averageRw', label: 'RW เฉลี่ย' }, { key: 'totalRw', label: 'RW รวม' },
+        { key: 'totalCharge', label: 'ค่าใช้จ่ายรวม' }, { key: 'averageChargePerCase', label: 'เฉลี่ย/เคส' },
+      ],
+      notes: ['คำนวณจากเคสที่จำหน่ายในช่วงเวลา วันนอนขั้นต่ำต่อเคสใช้ 1 วันเพื่อการสรุปภาระงาน'],
+    };
+  } finally { connection.release(); }
+};
+
+const referralSummary = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT x.direction, x.hospcode,
+         COALESCE(NULLIF(h.name, ''), NULLIF(x.hospcode, ''), 'ไม่ระบุสถานพยาบาล') AS hospital,
+         COUNT(*) AS referralCount, COUNT(DISTINCT x.hn) AS patients
+       FROM (
+         SELECT 'รับส่งต่อเข้า' AS direction, r.hn, COALESCE(NULLIF(r.refer_hospcode, ''), NULLIF(r.hospcode, '')) AS hospcode
+         FROM referin r WHERE r.refer_date BETWEEN ? AND ?
+         UNION ALL
+         SELECT 'ส่งต่อออก' AS direction, r.hn, COALESCE(NULLIF(r.refer_hospcode, ''), NULLIF(r.hospcode, '')) AS hospcode
+         FROM referout r WHERE r.refer_date BETWEEN ? AND ?
+       ) x LEFT JOIN hospcode h ON h.hospcode = x.hospcode
+       GROUP BY x.direction, x.hospcode, h.name ORDER BY x.direction, referralCount DESC`,
+      [dateStart, dateEnd, dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานการรับและส่งต่อผู้ป่วย', subtitle: `${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'direction', label: 'ทิศทาง' }, { key: 'hospcode', label: 'รหัสสถานพยาบาล' },
+        { key: 'hospital', label: 'สถานพยาบาลต้นทาง/ปลายทาง', width: 38 },
+        { key: 'referralCount', label: 'จำนวนครั้ง' }, { key: 'patients', label: 'จำนวนคน' },
+      ],
+      notes: ['สรุปจาก referin/referout ตามวันที่ส่งต่อ ไม่ใช่แบบฟอร์มส่งเวรหรือใบ Refer ฉบับลงนาม'],
+    };
+  } finally { connection.release(); }
+};
+
+const drugUtilization = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT oi.icode AS itemCode, COALESCE(NULLIF(d.name, ''), oi.icode) AS itemName,
+         COALESCE(NULLIF(d.units, ''), '') AS unit,
+         COUNT(DISTINCT oi.vn) AS visits, COUNT(DISTINCT oi.hn) AS patients,
+         ROUND(SUM(COALESCE(oi.qty, 0)), 2) AS totalQuantity,
+         ROUND(SUM(COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0)), 2) AS totalCharge
+       FROM opitemrece oi JOIN s_drugitems d ON d.icode = oi.icode
+       WHERE oi.vstdate BETWEEN ? AND ? AND COALESCE(d.is_medication, 'N') = 'Y'
+       GROUP BY oi.icode, d.name, d.units ORDER BY totalQuantity DESC LIMIT 1000`,
+      [dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานการใช้ยา', subtitle: `${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'itemCode', label: 'รหัสยา' }, { key: 'itemName', label: 'ชื่อยา', width: 42 }, { key: 'unit', label: 'หน่วย' },
+        { key: 'visits', label: 'จำนวน Visit' }, { key: 'patients', label: 'จำนวนคน' },
+        { key: 'totalQuantity', label: 'จำนวนจ่ายรวม' }, { key: 'totalCharge', label: 'มูลค่าตามรายการ' },
+      ],
+      notes: ['เป็นปริมาณรายการที่ลงใน opitemrece ไม่ใช่ยอดคงคลังหรือ stock movement และจำกัด 1,000 รายการยา'],
+    };
+  } finally { connection.release(); }
+};
+
+const labWorkload = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT lo.lab_items_code AS labCode,
+         COALESCE(NULLIF(li.lab_items_name, ''), NULLIF(lo.lab_items_name_ref, ''), lo.lab_items_code) AS labName,
+         COUNT(*) AS orderedTests,
+         SUM(CASE WHEN NULLIF(lo.lab_order_result, '') IS NOT NULL THEN 1 ELSE 0 END) AS resultedTests,
+         SUM(CASE WHEN lo.abnormal_result = 'Y' THEN 1 ELSE 0 END) AS abnormalResults,
+         COUNT(DISTINCT lh.vn) AS visits,
+         ROUND(SUM(CASE WHEN lo.abnormal_result = 'Y' THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 2) AS abnormalPercent
+       FROM lab_head lh JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+       LEFT JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+       WHERE lh.order_date BETWEEN ? AND ?
+       GROUP BY lo.lab_items_code, li.lab_items_name, lo.lab_items_name_ref
+       ORDER BY orderedTests DESC LIMIT 1000`,
+      [dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานปริมาณงานห้องปฏิบัติการ', subtitle: `${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'labCode', label: 'รหัส Lab' }, { key: 'labName', label: 'รายการตรวจ', width: 40 },
+        { key: 'orderedTests', label: 'จำนวนสั่งตรวจ' }, { key: 'resultedTests', label: 'มีผลแล้ว' },
+        { key: 'abnormalResults', label: 'ผลผิดปกติ' }, { key: 'abnormalPercent', label: 'ผิดปกติ (%)' },
+        { key: 'visits', label: 'จำนวน Visit' },
+      ],
+      notes: ['สถานะผลผิดปกติอิง abnormal_result ที่ระบบ Lab บันทึก ไม่ใช้ AI ตีความค่าผลตรวจ'],
+    };
+  } finally { connection.release(); }
+};
+
+const claimDataCompleteness = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT o.vn, o.hn, DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS serviceDate,
+         TRIM(CONCAT(COALESCE(p.pname, ''), COALESCE(p.fname, ''), ' ', COALESCE(p.lname, ''))) AS patientName,
+         COALESCE(p.cid, '') AS cid, COALESCE(o.pttype, '') AS payerCode,
+         COALESCE(v.pdx, '') AS primaryDiagnosis, ROUND(COALESCE(v.income, 0), 2) AS totalCharge,
+         CONCAT_WS(', ',
+           CASE WHEN NULLIF(p.cid, '') IS NULL THEN 'ไม่มี CID' END,
+           CASE WHEN NULLIF(o.pttype, '') IS NULL THEN 'ไม่มีสิทธิ' END,
+           CASE WHEN NULLIF(v.pdx, '') IS NULL THEN 'ไม่มีวินิจฉัยหลัก' END,
+           CASE WHEN COALESCE(v.income, 0) <= 0 THEN 'ไม่มียอดค่าใช้จ่าย' END
+         ) AS missingData
+       FROM ovst o JOIN patient p ON p.hn = o.hn LEFT JOIN vn_stat v ON v.vn = o.vn
+       WHERE o.vstdate BETWEEN ? AND ?
+         AND (NULLIF(p.cid, '') IS NULL OR NULLIF(o.pttype, '') IS NULL OR NULLIF(v.pdx, '') IS NULL OR COALESCE(v.income, 0) <= 0)
+       ORDER BY o.vstdate, o.vn LIMIT 20000`,
+      [dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานความครบถ้วนข้อมูลก่อนส่งเคลม', subtitle: `OPD ${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'serviceDate', label: 'วันที่' }, { key: 'vn', label: 'VN' }, { key: 'hn', label: 'HN' },
+        { key: 'patientName', label: 'ชื่อ-สกุล', width: 25 }, { key: 'cid', label: 'CID' },
+        { key: 'payerCode', label: 'สิทธิ' }, { key: 'primaryDiagnosis', label: 'วินิจฉัยหลัก' },
+        { key: 'totalCharge', label: 'ค่าใช้จ่าย' }, { key: 'missingData', label: 'ข้อมูลที่ต้องแก้', width: 38 },
+      ],
+      notes: ['เป็นด่านตรวจพื้นฐาน CID/สิทธิ/วินิจฉัยหลัก/ยอดค่าใช้จ่าย ไม่ทดแทนกฎเฉพาะกองทุนในหน้าตรวจก่อนส่ง'],
+    };
+  } finally { connection.release(); }
+};
+
+const revenueByCategory = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  const { dateStart, dateEnd } = requireDateRange(request);
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT COALESCE(NULLIF(oi.income, ''), 'ไม่ระบุ') AS incomeCode,
+         COALESCE(NULLIF(i.name, ''), NULLIF(oi.income, ''), 'ไม่ระบุหมวด') AS incomeCategory,
+         COUNT(*) AS itemCount, COUNT(DISTINCT oi.vn) AS visits, COUNT(DISTINCT oi.hn) AS patients,
+         ROUND(SUM(COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0)), 2) AS totalCharge,
+         ROUND(AVG(COALESCE(oi.sum_price, oi.qty * oi.unitprice, 0)), 2) AS averagePerItem
+       FROM opitemrece oi LEFT JOIN income i ON i.income = oi.income
+       WHERE oi.vstdate BETWEEN ? AND ?
+       GROUP BY oi.income, i.name ORDER BY totalCharge DESC`,
+      [dateStart, dateEnd],
+    );
+    return {
+      title: 'รายงานค่าใช้จ่ายแยกหมวดบริการ', subtitle: `${dateStart} ถึง ${dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'incomeCode', label: 'รหัสหมวด' }, { key: 'incomeCategory', label: 'หมวดค่าใช้จ่าย', width: 36 },
+        { key: 'itemCount', label: 'จำนวนรายการ' }, { key: 'visits', label: 'จำนวน Visit' },
+        { key: 'patients', label: 'จำนวนคน' }, { key: 'totalCharge', label: 'ค่าใช้จ่ายรวม' },
+        { key: 'averagePerItem', label: 'เฉลี่ย/รายการ' },
+      ],
+      notes: ['เป็นราคาค่าบริการจาก opitemrece ไม่ใช่รายรับที่รับเงินจริงหรือยอดชดเชยจากกองทุน'],
+    };
+  } finally { connection.release(); }
+};
+
 const costPerDrg = async (request: HospitalReportRequest): Promise<ReportResult> => {
   const { dateStart, dateEnd } = requireDateRange(request);
   const connection = await getUTFConnection();
@@ -698,8 +1036,18 @@ export const runHospitalReport = async (input: HospitalReportRequest) => {
   if (request.reportId === 'discharge-summary') report = await dischargeSummary(request);
   else if (request.reportId === 'operative-note') report = await operativeNote(request);
   else if (request.reportId === 'bed-occupancy') report = await bedOccupancy(request);
+  else if (request.reportId === 'daily-service-summary') report = await dailyServiceSummary(request);
+  else if (request.reportId === 'opd-department-workload') report = await opdDepartmentWorkload(request);
+  else if (request.reportId === 'opd-diagnosis-ranking') report = await opdDiagnosisRanking(request);
+  else if (request.reportId === 'ipd-admission-discharge') report = await ipdAdmissionDischarge(request);
+  else if (request.reportId === 'ipd-ward-performance') report = await ipdWardPerformance(request);
+  else if (request.reportId === 'referral-report') report = await referralSummary(request);
+  else if (request.reportId === 'drug-utilization') report = await drugUtilization(request);
+  else if (request.reportId === 'lab-workload') report = await labWorkload(request);
+  else if (request.reportId === 'claim-data-completeness') report = await claimDataCompleteness(request);
   else if (request.reportId === 'cost-per-drg') report = await costPerDrg(request);
   else if (request.reportId === 'payer-mix') report = await payerMix(request);
+  else if (request.reportId === 'revenue-by-category') report = await revenueByCategory(request);
   else if (request.reportId === 'pcu-death') report = await communityDeathReport(request);
   else if (request.reportId === 'pcu-patient-service') report = await pcuPatientService(request);
   else if (request.reportId === 'pcu-visit-service-detail') report = await pcuVisitServiceDetail(request);

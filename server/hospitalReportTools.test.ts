@@ -83,6 +83,14 @@ test('rejects reversed and oversized financial report date ranges', async () => 
     () => runHospitalReport({ reportId: 'cost-per-drg', dateStart: '2024-01-01', dateEnd: '2026-08-05' }),
     /ไม่เกิน 366 วัน/,
   );
+  await assert.rejects(
+    () => runHospitalReport({ reportId: 'daily-service-summary', dateStart: '2026-08-05', dateEnd: '2026-08-01' }),
+    /วันที่เริ่มต้นต้องไม่เกิน/,
+  );
+  await assert.rejects(
+    () => runHospitalReport({ reportId: 'referral-report', dateStart: 'invalid', dateEnd: '2026-08-05' }),
+    /กรุณาระบุวันที่เริ่มต้นและสิ้นสุด/,
+  );
 });
 
 test('does not run report ids that have no verified source mapping', async () => {

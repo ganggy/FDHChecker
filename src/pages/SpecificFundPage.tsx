@@ -10,6 +10,7 @@ import { formatPalliativeIcd10, PALLIATIVE_DIAGNOSIS_CODE_COUNT, PALLIATIVE_DIAG
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
 import { buildFdhClaimProgress, hasFdhSubmissionData } from '../utils/fdhClaimProgress';
+import { reviewPalliativeCareVisit } from '../utils/palliativeCareReview';
 import { fetchAppSettings } from '../services/hosxpService';
 import {
     ANC_DENTAL_CLEAN_PROCEDURE_CODES,
@@ -143,6 +144,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [repstmVisit, setRepstmVisit] = useState<any | null>(null);
     const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
     const [showRepCOnly, setShowRepCOnly] = useState(false);
+    const [showPalliativeReviewOnly, setShowPalliativeReviewOnly] = useState(false);
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [fundVisibility, setFundVisibility] = useState<Record<string, boolean>>({});
     const [exportingFundId, setExportingFundId] = useState<string | null>(null);
@@ -153,6 +155,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [kneeCompletionMessage, setKneeCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const [kneeProviders, setKneeProviders] = useState<Array<{ providerId: number; providerName: string; licenseNo: string }>>([]);
     const [kneeProviderId, setKneeProviderId] = useState('');
+    const [deletingPalliativeVn, setDeletingPalliativeVn] = useState<string | null>(null);
+    const [palliativeActionMessage, setPalliativeActionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
     const siteSettings = rules.site_settings as {
@@ -285,6 +289,49 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             setKneeCompletingVn(null);
         }
     }, [fetchFundData, kneeCompletingVn, kneeProviderId]);
+
+    const handleDeletePalliativeDiagnosis = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const vn = String(item?.vn || '').trim();
+        if (!vn || deletingPalliativeVn) return;
+        const review = reviewPalliativeCareVisit({
+            z515Code: item?.z515_code,
+            z718Code: item?.z718_code,
+            isHomeVisit: item?.is_home_visit,
+            hasPalliativeAdp: item?.has_pal_adp,
+            hasEligibleDiseaseDiagnosis: item?.has_eligible_palliative_diag,
+            drugCount: item?.drug_count,
+        });
+        const codes = [item?.z515_code, item?.z718_code].filter(Boolean).join(', ');
+        const confirmed = window.confirm(
+            `ยืนยันลบ Diagnosis Palliative ของ VN ${vn}\n\nรหัสที่จะลบ: ${codes || 'Z51.5/Z71.8'}\nเหตุผลที่เข้ากลุ่มตรวจสอบ:\n- ${review.reasons.join('\n- ')}\n\nระบบจะลบเฉพาะ Z51.5/Z71.8 ของ visit นี้ ไม่ลบโรคอื่น ยา หรือค่าบริการ และจะบันทึกประวัติการลบ`,
+        );
+        if (!confirmed) return;
+
+        setDeletingPalliativeVn(vn);
+        setPalliativeActionMessage(null);
+        try {
+            const response = await fetch(`/api/hosxp/palliative-diagnoses/${encodeURIComponent(vn)}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmRemovePalliativeDiagnosis: true }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json.success) throw new Error(json.error || 'ลบ Diagnosis Palliative ไม่สำเร็จ');
+            setPalliativeActionMessage({
+                kind: 'success',
+                text: `VN ${vn} ลบ ${json.result?.deletedCodes?.join(', ') || 'Diagnosis Palliative'} แล้ว (${json.result?.deletedCount || 0} รายการ)`,
+            });
+            await fetchFundData();
+        } catch (deleteError) {
+            setPalliativeActionMessage({
+                kind: 'warning',
+                text: deleteError instanceof Error ? deleteError.message : 'ลบ Diagnosis Palliative ไม่สำเร็จ',
+            });
+        } finally {
+            setDeletingPalliativeVn(null);
+        }
+    }, [deletingPalliativeVn, fetchFundData]);
 
     useEffect(() => {
         if (activeFund !== 'knee') return;
@@ -616,6 +663,15 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         };
     };
 
+    const getPalliativeReview = (item: any) => reviewPalliativeCareVisit({
+        z515Code: item?.z515_code,
+        z718Code: item?.z718_code,
+        isHomeVisit: item?.is_home_visit,
+        hasPalliativeAdp: toFlag(item?.has_pal_adp) || toFlag(item?.has_30001) || toFlag(item?.has_cons01) || toFlag(item?.has_eva001),
+        hasEligibleDiseaseDiagnosis: item?.has_eligible_palliative_diag,
+        drugCount: item?.drug_count,
+    });
+
     const getFundRuleStatus = (item: any, fundId: string = activeFund) => {
         const subfunds: string[] = [];
         const age = Number(item?.age_y ?? item?.age ?? 0);
@@ -631,8 +687,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'palliative') {
             if (!isUcsLike) return buildStatusResult([], [], undefined, false);
-            const isMatched = hasPalliativeDiag && hasPalliativeAdp;
+            const review = getPalliativeReview(item);
             if (hasPalliativeDiag || hasPalliativeAdp) subfunds.push('🕊️ Palliative Care');
+            if (hasPalliativeDiag) {
+                return buildStatusResult(subfunds, review.reasons, undefined, review.qualifiesForService);
+            }
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(
@@ -642,7 +701,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     hasPalliativeDiag
                 ),
                 undefined,
-                isMatched
+                false
             );
         }
 
@@ -1375,7 +1434,15 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         ))
         : [];
     const excludedAncFailedRows = excludedAncServiceRows.filter(isFdhProcessingFailed);
-    const filteredData = showRepCOnly
+    const palliativeReviewData = activeFund === 'palliative'
+        ? data.filter((item) => getPalliativeReview(item).shouldReview)
+        : [];
+    const palliativeQualifyingData = activeFund === 'palliative'
+        ? data.filter((item) => getPalliativeReview(item).qualifiesForService)
+        : [];
+    const filteredData = showPalliativeReviewOnly && activeFund === 'palliative'
+        ? palliativeReviewData
+        : showRepCOnly
         ? actionableData.filter(hasRepCError)
         : showIncompleteOnly
             ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
@@ -1416,12 +1483,17 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             };
 
             if (fundId === 'palliative') {
+                const review = getPalliativeReview(item);
                 return {
                     ...baseRow,
                     'Diag หลัก': item.pdx || '',
                     'Diag Z515': item.z515_code || '',
                     'Diag Z718': item.z718_code || '',
-                    'ADP Code': item.adp_code || '',
+                    'ADP Code': [item.has_30001 === 'Y' ? '30001' : '', item.has_cons01 === 'Y' ? 'Cons01' : '', item.has_eva001 === 'Y' ? 'Eva001' : ''].filter(Boolean).join(', '),
+                    'ประเภท visit': review.visitKindLabel,
+                    'เข้าเกณฑ์บริการ Palliative': review.qualifiesForService ? 'ใช่' : 'ไม่ใช่',
+                    'เหตุผลที่ต้องตรวจ': review.reasons.join(' | '),
+                    'โรคในบัญชีที่พบ': item.eligible_palliative_diag_codes || '',
                 };
             }
             if (fundId === 'telemedicine') {
@@ -2201,10 +2273,32 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     onClick={() => {
                                         setShowIncompleteOnly(!showIncompleteOnly);
                                         setShowRepCOnly(false);
+                                        setShowPalliativeReviewOnly(false);
                                     }}
                                 >
                                     {showIncompleteOnly ? '✓ เฉพาะไม่สมบูรณ์' : '○ ทั้งหมด'}
                                 </button>
+                                {activeFund === 'palliative' && (
+                                    <button
+                                        className="btn"
+                                        style={{
+                                            background: showPalliativeReviewOnly ? '#b91c1c' : '#fff7ed',
+                                            color: showPalliativeReviewOnly ? 'white' : '#9a3412',
+                                            borderColor: '#fb923c',
+                                            padding: '6px 12px',
+                                            fontSize: '12px',
+                                            fontWeight: 700,
+                                        }}
+                                        onClick={() => {
+                                            setShowPalliativeReviewOnly(!showPalliativeReviewOnly);
+                                            setShowIncompleteOnly(false);
+                                            setShowRepCOnly(false);
+                                        }}
+                                        title="ตรวจ visit ที่มี Z51.5/Z71.8 แต่ไม่ครบเกณฑ์บริการ Palliative"
+                                    >
+                                        {showPalliativeReviewOnly ? `✓ แสดงเฉพาะไม่เข้าเกณฑ์ (${palliativeReviewData.length})` : `⚠️ แสดงเฉพาะไม่เข้าเกณฑ์ (${palliativeReviewData.length})`}
+                                    </button>
+                                )}
                                 <button
                                     className="btn"
                                     style={{
@@ -2217,6 +2311,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     onClick={() => {
                                         setShowRepCOnly(!showRepCOnly);
                                         setShowIncompleteOnly(false);
+                                        setShowPalliativeReviewOnly(false);
                                     }}
                                     title="แสดงเฉพาะรายการที่ REP มี Error Code (C)"
                                 >
@@ -2287,6 +2382,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                 {kneeCompletionMessage.text}
                             </div>
                         )}
+                        {activeFund === 'palliative' && palliativeActionMessage && (
+                            <div className={`alert ${palliativeActionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
+                                {palliativeActionMessage.text}
+                            </div>
+                        )}
                         {activeFund === 'knee' && (
                             <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--primary)' }}>
                                 <div className="card-body" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2315,11 +2415,19 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                         )}
                         {!loading && !error && (
                 <div className="card" style={{ overflow: 'visible' }}>
-                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
+                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
                         <div style={{ fontWeight: 600, color: 'var(--primary)' }}>
                             รายการตรวจสอบ {funds.find(f => f.id === activeFund)?.name}
                         </div>
-                        <div className="badge badge-primary">รวม {filteredData.length} / {data.length} รายการ</div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {activeFund === 'palliative' && (
+                                <>
+                                    <span className="badge badge-success" style={{ fontSize: 12, padding: '6px 10px' }}>✓ เข้าเกณฑ์ {palliativeQualifyingData.length}</span>
+                                    <span className="badge badge-danger" style={{ fontSize: 12, padding: '6px 10px' }}>✗ ไม่เข้าเกณฑ์ {palliativeReviewData.length}</span>
+                                </>
+                            )}
+                            <div className="badge badge-primary">แสดง {filteredData.length} / {data.length} รายการ</div>
+                        </div>
                     </div>
                     <div className="specific-fund-table-wrap" style={{ overflowX: 'auto' }}>
                         <table
@@ -2335,6 +2443,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     <th style={{ width: 105 }}>วันที่รับบริการ</th>
                                     {activeFund === 'palliative' && (
                                         <>
+                                            <th style={{ width: 320, textAlign: 'left', background: '#7f1d1d', color: 'white' }}>ผลตรวจ Palliative / ลบ Diag</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag หลัก</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z515)</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z718)</th>
@@ -2520,8 +2629,20 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         const sendStatusClass = getEffectiveSendStatusBadgeClass(item);
                                         const fdhStatusLabel = getFdhStatusLabel(item);
                                         const fdhStatusClass = getFdhStatusBadgeClass(item);
+                                        const palliativeReview = activeFund === 'palliative' ? getPalliativeReview(item) : null;
                                         return (
-                                            <tr key={item.vn} onClick={() => handleRowClick(item)} className="clickable-row" style={{ cursor: 'pointer', background: st.status !== 'สมบูรณ์' ? 'rgba(239, 68, 68, 0.04)' : '' }}>
+                                            <tr
+                                                key={item.vn}
+                                                onClick={() => handleRowClick(item)}
+                                                className="clickable-row"
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    background: palliativeReview
+                                                        ? (palliativeReview.qualifiesForService ? 'rgba(34, 197, 94, 0.06)' : 'rgba(239, 68, 68, 0.08)')
+                                                        : st.status !== 'สมบูรณ์' ? 'rgba(239, 68, 68, 0.04)' : '',
+                                                    boxShadow: palliativeReview ? `inset 4px 0 0 ${palliativeReview.qualifiesForService ? '#16a34a' : '#dc2626'}` : undefined,
+                                                }}
+                                            >
                                                 <td style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', padding: '6px 4px' }}>{index + 1}</td>
                                                 <td style={{ padding: '6px 8px' }}>
                                                     <div style={{ fontWeight: 600, color: 'var(--primary)', fontSize: 11 }}>{item.vn}</div>
@@ -2542,6 +2663,47 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.vsttime}</div>
                                                 </td>{activeFund === 'palliative' && (
                                                     <>
+                                                        <td style={{ padding: '8px', verticalAlign: 'top' }}>
+                                                            {(() => {
+                                                                const review = getPalliativeReview(item);
+                                                                return (
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'flex-start' }}>
+                                                                        <span
+                                                                            className={`badge ${review.qualifiesForService ? 'badge-success' : 'badge-danger'}`}
+                                                                            style={{ fontSize: 12, padding: '6px 9px' }}
+                                                                        >
+                                                                            {review.qualifiesForService ? '✓ เข้าเกณฑ์ Palliative' : '✗ ไม่เข้าเกณฑ์ Palliative'}
+                                                                        </span>
+                                                                        <strong style={{ fontSize: 11, color: review.qualifiesForService ? '#166534' : '#991b1b' }}>
+                                                                            {review.visitKindLabel}
+                                                                        </strong>
+                                                                        {!review.qualifiesForService && (
+                                                                            <div style={{ fontSize: 10, lineHeight: 1.5, color: '#9a3412' }}>
+                                                                                {review.reasons.map((reason) => <div key={reason}>• {reason}</div>)}
+                                                                                {item.eligible_palliative_diag_codes
+                                                                                    ? <div style={{ marginTop: 3, color: 'var(--text-muted)' }}>โรคหลักที่พบ: {item.eligible_palliative_diag_codes}</div>
+                                                                                    : null}
+                                                                            </div>
+                                                                        )}
+                                                                        {review.canRemoveDiagnosis && (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn"
+                                                                                style={{ padding: '5px 9px', fontSize: 11, background: '#dc2626', color: 'white', borderColor: '#b91c1c', fontWeight: 700 }}
+                                                                                disabled={deletingPalliativeVn === String(item.vn)}
+                                                                                onClick={(event) => void handleDeletePalliativeDiagnosis(item, event)}
+                                                                                title="ลบเฉพาะ Z51.5/Z71.8 ของ VN นี้ และบันทึก audit"
+                                                                            >
+                                                                                {deletingPalliativeVn === String(item.vn) ? 'กำลังลบ...' : '🗑️ ลบ Diag Palliative'}
+                                                                            </button>
+                                                                        )}
+                                                                        {review.shouldReview && !review.canRemoveDiagnosis && (
+                                                                            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>เยี่ยมบ้าน: ให้แก้ข้อมูลบริการ จึงไม่เปิดปุ่มลบ</span>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.pdx
                                                                 ? <span className="badge badge-primary">{item.pdx}</span>

@@ -74,6 +74,7 @@ import {
   testNhsoClosePrivilegeToken,
   submitNhsoClosePrivileges,
   importFdhStatusForDateRange,
+  deleteNonQualifyingPalliativeDiagnoses,
   closeDatabasePools,
 } from './db.js';
 import businessRules from './config/business_rules.json';
@@ -1684,6 +1685,27 @@ app.get('/api/hosxp/specific-funds', async (req, res) => {
   } catch (error) {
     console.error('Error fetching specific fund data:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+app.delete('/api/hosxp/palliative-diagnoses/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (req.body?.confirmRemovePalliativeDiagnosis !== true) {
+      return res.status(400).json({ success: false, error: 'กรุณายืนยันการลบ Diagnosis Palliative' });
+    }
+    const result = await deleteNonQualifyingPalliativeDiagnoses(vn, {
+      userId: req.authUser?.id,
+      username: req.authUser?.username,
+    });
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to remove non-qualifying palliative diagnoses:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ลบ Diagnosis Palliative ไม่สำเร็จ',
+    });
   }
 });
 

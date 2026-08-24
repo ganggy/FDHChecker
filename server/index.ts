@@ -75,6 +75,7 @@ import {
   submitNhsoClosePrivileges,
   importFdhStatusForDateRange,
   deleteNonQualifyingPalliativeDiagnoses,
+  markPalliativeVisitAsHomeVisit,
   closeDatabasePools,
 } from './db.js';
 import businessRules from './config/business_rules.json';
@@ -1705,6 +1706,27 @@ app.delete('/api/hosxp/palliative-diagnoses/:vn', async (req: AuthenticatedReque
     return res.status(422).json({
       success: false,
       error: error instanceof Error ? error.message : 'ลบ Diagnosis Palliative ไม่สำเร็จ',
+    });
+  }
+});
+
+app.patch('/api/hosxp/palliative-home-visit/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (req.body?.confirmActualHomeVisit !== true) {
+      return res.status(400).json({ success: false, error: 'กรุณายืนยันว่า visit นี้มีการเยี่ยมบ้านจริง' });
+    }
+    const result = await markPalliativeVisitAsHomeVisit(vn, {
+      userId: req.authUser?.id,
+      username: req.authUser?.username,
+    });
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to mark palliative visit as home visit:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ปรับประเภท visit เป็นเยี่ยมบ้านไม่สำเร็จ',
     });
   }
 });

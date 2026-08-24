@@ -12364,6 +12364,131 @@ const PALLIATIVE_DIAG_DELETE_AUDIT_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const PALLIATIVE_HOME_VISIT_OVSTIST = '14';
+const PALLIATIVE_HOME_VISIT_AUDIT_SQL = `
+  CREATE TABLE IF NOT EXISTS z_fdh_palliative_home_visit_audit (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(20) NOT NULL,
+    hn VARCHAR(20) NOT NULL,
+    old_ovstist VARCHAR(10) NULL,
+    old_ovstist_name VARCHAR(255) NULL,
+    new_ovstist VARCHAR(10) NOT NULL,
+    new_ovstist_name VARCHAR(255) NOT NULL,
+    review_reasons JSON NOT NULL,
+    updated_by_user_id BIGINT NULL,
+    updated_by_username VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_pal_home_visit_vn (vn),
+    KEY idx_pal_home_visit_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const markPalliativeVisitAsHomeVisit = async (
+  vn: string,
+  actor: { userId?: number | null; username?: string | null },
+) => {
+  const normalizedVn = String(vn || '').trim();
+  if (!/^\d{1,13}$/.test(normalizedVn)) throw new Error('รูปแบบ VN ไม่ถูกต้อง');
+  const connection = await getUTFConnection();
+  try {
+    // MySQL DDL can implicitly commit, so create the audit table before the transaction.
+    await connection.query(PALLIATIVE_HOME_VISIT_AUDIT_SQL);
+    await connection.beginTransaction();
+
+    const [homeVisitTypes] = await connection.query<any[]>(`
+      SELECT ovstist, name
+      FROM ovstist
+      WHERE ovstist=?
+        AND UPPER(COALESCE(name, '')) REGEXP 'เยี่ยมบ้าน|HOME[[:space:]_-]*VISIT'
+      FOR UPDATE
+    `, [PALLIATIVE_HOME_VISIT_OVSTIST]);
+    if (homeVisitTypes.length !== 1) {
+      throw new Error('ไม่พบรหัสประเภท visit เยี่ยมบ้าน (ovstist=14) กรุณาตรวจตาราง ovstist');
+    }
+
+    const [visitRows] = await connection.query<any[]>(`
+      SELECT o.vn, o.hn, o.ovstist, osi.name AS ovstist_name,
+        CASE WHEN UPPER(COALESCE(osi.name, '')) REGEXP 'เยี่ยมบ้าน|HOME[[:space:]_-]*VISIT' THEN 1 ELSE 0 END AS is_home_visit,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode=oo.icode
+          WHERE oo.vn=o.vn AND sd.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})
+        ) THEN 1 ELSE 0 END AS has_pal_adp,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovstdiag d
+          WHERE d.vn=o.vn AND d.diagtype='1'
+            AND REPLACE(UPPER(d.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
+        ) THEN 1 ELSE 0 END AS has_eligible_palliative_diag,
+        (SELECT COUNT(DISTINCT oo.icode) FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count
+      FROM ovst o
+      LEFT JOIN ovstist osi ON osi.ovstist=o.ovstist
+      WHERE o.vn=?
+      FOR UPDATE
+    `, [normalizedVn]);
+    if (visitRows.length === 0) throw new Error('ไม่พบ VN ที่ต้องการแก้ไข');
+
+    const [diagnosisRows] = await connection.query<any[]>(`
+      SELECT icd10
+      FROM ovstdiag
+      WHERE vn=? AND REPLACE(UPPER(icd10), '.', '') IN (${PALLIATIVE_SERVICE_DX_CODES.map(() => '?').join(',')})
+      FOR UPDATE
+    `, [normalizedVn, ...PALLIATIVE_SERVICE_DX_CODES]);
+    const z515Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z515')?.icd10;
+    const z718Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z718')?.icd10;
+    const visit = visitRows[0];
+    const review = reviewPalliativeCareVisit({
+      z515Code,
+      z718Code,
+      isHomeVisit: visit.is_home_visit,
+      hasPalliativeAdp: visit.has_pal_adp,
+      hasEligibleDiseaseDiagnosis: visit.has_eligible_palliative_diag,
+      drugCount: visit.drug_count,
+    });
+    if (!review.canMarkAsHomeVisit) {
+      throw new Error('ปรับเป็นเยี่ยมบ้านได้เฉพาะรายการที่มี Z51.5, โรคหลัก และ ADP ครบ โดยขาดเพียงประเภท visit');
+    }
+
+    const [updateResult] = await connection.query(`
+      UPDATE ovst SET ovstist=? WHERE vn=? AND COALESCE(ovstist, '')=COALESCE(?, '')
+    `, [PALLIATIVE_HOME_VISIT_OVSTIST, normalizedVn, visit.ovstist]);
+    if (Number((updateResult as { affectedRows?: number }).affectedRows || 0) !== 1) {
+      throw new Error('ข้อมูลประเภท visit มีการเปลี่ยนแปลงระหว่างตรวจสอบ กรุณาโหลดข้อมูลใหม่');
+    }
+
+    const homeVisitType = homeVisitTypes[0];
+    await connection.query(`
+      INSERT INTO z_fdh_palliative_home_visit_audit
+        (vn, hn, old_ovstist, old_ovstist_name, new_ovstist, new_ovstist_name,
+         review_reasons, updated_by_user_id, updated_by_username)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      normalizedVn,
+      String(visit.hn || ''),
+      visit.ovstist == null ? null : String(visit.ovstist),
+      visit.ovstist_name == null ? null : String(visit.ovstist_name).slice(0, 255),
+      String(homeVisitType.ovstist),
+      String(homeVisitType.name).slice(0, 255),
+      JSON.stringify(review.reasons),
+      actor.userId || null,
+      String(actor.username || 'unknown').slice(0, 64),
+    ]);
+    await connection.commit();
+    return {
+      vn: normalizedVn,
+      oldOvstist: visit.ovstist,
+      oldOvstistName: visit.ovstist_name,
+      newOvstist: String(homeVisitType.ovstist),
+      newOvstistName: String(homeVisitType.name),
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 export const deleteNonQualifyingPalliativeDiagnoses = async (
   vn: string,
   actor: { userId?: number | null; username?: string | null },

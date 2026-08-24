@@ -156,6 +156,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [kneeProviders, setKneeProviders] = useState<Array<{ providerId: number; providerName: string; licenseNo: string }>>([]);
     const [kneeProviderId, setKneeProviderId] = useState('');
     const [deletingPalliativeVn, setDeletingPalliativeVn] = useState<string | null>(null);
+    const [markingPalliativeHomeVn, setMarkingPalliativeHomeVn] = useState<string | null>(null);
     const [palliativeActionMessage, setPalliativeActionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
@@ -332,6 +333,40 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             setDeletingPalliativeVn(null);
         }
     }, [deletingPalliativeVn, fetchFundData]);
+
+    const handleMarkPalliativeHomeVisit = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const vn = String(item?.vn || '').trim();
+        if (!vn || markingPalliativeHomeVn) return;
+        const confirmed = window.confirm(
+            `ยืนยันว่า VN ${vn} มีการออกเยี่ยมบ้านจริง\n\nประเภท visit ปัจจุบัน: ${item?.ovstist_name || item?.ovstist || 'ไม่ระบุ'}\nระบบจะเปลี่ยน ovst.ovstist เป็นรหัส 14 “เยี่ยมบ้าน” และบันทึก audit log\n\nการกดปุ่มนี้ไม่ได้สร้างบันทึกบริการหรือเวชระเบียนใหม่ กรุณากดยืนยันเฉพาะเมื่อมีหลักฐานเยี่ยมบ้านจริง`,
+        );
+        if (!confirmed) return;
+
+        setMarkingPalliativeHomeVn(vn);
+        setPalliativeActionMessage(null);
+        try {
+            const response = await fetch(`/api/hosxp/palliative-home-visit/${encodeURIComponent(vn)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmActualHomeVisit: true }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json.success) throw new Error(json.error || 'ปรับประเภท visit เป็นเยี่ยมบ้านไม่สำเร็จ');
+            setPalliativeActionMessage({
+                kind: 'success',
+                text: `VN ${vn} เปลี่ยนประเภท visit จาก “${json.result?.oldOvstistName || 'ไม่ระบุ'}” เป็น “${json.result?.newOvstistName || 'เยี่ยมบ้าน'}” แล้ว`,
+            });
+            await fetchFundData();
+        } catch (markError) {
+            setPalliativeActionMessage({
+                kind: 'warning',
+                text: markError instanceof Error ? markError.message : 'ปรับประเภท visit เป็นเยี่ยมบ้านไม่สำเร็จ',
+            });
+        } finally {
+            setMarkingPalliativeHomeVn(null);
+        }
+    }, [fetchFundData, markingPalliativeHomeVn]);
 
     useEffect(() => {
         if (activeFund !== 'knee') return;
@@ -2685,12 +2720,24 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                     : null}
                                                                             </div>
                                                                         )}
+                                                                        {review.canMarkAsHomeVisit && (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn"
+                                                                                style={{ padding: '5px 9px', fontSize: 11, background: '#15803d', color: 'white', borderColor: '#166534', fontWeight: 700 }}
+                                                                                disabled={markingPalliativeHomeVn === String(item.vn) || deletingPalliativeVn === String(item.vn)}
+                                                                                onClick={(event) => void handleMarkPalliativeHomeVisit(item, event)}
+                                                                                title="ใช้เมื่อมีหลักฐานเยี่ยมบ้านจริง: เปลี่ยน ovst.ovstist เป็น 14 และบันทึก audit"
+                                                                            >
+                                                                                {markingPalliativeHomeVn === String(item.vn) ? 'กำลังปรับ...' : '🏠 ยืนยันเป็น visit เยี่ยมบ้าน'}
+                                                                            </button>
+                                                                        )}
                                                                         {review.canRemoveDiagnosis && (
                                                                             <button
                                                                                 type="button"
                                                                                 className="btn"
                                                                                 style={{ padding: '5px 9px', fontSize: 11, background: '#dc2626', color: 'white', borderColor: '#b91c1c', fontWeight: 700 }}
-                                                                                disabled={deletingPalliativeVn === String(item.vn)}
+                                                                                disabled={deletingPalliativeVn === String(item.vn) || markingPalliativeHomeVn === String(item.vn)}
                                                                                 onClick={(event) => void handleDeletePalliativeDiagnosis(item, event)}
                                                                                 title="ลบเฉพาะ Z51.5/Z71.8 ของ VN นี้ และบันทึก audit"
                                                                             >

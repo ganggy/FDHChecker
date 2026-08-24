@@ -12,6 +12,7 @@ export type PalliativeReviewResult = {
     qualifiesForService: boolean;
     shouldReview: boolean;
     canRemoveDiagnosis: boolean;
+    canMarkAsHomeVisit: boolean;
     visitKind: 'home-palliative' | 'possible-medication-pickup' | 'hospital-service';
     visitKindLabel: string;
     reasons: string[];
@@ -46,6 +47,11 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
         && isHomeVisit
         && hasPalliativeAdp
         && hasEligibleDiseaseDiagnosis;
+    const canMarkAsHomeVisit = hasPalliativeDiagnosis
+        && hasZ515
+        && !isHomeVisit
+        && hasPalliativeAdp
+        && hasEligibleDiseaseDiagnosis;
     const visitKind = isHomeVisit
         ? 'home-palliative'
         : hasDrugs
@@ -57,6 +63,7 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
         qualifiesForService,
         shouldReview: hasPalliativeDiagnosis && !qualifiesForService,
         canRemoveDiagnosis: hasPalliativeDiagnosis && !isHomeVisit,
+        canMarkAsHomeVisit,
         visitKind,
         visitKindLabel: visitKind === 'home-palliative'
             ? 'เยี่ยมบ้าน'

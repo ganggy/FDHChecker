@@ -11,6 +11,20 @@ test('accepts a qualifying home palliative visit', () => {
   });
   assert.equal(result.qualifiesForService, true);
   assert.equal(result.shouldReview, false);
+  assert.equal(result.canMarkAsHomeVisit, false);
+});
+
+test('offers home-visit correction only when every other palliative criterion is complete', () => {
+  const result = reviewPalliativeCareVisit({
+    z515Code: 'Z515',
+    z718Code: 'Z718',
+    isHomeVisit: 0,
+    hasPalliativeAdp: 1,
+    hasEligibleDiseaseDiagnosis: 1,
+  });
+  assert.equal(result.qualifiesForService, false);
+  assert.equal(result.canMarkAsHomeVisit, true);
+  assert.deepEqual(result.reasons, ['ไม่ใช่ visit เยี่ยมบ้าน']);
 });
 
 test('flags a hospital visit with medicines as a possible medication pickup', () => {
@@ -23,6 +37,7 @@ test('flags a hospital visit with medicines as a possible medication pickup', ()
   });
   assert.equal(result.shouldReview, true);
   assert.equal(result.canRemoveDiagnosis, true);
+  assert.equal(result.canMarkAsHomeVisit, false);
   assert.equal(result.visitKind, 'possible-medication-pickup');
   assert.ok(result.reasons.includes('ไม่ใช่ visit เยี่ยมบ้าน'));
 });

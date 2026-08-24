@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { AI_PROMPT_EXAMPLES, AI_PROMPT_TEMPLATE } from '../config/aiPromptExamples';
 import './LocalAiAssistant.css';
+import './AiPromptExamples.css';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -296,7 +298,12 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
               <div className="local-ai-welcome">
                 <strong>ถามข้อมูล HOSxP ต่อเนื่อง หรือให้สร้าง Word/Excel ได้ครับ</strong>
                 <p>ค้นด้วย HN, VN, AN, CID หรือชื่อ ดูประวัติ ยา แล็บ วันนัด ถามต่อจากคำตอบเดิม และดาวน์โหลด Word, Excel, CSV หรือ JSON ได้ ทุกคำค้นถูกตรวจและรันแบบอ่านอย่างเดียว</p>
-                <p>ลองถาม “Word ทำอะไรได้บ้าง” เพื่อดูตัวอย่างรายงานที่สร้างได้</p>
+                <p>Prompt ที่แม่นยำควรมี: ต้องการอะไร · ช่วงวันที่ · เงื่อนไข · หน่วยนับ · รูปแบบผลลัพธ์</p>
+                <div className="local-ai-starter-prompts">
+                  {AI_PROMPT_EXAMPLES.slice(0, 4).map((example) => (
+                    <button type="button" key={example.id} onClick={() => setQuestion(example.prompt)}>{example.label}</button>
+                  ))}
+                </div>
               </div>
             )}
             {status?.auth?.authenticated && messages.map((message, index) => (
@@ -354,8 +361,10 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
 
           {status?.auth?.authenticated && <form className="local-ai-form" onSubmit={submit}>
             <div className="local-ai-quick-actions">
-              <button type="button" onClick={() => setQuestion('แผนกไหนมีข้อมูลผิดพลาดวันนี้')}>สรุปวันนี้</button>
-              <button type="button" onClick={() => setQuestion('ตรวจข้อผิดพลาด VN ')}>ตรวจ VN</button>
+              <button type="button" onClick={() => setQuestion(AI_PROMPT_TEMPLATE)}>＋ แม่แบบ Prompt</button>
+              <button type="button" onClick={() => setQuestion(AI_PROMPT_EXAMPLES[0].prompt)}>ยอด OPD วันนี้</button>
+              <button type="button" onClick={() => setQuestion(AI_PROMPT_EXAMPLES[2].prompt)}>ตรวจ VN</button>
+              <button type="button" onClick={() => setQuestion(AI_PROMPT_EXAMPLES[5].prompt)}>เกณฑ์พอกเข่า</button>
               <button type="button" disabled={!conversationContext.lastAction || loading} onClick={() => void sendPrompt('เอาผลล่าสุดเป็น Excel')}>ทำ Excel</button>
               <button type="button" disabled={!conversationContext.patient || loading} onClick={() => void sendPrompt('ขอผลแล็บล่าสุด')}>ผลแล็บ</button>
             </div>
@@ -370,7 +379,7 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
               }}
               maxLength={2_000}
               rows={2}
-              placeholder="พิมพ์ได้หลายบรรทัด เช่น รายงานที่ต้องการ ช่วงเวลา และรูปแบบไฟล์"
+              placeholder="ระบุ: ต้องการอะไร • ช่วงวันที่ • เงื่อนไข • หน่วยนับ • รูปแบบผลลัพธ์"
               disabled={loading}
             />
             <button type="submit" disabled={!question.trim() || loading}>ส่ง</button>

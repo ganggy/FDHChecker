@@ -34,6 +34,18 @@ API ยกเว้น health และการเข้าสู่ระบ�
 
 ## อัปเดตบน AlmaLinux 9 + PM2
 
+ข้อมูลเครื่อง Production:
+
+- SSH host: `192.168.2.202`
+- SSH user: `war12oc`
+- Project path: `/opt/FDHChecker`
+- Git branch: `agent/add-local-ai`
+- Public frontend: `http://147.50.107.211:3507`
+- Public backend: `http://147.50.107.211:3506`
+- PM2 applications: `fdh-frontend` และ `fdh-backend`
+
+ไม่บันทึกรหัสผ่านลงเอกสารหรือ Git ให้ใช้ SSH key หรือขอรหัสผ่านจากผู้ดูแลระบบเมื่อจำเป็น
+
 ```bash
 cd /opt/FDHChecker
 git pull --ff-only

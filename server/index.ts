@@ -127,6 +127,7 @@ import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 import { collaborationRouter } from './routes/collaborationRoutes.js';
 import { getUcOutsideCupWalkinAudit, insertMissingUcOutsideCupWalkin } from './ucOutsideCupWalkin.js';
+import { completeKneeOpppVisit, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1683,6 +1684,40 @@ app.get('/api/hosxp/specific-funds', async (req, res) => {
   } catch (error) {
     console.error('Error fetching specific fund data:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+app.get('/api/hosxp/knee-oppp-completion/:vn', async (req, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const assessment = await previewKneeOpppCompletion(vn);
+    return res.json({ success: true, assessment });
+  } catch (error) {
+    console.error('Unable to preview knee OPPP completion:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ตรวจความครบถ้วนพอกเข่าไม่สำเร็จ',
+    });
+  }
+});
+
+app.post('/api/hosxp/knee-oppp-completion/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const result = await completeKneeOpppVisit(vn, {
+      id: req.authUser?.id,
+      name: req.authUser?.display_name || req.authUser?.username,
+    }, req.body?.confirmClinicalEvidence === true);
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to complete knee OPPP data:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เพิ่มข้อมูลพอกเข่าไม่สำเร็จ',
+    });
   }
 });
 

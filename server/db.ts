@@ -12405,16 +12405,16 @@ export const getSpecificFundData = async (
 
     if (fundType === 'knee') {
       const kneeDiagM17Sql = `
-        v.pdx LIKE 'M17%' OR v.dx0 LIKE 'M17%' OR v.dx1 LIKE 'M17%' OR v.dx2 LIKE 'M17%' OR v.dx3 LIKE 'M17%' OR v.dx4 LIKE 'M17%' OR v.dx5 LIKE 'M17%'
+        EXISTS (
+          SELECT 1 FROM ovstdiag kd
+          WHERE kd.vn = o.vn AND REPLACE(UPPER(kd.icd10), '.', '') LIKE 'M17%'
+        )
       `;
       const kneeDiagU5753Sql = `
-        REPLACE(COALESCE(v.pdx, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx0, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx1, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx2, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx3, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx4, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx5, ''), '.', '') = 'U5753'
+        EXISTS (
+          SELECT 1 FROM ovstdiag kd
+          WHERE kd.vn = o.vn AND REPLACE(UPPER(kd.icd10), '.', '') = 'U5753'
+        )
       `;
       const [rows] = await connection.query(`
         SELECT
@@ -12425,19 +12425,15 @@ export const getSpecificFundData = async (
           ptt.name as pttypename, ptt.hipdata_code,
           COALESCE(v.sex, pt.sex) as sex,
           COALESCE(v.age_y, TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate)) as age_y,
-          'Y' as knee_age_eligible,
-          'Y' as has_knee_diag,
-          'Y' as has_knee_diag_m17,
-          'Y' as has_knee_diag_u5753,
-          CONCAT_WS(', ',
-            CASE WHEN v.pdx LIKE 'M17%' OR v.pdx IN ('U57.53', 'U5753') THEN v.pdx END,
-            CASE WHEN v.dx0 LIKE 'M17%' OR v.dx0 IN ('U57.53', 'U5753') THEN v.dx0 END,
-            CASE WHEN v.dx1 LIKE 'M17%' OR v.dx1 IN ('U57.53', 'U5753') THEN v.dx1 END,
-            CASE WHEN v.dx2 LIKE 'M17%' OR v.dx2 IN ('U57.53', 'U5753') THEN v.dx2 END,
-            CASE WHEN v.dx3 LIKE 'M17%' OR v.dx3 IN ('U57.53', 'U5753') THEN v.dx3 END,
-            CASE WHEN v.dx4 LIKE 'M17%' OR v.dx4 IN ('U57.53', 'U5753') THEN v.dx4 END,
-            CASE WHEN v.dx5 LIKE 'M17%' OR v.dx5 IN ('U57.53', 'U5753') THEN v.dx5 END
-          ) as diag_code,
+          CASE WHEN COALESCE(v.age_y, TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate)) >= 40 THEN 'Y' ELSE 'N' END as knee_age_eligible,
+          CASE WHEN (${kneeDiagM17Sql}) AND (${kneeDiagU5753Sql}) THEN 'Y' ELSE 'N' END as has_knee_diag,
+          CASE WHEN (${kneeDiagM17Sql}) THEN 'Y' ELSE 'N' END as has_knee_diag_m17,
+          CASE WHEN (${kneeDiagU5753Sql}) THEN 'Y' ELSE 'N' END as has_knee_diag_u5753,
+          (SELECT GROUP_CONCAT(DISTINCT kd.icd10 ORDER BY kd.diagtype SEPARATOR ', ')
+             FROM ovstdiag kd
+            WHERE kd.vn = o.vn
+              AND (REPLACE(UPPER(kd.icd10), '.', '') LIKE 'M17%'
+                   OR REPLACE(UPPER(kd.icd10), '.', '') = 'U5753')) as diag_code,
           NULL as oper_code,
           NULL as oper_names,
           'N' as has_knee_massage_thigh,
@@ -12453,9 +12449,18 @@ export const getSpecificFundData = async (
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         WHERE v.vstdate BETWEEN ? AND ?
-          AND v.age_y >= 40
-          AND (${kneeDiagM17Sql})
-          AND (${kneeDiagU5753Sql})
+          AND (
+            (COALESCE(v.age_y, TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate)) >= 40
+              AND (${kneeDiagM17Sql}) AND (${kneeDiagU5753Sql}))
+            OR EXISTS (
+              SELECT 1
+              FROM health_med_service ks
+              JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+              JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+              WHERE ks.vn = o.vn
+                AND REPLACE(ki.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+            )
+          )
         ORDER BY o.vstdate DESC, o.vn DESC
       `, [startDate, endDate]);
       const kneeRows = rows as Record<string, unknown>[];
@@ -12496,7 +12501,48 @@ export const getSpecificFundData = async (
           const vn = normalizeImportCellValue(row.vn);
           const operationRow = operationMap.get(vn);
           if (operationRow) Object.assign(row, operationRow);
-          row.knee_poultice_14d_count = row.has_knee_poultice === 'Y' ? 1 : 0;
+        }
+
+        const kneeHns = Array.from(new Set(kneeRows.map((row) => normalizeImportCellValue(row.hn)).filter(Boolean)));
+        if (kneeHns.length > 0) {
+          const hnPlaceholders = kneeHns.map(() => '?').join(',');
+          const [historyRows] = await connection.query(`
+            SELECT DISTINCT s.hn, s.vn, DATE_FORMAT(s.service_date, '%Y-%m-%d') as service_date
+            FROM health_med_service s
+            JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
+            JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
+            WHERE s.hn IN (${hnPlaceholders})
+              AND s.service_date BETWEEN DATE_SUB(?, INTERVAL 13 DAY) AND DATE_ADD(?, INTERVAL 13 DAY)
+              AND REPLACE(i.icd10tm, '-', '') = '8737835'
+            ORDER BY s.hn, s.service_date
+          `, [...kneeHns, startDate, endDate]);
+          const historyByHn = new Map<string, string[]>();
+          for (const historyRow of historyRows as Record<string, unknown>[]) {
+            const hn = normalizeImportCellValue(historyRow.hn);
+            const date = normalizeImportCellValue(historyRow.service_date);
+            if (!hn || !date) continue;
+            const dates = historyByHn.get(hn) || [];
+            dates.push(date);
+            historyByHn.set(hn, dates);
+          }
+          for (const row of kneeRows) {
+            const serviceDate = normalizeImportCellValue(row.serviceDate);
+            const dates = (historyByHn.get(normalizeImportCellValue(row.hn)) || []).sort();
+            let maxCount = 0;
+            for (let left = 0; left < dates.length; left += 1) {
+              const leftTime = new Date(`${dates[left]}T00:00:00Z`).getTime();
+              let count = 0;
+              let includesVisitWindow = false;
+              for (let right = left; right < dates.length; right += 1) {
+                const rightTime = new Date(`${dates[right]}T00:00:00Z`).getTime();
+                if ((rightTime - leftTime) / 86_400_000 > 13) break;
+                count += 1;
+                includesVisitWindow ||= serviceDate >= dates[left] && serviceDate <= dates[right];
+              }
+              if (includesVisitWindow) maxCount = Math.max(maxCount, count);
+            }
+            row.knee_poultice_14d_count = maxCount;
+          }
         }
       }
       return await finalizeRows(kneeRows);

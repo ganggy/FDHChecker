@@ -149,6 +149,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [trackingFdh, setTrackingFdh] = useState(false);
     const [trackProgress, setTrackProgress] = useState<{ done: number; total: number; updated: number; errors: number } | null>(null);
     const [trackResult, setTrackResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [kneeCompletingVn, setKneeCompletingVn] = useState<string | null>(null);
+    const [kneeCompletionMessage, setKneeCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
     const siteSettings = rules.site_settings as {
@@ -200,6 +202,67 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             setLoading(false);
         }
     }, [activeFund, fetchFundDataByType]);
+
+    const handleKneeCompletion = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const vn = String(item?.vn || '').trim();
+        if (!vn || kneeCompletingVn) return;
+        setKneeCompletingVn(vn);
+        setKneeCompletionMessage(null);
+        try {
+            const previewResponse = await fetch(`/api/hosxp/knee-oppp-completion/${encodeURIComponent(vn)}`);
+            const previewJson = await previewResponse.json();
+            if (!previewResponse.ok || !previewJson.success) throw new Error(previewJson.error || 'ตรวจข้อมูลไม่สำเร็จ');
+            const assessment = previewJson.assessment;
+            if (assessment.ready) {
+                setKneeCompletionMessage({ kind: 'success', text: `VN ${vn} ข้อมูลครบและพร้อมส่งออก 43 แฟ้มแล้ว` });
+                return;
+            }
+            if (!assessment.canComplete) {
+                setKneeCompletionMessage({
+                    kind: 'warning',
+                    text: `VN ${vn} ยังเติมอัตโนมัติไม่ได้: ${(assessment.blockers || []).join(' • ')}`,
+                });
+                return;
+            }
+
+            const missing = [
+                ...(assessment.missingDiagnoses || []).map((code: string) => `Diagnosis ${code}`),
+                ...(assessment.missingOperations || []).map((code: string) => `หัตถการ ${code}`),
+            ];
+            const confirmed = window.confirm(
+                `ยืนยันเติมข้อมูล VN ${vn}\n\nรายการที่จะเพิ่มเฉพาะที่ยังไม่มี:\n- ${missing.join('\n- ')}\n\nโปรดยืนยันว่าได้ตรวจเวชระเบียนแล้ว และผู้ป่วยได้รับกิจกรรมดังกล่าวจริง ระบบจะบันทึกประวัติการแก้ไขทุกครั้ง`,
+            );
+            if (!confirmed) return;
+
+            const commitResponse = await fetch(`/api/hosxp/knee-oppp-completion/${encodeURIComponent(vn)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmClinicalEvidence: true }),
+            });
+            const commitJson = await commitResponse.json();
+            if (!commitResponse.ok || !commitJson.success) throw new Error(commitJson.error || 'เพิ่มข้อมูลไม่สำเร็จ');
+            const result = commitJson.result;
+            const inserted = [
+                ...(result.insertedDiagnoses || []).map((code: string) => `Dx ${code}`),
+                ...(result.insertedOperations || []).map((code: string) => `หัตถการ ${code}`),
+            ];
+            setKneeCompletionMessage({
+                kind: 'success',
+                text: inserted.length > 0
+                    ? `VN ${vn} เพิ่มสำเร็จ: ${inserted.join(', ')} — ตรวจซ้ำแล้วไม่สร้างรายการซ้ำ`
+                    : `VN ${vn} ไม่มีรายการต้องเพิ่ม ข้อมูลล่าสุดครบแล้ว`,
+            });
+            await fetchFundData();
+        } catch (completionError) {
+            setKneeCompletionMessage({
+                kind: 'warning',
+                text: completionError instanceof Error ? completionError.message : 'ตรวจ/เพิ่มข้อมูลพอกเข่าไม่สำเร็จ',
+            });
+        } finally {
+            setKneeCompletingVn(null);
+        }
+    }, [fetchFundData, kneeCompletingVn]);
 
     useEffect(() => {
         const incoming = consumeDashboardNavigation('specific');
@@ -2179,6 +2242,26 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                         )}
                         {loading && <div className="loading-container"><div className="spinner" /><span>กำลังโหลดข้อมูล...</span></div>}
                         {error && <div className="alert alert-danger">{error}</div>}
+                        {activeFund === 'knee' && kneeCompletionMessage && (
+                            <div className={`alert ${kneeCompletionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
+                                {kneeCompletionMessage.text}
+                            </div>
+                        )}
+                        {activeFund === 'knee' && (
+                            <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--primary)' }}>
+                                <div className="card-body" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <div>
+                                        <strong style={{ color: 'var(--primary)' }}>OPPP 43 แฟ้ม — ตรวจความครบถ้วนก่อนส่งออก</strong>
+                                        <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                                            ตรวจอายุ, M17 + U57.53, หัตถการ 4 รหัส, วันละ 1 ครั้ง และไม่เกิน 5 ครั้งใน 14 วัน
+                                        </div>
+                                    </div>
+                                    <small style={{ maxWidth: 430, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                                        ปุ่ม “ตรวจและเติม” เพิ่มเฉพาะข้อมูลที่ไม่มีและมีหลักฐานบริการเดิมเท่านั้น ต้องยืนยันเวชระเบียนก่อนบันทึก และระบบเก็บ audit ทุกครั้ง
+                                    </small>
+                                </div>
+                            </div>
+                        )}
                         {!loading && !error && (
                 <div className="card" style={{ overflow: 'visible' }}>
                     <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -2232,6 +2315,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             <th style={{ width: 140, textAlign: 'center' }}>Diag M17 + U57.53</th>
                                             <th style={{ width: 240, textAlign: 'left' }}>หัตถการพอกเข่า</th>
                                             <th style={{ width: 95, textAlign: 'center' }}>ครั้ง/2 สัปดาห์</th>
+                                            <th style={{ width: 125, textAlign: 'center' }}>ตรวจ/เติมข้อมูล</th>
                                         </>
                                     )}
                                     {activeFund === 'instrument' && (
@@ -2483,9 +2567,15 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             <strong style={{ color: item.age_y >= 40 ? 'var(--success)' : 'var(--danger)' }}>{item.age_y}</strong>
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {toFlag(item.has_knee_diag)
-                                                                ? <span className="badge badge-primary">{item.diag_code || 'M17 + U57.53'}</span>
-                                                                : <span className="badge badge-danger">✗ ขาด Dx</span>}
+                                                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                                                <span className={`badge ${toFlag(item.has_knee_diag_m17) ? 'badge-success' : 'badge-danger'}`}>
+                                                                    {toFlag(item.has_knee_diag_m17) ? '✓ M17' : '✗ M17'}
+                                                                </span>
+                                                                <span className={`badge ${toFlag(item.has_knee_diag_u5753) ? 'badge-success' : 'badge-danger'}`}>
+                                                                    {toFlag(item.has_knee_diag_u5753) ? '✓ U57.53' : '✗ U57.53'}
+                                                                </span>
+                                                            </div>
+                                                            {item.diag_code && <div style={{ marginTop: 3, fontSize: 9, color: 'var(--text-muted)' }}>{item.diag_code}</div>}
                                                         </td>
                                                         <td style={{ textAlign: 'left', padding: '6px 8px' }}>
                                                             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -2504,6 +2594,22 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             <span className={`badge ${Number(item.knee_poultice_14d_count || 0) <= 5 ? 'badge-success' : 'badge-danger'}`}>
                                                                 {item.knee_poultice_14d_count || 0}/5
                                                             </span>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <button
+                                                                type="button"
+                                                                className={`btn btn-sm ${toFlag(item.has_knee_oper) && toFlag(item.has_knee_diag) && Number(item.age_y || 0) >= 40 ? 'btn-success' : 'btn-primary'}`}
+                                                                onClick={(event) => void handleKneeCompletion(item, event)}
+                                                                disabled={kneeCompletingVn === String(item.vn)}
+                                                                title="ตรวจเงื่อนไขอีกครั้งจากฐาน HOSxP และเพิ่มเฉพาะรายการที่ยังไม่มี"
+                                                                style={{ whiteSpace: 'nowrap' }}
+                                                            >
+                                                                {kneeCompletingVn === String(item.vn)
+                                                                    ? 'กำลังตรวจ...'
+                                                                    : toFlag(item.has_knee_oper) && toFlag(item.has_knee_diag) && Number(item.age_y || 0) >= 40
+                                                                        ? '✓ ตรวจซ้ำ'
+                                                                        : 'ตรวจและเติม'}
+                                                            </button>
                                                         </td>
                                                     </>
                                                 )}

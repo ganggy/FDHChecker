@@ -7,6 +7,7 @@ const base = {
   hasM17: true, hasU5753: true,
   existingCodes: ['8737835'] as Array<'8727811' | '8737811' | '8747811' | '8737835'>,
   operationCounts: { '8737835': 1 },
+  legacyOperationCounts: {},
   healthMedServiceId: 10, healthMedProviderId: 20, healthMedDoctorId: 30,
   poulticeSameDayCount: 1, poulticeMax14DayCount: 1,
 };
@@ -70,6 +71,19 @@ test('requires a scoped rebuild when a knee operation is duplicated', () => {
     { code: '8737811', count: 2 },
     { code: '8747811', count: 2 },
   ]);
+});
+
+test('replaces legacy generic massage rows even before canonical codes are added', () => {
+  const result = assessKneeCompletion({
+    ...base,
+    existingCodes: ['8727811', '8737811', '8747811', '8737835'],
+    operationCounts: { '8727811': 1, '8737811': 1, '8747811': 1, '8737835': 1 },
+    legacyOperationCounts: { '8727811': 1, '8737811': 1, '8747811': 1 },
+  });
+  assert.equal(result.ready, false);
+  assert.equal(result.canComplete, true);
+  assert.equal(result.requiresOperationRebuild, true);
+  assert.deepEqual(result.legacyOperations.map((item) => item.code), ['8727811', '8737811', '8747811']);
 });
 
 test('blocks adding poultice when the proposed visit would exceed the 14-day limit', () => {

@@ -15,6 +15,7 @@ export type KneeCompletionSnapshot = {
   hasU5753: boolean;
   existingCodes: KneeCode[];
   operationCounts: Partial<Record<KneeCode, number>>;
+  legacyOperationCounts: Partial<Record<KneeCode, number>>;
   healthMedServiceId: number | null;
   healthMedProviderId: number | null;
   healthMedDoctorId: number | null;
@@ -29,6 +30,7 @@ export type KneeCompletionAssessment = KneeCompletionSnapshot & {
   missingDiagnoses: string[];
   missingOperations: KneeCode[];
   duplicateOperations: Array<{ code: KneeCode; count: number }>;
+  legacyOperations: Array<{ code: KneeCode; count: number }>;
   requiresOperationRebuild: boolean;
   blockers: string[];
   confirmationRequired: boolean;
@@ -56,7 +58,10 @@ export const assessKneeCompletion = (snapshot: KneeCompletionSnapshot): KneeComp
   const duplicateOperations = KNEE_OPPP_CODES
     .map((code) => ({ code, count: Number(snapshot.operationCounts?.[code] || 0) }))
     .filter((item) => item.count > 1);
-  const requiresOperationRebuild = duplicateOperations.length > 0;
+  const legacyOperations = KNEE_OPPP_CODES
+    .map((code) => ({ code, count: Number(snapshot.legacyOperationCounts?.[code] || 0) }))
+    .filter((item) => item.count > 0);
+  const requiresOperationRebuild = duplicateOperations.length > 0 || legacyOperations.length > 0;
   const clinicalEvidence = existing.has('8737835') || ['8727811', '8737811', '8747811'].every((code) => existing.has(code as KneeCode));
   const blockers: string[] = [];
 
@@ -89,6 +94,7 @@ export const assessKneeCompletion = (snapshot: KneeCompletionSnapshot): KneeComp
     missingDiagnoses,
     missingOperations,
     duplicateOperations,
+    legacyOperations,
     requiresOperationRebuild,
     blockers,
     confirmationRequired: !ready && blockers.length === 0,
@@ -151,8 +157,16 @@ const loadSnapshot = async (connection: PoolConnection, vn: string, lock = false
     SELECT
       s.health_med_service_id,
       s.health_med_doctor_id,
-      COUNT(DISTINCT CASE WHEN REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835') THEN REPLACE(i.icd10tm, '-', '') END) AS target_count,
-      MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835') THEN so.health_med_provider_id END) AS health_med_provider_id
+      COUNT(DISTINCT CASE
+        WHEN REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835') THEN REPLACE(i.icd10tm, '-', '')
+        WHEN REPLACE(i.icd10tm, '-', '') = '9007811' AND so.health_med_organ_id = 39 THEN '8727811'
+        WHEN REPLACE(i.icd10tm, '-', '') = '9007811' AND so.health_med_organ_id = 40 THEN '8737811'
+        WHEN REPLACE(i.icd10tm, '-', '') = '9007811' AND so.health_med_organ_id = 41 THEN '8747811'
+      END) AS target_count,
+      MAX(CASE WHEN
+        REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+        OR (REPLACE(i.icd10tm, '-', '') = '9007811' AND so.health_med_organ_id IN (39,40,41))
+        THEN so.health_med_provider_id END) AS health_med_provider_id
     FROM health_med_service s
     LEFT JOIN health_med_service_operation so ON so.health_med_service_id = s.health_med_service_id
     LEFT JOIN health_med_operation_item i ON i.health_med_operation_item_id = so.health_med_operation_item_id
@@ -165,21 +179,33 @@ const loadSnapshot = async (connection: PoolConnection, vn: string, lock = false
   const service = serviceRows[0];
 
   const [operationRows] = await connection.query<RowDataPacket[]>(`
-    SELECT REPLACE(i.icd10tm, '-', '') AS code, COUNT(*) AS operation_count
+    SELECT REPLACE(i.icd10tm, '-', '') AS raw_code, so.health_med_organ_id AS organ_id, COUNT(*) AS operation_count
     FROM health_med_service s
     JOIN health_med_service_operation so ON so.health_med_service_id = s.health_med_service_id
     JOIN health_med_operation_item i ON i.health_med_operation_item_id = so.health_med_operation_item_id
     WHERE s.vn = ?
-      AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
-    GROUP BY REPLACE(i.icd10tm, '-', '')
+      AND (
+        REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+        OR (REPLACE(i.icd10tm, '-', '') = '9007811' AND so.health_med_organ_id IN (39,40,41))
+      )
+    GROUP BY REPLACE(i.icd10tm, '-', ''), so.health_med_organ_id
   `, [vn]);
-  const existingCodes = operationRows
-    .map((row) => normalizeCode(row.code))
-    .filter((code): code is KneeCode => KNEE_OPPP_CODES.includes(code as KneeCode));
-  const operationCounts = Object.fromEntries(operationRows.map((row) => [
-    normalizeCode(row.code),
-    Number(row.operation_count || 0),
-  ])) as Partial<Record<KneeCode, number>>;
+  const legacyCodeByOrgan: Record<number, KneeCode> = { 39: '8727811', 40: '8737811', 41: '8747811' };
+  const operationCounts: Partial<Record<KneeCode, number>> = {};
+  const legacyOperationCounts: Partial<Record<KneeCode, number>> = {};
+  for (const row of operationRows) {
+    const rawCode = normalizeCode(row.raw_code);
+    const mappedCode = rawCode === '9007811'
+      ? legacyCodeByOrgan[Number(row.organ_id)]
+      : rawCode as KneeCode;
+    if (!mappedCode || !KNEE_OPPP_CODES.includes(mappedCode)) continue;
+    const count = Number(row.operation_count || 0);
+    operationCounts[mappedCode] = Number(operationCounts[mappedCode] || 0) + count;
+    if (rawCode === '9007811') {
+      legacyOperationCounts[mappedCode] = Number(legacyOperationCounts[mappedCode] || 0) + count;
+    }
+  }
+  const existingCodes = KNEE_OPPP_CODES.filter((code) => Number(operationCounts[code] || 0) > 0);
 
   const serviceDate = sqlDate(visit.vstdate);
   const [poulticeRows] = await connection.query<RowDataPacket[]>(`
@@ -217,6 +243,7 @@ const loadSnapshot = async (connection: PoolConnection, vn: string, lock = false
     hasU5753: Boolean(Number(visit.has_u5753 || 0)),
     existingCodes,
     operationCounts,
+    legacyOperationCounts,
     healthMedServiceId: service?.health_med_service_id ? Number(service.health_med_service_id) : null,
     healthMedProviderId: service?.health_med_provider_id ? Number(service.health_med_provider_id) : null,
     healthMedDoctorId: service?.health_med_doctor_id ? Number(service.health_med_doctor_id) : null,
@@ -318,7 +345,10 @@ export const completeKneeOpppVisit = async (
         JOIN health_med_operation_item i ON i.health_med_operation_item_id = so.health_med_operation_item_id
         SET so.health_med_provider_id = COALESCE(so.health_med_provider_id, ?)
         WHERE s.vn = ?
-          AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+          AND (
+            REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+            OR (REPLACE(i.icd10tm, '-', '') = '9007811' AND so.health_med_organ_id IN (39,40,41))
+          )
       `, [providerId, vn]);
       linkedSelectedProvider = Number((serviceUpdateResult as { affectedRows?: number }).affectedRows || 0) > 0
         || Number((operationUpdateResult as { affectedRows?: number }).affectedRows || 0) > 0;
@@ -354,7 +384,8 @@ export const completeKneeOpppVisit = async (
     };
     if (rebuiltOperations) {
       // A duplicate means the exported PROCEDURE rows are ambiguous. Rebuild only the
-      // four knee-operation codes for this VN; diagnoses, drugs and unrelated services
+      // canonical knee codes and their legacy generic-massage equivalents for this VN;
+      // diagnoses, drugs and unrelated services
       // are deliberately outside this DELETE scope.
       const [deleteResult] = await connection.query(`
         DELETE so
@@ -362,7 +393,10 @@ export const completeKneeOpppVisit = async (
         JOIN health_med_service s ON s.health_med_service_id = so.health_med_service_id
         JOIN health_med_operation_item i ON i.health_med_operation_item_id = so.health_med_operation_item_id
         WHERE s.vn = ?
-          AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+          AND (
+            REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+            OR (REPLACE(i.icd10tm, '-', '') = '9007811' AND so.health_med_organ_id IN (39,40,41))
+          )
       `, [vn]);
       deletedOperations = Number((deleteResult as { affectedRows?: number }).affectedRows || 0);
     }

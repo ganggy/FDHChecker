@@ -12458,7 +12458,10 @@ export const getSpecificFundData = async (
               JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
               JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
               WHERE ks.vn = o.vn
-                AND REPLACE(ki.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+                AND (
+                  REPLACE(ki.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+                  OR (REPLACE(ki.icd10tm, '-', '') = '9007811' AND kop.health_med_organ_id IN (39,40,41))
+                )
             )
           )
         ORDER BY o.vstdate DESC, o.vn DESC
@@ -12470,37 +12473,64 @@ export const getSpecificFundData = async (
         const [operationRows] = await connection.query(`
           SELECT
             s.vn,
-            GROUP_CONCAT(DISTINCT i.icd10tm ORDER BY i.icd10tm SEPARATOR ', ') as oper_code,
-            GROUP_CONCAT(DISTINCT i.health_med_operation_item_name ORDER BY i.icd10tm SEPARATOR ', ') as oper_names,
-            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8727811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_thigh,
-            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_knee,
-            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8747811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_lower_leg,
-            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737835' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_poultice,
-            CASE WHEN
-              MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8727811' THEN 1 ELSE 0 END) = 1
-              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737811' THEN 1 ELSE 0 END) = 1
-              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8747811' THEN 1 ELSE 0 END) = 1
-              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737835' THEN 1 ELSE 0 END) = 1
-            THEN 'Y' ELSE 'N' END as has_knee_oper,
-            COUNT(DISTINCT REPLACE(i.icd10tm, '-', '')) as knee_oper_count
+            REPLACE(i.icd10tm, '-', '') as raw_code,
+            i.icd10tm,
+            i.health_med_operation_item_name,
+            op.health_med_organ_id
           FROM health_med_service s
           JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
           JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
           WHERE s.vn IN (${vnPlaceholders})
-            AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
-          GROUP BY s.vn
+            AND (
+              REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+              OR (REPLACE(i.icd10tm, '-', '') = '9007811' AND op.health_med_organ_id IN (39,40,41))
+            )
         `, kneeVns);
         const operationMap = new Map<string, Record<string, unknown>>();
         if (Array.isArray(operationRows)) {
           for (const operationRow of operationRows as Record<string, unknown>[]) {
             const vn = normalizeImportCellValue(operationRow.vn);
-            if (vn) operationMap.set(vn, operationRow);
+            if (!vn) continue;
+            const aggregate = operationMap.get(vn) || {
+              operCodes: new Set<string>(),
+              operNames: new Set<string>(),
+              counts: { '8727811': 0, '8737811': 0, '8747811': 0, '8737835': 0 } as Record<string, number>,
+              legacyCount: 0,
+            };
+            const rawCode = normalizeImportCellValue(operationRow.raw_code);
+            const organId = Number(operationRow.health_med_organ_id || 0);
+            const mappedCode = rawCode === '9007811'
+              ? ({ 39: '8727811', 40: '8737811', 41: '8747811' } as Record<number, string>)[organId]
+              : rawCode;
+            if (mappedCode && mappedCode in (aggregate.counts as Record<string, number>)) {
+              (aggregate.counts as Record<string, number>)[mappedCode] += 1;
+              (aggregate.operCodes as Set<string>).add(normalizeImportCellValue(operationRow.icd10tm));
+              (aggregate.operNames as Set<string>).add(normalizeImportCellValue(operationRow.health_med_operation_item_name));
+              if (rawCode === '9007811') aggregate.legacyCount = Number(aggregate.legacyCount || 0) + 1;
+            }
+            operationMap.set(vn, aggregate);
           }
         }
         for (const row of kneeRows) {
           const vn = normalizeImportCellValue(row.vn);
           const operationRow = operationMap.get(vn);
-          if (operationRow) Object.assign(row, operationRow);
+          if (operationRow) {
+            const counts = operationRow.counts as Record<string, number>;
+            const duplicateCodes = Object.entries(counts).filter(([, count]) => count > 1).map(([code]) => code);
+            Object.assign(row, {
+              oper_code: Array.from(operationRow.operCodes as Set<string>).filter(Boolean).join(', '),
+              oper_names: Array.from(operationRow.operNames as Set<string>).filter(Boolean).join(', '),
+              has_knee_massage_thigh: counts['8727811'] > 0 ? 'Y' : 'N',
+              has_knee_massage_knee: counts['8737811'] > 0 ? 'Y' : 'N',
+              has_knee_massage_lower_leg: counts['8747811'] > 0 ? 'Y' : 'N',
+              has_knee_poultice: counts['8737835'] > 0 ? 'Y' : 'N',
+              has_knee_oper: Object.values(counts).every((count) => count > 0) ? 'Y' : 'N',
+              knee_oper_count: Object.values(counts).filter((count) => count > 0).length,
+              knee_has_data_error: duplicateCodes.length > 0 || Number(operationRow.legacyCount || 0) > 0 ? 'Y' : 'N',
+              knee_duplicate_codes: duplicateCodes,
+              knee_legacy_count: Number(operationRow.legacyCount || 0),
+            });
+          }
         }
 
         const kneeHns = Array.from(new Set(kneeRows.map((row) => normalizeImportCellValue(row.hn)).filter(Boolean)));

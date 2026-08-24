@@ -240,8 +240,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             ];
             const duplicates = (assessment.duplicateOperations || [])
                 .map((item: { code: string; count: number }) => `หัตถการ ${item.code} จำนวน ${item.count} รายการ`);
+            const legacy = (assessment.legacyOperations || [])
+                .map((item: { code: string; count: number }) => `รหัสเดิมที่แสดงเป็น ${item.code} จำนวน ${item.count} รายการ`);
             const rebuildNotice = assessment.requiresOperationRebuild
-                ? `\nตรวจพบรายการซ้ำ:\n- ${duplicates.join('\n- ')}\n\nระบบจะลบเฉพาะ 4 รหัสพอกเข่าของ VN นี้ แล้วสร้างชุดมาตรฐานใหม่อย่างละ 1 รายการ โดยไม่แตะข้อมูลส่วนอื่น\n`
+                ? `\nพบข้อมูลผิดพลาดที่ต้องแทนที่:\n- ${[...duplicates, ...legacy].join('\n- ')}\n\nระบบจะลบเฉพาะรายการพอกเข่าเก่าของ VN นี้ แล้วสร้างชุดมาตรฐานใหม่อย่างละ 1 รายการ โดยไม่แตะข้อมูลส่วนอื่น\n`
                 : '';
             const confirmed = window.confirm(
                 `ยืนยันตรวจและแก้ไขข้อมูล VN ${vn}\n\n${creatingService ? 'ระบบจะสร้างรายการบริการแพทย์แผนไทยตามผู้ให้บริการที่เลือก\n' : manualConfirmation ? 'ระบบจะเชื่อมผู้ให้บริการที่เลือกกับรายการบริการเดิม\n' : ''}${rebuildNotice}${missing.length > 0 ? `รายการที่จะเพิ่มเฉพาะที่ยังไม่มี:\n- ${missing.join('\n- ')}\n\n` : ''}โปรดยืนยันว่าได้ตรวจเวชระเบียนแล้ว และผู้ป่วยได้รับกิจกรรมดังกล่าวจริง ระบบจะบันทึกประวัติการแก้ไขทุกครั้ง`,
@@ -2647,14 +2649,16 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         <td style={{ textAlign: 'center' }}>
                                                             <button
                                                                 type="button"
-                                                                className={`btn btn-sm ${toFlag(item.has_knee_oper) && toFlag(item.has_knee_diag) && Number(item.age_y || 0) >= 40 ? 'btn-success' : 'btn-primary'}`}
+                                                                className={`btn btn-sm ${toFlag(item.knee_has_data_error) ? 'btn-danger' : toFlag(item.has_knee_oper) && toFlag(item.has_knee_diag) && Number(item.age_y || 0) >= 40 ? 'btn-success' : 'btn-primary'}`}
                                                                 onClick={(event) => void handleKneeCompletion(item, event)}
                                                                 disabled={kneeCompletingVn === String(item.vn)}
-                                                                title="ตรวจเงื่อนไขอีกครั้งจากฐาน HOSxP และเพิ่มเฉพาะรายการที่ยังไม่มี"
+                                                                title={toFlag(item.knee_has_data_error) ? 'พบรายการพอกเข่าเก่าหรือซ้ำ: กดเพื่อตรวจ ลบเฉพาะข้อมูลเก่า และเติมชุดที่ถูกต้องใหม่' : 'ตรวจเงื่อนไขอีกครั้งจากฐาน HOSxP และเพิ่มเฉพาะรายการที่ยังไม่มี'}
                                                                 style={{ whiteSpace: 'nowrap' }}
                                                             >
                                                                 {kneeCompletingVn === String(item.vn)
                                                                     ? 'กำลังตรวจ...'
+                                                                    : toFlag(item.knee_has_data_error)
+                                                                        ? '⚠ พบข้อมูลผิดพลาด — ลบเก่า/เติมใหม่'
                                                                     : toFlag(item.has_knee_oper) && toFlag(item.has_knee_diag) && Number(item.age_y || 0) >= 40
                                                                         ? '✓ ตรวจซ้ำ'
                                                                         : 'ตรวจและเติม'}

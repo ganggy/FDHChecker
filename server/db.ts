@@ -11749,7 +11749,7 @@ export const getDiagsAndProcedures = async (vn: string) => {
       SELECT 
         o.icd9 as code,
         i.name as name,
-        '' as type,
+        'แพทย์' as type,
         'Procedure' as category
       FROM doctor_operation o
       LEFT JOIN icd9cm1 i ON o.icd9 = i.code
@@ -11758,7 +11758,7 @@ export const getDiagsAndProcedures = async (vn: string) => {
       SELECT 
         eo.er_oper_code as code,
         e.name as name,
-        '' as type,
+        'ER' as type,
         'Procedure' as category
       FROM er_regist_oper eo
       LEFT JOIN er_oper_code e ON eo.er_oper_code = e.er_oper_code
@@ -11782,13 +11782,66 @@ export const getDiagsAndProcedures = async (vn: string) => {
       FROM dtmain dm
       LEFT JOIN dttm tm ON tm.code = dm.tmcode
       WHERE dm.vn = ?
+      UNION ALL
+      SELECT
+        CASE
+          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 39 THEN '8727811'
+          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 40 THEN '8737811'
+          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 41 THEN '8747811'
+          ELSE hmi.icd10tm
+        END as code,
+        COALESCE(NULLIF(TRIM(hmi.health_med_operation_item_name), ''), 'หัตถการแพทย์แผนไทย') as name,
+        'แพทย์แผนไทย' as type,
+        'Procedure' as category
+      FROM health_med_service hms
+      JOIN health_med_service_operation hso ON hso.health_med_service_id = hms.health_med_service_id
+      JOIN health_med_operation_item hmi ON hmi.health_med_operation_item_id = hso.health_med_operation_item_id
+      WHERE hms.vn = ?
+      UNION ALL
+      SELECT
+        vp.code,
+        vp.name,
+        'OPD/43 แฟ้ม' as type,
+        'Procedure' as category
+      FROM view_procedure_opd vp
+      WHERE vp.vn = ?
+      UNION ALL
+      SELECT
+        ipo.icd9 as code,
+        COALESCE(NULLIF(TRIM(ic9.name), ''), NULLIF(TRIM(ipo.oper_note_text), ''), 'หัตถการผู้ป่วยใน') as name,
+        'ผู้ป่วยใน' as type,
+        'Procedure' as category
+      FROM ipt
+      JOIN iptoprt ipo ON ipo.an = ipt.an
+      LEFT JOIN icd9cm1 ic9 ON ic9.code = ipo.icd9
+      WHERE ipt.vn = ?
       ORDER BY code
-    `, [vn, vn, vn]);
+    `, [vn, vn, vn, vn, vn, vn]);
+
+    const procedureRows = Array.isArray(procs) ? procs as Record<string, unknown>[] : [];
+    const procedureMap = new Map<string, Record<string, unknown>>();
+    for (const procedure of procedureRows) {
+      const code = normalizeImportCellValue(procedure.code);
+      const name = normalizeImportCellValue(procedure.name);
+      if (!code && !name) continue;
+      const key = code.replace(/[.\-\s]/g, '').toUpperCase() || name.toUpperCase();
+      const existing = procedureMap.get(key);
+      if (!existing) {
+        procedureMap.set(key, { ...procedure, code, name });
+        continue;
+      }
+      const existingName = normalizeImportCellValue(existing.name);
+      if (name.length > existingName.length) existing.name = name;
+      const sources = new Set(
+        [normalizeImportCellValue(existing.type), normalizeImportCellValue(procedure.type)].filter(Boolean)
+      );
+      existing.type = Array.from(sources).join(', ');
+    }
 
     return {
       clinical: Array.isArray(clinicalRows) ? clinicalRows[0] || { cc: '', hpi: '' } : { cc: '', hpi: '' },
       diagnoses: Array.isArray(diags) ? diags : [],
-      procedures: Array.isArray(procs) ? procs : []
+      procedures: Array.from(procedureMap.values())
     };
   } catch (error) {
     console.error('Error fetching diags and procs:', error);

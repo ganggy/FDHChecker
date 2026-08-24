@@ -289,8 +289,9 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                         <table className="data-table detail-modal-table detail-modal-table--procedures">
                           <thead>
                             <tr>
-                              <th style={{ width: 100 }}>ICD-9-CM</th>
+                              <th style={{ width: 120 }}>รหัสหัตถการ</th>
                               <th>Description</th>
+                              <th style={{ width: 140 }}>แหล่งข้อมูล</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -298,6 +299,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                               <tr key={'proc-' + idx}>
                                 <td style={{ fontWeight: 600, fontFamily: 'monospace' }}>{item.code}</td>
                                 <td>{item.name || '-'}</td>
+                                <td>{item.type || '-'}</td>
                               </tr>
                             ))}
                           </tbody>

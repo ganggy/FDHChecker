@@ -151,6 +151,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [trackResult, setTrackResult] = useState<{ success: boolean; message: string } | null>(null);
     const [kneeCompletingVn, setKneeCompletingVn] = useState<string | null>(null);
     const [kneeCompletionMessage, setKneeCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+    const [kneeProviders, setKneeProviders] = useState<Array<{ providerId: number; providerName: string; licenseNo: string }>>([]);
+    const [kneeProviderId, setKneeProviderId] = useState('');
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
     const siteSettings = rules.site_settings as {
@@ -218,11 +220,17 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 setKneeCompletionMessage({ kind: 'success', text: `VN ${vn} ข้อมูลครบและพร้อมส่งออก 43 แฟ้มแล้ว` });
                 return;
             }
-            if (!assessment.canComplete) {
+            const manualConfirmation = Boolean(!assessment.canComplete && assessment.canCreateService);
+            const creatingService = Boolean(manualConfirmation && !assessment.healthMedServiceId);
+            if (!assessment.canComplete && !manualConfirmation) {
                 setKneeCompletionMessage({
                     kind: 'warning',
                     text: `VN ${vn} ยังเติมอัตโนมัติไม่ได้: ${(assessment.blockers || []).join(' • ')}`,
                 });
+                return;
+            }
+            if (manualConfirmation && !kneeProviderId) {
+                setKneeCompletionMessage({ kind: 'warning', text: 'กรุณาเลือกผู้ให้บริการแพทย์แผนไทยก่อนกดตรวจและเติม' });
                 return;
             }
 
@@ -231,19 +239,25 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 ...(assessment.missingOperations || []).map((code: string) => `หัตถการ ${code}`),
             ];
             const confirmed = window.confirm(
-                `ยืนยันเติมข้อมูล VN ${vn}\n\nรายการที่จะเพิ่มเฉพาะที่ยังไม่มี:\n- ${missing.join('\n- ')}\n\nโปรดยืนยันว่าได้ตรวจเวชระเบียนแล้ว และผู้ป่วยได้รับกิจกรรมดังกล่าวจริง ระบบจะบันทึกประวัติการแก้ไขทุกครั้ง`,
+                `ยืนยันเติมข้อมูล VN ${vn}\n\n${creatingService ? 'ระบบจะสร้างรายการบริการแพทย์แผนไทยตามผู้ให้บริการที่เลือก\n' : manualConfirmation ? 'ระบบจะเชื่อมผู้ให้บริการที่เลือกกับรายการบริการเดิม\n' : ''}รายการที่จะเพิ่มเฉพาะที่ยังไม่มี:\n- ${missing.join('\n- ')}\n\nโปรดยืนยันว่าได้ตรวจเวชระเบียนแล้ว และผู้ป่วยได้รับกิจกรรมดังกล่าวจริง ระบบจะบันทึกประวัติการแก้ไขทุกครั้ง`,
             );
             if (!confirmed) return;
 
             const commitResponse = await fetch(`/api/hosxp/knee-oppp-completion/${encodeURIComponent(vn)}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ confirmClinicalEvidence: true }),
+                body: JSON.stringify({
+                    confirmClinicalEvidence: true,
+                    createMissingService: manualConfirmation,
+                    providerId: manualConfirmation ? Number(kneeProviderId) : undefined,
+                }),
             });
             const commitJson = await commitResponse.json();
             if (!commitResponse.ok || !commitJson.success) throw new Error(commitJson.error || 'เพิ่มข้อมูลไม่สำเร็จ');
             const result = commitJson.result;
             const inserted = [
+                ...(result.createdHealthMedService ? ['สร้างบริการแพทย์แผนไทย'] : []),
+                ...(!result.createdHealthMedService && result.linkedSelectedProvider ? ['เชื่อมผู้ให้บริการ'] : []),
                 ...(result.insertedDiagnoses || []).map((code: string) => `Dx ${code}`),
                 ...(result.insertedOperations || []).map((code: string) => `หัตถการ ${code}`),
             ];
@@ -262,7 +276,25 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         } finally {
             setKneeCompletingVn(null);
         }
-    }, [fetchFundData, kneeCompletingVn]);
+    }, [fetchFundData, kneeCompletingVn, kneeProviderId]);
+
+    useEffect(() => {
+        if (activeFund !== 'knee') return;
+        let cancelled = false;
+        void fetch('/api/hosxp/knee-oppp-providers')
+            .then(async (response) => {
+                const json = await response.json();
+                if (!response.ok || !json.success) throw new Error(json.error || 'โหลดผู้ให้บริการไม่สำเร็จ');
+                if (!cancelled) {
+                    setKneeProviders(json.data || []);
+                    setKneeProviderId((current) => current || String(json.data?.[0]?.providerId || ''));
+                }
+            })
+            .catch((providerError) => {
+                if (!cancelled) setKneeCompletionMessage({ kind: 'warning', text: providerError instanceof Error ? providerError.message : 'โหลดผู้ให้บริการไม่สำเร็จ' });
+            });
+        return () => { cancelled = true; };
+    }, [activeFund]);
 
     useEffect(() => {
         const incoming = consumeDashboardNavigation('specific');
@@ -2256,9 +2288,20 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             ตรวจอายุ, M17 + U57.53, หัตถการ 4 รหัส, วันละ 1 ครั้ง และไม่เกิน 5 ครั้งใน 14 วัน
                                         </div>
                                     </div>
-                                    <small style={{ maxWidth: 430, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                                        ปุ่ม “ตรวจและเติม” เพิ่มเฉพาะข้อมูลที่ไม่มีและมีหลักฐานบริการเดิมเท่านั้น ต้องยืนยันเวชระเบียนก่อนบันทึก และระบบเก็บ audit ทุกครั้ง
-                                    </small>
+                                    <div style={{ minWidth: 320 }}>
+                                        <label className="form-label" style={{ marginBottom: 4 }}>ผู้ให้บริการสำหรับเติมรายการที่ยังไม่ครบ</label>
+                                        <select className="form-control" value={kneeProviderId} onChange={(event) => setKneeProviderId(event.target.value)}>
+                                            <option value="">-- เลือกผู้ให้บริการแพทย์แผนไทย --</option>
+                                            {kneeProviders.map((provider) => (
+                                                <option key={provider.providerId} value={provider.providerId}>
+                                                    {provider.providerName}{provider.licenseNo ? ` · ใบอนุญาต ${provider.licenseNo}` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <small style={{ display: 'block', marginTop: 4, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                            ใช้เมื่อเวชระเบียนยืนยันว่าบริการจริง; ระบบสร้างหรือเติมรายการเดิมแบบไม่ซ้ำและเก็บ audit
+                                        </small>
+                                    </div>
                                 </div>
                             </div>
                         )}

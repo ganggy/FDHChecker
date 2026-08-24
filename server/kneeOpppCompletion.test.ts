@@ -17,9 +17,31 @@ test('allows completion when an existing poultice proves clinical service eviden
 });
 
 test('blocks automatic completion for diagnosis-only visits', () => {
-  const result = assessKneeCompletion({ ...base, existingCodes: [], healthMedServiceId: null, healthMedProviderId: null });
+  const result = assessKneeCompletion({
+    ...base,
+    existingCodes: [],
+    healthMedServiceId: null,
+    healthMedProviderId: null,
+    poulticeSameDayCount: 0,
+    poulticeMax14DayCount: 1,
+  });
   assert.equal(result.canComplete, false);
+  assert.equal(result.canCreateService, true);
   assert.match(result.blockers.join(' '), /หลักฐาน/);
+});
+
+test('allows confirmed completion when an empty service record already exists', () => {
+  const result = assessKneeCompletion({
+    ...base,
+    existingCodes: [],
+    healthMedServiceId: 10,
+    healthMedProviderId: null,
+    healthMedDoctorId: null,
+    poulticeSameDayCount: 0,
+    poulticeMax14DayCount: 1,
+  });
+  assert.equal(result.canComplete, false);
+  assert.equal(result.canCreateService, true);
 });
 
 test('does not offer changes for a complete eligible visit', () => {

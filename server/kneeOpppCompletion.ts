@@ -29,6 +29,7 @@ export type KneeCompletionAssessment = KneeCompletionSnapshot & {
   missingOperations: KneeCode[];
   blockers: string[];
   confirmationRequired: boolean;
+  canCreateService: boolean;
 };
 
 type KneeCompletionActor = {
@@ -65,6 +66,13 @@ export const assessKneeCompletion = (snapshot: KneeCompletionSnapshot): KneeComp
 
   const ready = missingDiagnoses.length === 0 && missingOperations.length === 0
     && snapshot.ageY >= 40 && snapshot.poulticeMax14DayCount <= 5 && blockers.length === 0;
+  const canCreateService = snapshot.ageY >= 40
+    && snapshot.hasM17
+    && snapshot.hasU5753
+    && missingOperations.length > 0
+    && snapshot.poulticeSameDayCount === 0
+    && snapshot.poulticeMax14DayCount <= 5
+    && (!clinicalEvidence || !snapshot.healthMedProviderId);
 
   return {
     ...snapshot,
@@ -75,7 +83,38 @@ export const assessKneeCompletion = (snapshot: KneeCompletionSnapshot): KneeComp
     missingOperations,
     blockers,
     confirmationRequired: !ready && blockers.length === 0,
+    canCreateService,
   };
+};
+
+export const getKneeOpppProviders = async () => {
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query<RowDataPacket[]>(`
+      SELECT
+        hp.health_med_provider_id AS providerId,
+        MIN(hd.health_med_doctor_id) AS doctorId,
+        CONCAT(COALESCE(hp.health_med_provider_pname, ''), COALESCE(hp.health_med_provider_fname, ''), ' ', COALESCE(hp.health_med_provider_lname, '')) AS providerName,
+        COALESCE(hp.health_med_provider_license_no, '') AS licenseNo
+      FROM health_med_provider hp
+      JOIN health_med_doctor hd ON hd.cid = hp.cid AND COALESCE(hd.active_status, 'Y') = 'Y'
+      WHERE hp.cid IS NOT NULL
+        AND CHAR_LENGTH(TRIM(hp.cid)) = 13
+        AND COALESCE(hp.active_status, 'Y') = 'Y'
+      GROUP BY hp.health_med_provider_id, hp.health_med_provider_pname,
+        hp.health_med_provider_fname, hp.health_med_provider_lname,
+        hp.health_med_provider_license_no
+      ORDER BY providerName, hp.health_med_provider_id
+    `);
+    return rows.map((row) => ({
+      providerId: Number(row.providerId),
+      doctorId: Number(row.doctorId),
+      providerName: String(row.providerName || '').trim(),
+      licenseNo: String(row.licenseNo || '').trim(),
+    }));
+  } finally {
+    connection.release();
+  }
 };
 
 const loadSnapshot = async (connection: PoolConnection, vn: string, lock = false): Promise<KneeCompletionSnapshot> => {
@@ -202,6 +241,7 @@ export const completeKneeOpppVisit = async (
   vn: string,
   actor: KneeCompletionActor,
   confirmedClinicalEvidence: boolean,
+  options: { createMissingService?: boolean; providerId?: number | null } = {},
 ) => {
   if (!confirmedClinicalEvidence) throw new Error('ต้องยืนยันว่าเวชระเบียนรองรับ Diagnosis และกิจกรรมที่กำลังเพิ่ม');
   const connection = await getUTFConnection();
@@ -219,10 +259,59 @@ export const completeKneeOpppVisit = async (
       await connection.rollback();
       return { changed: false, insertedDiagnoses: [], insertedOperations: [], assessment: before };
     }
-    if (!before.canComplete) throw new Error(before.blockers.join(' | '));
+    const manualServiceCreation = Boolean(options.createMissingService && before.canCreateService);
+    if (!before.canComplete && !manualServiceCreation) throw new Error(before.blockers.join(' | '));
+
+    let createdHealthMedService = false;
+    let linkedSelectedProvider = false;
+    let working = before;
+    if (manualServiceCreation) {
+      const providerId = Number(options.providerId || 0);
+      if (!Number.isInteger(providerId) || providerId <= 0) throw new Error('กรุณาเลือกผู้ให้บริการแพทย์แผนไทย');
+      const [providerRows] = await connection.query<RowDataPacket[]>(`
+        SELECT hp.health_med_provider_id, MIN(hd.health_med_doctor_id) AS health_med_doctor_id
+        FROM health_med_provider hp
+        JOIN health_med_doctor hd ON hd.cid = hp.cid AND COALESCE(hd.active_status, 'Y') = 'Y'
+        WHERE hp.health_med_provider_id = ? AND COALESCE(hp.active_status, 'Y') = 'Y'
+        GROUP BY hp.health_med_provider_id
+      `, [providerId]);
+      const provider = providerRows[0];
+      if (!provider) throw new Error('ผู้ให้บริการที่เลือกไม่ได้เชื่อมกับทะเบียนแพทย์แผนไทยใน HOSxP');
+      const [serviceInsertResult] = await connection.query(`
+        INSERT INTO health_med_service
+          (health_med_service_id, hn, vn, an, health_med_service_type_id, service_date, service_time,
+           health_med_doctor_id, health_med_treatment_type_id, health_med_service_result_id,
+           hos_guid, in_hospcode_service)
+        SELECT
+          Get_SerialNumber('health_med_service_id'), o.hn, o.vn, NULL, 1, o.vstdate, o.vsttime,
+          ?, 1, 1, UPPER(CONCAT('{', UUID(), '}')), 'Y'
+        FROM ovst o
+        WHERE o.vn = ?
+          AND NOT EXISTS (SELECT 1 FROM health_med_service s WHERE s.vn = o.vn)
+      `, [Number(provider.health_med_doctor_id), vn]);
+      createdHealthMedService = Number((serviceInsertResult as { affectedRows?: number }).affectedRows || 0) > 0;
+      const [serviceUpdateResult] = await connection.query(`
+        UPDATE health_med_service
+        SET health_med_doctor_id = COALESCE(health_med_doctor_id, ?)
+        WHERE vn = ?
+      `, [Number(provider.health_med_doctor_id), vn]);
+      const [operationUpdateResult] = await connection.query(`
+        UPDATE health_med_service_operation so
+        JOIN health_med_service s ON s.health_med_service_id = so.health_med_service_id
+        JOIN health_med_operation_item i ON i.health_med_operation_item_id = so.health_med_operation_item_id
+        SET so.health_med_provider_id = COALESCE(so.health_med_provider_id, ?)
+        WHERE s.vn = ?
+          AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+      `, [providerId, vn]);
+      linkedSelectedProvider = Number((serviceUpdateResult as { affectedRows?: number }).affectedRows || 0) > 0
+        || Number((operationUpdateResult as { affectedRows?: number }).affectedRows || 0) > 0;
+      working = assessKneeCompletion(await loadSnapshot(connection, vn, true));
+      working.healthMedProviderId = providerId;
+      working.healthMedDoctorId = Number(provider.health_med_doctor_id);
+    }
 
     const insertedDiagnoses: string[] = [];
-    for (const diagnosis of before.missingDiagnoses) {
+    for (const diagnosis of working.missingDiagnoses) {
       const code = normalizeCode(diagnosis);
       const serialName = 'ovst_diag_id';
       const [result] = await connection.query(`
@@ -247,7 +336,7 @@ export const completeKneeOpppVisit = async (
       '8737835': 40,
     };
     const insertedOperations: KneeCode[] = [];
-    for (const code of before.missingOperations) {
+    for (const code of working.missingOperations) {
       const [itemRows] = await connection.query<RowDataPacket[]>(`
         SELECT health_med_operation_item_id, health_med_operation_type_id, icode, price, operation_time_default
         FROM health_med_operation_item
@@ -276,14 +365,14 @@ export const completeKneeOpppVisit = async (
           (Get_SerialNumber('health_med_service_operation_id'), ?, ?, ?, ?, ?, ?, ?, 1,
            UPPER(CONCAT('{', UUID(), '}')), ?, UPPER(CONCAT('{', UUID(), '}')))
       `, [
-        before.healthMedServiceId,
+        working.healthMedServiceId,
         Number(item.health_med_operation_type_id || 2),
         Number(item.health_med_operation_item_id),
         organByCode[code],
         Number(item.operation_time_default || (code === '8737835' ? 30 : 20)),
         Number(item.price || 0),
         String(item.icode || ''),
-        before.healthMedProviderId,
+        working.healthMedProviderId,
       ]);
       insertedOperations.push(code);
     }
@@ -298,12 +387,14 @@ export const completeKneeOpppVisit = async (
       actor.id == null ? null : String(actor.id),
       String(actor.name || '').slice(0, 191) || null,
       JSON.stringify(before),
-      JSON.stringify({ insertedDiagnoses, insertedOperations, confirmedClinicalEvidence: true }),
+      JSON.stringify({ insertedDiagnoses, insertedOperations, createdHealthMedService, linkedSelectedProvider, confirmedClinicalEvidence: true }),
       JSON.stringify(after),
     ]);
     await connection.commit();
     return {
-      changed: insertedDiagnoses.length > 0 || insertedOperations.length > 0,
+      changed: createdHealthMedService || linkedSelectedProvider || insertedDiagnoses.length > 0 || insertedOperations.length > 0,
+      createdHealthMedService,
+      linkedSelectedProvider,
       insertedDiagnoses,
       insertedOperations,
       assessment: after,

@@ -127,7 +127,7 @@ import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 import { collaborationRouter } from './routes/collaborationRoutes.js';
 import { getUcOutsideCupWalkinAudit, insertMissingUcOutsideCupWalkin } from './ucOutsideCupWalkin.js';
-import { completeKneeOpppVisit, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
+import { completeKneeOpppVisit, getKneeOpppProviders, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1702,6 +1702,15 @@ app.get('/api/hosxp/knee-oppp-completion/:vn', async (req, res) => {
   }
 });
 
+app.get('/api/hosxp/knee-oppp-providers', async (_req, res) => {
+  try {
+    return res.json({ success: true, data: await getKneeOpppProviders() });
+  } catch (error) {
+    console.error('Unable to load knee OPPP providers:', error);
+    return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านรายชื่อผู้ให้บริการแพทย์แผนไทยได้' });
+  }
+});
+
 app.post('/api/hosxp/knee-oppp-completion/:vn', async (req: AuthenticatedRequest, res) => {
   try {
     const vn = String(req.params.vn || '').trim();
@@ -1709,7 +1718,10 @@ app.post('/api/hosxp/knee-oppp-completion/:vn', async (req: AuthenticatedRequest
     const result = await completeKneeOpppVisit(vn, {
       id: req.authUser?.id,
       name: req.authUser?.display_name || req.authUser?.username,
-    }, req.body?.confirmClinicalEvidence === true);
+    }, req.body?.confirmClinicalEvidence === true, {
+      createMissingService: req.body?.createMissingService === true,
+      providerId: req.body?.providerId == null ? null : Number(req.body.providerId),
+    });
     clearCache();
     return res.json({ success: true, result });
   } catch (error) {

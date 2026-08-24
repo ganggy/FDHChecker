@@ -14,6 +14,7 @@ export type KneeCompletionSnapshot = {
   hasM17: boolean;
   hasU5753: boolean;
   existingCodes: KneeCode[];
+  operationCounts: Partial<Record<KneeCode, number>>;
   healthMedServiceId: number | null;
   healthMedProviderId: number | null;
   healthMedDoctorId: number | null;
@@ -27,6 +28,8 @@ export type KneeCompletionAssessment = KneeCompletionSnapshot & {
   clinicalEvidence: boolean;
   missingDiagnoses: string[];
   missingOperations: KneeCode[];
+  duplicateOperations: Array<{ code: KneeCode; count: number }>;
+  requiresOperationRebuild: boolean;
   blockers: string[];
   confirmationRequired: boolean;
   canCreateService: boolean;
@@ -50,6 +53,10 @@ export const assessKneeCompletion = (snapshot: KneeCompletionSnapshot): KneeComp
     snapshot.hasU5753 ? '' : 'U57.53',
   ].filter(Boolean);
   const missingOperations = KNEE_OPPP_CODES.filter((code) => !existing.has(code));
+  const duplicateOperations = KNEE_OPPP_CODES
+    .map((code) => ({ code, count: Number(snapshot.operationCounts?.[code] || 0) }))
+    .filter((item) => item.count > 1);
+  const requiresOperationRebuild = duplicateOperations.length > 0;
   const clinicalEvidence = existing.has('8737835') || ['8727811', '8737811', '8747811'].every((code) => existing.has(code as KneeCode));
   const blockers: string[] = [];
 
@@ -64,7 +71,7 @@ export const assessKneeCompletion = (snapshot: KneeCompletionSnapshot): KneeComp
   if (existing.has('8737835') && snapshot.poulticeSameDayCount > 1) blockers.push('พบพอกเข่ามากกว่า 1 visit ในวันเดียวกัน');
   if (snapshot.poulticeMax14DayCount > 5) blockers.push('บริการพอกเข่าเกิน 5 ครั้งภายในช่วง 14 วัน');
 
-  const ready = missingDiagnoses.length === 0 && missingOperations.length === 0
+  const ready = missingDiagnoses.length === 0 && missingOperations.length === 0 && !requiresOperationRebuild
     && snapshot.ageY >= 40 && snapshot.poulticeMax14DayCount <= 5 && blockers.length === 0;
   const canCreateService = snapshot.ageY >= 40
     && snapshot.hasM17
@@ -81,6 +88,8 @@ export const assessKneeCompletion = (snapshot: KneeCompletionSnapshot): KneeComp
     clinicalEvidence,
     missingDiagnoses,
     missingOperations,
+    duplicateOperations,
+    requiresOperationRebuild,
     blockers,
     confirmationRequired: !ready && blockers.length === 0,
     canCreateService,
@@ -156,16 +165,21 @@ const loadSnapshot = async (connection: PoolConnection, vn: string, lock = false
   const service = serviceRows[0];
 
   const [operationRows] = await connection.query<RowDataPacket[]>(`
-    SELECT DISTINCT REPLACE(i.icd10tm, '-', '') AS code
+    SELECT REPLACE(i.icd10tm, '-', '') AS code, COUNT(*) AS operation_count
     FROM health_med_service s
     JOIN health_med_service_operation so ON so.health_med_service_id = s.health_med_service_id
     JOIN health_med_operation_item i ON i.health_med_operation_item_id = so.health_med_operation_item_id
     WHERE s.vn = ?
       AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+    GROUP BY REPLACE(i.icd10tm, '-', '')
   `, [vn]);
   const existingCodes = operationRows
     .map((row) => normalizeCode(row.code))
     .filter((code): code is KneeCode => KNEE_OPPP_CODES.includes(code as KneeCode));
+  const operationCounts = Object.fromEntries(operationRows.map((row) => [
+    normalizeCode(row.code),
+    Number(row.operation_count || 0),
+  ])) as Partial<Record<KneeCode, number>>;
 
   const serviceDate = sqlDate(visit.vstdate);
   const [poulticeRows] = await connection.query<RowDataPacket[]>(`
@@ -202,6 +216,7 @@ const loadSnapshot = async (connection: PoolConnection, vn: string, lock = false
     hasM17: Boolean(Number(visit.has_m17 || 0)),
     hasU5753: Boolean(Number(visit.has_u5753 || 0)),
     existingCodes,
+    operationCounts,
     healthMedServiceId: service?.health_med_service_id ? Number(service.health_med_service_id) : null,
     healthMedProviderId: service?.health_med_provider_id ? Number(service.health_med_provider_id) : null,
     healthMedDoctorId: service?.health_med_doctor_id ? Number(service.health_med_doctor_id) : null,
@@ -264,6 +279,8 @@ export const completeKneeOpppVisit = async (
 
     let createdHealthMedService = false;
     let linkedSelectedProvider = false;
+    let deletedOperations = 0;
+    const rebuiltOperations = before.requiresOperationRebuild;
     let working = before;
     if (manualServiceCreation) {
       const providerId = Number(options.providerId || 0);
@@ -335,8 +352,23 @@ export const completeKneeOpppVisit = async (
       '8747811': 41,
       '8737835': 40,
     };
+    if (rebuiltOperations) {
+      // A duplicate means the exported PROCEDURE rows are ambiguous. Rebuild only the
+      // four knee-operation codes for this VN; diagnoses, drugs and unrelated services
+      // are deliberately outside this DELETE scope.
+      const [deleteResult] = await connection.query(`
+        DELETE so
+        FROM health_med_service_operation so
+        JOIN health_med_service s ON s.health_med_service_id = so.health_med_service_id
+        JOIN health_med_operation_item i ON i.health_med_operation_item_id = so.health_med_operation_item_id
+        WHERE s.vn = ?
+          AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+      `, [vn]);
+      deletedOperations = Number((deleteResult as { affectedRows?: number }).affectedRows || 0);
+    }
     const insertedOperations: KneeCode[] = [];
-    for (const code of working.missingOperations) {
+    const operationsToInsert = rebuiltOperations ? [...KNEE_OPPP_CODES] : working.missingOperations;
+    for (const code of operationsToInsert) {
       const [itemRows] = await connection.query<RowDataPacket[]>(`
         SELECT health_med_operation_item_id, health_med_operation_type_id, icode, price, operation_time_default
         FROM health_med_operation_item
@@ -387,14 +419,16 @@ export const completeKneeOpppVisit = async (
       actor.id == null ? null : String(actor.id),
       String(actor.name || '').slice(0, 191) || null,
       JSON.stringify(before),
-      JSON.stringify({ insertedDiagnoses, insertedOperations, createdHealthMedService, linkedSelectedProvider, confirmedClinicalEvidence: true }),
+      JSON.stringify({ insertedDiagnoses, insertedOperations, deletedOperations, rebuiltOperations, createdHealthMedService, linkedSelectedProvider, confirmedClinicalEvidence: true }),
       JSON.stringify(after),
     ]);
     await connection.commit();
     return {
-      changed: createdHealthMedService || linkedSelectedProvider || insertedDiagnoses.length > 0 || insertedOperations.length > 0,
+      changed: createdHealthMedService || linkedSelectedProvider || deletedOperations > 0 || insertedDiagnoses.length > 0 || insertedOperations.length > 0,
       createdHealthMedService,
       linkedSelectedProvider,
+      deletedOperations,
+      rebuiltOperations,
       insertedDiagnoses,
       insertedOperations,
       assessment: after,

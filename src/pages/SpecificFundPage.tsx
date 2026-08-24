@@ -238,8 +238,13 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 ...(assessment.missingDiagnoses || []).map((code: string) => `Diagnosis ${code}`),
                 ...(assessment.missingOperations || []).map((code: string) => `หัตถการ ${code}`),
             ];
+            const duplicates = (assessment.duplicateOperations || [])
+                .map((item: { code: string; count: number }) => `หัตถการ ${item.code} จำนวน ${item.count} รายการ`);
+            const rebuildNotice = assessment.requiresOperationRebuild
+                ? `\nตรวจพบรายการซ้ำ:\n- ${duplicates.join('\n- ')}\n\nระบบจะลบเฉพาะ 4 รหัสพอกเข่าของ VN นี้ แล้วสร้างชุดมาตรฐานใหม่อย่างละ 1 รายการ โดยไม่แตะข้อมูลส่วนอื่น\n`
+                : '';
             const confirmed = window.confirm(
-                `ยืนยันเติมข้อมูล VN ${vn}\n\n${creatingService ? 'ระบบจะสร้างรายการบริการแพทย์แผนไทยตามผู้ให้บริการที่เลือก\n' : manualConfirmation ? 'ระบบจะเชื่อมผู้ให้บริการที่เลือกกับรายการบริการเดิม\n' : ''}รายการที่จะเพิ่มเฉพาะที่ยังไม่มี:\n- ${missing.join('\n- ')}\n\nโปรดยืนยันว่าได้ตรวจเวชระเบียนแล้ว และผู้ป่วยได้รับกิจกรรมดังกล่าวจริง ระบบจะบันทึกประวัติการแก้ไขทุกครั้ง`,
+                `ยืนยันตรวจและแก้ไขข้อมูล VN ${vn}\n\n${creatingService ? 'ระบบจะสร้างรายการบริการแพทย์แผนไทยตามผู้ให้บริการที่เลือก\n' : manualConfirmation ? 'ระบบจะเชื่อมผู้ให้บริการที่เลือกกับรายการบริการเดิม\n' : ''}${rebuildNotice}${missing.length > 0 ? `รายการที่จะเพิ่มเฉพาะที่ยังไม่มี:\n- ${missing.join('\n- ')}\n\n` : ''}โปรดยืนยันว่าได้ตรวจเวชระเบียนแล้ว และผู้ป่วยได้รับกิจกรรมดังกล่าวจริง ระบบจะบันทึกประวัติการแก้ไขทุกครั้ง`,
             );
             if (!confirmed) return;
 
@@ -256,6 +261,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             if (!commitResponse.ok || !commitJson.success) throw new Error(commitJson.error || 'เพิ่มข้อมูลไม่สำเร็จ');
             const result = commitJson.result;
             const inserted = [
+                ...(result.rebuiltOperations ? [`ลบรายการพอกเข่าเดิม ${result.deletedOperations || 0} รายการและสร้างชุดใหม่`] : []),
                 ...(result.createdHealthMedService ? ['สร้างบริการแพทย์แผนไทย'] : []),
                 ...(!result.createdHealthMedService && result.linkedSelectedProvider ? ['เชื่อมผู้ให้บริการ'] : []),
                 ...(result.insertedDiagnoses || []).map((code: string) => `Dx ${code}`),

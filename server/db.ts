@@ -12511,10 +12511,7 @@ export const getSpecificFundData = async (
               JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
               JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
               WHERE ks.vn = o.vn
-                AND (
-                  REPLACE(ki.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
-                  OR (REPLACE(ki.icd10tm, '-', '') = '9007811' AND kop.health_med_organ_id IN (39,40,41))
-                )
+                AND REPLACE(ki.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
             )
           )
         ORDER BY o.vstdate DESC, o.vn DESC

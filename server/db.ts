@@ -12580,6 +12580,146 @@ export const deleteNonQualifyingPalliativeDiagnoses = async (
   }
 };
 
+const PALLIATIVE_ITEM_DELETE_AUDIT_SQL = `
+  CREATE TABLE IF NOT EXISTS z_fdh_palliative_item_delete_audit (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(20) NOT NULL,
+    hn VARCHAR(20) NOT NULL,
+    deleted_diagnoses JSON NOT NULL,
+    deleted_service_items JSON NOT NULL,
+    review_reasons JSON NOT NULL,
+    deleted_by_user_id BIGINT NULL,
+    deleted_by_username VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_pal_item_delete_vn (vn),
+    KEY idx_pal_item_delete_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const deleteNonQualifyingPalliativeItems = async (
+  vn: string,
+  actor: { userId?: number | null; username?: string | null },
+) => {
+  const normalizedVn = String(vn || '').trim();
+  if (!/^\d{1,13}$/.test(normalizedVn)) throw new Error('รูปแบบ VN ไม่ถูกต้อง');
+  const connection = await getUTFConnection();
+  try {
+    // MySQL DDL can implicitly commit, so create the audit table before the transaction.
+    await connection.query(PALLIATIVE_ITEM_DELETE_AUDIT_SQL);
+    await connection.beginTransaction();
+
+    const [visitRows] = await connection.query<any[]>(`
+      SELECT o.vn, o.hn, osi.name AS ovstist_name,
+        CASE WHEN UPPER(COALESCE(osi.name, '')) REGEXP 'เยี่ยมบ้าน|HOME[[:space:]_-]*VISIT' THEN 1 ELSE 0 END AS is_home_visit,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode=oo.icode
+          WHERE oo.vn=o.vn AND UPPER(COALESCE(sd.nhso_adp_code, '')) IN (${businessRules.adp_codes.palliative.map(c => `'${String(c).toUpperCase()}'`).join(',')})
+        ) THEN 1 ELSE 0 END AS has_pal_adp,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovstdiag d
+          WHERE d.vn=o.vn AND d.diagtype='1'
+            AND REPLACE(UPPER(d.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
+        ) THEN 1 ELSE 0 END AS has_eligible_palliative_diag,
+        (SELECT COUNT(DISTINCT oo.icode) FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count
+      FROM ovst o
+      LEFT JOIN ovstist osi ON osi.ovstist=o.ovstist
+      WHERE o.vn=?
+      FOR UPDATE
+    `, [normalizedVn]);
+    if (visitRows.length === 0) throw new Error('ไม่พบ VN ที่ต้องการแก้ไข');
+
+    const [diagnosisRows] = await connection.query<any[]>(`
+      SELECT ovst_diag_id, icd10, diagtype, doctor, update_datetime
+      FROM ovstdiag
+      WHERE vn=? AND REPLACE(UPPER(icd10), '.', '') IN (${PALLIATIVE_SERVICE_DX_CODES.map(() => '?').join(',')})
+      ORDER BY diagtype, ovst_diag_id
+      FOR UPDATE
+    `, [normalizedVn, ...PALLIATIVE_SERVICE_DX_CODES]);
+    if (diagnosisRows.length === 0) throw new Error('ไม่พบ Diagnosis Z51.5/Z71.8 ใน VN นี้แล้ว');
+
+    const [serviceRows] = await connection.query<any[]>(`
+      SELECT oo.hos_guid, oo.icode, oo.qty, oo.unitprice, oo.sum_price, oo.income,
+        sd.nhso_adp_code, sd.name AS item_name
+      FROM opitemrece oo
+      INNER JOIN s_drugitems sd ON sd.icode=oo.icode
+      WHERE oo.vn=?
+        AND UPPER(COALESCE(sd.nhso_adp_code, '')) IN (${businessRules.adp_codes.palliative.map(() => '?').join(',')})
+      ORDER BY oo.item_no, oo.hos_guid
+      FOR UPDATE
+    `, [normalizedVn, ...businessRules.adp_codes.palliative.map((code) => String(code).toUpperCase())]);
+
+    const z515Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z515')?.icd10;
+    const z718Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z718')?.icd10;
+    const visit = visitRows[0];
+    const review = reviewPalliativeCareVisit({
+      z515Code,
+      z718Code,
+      isHomeVisit: visit.is_home_visit,
+      hasPalliativeAdp: visit.has_pal_adp,
+      hasEligibleDiseaseDiagnosis: visit.has_eligible_palliative_diag,
+      drugCount: visit.drug_count,
+    });
+    if (!review.canRemoveDiagnosis) {
+      throw new Error('ลบได้เฉพาะ visit ที่ไม่ใช่เยี่ยมบ้าน กรุณาตรวจและแก้ข้อมูลบริการแทนการลบรายการ Palliative');
+    }
+
+    const diagnosisIds = diagnosisRows.map((row) => Number(row.ovst_diag_id)).filter(Number.isFinite);
+    const serviceGuids = serviceRows.map((row) => String(row.hos_guid || '')).filter(Boolean);
+
+    const [diagDeleteResult] = await connection.query(`
+      DELETE FROM ovstdiag
+      WHERE vn=? AND ovst_diag_id IN (${diagnosisIds.map(() => '?').join(',')})
+    `, [normalizedVn, ...diagnosisIds]);
+    const deletedDiagnosisCount = Number((diagDeleteResult as { affectedRows?: number }).affectedRows || 0);
+    if (deletedDiagnosisCount !== diagnosisRows.length) {
+      throw new Error('จำนวน Diagnosis ที่ลบไม่ตรงกับข้อมูลที่ตรวจสอบ กรุณาลองใหม่');
+    }
+
+    let deletedServiceCount = 0;
+    if (serviceGuids.length > 0) {
+      const [serviceDeleteResult] = await connection.query(`
+        DELETE FROM opitemrece
+        WHERE vn=? AND hos_guid IN (${serviceGuids.map(() => '?').join(',')})
+      `, [normalizedVn, ...serviceGuids]);
+      deletedServiceCount = Number((serviceDeleteResult as { affectedRows?: number }).affectedRows || 0);
+      if (deletedServiceCount !== serviceRows.length) {
+        throw new Error('จำนวนรายการบริการ Palliative ที่ลบไม่ตรงกับข้อมูลที่ตรวจสอบ กรุณาลองใหม่');
+      }
+    }
+
+    await connection.query(`
+      INSERT INTO z_fdh_palliative_item_delete_audit
+        (vn, hn, deleted_diagnoses, deleted_service_items, review_reasons,
+         deleted_by_user_id, deleted_by_username)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      normalizedVn,
+      String(visit.hn || ''),
+      JSON.stringify(diagnosisRows),
+      JSON.stringify(serviceRows),
+      JSON.stringify(review.reasons),
+      actor.userId || null,
+      String(actor.username || 'unknown').slice(0, 64),
+    ]);
+    await connection.commit();
+    return {
+      vn: normalizedVn,
+      deletedDiagnosisCount,
+      deletedDiagnosisCodes: diagnosisRows.map((row) => String(row.icd10)),
+      deletedServiceCount,
+      deletedServiceCodes: [...new Set(serviceRows.map((row) => String(row.nhso_adp_code || '').trim()).filter(Boolean))],
+      reviewReasons: review.reasons,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 export const getSpecificFundData = async (
   fundType: string,
   startDate: string,

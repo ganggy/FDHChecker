@@ -75,6 +75,7 @@ import {
   submitNhsoClosePrivileges,
   importFdhStatusForDateRange,
   deleteNonQualifyingPalliativeDiagnoses,
+  deleteNonQualifyingPalliativeItems,
   markPalliativeVisitAsHomeVisit,
   closeDatabasePools,
 } from './db.js';
@@ -1706,6 +1707,30 @@ app.delete('/api/hosxp/palliative-diagnoses/:vn', async (req: AuthenticatedReque
     return res.status(422).json({
       success: false,
       error: error instanceof Error ? error.message : 'ลบ Diagnosis Palliative ไม่สำเร็จ',
+    });
+  }
+});
+
+app.delete('/api/hosxp/palliative-items/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (req.body?.confirmRemovePalliativeItems !== true) {
+      return res.status(400).json({
+        success: false,
+        error: 'กรุณายืนยันการลบ Diagnosis และรายการบริการ Palliative',
+      });
+    }
+    const result = await deleteNonQualifyingPalliativeItems(vn, {
+      userId: req.authUser?.id,
+      username: req.authUser?.username,
+    });
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to remove non-qualifying palliative items:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ลบรายการ Palliative ไม่สำเร็จ',
     });
   }
 });

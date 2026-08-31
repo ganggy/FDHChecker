@@ -291,7 +291,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         }
     }, [fetchFundData, kneeCompletingVn, kneeProviderId]);
 
-    const handleDeletePalliativeDiagnosis = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+    const handleDeletePalliativeItems = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
         const vn = String(item?.vn || '').trim();
         if (!vn || deletingPalliativeVn) return;
@@ -304,30 +304,35 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             drugCount: item?.drug_count,
         });
         const codes = [item?.z515_code, item?.z718_code].filter(Boolean).join(', ');
+        const serviceCodes = [
+            item?.has_30001 === 'Y' ? '30001' : '',
+            item?.has_cons01 === 'Y' ? 'Cons01' : '',
+            item?.has_eva001 === 'Y' ? 'Eva001' : '',
+        ].filter(Boolean).join(', ');
         const confirmed = window.confirm(
-            `ยืนยันลบ Diagnosis Palliative ของ VN ${vn}\n\nรหัสที่จะลบ: ${codes || 'Z51.5/Z71.8'}\nเหตุผลที่เข้ากลุ่มตรวจสอบ:\n- ${review.reasons.join('\n- ')}\n\nระบบจะลบเฉพาะ Z51.5/Z71.8 ของ visit นี้ ไม่ลบโรคอื่น ยา หรือค่าบริการ และจะบันทึกประวัติการลบ`,
+            `ยืนยันลบรายการ Palliative ของ VN ${vn}\n\nDiagnosis ที่จะลบ: ${codes || 'Z51.5/Z71.8'}\nรายการบริการที่จะลบ: ${serviceCodes || 'ไม่พบ 30001/Cons01/Eva001'}\nเหตุผลที่เข้ากลุ่มตรวจสอบ:\n- ${review.reasons.join('\n- ')}\n\nระบบจะลบเฉพาะ Diagnosis Z51.5/Z71.8 และบรรทัดค่าบริการที่มี ADP 30001/Cons01/Eva001 ของ visit นี้ ไม่ลบโรค ยา หรือค่าบริการอื่น และจะบันทึก audit snapshot ก่อนลบ`,
         );
         if (!confirmed) return;
 
         setDeletingPalliativeVn(vn);
         setPalliativeActionMessage(null);
         try {
-            const response = await fetch(`/api/hosxp/palliative-diagnoses/${encodeURIComponent(vn)}`, {
+            const response = await fetch(`/api/hosxp/palliative-items/${encodeURIComponent(vn)}`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ confirmRemovePalliativeDiagnosis: true }),
+                body: JSON.stringify({ confirmRemovePalliativeItems: true }),
             });
             const json = await response.json();
-            if (!response.ok || !json.success) throw new Error(json.error || 'ลบ Diagnosis Palliative ไม่สำเร็จ');
+            if (!response.ok || !json.success) throw new Error(json.error || 'ลบรายการ Palliative ไม่สำเร็จ');
             setPalliativeActionMessage({
                 kind: 'success',
-                text: `VN ${vn} ลบ ${json.result?.deletedCodes?.join(', ') || 'Diagnosis Palliative'} แล้ว (${json.result?.deletedCount || 0} รายการ)`,
+                text: `VN ${vn} ลบ Diagnosis ${json.result?.deletedDiagnosisCodes?.join(', ') || '-'} ${json.result?.deletedDiagnosisCount || 0} รายการ และบริการ ${json.result?.deletedServiceCodes?.join(', ') || '-'} ${json.result?.deletedServiceCount || 0} รายการแล้ว`,
             });
             await fetchFundData();
         } catch (deleteError) {
             setPalliativeActionMessage({
                 kind: 'warning',
-                text: deleteError instanceof Error ? deleteError.message : 'ลบ Diagnosis Palliative ไม่สำเร็จ',
+                text: deleteError instanceof Error ? deleteError.message : 'ลบรายการ Palliative ไม่สำเร็จ',
             });
         } finally {
             setDeletingPalliativeVn(null);
@@ -2738,10 +2743,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                 className="btn"
                                                                                 style={{ padding: '5px 9px', fontSize: 11, background: '#dc2626', color: 'white', borderColor: '#b91c1c', fontWeight: 700 }}
                                                                                 disabled={deletingPalliativeVn === String(item.vn) || markingPalliativeHomeVn === String(item.vn)}
-                                                                                onClick={(event) => void handleDeletePalliativeDiagnosis(item, event)}
-                                                                                title="ลบเฉพาะ Z51.5/Z71.8 ของ VN นี้ และบันทึก audit"
+                                                                                onClick={(event) => void handleDeletePalliativeItems(item, event)}
+                                                                                title="ลบ Z51.5/Z71.8 และรายการ ADP 30001/Cons01/Eva001 ของ VN นี้ พร้อมบันทึก audit"
                                                                             >
-                                                                                {deletingPalliativeVn === String(item.vn) ? 'กำลังลบ...' : '🗑️ ลบ Diag Palliative'}
+                                                                                {deletingPalliativeVn === String(item.vn) ? 'กำลังลบ...' : '🗑️ ลบรายการ Palliative'}
                                                                             </button>
                                                                         )}
                                                                         {review.shouldReview && !review.canRemoveDiagnosis && (

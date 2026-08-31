@@ -14,16 +14,23 @@
 
 ```bash
 cd /opt/FDHChecker
-git fetch --all --prune
-git pull --ff-only
-npm ci
-npm run check
-npm run build:all
-bash deploy/scripts/backup-databases.sh
-pm2 startOrReload deploy/pm2/ecosystem.config.cjs --update-env
-curl --fail http://127.0.0.1:3506/api/live
-curl --fail http://127.0.0.1:3506/api/ready
-pm2 save
+bash deploy/scripts/deploy-app.sh
+```
+
+สคริปต์จะหยุดทันทีหาก branch ไม่ถูกต้อง, working tree ไม่สะอาด, test/build ไม่ผ่าน,
+หา PM2 app ไม่พบ หรือ `/api/live` และ `/api/ready` ไม่พร้อม โดยค่าเริ่มต้นใช้ branch
+`agent/add-local-ai` และ PM2 apps `fdh-backend fdh-frontend`
+
+ปรับค่าผ่าน environment ได้โดยไม่ต้องแก้สคริปต์:
+
+```bash
+FDH_DEPLOY_BRANCH=main FDH_PM2_APPS="fdh-backend fdh-frontend" bash deploy/scripts/deploy-app.sh
+```
+
+หากรุ่นนั้นมีการเปลี่ยนแปลงฐานข้อมูล ให้เปิด backup ก่อน deploy:
+
+```bash
+FDH_DEPLOY_BACKUP=1 bash deploy/scripts/deploy-app.sh
 ```
 
 `/api/live` ตรวจเฉพาะ process ส่วน `/api/ready` จะตอบ HTTP 503 เมื่อฐานข้อมูลยังไม่พร้อม จึงควรใช้ `/api/ready` เป็น readiness check ของ reverse proxy หรือ monitor
@@ -64,7 +71,7 @@ curl --fail http://127.0.0.1:3506/api/ready
 
 ## หลัง deploy
 
-- ตรวจ `pm2 status` และ `pm2 logs fdh-checker-api --lines 100`
+- ตรวจ `pm2 status` และ `pm2 logs fdh-backend fdh-frontend --lines 100`
 - เปิดหน้า login และ workflow สำคัญด้วยบัญชีทดสอบ
 - ตรวจว่า CORS และ HTTPS ใช้ hostname จริง
 - เก็บ artifact และ commit id ของรุ่นที่ deploy

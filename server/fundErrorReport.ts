@@ -255,7 +255,7 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
         { met: flag(row.has_anemia_diag) || hasCode(row, ['Z130','Z138']), label: 'Diagnosis Z130/Z138' },
       ]); break;
     }
-    case 'syphilis_screening_male': requireValue(missing, male, 'เพศชาย'); requireValue(missing, flag(row.has_syphilis_lab) || present(row.syphilis_lab_names) || present(row.syphilis_service_names), 'Lab Treponema/Syphilis'); break;
+    case 'syphilis_screening_male': requireValue(missing, male, 'เพศชาย'); requireValue(missing, flag(row.has_syphilis_lab) || present(row.syphilis_lab_names) || present(row.syphilis_service_names), 'Lab/บริการซิฟิลิส 36003 หรือ 36006'); break;
     case 'iron_supplement': addWebNearStatusMissing(missing, flag(row.has_iron_adp), 'ADP 14001', [
       { met: flag(row.age_eligible) || (female && age >= 13 && age <= 45), label: 'หญิงอายุ 13-45 ปี' },
       { met: flag(row.has_iron_diag) || hasCode(row, ['Z130']), label: 'Diagnosis Z130' },

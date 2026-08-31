@@ -234,8 +234,8 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         recordingSystem: 'KTB; รายงาน/เชื่อมข้อมูลบางส่วนผ่าน Seamless/DMIS ตามพื้นที่',
         conditions: [
             'ประชาชนทั่วไปเพศชาย',
-            'มี Lab Treponema Pallidum Antibody หรือรายการตรวจซิฟิลิส',
-            'รองรับชื่อ Lab/บริการกลุ่ม Treponema, Syphilis, RPR, VDRL, TPHA, TPPA'
+            'มีผล Lab Treponema Pallidum Antibody/RPR หรือรายการตรวจซิฟิลิส',
+            'รหัสบริการ 36003 (VDRL/RPR) หรือ 36006 (TPHA); ชื่อยาหรือข้อความทั่วไปไม่นับเป็นผลตรวจ'
         ],
         caution: 'ตรวจสอบความเหมาะสมของกลุ่มเป้าหมายตามประกาศกองทุน และผลตรวจที่ผูกกับ visit ให้ถูกต้อง'
     },

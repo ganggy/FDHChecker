@@ -24,6 +24,7 @@ jobs:
       - name: Validate deployment scripts
         run: |
           bash -n deploy/scripts/backup-databases.sh
+          bash -n deploy/scripts/deploy-app.sh
           node -e "const config=require('./deploy/pm2/ecosystem.config.cjs'); if (!Array.isArray(config.apps) || !config.apps.length) process.exit(1)"
       - name: Validate PowerShell backup script
         shell: pwsh

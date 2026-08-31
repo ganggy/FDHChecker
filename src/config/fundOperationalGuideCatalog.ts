@@ -134,7 +134,7 @@ export const FUND_OPERATIONAL_GUIDE_DETAILS: Record<string, FundOperationalGuide
         ['เลือกชุด Lab ผิดช่วงอายุ', 'ขาดผลหรือ ADP', 'อายุไม่เข้าเกณฑ์'],
     ),
     syphilis_screening_male: detail(
-        ['เพศชาย', 'รายการ/ผล Treponema, Syphilis, RPR, VDRL, TPHA หรือ TPPA', 'กลุ่มเป้าหมายตามประกาศ'],
+        ['เพศชาย', 'รายการ 36003/36006 หรือผล Treponema, Syphilis, RPR, VDRL, TPHA, TPPA', 'กลุ่มเป้าหมายตามประกาศ'],
         ['ผลต้องผูก VN และมีค่า', 'ยืนยันว่าเป็นคัดกรอง ไม่ใช่การรักษา'],
         ['เพศ/กลุ่มเป้าหมายไม่ตรง', 'มี order แต่ไม่มีผล', 'ชื่อ Lab ไม่อยู่ในรายการรองรับ'],
     ),

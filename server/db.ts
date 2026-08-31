@@ -11,6 +11,7 @@ import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVi
 import { attachKidneyRepStmTracking } from './kidneyRepStmTracking.js';
 import { PALLIATIVE_DIAGNOSIS_GROUPS } from '../src/config/palliativeDiagnosisCatalog.js';
 import { reviewPalliativeCareVisit } from '../src/utils/palliativeCareReview.js';
+import { SYPHILIS_SCREENING_ADP_CODES, SYPHILIS_SCREENING_NAME_PATTERN } from '../src/utils/syphilisScreeningRules.js';
 
 dotenv.config();
 
@@ -58,7 +59,7 @@ export const getRepstmConnection = async () => {
 
 const ANEMIA_CBC_REGEX = 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|CBC WITHOUT SMEAR|CBC NO SMEAR|CBC W/O SMEAR|CBC W/O DIFF|ซีบีซี|ความสมบูรณ์ของเม็ดเลือด|เม็ดเลือดสมบูรณ์';
 const ANEMIA_HBHCT_REGEX = 'HB/HCT|HBHCT|HB HCT|HB-HCT|HB|HGB|HEMOGLOBIN|HCT|HEMATOCRIT|ฮีโมโกลบิน|ฮีมาโตคริต|ความเข้มข้นเลือด';
-const SYPHILIS_SCREENING_REGEX = 'TREPONEMA|TREPONEMAL|PALLIDUM|SYPHILIS|ซิฟิลิส|TPHA|TPPA|VDRL|RPR';
+const SYPHILIS_SCREENING_REGEX = SYPHILIS_SCREENING_NAME_PATTERN;
 const HEP_C_SCREENING_REGEX = 'ANTI[- ]?HCV|HCV[ -]?(AB|ANTIBODY)|HEPATITIS C.*(AB|ANTIBODY)|ไวรัสตับอักเสบซี';
 const HEP_B_SCREENING_REGEX = 'HBS[- ]?AG|HBsAg|HEPATITIS B SURFACE ANTIGEN|HEPATITIS B ANTIGEN|ไวรัสตับอักเสบบี';
 const MENTAL_HEALTH_COUNSELLING_REGEX = 'MENTAL|COUNSELL?ING|ST[- ]?5|9Q|สุขภาพจิต|ปรึกษา.*สุขภาพจิต|ความเครียด|ซึมเศร้า';
@@ -73,6 +74,7 @@ const ANC_DENTAL_CLEAN_PROCEDURE_CODES = ((businessRules as any)?.adp_codes?.anc
 const ANC_DENTAL_EXAM_ICD9 = String((businessRules as any)?.adp_codes?.anc_dental_exam_icd9 || '8931').replace(/\./g, '').trim();
 const ANC_DENTAL_CLEAN_ICD9 = String((businessRules as any)?.adp_codes?.anc_dental_clean_icd9 || '9654').replace(/\./g, '').trim();
 const toSqlCodeList = (codes: string[]) => codes.map((code) => `'${String(code).replace(/'/g, "''")}'`).join(', ');
+const SYPHILIS_SCREENING_ADP_CODES_SQL = toSqlCodeList([...SYPHILIS_SCREENING_ADP_CODES]);
 const ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL = toSqlCodeList(ANC_DENTAL_EXAM_PROCEDURE_CODES);
 const ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL = toSqlCodeList(ANC_DENTAL_CLEAN_PROCEDURE_CODES);
 
@@ -270,13 +272,13 @@ const ANC_LAB_1_REGEX = {
   abo: 'ABO|ABO/RH|BLOOD GROUP|CELL GROUPING',
   rh: '(^|[^A-Z])RH([^A-Z]|$)|RH GROUP|GROUPING TUBE METHOD',
   hbsag: 'HBS[- ]?AG|HEPATITIS B SURFACE ANTIGEN|HBSAG',
-  syphilis: 'TREPONEMA PALLIDUM|SYPHILIS|TPHA|VDRL|RPR',
+  syphilis: SYPHILIS_SCREENING_REGEX,
   hiv: 'ANTI-?HIV|HIV-AB|HIV AB|HIV.*RAPID|RAPID.*HIV',
 };
 
 const ANC_LAB_2_REGEX = {
   hiv: 'ANTI-?HIV|HIV-AB|HIV AB|HIV.*RAPID|RAPID.*HIV',
-  syphilis: 'TREPONEMA PALLIDUM|SYPHILIS|TPHA|VDRL|RPR',
+  syphilis: SYPHILIS_SCREENING_REGEX,
   cbc: 'CBC|COMPLETE BLOOD COUNT',
 };
 
@@ -12600,6 +12602,32 @@ const PALLIATIVE_ITEM_DELETE_AUDIT_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const buildSyphilisScreeningExistsSql = (alias: string) => `
+  (
+    EXISTS (
+      SELECT 1
+      FROM opitemrece oo
+      LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+      LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+      WHERE oo.vn = ${alias}.vn
+        AND (
+          UPPER(COALESCE(sd.nhso_adp_code, '')) IN (${SYPHILIS_SCREENING_ADP_CODES_SQL})
+          OR UPPER(COALESCE(ndi.name, sd.name, '')) REGEXP '${SYPHILIS_SCREENING_REGEX}'
+        )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM lab_head h
+      JOIN lab_order lo ON h.lab_order_number = lo.lab_order_number
+      JOIN lab_items li ON lo.lab_items_code = li.lab_items_code
+      WHERE h.vn = ${alias}.vn
+        AND lo.lab_order_result IS NOT NULL
+        AND lo.lab_order_result <> ''
+        AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${SYPHILIS_SCREENING_REGEX}'
+    )
+  )
+`;
+
 export const deleteNonQualifyingPalliativeItems = async (
   vn: string,
   actor: { userId?: number | null; username?: string | null },
@@ -13639,7 +13667,7 @@ export const getSpecificFundData = async (
           v.age_y as age,
           v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
           CASE WHEN COALESCE(v.sex, pt.sex) = '1' THEN 'Y' ELSE 'N' END as sex_eligible,
-          CASE WHEN ${buildServiceOrLabNameExistsSql('o', SYPHILIS_SCREENING_REGEX)} THEN 'Y' ELSE 'N' END as has_syphilis_lab,
+          CASE WHEN ${buildSyphilisScreeningExistsSql('o')} THEN 'Y' ELSE 'N' END as has_syphilis_lab,
           (
             SELECT GROUP_CONCAT(DISTINCT li.lab_items_name ORDER BY li.lab_items_name SEPARATOR ', ')
             FROM lab_head h
@@ -13666,7 +13694,10 @@ export const getSpecificFundData = async (
             LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
             LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
             WHERE oo.vn = o.vn
-              AND UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP '${SYPHILIS_SCREENING_REGEX}'
+              AND (
+                UPPER(COALESCE(sd.nhso_adp_code, '')) IN (${SYPHILIS_SCREENING_ADP_CODES_SQL})
+                OR UPPER(COALESCE(ndi.name, sd.name, '')) REGEXP '${SYPHILIS_SCREENING_REGEX}'
+              )
           ) as syphilis_service_names,
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
         FROM ovst o
@@ -13675,7 +13706,7 @@ export const getSpecificFundData = async (
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
           AND COALESCE(v.sex, pt.sex) = '1'
-          AND ${buildServiceOrLabNameExistsSql('o', SYPHILIS_SCREENING_REGEX)}
+          AND ${buildSyphilisScreeningExistsSql('o')}
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);

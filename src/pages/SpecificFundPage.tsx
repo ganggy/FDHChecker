@@ -11,6 +11,7 @@ import { formatLocalDateInput } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
 import { buildFdhClaimProgress, hasFdhSubmissionData } from '../utils/fdhClaimProgress';
 import { reviewPalliativeCareVisit } from '../utils/palliativeCareReview';
+import { evaluateFamilyPlanningEvidence, FAMILY_PLANNING_SERVICE_RULES } from '../utils/familyPlanningRules';
 import { fetchAppSettings } from '../services/hosxpService';
 import {
     ANC_DENTAL_CLEAN_PROCEDURE_CODES,
@@ -36,7 +37,7 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'postnatal_supplements', name: 'เสริมธาตุเหล็กหลังคลอด', description: 'ยาเสริมธาตุเหล็กหลังคลอด' },
     { id: 'fluoride', name: 'เคลือบฟลูออไรด์', description: 'ทันตกรรมป้องกันฟันผุ' },
     { id: 'fp', name: 'วางแผนครอบครัว', description: 'บริการคุมกำเนิดและวางแผนครอบครัว' },
-    { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด', description: 'ยาคุมชนิดเม็ด' },
+    { id: 'contraceptive_pill', name: 'ยาเม็ดคุมกำเนิด', description: 'Anna / Lynestrenol / ยาคุมฉุกเฉิน' },
     { id: 'condom', name: 'ยาฉีดคุมกำเนิด', description: 'ADP FP003_4 อัตรา 60 บาท' },
     { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก', description: 'Pap smear / Cervix screening' },
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
@@ -1212,32 +1213,40 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             const adpNames = String(item?.adp_names || '').toUpperCase();
             const hasAnna = hasAnyCodeValue(item?.fp_adp_codes, ['FP003_1']) || adpNames.includes('ANNA');
             const hasLynestrenol = hasAnyCodeValue(item?.fp_adp_codes, ['FP003_2']) || adpNames.includes('LYNESTRENOL');
-            const hasFpPill = toFlag(item?.has_fp_pill) || toFlag(item?.has_specific_adp) || hasAnna || hasLynestrenol;
+            const hasEmergencyPill = hasAnyCodeValue(item?.fp_adp_codes, ['FP003_3']);
+            const hasFpPill = toFlag(item?.has_fp_pill) || toFlag(item?.has_specific_adp) || hasAnna || hasLynestrenol || hasEmergencyPill;
+            const emergencyYearQty = Number(item?.fp_emergency_year_qty || 0);
+            const pillMissing = getNearStatusMissing(hasFpPill, ' ADP FP003_1 (Anna), FP003_2 (Lynestrenol) หรือ FP003_3 (ฉุกเฉิน)', [
+                { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังการใช้ยาคุมกำเนิด)' },
+            ], hasZ304Diag);
+            if (emergencyYearQty > 2) pillMissing.push(` FP003_3 เกิน 2 แผง/ปี (พบ ${emergencyYearQty})`);
             
             // Only count as matched if they have the specific Z304 diagnosis as requested
-            const isMatched = hasZ304Diag && hasFpPill;
+            const isMatched = hasZ304Diag && hasFpPill && emergencyYearQty <= 2;
             
-            if (hasZ304Diag || hasFpPill || hasFpDiag) subfunds.push('💊 ยาคุมกำเนิด');
+            if (hasZ304Diag || hasFpPill || hasFpDiag) subfunds.push('💊 ยาเม็ดคุมกำเนิด');
             
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasFpPill, ' ADP FP003_1 (Anna) หรือ FP003_2 (Lynestrenol)', [
-                    { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)' },
-                ], hasZ304Diag),
+                pillMissing,
                 undefined,
                 isMatched
             );
         }
 
         if (fundId === 'condom') {
+            const hasZ304Diag = hasDiagCodes(item, ['Z304']);
             const hasInjection = toFlag(item?.has_fp_condom) || toFlag(item?.has_specific_adp) || hasAnyCodeValue(item?.fp_adp_codes, ['FP003_4']);
-            const isMatched = hasFpDiag && hasInjection;
-            if (hasFpDiag || hasInjection) subfunds.push('💉 ยาฉีดคุมกำเนิด');
+            const injectionYearCount = Number(item?.fp_injection_year_count || 0);
+            const injectionMissing = getNearStatusMissing(hasInjection, ' ADP FP003_4', [
+                { met: hasZ304Diag, label: ' Diagnosis Z304' },
+            ], hasZ304Diag);
+            if (injectionYearCount > 5) injectionMissing.push(` FP003_4 เกิน 5 ครั้ง/ปี (พบ ${injectionYearCount})`);
+            const isMatched = hasZ304Diag && hasInjection && injectionYearCount <= 5;
+            if (hasZ304Diag || hasInjection || hasFpDiag) subfunds.push('💉 ยาฉีดคุมกำเนิด');
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasInjection, ' ADP FP003_4', [
-                    { met: hasFpDiag, label: ' Diagnosis Z30x' },
-                ], hasFpDiag),
+                injectionMissing,
                 undefined,
                 isMatched
             );
@@ -1245,13 +1254,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'fp') {
             const hasFpAdp = toFlag(item?.has_fp_adp) || hasValue(item?.fp_adp_codes);
-            const isMatched = hasFpDiag && hasFpAdp;
+            const fpResult = evaluateFamilyPlanningEvidence({
+                diagnosisCodes: item?.fp_diags || [item?.pdx, item?.dx0, item?.dx1, item?.dx2, item?.dx3, item?.dx4, item?.dx5].filter(Boolean).join(','),
+                adpCodes: item?.fp_adp_codes,
+                procedureCodes: item?.fp_icd9_codes,
+                emergencyPillYearQuantity: item?.fp_emergency_year_qty,
+                injectionYearCount: item?.fp_injection_year_count,
+            });
+            const isMatched = fpResult.matched;
             if (hasFpDiag || hasFpAdp) subfunds.push('💊 วางแผนครอบครัว');
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasFpAdp, ' ADP/หัตถการ FP', [
-                    { met: hasFpDiag, label: ' Diagnosis Z30x' },
-                ], hasFpDiag),
+                fpResult.missing.map((message) => ` ${message}`),
                 undefined,
                 isMatched
             );
@@ -2118,18 +2132,13 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                             )}
                             {activeFund === 'fp' && (
                                 <>
-                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
-                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ Diagnosis Z30</div>
-                                        <div style={{ color: '#e65100' }}>Z300-Z309 (Z30x)</div>
-                                    </div>
-                                    <div style={{ padding: '12px', background: '#ffe0b2', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
-                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ Z308 + ICD9</div>
-                                        <div style={{ color: '#e65100' }}>9923 (FP002_1) หรือ 8605 (FP002_2)</div>
-                                    </div>
-                                    <div style={{ padding: '12px', background: '#f3e5f5', borderRadius: '8px', borderLeft: '3px solid #9c27b0' }}>
-                                        <div style={{ fontWeight: 700, color: '#9c27b0', marginBottom: '4px' }}>✓ ADP Codes</div>
-                                        <div style={{ color: '#6a1b9a' }}>FP003_1, FP003_2, FP002_1, FP002_2</div>
-                                    </div>
+                                    {FAMILY_PLANNING_SERVICE_RULES.map((rule) => (
+                                        <div key={rule.code} style={{ padding: '12px', background: rule.code.startsWith('FP002') ? '#fff3e0' : '#f3e5f5', borderRadius: '8px', borderLeft: `3px solid ${rule.code.startsWith('FP002') ? '#ff9800' : '#9c27b0'}` }}>
+                                            <div style={{ fontWeight: 700, color: rule.code.startsWith('FP002') ? '#e65100' : '#6a1b9a', marginBottom: 4 }}>{rule.code} · {rule.amount} บาท</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{rule.label}</div>
+                                            <div style={{ fontSize: 10, marginTop: 4, color: 'var(--text-muted)' }}>Diagnosis {rule.diagnosis}{rule.procedure ? ` · ICD-9 ${rule.procedure}` : ''}{rule.annualLimit ? ` · ไม่เกิน ${rule.annualLimit.maximum} ${rule.annualLimit.unit}` : ''}</div>
+                                        </div>
+                                    ))}
                                 </>
                             )}
                             {activeFund === 'preg_test' && (
@@ -3003,17 +3012,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             <div style={{ fontSize: 11 }}>
-                                                                {item.pdx === 'Z308' && (
+                                                                {String(item.fp_diags || '').replace(/\./g, '').toUpperCase().includes('Z308') && (
                                                                     <>
                                                                         <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Z308</div>
-                                                                        {item.icd9_code === '9923' && <span className="badge badge-success" style={{ marginRight: 4 }}>FP002_1 (9923)</span>}
-                                                                        {item.icd9_code === '8605' && <span className="badge badge-success">FP002_2 (8605)</span>}
-                                                                        {item.icd9_code !== '9923' && item.icd9_code !== '8605' && item.icd9_code && 
-                                                                            <span className="badge badge-warning">ICD9: {item.icd9_code}</span>}
+                                                                        {hasAnyCodeValue(item.fp_adp_codes, ['FP002_1']) && hasAnyCodeValue(item.fp_icd9_codes, ['9923']) && <span className="badge badge-success" style={{ marginRight: 4 }}>FP002_1 (9923)</span>}
+                                                                        {hasAnyCodeValue(item.fp_adp_codes, ['FP002_2']) && hasAnyCodeValue(item.fp_icd9_codes, ['8605']) && <span className="badge badge-success">FP002_2 (8605)</span>}
+                                                                        {hasAnyCodeValue(item.fp_adp_codes, ['FP002_1']) && !hasAnyCodeValue(item.fp_icd9_codes, ['9923']) && <span className="badge badge-danger" style={{ marginRight: 4 }}>✗ ขาด ICD-9 9923</span>}
+                                                                        {hasAnyCodeValue(item.fp_adp_codes, ['FP002_2']) && !hasAnyCodeValue(item.fp_icd9_codes, ['8605']) && <span className="badge badge-danger">✗ ขาด ICD-9 8605</span>}
+                                                                        {!hasAnyCodeValue(item.fp_adp_codes, ['FP002_1', 'FP002_2']) && <span className="badge badge-danger">✗ ขาด ADP FP002_1/FP002_2</span>}
                                                                     </>
                                                                 )}
                                                                 {item.fp_adp_codes && <span className="badge badge-primary">{item.fp_adp_codes}</span>}
-                                                                {!item.fp_adp_codes && item.pdx !== 'Z308' && <span className="badge badge-danger">✗ ขาดรหัส FP</span>}
+                                                                {!item.fp_adp_codes && !String(item.fp_diags || '').replace(/\./g, '').toUpperCase().includes('Z308') && <span className="badge badge-danger">✗ ขาดรหัส FP</span>}
                                                             </div>
                                                         </td>
                                                     </>

@@ -110,7 +110,7 @@ const FALLBACK_FUND_DEFINITIONS = [
     { id: 'postnatal_supplements', name: 'เสริมธาตุเหล็กหลังคลอด', description: 'ยาเสริมธาตุเหล็กหลังคลอด' },
     { id: 'fluoride', name: 'เคลือบฟลูออไรด์', description: 'ทันตกรรมป้องกันฟันผุ' },
     { id: 'fp', name: 'วางแผนครอบครัว', description: 'บริการคุมกำเนิดและวางแผนครอบครัว' },
-    { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด', description: 'ยาคุมชนิดเม็ด' },
+    { id: 'contraceptive_pill', name: 'ยาเม็ดคุมกำเนิด', description: 'FP003_1/FP003_2/FP003_3 · Z304' },
     { id: 'condom', name: 'ยาฉีดคุมกำเนิด', description: 'ADP FP003_4 อัตรา 60 บาท' },
     { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก', description: 'Pap smear / Cervix screening' },
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },

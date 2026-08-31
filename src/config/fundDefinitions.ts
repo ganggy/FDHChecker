@@ -161,15 +161,15 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'บริการคุมกำเนิดและวางแผนครอบครัว',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z30x', 'กรณี Z308 ให้จับคู่ ICD9/ADP ให้ครบ', 'มี ADP กลุ่ม FP ตามบริการที่ทำจริง']
+        conditions: ['FP002_2: Z308 + ICD-9 8605 · 350 บาท', 'FP003_1/FP003_2/FP003_3/FP003_4: Diagnosis Z304', 'อัตราตามบริการ 40/80/50/60 บาท']
     },
     {
         id: 'contraceptive_pill',
-        name: 'ยาคุมกำเนิด',
-        description: 'ยาคุมชนิดเม็ด (Anna / Lynestrenol)',
+        name: 'ยาเม็ดคุมกำเนิด',
+        description: 'Anna / Lynestrenol / ยาคุมฉุกเฉิน',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)', 'ADP FP003_1 (ยา Anna 40.-) หรือ FP003_2 (ยา Lynestrenol 80.-)']
+        conditions: ['Diagnosis Z304 (การเฝ้าระวังการใช้ยาคุมกำเนิด)', 'FP003_1 Anna 40 บาท / FP003_2 Lynestrenol 80 บาท / FP003_3 ยาคุมฉุกเฉิน 50 บาท']
     },
     {
         // Legacy id retained for saved settings/API compatibility; FP003_4 is injection contraception.
@@ -178,7 +178,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'บริการยาฉีดคุมกำเนิด อัตรา 60 บาท',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z30x ตามบริการวางแผนครอบครัว', 'ADP FP003_4', 'อัตรา 60 บาทต่อครั้ง']
+        conditions: ['Diagnosis Z304', 'ADP FP003_4', 'อัตรา 60 บาทต่อเข็ม (ไม่เกิน 5 ครั้ง/ปี)']
     },
     {
         id: 'cacervix',

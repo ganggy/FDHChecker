@@ -10072,8 +10072,10 @@ export const getCheckData = async (
         CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.fp}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_diag,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', PILL_DX_CODES)} THEN 1 ELSE 0 END as has_z304_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_adp,
-        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND (d.nhso_adp_code IN ('FP003_1','FP003_2') OR d.name LIKE '%ANNA%' OR d.name LIKE '%LYNESTRENOL%') LIMIT 1) as has_fp_pill,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND (d.nhso_adp_code IN ('FP003_1','FP003_2','FP003_3') OR d.name LIKE '%ANNA%' OR d.name LIKE '%LYNESTRENOL%') LIMIT 1) as has_fp_pill,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = 'FP003_4' LIMIT 1) as has_fp_condom,
+        (SELECT COALESCE(SUM(COALESCE(oo.qty, 0)), 0) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=ovst.hn AND YEAR(fy.vstdate)=YEAR(ovst.vstdate) AND d.nhso_adp_code='FP003_3') as fp_emergency_year_qty,
+        (SELECT COUNT(DISTINCT oo.vn) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=ovst.hn AND YEAR(fy.vstdate)=YEAR(ovst.vstdate) AND d.nhso_adp_code='FP003_4') as fp_injection_year_count,
         
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z124|^Z014' LIMIT 1) as has_cx_diag,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '1B004|1B005' LIMIT 1) as has_cx_adp,
@@ -10840,8 +10842,10 @@ export const getEligibleVisits = async (
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '15001' LIMIT 1) as has_fluoride,
         CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.fp}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_adp,
-        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('FP003_1','FP003_2') LIMIT 1) as has_fp_pill,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('FP003_1','FP003_2','FP003_3') LIMIT 1) as has_fp_pill,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = 'FP003_4' LIMIT 1) as has_fp_condom,
+        (SELECT COALESCE(SUM(COALESCE(oo.qty, 0)), 0) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=ovst.hn AND YEAR(fy.vstdate)=YEAR(ovst.vstdate) AND d.nhso_adp_code='FP003_3') as fp_emergency_year_qty,
+        (SELECT COUNT(DISTINCT oo.vn) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=ovst.hn AND YEAR(fy.vstdate)=YEAR(ovst.vstdate) AND d.nhso_adp_code='FP003_4') as fp_injection_year_count,
         
         -- ตรวจมะเร็งปากมดลูก (เดิม)
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.cx}' LIMIT 1) as has_cx_diag,
@@ -13117,7 +13121,14 @@ export const getSpecificFundData = async (
             FROM opitemrece oo
             JOIN s_drugitems d ON d.icode = oo.icode
             WHERE oo.vn = o.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}'
-          ) as fp_adp_codes
+          ) as fp_adp_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT REPLACE(dro.icd9, '.', '') ORDER BY dro.icd9 SEPARATOR ', ')
+            FROM doctor_operation dro
+            WHERE dro.vn = o.vn AND REPLACE(dro.icd9, '.', '') IN ('9923', '8605')
+          ) as fp_icd9_codes,
+          (SELECT COALESCE(SUM(COALESCE(oo.qty, 0)), 0) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=o.hn AND YEAR(fy.vstdate)=YEAR(o.vstdate) AND d.nhso_adp_code='FP003_3') as fp_emergency_year_qty,
+          (SELECT COUNT(DISTINCT oo.vn) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=o.hn AND YEAR(fy.vstdate)=YEAR(o.vstdate) AND d.nhso_adp_code='FP003_4') as fp_injection_year_count
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
@@ -13912,7 +13923,7 @@ export const getSpecificFundData = async (
         'postnatal_care': '30015',
         'postnatal_supplements': '30016',
         'fluoride': '15001',
-        'contraceptive_pill': ['FP003_1', 'FP003_2'],
+        'contraceptive_pill': ['FP003_1', 'FP003_2', 'FP003_3'],
         'condom': 'FP003_4'
     };
 
@@ -13955,6 +13966,8 @@ export const getSpecificFundData = async (
               CASE WHEN ${buildPostIronMedExistsSql('o')} THEN 'Y' ELSE 'N' END as has_post_iron_med,
               CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.fp}' LIMIT 1) THEN 'Y' ELSE 'N' END as has_fp_diag,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}' LIMIT 1) THEN 'Y' ELSE 'N' END as has_fp_adp,
+              (SELECT COALESCE(SUM(COALESCE(oo.qty, 0)), 0) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=o.hn AND YEAR(fy.vstdate)=YEAR(o.vstdate) AND d.nhso_adp_code='FP003_3') as fp_emergency_year_qty,
+              (SELECT COUNT(DISTINCT oo.vn) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=o.hn AND YEAR(fy.vstdate)=YEAR(o.vstdate) AND d.nhso_adp_code='FP003_4') as fp_injection_year_count,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND ${adpCondition} LIMIT 1) THEN 'Y' ELSE 'N' END as has_specific_adp,
               (SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ', ') FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND ${adpCondition}) as adp_names,
               (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode

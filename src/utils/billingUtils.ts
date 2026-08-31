@@ -515,18 +515,22 @@ export const evaluateBillingLogic = (item: any) => {
         const hasFpDiag = toBool(item?.has_fp_diag) || hasDiagRegex(item, /^Z30/);
         const hasZ304Diag = toBool(item?.has_z304_diag) || hasDiagCode(item, ['Z304']);
         const hasFpAnyAdp = toBool(item?.has_fp_adp);
-        const fpPillNearMissing = getNearFundMissingParts(toBool(item?.has_fp_pill), ' ADP FP003_1/FP003_2', [
-            { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)' },
+        const fpPillNearMissing = getNearFundMissingParts(toBool(item?.has_fp_pill), ' ADP FP003_1/FP003_2/FP003_3', [
+            { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังการใช้ยาคุมกำเนิด)' },
         ], hasZ304Diag);
-        if (toBool(item?.has_fp_pill) && hasZ304Diag) {
-            fundNotes.push({ label: '💊 ยาคุมกำเนิด', kind: 'matched', group: 'drug' });
+        const fpEmergencyYearQty = Number(item?.fp_emergency_year_qty || 0);
+        if (fpEmergencyYearQty > 2) fpPillNearMissing.push(` FP003_3 เกิน 2 แผง/ปี (พบ ${fpEmergencyYearQty})`);
+        if (toBool(item?.has_fp_pill) && hasZ304Diag && fpEmergencyYearQty <= 2) {
+            fundNotes.push({ label: '💊 ยาเม็ดคุมกำเนิด', kind: 'matched', group: 'drug' });
         } else {
-            addWarningFundNote(fundNotes, 'ยาคุมกำเนิด', fpPillNearMissing, 'drug');
+            addWarningFundNote(fundNotes, 'ยาเม็ดคุมกำเนิด', fpPillNearMissing, 'drug');
         }
         const fpInjectionNearMissing = getNearFundMissingParts(toBool(item?.has_fp_condom), ' ADP FP003_4', [
-            { met: hasFpDiag, label: ' Diagnosis Z30x' },
-        ], hasFpDiag);
-        if (toBool(item?.has_fp_condom) && hasFpDiag) {
+            { met: hasZ304Diag, label: ' Diagnosis Z304' },
+        ], hasZ304Diag);
+        const fpInjectionYearCount = Number(item?.fp_injection_year_count || 0);
+        if (fpInjectionYearCount > 5) fpInjectionNearMissing.push(` FP003_4 เกิน 5 ครั้ง/ปี (พบ ${fpInjectionYearCount})`);
+        if (toBool(item?.has_fp_condom) && hasZ304Diag && fpInjectionYearCount <= 5) {
             fundNotes.push({ label: '💉 ยาฉีดคุมกำเนิด', kind: 'matched', group: 'drug' });
         } else {
             addWarningFundNote(fundNotes, 'ยาฉีดคุมกำเนิด', fpInjectionNearMissing, 'drug');

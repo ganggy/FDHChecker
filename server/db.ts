@@ -12661,8 +12661,8 @@ export const deleteNonQualifyingPalliativeItems = async (
       hasEligibleDiseaseDiagnosis: visit.has_eligible_palliative_diag,
       drugCount: visit.drug_count,
     });
-    if (!review.canRemoveDiagnosis) {
-      throw new Error('ลบได้เฉพาะ visit ที่ไม่ใช่เยี่ยมบ้าน กรุณาตรวจและแก้ข้อมูลบริการแทนการลบรายการ Palliative');
+    if (!review.shouldReview) {
+      throw new Error('ลบได้เฉพาะ visit ที่ระบบตรวจว่าไม่เข้าเกณฑ์ Palliative');
     }
 
     const diagnosisIds = diagnosisRows.map((row) => Number(row.ovst_diag_id)).filter(Number.isFinite);

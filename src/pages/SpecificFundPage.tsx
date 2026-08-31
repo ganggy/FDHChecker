@@ -2737,20 +2737,17 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                 {markingPalliativeHomeVn === String(item.vn) ? 'กำลังปรับ...' : '🏠 ยืนยันเป็น visit เยี่ยมบ้าน'}
                                                                             </button>
                                                                         )}
-                                                                        {review.canRemoveDiagnosis && (
+                                                                        {review.shouldReview && (
                                                                             <button
                                                                                 type="button"
                                                                                 className="btn"
                                                                                 style={{ padding: '5px 9px', fontSize: 11, background: '#dc2626', color: 'white', borderColor: '#b91c1c', fontWeight: 700 }}
                                                                                 disabled={deletingPalliativeVn === String(item.vn) || markingPalliativeHomeVn === String(item.vn)}
                                                                                 onClick={(event) => void handleDeletePalliativeItems(item, event)}
-                                                                                title="ลบ Z51.5/Z71.8 และรายการ ADP 30001/Cons01/Eva001 ของ VN นี้ พร้อมบันทึก audit"
+                                                                                title="ลบ Z51.5/Z71.8 และรายการ ADP 30001/Cons01/Eva001 ของ VN ที่ไม่เข้าเกณฑ์ พร้อมบันทึก audit"
                                                                             >
                                                                                 {deletingPalliativeVn === String(item.vn) ? 'กำลังลบ...' : '🗑️ ลบรายการ Palliative'}
                                                                             </button>
-                                                                        )}
-                                                                        {review.shouldReview && !review.canRemoveDiagnosis && (
-                                                                            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>เยี่ยมบ้าน: ให้แก้ข้อมูลบริการ จึงไม่เปิดปุ่มลบ</span>
                                                                         )}
                                                                     </div>
                                                                 );

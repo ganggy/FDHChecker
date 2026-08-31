@@ -47,11 +47,8 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
         && isHomeVisit
         && hasPalliativeAdp
         && hasEligibleDiseaseDiagnosis;
-    const canMarkAsHomeVisit = hasPalliativeDiagnosis
-        && hasZ515
-        && !isHomeVisit
-        && hasPalliativeAdp
-        && hasEligibleDiseaseDiagnosis;
+    const canMarkAsHomeVisit = !isHomeVisit
+        && (hasPalliativeDiagnosis || hasPalliativeAdp);
     const visitKind = isHomeVisit
         ? 'home-palliative'
         : hasDrugs

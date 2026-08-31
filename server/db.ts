@@ -12446,7 +12446,7 @@ export const markPalliativeVisitAsHomeVisit = async (
       drugCount: visit.drug_count,
     });
     if (!review.canMarkAsHomeVisit) {
-      throw new Error('ปรับเป็นเยี่ยมบ้านได้เฉพาะรายการที่มี Z51.5, โรคหลัก และ ADP ครบ โดยขาดเพียงประเภท visit');
+      throw new Error('ปรับเป็นเยี่ยมบ้านได้เฉพาะ visit ที่ยังไม่ใช่เยี่ยมบ้าน และมี Diagnosis หรือรายการบริการ Palliative');
     }
 
     const [updateResult] = await connection.query(`

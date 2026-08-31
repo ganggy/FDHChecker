@@ -61,7 +61,7 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
     return {
         hasPalliativeDiagnosis,
         qualifiesForService,
-        shouldReview: hasPalliativeDiagnosis && !qualifiesForService,
+        shouldReview: (hasPalliativeDiagnosis || hasPalliativeAdp) && !qualifiesForService,
         canRemoveDiagnosis: hasPalliativeDiagnosis && !isHomeVisit,
         canMarkAsHomeVisit,
         visitKind,

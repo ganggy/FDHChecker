@@ -12637,8 +12637,6 @@ export const deleteNonQualifyingPalliativeItems = async (
       ORDER BY diagtype, ovst_diag_id
       FOR UPDATE
     `, [normalizedVn, ...PALLIATIVE_SERVICE_DX_CODES]);
-    if (diagnosisRows.length === 0) throw new Error('ไม่พบ Diagnosis Z51.5/Z71.8 ใน VN นี้แล้ว');
-
     const [serviceRows] = await connection.query<any[]>(`
       SELECT oo.hos_guid, oo.icode, oo.qty, oo.unitprice, oo.sum_price, oo.income,
         sd.nhso_adp_code, sd.name AS item_name
@@ -12649,6 +12647,9 @@ export const deleteNonQualifyingPalliativeItems = async (
       ORDER BY oo.item_no, oo.hos_guid
       FOR UPDATE
     `, [normalizedVn, ...businessRules.adp_codes.palliative.map((code) => String(code).toUpperCase())]);
+    if (diagnosisRows.length === 0 && serviceRows.length === 0) {
+      throw new Error('ไม่พบ Diagnosis หรือรายการบริการ Palliative ใน VN นี้แล้ว');
+    }
 
     const z515Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z515')?.icd10;
     const z718Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z718')?.icd10;
@@ -12668,13 +12669,16 @@ export const deleteNonQualifyingPalliativeItems = async (
     const diagnosisIds = diagnosisRows.map((row) => Number(row.ovst_diag_id)).filter(Number.isFinite);
     const serviceGuids = serviceRows.map((row) => String(row.hos_guid || '')).filter(Boolean);
 
-    const [diagDeleteResult] = await connection.query(`
-      DELETE FROM ovstdiag
-      WHERE vn=? AND ovst_diag_id IN (${diagnosisIds.map(() => '?').join(',')})
-    `, [normalizedVn, ...diagnosisIds]);
-    const deletedDiagnosisCount = Number((diagDeleteResult as { affectedRows?: number }).affectedRows || 0);
-    if (deletedDiagnosisCount !== diagnosisRows.length) {
-      throw new Error('จำนวน Diagnosis ที่ลบไม่ตรงกับข้อมูลที่ตรวจสอบ กรุณาลองใหม่');
+    let deletedDiagnosisCount = 0;
+    if (diagnosisIds.length > 0) {
+      const [diagDeleteResult] = await connection.query(`
+        DELETE FROM ovstdiag
+        WHERE vn=? AND ovst_diag_id IN (${diagnosisIds.map(() => '?').join(',')})
+      `, [normalizedVn, ...diagnosisIds]);
+      deletedDiagnosisCount = Number((diagDeleteResult as { affectedRows?: number }).affectedRows || 0);
+      if (deletedDiagnosisCount !== diagnosisRows.length) {
+        throw new Error('จำนวน Diagnosis ที่ลบไม่ตรงกับข้อมูลที่ตรวจสอบ กรุณาลองใหม่');
+      }
     }
 
     let deletedServiceCount = 0;

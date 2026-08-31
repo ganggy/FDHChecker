@@ -310,7 +310,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             item?.has_eva001 === 'Y' ? 'Eva001' : '',
         ].filter(Boolean).join(', ');
         const confirmed = window.confirm(
-            `ยืนยันลบรายการ Palliative ของ VN ${vn}\n\nDiagnosis ที่จะลบ: ${codes || 'Z51.5/Z71.8'}\nรายการบริการที่จะลบ: ${serviceCodes || 'ไม่พบ 30001/Cons01/Eva001'}\nเหตุผลที่เข้ากลุ่มตรวจสอบ:\n- ${review.reasons.join('\n- ')}\n\nระบบจะลบเฉพาะ Diagnosis Z51.5/Z71.8 และบรรทัดค่าบริการที่มี ADP 30001/Cons01/Eva001 ของ visit นี้ ไม่ลบโรค ยา หรือค่าบริการอื่น และจะบันทึก audit snapshot ก่อนลบ`,
+            `ยืนยันลบรายการ Palliative ของ VN ${vn}\n\nDiagnosis ที่จะลบ: ${codes || 'ไม่พบ (จะไม่ลบ Diagnosis)'}\nรายการบริการที่จะลบ: ${serviceCodes || 'ไม่พบ 30001/Cons01/Eva001'}\nเหตุผลที่เข้ากลุ่มตรวจสอบ:\n- ${review.reasons.join('\n- ')}\n\nระบบจะลบเฉพาะ Diagnosis Z51.5/Z71.8 ที่พบ และบรรทัดค่าบริการที่มี ADP 30001/Cons01/Eva001 ของ visit นี้ ไม่ลบโรค ยา หรือค่าบริการอื่น และจะบันทึก audit snapshot ก่อนลบ`,
         );
         if (!confirmed) return;
 

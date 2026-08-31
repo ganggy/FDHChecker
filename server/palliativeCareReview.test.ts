@@ -53,3 +53,17 @@ test('flags Z71.8 recorded without Z51.5', () => {
   assert.equal(result.canRemoveDiagnosis, false);
   assert.ok(result.reasons.includes('ไม่มี Z51.5 (Z71.8 ใช้เดี่ยวไม่ได้)'));
 });
+
+test('offers review and removal for palliative service items without Z51.5 or Z71.8', () => {
+  const result = reviewPalliativeCareVisit({
+    isHomeVisit: false,
+    hasPalliativeAdp: true,
+    hasEligibleDiseaseDiagnosis: false,
+    drugCount: 0,
+  });
+
+  assert.equal(result.hasPalliativeDiagnosis, false);
+  assert.equal(result.qualifiesForService, false);
+  assert.equal(result.shouldReview, true);
+  assert.equal(result.canRemoveDiagnosis, false);
+});

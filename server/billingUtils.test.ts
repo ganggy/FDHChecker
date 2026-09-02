@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { evaluateBillingLogic } from '../src/utils/billingUtils.js';
+import { filterSpecificFundRows, hasTraditionalMedicineDiagnosis } from '../src/utils/specificFundRules.js';
 import {
   ANC_DENTAL_CLEAN_PROCEDURE_CODES,
   ANC_DENTAL_EXAM_PROCEDURE_CODES,
@@ -12,6 +13,17 @@ const opdVisit = {
   has_close: 0,
   main_diag: 'N185',
 };
+
+test('postnatal page excludes visits with U diagnoses from API fallback fields', () => {
+  const rows = [
+    { vn: 'traditional', pdx: 'Z392', dx0: 'U505', dx1: 'R42', dx2: 'U6131' },
+    { vn: 'postnatal', pdx: 'Z392', dx0: 'R42' },
+  ];
+
+  assert.equal(hasTraditionalMedicineDiagnosis(rows[0]), true);
+  assert.deepEqual(filterSpecificFundRows('postnatal_care', rows), [rows[1]]);
+  assert.deepEqual(filterSpecificFundRows('postnatal_supplements', rows), rows);
+});
 
 test('SSS is exported as UUC2 without being presented as excluded', () => {
   const result = evaluateBillingLogic({

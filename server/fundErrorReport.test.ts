@@ -9,6 +9,15 @@ import {
   isFundReportEligible,
   REPORT_FUNDS,
 } from './fundErrorReport.js';
+import { buildPostnatalTraditionalMedicineExclusionSql } from './specificFundRules.js';
+
+test('postnatal care excludes visits with a traditional medicine U diagnosis', () => {
+  const sql = buildPostnatalTraditionalMedicineExclusionSql('o');
+
+  assert.match(sql, /traditional_dx\.vn\s*=\s*o\.vn/);
+  assert.match(sql, /UPPER\(TRIM\(COALESCE\(traditional_dx\.icd10, ''\)\)\) LIKE 'U%'/);
+  assert.match(sql, /^\s*NOT EXISTS/);
+});
 
 test('LINE report flags S1 transport claims when OP Refer patient travels independently', () => {
   const section = buildOpReferSelfTransportErrorSection([{

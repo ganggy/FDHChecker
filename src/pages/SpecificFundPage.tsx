@@ -12,6 +12,7 @@ import { consumeDashboardNavigation } from '../utils/navigationState';
 import { buildFdhClaimProgress, hasFdhSubmissionData } from '../utils/fdhClaimProgress';
 import { reviewPalliativeCareVisit } from '../utils/palliativeCareReview';
 import { evaluateFamilyPlanningEvidence, FAMILY_PLANNING_SERVICE_RULES } from '../utils/familyPlanningRules';
+import { filterSpecificFundRows } from '../utils/specificFundRules';
 import { fetchAppSettings } from '../services/hosxpService';
 import {
     ANC_DENTAL_CLEAN_PROCEDURE_CODES,
@@ -195,7 +196,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (!json.success) {
             throw new Error('ไม่สามารถดึงข้อมูลได้');
         }
-        return json.data as any[];
+        return filterSpecificFundRows(fundId, json.data as any[]);
     }, [startDate, endDate]);
 
     const fetchFundData = useCallback(async () => {

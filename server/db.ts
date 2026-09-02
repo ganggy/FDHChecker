@@ -12,6 +12,7 @@ import { attachKidneyRepStmTracking } from './kidneyRepStmTracking.js';
 import { PALLIATIVE_DIAGNOSIS_GROUPS } from '../src/config/palliativeDiagnosisCatalog.js';
 import { reviewPalliativeCareVisit } from '../src/utils/palliativeCareReview.js';
 import { SYPHILIS_SCREENING_ADP_CODES, SYPHILIS_SCREENING_NAME_PATTERN } from '../src/utils/syphilisScreeningRules.js';
+import { buildPostnatalTraditionalMedicineExclusionSql } from './specificFundRules.js';
 
 dotenv.config();
 
@@ -13963,6 +13964,9 @@ export const getSpecificFundData = async (
         const adpCondition = Array.isArray(adpParam) 
             ? `d.nhso_adp_code IN (${adpParam.map(c => `'${c}'`).join(',')})`
             : `d.nhso_adp_code = '${adpParam}'`;
+        const postnatalTraditionalMedicineExclusion = fundType === 'postnatal_care'
+            ? `AND ${buildPostnatalTraditionalMedicineExclusionSql('o')}`
+            : '';
 
         const [rows] = await connection.query(`
             SELECT 
@@ -14007,6 +14011,7 @@ export const getSpecificFundData = async (
             LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
             LEFT JOIN vn_stat v ON v.vn = o.vn
             WHERE o.vstdate BETWEEN ? AND ?
+              ${postnatalTraditionalMedicineExclusion}
               AND (
                 (${fundType === 'preg_test' || fundType === 'pregnancy_test' ? `((${buildPregLabExistsSql('o')} AND ${buildDiagnosisMatchSql('o', 'v', UPT_DX_CODES)}) OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30014'))` : '0'})
                 OR (${fundType === 'postnatal_care' ? `(${buildDiagnosisMatchSql('o', 'v', POSTNATAL_CARE_DX_CODES)} OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30015'))` : '0'})

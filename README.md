@@ -109,3 +109,7 @@ deploy/                 PM2, Nginx, backup และ runbook สำหรับ 
 
 ดูวิธีเปิดระบบแบบย่อที่ [QUICK_START.md](./QUICK_START.md)
 ดูงานที่ยังเหลือและลำดับความสำคัญที่ [BACKLOG.md](./BACKLOG.md)
+
+## 📜 License
+
+MIT License — ดูไฟล์ [LICENSE](./LICENSE)

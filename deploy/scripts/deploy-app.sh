@@ -4,7 +4,7 @@ set -Eeuo pipefail
 APP_DIR="${FDH_APP_DIR:-/opt/FDHChecker}"
 DEPLOY_BRANCH="${FDH_DEPLOY_BRANCH:-agent/add-local-ai}"
 HEALTH_BASE_URL="${FDH_HEALTH_BASE_URL:-http://127.0.0.1:3506}"
-PM2_APPS="${FDH_PM2_APPS:-fdh-checker-api}"
+PM2_APPS="${FDH_PM2_APPS:-fdh-backend fdh-frontend}"
 
 log() { printf '[deploy] %s\n' "$*"; }
 fail() { printf '[deploy] ERROR: %s\n' "$*" >&2; exit 1; }

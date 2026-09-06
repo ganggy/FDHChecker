@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/db.ts"
-source_hash: "93b16c3176e5b243c37f9ba52e70a34b72b3b95e37cf032cb79667b7a402f015"
+source_hash: "aff10f1bd5ac329400f7d206088bc5b40216ce6991567025ec85a2f55998365c"
 managed_by: "sync-ksp-vault"
 ---
 # db.ts
 
 > Source: `server/db.ts`
-> SHA-256: `93b16c3176e5b243c37f9ba52e70a34b72b3b95e37cf032cb79667b7a402f015`
+> SHA-256: `aff10f1bd5ac329400f7d206088bc5b40216ce6991567025ec85a2f55998365c`
 
 ````typescript
 import mysql from 'mysql2/promise';
@@ -412,7 +412,7 @@ const APP_SESSION_TABLE_SQL = `
 `;
 
 export const DEFAULT_MENU_PAGES = [
-  'staff', 'ipd', 'hospitalReports', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
+  'staff', 'ipd', 'aiReports', 'hospitalReports', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
   'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'revenueOpportunity', 'reconciliation',
@@ -420,7 +420,7 @@ export const DEFAULT_MENU_PAGES = [
 ];
 
 const DEFAULT_STAFF_MENU_PAGES = [
-  'staff', 'ipd', 'hospitalReports', 'fdh', 'nhsoClose', 'preValidator', 'workQueue', 'guide'
+  'staff', 'ipd', 'aiReports', 'hospitalReports', 'fdh', 'nhsoClose', 'preValidator', 'workQueue', 'guide'
 ];
 
 const FDH_STATUS_IMPORT_LOG_TABLE_SQL = `
@@ -1500,10 +1500,16 @@ export const ensureAuthTables = async () => {
       ['staff']
     );
     const staffGroup = Array.isArray(staffGroupRows) && staffGroupRows.length > 0 ? (staffGroupRows[0] as any) : null;
-    if (staffGroup && normalizeMenuPermissions(staffGroup.menu_permissions).length === 0) {
+    const staffPermissions = staffGroup ? normalizeMenuPermissions(staffGroup.menu_permissions) : [];
+    if (staffGroup && staffPermissions.length === 0) {
       await connection.query(
         'UPDATE app_user_group SET menu_permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
         [JSON.stringify(DEFAULT_STAFF_MENU_PAGES), Number(staffGroup.id)]
+      );
+    } else if (staffGroup && staffPermissions.includes('hospitalReports') && !staffPermissions.includes('aiReports')) {
+      await connection.query(
+        'UPDATE app_user_group SET menu_permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [JSON.stringify([...staffPermissions, 'aiReports']), Number(staffGroup.id)]
       );
     }
     if (staffGroup) {

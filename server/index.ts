@@ -7,7 +7,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
 import crypto from 'crypto';
-import { getVisitsCached } from './cacheManager.js';
+import { clearCache, getVisitsCached } from './cacheManager.js';
 import {
   getCheckData,
   testDatabaseConnection,
@@ -66,6 +66,7 @@ import {
   getRepDailyVisitDetail,
   saveReceivableBatch,
   syncNhsoAuthenCodes,
+  syncNhsoIpdAuthenCodes,
   getAuthenSyncLogs,
   ensureNhsoClosePrivilegeTable,
   getNhsoClosePrivilegeCandidates,
@@ -73,6 +74,10 @@ import {
   testNhsoClosePrivilegeToken,
   submitNhsoClosePrivileges,
   importFdhStatusForDateRange,
+  deleteNonQualifyingPalliativeDiagnoses,
+  deleteNonQualifyingPalliativeItems,
+  markPalliativeVisitAsHomeVisit,
+  closeDatabasePools,
 } from './db.js';
 import businessRules from './config/business_rules.json';
 import { promises as fs } from 'fs';
@@ -87,16 +92,20 @@ import {
   dateRangeGuard,
   jsonBodyParserMiddleware,
   requestTracingMiddleware,
+  validateDateRange,
 } from './requestSafety.js';
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
 import { aiRouter } from './aiRoutes.js';
 import { hospitalReportRouter } from './hospitalReportRoutes.js';
+import { createHealthRouter } from './routes/healthRoutes.js';
+import { sssRouter } from './routes/sssRoutes.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
   buildFdhFiles,
   normalizeFdhProfile,
   projectFdhData,
+  scopeFdhData,
   selectFdhUploadFiles,
   uploadFdhFiles,
   validateFdhData,
@@ -114,6 +123,14 @@ import {
   replyLineMessages,
   verifyLineWebhookSignature,
 } from './lineMessaging.js';
+import { isMissingFdhStatus } from '../src/utils/fdhClaimProgress.js';
+import { hasPalliativeAuthenReady } from '../src/utils/billingUtils.js';
+import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
+import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
+import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
+import { collaborationRouter } from './routes/collaborationRoutes.js';
+import { getUcOutsideCupWalkinAudit, insertMissingUcOutsideCupWalkin } from './ucOutsideCupWalkin.js';
+import { completeKneeOpppVisit, getKneeOpppProviders, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -329,6 +346,7 @@ const NHSO_AUTHEN_SETTINGS_KEY = 'nhso_authen_settings';
 const NHSO_CLOSE_SETTINGS_KEY = 'nhso_close_settings';
 const NHSO_ECLAIM_SETTINGS_KEY = 'nhso_eclaim_settings';
 const MOPH_CLAIM_SETTINGS_KEY = 'moph_claim_settings';
+const IPD_LOS_SETTINGS_KEY = 'ipd_los_settings';
 const MOPH_DMHT_ACTION_LIMIT = 20000;
 
 ensureAuthTables().catch((error) => {
@@ -719,8 +737,10 @@ app.post('/api/admin/line/test', requireAdmin, async (req, res) => {
 
 // All API routes declared below this point require an approved, active user.
 // Health remains public for PM2/reverse-proxy readiness checks and contains no infrastructure details.
+const publicHealthPaths = new Set(['/health', '/live', '/ready']);
+
 app.use('/api', (req: AuthenticatedRequest, res, next) => {
-  if (req.path === '/health') return next();
+  if (publicHealthPaths.has(req.path)) return next();
   return void requireAuth(req, res, next);
 });
 
@@ -741,6 +761,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/config\/nhso-authen-settings(\/|$)/, pages: ['settings', 'authenSync'] },
   { pattern: /^\/config\/nhso-close-settings(\/|$)/, pages: ['settings', 'nhsoClose'] },
   { pattern: /^\/config\/nhso-eclaim-settings(\/|$)/, pages: ['settings', 'repstm'] },
+  { pattern: /^\/config\/ipd-los-settings(\/|$)/, pages: ['settings', 'ipd'] },
   { pattern: /^\/nhso\/authen(\/|$)/, pages: ['authenSync'] },
   { pattern: /^\/nhso\/close(\/|$)/, pages: ['nhsoClose'] },
   { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
@@ -764,7 +785,7 @@ const apiPageRules: ApiPageRule[] = [
 ];
 
 app.use('/api', (req: AuthenticatedRequest, res, next) => {
-  if (req.path === '/health') return next();
+  if (publicHealthPaths.has(req.path)) return next();
   const user = req.authUser;
   if (!user) return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ' });
   if (user.is_admin || user.group_is_admin) return next();
@@ -783,6 +804,7 @@ app.use('/api/hospital-reports', hospitalReportRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);
+app.use('/api/sss', sssRouter);
 
 const getResolvedHospitalCode = async (): Promise<string> => {
   const siteSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
@@ -1357,6 +1379,7 @@ app.get('/api/hosxp/checks', async (req, res) => {
 
       return {
         ...record,
+        opd_pre_audit: buildOpdPreAuditResult(record),
         status: isComplete ? 'ready' : 'pending',
         isBillable,
         issues: issues,
@@ -1569,11 +1592,84 @@ app.get('/api/hosxp/ipd-list', async (req, res) => {
     const { startDate, endDate, statusFilter } = req.query;
     console.log(`🛏️ Fetching IPD List: ${startDate} to ${endDate}, Status: ${statusFilter || 'All'}`);
     const { getEligibleIPD } = await import('./db.js');
-    const data = await getEligibleIPD(startDate as string, endDate as string, statusFilter as string);
-    res.json({ success: true, data });
+    const [data, storedLosRules] = await Promise.all([
+      getEligibleIPD(startDate as string, endDate as string, statusFilter as string),
+      getAppSetting<unknown>(IPD_LOS_SETTINGS_KEY),
+    ]);
+    const losRules = storedLosRules == null ? DEFAULT_IPD_LOS_RULES : normalizeIpdLosRules(storedLosRules);
+    const enrichedData = data.map((row: Record<string, unknown>) => {
+      const diagnoses = String(row.diagnosis_codes || '').split(',').map((code) => code.trim()).filter(Boolean);
+      const procedures = String(row.or_codes || '').split(',').map((code) => code.trim()).filter(Boolean);
+      const admissionAt = row.admDate ? `${row.admDate} ${row.regTime || '00:00:00'}` : '';
+      const dischargeAt = row.dchdate ? `${row.dchdate} ${row.dchTime || '00:00:00'}` : '';
+      const preAudit = evaluateIpdPreAudit({
+        diagnoses,
+        procedures,
+        principalDiagnosis: row.pdx,
+        sex: row.sex,
+        ageDays: row.ageDays,
+        wardName: row.ward,
+        hasTamiflu: row.hasTamiflu,
+        hasInfluenzaTest: row.hasInfluenzaTest,
+        hasCtScan: row.hasCtScan,
+        hasReferral: row.hasReferral,
+        admissionAt,
+        dischargeAt,
+        previousDischargeAt: row.previousDischargeAt,
+        includeDocumentAudit: true,
+      });
+      const exportIssues: string[] = [];
+      if (!row.dchdate) exportIssues.push('ยังไม่จำหน่าย');
+      if (!String(row.pdx || '').trim()) exportIssues.push('ไม่พบ Principal diagnosis');
+      if (Number(row.totalPrice || 0) <= 0) exportIssues.push('ไม่พบยอดค่าใช้จ่าย');
+      if (preAudit.status === 'risk' && String(row.audit_status || '').toUpperCase() !== 'AUDITED') {
+        exportIssues.push(`ติดความเสี่ยง Pre-audit ${preAudit.riskCount} จุด (ต้องตรวจชาร์ตก่อน)`);
+      }
+      return {
+        ...row,
+        ...assessIpdLos(row.pdx, row.los, losRules),
+        pre_audit: preAudit,
+        export_ready: exportIssues.length === 0,
+        export_issues: exportIssues,
+      };
+    });
+    res.json({ success: true, data: enrichedData });
   } catch (error) {
     console.error('Error fetching IPD list:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+app.post('/api/fdh/ipd/authen/sync', async (req, res) => {
+  try {
+    const startDate = String(req.body?.startDate || '').trim();
+    const endDate = String(req.body?.endDate || '').trim();
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่ Admit/D/C' });
+    }
+    const authenConfig = await getResolvedNhsoAuthenConfig();
+    const token = String(authenConfig.token || '').trim();
+    if (!token) {
+      return res.status(400).json({ success: false, error: 'ยังไม่ได้ตั้งค่า NHSO Token สำหรับตรวจ Authen Code' });
+    }
+    const summary = await syncNhsoIpdAuthenCodes({
+      token,
+      baseUrl: String(authenConfig.apiBaseUrl || '').trim(),
+      hospitalCode: await getResolvedHospitalCode(),
+      startDate,
+      endDate,
+      maxDays: 31,
+      force: Boolean(req.body?.force),
+      fundCodes: ['UCS', 'LGO', 'WEL'],
+    });
+    if (summary.updated > 0) clearCache();
+    return res.json({ success: true, summary });
+  } catch (error) {
+    console.error('Error auto-syncing FDH IPD Authen Code:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ตรวจ Authen Code ผู้ป่วยในจาก API ไม่สำเร็จ',
+    });
   }
 });
 
@@ -1591,6 +1687,118 @@ app.get('/api/hosxp/specific-funds', async (req, res) => {
   } catch (error) {
     console.error('Error fetching specific fund data:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+app.delete('/api/hosxp/palliative-diagnoses/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (req.body?.confirmRemovePalliativeDiagnosis !== true) {
+      return res.status(400).json({ success: false, error: 'กรุณายืนยันการลบ Diagnosis Palliative' });
+    }
+    const result = await deleteNonQualifyingPalliativeDiagnoses(vn, {
+      userId: req.authUser?.id,
+      username: req.authUser?.username,
+    });
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to remove non-qualifying palliative diagnoses:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ลบ Diagnosis Palliative ไม่สำเร็จ',
+    });
+  }
+});
+
+app.delete('/api/hosxp/palliative-items/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (req.body?.confirmRemovePalliativeItems !== true) {
+      return res.status(400).json({
+        success: false,
+        error: 'กรุณายืนยันการลบ Diagnosis และรายการบริการ Palliative',
+      });
+    }
+    const result = await deleteNonQualifyingPalliativeItems(vn, {
+      userId: req.authUser?.id,
+      username: req.authUser?.username,
+    });
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to remove non-qualifying palliative items:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ลบรายการ Palliative ไม่สำเร็จ',
+    });
+  }
+});
+
+app.patch('/api/hosxp/palliative-home-visit/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (req.body?.confirmActualHomeVisit !== true) {
+      return res.status(400).json({ success: false, error: 'กรุณายืนยันว่า visit นี้มีการเยี่ยมบ้านจริง' });
+    }
+    const result = await markPalliativeVisitAsHomeVisit(vn, {
+      userId: req.authUser?.id,
+      username: req.authUser?.username,
+    });
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to mark palliative visit as home visit:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ปรับประเภท visit เป็นเยี่ยมบ้านไม่สำเร็จ',
+    });
+  }
+});
+
+app.get('/api/hosxp/knee-oppp-completion/:vn', async (req, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const assessment = await previewKneeOpppCompletion(vn);
+    return res.json({ success: true, assessment });
+  } catch (error) {
+    console.error('Unable to preview knee OPPP completion:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ตรวจความครบถ้วนพอกเข่าไม่สำเร็จ',
+    });
+  }
+});
+
+app.get('/api/hosxp/knee-oppp-providers', async (_req, res) => {
+  try {
+    return res.json({ success: true, data: await getKneeOpppProviders() });
+  } catch (error) {
+    console.error('Unable to load knee OPPP providers:', error);
+    return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านรายชื่อผู้ให้บริการแพทย์แผนไทยได้' });
+  }
+});
+
+app.post('/api/hosxp/knee-oppp-completion/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const result = await completeKneeOpppVisit(vn, {
+      id: req.authUser?.id,
+      name: req.authUser?.display_name || req.authUser?.username,
+    }, req.body?.confirmClinicalEvidence === true, {
+      createMissingService: req.body?.createMissingService === true,
+      providerId: req.body?.providerId == null ? null : Number(req.body.providerId),
+    });
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to complete knee OPPP data:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เพิ่มข้อมูลพอกเข่าไม่สำเร็จ',
+    });
   }
 });
 
@@ -1798,8 +2006,9 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       const isOFC_LGO = item.hipdata_code === 'OFC' || item.hipdata_code === 'LGO';
       const isUCS = item.hipdata_code === 'UCS' || item.hipdata_code === 'WEL';
       const isBillable = !item.an && (isOFC_LGO || (isUCS && isSpecialFund));
+      const palliativeAuthenReady = !item.an && hasPalliativeAuthenReady(item);
 
-      if (isBillable && !hasCloseEp) {
+      if (isBillable && !hasCloseEp && !palliativeAuthenReady) {
         issues.push('ER108: ยังไม่ปิดสิทธิ NHSO (EP)');
         if (status === 'ready') status = 'pending';
       }
@@ -1808,12 +2017,27 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         ...item,
         has_authen: item.has_authen ? 1 : 0,
         has_close: hasCloseEp ? 1 : 0,
+        palliative_authen_ready: palliativeAuthenReady ? 1 : 0,
         serviceType,
         missing: issues.map(iss => iss.split(': ')[1] || iss), // Extract display label
         issues, // Combined error codes
         status,
         isPotentialClaim: isSpecialFund,
         isBillable,
+        // Keep this separate from EP/Authen.  The export screen uses it to
+        // exclude visits that already have evidence of an FDH submission,
+        // unless the operator explicitly confirms a resend.
+        fdh_has_submission: Boolean(
+          item.fdh_claim_code ||
+          item.fdh_upload_uid ||
+          item.fdh_sent_at ||
+          item.fdh_error_code ||
+          !isMissingFdhStatus(
+            item.fdh_claim_detail_status ||
+            item.fdh_reservation_status ||
+            item.fdh_claim_status_message
+          )
+        ),
         _dataSource: 'HOSxP-Database'
       };
     });
@@ -1848,11 +2072,14 @@ const normalizeFdhExportRequest = (body: Record<string, unknown>) => {
   );
   const rawProfile = String(body.profile || 'standard').trim().toLowerCase();
   if (!['standard', 'fwf-migrants'].includes(rawProfile)) throw new Error('profile ต้องเป็น standard หรือ fwf-migrants');
+  const patientType = String(body.patientType || 'ALL').trim().toUpperCase();
+  if (!['ALL', 'OPD', 'IPD'].includes(patientType)) throw new Error('patientType ต้องเป็น OPD หรือ IPD');
   return {
     vns,
     profile: normalizeFdhProfile(rawProfile),
     fcodeByHn: stringMap(body.fcodeByHn, 16),
     uucByVn: stringMap(body.uucByVn, 1),
+    patientType: patientType as 'ALL' | 'OPD' | 'IPD',
   };
 };
 
@@ -1862,8 +2089,21 @@ const prepareFdhExport = async (body: Record<string, unknown>) => {
   const hcode = String(config.hcode || '').trim();
   const rawData = await getExportData(request.vns, request);
   if (!rawData) throw new Error('ไม่สามารถดึงข้อมูล 16 แฟ้มจากฐานข้อมูลได้');
-  const data = projectFdhData(rawData, request.profile);
+  const data = scopeFdhData(projectFdhData(rawData, request.profile), request.patientType);
   const validation = validateFdhData(data, request.profile, hcode);
+  const exportMeta = (rawData as typeof rawData & {
+    _meta?: { oopDuplicateGroups?: number; oopMergedRows?: number };
+  })._meta;
+  const oopMergedRows = Number(exportMeta?.oopMergedRows || 0);
+  const oopDuplicateGroups = Number(exportMeta?.oopDuplicateGroups || 0);
+  if (oopMergedRows > 0) {
+    validation.warnings.push({
+      severity: 'warning',
+      code: 'OOP_DUPLICATE_MERGED',
+      file: 'OOP',
+      message: `รวม OOP ซ้ำจากหลายแหล่ง ${oopDuplicateGroups.toLocaleString('th-TH')} คีย์ ตัดแถวซ้ำ ${oopMergedRows.toLocaleString('th-TH')} แถวแล้ว`,
+    });
+  }
   const estimatedBytes = buildFdhFiles(data, request.profile, true, process.env.FDH_EXPORT_ENCODING)
     .reduce((sum, file) => sum + file.content.length, 0);
   if (estimatedBytes > MAX_FDH_UPLOAD_BYTES) {
@@ -1895,6 +2135,7 @@ app.post('/api/fdh/preflight', async (req, res) => {
     res.status(prepared.validation.valid ? 200 : 422).json({
       success: prepared.validation.valid,
       profile: prepared.profile,
+      patientType: prepared.patientType,
       validation: prepared.validation,
     });
   } catch (error) {
@@ -1969,6 +2210,7 @@ app.post('/api/fdh/submit', async (req, res) => {
     const requestDigest = crypto.createHash('sha256').update(JSON.stringify({
       vns: [...prepared.vns].sort(),
       profile: prepared.profile,
+      patientType: prepared.patientType,
       counts: prepared.validation.counts,
     })).digest('hex');
     await saveFdhSubmissionLog({
@@ -2584,6 +2826,7 @@ app.get('/api/hosxp/kidney-monitor', async (req, res) => {
         excludedWithoutEvidence: result.excludedCount,
         trackingSummary: result.trackingSummary,
         trackingIssues: result.trackingIssues,
+        repstmSummary: result.repstmSummary,
       }
     });
   } catch (error) {
@@ -3172,6 +3415,42 @@ app.get('/api/uc-outside-cup/dashboard', async (req, res) => {
   } catch (error) {
     console.error('Error fetching UC outside CUP dashboard:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูล UC นอก CUP ในจังหวัด' });
+  }
+});
+
+app.get('/api/uc-outside-cup/walkin-audit', async (req, res) => {
+  try {
+    const data = await getUcOutsideCupWalkinAudit({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      page: req.query.page ? Number(req.query.page) : 1,
+      pageSize: req.query.pageSize ? Number(req.query.pageSize) : 100,
+      missingOnly: String(req.query.missingOnly || 'true') !== 'false',
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ตรวจสอบ WALKIN ไม่สำเร็จ';
+    return res.status(/วันที่|ปีงบประมาณ/.test(message) ? 400 : 500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/uc-outside-cup/walkin-insert', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.authUser;
+    const data = await insertMissingUcOutsideCupWalkin({
+      startDate: req.body?.startDate,
+      endDate: req.body?.endDate,
+      expectedCount: Number(req.body?.expectedCount || 0),
+      confirmation: String(req.body?.confirmation || ''),
+      actorUserId: Number(user?.id || 0) || null,
+      actorName: String(user?.display_name || user?.username || 'admin'),
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'เพิ่มรายการ WALKIN ไม่สำเร็จ';
+    const status = /ยืนยัน|ไม่พบรายการ|วันที่|ปีงบประมาณ/.test(message) ? 400 : message.includes('จำนวนรายการเปลี่ยน') ? 409 : 500;
+    console.error('Insert UC outside CUP WALKIN failed:', message);
+    return res.status(status).json({ success: false, error: message });
   }
 });
 
@@ -3764,8 +4043,8 @@ app.post('/api/receivables/batches', async (req, res) => {
 // GET: ดึงข้อมูลการตั้งค่าธุรกิจ (Frontend)
 app.get('/api/config/business-rules/frontend', async (req, res) => {
   try {
-    // Frontend config is in ../src/config/business_rules.json relative to server/index.ts
-    const configPath = path.join(__dirname, '..', 'src', 'config', 'business_rules.json');
+    // Keep the source fallback stable in both tsx development and compiled production layouts.
+    const configPath = path.resolve(process.cwd(), 'src', 'config', 'business_rules.json');
     const data = await readConfigWithFallback(configPath);
     res.json(data);
   } catch (error) {
@@ -3829,6 +4108,29 @@ app.post('/api/config/app-settings', async (req, res) => {
   } catch (error) {
     console.error('Error updating app settings:', error);
     res.status(500).json({ success: false, error: 'Cannot update app settings' });
+  }
+});
+
+app.get('/api/config/ipd-los-settings', async (_req, res) => {
+  try {
+    const storedRules = await getAppSetting<unknown>(IPD_LOS_SETTINGS_KEY);
+    const rules = storedRules == null ? DEFAULT_IPD_LOS_RULES : normalizeIpdLosRules(storedRules);
+    return res.json({ success: true, data: rules, source: storedRules == null ? 'document-default' : 'database' });
+  } catch (error) {
+    console.error('Error reading IPD LOS settings:', error);
+    return res.status(500).json({ success: false, error: 'ไม่สามารถอ่านค่ามาตรฐาน LOS ได้' });
+  }
+});
+
+app.post('/api/config/ipd-los-settings', async (req, res) => {
+  try {
+    const validation = validateIpdLosRules(req.body?.rules);
+    if (!validation.ok) return res.status(400).json({ success: false, error: validation.error });
+    await setAppSetting(IPD_LOS_SETTINGS_KEY, validation.rules);
+    return res.json({ success: true, data: validation.rules, message: 'บันทึกค่ามาตรฐาน LOS เรียบร้อยแล้ว' });
+  } catch (error) {
+    console.error('Error saving IPD LOS settings:', error);
+    return res.status(500).json({ success: false, error: 'ไม่สามารถบันทึกค่ามาตรฐาน LOS ได้' });
   }
 });
 
@@ -5215,34 +5517,51 @@ app.post('/api/nhso-eclaim/download', async (req, res) => {
   }
 });
 
-app.get('/api/health', async (req, res) => {
-  try {
-    const { testConnection } = await import('./db.js');
-    const isConnected = await testConnection();
-
-    res.json({
-      status: 'ok',
-      database: isConnected ? 'connected' : 'unavailable',
-      timestamp: new Date().toISOString(),
-    });
-  } catch {
-    res.json({
-      status: 'ok',
-      database: 'unavailable',
-      error: 'Database connection test failed',
-      timestamp: new Date().toISOString(),
-    });
-  }
-});
+app.use('/api', createHealthRouter(async () => {
+  const { testConnection } = await import('./db.js');
+  return testConnection();
+}));
 
 app.use('/api', claimTrackingRouter);
+app.use('/api', collaborationRouter);
 
 app.use('/api', apiNotFoundHandler);
 app.use(apiErrorHandler);
 
 const PORT = Number(process.env.PORT) || 3506;
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ FDH Checker Server running on port ${PORT}`);
   console.log(`📡 Listening on all interfaces (0.0.0.0)`);
   console.log(`🌐 API Endpoint: http://localhost:${PORT}/api`);
 });
+
+let shuttingDown = false;
+const shutdown = async (signal: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] ${signal} received; stopping new requests`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('[shutdown] graceful shutdown timed out');
+    process.exit(1);
+  }, 30_000);
+  forceExitTimer.unref();
+
+  server.close(async (error) => {
+    if (eclaimBrowserSession) {
+      try { await eclaimBrowserSession.browser.close(); } catch { /* best effort */ }
+      eclaimBrowserSession = null;
+    }
+    await closeDatabasePools();
+    clearTimeout(forceExitTimer);
+    if (error) {
+      console.error('[shutdown] HTTP server close failed:', error);
+      process.exit(1);
+    }
+    console.log('[shutdown] complete');
+    process.exit(0);
+  });
+};
+
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
+process.once('SIGINT', () => void shutdown('SIGINT'));

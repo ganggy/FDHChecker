@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/App.tsx"
-source_hash: "728d80d4cc92a29ab33232bf54bee81edc64a233eb04c3d85be10c6f87866a49"
+source_hash: "01ff6ff18d1fe02633fb5e9a765947ba130f9cab3ec877ae386acaac9065ed13"
 managed_by: "sync-ksp-vault"
 ---
 # App.tsx
 
 > Source: `src/App.tsx`
-> SHA-256: `728d80d4cc92a29ab33232bf54bee81edc64a233eb04c3d85be10c6f87866a49`
+> SHA-256: `01ff6ff18d1fe02633fb5e9a765947ba130f9cab3ec877ae386acaac9065ed13`
 
 ````tsx
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
@@ -30,6 +30,7 @@ const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
 const StaffPage = lazyNamed(() => import('./pages/StaffPage'), 'StaffPage');
 const IPDPage = lazyNamed(() => import('./pages/IPDPage'), 'IPDPage');
 const IpdClaimMonitorPage = lazyNamed(() => import('./pages/IpdClaimMonitorPage'), 'IpdClaimMonitorPage');
+const AiReportWorkspacePage = lazyNamed(() => import('./pages/AiReportWorkspacePage'), 'AiReportWorkspacePage');
 const HospitalReportHubPage = lazyNamed(() => import('./pages/HospitalReportHubPage'), 'HospitalReportHubPage');
 const AdminDashboard = lazyNamed(() => import('./pages/AdminDashboard'), 'AdminDashboard');
 const FDHCheckerPage = lazyNamed(() => import('./pages/FDHCheckerPage'), 'FDHCheckerPage');
@@ -316,6 +317,7 @@ function App() {
         {currentPage === 'staff' && <StaffPage />}
         {currentPage === 'ipd' && <IPDPage />}
         {currentPage === 'ipdClaimMonitor' && <IpdClaimMonitorPage />}
+        {currentPage === 'aiReports' && <AiReportWorkspacePage />}
         {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
@@ -376,7 +378,7 @@ function App() {
           </section>
         </div>
       )}
-      <LocalAiAssistant />
+      {currentPage !== 'aiReports' && <LocalAiAssistant />}
     </div>
   );
 }

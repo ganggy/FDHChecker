@@ -3,6 +3,7 @@ import '../styles/Settings.css';
 import defaultRules from '../config/business_rules.json';
 import { FUND_DEFINITIONS } from '../config/fundDefinitions';
 import { formatLocalDateStamp } from '../utils/dateUtils';
+import { IpdLosSettings } from '../components/IpdLosSettings';
 
 interface Config {
     costs: {
@@ -109,14 +110,14 @@ const FALLBACK_FUND_DEFINITIONS = [
     { id: 'postnatal_supplements', name: 'เสริมธาตุเหล็กหลังคลอด', description: 'ยาเสริมธาตุเหล็กหลังคลอด' },
     { id: 'fluoride', name: 'เคลือบฟลูออไรด์', description: 'ทันตกรรมป้องกันฟันผุ' },
     { id: 'fp', name: 'วางแผนครอบครัว', description: 'บริการคุมกำเนิดและวางแผนครอบครัว' },
-    { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด', description: 'ยาคุมชนิดเม็ด' },
+    { id: 'contraceptive_pill', name: 'ยาเม็ดคุมกำเนิด', description: 'FP003_1/FP003_2/FP003_3 · Z304' },
     { id: 'condom', name: 'ยาฉีดคุมกำเนิด', description: 'ADP FP003_4 อัตรา 60 บาท' },
     { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก', description: 'Pap smear / Cervix screening' },
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองหัวใจหลอดเลือด', description: 'Total Cholesterol และ HDL อายุ 45-70 ปี' },
     { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
-    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
+    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab/บริการ 36003 หรือ 36006' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)' },
     { id: 'mental_health_counselling', name: 'ปรึกษาสุขภาพจิต', description: 'อายุ 12 ปีขึ้นไป + ST-5/9Q + counselling' },
@@ -148,7 +149,7 @@ const getGuaranteedFundDefinitions = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'fdh' | 'db' | 'advanced'>('hospital');
+    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced'>('hospital');
     const [frontendConfig, setFrontendConfig] = useState<Config | null>(null);
     const [backendConfig, setBackendConfig] = useState<any | null>(null);
     const [frontendSource, setFrontendSource] = useState<'database' | 'file' | 'unknown'>('unknown');
@@ -465,12 +466,15 @@ export const SettingsPage: React.FC = () => {
             <div className="settings-tabs">
                 <button className={`tab-btn ${activeTab === 'hospital' ? 'active' : ''}`} onClick={() => setActiveTab('hospital')}>🏥 หน่วยบริการ</button>
                 <button className={`tab-btn ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>💰 ต้นทุนและกฎ</button>
+                <button className={`tab-btn ${activeTab === 'ipdLos' ? 'active' : ''}`} onClick={() => setActiveTab('ipdLos')}>🛏️ ICD-10 / LOS</button>
                 <button className={`tab-btn ${activeTab === 'db' ? 'active' : ''}`} onClick={() => setActiveTab('db')}>📋 กองทุนและเอกสาร</button>
                 <button className={`tab-btn ${activeTab === 'fdh' ? 'active' : ''}`} onClick={() => setActiveTab('fdh')}>🔐 เชื่อมต่อ FDH</button>
                 <button className={`tab-btn ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>🛠️ ขั้นสูง</button>
             </div>
 
             <div className="settings-card">
+                {activeTab === 'ipdLos' && <IpdLosSettings />}
+
                 {activeTab === 'hospital' && frontendConfig && (
                     <div className="settings-section">
                         <h3>🏥 ข้อมูลหน่วยบริการ</h3>

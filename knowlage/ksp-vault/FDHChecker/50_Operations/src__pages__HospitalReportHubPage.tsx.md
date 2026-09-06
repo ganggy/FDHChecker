@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/HospitalReportHubPage.tsx"
-source_hash: "b90905a470c1120c5272a4934ccfea74050f7efbb7bc5ab0819e4b9fbbe37b57"
+source_hash: "791caf6256b04f5387139da3620a6ce7b3c4426c7bf393c9cf21fda5d0dc5887"
 managed_by: "sync-ksp-vault"
 ---
 # HospitalReportHubPage.tsx
 
 > Source: `src/pages/HospitalReportHubPage.tsx`
-> SHA-256: `b90905a470c1120c5272a4934ccfea74050f7efbb7bc5ab0819e4b9fbbe37b57`
+> SHA-256: `791caf6256b04f5387139da3620a6ce7b3c4426c7bf393c9cf21fda5d0dc5887`
 
 ````tsx
 import { useMemo, useState } from 'react';
@@ -217,6 +217,5 @@ export function HospitalReportHubPage() {
     </main>
   );
 }
-
 
 ````

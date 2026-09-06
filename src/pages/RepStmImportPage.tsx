@@ -848,7 +848,7 @@ export const RepStmImportPage: React.FC = () => {
     const selectedFiles = Array.from(files).filter((file) => /\.(xlsx|xls|csv|zip)$/i.test(file.name));
     if (selectedFiles.length === 0) {
       const receivedNames = Array.from(files).map((file) => file.name).filter(Boolean).join(', ');
-      setError(`รูปแบบไฟล์ยังไม่รองรับ ต้องเป็น Excel, CSV หรือ ZIP/XML จากระบบจ่ายเงิน${receivedNames ? ` (${receivedNames})` : ''}`);
+      setError(`รูปแบบไฟล์ยังไม่รองรับ ต้องเป็น Excel, CSV หรือ ZIP ที่มี BIL+DBF/XML จากระบบจ่ายเงิน${receivedNames ? ` (${receivedNames})` : ''}`);
       return [];
     }
     const initialQueue: ImportQueueItem[] = selectedFiles.map((file, index) => ({
@@ -990,9 +990,14 @@ export const RepStmImportPage: React.FC = () => {
 
         if (parsedSheets.length === 1) {
           const { sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName } = parsedSheets[0];
-          const detectedType = isSubfile
-            ? hintType || detectImportType(queueItem.fileName, headers, rows)
-            : detectImportType(queueItem.fileName, headers, rows) || hintType;
+          // Server-side archive importers know the source schema exactly. Keep their
+          // declared type authoritative; generic column detection sees invoice fields
+          // inside STM and would otherwise misclassify CHI STM ZIPs as INV.
+          const detectedType = importerId && hintType
+            ? hintType
+            : isSubfile
+              ? hintType || detectImportType(queueItem.fileName, headers, rows)
+              : detectImportType(queueItem.fileName, headers, rows) || hintType;
           const parsedItem: ImportQueueItem = {
             ...queueItem,
             sheetName,
@@ -1023,9 +1028,11 @@ export const RepStmImportPage: React.FC = () => {
         } else {
           // Multiple relevant sheets – expand one file into multiple queue items
           const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName }, i) => {
-            const detectedType = isSubfile
-              ? hintType || detectImportType(queueItem.fileName, headers, rows)
-              : detectImportType(queueItem.fileName, headers, rows) || hintType;
+            const detectedType = importerId && hintType
+              ? hintType
+              : isSubfile
+                ? hintType || detectImportType(queueItem.fileName, headers, rows)
+                : detectImportType(queueItem.fileName, headers, rows) || hintType;
             return {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,
@@ -1104,6 +1111,7 @@ export const RepStmImportPage: React.FC = () => {
           updateQueueItem(item.id, (current) => ({
             ...current,
             status: 'error',
+            progress: 100,
             message: 'ไม่สามารถระบุประเภทไฟล์ได้',
           }));
           failedCount += 1;
@@ -1140,6 +1148,7 @@ export const RepStmImportPage: React.FC = () => {
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'duplicate',
+              progress: 100,
               message: result.message || `ไฟล์ ${item.detectedType} นี้ถูกนำเข้าแล้ว`,
             }));
           } else {
@@ -1150,6 +1159,7 @@ export const RepStmImportPage: React.FC = () => {
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'success',
+              progress: 100,
               message: result.message || `นำเข้า ${item.detectedType} สำเร็จ ${Number(result.rowCount || 0).toLocaleString()} แถว`,
             }));
           }
@@ -1159,6 +1169,7 @@ export const RepStmImportPage: React.FC = () => {
           updateQueueItem(item.id, (current) => ({
             ...current,
             status: 'error',
+            progress: 100,
             message: err instanceof Error ? err.message : 'นำเข้าไม่สำเร็จ',
           }));
         }
@@ -1208,7 +1219,7 @@ export const RepStmImportPage: React.FC = () => {
           <div className="alert alert-info repstm-alert" style={{ marginBottom: 16 }}>
             <span>ℹ️</span>
             <span>
-              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
+              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV, <code>REP ไต CHI</code> จาก ZIP ที่มี BIL+DBF และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
             </span>
           </div>
 
@@ -1265,7 +1276,7 @@ export const RepStmImportPage: React.FC = () => {
               }}
             />
             <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\REP</code>
+              ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง BIL+DBF/XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\FDH_STAT</code>
             </div>
             <label className="repstm-subfile-option">
               <input
@@ -1312,6 +1323,13 @@ export const RepStmImportPage: React.FC = () => {
               disabled={importing}
             >
               เปิดหน้าตรวจ C/Deny
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => navigateFromDashboard('reconciliation', { source: 'dashboard', contextLabel: 'จากหน้ารับ REP/STM' })}
+              disabled={importing}
+            >
+              เปิดหน้ากระทบยอด visit
             </button>
           </div>
         </div>

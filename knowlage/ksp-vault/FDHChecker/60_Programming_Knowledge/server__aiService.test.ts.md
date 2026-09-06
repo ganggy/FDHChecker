@@ -4,18 +4,28 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiService.test.ts"
-source_hash: "bb141c53b920c10a414158f64d1c7e3072c3a47ba043012d7cb44491d5a02e3e"
+source_hash: "55540b4979d4f33f486fcca27c3d8153446a908ea091caca7e191c270a86c8c2"
 managed_by: "sync-ksp-vault"
 ---
 # aiService.test.ts
 
 > Source: `server/aiService.test.ts`
-> SHA-256: `bb141c53b920c10a414158f64d1c7e3072c3a47ba043012d7cb44491d5a02e3e`
+> SHA-256: `55540b4979d4f33f486fcca27c3d8153446a908ea091caca7e191c270a86c8c2`
 
 ````typescript
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateReportPayload } from './aiService.js';
+import { compactPromptForContext, estimatePromptTokens, validateReportPayload } from './aiService.js';
+
+test('compacts oversized Thai prompts while preserving the newest question at the end', () => {
+  const system = 'กฎระบบ'.repeat(600);
+  const latestQuestion = 'คำถามล่าสุด: รวมทุกตึก 30 เตียงตามการขึ้นทะเบียน และ 38 ตาม กบรส';
+  const prompt = `${'บริบทเก่า'.repeat(12_000)}\n${latestQuestion}`;
+  const compacted = compactPromptForContext(system, prompt, 8_192, 1_200);
+  assert.ok(estimatePromptTokens(system) + estimatePromptTokens(compacted) <= 8_192 - 1_200 - 512);
+  assert.match(compacted, /ตัดบริบทเก่าที่เกินขนาด/);
+  assert.ok(compacted.endsWith(latestQuestion));
+});
 
 test('accepts a small aggregate report', () => {
   const input = { title: 'ยอดแยกตามกองทุน', rows: [{ fund: 'UCS', total: 120 }] };

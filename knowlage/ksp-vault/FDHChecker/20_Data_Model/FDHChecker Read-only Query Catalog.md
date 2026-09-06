@@ -4,7 +4,7 @@ project: FDHChecker
 type: "query-catalog"
 category: "data-model"
 source: "server/**/*.ts"
-source_hash: "47f27cbc935368e08bb1cd022ef0661c0909f1812ae6390b26cbdb108be109f8"
+source_hash: "987a8cb4aa6b354a5d68a5f9c80d94c147f66285ade1ce90c4f58684d926d03b"
 managed_by: "sync-ksp-vault"
 ---
 # FDHChecker Read-only Query Catalog
@@ -17,7 +17,7 @@ managed_by: "sync-ksp-vault"
 
 ## 1. lookupLatestVnErrors — FDH / สถานะเคลม / ข้อผิดพลาด / ส่งเบิก / lookup Latest Vn Errors
 
-- Source: `server/aiErrorTools.ts:51`
+- Source: `server/aiErrorTools.ts:50`
 - Tables: `fdh_claim_status`
 - Search terms: FDH, สถานะเคลม, ข้อผิดพลาด, ส่งเบิก, lookup Latest Vn Errors
 - Query ID: `b429be3914ae`
@@ -398,7 +398,7 @@ ORDER BY o.vsttime, o.vn
 
 ## 20. getDoctorCodeByCid — แพทย์ / ผู้ตรวจ / get Doctor Code By Cid
 
-- Source: `server/db.ts:2022`
+- Source: `server/db.ts:2028`
 - Tables: `doctor`
 - Search terms: แพทย์, ผู้ตรวจ, get Doctor Code By Cid
 - Query ID: `1dc7cf49acd4`
@@ -412,7 +412,7 @@ LIMIT 1
 
 ## 21. getNhsoClosePrivilegeHistory — สปสช. / ยืนยันสิทธิ / get Nhso Close Privilege History
 
-- Source: `server/db.ts:2339`
+- Source: `server/db.ts:2345`
 - Tables: `nhso_confirm_privilege`
 - Search terms: สปสช., ยืนยันสิทธิ, get Nhso Close Privilege History
 - Query ID: `873f7d63c498`
@@ -440,7 +440,7 @@ LIMIT ?
 
 ## 22. existingRows — สปสช. / ยืนยันสิทธิ / existing Rows
 
-- Source: `server/db.ts:2402`
+- Source: `server/db.ts:2408`
 - Tables: `nhso_confirm_privilege`
 - Search terms: สปสช., ยืนยันสิทธิ, existing Rows
 - Query ID: `ba43a420045c`
@@ -454,7 +454,7 @@ LIMIT 1
 
 ## 23. resolveRepVisitCode — IPD / ผู้ป่วยใน / admit / AN / ผู้ป่วย / คนไข้ / HN / CID
 
-- Source: `server/db.ts:4286`
+- Source: `server/db.ts:4292`
 - Tables: `ipt`, `patient`
 - Search terms: IPD, ผู้ป่วยใน, admit, AN, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, resolve Rep Visit Code
 - Query ID: `d252d4a59313`
@@ -472,7 +472,7 @@ LIMIT 1
 
 ## 24. resolveRepVisitCode — IPD / ผู้ป่วยใน / admit / AN / resolve Rep Visit Code
 
-- Source: `server/db.ts:4301`
+- Source: `server/db.ts:4307`
 - Tables: `ipt`
 - Search terms: IPD, ผู้ป่วยใน, admit, AN, resolve Rep Visit Code
 - Query ID: `a750586c08fa`
@@ -487,7 +487,7 @@ LIMIT 1
 
 ## 25. resolveRepVisitCode — OPD / ผู้ป่วยนอก / visit / รับบริการ / ผู้ป่วย / คนไข้ / HN / CID
 
-- Source: `server/db.ts:4317`
+- Source: `server/db.ts:4323`
 - Tables: `ovst`, `patient`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, resolve Rep Visit Code
 - Query ID: `2d00e94fc3d6`
@@ -505,7 +505,7 @@ LIMIT 1
 
 ## 26. resolveRepVisitCode — OPD / ผู้ป่วยนอก / visit / รับบริการ / resolve Rep Visit Code
 
-- Source: `server/db.ts:4332`
+- Source: `server/db.ts:4338`
 - Tables: `ovst`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, resolve Rep Visit Code
 - Query ID: `e1b8826bbfc5`
@@ -520,7 +520,7 @@ LIMIT 1
 
 ## 27. resolveRepIncome — สถิติ IPD / วินิจฉัยผู้ป่วยใน / resolve Rep Income
 
-- Source: `server/db.ts:4351`
+- Source: `server/db.ts:4357`
 - Tables: `an_stat`
 - Search terms: สถิติ IPD, วินิจฉัยผู้ป่วยใน, resolve Rep Income
 - Query ID: `5992c59ac725`
@@ -534,7 +534,7 @@ LIMIT 1
 
 ## 28. resolveRepIncome — สถิติ OPD / วินิจฉัยหลัก / ค่าใช้จ่าย / resolve Rep Income
 
-- Source: `server/db.ts:4362`
+- Source: `server/db.ts:4368`
 - Tables: `vn_stat`
 - Search terms: สถิติ OPD, วินิจฉัยหลัก, ค่าใช้จ่าย, resolve Rep Income
 - Query ID: `c55a2c4f573c`
@@ -548,7 +548,7 @@ LIMIT 1
 
 ## 29. getReceivableFilterOptions — สิทธิ / สิทธิการรักษา / get Receivable Filter Options
 
-- Source: `server/db.ts:5416`
+- Source: `server/db.ts:5422`
 - Tables: `pttype`
 - Search terms: สิทธิ, สิทธิการรักษา, get Receivable Filter Options
 - Query ID: `9cfa59a51803`
@@ -561,7 +561,7 @@ ORDER BY pttype
 
 ## 30. getRepDailyClaimSummary — OPD / ผู้ป่วยนอก / visit / รับบริการ / สถิติ OPD / วินิจฉัยหลัก / ค่าใช้จ่าย / ผู้ป่วย
 
-- Source: `server/db.ts:6969`
+- Source: `server/db.ts:6975`
 - Tables: `ovst`, `vn_stat`, `patient`, `pttype`, `kskdepartment`, `spclty`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, สถิติ OPD, วินิจฉัยหลัก, ค่าใช้จ่าย, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, แผนก, หน่วยงาน, get Rep Daily Claim Summary
 - Query ID: `96eecec59b48`
@@ -591,7 +591,7 @@ AND COALESCE(v.income, 0) > 0
 
 ## 31. getRepDailyClaimSummary — IPD / ผู้ป่วยใน / admit / AN / สถิติ IPD / วินิจฉัยผู้ป่วยใน / สิทธิ / สิทธิการรักษา
 
-- Source: `server/db.ts:7014`
+- Source: `server/db.ts:7020`
 - Tables: `ipt`, `an_stat`, `pttype`, `patient`, `ward`, `spclty`
 - Search terms: IPD, ผู้ป่วยใน, admit, AN, สถิติ IPD, วินิจฉัยผู้ป่วยใน, สิทธิ, สิทธิการรักษา, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, หอผู้ป่วย, ward, get Rep Daily Claim Summary
 - Query ID: `3f1fe3be386e`
@@ -629,7 +629,7 @@ END
 
 ## 32. getRepDailyVisitsForDate — OPD / ผู้ป่วยนอก / visit / รับบริการ / สถิติ OPD / วินิจฉัยหลัก / ค่าใช้จ่าย / ผู้ป่วย
 
-- Source: `server/db.ts:7218`
+- Source: `server/db.ts:7224`
 - Tables: `ovst`, `vn_stat`, `patient`, `pttype`, `kskdepartment`, `spclty`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, สถิติ OPD, วินิจฉัยหลัก, ค่าใช้จ่าย, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, แผนก, หน่วยงาน, get Rep Daily Visits For Date
 - Query ID: `c2de2e8a3030`
@@ -660,7 +660,7 @@ ORDER BY o.vsttime, o.vn
 
 ## 33. getRepDailyVisitsForDate — IPD / ผู้ป่วยใน / admit / AN / สถิติ IPD / วินิจฉัยผู้ป่วยใน / สิทธิ / สิทธิการรักษา
 
-- Source: `server/db.ts:7264`
+- Source: `server/db.ts:7270`
 - Tables: `ipt`, `an_stat`, `pttype`, `patient`, `ward`, `spclty`
 - Search terms: IPD, ผู้ป่วยใน, admit, AN, สถิติ IPD, วินิจฉัยผู้ป่วยใน, สิทธิ, สิทธิการรักษา, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, หอผู้ป่วย, ward, get Rep Daily Visits For Date
 - Query ID: `135834c28165`
@@ -699,7 +699,7 @@ ORDER BY COALESCE(i.dchdate, i.regdate), i.an
 
 ## 34. getRepDailyVisitDetail — OPD / ผู้ป่วยนอก / visit / รับบริการ / ผู้ป่วย / คนไข้ / HN / CID
 
-- Source: `server/db.ts:7395`
+- Source: `server/db.ts:7401`
 - Tables: `ovst`, `patient`, `pttype`, `kskdepartment`, `spclty`, `opdscreen`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, แผนก, หน่วยงาน, คัดกรอง, อาการ, ความดัน, น้ำหนัก, get Rep Daily Visit Detail
 - Query ID: `8da7cfda4b12`
@@ -727,7 +727,7 @@ LIMIT 1
 
 ## 35. getRepDailyVisitDetail — วินิจฉัย / ICD10 / diagnosis / ชื่อโรค / get Rep Daily Visit Detail
 
-- Source: `server/db.ts:7418`
+- Source: `server/db.ts:7424`
 - Tables: `ovstdiag`, `icd101`
 - Search terms: วินิจฉัย, ICD10, diagnosis, ชื่อโรค, get Rep Daily Visit Detail
 - Query ID: `831e385fce58`
@@ -742,7 +742,7 @@ ORDER BY d.diagtype, d.icd10
 
 ## 36. getRepDailyVisitDetail — หัตถการ / ICD9 / ชื่อหัตถการ / get Rep Daily Visit Detail
 
-- Source: `server/db.ts:7428`
+- Source: `server/db.ts:7434`
 - Tables: `doctor_operation`, `icd9cm1`, `er_regist_oper`, `er_oper_code`
 - Search terms: หัตถการ, ICD9, ชื่อหัตถการ, get Rep Daily Visit Detail
 - Query ID: `15798051e398`
@@ -761,7 +761,7 @@ WHERE eo.vn = ?
 
 ## 37. getRepDailyVisitDetail — ผลแล็บ / ห้องปฏิบัติการ / รายการตรวจ / ชื่อแล็บ / ค่าปกติ / get Rep Daily Visit Detail
 
-- Source: `server/db.ts:7442`
+- Source: `server/db.ts:7448`
 - Tables: `lab_head`, `lab_order`, `lab_items`
 - Search terms: ผลแล็บ, ห้องปฏิบัติการ, รายการตรวจ, ชื่อแล็บ, ค่าปกติ, get Rep Daily Visit Detail
 - Query ID: `62373851de48`
@@ -780,7 +780,7 @@ LIMIT 200
 
 ## 38. getRepDailyVisitDetail — IPD / ผู้ป่วยใน / admit / AN / ผู้ป่วย / คนไข้ / HN / CID
 
-- Source: `server/db.ts:7456`
+- Source: `server/db.ts:7462`
 - Tables: `ipt`, `patient`, `pttype`, `ward`, `spclty`
 - Search terms: IPD, ผู้ป่วยใน, admit, AN, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, หอผู้ป่วย, ward, get Rep Daily Visit Detail
 - Query ID: `6b57b8276052`
@@ -808,7 +808,7 @@ LIMIT 1
 
 ## 39. getRepDailyVisitDetail — ผลแล็บ / ห้องปฏิบัติการ / รายการตรวจ / ชื่อแล็บ / ค่าปกติ / IPD / ผู้ป่วยใน / admit
 
-- Source: `server/db.ts:7499`
+- Source: `server/db.ts:7505`
 - Tables: `lab_head`, `lab_order`, `lab_items`, `ipt`
 - Search terms: ผลแล็บ, ห้องปฏิบัติการ, รายการตรวจ, ชื่อแล็บ, ค่าปกติ, IPD, ผู้ป่วยใน, admit, AN, get Rep Daily Visit Detail
 - Query ID: `1f5a6032f681`
@@ -827,7 +827,7 @@ LIMIT 200
 
 ## 40. getInsuranceOverview — authen / ยืนยันสิทธิ / OPD / ผู้ป่วยนอก / visit / รับบริการ / สถิติ OPD / วินิจฉัยหลัก
 
-- Source: `server/db.ts:8086`
+- Source: `server/db.ts:8092`
 - Tables: `authenhos`, `ovst`, `vn_stat`, `nhso_confirm_privilege`
 - Search terms: authen, ยืนยันสิทธิ, OPD, ผู้ป่วยนอก, visit, รับบริการ, สถิติ OPD, วินิจฉัยหลัก, ค่าใช้จ่าย, สปสช., get Insurance Overview
 - Query ID: `e79a89f42c8c`
@@ -855,7 +855,7 @@ ORDER BY month
 
 ## 41. getInsuranceOverview — authen / ยืนยันสิทธิ / OPD / ผู้ป่วยนอก / visit / รับบริการ / ผู้ป่วย / คนไข้
 
-- Source: `server/db.ts:8108`
+- Source: `server/db.ts:8114`
 - Tables: `authenhos`, `ovst`, `patient`, `vn_stat`, `pttype`, `nhso_confirm_privilege`
 - Search terms: authen, ยืนยันสิทธิ, OPD, ผู้ป่วยนอก, visit, รับบริการ, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สถิติ OPD, วินิจฉัยหลัก, ค่าใช้จ่าย, สิทธิ, สิทธิการรักษา, สปสช., get Insurance Overview
 - Query ID: `8679c3f1dcfb`
@@ -892,7 +892,7 @@ ORDER BY o.vstdate DESC, o.vn DESC
 
 ## 42. getInsuranceOverview — IPD / ผู้ป่วยใน / admit / AN / สถิติ IPD / วินิจฉัยผู้ป่วยใน / ผู้ป่วย / คนไข้
 
-- Source: `server/db.ts:8139`
+- Source: `server/db.ts:8145`
 - Tables: `ipt`, `an_stat`, `patient`, `pttype`, `fdh_claim_status`
 - Search terms: IPD, ผู้ป่วยใน, admit, AN, สถิติ IPD, วินิจฉัยผู้ป่วยใน, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, FDH, สถานะเคลม, ข้อผิดพลาด, ส่งเบิก, get Insurance Overview
 - Query ID: `55005064d56e`
@@ -941,7 +941,7 @@ ORDER BY i.dchdate DESC, i.an DESC
 
 ## 43. validateCheckCompletenesss — ผู้ป่วย / คนไข้ / HN / CID / ข้อมูลประชากร / validate Check Completenesss
 
-- Source: `server/db.ts:9972`
+- Source: `server/db.ts:9978`
 - Tables: `patient`
 - Search terms: ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, validate Check Completenesss
 - Query ID: `b010f56c81e0`
@@ -952,7 +952,7 @@ SELECT fname, lname, pttype FROM patient WHERE hn = ?
 
 ## 44. validateCheckCompletenesss — OPD / ผู้ป่วยนอก / visit / รับบริการ / validate Check Completenesss
 
-- Source: `server/db.ts:9982`
+- Source: `server/db.ts:9988`
 - Tables: `ovst`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, validate Check Completenesss
 - Query ID: `ae320d2586c8`
@@ -963,7 +963,7 @@ SELECT vn, vstdate, ovstost FROM ovst WHERE vn = ? AND hn = ?
 
 ## 45. validateCheckCompletenesss — วินิจฉัย / ICD10 / diagnosis / validate Check Completenesss
 
-- Source: `server/db.ts:9992`
+- Source: `server/db.ts:9998`
 - Tables: `ovstdiag`
 - Search terms: วินิจฉัย, ICD10, diagnosis, validate Check Completenesss
 - Query ID: `e6f55619aadc`
@@ -974,7 +974,7 @@ SELECT COUNT(*) as count FROM ovstdiag WHERE vn = ?
 
 ## 46. validateCheckCompletenesss — ยา / บริการ / ค่าใช้จ่าย / รายการเบิก / validate Check Completenesss
 
-- Source: `server/db.ts:10002`
+- Source: `server/db.ts:10008`
 - Tables: `opitemrece`
 - Search terms: ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, validate Check Completenesss
 - Query ID: `00184c8f5271`
@@ -985,7 +985,7 @@ SELECT COUNT(*) as count FROM opitemrece WHERE vn = ?
 
 ## 47. getDrugPrices — ยา / บริการ / ค่าใช้จ่าย / รายการเบิก / drug / รหัสเบิก / ADP / get Drug Prices
 
-- Source: `server/db.ts:10033`
+- Source: `server/db.ts:10039`
 - Tables: `opitemrece`, `drugitems`, `s_drugitems`
 - Search terms: ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, drug, รหัสเบิก, ADP, get Drug Prices
 - Query ID: `54fb5305c926`
@@ -1014,7 +1014,7 @@ ORDER BY opitemrece.icode
 
 ## 48. getVisitChargeItems — ยา / บริการ / ค่าใช้จ่าย / รายการเบิก / หมวดค่าใช้จ่าย / รายได้ / drug / รหัสเบิก
 
-- Source: `server/db.ts:10070`
+- Source: `server/db.ts:10076`
 - Tables: `opitemrece`, `income`, `drugitems`, `s_drugitems`, `nondrugitems`
 - Search terms: ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, หมวดค่าใช้จ่าย, รายได้, drug, รหัสเบิก, ADP, หัตถการ, get Visit Charge Items
 - Query ID: `b5d55e8f1385`
@@ -1046,7 +1046,7 @@ ORDER BY oo.income, oo.icode
 
 ## 49. getServiceADPCodes — ยา / บริการ / ค่าใช้จ่าย / รายการเบิก / หมวดค่าใช้จ่าย / รายได้ / รหัสเบิก / ADP
 
-- Source: `server/db.ts:10108`
+- Source: `server/db.ts:10114`
 - Tables: `opitemrece`, `income`, `s_drugitems`, `nondrugitems`, `drugitems`
 - Search terms: ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, หมวดค่าใช้จ่าย, รายได้, รหัสเบิก, ADP, หัตถการ, drug, get Service ADPCodes
 - Query ID: `445c0dc14a83`
@@ -1078,7 +1078,7 @@ ORDER BY opitemrece.income
 
 ## 50. getReceiptItems — ยา / บริการ / ค่าใช้จ่าย / รายการเบิก / หมวดค่าใช้จ่าย / รายได้ / รหัสเบิก / ADP
 
-- Source: `server/db.ts:10147`
+- Source: `server/db.ts:10153`
 - Tables: `opitemrece`, `income`, `s_drugitems`, `drugitems`, `nondrugitems`
 - Search terms: ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, หมวดค่าใช้จ่าย, รายได้, รหัสเบิก, ADP, drug, หัตถการ, get Receipt Items
 - Query ID: `102cd1735946`
@@ -1142,7 +1142,7 @@ ORDER BY opitemrece.income, opitemrece.icode
 
 ## 51. getPatientData — ผู้ป่วย / คนไข้ / HN / CID / ข้อมูลประชากร / get Patient Data
 
-- Source: `server/db.ts:10247`
+- Source: `server/db.ts:10253`
 - Tables: `patient`
 - Search terms: ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, get Patient Data
 - Query ID: `c67b815d518f`
@@ -1161,7 +1161,7 @@ WHERE hn = ?
 
 ## 52. testDatabaseConnection — ผู้ป่วย / คนไข้ / HN / CID / ข้อมูลประชากร / test Database Connection
 
-- Source: `server/db.ts:10300`
+- Source: `server/db.ts:10306`
 - Tables: `patient`
 - Search terms: ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, test Database Connection
 - Query ID: `545171404f70`
@@ -1172,7 +1172,7 @@ SELECT COUNT(*) as count FROM patient LIMIT 1
 
 ## 53. testDatabaseConnection — OPD / ผู้ป่วยนอก / visit / รับบริการ / test Database Connection
 
-- Source: `server/db.ts:10304`
+- Source: `server/db.ts:10310`
 - Tables: `ovst`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, test Database Connection
 - Query ID: `60ed0786577d`
@@ -1183,7 +1183,7 @@ SELECT COUNT(*) as count FROM ovst WHERE vstdate >= CURDATE() - INTERVAL 30 DAY
 
 ## 54. testSDrugitemsStructure — ยา / รหัสเบิก / ADP / test SDrugitems Structure
 
-- Source: `server/db.ts:10396`
+- Source: `server/db.ts:10402`
 - Tables: `s_drugitems`
 - Search terms: ยา, รหัสเบิก, ADP, test SDrugitems Structure
 - Query ID: `477fa50bb461`
@@ -1194,7 +1194,7 @@ SELECT * FROM s_drugitems LIMIT 5
 
 ## 55. testReceiptJoin — ยา / บริการ / ค่าใช้จ่าย / รายการเบิก / test Receipt Join
 
-- Source: `server/db.ts:10418`
+- Source: `server/db.ts:10424`
 - Tables: `opitemrece`
 - Search terms: ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, test Receipt Join
 - Query ID: `b1968dcbb191`
@@ -1205,7 +1205,7 @@ SELECT * FROM opitemrece WHERE vn = ? LIMIT 5
 
 ## 56. testReceiptJoin — ยา / บริการ / ค่าใช้จ่าย / รายการเบิก / รหัสเบิก / ADP / test Receipt Join
 
-- Source: `server/db.ts:10431`
+- Source: `server/db.ts:10437`
 - Tables: `opitemrece`, `s_drugitems`
 - Search terms: ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, รหัสเบิก, ADP, test Receipt Join
 - Query ID: `88a4643366c0`
@@ -1226,7 +1226,7 @@ LIMIT 10
 
 ## 57. getDiagsAndProcedures — OPD / ผู้ป่วยนอก / visit / รับบริการ / คัดกรอง / อาการ / ความดัน / น้ำหนัก
 
-- Source: `server/db.ts:11512`
+- Source: `server/db.ts:11518`
 - Tables: `ovst`, `opdscreen`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, คัดกรอง, อาการ, ความดัน, น้ำหนัก, get Diags And Procedures
 - Query ID: `7d5e985f0be1`
@@ -1243,7 +1243,7 @@ LIMIT 1
 
 ## 58. getDiagsAndProcedures — วินิจฉัย / ICD10 / diagnosis / ชื่อโรค / get Diags And Procedures
 
-- Source: `server/db.ts:11522`
+- Source: `server/db.ts:11528`
 - Tables: `ovstdiag`, `icd101`
 - Search terms: วินิจฉัย, ICD10, diagnosis, ชื่อโรค, get Diags And Procedures
 - Query ID: `c1d01c968e3c`
@@ -1262,7 +1262,7 @@ ORDER BY d.diagtype
 
 ## 59. getDiagsAndProcedures — หัตถการ / ICD9 / ชื่อหัตถการ / get Diags And Procedures
 
-- Source: `server/db.ts:11534`
+- Source: `server/db.ts:11540`
 - Tables: `doctor_operation`, `icd9cm1`, `er_regist_oper`, `er_oper_code`, `dtmain`, `dttm`
 - Search terms: หัตถการ, ICD9, ชื่อหัตถการ, get Diags And Procedures
 - Query ID: `969cd502c676`
@@ -1309,7 +1309,7 @@ ORDER BY code
 
 ## 60. importFdhStatusForDateRange — OPD / ผู้ป่วยนอก / visit / รับบริการ / import Fdh Status For Date Range
 
-- Source: `server/db.ts:11958`
+- Source: `server/db.ts:11964`
 - Tables: `ovst`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, import Fdh Status For Date Range
 - Query ID: `ac942e219c37`
@@ -1323,7 +1323,7 @@ ORDER BY o.vstdate, o.vn
 
 ## 61. getSpecificFundData — OPD / ผู้ป่วยนอก / visit / รับบริการ / ผู้ป่วย / คนไข้ / HN / CID
 
-- Source: `server/db.ts:12167`
+- Source: `server/db.ts:12173`
 - Tables: `ovst`, `patient`, `pttype`, `vn_stat`, `opitemrece`, `drugitems`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, สถิติ OPD, วินิจฉัยหลัก, ค่าใช้จ่าย, ยา, บริการ, รายการเบิก, drug, get Specific Fund Data
 - Query ID: `31e98e93595d`
@@ -1353,7 +1353,7 @@ ORDER BY o.vstdate DESC
 
 ## 62. getSpecificFundData — OPD / ผู้ป่วยนอก / visit / รับบริการ / ผู้ป่วย / คนไข้ / HN / CID
 
-- Source: `server/db.ts:12292`
+- Source: `server/db.ts:12298`
 - Tables: `ovst`, `patient`, `pttype`, `opitemrece`, `nondrugitems`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, หัตถการ, ADP, get Specific Fund Data
 - Query ID: `52a3f91deb08`
@@ -1382,7 +1382,7 @@ ORDER BY o.vstdate DESC
 
 ## 63. getSpecificFundData — ยา / บริการ / ค่าใช้จ่าย / รายการเบิก / drug / OPD / ผู้ป่วยนอก / visit
 
-- Source: `server/db.ts:12466`
+- Source: `server/db.ts:12472`
 - Tables: `opitemrece`, `drugitems`, `ovst`, `patient`, `pttype`
 - Search terms: ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, drug, OPD, ผู้ป่วยนอก, visit, รับบริการ, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, get Specific Fund Data
 - Query ID: `edfad7958687`
@@ -1427,7 +1427,7 @@ ORDER BY o.vstdate DESC
 
 ## 64. getRevenueOpportunitySourceRows — IPD / ผู้ป่วยใน / admit / AN / ยา / บริการ / ค่าใช้จ่าย / รายการเบิก
 
-- Source: `server/db.ts:13241`
+- Source: `server/db.ts:13247`
 - Tables: `ipt`, `referin`, `referout`, `opitemrece`, `s_drugitems`, `ovstdiag`, `nhso_confirm_privilege`, `authenhos`, `visit_pttype`, `ovst`, `patient`, `pttype`
 - Search terms: IPD, ผู้ป่วยใน, admit, AN, ยา, บริการ, ค่าใช้จ่าย, รายการเบิก, รหัสเบิก, ADP, วินิจฉัย, ICD10, diagnosis, สปสช., ยืนยันสิทธิ, authen, สิทธิ visit, auth code, OPD, ผู้ป่วยนอก, visit, รับบริการ, ผู้ป่วย, คนไข้, HN, CID, ข้อมูลประชากร, สิทธิ, สิทธิการรักษา, get Revenue Opportunity Source Rows
 - Query ID: `655a31592769`
@@ -1567,7 +1567,7 @@ ORDER BY a.hn, a.nexttime, a.oapp_id
 
 ## 66. operativeNote — หัตถการ / ICD9 / ชื่อหัตถการ / operative Note
 
-- Source: `server/hospitalReportTools.ts:95`
+- Source: `server/hospitalReportTools.ts:203`
 - Tables: `doctor_operation`, `icd9cm1`
 - Search terms: หัตถการ, ICD9, ชื่อหัตถการ, operative Note
 - Query ID: `71f7aba4a565`
@@ -1582,7 +1582,7 @@ ORDER BY o.icd9
 
 ## 67. bedOccupancy — IPD / ผู้ป่วยใน / admit / AN / หอผู้ป่วย / ward / bed Occupancy
 
-- Source: `server/hospitalReportTools.ts:123`
+- Source: `server/hospitalReportTools.ts:231`
 - Tables: `ipt`, `ward`
 - Search terms: IPD, ผู้ป่วยใน, admit, AN, หอผู้ป่วย, ward, bed Occupancy
 - Query ID: `da9e3a090d6f`
@@ -1600,7 +1600,7 @@ ORDER BY occupiedBeds DESC, ward
 
 ## 68. costPerDrg — สถิติ IPD / วินิจฉัยผู้ป่วยใน / cost Per Drg
 
-- Source: `server/hospitalReportTools.ts:152`
+- Source: `server/hospitalReportTools.ts:349`
 - Tables: `an_stat`
 - Search terms: สถิติ IPD, วินิจฉัยผู้ป่วยใน, cost Per Drg
 - Query ID: `46ad8cda5dd3`
@@ -1620,7 +1620,7 @@ LIMIT 500
 
 ## 69. payerMix — OPD / ผู้ป่วยนอก / visit / รับบริการ / สิทธิ / สิทธิการรักษา / payer Mix
 
-- Source: `server/hospitalReportTools.ts:183`
+- Source: `server/hospitalReportTools.ts:380`
 - Tables: `ovst`, `pttype`
 - Search terms: OPD, ผู้ป่วยนอก, visit, รับบริการ, สิทธิ, สิทธิการรักษา, payer Mix
 - Query ID: `4a9711706916`

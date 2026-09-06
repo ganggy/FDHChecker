@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiService.ts"
-source_hash: "2eaf618f3470aed8bcc53a454913aa9c33be52d81d6c358dde880ab28f568b4c"
+source_hash: "eec27dd5ecea8d308d72ce2d5eaa6f3e9c17671342b7060980cdc49f8ecf1233"
 managed_by: "sync-ksp-vault"
 ---
 # aiService.ts
 
 > Source: `server/aiService.ts`
-> SHA-256: `2eaf618f3470aed8bcc53a454913aa9c33be52d81d6c358dde880ab28f568b4c`
+> SHA-256: `eec27dd5ecea8d308d72ce2d5eaa6f3e9c17671342b7060980cdc49f8ecf1233`
 
 ````typescript
 import crypto from 'crypto';
@@ -62,6 +62,48 @@ const SYSTEM_INSTRUCTIONS = [
 
 type ConversationContext = Array<{ question: string; answer: string }>;
 
+export const estimatePromptTokens = (value: string) => {
+  let estimate = 0;
+  for (const character of Array.from(String(value || ''))) {
+    if (/\p{Script=Thai}|\p{Script=Han}/u.test(character)) estimate += 1;
+    else if (/\s/u.test(character)) estimate += 0.08;
+    else if (/[A-Za-z0-9_]/.test(character)) estimate += 0.28;
+    else estimate += 0.45;
+  }
+  return Math.ceil(estimate);
+};
+
+const truncatePromptMiddle = (value: string, targetTokens: number) => {
+  const characters = Array.from(value);
+  if (estimatePromptTokens(value) <= targetTokens) return value;
+  let low = 128;
+  let high = characters.length;
+  let best = characters.slice(-Math.min(characters.length, 128)).join('');
+  while (low <= high) {
+    const keep = Math.floor((low + high) / 2);
+    const headLength = Math.floor(keep * 0.55);
+    const tailLength = keep - headLength;
+    const candidate = `${characters.slice(0, headLength).join('')}\n\n[ตัดบริบทเก่าที่เกินขนาด]\n\n${characters.slice(-tailLength).join('')}`;
+    if (estimatePromptTokens(candidate) <= targetTokens) {
+      best = candidate;
+      low = keep + 1;
+    } else high = keep - 1;
+  }
+  return best;
+};
+
+export const compactPromptForContext = (
+  systemInstructions: string,
+  prompt: string,
+  contextLength: number,
+  maxOutputTokens: number,
+) => {
+  const reserve = Math.max(512, Math.ceil(contextLength * 0.08));
+  const inputBudget = Math.max(1_024, contextLength - maxOutputTokens - reserve);
+  const promptBudget = Math.max(768, inputBudget - estimatePromptTokens(systemInstructions));
+  return truncatePromptMiddle(prompt, promptBudget);
+};
+
 const conversationContextText = (history: ConversationContext) => history.slice(-8).map((entry, index) => (
   `${index + 1}. ผู้ใช้: ${entry.question}\nผู้ช่วย: ${entry.answer}`
 )).join('\n\n');
@@ -79,35 +121,54 @@ const callOllama = async (
   systemInstructions = SYSTEM_INSTRUCTIONS,
   options?: { json?: boolean; temperature?: number; maxTokens?: number },
 ) => {
-  const response = await fetch(`${ollamaBaseUrl()}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: ollamaModel(),
-      stream: false,
-      think: false,
-      keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
-      messages: [
-        { role: 'system', content: systemInstructions },
-        { role: 'user', content: prompt },
-      ],
-      ...(options?.json ? { format: 'json' } : {}),
-      options: {
-        temperature: options?.temperature ?? 0.1,
-        num_ctx: Number(process.env.OLLAMA_CONTEXT_LENGTH) || 8_192,
-        num_predict: options?.maxTokens || Number(process.env.OLLAMA_MAX_TOKENS) || 1_200,
-      },
-    }),
-    signal: AbortSignal.timeout(requestTimeoutMs()),
-  });
-  const payload = await response.json() as {
-    message?: { content?: string };
-    error?: string;
-  };
-  if (!response.ok) throw new Error(`Ollama ${response.status}: ${payload.error || response.statusText}`);
-  const text = payload.message?.content?.trim();
-  if (!text) throw new Error('Ollama returned no text');
-  return text;
+  const contextLength = Math.max(4_096, Number(process.env.OLLAMA_CONTEXT_LENGTH) || 8_192);
+  const maxOutputTokens = Math.min(
+    Math.max(256, options?.maxTokens || Number(process.env.OLLAMA_MAX_TOKENS) || 1_200),
+    Math.floor(contextLength / 3),
+  );
+  let fittedPrompt = compactPromptForContext(systemInstructions, prompt, contextLength, maxOutputTokens);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(`${ollamaBaseUrl()}/api/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: ollamaModel(), stream: false, think: false,
+        keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
+        messages: [
+          { role: 'system', content: systemInstructions },
+          { role: 'user', content: fittedPrompt },
+        ],
+        ...(options?.json ? { format: 'json' } : {}),
+        options: {
+          temperature: options?.temperature ?? 0.1,
+          num_ctx: contextLength,
+          num_predict: maxOutputTokens,
+        },
+      }),
+      signal: AbortSignal.timeout(requestTimeoutMs()),
+    });
+    const payload = await response.json() as {
+      message?: { content?: string };
+      error?: string | { message?: string; type?: string };
+    };
+    const errorText = typeof payload.error === 'string'
+      ? payload.error
+      : String(payload.error?.message || response.statusText);
+    const contextExceeded = response.status === 400 && /context size|exceed_context_size|n_ctx/i.test(errorText);
+    if (contextExceeded && attempt === 0) {
+      fittedPrompt = compactPromptForContext(
+        systemInstructions, fittedPrompt, Math.max(4_096, Math.floor(contextLength * 0.72)), maxOutputTokens,
+      );
+      continue;
+    }
+    if (!response.ok) {
+      if (contextExceeded) throw new Error('บริบท AI ยาวเกินขนาดหลังจากย่ออัตโนมัติแล้ว กรุณาเริ่มบทสนทนาใหม่');
+      throw new Error(`Ollama ${response.status}: ${errorText}`);
+    }
+    const text = payload.message?.content?.trim();
+    if (!text) throw new Error('Ollama returned no text');
+    return text;
+  }
+  throw new Error('บริบท AI ยาวเกินขนาดหลังจากย่ออัตโนมัติแล้ว กรุณาเริ่มบทสนทนาใหม่');
 };
 
 const extractOpenAIText = (payload: Record<string, unknown>): string => {

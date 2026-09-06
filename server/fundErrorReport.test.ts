@@ -9,6 +9,15 @@ import {
   isFundReportEligible,
   REPORT_FUNDS,
 } from './fundErrorReport.js';
+import { buildPostnatalTraditionalMedicineExclusionSql } from './specificFundRules.js';
+
+test('postnatal care excludes visits with a traditional medicine U diagnosis', () => {
+  const sql = buildPostnatalTraditionalMedicineExclusionSql('o');
+
+  assert.match(sql, /traditional_dx\.vn\s*=\s*o\.vn/);
+  assert.match(sql, /UPPER\(TRIM\(COALESCE\(traditional_dx\.icd10, ''\)\)\) LIKE 'U%'/);
+  assert.match(sql, /^\s*NOT EXISTS/);
+});
 
 test('LINE report flags S1 transport claims when OP Refer patient travels independently', () => {
   const section = buildOpReferSelfTransportErrorSection([{
@@ -49,6 +58,24 @@ test('knee report identifies missing procedures', () => {
     has_knee_massage_lower_leg: 'Y', has_knee_poultice: 'N', knee_poultice_14d_count: 0,
   });
   assert.deepEqual(missing, ['หัตถการ 873-78-11', 'หัตถการ 873-78-35']);
+});
+
+test('family-planning LINE rules use the diagnosis and procedure pairs from the service table', () => {
+  assert.deepEqual(getFundMissingConditions('fp', {
+    fp_diags: 'Z308', fp_adp_codes: 'FP002_2', fp_icd9_codes: '',
+  }), ['FP002_2: ICD-9 8605']);
+  assert.deepEqual(getFundMissingConditions('fp', {
+    fp_diags: 'Z308', fp_adp_codes: 'FP002_2', fp_icd9_codes: '8605',
+  }), []);
+  assert.deepEqual(getFundMissingConditions('fp', {
+    fp_diags: 'Z308', fp_adp_codes: 'FP003_3', fp_icd9_codes: '',
+  }), ['FP003_3: Diagnosis Z304']);
+  assert.deepEqual(getFundMissingConditions('condom', {
+    pdx: 'Z308', has_specific_adp: 'Y',
+  }), ['Diagnosis Z304']);
+  assert.deepEqual(getFundMissingConditions('condom', {
+    pdx: 'Z304', has_specific_adp: 'Y', fp_injection_year_count: 6,
+  }), ['FP003_4 เกิน 5 ครั้ง/ปี (พบ 6)']);
 });
 
 test('formatted report contains HN but no patient identity fields', () => {

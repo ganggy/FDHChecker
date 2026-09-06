@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/LocalAiAssistant.tsx"
-source_hash: "82306cc8156e4339c54317311d6232f26eb3b09fc5f6d8029481b202ce5f6411"
+source_hash: "04990cb70f530c1dcc0e533533d564a7824876093a40e9e8e61f26c20afcbe03"
 managed_by: "sync-ksp-vault"
 ---
 # LocalAiAssistant.tsx
 
 > Source: `src/components/LocalAiAssistant.tsx`
-> SHA-256: `82306cc8156e4339c54317311d6232f26eb3b09fc5f6d8029481b202ce5f6411`
+> SHA-256: `04990cb70f530c1dcc0e533533d564a7824876093a40e9e8e61f26c20afcbe03`
 
 ````tsx
 import { useEffect, useRef, useState } from 'react';
@@ -51,7 +51,7 @@ type AiStatus = {
 type ConversationContext = {
   patient?: { hn: string; patientName: string };
   waitingFor?: string;
-  lastAction?: { kind: 'patient-report' | 'operational' | 'dynamic-query'; label: string };
+  lastAction?: { kind: 'patient-report' | 'operational' | 'hospital-report' | 'dynamic-query'; label: string };
 };
 
 export function LocalAiAssistant() {

@@ -1,6 +1,8 @@
 import { getRevenueOpportunitySourceRows, getSpecificFundData } from './db.js';
 import { pushLineMessages, type LineMessage } from './lineMessaging.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
+import { publishCollaborationBotMessages } from './collaboration.js';
+import { evaluateFamilyPlanningEvidence } from '../src/utils/familyPlanningRules.js';
 
 type FundRow = Record<string, unknown>;
 
@@ -48,7 +50,7 @@ export const REPORT_FUNDS: FundSpec[] = [
   { id: 'postnatal_supplements', name: 'เสริมธาตุเหล็กหลังคลอด' },
   { id: 'fluoride', name: 'เคลือบฟลูออไรด์' },
   { id: 'fp', name: 'วางแผนครอบครัว' },
-  { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด' },
+  { id: 'contraceptive_pill', name: 'ยาเม็ดคุมกำเนิด' },
   { id: 'condom', name: 'ยาฉีดคุมกำเนิด' },
   { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก' },
   { id: 'fpg_screening', name: 'คัดกรองเบาหวาน' },
@@ -157,9 +159,17 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
         [{ met: flag(row.has_cx_diag) || present(row.ca_diags), label: 'Diagnosis/บริการคัดกรอง' }],
       );
       break;
-    case 'fp':
-      addWebNearStatusMissing(missing, flag(row.has_fp_adp) || present(row.fp_adp_codes), 'ADP/หัตถการ FP', [{ met: fpDiag, label: 'Diagnosis Z30x' }]);
+    case 'fp': {
+      const result = evaluateFamilyPlanningEvidence({
+        diagnosisCodes: row.fp_diags || codes(row).join(','),
+        adpCodes: row.fp_adp_codes,
+        procedureCodes: row.fp_icd9_codes,
+        emergencyPillYearQuantity: row.fp_emergency_year_qty,
+        injectionYearCount: row.fp_injection_year_count,
+      });
+      missing.push(...result.missing);
       break;
+    }
     case 'anc':
       addWebNearStatusMissing(missing, flag(row.has_anc_visit) || hasListedCode(row.anc_adp_codes, ['30011']), 'ADP 30011', [
         { met: female, label: 'เพศหญิง' },
@@ -217,8 +227,13 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
       ]); break;
     case 'fluoride': requireValue(missing, flag(row.has_specific_adp) || hasListedCode(row.anc_adp_codes, ['15001']), 'ADP 15001'); break;
     case 'contraceptive_pill':
-      addWebNearStatusMissing(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_1', 'FP003_2']), 'ADP FP003_1/FP003_2', [{ met: hasCode(row, ['Z304']), label: 'Diagnosis Z304' }]); break;
-    case 'condom': addWebNearStatusMissing(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_4']), 'ADP FP003_4', [{ met: fpDiag, label: 'Diagnosis Z30x' }]); break;
+      addWebNearStatusMissing(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_1', 'FP003_2', 'FP003_3']), 'ADP FP003_1/FP003_2/FP003_3', [{ met: hasCode(row, ['Z304']), label: 'Diagnosis Z304' }]);
+      if (Number(row.fp_emergency_year_qty || 0) > 2) missing.push(`FP003_3 เกิน 2 แผง/ปี (พบ ${Number(row.fp_emergency_year_qty)})`);
+      break;
+    case 'condom':
+      addWebNearStatusMissing(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_4']), 'ADP FP003_4', [{ met: hasCode(row, ['Z304']), label: 'Diagnosis Z304' }]);
+      if (Number(row.fp_injection_year_count || 0) > 5) missing.push(`FP003_4 เกิน 5 ครั้ง/ปี (พบ ${Number(row.fp_injection_year_count)})`);
+      break;
     case 'fpg_screening':
       addWebNearStatusMissing(missing, flag(row.has_fpg_adp), 'ADP 12003', [
         { met: flag(row.age_eligible), label: 'อายุ 35-59 ปี' }, { met: flag(row.has_fpg_lab), label: 'Lab FPG' },
@@ -240,7 +255,7 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
         { met: flag(row.has_anemia_diag) || hasCode(row, ['Z130','Z138']), label: 'Diagnosis Z130/Z138' },
       ]); break;
     }
-    case 'syphilis_screening_male': requireValue(missing, male, 'เพศชาย'); requireValue(missing, flag(row.has_syphilis_lab) || present(row.syphilis_lab_names) || present(row.syphilis_service_names), 'Lab Treponema/Syphilis'); break;
+    case 'syphilis_screening_male': requireValue(missing, male, 'เพศชาย'); requireValue(missing, flag(row.has_syphilis_lab) || present(row.syphilis_lab_names) || present(row.syphilis_service_names), 'Lab/บริการซิฟิลิส 36003 หรือ 36006'); break;
     case 'iron_supplement': addWebNearStatusMissing(missing, flag(row.has_iron_adp), 'ADP 14001', [
       { met: flag(row.age_eligible) || (female && age >= 13 && age <= 45), label: 'หญิงอายุ 13-45 ปี' },
       { met: flag(row.has_iron_diag) || hasCode(row, ['Z130']), label: 'Diagnosis Z130' },
@@ -432,9 +447,22 @@ const pushTextMessages = async (messages: string[]) => {
   return messages.length;
 };
 
-export const sendDailyFundErrorReportToLine = async (sections: FundErrorSection[], reportDate: string) => (
-  pushTextMessages(buildDailyFundLineMessages(sections, reportDate))
-);
+export const sendDailyFundErrorReportToLine = async (sections: FundErrorSection[], reportDate: string) => {
+  const messages = buildDailyFundLineMessages(sections, reportDate);
+  const sent = await pushTextMessages(messages);
+  try {
+    await publishCollaborationBotMessages({
+      botKey: 'fund-errors',
+      senderName: text(process.env.LINE_FUND_BOT_DISPLAY_NAME) || 'พี่นกหมายเลขสอง',
+      reportDate,
+      messages,
+      metadata: { reportType: 'special_fund', mirroredFrom: 'line' },
+    });
+  } catch (error) {
+    console.warn('Unable to mirror fund report to collaboration chat:', errorMessage(error));
+  }
+  return sent;
+};
 
 export const sendFundErrorReportToLine = async (report: string, startChunk = 0) => {
   const chunks = chunkLineText(report).slice(Math.max(0, startChunk));

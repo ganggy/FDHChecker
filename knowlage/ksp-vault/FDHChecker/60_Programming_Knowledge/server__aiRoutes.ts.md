@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiRoutes.ts"
-source_hash: "5c96841f87fd3b56c60a198b548c228e27f5aeca5cd327d68dda01ec2b87e866"
+source_hash: "fc613e6f8d080085b78e6fee676270136962d01e5aecd53d7639b83e42f1f4c5"
 managed_by: "sync-ksp-vault"
 ---
 # aiRoutes.ts
 
 > Source: `server/aiRoutes.ts`
-> SHA-256: `5c96841f87fd3b56c60a198b548c228e27f5aeca5cd327d68dda01ec2b87e866`
+> SHA-256: `fc613e6f8d080085b78e6fee676270136962d01e5aecd53d7639b83e42f1f4c5`
 
 ````typescript
 import { Router, type NextFunction, type Request, type Response } from 'express';
@@ -68,6 +68,11 @@ import {
 } from './kspVaultManager.js';
 import { answerAiCapabilityQuestion, parseAiCapabilityQuestion } from './aiCapabilityHelp.js';
 import { answerErrorAnalysisQuestion, parseErrorAnalysisIntent } from './aiErrorTools.js';
+import {
+  parseHospitalReportIntent,
+  runHospitalReport,
+  type HospitalReportRequest,
+} from './hospitalReportTools.js';
 
 export const aiRouter = Router();
 
@@ -235,8 +240,35 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (r
         });
         return reply(result);
       }
+      if (lastAction.kind === 'hospital-report') {
+        const intent = { ...(lastAction.payload as HospitalReportRequest), format: formatOnly };
+        const result = await runHospitalReport(intent);
+        const title = 'title' in result ? result.title : 'รายงานโรงพยาบาล';
+        rememberConversationExchange(currentConversationKey, question, result.answer);
+        setConversationLastAction(currentConversationKey, {
+          kind: 'hospital-report', label: title, payload: intent as unknown as Record<string, unknown>,
+        });
+        return reply(result);
+      }
       const result = await exportLastDynamicQuery(currentConversationKey, formatOnly);
       if (result) return reply(result);
+    }
+    const hospitalReportIntent = parseHospitalReportIntent(question);
+    if (hospitalReportIntent) {
+      const result = await runHospitalReport(hospitalReportIntent);
+      const title = 'title' in result ? result.title : 'รายงานโรงพยาบาล';
+      rememberConversationExchange(currentConversationKey, question, result.answer);
+      setConversationLastAction(currentConversationKey, {
+        kind: 'hospital-report', label: title,
+        payload: hospitalReportIntent as unknown as Record<string, unknown>,
+      });
+      return reply({
+        ...result,
+        knowledge: {
+          status: 'verified-template',
+          message: 'ใช้ต้นแบบที่ตรวจสอบแล้วจาก FDHChecker Vault; feedback จะถูกเก็บเพื่อปรับรุ่นถัดไป',
+        },
+      });
     }
     const operationalIntent = parseOperationalIntent(question);
     if (operationalIntent) {
@@ -320,10 +352,10 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (r
 
     const matches = await getKnowledgeVault().search(
       question,
-      Math.min(8, Math.max(1, Number(process.env.VAULT_TOP_K) || 5)),
+      Math.min(5, Math.max(1, Number(process.env.VAULT_TOP_K) || 3)),
     );
     const vaultContext = matches.map((match, index) => (
-      `[${index + 1}] ${match.source} > ${match.heading}\n${match.content}`
+      `[${index + 1}] ${match.source} > ${match.heading}\n${match.content.slice(0, 1_600)}`
     )).join('\n\n');
     const dynamicResult = await answerConversationalDataQuestion(question, currentConversationKey, vaultContext);
     if (dynamicResult) return reply(dynamicResult);
@@ -345,7 +377,15 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (r
     });
   } catch (error) {
     console.error('Local AI chat error:', error);
-    return res.status(503).json({ error: (error as Error).message });
+    const message = (error as Error).message;
+    const safeMessage = /context size|exceed_context_size|บริบท AI ยาวเกิน/i.test(message)
+      ? 'บทสนทนายาวเกินขนาดที่ AI รองรับ ระบบพยายามย่อให้อัตโนมัติแล้ว กรุณากด “บทสนทนาใหม่” แล้วส่งคำขออีกครั้ง'
+      : /timeout|aborted/i.test(message)
+        ? 'AI ใช้เวลาประมวลผลนานเกินกำหนด กรุณาลองใหม่อีกครั้ง'
+        : /Ollama|ECONNREFUSED|fetch failed/i.test(message)
+          ? 'ไม่สามารถเชื่อมต่อ Local AI ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง'
+          : message;
+    return res.status(503).json({ error: safeMessage });
   }
 });
 

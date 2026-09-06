@@ -24,6 +24,15 @@ const ISSUE_FILE_MAP: Record<string, string[]> = {
   ER212: ['ADP'],
   ER213: ['ADP'],
   ER214: ['ADP', 'DRU'],
+  'OPD-DOC01': ['MR'],
+  'OPD-DOC02': ['MR'],
+  'OPD-LAB01': ['MR'],
+  'OPD-CHG01': ['CHT', 'CHA'],
+  'OPD-CHG02': ['CHT', 'CHA'],
+  'OPD-CHG03': ['CHT'],
+  'OPD-CHG04': ['CHT'],
+  'OPD-CHG05': ['MR', 'CHT'],
+  'OPD-DRU01': ['DRU'],
 };
 
 const FILE_LABELS: Record<string, string> = {
@@ -35,6 +44,7 @@ const FILE_LABELS: Record<string, string> = {
   DRU: 'DRU - รายการยา',
   CHT: 'CHT - ค่าบริการ',
   CHA: 'CHA - ค่าบริการอื่น',
+  MR: 'เวชระเบียน OPD / หลักฐานบริการ',
 };
 
 const ISSUE_LABELS: Record<string, string> = {
@@ -59,10 +69,23 @@ const ISSUE_LABELS: Record<string, string> = {
   ER212: 'ADP: กองทุนพิเศษ - ตรวจสอบ',
   ER213: 'ADP: กองทุนพิเศษ - ตรวจสอบ',
   ER214: 'DRUGP: ต้องมีรายการยา',
+  'OPD-DOC01': 'ไม่พบแพทย์/ผู้ให้บริการประจำ visit',
+  'OPD-DOC02': 'ไม่พบบันทึกอาการสำคัญหรือประวัติ',
+  'OPD-LAB01': 'มีคำสั่ง LAB แต่ไม่พบผลตรวจ',
+  'OPD-CHG01': 'จำนวนรายการค่าใช้จ่ายเป็นศูนย์หรือติดลบ',
+  'OPD-CHG02': 'รายการค่าใช้จ่ายรหัสเดียวกันซ้ำ',
+  'OPD-CHG03': 'เบิก 55020 และ 55021 พร้อมกัน',
+  'OPD-CHG04': 'ค่าเตียงสังเกตอาการชนกับ 55020/55021',
+  'OPD-CHG05': 'หัตถการไม่พบผู้ตรวจแต่เบิกค่าบริการ OPD',
+  'OPD-DRU01': 'จำนวนยาที่จ่ายเป็นศูนย์หรือติดลบ',
 };
 
-const isCritical = (code: string) => code.startsWith('ER1') || code === 'ER214';
+const OPD_BLOCKING_CODES = new Set(['OPD-LAB01', 'OPD-CHG01', 'OPD-CHG03', 'OPD-CHG04', 'OPD-CHG05', 'OPD-DRU01']);
 const extractIssueCode = (issue: string) => issue.split(':')[0]?.trim() || issue.trim();
+const isCritical = (issue: string) => {
+  const code = extractIssueCode(issue);
+  return code.startsWith('ER1') || code === 'ER214' || OPD_BLOCKING_CODES.has(code);
+};
 
 interface VisitRow {
   vn: string;
@@ -162,8 +185,8 @@ export default function PreSubmitValidatorPage() {
       <div className="workflow-hero">
         <div className="workflow-hero__content">
           <div>
-            <h1 className="page-title workflow-hero__title">Pre-submit Validator 16 แฟ้ม</h1>
-            <p className="workflow-hero__description">ตรวจสอบความสมบูรณ์ของข้อมูลก่อนส่งเบิก สปสช. แยกให้ชัดระหว่างรายการที่ห้ามส่งกับรายการที่ควรตรวจสอบเพิ่มเติม</p>
+            <h1 className="page-title workflow-hero__title">Pre-submit Validator OPD + 16 แฟ้ม</h1>
+            <p className="workflow-hero__description">ตรวจโครงสร้าง 16 แฟ้ม พร้อมหลักฐานเวชระเบียน คำสั่ง–ผล LAB และความผิดปกติของค่าใช้จ่ายก่อนส่งเบิก</p>
           </div>
           <div className="workflow-hero__meta">
             <span className="workflow-badge workflow-badge--accent">พร้อมส่งออก 16 แฟ้ม</span>

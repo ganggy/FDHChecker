@@ -44,6 +44,15 @@
             "30008",
             "30009"
         ],
+        "anc_dental_exam_procedures": [
+            "2330011",
+            "2330010"
+        ],
+        "anc_dental_exam_icd9": "8931",
+        "anc_dental_clean_procedures": [
+            "2387010"
+        ],
+        "anc_dental_clean_icd9": "9654",
         "cx_regex": "^1B004|^1B005",
         "fp_regex": "^FP",
         "pp_regex": "^Z39",

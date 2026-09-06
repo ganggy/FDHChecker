@@ -196,6 +196,7 @@ export class VaultKnowledgeBase {
     const ranked = this.chunks
       .map((chunk) => {
         let score = 0;
+        const normalizedSource = chunk.source.replace(/\\/g, '/');
         for (const token of queryTokens) {
           if (chunk.tokens.has(token)) score += token.length >= 5 ? 3 : 1.5;
           if (chunk.normalized.includes(token)) score += 0.5;
@@ -203,11 +204,12 @@ export class VaultKnowledgeBase {
         }
         if (normalizedQuery.length >= 6 && chunk.normalized.includes(normalizedQuery)) score += 12;
         if (score > 0) {
-          if (/^FDHChecker\/70_AI_Managed\//i.test(chunk.source)) score += 7;
-          else if (/^FDHChecker\/(10_Rules_and_Config|20_Data_Model|30_Claims_and_Knowledge)\//i.test(chunk.source)) score += 4;
-          else if (/^FDHChecker\/50_Operations\//i.test(chunk.source)) score += 2;
-          else if (/^FDHChecker\/40_Project_Documentation\//i.test(chunk.source)) score += 1;
-          if (/\/extracted\//i.test(chunk.source)) score -= 2;
+          if (/^FDHChecker\/70_AI_Managed\//i.test(normalizedSource)) score += 7;
+          else if (/^FDHChecker\/(10_Rules_and_Config|20_Data_Model|30_Claims_and_Knowledge)\//i.test(normalizedSource)) score += 4;
+          else if (/^FDHChecker\/50_Operations\//i.test(normalizedSource)) score += 2;
+          else if (/^FDHChecker\/40_Project_Documentation\//i.test(normalizedSource)) score -= 2;
+          else if (/^FDHChecker\/60_Programming_Knowledge\//i.test(normalizedSource)) score -= 3;
+          if (/\/extracted\//i.test(normalizedSource)) score -= 2;
         }
         return { ...chunk, score };
       })

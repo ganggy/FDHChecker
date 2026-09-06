@@ -43,8 +43,9 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
               <th className="opd-service-datetime-header">วัน–เวลารับบริการ</th>
               <th style={{ textAlign: 'center' }}>ประเภท</th>
               <th style={{ textAlign: 'center' }}>Diag</th>
-              <th style={{ minWidth: 150 }}>สถานะกองทุน</th>
+              <th className="fund-status-column">สถานะกองทุน</th>
               <th style={{ minWidth: 180 }}>สถานะ FDH / ECLAIM</th>
+              <th style={{ minWidth: 210 }}>OPD Pre-audit</th>
               <th style={{ textAlign: 'center' }}>สถานะข้อมูล</th>
               <th style={{ textAlign: 'right' }}>ราคา (บาท)</th>
             </tr>
@@ -54,12 +55,16 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
               const logic = evaluateBillingLogic(item);
               const specialFundNotes = logic.specialFundNotes.filter((note) => !note.includes('ปิดสิทธิ'));
               const epNotes = logic.specialFundNotes.filter((note) => note.includes('ปิดสิทธิ'));
-              const hasSpecialFundBlock = specialFundNotes.length > 0;
               const specialSummary = logic.matchedFund
                 ? 'เข้าเงื่อนไขกองทุนพิเศษ'
                 : logic.incompleteFund
                   ? 'ใกล้เข้าเงื่อนไขกองทุนพิเศษ'
                   : '';
+              const fundSecondaryText = [
+                specialSummary,
+                ...specialFundNotes,
+                ...epNotes,
+              ].filter(Boolean).join(' • ');
               const eclaimCode = String(item.pttype_eclaim_id || '').trim();
               const eclaimName = String(item.pttype_eclaim_name || '').trim();
               const eclaimLabel = eclaimCode
@@ -67,6 +72,7 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                 : 'ไม่ระบุ';
               const fdhLabel = item.fdh_status_label
                 || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
+              const opdAudit = item.opd_pre_audit;
 
               return (
                 <tr
@@ -120,63 +126,17 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                   <td style={{ textAlign: 'center', fontWeight: 700, color: logic.hasNoDiagnosis ? '#ef4444' : '#1e40af' }}>
                     {logic.hasNoDiagnosis ? 'ใส่ ICD10' : (item.pdx || item.main_diag || '-')}
                   </td>
-                  <td>
-                    <div className="fund-status-block">
-                      <div className="fund-status-title">
+                  <td className="fund-status-column">
+                    <div
+                      className="fund-status-block fund-status-block--two-lines"
+                      title={[logic.billingStatusLabel, fundSecondaryText].filter(Boolean).join(' — ')}
+                    >
+                      <div className="fund-status-line fund-status-line--primary">
                         {logic.billingStatusLabel}
                       </div>
-                      {hasSpecialFundBlock && (
-                        <>
-                          <div className={`fund-status-summary ${logic.matchedFund ? 'fund-status-summary--success' : 'fund-status-summary--warning'}`}>
-                            <span>{specialSummary}</span>
-                          </div>
-                          <div className="fund-status-kicker">กองทุนพิเศษ</div>
-                          <div className="fund-status-badges">
-                            {specialFundNotes.map((note, idx) => {
-                              const badgeStyle: React.CSSProperties = { fontSize: 10, padding: '2px 6px' };
-                              
-                              // Color coding logic
-                              if (note.includes('ขาด') || note.includes('ไม่ผ่าน') || note.includes('ไม่ถึงเกณฑ์') || note.includes('เบิกไม่ได้')) {
-                                 return <span key={idx} className="badge badge-danger" style={badgeStyle}>{note}</span>;
-                              }
-                              
-                              if (note.match(/ANC|ตรวจครรภ์/)) {
-                                 return <span key={idx} className="badge" style={{...badgeStyle, background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd'}}>{note}</span>;
-                              }
-                              if (note.match(/ตรวจหลังคลอด/)) {
-                                 return <span key={idx} className="badge" style={{...badgeStyle, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a'}}>{note}</span>;
-                              }
-                              if (note.match(/คัดกรอง|ตรวจมะเร็ง/)) {
-                                 return <span key={idx} className="badge" style={{...badgeStyle, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0'}}>{note}</span>;
-                              }
-                              if (note.match(/Telemedicine|EMS/)) {
-                                 return <span key={idx} className="badge" style={{...badgeStyle, background: '#faf5ff', color: '#6b21a8', border: '1px solid #e9d5ff'}}>{note}</span>;
-                              }
-                              if (note.match(/คุมกำเนิด|ถุงยาง|ยาฉีด/)) {
-                                 return <span key={idx} className="badge" style={{...badgeStyle, background: '#fff1f2', color: '#9f1239', border: '1px solid #fecdd3'}}>{note}</span>;
-                              }
-                              if (note.match(/ล้างไต/)) {
-                                 return <span key={idx} className="badge badge-info" style={badgeStyle}>{note}</span>;
-                              }
-
-                              return (
-                                <span key={idx} className="badge badge-success" style={badgeStyle}>
-                                  {note}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-                      {epNotes.length > 0 && (
-                        <div className="fund-status-badges fund-status-badges--ep">
-                          {epNotes.map((note, idx) => (
-                            <span key={idx} className={`badge ${item.has_close ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: 10 }}>
-                              {note}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      <div className={`fund-status-line fund-status-line--secondary ${logic.matchedFund ? 'is-success' : 'is-warning'}`}>
+                        {fundSecondaryText || '—'}
+                      </div>
                     </div>
                   </td>
                   <td>
@@ -188,6 +148,40 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                         ECLAIM: {eclaimLabel}
                       </span>
                     </div>
+                  </td>
+                  <td onClick={(event) => event.stopPropagation()}>
+                    {!opdAudit ? (
+                      <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                        {item.serviceType === 'ผู้ป่วยใน' || item.serviceType === 'IPD'
+                          ? 'ไม่ใช่รายการ OPD'
+                          : 'ยังไม่ได้ประมวลผล Pre-audit'}
+                      </span>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
+                        <span className={`badge ${opdAudit.status === 'clear' ? 'badge-success' : opdAudit.status === 'blocking' ? 'badge-danger' : 'badge-warning'}`}>
+                          {opdAudit.status === 'clear'
+                            ? 'ผ่านกฎ OPD'
+                            : opdAudit.status === 'blocking'
+                              ? `ห้ามส่ง ${opdAudit.blockingCount} จุด`
+                              : `ควรตรวจ ${opdAudit.reviewCount} จุด`}
+                        </span>
+                        {opdAudit.findings.length > 0 && (
+                          <details style={{ fontSize: 11, color: 'var(--text-secondary)', maxWidth: 280 }}>
+                            <summary style={{ cursor: 'pointer' }}>
+                              {opdAudit.findings.slice(0, 2).map((finding) => finding.code).join(', ')}
+                              {opdAudit.findings.length > 2 ? ` +${opdAudit.findings.length - 2}` : ''}
+                            </summary>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 5 }}>
+                              {opdAudit.findings.map((finding) => (
+                                <div key={finding.code} style={{ color: finding.severity === 'blocking' ? '#b91c1c' : '#92400e' }}>
+                                  <strong>{finding.code}</strong>: {finding.message}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>

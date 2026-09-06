@@ -5,9 +5,14 @@ import businessRules from './config/business_rules.json';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
 import { fetchWithTimeout } from './httpClient.js';
 import { getApVaccineRule, validateApVaccineEligibility } from './mophVaccineRules.js';
-import type { FdhExportProfile } from './fdhExport.js';
+import { consolidateFdhOopRows, type FdhExportProfile } from './fdhExport.js';
 import { evaluateFsRate, FS_PROJECT_ITEMS_2569 } from './fsRateRules.js';
 import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVisit, summarizeKidneyTrackingVisits } from './kidneyMonitorRules.js';
+import { attachKidneyRepStmTracking } from './kidneyRepStmTracking.js';
+import { PALLIATIVE_DIAGNOSIS_GROUPS } from '../src/config/palliativeDiagnosisCatalog.js';
+import { reviewPalliativeCareVisit } from '../src/utils/palliativeCareReview.js';
+import { SYPHILIS_SCREENING_ADP_CODES, SYPHILIS_SCREENING_NAME_PATTERN } from '../src/utils/syphilisScreeningRules.js';
+import { buildPostnatalTraditionalMedicineExclusionSql } from './specificFundRules.js';
 
 dotenv.config();
 
@@ -55,7 +60,7 @@ export const getRepstmConnection = async () => {
 
 const ANEMIA_CBC_REGEX = 'CBC|COMPLETE BLOOD COUNT|FULL BLOOD COUNT|CBC WITHOUT SMEAR|CBC NO SMEAR|CBC W/O SMEAR|CBC W/O DIFF|ซีบีซี|ความสมบูรณ์ของเม็ดเลือด|เม็ดเลือดสมบูรณ์';
 const ANEMIA_HBHCT_REGEX = 'HB/HCT|HBHCT|HB HCT|HB-HCT|HB|HGB|HEMOGLOBIN|HCT|HEMATOCRIT|ฮีโมโกลบิน|ฮีมาโตคริต|ความเข้มข้นเลือด';
-const SYPHILIS_SCREENING_REGEX = 'TREPONEMA|TREPONEMAL|PALLIDUM|SYPHILIS|ซิฟิลิส|TPHA|TPPA|VDRL|RPR';
+const SYPHILIS_SCREENING_REGEX = SYPHILIS_SCREENING_NAME_PATTERN;
 const HEP_C_SCREENING_REGEX = 'ANTI[- ]?HCV|HCV[ -]?(AB|ANTIBODY)|HEPATITIS C.*(AB|ANTIBODY)|ไวรัสตับอักเสบซี';
 const HEP_B_SCREENING_REGEX = 'HBS[- ]?AG|HBsAg|HEPATITIS B SURFACE ANTIGEN|HEPATITIS B ANTIGEN|ไวรัสตับอักเสบบี';
 const MENTAL_HEALTH_COUNSELLING_REGEX = 'MENTAL|COUNSELL?ING|ST[- ]?5|9Q|สุขภาพจิต|ปรึกษา.*สุขภาพจิต|ความเครียด|ซึมเศร้า';
@@ -65,6 +70,14 @@ const OSTEOPOROSIS_SCREENING_REGEX = 'FRAX|DXA|DEXA|BMD|BONE DENS|OSTEOPOROSIS|�
 const TDAS_SCREENING_REGEX = 'TDAS|AUTIS|ออทิส|ออทิสติก';
 const TELEMED_ADP_CODE = String((businessRules as any)?.adp_codes?.telmed || 'TELMED').trim().toUpperCase();
 const TELEMED_EXPORT_CODE = String((businessRules as any)?.project_codes?.ovstist_tele || '5').trim();
+const ANC_DENTAL_EXAM_PROCEDURE_CODES = ((businessRules as any)?.adp_codes?.anc_dental_exam_procedures || ['2330011', '2330010']) as string[];
+const ANC_DENTAL_CLEAN_PROCEDURE_CODES = ((businessRules as any)?.adp_codes?.anc_dental_clean_procedures || ['2387010']) as string[];
+const ANC_DENTAL_EXAM_ICD9 = String((businessRules as any)?.adp_codes?.anc_dental_exam_icd9 || '8931').replace(/\./g, '').trim();
+const ANC_DENTAL_CLEAN_ICD9 = String((businessRules as any)?.adp_codes?.anc_dental_clean_icd9 || '9654').replace(/\./g, '').trim();
+const toSqlCodeList = (codes: string[]) => codes.map((code) => `'${String(code).replace(/'/g, "''")}'`).join(', ');
+const SYPHILIS_SCREENING_ADP_CODES_SQL = toSqlCodeList([...SYPHILIS_SCREENING_ADP_CODES]);
+const ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL = toSqlCodeList(ANC_DENTAL_EXAM_PROCEDURE_CODES);
+const ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL = toSqlCodeList(ANC_DENTAL_CLEAN_PROCEDURE_CODES);
 
 const buildAnemiaLabExistsSql = (alias: string, labKind: 'cbc' | 'hbhct' | 'any' = 'any') => {
   const regex = labKind === 'cbc'
@@ -247,6 +260,12 @@ const IRON_DX_CODES = ['Z130'];
 const POSTNATAL_CARE_DX_CODES = ['Z390', 'Z391', 'Z392'];
 const POSTNATAL_SUPPLEMENT_DX_CODES = ['Z391', 'Z392'];
 const PILL_DX_CODES = ['Z304'];
+const PALLIATIVE_SERVICE_DX_CODES = ['Z515', 'Z718'];
+const PALLIATIVE_ELIGIBLE_DX_CODES = PALLIATIVE_DIAGNOSIS_GROUPS
+  .filter((group) => group.id !== 'palliative-service')
+  .flatMap((group) => group.codes)
+  .map((code) => code.replace(/\./g, '').toUpperCase());
+const PALLIATIVE_ELIGIBLE_DX_CODES_SQL = toSqlCodeList(PALLIATIVE_ELIGIBLE_DX_CODES);
 
 const ANC_LAB_1_REGEX = {
   cbc: 'CBC|COMPLETE BLOOD COUNT',
@@ -254,13 +273,13 @@ const ANC_LAB_1_REGEX = {
   abo: 'ABO|ABO/RH|BLOOD GROUP|CELL GROUPING',
   rh: '(^|[^A-Z])RH([^A-Z]|$)|RH GROUP|GROUPING TUBE METHOD',
   hbsag: 'HBS[- ]?AG|HEPATITIS B SURFACE ANTIGEN|HBSAG',
-  syphilis: 'TREPONEMA PALLIDUM|SYPHILIS|TPHA|VDRL|RPR',
+  syphilis: SYPHILIS_SCREENING_REGEX,
   hiv: 'ANTI-?HIV|HIV-AB|HIV AB|HIV.*RAPID|RAPID.*HIV',
 };
 
 const ANC_LAB_2_REGEX = {
   hiv: 'ANTI-?HIV|HIV-AB|HIV AB|HIV.*RAPID|RAPID.*HIV',
-  syphilis: 'TREPONEMA PALLIDUM|SYPHILIS|TPHA|VDRL|RPR',
+  syphilis: SYPHILIS_SCREENING_REGEX,
   cbc: 'CBC|COMPLETE BLOOD COUNT',
 };
 
@@ -397,7 +416,8 @@ const APP_SESSION_TABLE_SQL = `
 `;
 
 export const DEFAULT_MENU_PAGES = [
-  'staff', 'ipd', 'hospitalReports', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
+  'staff', 'ipd', 'aiReports', 'hospitalReports', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
+  'sssExport', 'sssRepStm',
   'receivable', 'insuranceOverview', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'revenueOpportunity', 'reconciliation',
@@ -405,7 +425,7 @@ export const DEFAULT_MENU_PAGES = [
 ];
 
 const DEFAULT_STAFF_MENU_PAGES = [
-  'staff', 'ipd', 'hospitalReports', 'fdh', 'nhsoClose', 'preValidator', 'workQueue', 'guide'
+  'staff', 'ipd', 'aiReports', 'hospitalReports', 'fdh', 'nhsoClose', 'sssExport', 'sssRepStm', 'preValidator', 'workQueue', 'guide'
 ];
 
 const FDH_STATUS_IMPORT_LOG_TABLE_SQL = `
@@ -1485,10 +1505,16 @@ export const ensureAuthTables = async () => {
       ['staff']
     );
     const staffGroup = Array.isArray(staffGroupRows) && staffGroupRows.length > 0 ? (staffGroupRows[0] as any) : null;
-    if (staffGroup && normalizeMenuPermissions(staffGroup.menu_permissions).length === 0) {
+    const staffPermissions = staffGroup ? normalizeMenuPermissions(staffGroup.menu_permissions) : [];
+    if (staffGroup && staffPermissions.length === 0) {
       await connection.query(
         'UPDATE app_user_group SET menu_permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
         [JSON.stringify(DEFAULT_STAFF_MENU_PAGES), Number(staffGroup.id)]
+      );
+    } else if (staffGroup && staffPermissions.includes('hospitalReports') && !staffPermissions.includes('aiReports')) {
+      await connection.query(
+        'UPDATE app_user_group SET menu_permissions = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [JSON.stringify([...staffPermissions, 'aiReports']), Number(staffGroup.id)]
       );
     }
     if (staffGroup) {
@@ -3521,6 +3547,108 @@ export const syncNhsoAuthenCodes = async (options: {
     }
   }
 
+  return summary;
+};
+
+export const closeDatabasePools = async () => {
+  await Promise.allSettled([pool.end(), repstmPool.end()]);
+};
+
+const getNhsoIpdAuthenCandidates = async (
+  startDate: string,
+  endDate: string,
+  options: { force?: boolean; fundCodes?: string[] } = {},
+) => {
+  const connection = await getUTFConnection();
+  try {
+    const fundCodes = Array.from(new Set(
+      (options.fundCodes || ['UCS', 'LGO', 'WEL'])
+        .map((code) => normalizeImportCellValue(code).toUpperCase())
+        .filter((code) => ['UCS', 'LGO', 'WEL'].includes(code)),
+    ));
+    const cooldownCondition = options.force ? '' : `AND NOT EXISTS (
+      SELECT 1 FROM ${repstmDatabaseName}.authen_sync_log asl
+      WHERE asl.vn=i.vn AND asl.status IN ('not_found','error')
+        AND asl.synced_at >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
+    )`;
+    const [rows] = await connection.query(
+      `SELECT i.vn,i.an,i.hn,pt.cid,i.regdate AS vstdate,i.dchdate,
+              TIMESTAMP(i.regdate,i.regtime) AS service_datetime
+       FROM ipt i
+       JOIN patient pt ON pt.hn=i.hn
+       JOIN pttype ptt ON ptt.pttype=i.pttype
+       WHERE (i.regdate BETWEEN ? AND ? OR i.dchdate BETWEEN ? AND ?)
+         AND ptt.hipdata_code IN (?)
+         AND NOT EXISTS (SELECT 1 FROM authenhos ah WHERE ah.vn IN (i.vn,i.an) AND COALESCE(ah.claim_code,'')<>'')
+         AND NOT EXISTS (SELECT 1 FROM visit_pttype vp WHERE vp.vn=i.vn AND COALESCE(vp.auth_code,'')<>'')
+         ${cooldownCondition}
+       ORDER BY i.dchdate DESC,i.an DESC
+       LIMIT 200`,
+      [startDate,endDate,startDate,endDate,fundCodes],
+    );
+    return Array.isArray(rows) ? rows as Record<string,unknown>[] : [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const syncNhsoIpdAuthenCodes = async (options: {
+  token: string;
+  baseUrl: string;
+  hospitalCode: string;
+  startDate: string;
+  endDate: string;
+  maxDays?: number;
+  force?: boolean;
+  fundCodes?: string[];
+}) => {
+  const start = new Date(options.startDate);
+  const end = new Date(options.endDate);
+  const dayDiff = Math.floor((end.getTime()-start.getTime())/86400000);
+  if (Number.isNaN(dayDiff) || dayDiff < 0) throw new Error('ช่วงวันที่ไม่ถูกต้อง');
+  if (dayDiff > (options.maxDays ?? 31)) throw new Error(`การตรวจ Authen อัตโนมัติรองรับช่วงวันที่ไม่เกิน ${options.maxDays ?? 31} วัน`);
+
+  await getAuthenSyncLogs(1); // Ensure the shared sync-log table exists before applying the cooldown filter.
+  const candidates = await getNhsoIpdAuthenCandidates(options.startDate,options.endDate,{
+    force:Boolean(options.force),
+    fundCodes:options.fundCodes,
+  });
+  const summary = { total:candidates.length,updated:0,skipped:0,notFound:0,errors:0 };
+  for (const row of candidates) {
+    const vn=normalizeImportCellValue(row.vn), an=normalizeImportCellValue(row.an), cid=normalizeImportCellValue(row.cid), hn=normalizeImportCellValue(row.hn), admitDate=formatDateOnly(row.vstdate);
+    if (!cid || !isValidThaiCid(cid)) {
+      summary.skipped+=1;
+      await saveAuthenSyncLog({vn,cid,hn,vstdate:admitDate,status:'skipped',message:`FDH IPD ${an}: CID ไม่ถูกต้อง`});
+      continue;
+    }
+    try {
+      const apiResult=await callNhsoAuthenApi(options.baseUrl,options.token,cid,admitDate);
+      const payload=apiResult.payload as Record<string,unknown>|null;
+      const histories=Array.isArray(payload?.serviceHistories)?payload.serviceHistories as Record<string,unknown>[]:[];
+      const matched=histories.find((history)=>{
+        const hospital=history.hospital as Record<string,unknown>|undefined;
+        return normalizeImportCellValue(hospital?.hcode)===options.hospitalCode
+          && formatDateOnly(history.serviceDateTime)===admitDate
+          && Boolean(normalizeImportCellValue(history.claimCode));
+      });
+      if (!matched) {
+        summary.notFound+=1;
+        await saveAuthenSyncLog({vn,cid,hn,vstdate:admitDate,status:'not_found',message:`FDH IPD ${an}: ไม่พบ Authen Code ที่ตรงกับโรงพยาบาล/วัน Admit`,requestUrl:apiResult.requestUrl,responsePayload:payload});
+        continue;
+      }
+      const service=matched.service as Record<string,unknown>|undefined;
+      const claimCode=normalizeImportCellValue(matched.claimCode);
+      const authenType=normalizeImportCellValue(service?.code);
+      const serviceDateTime=normalizeImportCellValue(matched.serviceDateTime);
+      const authenDateTime=parseFlexibleDateTime(serviceDateTime)||`${admitDate} 00:00:00`;
+      await upsertAuthenForVisit({vn,cid,claimCode,authenType,authenDateTime});
+      await saveAuthenSyncLog({vn,cid,hn,vstdate:admitDate,claimCode,authenType,authenDateTime,status:'updated',message:`FDH IPD ${an}: นำเข้า Authen Code จาก NHSO API สำเร็จ`,requestUrl:apiResult.requestUrl,responsePayload:payload});
+      summary.updated+=1;
+    } catch (error) {
+      summary.errors+=1;
+      await saveAuthenSyncLog({vn,cid,hn,vstdate:admitDate,status:'error',message:`FDH IPD ${an}: ${error instanceof Error?error.message:'Sync Authen ไม่สำเร็จ'}`});
+    }
+  }
   return summary;
 };
 
@@ -9701,12 +9829,79 @@ export const getCheckData = async (
         ), '') as pttype_eclaim_name,
         DATE_FORMAT(ovst.vstdate, '%Y-%m-%d') as serviceDate,
         TIME_FORMAT(ovst.vsttime, '%H:%i:%s') as serviceTime,
+        COALESCE(ovst.an, '') as an,
         (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) as main_diag,
         CASE 
           WHEN ovst.an IS NOT NULL AND ovst.an != '' THEN 'ผู้ป่วยใน'
           ELSE 'ผู้ป่วยนอก'
         END as serviceType,
         COALESCE(SUM(opitemrece.unitprice * opitemrece.qty), 0) as price,
+
+        -- หลักฐานสำหรับ OPD Pre-audit (คำนวณใหม่ทุกครั้งที่ API โหลดข้อมูล)
+        CASE WHEN COALESCE(NULLIF(TRIM(ovst.doctor), ''),
+          (SELECT NULLIF(TRIM(dx.doctor), '') FROM ovstdiag dx WHERE dx.vn = ovst.vn AND TRIM(COALESCE(dx.doctor, '')) <> '' LIMIT 1),
+          (SELECT NULLIF(TRIM(dop.doctor), '') FROM doctor_operation dop WHERE dop.vn = ovst.vn AND TRIM(COALESCE(dop.doctor, '')) <> '' LIMIT 1)
+        ) IS NOT NULL THEN 1 ELSE 0 END as has_provider,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opdscreen os
+          WHERE os.vn = ovst.vn
+            AND (TRIM(COALESCE(os.cc, '')) <> '' OR TRIM(COALESCE(os.hpi, '')) <> '')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_clinical_note,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = ovst.vn
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_lab_order,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = ovst.vn
+          LIMIT 1
+        ) AND NOT EXISTS (
+          SELECT 1 FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          WHERE lh.vn = ovst.vn
+            AND TRIM(COALESCE(lo.lab_order_result, '')) = ''
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_lab_result,
+        (SELECT COUNT(*) FROM opitemrece oo WHERE oo.vn = ovst.vn AND COALESCE(oo.qty, 0) <= 0) as invalid_charge_qty_count,
+        (SELECT GREATEST(COUNT(*) - COUNT(DISTINCT oo.icode), 0) FROM opitemrece oo WHERE oo.vn = ovst.vn) as duplicate_charge_count,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+          LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+          WHERE oo.vn = ovst.vn
+            AND (oo.icode = '55020' OR sd.nhso_adp_code = '55020' OR ndi.nhso_adp_code = '55020')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_55020,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+          LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+          WHERE oo.vn = ovst.vn
+            AND (oo.icode = '55021' OR sd.nhso_adp_code = '55021' OR ndi.nhso_adp_code = '55021')
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_55021,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN income inc ON inc.income = oo.income
+          LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+          LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+          WHERE oo.vn = ovst.vn
+            AND UPPER(CONCAT_WS(' ', COALESCE(inc.name, ''), COALESCE(sd.name, ''), COALESCE(ndi.name, '')))
+              REGEXP 'สังเกตอาการ|OBSERVATION|OBSERVE'
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_observation_charge,
+        CASE WHEN EXISTS (SELECT 1 FROM doctor_operation dop WHERE dop.vn = ovst.vn LIMIT 1)
+          OR EXISTS (SELECT 1 FROM dtmain dm WHERE dm.vn = ovst.vn LIMIT 1)
+          THEN 1 ELSE 0 END as has_procedure_service,
+        (SELECT COUNT(*)
+          FROM opitemrece oo
+          JOIN drugitems di ON di.icode = oo.icode
+          WHERE oo.vn = ovst.vn AND COALESCE(oo.qty, 0) <= 0
+        ) as invalid_drug_qty_count,
         
         -- กองทุนพิเศษ Subqueries
         TIMESTAMPDIFF(YEAR, pt.birthday, ovst.vstdate) as age_y,
@@ -9834,7 +10029,8 @@ export const getCheckData = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
             AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-              IN ('2330011', '2330013')
+              IN (${ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL})
+            AND REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), '')), '.', '') = '${ANC_DENTAL_EXAM_ICD9}'
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_anc_dental_exam_procedure,
         CASE WHEN EXISTS (
@@ -9843,7 +10039,8 @@ export const getCheckData = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
             AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-              IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+              IN (${ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL})
+            AND REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), '')), '.', '') = '${ANC_DENTAL_CLEAN_ICD9}'
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_anc_dental_clean_procedure,
         (
@@ -9855,6 +10052,15 @@ export const getCheckData = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
         ) as dental_procedure_codes,
+        (
+          SELECT GROUP_CONCAT(DISTINCT CONCAT(
+            COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(dm.icd9), ''), dm.tmcode),
+            ':', REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), ''), ''), '.', '')
+          ) ORDER BY dm.tm_no SEPARATOR ', ')
+          FROM dtmain dm
+          LEFT JOIN dttm tm ON tm.code = dm.tmcode
+          WHERE dm.vn = ovst.vn
+        ) as dental_procedure_pairs,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_CARE_DX_CODES)} THEN 1 ELSE 0 END as has_pp_diag,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_SUPPLEMENT_DX_CODES)} THEN 1 ELSE 0 END as has_pp_specific_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 1 ELSE 0 END as has_pp_adp,
@@ -9869,8 +10075,10 @@ export const getCheckData = async (
         CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.fp}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_diag,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', PILL_DX_CODES)} THEN 1 ELSE 0 END as has_z304_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_adp,
-        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND (d.nhso_adp_code IN ('FP003_1','FP003_2') OR d.name LIKE '%ANNA%' OR d.name LIKE '%LYNESTRENOL%') LIMIT 1) as has_fp_pill,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND (d.nhso_adp_code IN ('FP003_1','FP003_2','FP003_3') OR d.name LIKE '%ANNA%' OR d.name LIKE '%LYNESTRENOL%') LIMIT 1) as has_fp_pill,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = 'FP003_4' LIMIT 1) as has_fp_condom,
+        (SELECT COALESCE(SUM(COALESCE(oo.qty, 0)), 0) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=ovst.hn AND YEAR(fy.vstdate)=YEAR(ovst.vstdate) AND d.nhso_adp_code='FP003_3') as fp_emergency_year_qty,
+        (SELECT COUNT(DISTINCT oo.vn) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=ovst.hn AND YEAR(fy.vstdate)=YEAR(ovst.vstdate) AND d.nhso_adp_code='FP003_4') as fp_injection_year_count,
         
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z124|^Z014' LIMIT 1) as has_cx_diag,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '1B004|1B005' LIMIT 1) as has_cx_adp,
@@ -10473,6 +10681,7 @@ export const getEligibleVisits = async (
         v.age_y as age,
         pt.cid,
         pttype.name as fund,
+        ovst.pttype as pttype_code,
         pttype.hipdata_code,
         ovst.vsttime,
         
@@ -10590,7 +10799,8 @@ export const getEligibleVisits = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
             AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-              IN ('2330011', '2330013')
+              IN (${ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL})
+            AND REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), '')), '.', '') = '${ANC_DENTAL_EXAM_ICD9}'
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_anc_dental_exam_procedure,
         CASE WHEN EXISTS (
@@ -10599,7 +10809,8 @@ export const getEligibleVisits = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
             AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-              IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+              IN (${ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL})
+            AND REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), '')), '.', '') = '${ANC_DENTAL_CLEAN_ICD9}'
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_anc_dental_clean_procedure,
         (
@@ -10611,6 +10822,15 @@ export const getEligibleVisits = async (
           LEFT JOIN dttm tm ON tm.code = dm.tmcode
           WHERE dm.vn = ovst.vn
         ) as dental_procedure_codes,
+        (
+          SELECT GROUP_CONCAT(DISTINCT CONCAT(
+            COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(dm.icd9), ''), dm.tmcode),
+            ':', REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), ''), ''), '.', '')
+          ) ORDER BY dm.tm_no SEPARATOR ', ')
+          FROM dtmain dm
+          LEFT JOIN dttm tm ON tm.code = dm.tmcode
+          WHERE dm.vn = ovst.vn
+        ) as dental_procedure_pairs,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', POSTNATAL_CARE_DX_CODES)} THEN 1 ELSE 0 END as has_pp_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30015','30016') LIMIT 1) THEN 1 ELSE 0 END as has_pp_adp,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '30015' LIMIT 1) as has_post_care,
@@ -10625,8 +10845,10 @@ export const getEligibleVisits = async (
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '15001' LIMIT 1) as has_fluoride,
         CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.fp}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_diag,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}' LIMIT 1) THEN 1 ELSE 0 END as has_fp_adp,
-        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('FP003_1','FP003_2') LIMIT 1) as has_fp_pill,
+        (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('FP003_1','FP003_2','FP003_3') LIMIT 1) as has_fp_pill,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = 'FP003_4' LIMIT 1) as has_fp_condom,
+        (SELECT COALESCE(SUM(COALESCE(oo.qty, 0)), 0) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=ovst.hn AND YEAR(fy.vstdate)=YEAR(ovst.vstdate) AND d.nhso_adp_code='FP003_3') as fp_emergency_year_qty,
+        (SELECT COUNT(DISTINCT oo.vn) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=ovst.hn AND YEAR(fy.vstdate)=YEAR(ovst.vstdate) AND d.nhso_adp_code='FP003_4') as fp_injection_year_count,
         
         -- ตรวจมะเร็งปากมดลูก (เดิม)
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.cx}' LIMIT 1) as has_cx_diag,
@@ -10769,6 +10991,7 @@ export const getEligibleVisits = async (
 };
 
 export interface FdhExportOptions {
+  patientType?: 'ALL' | 'OPD' | 'IPD';
   profile?: FdhExportProfile;
   fcodeByHn?: Record<string, string>;
   uucByVn?: Record<string, string>;
@@ -10802,6 +11025,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     }
 
     const profile = options.profile === 'fwf-migrants' ? 'fwf-migrants' : 'standard';
+    const isIpdExport = options.patientType === 'IPD';
     const fcodeByHn = options.fcodeByHn || {};
     const uucByVn = options.uucByVn || {};
     console.log(`📦 Generating 16-file export data for ${vns.length} visits (HCODE: ${hcode}, profile: ${profile})...`);
@@ -10991,7 +11215,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           dx.doctor AS DROPID,
           COALESCE(pt.cid, '') AS PERSON_ID,
           o.vn AS SEQ,
-          '' AS SERVPRICE
+          '' AS SERVPRICE,
+          1 AS _SOURCE_PRIORITY
         FROM ovstdiag dx
         JOIN ovst o ON dx.vn = o.vn
         LEFT JOIN spclty sp ON sp.spclty = o.spclty
@@ -11006,7 +11231,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           dro.doctor AS DROPID,
           COALESCE(pt.cid, '') AS PERSON_ID,
           o.vn AS SEQ,
-          '' AS SERVPRICE
+          '' AS SERVPRICE,
+          2 AS _SOURCE_PRIORITY
         FROM doctor_operation dro
         JOIN ovst o ON dro.vn = o.vn
         LEFT JOIN er_oper_code eoc ON eoc.er_oper_code = dro.er_oper_code
@@ -11026,7 +11252,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           dm.doctor AS DROPID,
           COALESCE(pt.cid, '') AS PERSON_ID,
           o.vn AS SEQ,
-          '' AS SERVPRICE
+          '' AS SERVPRICE,
+          3 AS _SOURCE_PRIORITY
         FROM dtmain dm
         JOIN ovst o ON dm.vn = o.vn
         LEFT JOIN dttm tm ON tm.code = dm.tmcode
@@ -11122,7 +11349,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     const cht = await runQuery('CHT', `
       SELECT 
         o.hn AS HN,
-        COALESCE(o.an, '') AS AN,
+        COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), '') AS AN,
         DATE_FORMAT(COALESCE(i.dchdate, o.vstdate), '%Y%m%d') AS DATE,
         SUM(COALESCE(oo.sum_price, 0)) AS TOTAL,
         SUM(CASE WHEN oo.paidst IN ('01', '03') THEN COALESCE(oo.sum_price, 0) ELSE 0 END) AS PAID,
@@ -11136,30 +11363,31 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         ) AS INVOICE_NO,
         '' AS INVOICE_LT
       FROM ovst o
-      LEFT JOIN opitemrece oo ON oo.vn = o.vn
       LEFT JOIN ipt i ON i.vn = o.vn
+      LEFT JOIN opitemrece oo ON ${isIpdExport ? 'oo.an = i.an' : 'oo.vn = o.vn'}
       LEFT JOIN patient pt ON o.hn = pt.hn
       WHERE o.vn IN (?)
-      GROUP BY o.vn, o.hn, o.an, o.vstdate, i.dchdate, o.pttype, pt.cid
+      GROUP BY o.vn, o.hn, o.an, i.an, o.vstdate, i.dchdate, o.pttype, pt.cid
     `, [hcode, vns]);
 
     // 12. CHA (Financial Details)
     const cha = await runQuery('CHA', `
       SELECT 
-        o.hn as HN,
-        COALESCE(o.an, '') as AN,
-        DATE_FORMAT(COALESCE(o.rxdate, ov.vstdate), '%Y%m%d') as DATE,
+        ov.hn as HN,
+        COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), NULLIF(ov.an, ''), '') as AN,
+        DATE_FORMAT(MAX(COALESCE(o.rxdate, ov.vstdate)), '%Y%m%d') as DATE,
         COALESCE(CASE WHEN o.paidst IN ('03') THEN drg.chrgitem_code2 ELSE drg.chrgitem_code1 END, LPAD(COALESCE(inc.drg_chrgitem_id, 18), 2, '0')) as CHRGITEM,
         SUM(o.sum_price) as AMOUNT,
         pt.cid as PERSON_ID,
-        o.vn as SEQ
-      FROM opitemrece o
-      JOIN ovst ov ON ov.vn = o.vn
-      JOIN patient pt ON o.hn = pt.hn
+        ov.vn as SEQ
+      FROM ovst ov
+      LEFT JOIN ipt i ON i.vn = ov.vn
+      JOIN opitemrece o ON ${isIpdExport ? 'o.an = i.an' : 'o.vn = ov.vn'}
+      JOIN patient pt ON ov.hn = pt.hn
       LEFT JOIN income inc ON inc.income = o.income
       LEFT JOIN drg_chrgitem drg ON drg.drg_chrgitem_id = inc.drg_chrgitem_id
-      WHERE o.vn IN (?)
-      GROUP BY o.vn, o.hn, o.an, DATE, pt.cid, CHRGITEM
+      WHERE ov.vn IN (?)
+      GROUP BY ov.vn, ov.hn, o.an, i.an, ov.an, pt.cid, CHRGITEM
     `, [vns]);
 
     // 13. AER (Accident/Emergency)
@@ -11203,7 +11431,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       SELECT 
         base.HN,
         base.AN,
-        base.DATEOPD,
+        MAX(base.DATEOPD) AS DATEOPD,
         base.TYPE,
         base.CODE,
         SUM(base.QTY) AS QTY,
@@ -11220,7 +11448,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         MAX(base.TMLTCODE) AS TMLTCODE,
         '' AS STATUS1,
         MAX(base.BI) AS BI,
-        base.CLINIC,
+        MAX(base.CLINIC) AS CLINIC,
         '2' AS ITEMSRC,
         MAX(base.PROVIDER) AS PROVIDER,
         MAX(base.ICODE) AS _ICODE,
@@ -11231,8 +11459,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         '' AS SP_ITEM
       FROM (
         SELECT
-          o.hn AS HN,
-          COALESCE(o.an, '') AS AN,
+          ov.hn AS HN,
+          COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), NULLIF(ov.an, ''), '') AS AN,
           DATE_FORMAT(COALESCE(o.rxdate, ov.vstdate), '%Y%m%d') AS DATEOPD,
           CASE
             WHEN inc.drg_chrgitem_id = 1 THEN '10'
@@ -11261,7 +11489,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           END AS CODE,
           CASE WHEN o.paidst IN ('03') THEN 0 ELSE COALESCE(o.qty, 0) END AS QTY,
           COALESCE(o.unitprice, 0) AS RATE,
-          o.vn AS SEQ,
+          ov.vn AS SEQ,
           CASE WHEN o.paidst IN ('03') THEN COALESCE(o.sum_price, 0) ELSE 0 END AS TOTCOPAY,
           COALESCE(o.sum_price, 0) AS TOTAL,
           COALESCE(sd.tmlt_code, '') AS TMLTCODE,
@@ -11270,12 +11498,13 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           COALESCE(ov.main_dep, '') AS CLINIC,
           COALESCE(o.doctor, '') AS PROVIDER,
           o.icode AS ICODE
-        FROM opitemrece o
-        JOIN ovst ov ON ov.vn = o.vn
+        FROM ovst ov
+        LEFT JOIN ipt i ON i.vn = ov.vn
+        JOIN opitemrece o ON ${isIpdExport ? 'o.an = i.an' : 'o.vn = ov.vn'}
         LEFT JOIN income inc ON inc.income = o.income
         LEFT JOIN s_drugitems sd ON o.icode = sd.icode
         LEFT JOIN nondrugitems n ON o.icode = n.icode
-        WHERE o.vn IN (?)
+        WHERE ov.vn IN (?)
           AND (
             ${profile === 'fwf-migrants' ? 'COALESCE(o.sum_price, 0) <> 0' : 'inc.drg_chrgitem_id IN (1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19)'}
             OR COALESCE(sd.nhso_adp_code, '') <> ''
@@ -11288,13 +11517,11 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       GROUP BY
         base.HN,
         base.AN,
-        base.DATEOPD,
         base.TYPE,
         base.CODE,
         base.RATE,
-        base.SEQ,
-        base.CLINIC,
-        base.ICODE
+        base.SEQ
+        ${profile === 'fwf-migrants' ? ', base.ICODE' : ''}
     `, [vns]);
 
     // ข้อมูลครรภ์สำหรับฟิลด์ ADP ที่เพิ่มในคู่มือรุ่นปัจจุบัน
@@ -11359,31 +11586,31 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         ? AS HCODE,
         base.HN,
         base.AN,
-        base.CLINIC,
-        base.PERSON_ID,
+        MAX(base.CLINIC) AS CLINIC,
+        MAX(base.PERSON_ID) AS PERSON_ID,
         DATE_FORMAT(MAX(base.RXDATE), '%Y%m%d') AS DATE_SERV,
         base.DID,
-        base.DIDNAME,
+        MAX(base.DIDNAME) AS DIDNAME,
         SUM(base.QTY) AS AMOUNT,
         base.DRUGPRIC,
-        base.DRUGCOST,
-        base.DIDSTD,
-        base.UNIT,
+        MAX(base.DRUGCOST) AS DRUGCOST,
+        MAX(base.DIDSTD) AS DIDSTD,
+        MAX(base.UNIT) AS UNIT,
         MAX(base.UNIT_PACK) AS UNIT_PACK,
         base.SEQ,
         '' AS DRUGTYPE,
         MAX(base.DRUGREMARK) AS DRUGREMARK,
         MAX(base.PA_NO) AS PA_NO,
         SUM(base.TOTCOPAY) AS TOTCOPAY,
-        base.USE_STATUS,
+        MAX(base.USE_STATUS) AS USE_STATUS,
         SUM(base.TOTAL) AS TOTAL,
         MAX(base.SIGCODE) AS SIGCODE,
         MAX(base.SIGTEXT) AS SIGTEXT,
         MAX(base.PROVIDER) AS PROVIDER
       FROM (
         SELECT
-          o.hn AS HN,
-          COALESCE(o.an, '') AS AN,
+          ov.hn AS HN,
+          COALESCE(NULLIF(o.an, ''), NULLIF(i.an, ''), NULLIF(ov.an, ''), '') AS AN,
           COALESCE(sp.provis_code, ov.main_dep, '') AS CLINIC,
           COALESCE(pt.cid, '') AS PERSON_ID,
           COALESCE(o.rxdate, ov.vstdate) AS RXDATE,
@@ -11404,32 +11631,26 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           '' AS PA_NO,
           CASE WHEN o.paidst IN ('03') THEN COALESCE(o.sum_price, 0) ELSE 0 END AS TOTCOPAY,
           COALESCE(o.sum_price, 0) AS TOTAL,
-          o.vn AS SEQ,
+          ov.vn AS SEQ,
           COALESCE(NULLIF(du.opi_usage_code, ''), NULLIF(du.code, ''), NULLIF(o.drugusage, ''), '') AS SIGCODE,
           CONCAT_WS(' ', NULLIF(du.name1, ''), NULLIF(du.name2, ''), NULLIF(du.name3, '')) AS SIGTEXT,
           COALESCE(o.doctor, '') AS PROVIDER
-        FROM opitemrece o
-        JOIN ovst ov ON ov.vn = o.vn
+        FROM ovst ov
+        LEFT JOIN ipt i ON i.vn = ov.vn
+        JOIN opitemrece o ON ${isIpdExport ? 'o.an = i.an' : 'o.vn = ov.vn'}
         JOIN drugitems d ON o.icode = d.icode
         LEFT JOIN s_drugitems s ON o.icode = s.icode
         LEFT JOIN drugusage du ON du.drugusage = o.drugusage
-        LEFT JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN patient pt ON ov.hn = pt.hn
         LEFT JOIN spclty sp ON sp.spclty = ov.spclty
-        WHERE o.vn IN (?)
+        WHERE ov.vn IN (?)
       ) base
       GROUP BY
         base.SEQ,
         base.HN,
         base.AN,
-        base.CLINIC,
-        base.PERSON_ID,
         base.DID,
-        base.DIDNAME,
-        base.UNIT,
-        base.DRUGPRIC,
-        base.DRUGCOST,
-        base.DIDSTD,
-        base.USE_STATUS
+        base.DRUGPRIC
       HAVING SUM(base.TOTAL) <> 0
     `, [hcode, vns]);
 
@@ -11456,6 +11677,10 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         UUC: sourceVn && ['1', '2'].includes(String(uucByVn[sourceVn] || '')) ? String(uucByVn[sourceVn]) : row.UUC,
       };
     });
+    const consolidatedOop = consolidateFdhOopRows(oop as Record<string, unknown>[]);
+    if (consolidatedOop.mergedRows > 0) {
+      console.info(`OOP: consolidated ${consolidatedOop.mergedRows} duplicate rows across ${consolidatedOop.duplicateGroups} keys`);
+    }
     const ancBySeq = new Map((anc as Record<string, unknown>[]).map((row) => [String(row.SEQ || ''), row]));
     const fwfCodeByIcode = new Map((fwfMappings as Record<string, unknown>[]).map((row) => [String(row.ICODE || ''), String(row.FWF_CODE || '')]));
     const normalizedAdp = (adp as Record<string, unknown>[]).map((row) => {
@@ -11486,7 +11711,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       OPD: normalizedOpd,
       ORF: orf as any[],
       ODX: odx as any[],
-      OOP: oop as any[],
+      OOP: consolidatedOop.rows,
       IPD: normalizedIpd,
       IRF: irf as any[],
       IDX: idx as any[],
@@ -11496,7 +11721,11 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       AER: aer as any[],
       ADP: normalizedAdp,
       LVD: normalizedLvd,
-      DRU: dru as any[]
+      DRU: dru as any[],
+      _meta: {
+        oopDuplicateGroups: consolidatedOop.duplicateGroups,
+        oopMergedRows: consolidatedOop.mergedRows,
+      },
     };
   } catch (error) {
     console.error('Error fetching export data:', error);
@@ -11535,7 +11764,7 @@ export const getDiagsAndProcedures = async (vn: string) => {
       SELECT 
         o.icd9 as code,
         i.name as name,
-        '' as type,
+        'แพทย์' as type,
         'Procedure' as category
       FROM doctor_operation o
       LEFT JOIN icd9cm1 i ON o.icd9 = i.code
@@ -11544,7 +11773,7 @@ export const getDiagsAndProcedures = async (vn: string) => {
       SELECT 
         eo.er_oper_code as code,
         e.name as name,
-        '' as type,
+        'ER' as type,
         'Procedure' as category
       FROM er_regist_oper eo
       LEFT JOIN er_oper_code e ON eo.er_oper_code = e.er_oper_code
@@ -11568,13 +11797,66 @@ export const getDiagsAndProcedures = async (vn: string) => {
       FROM dtmain dm
       LEFT JOIN dttm tm ON tm.code = dm.tmcode
       WHERE dm.vn = ?
+      UNION ALL
+      SELECT
+        CASE
+          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 39 THEN '8727811'
+          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 40 THEN '8737811'
+          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 41 THEN '8747811'
+          ELSE hmi.icd10tm
+        END as code,
+        COALESCE(NULLIF(TRIM(hmi.health_med_operation_item_name), ''), 'หัตถการแพทย์แผนไทย') as name,
+        'แพทย์แผนไทย' as type,
+        'Procedure' as category
+      FROM health_med_service hms
+      JOIN health_med_service_operation hso ON hso.health_med_service_id = hms.health_med_service_id
+      JOIN health_med_operation_item hmi ON hmi.health_med_operation_item_id = hso.health_med_operation_item_id
+      WHERE hms.vn = ?
+      UNION ALL
+      SELECT
+        vp.code,
+        vp.name,
+        'OPD/43 แฟ้ม' as type,
+        'Procedure' as category
+      FROM view_procedure_opd vp
+      WHERE vp.vn = ?
+      UNION ALL
+      SELECT
+        ipo.icd9 as code,
+        COALESCE(NULLIF(TRIM(ic9.name), ''), NULLIF(TRIM(ipo.oper_note_text), ''), 'หัตถการผู้ป่วยใน') as name,
+        'ผู้ป่วยใน' as type,
+        'Procedure' as category
+      FROM ipt
+      JOIN iptoprt ipo ON ipo.an = ipt.an
+      LEFT JOIN icd9cm1 ic9 ON ic9.code = ipo.icd9
+      WHERE ipt.vn = ?
       ORDER BY code
-    `, [vn, vn, vn]);
+    `, [vn, vn, vn, vn, vn, vn]);
+
+    const procedureRows = Array.isArray(procs) ? procs as Record<string, unknown>[] : [];
+    const procedureMap = new Map<string, Record<string, unknown>>();
+    for (const procedure of procedureRows) {
+      const code = normalizeImportCellValue(procedure.code);
+      const name = normalizeImportCellValue(procedure.name);
+      if (!code && !name) continue;
+      const key = code.replace(/[.\-\s]/g, '').toUpperCase() || name.toUpperCase();
+      const existing = procedureMap.get(key);
+      if (!existing) {
+        procedureMap.set(key, { ...procedure, code, name });
+        continue;
+      }
+      const existingName = normalizeImportCellValue(existing.name);
+      if (name.length > existingName.length) existing.name = name;
+      const sources = new Set(
+        [normalizeImportCellValue(existing.type), normalizeImportCellValue(procedure.type)].filter(Boolean)
+      );
+      existing.type = Array.from(sources).join(', ');
+    }
 
     return {
       clinical: Array.isArray(clinicalRows) ? clinicalRows[0] || { cc: '', hpi: '' } : { cc: '', hpi: '' },
       diagnoses: Array.isArray(diags) ? diags : [],
-      procedures: Array.isArray(procs) ? procs : []
+      procedures: Array.from(procedureMap.values())
     };
   } catch (error) {
     console.error('Error fetching diags and procs:', error);
@@ -12074,6 +12356,407 @@ export const trackFdhStatusForVns = async (options: {
   return summary;
 };
 
+const PALLIATIVE_DIAG_DELETE_AUDIT_SQL = `
+  CREATE TABLE IF NOT EXISTS z_fdh_palliative_diag_delete_audit (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(20) NOT NULL,
+    hn VARCHAR(20) NOT NULL,
+    deleted_diagnoses JSON NOT NULL,
+    review_reasons JSON NOT NULL,
+    deleted_by_user_id BIGINT NULL,
+    deleted_by_username VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_pal_diag_delete_vn (vn),
+    KEY idx_pal_diag_delete_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const PALLIATIVE_HOME_VISIT_OVSTIST = '14';
+const PALLIATIVE_HOME_VISIT_AUDIT_SQL = `
+  CREATE TABLE IF NOT EXISTS z_fdh_palliative_home_visit_audit (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(20) NOT NULL,
+    hn VARCHAR(20) NOT NULL,
+    old_ovstist VARCHAR(10) NULL,
+    old_ovstist_name VARCHAR(255) NULL,
+    new_ovstist VARCHAR(10) NOT NULL,
+    new_ovstist_name VARCHAR(255) NOT NULL,
+    review_reasons JSON NOT NULL,
+    updated_by_user_id BIGINT NULL,
+    updated_by_username VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_pal_home_visit_vn (vn),
+    KEY idx_pal_home_visit_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const markPalliativeVisitAsHomeVisit = async (
+  vn: string,
+  actor: { userId?: number | null; username?: string | null },
+) => {
+  const normalizedVn = String(vn || '').trim();
+  if (!/^\d{1,13}$/.test(normalizedVn)) throw new Error('รูปแบบ VN ไม่ถูกต้อง');
+  const connection = await getUTFConnection();
+  try {
+    // MySQL DDL can implicitly commit, so create the audit table before the transaction.
+    await connection.query(PALLIATIVE_HOME_VISIT_AUDIT_SQL);
+    await connection.beginTransaction();
+
+    const [homeVisitTypes] = await connection.query<any[]>(`
+      SELECT ovstist, name
+      FROM ovstist
+      WHERE ovstist=?
+        AND UPPER(COALESCE(name, '')) REGEXP 'เยี่ยมบ้าน|HOME[[:space:]_-]*VISIT'
+      FOR UPDATE
+    `, [PALLIATIVE_HOME_VISIT_OVSTIST]);
+    if (homeVisitTypes.length !== 1) {
+      throw new Error('ไม่พบรหัสประเภท visit เยี่ยมบ้าน (ovstist=14) กรุณาตรวจตาราง ovstist');
+    }
+
+    const [visitRows] = await connection.query<any[]>(`
+      SELECT o.vn, o.hn, o.ovstist, osi.name AS ovstist_name,
+        CASE WHEN UPPER(COALESCE(osi.name, '')) REGEXP 'เยี่ยมบ้าน|HOME[[:space:]_-]*VISIT' THEN 1 ELSE 0 END AS is_home_visit,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode=oo.icode
+          WHERE oo.vn=o.vn AND sd.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})
+        ) THEN 1 ELSE 0 END AS has_pal_adp,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovstdiag d
+          WHERE d.vn=o.vn AND d.diagtype='1'
+            AND REPLACE(UPPER(d.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
+        ) THEN 1 ELSE 0 END AS has_eligible_palliative_diag,
+        (SELECT COUNT(DISTINCT oo.icode) FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count
+      FROM ovst o
+      LEFT JOIN ovstist osi ON osi.ovstist=o.ovstist
+      WHERE o.vn=?
+      FOR UPDATE
+    `, [normalizedVn]);
+    if (visitRows.length === 0) throw new Error('ไม่พบ VN ที่ต้องการแก้ไข');
+
+    const [diagnosisRows] = await connection.query<any[]>(`
+      SELECT icd10
+      FROM ovstdiag
+      WHERE vn=? AND REPLACE(UPPER(icd10), '.', '') IN (${PALLIATIVE_SERVICE_DX_CODES.map(() => '?').join(',')})
+      FOR UPDATE
+    `, [normalizedVn, ...PALLIATIVE_SERVICE_DX_CODES]);
+    const z515Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z515')?.icd10;
+    const z718Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z718')?.icd10;
+    const visit = visitRows[0];
+    const review = reviewPalliativeCareVisit({
+      z515Code,
+      z718Code,
+      isHomeVisit: visit.is_home_visit,
+      hasPalliativeAdp: visit.has_pal_adp,
+      hasEligibleDiseaseDiagnosis: visit.has_eligible_palliative_diag,
+      drugCount: visit.drug_count,
+    });
+    if (!review.canMarkAsHomeVisit) {
+      throw new Error('ปรับเป็นเยี่ยมบ้านได้เฉพาะ visit ที่ยังไม่ใช่เยี่ยมบ้าน และมี Diagnosis หรือรายการบริการ Palliative');
+    }
+
+    const [updateResult] = await connection.query(`
+      UPDATE ovst SET ovstist=? WHERE vn=? AND COALESCE(ovstist, '')=COALESCE(?, '')
+    `, [PALLIATIVE_HOME_VISIT_OVSTIST, normalizedVn, visit.ovstist]);
+    if (Number((updateResult as { affectedRows?: number }).affectedRows || 0) !== 1) {
+      throw new Error('ข้อมูลประเภท visit มีการเปลี่ยนแปลงระหว่างตรวจสอบ กรุณาโหลดข้อมูลใหม่');
+    }
+
+    const homeVisitType = homeVisitTypes[0];
+    await connection.query(`
+      INSERT INTO z_fdh_palliative_home_visit_audit
+        (vn, hn, old_ovstist, old_ovstist_name, new_ovstist, new_ovstist_name,
+         review_reasons, updated_by_user_id, updated_by_username)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      normalizedVn,
+      String(visit.hn || ''),
+      visit.ovstist == null ? null : String(visit.ovstist),
+      visit.ovstist_name == null ? null : String(visit.ovstist_name).slice(0, 255),
+      String(homeVisitType.ovstist),
+      String(homeVisitType.name).slice(0, 255),
+      JSON.stringify(review.reasons),
+      actor.userId || null,
+      String(actor.username || 'unknown').slice(0, 64),
+    ]);
+    await connection.commit();
+    return {
+      vn: normalizedVn,
+      oldOvstist: visit.ovstist,
+      oldOvstistName: visit.ovstist_name,
+      newOvstist: String(homeVisitType.ovstist),
+      newOvstistName: String(homeVisitType.name),
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const deleteNonQualifyingPalliativeDiagnoses = async (
+  vn: string,
+  actor: { userId?: number | null; username?: string | null },
+) => {
+  const normalizedVn = String(vn || '').trim();
+  if (!/^\d{1,13}$/.test(normalizedVn)) throw new Error('รูปแบบ VN ไม่ถูกต้อง');
+  const connection = await getUTFConnection();
+  try {
+    // MySQL DDL can implicitly commit, so create the audit table before the transaction.
+    await connection.query(PALLIATIVE_DIAG_DELETE_AUDIT_SQL);
+    await connection.beginTransaction();
+    const [visitRows] = await connection.query<any[]>(`
+      SELECT o.vn, o.hn, osi.name AS ovstist_name,
+        CASE WHEN UPPER(COALESCE(osi.name, '')) REGEXP 'เยี่ยมบ้าน|HOME[[:space:]_-]*VISIT' THEN 1 ELSE 0 END AS is_home_visit,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode=oo.icode
+          WHERE oo.vn=o.vn AND sd.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})
+        ) THEN 1 ELSE 0 END AS has_pal_adp,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovstdiag d
+          WHERE d.vn=o.vn AND d.diagtype='1'
+            AND REPLACE(UPPER(d.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
+        ) THEN 1 ELSE 0 END AS has_eligible_palliative_diag,
+        (SELECT COUNT(DISTINCT oo.icode) FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count
+      FROM ovst o
+      LEFT JOIN ovstist osi ON osi.ovstist=o.ovstist
+      WHERE o.vn=?
+      FOR UPDATE
+    `, [normalizedVn]);
+    if (visitRows.length === 0) throw new Error('ไม่พบ VN ที่ต้องการแก้ไข');
+
+    const [diagnosisRows] = await connection.query<any[]>(`
+      SELECT ovst_diag_id, icd10, diagtype, doctor, update_datetime
+      FROM ovstdiag
+      WHERE vn=? AND REPLACE(UPPER(icd10), '.', '') IN (${PALLIATIVE_SERVICE_DX_CODES.map(() => '?').join(',')})
+      ORDER BY diagtype, ovst_diag_id
+      FOR UPDATE
+    `, [normalizedVn, ...PALLIATIVE_SERVICE_DX_CODES]);
+    if (diagnosisRows.length === 0) throw new Error('ไม่พบ Diagnosis Z51.5/Z71.8 ใน VN นี้แล้ว');
+
+    const z515Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z515')?.icd10;
+    const z718Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z718')?.icd10;
+    const visit = visitRows[0];
+    const review = reviewPalliativeCareVisit({
+      z515Code,
+      z718Code,
+      isHomeVisit: visit.is_home_visit,
+      hasPalliativeAdp: visit.has_pal_adp,
+      hasEligibleDiseaseDiagnosis: visit.has_eligible_palliative_diag,
+      drugCount: visit.drug_count,
+    });
+    if (!review.canRemoveDiagnosis) {
+      throw new Error('ลบได้เฉพาะ visit ที่ไม่ใช่เยี่ยมบ้าน กรุณาตรวจและแก้ข้อมูลบริการแทนการลบ Diagnosis');
+    }
+
+    const [deleteResult] = await connection.query(`
+      DELETE FROM ovstdiag
+      WHERE vn=? AND REPLACE(UPPER(icd10), '.', '') IN (${PALLIATIVE_SERVICE_DX_CODES.map(() => '?').join(',')})
+    `, [normalizedVn, ...PALLIATIVE_SERVICE_DX_CODES]);
+    const deletedCount = Number((deleteResult as { affectedRows?: number }).affectedRows || 0);
+    if (deletedCount !== diagnosisRows.length) throw new Error('จำนวน Diagnosis ที่ลบไม่ตรงกับข้อมูลที่ตรวจสอบ กรุณาลองใหม่');
+
+    await connection.query(`
+      INSERT INTO z_fdh_palliative_diag_delete_audit
+        (vn, hn, deleted_diagnoses, review_reasons, deleted_by_user_id, deleted_by_username)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [
+      normalizedVn,
+      String(visit.hn || ''),
+      JSON.stringify(diagnosisRows),
+      JSON.stringify(review.reasons),
+      actor.userId || null,
+      String(actor.username || 'unknown').slice(0, 64),
+    ]);
+    await connection.commit();
+    return {
+      vn: normalizedVn,
+      deletedCount,
+      deletedCodes: diagnosisRows.map((row) => String(row.icd10)),
+      reviewReasons: review.reasons,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+const PALLIATIVE_ITEM_DELETE_AUDIT_SQL = `
+  CREATE TABLE IF NOT EXISTS z_fdh_palliative_item_delete_audit (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(20) NOT NULL,
+    hn VARCHAR(20) NOT NULL,
+    deleted_diagnoses JSON NOT NULL,
+    deleted_service_items JSON NOT NULL,
+    review_reasons JSON NOT NULL,
+    deleted_by_user_id BIGINT NULL,
+    deleted_by_username VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_pal_item_delete_vn (vn),
+    KEY idx_pal_item_delete_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const buildSyphilisScreeningExistsSql = (alias: string) => `
+  (
+    EXISTS (
+      SELECT 1
+      FROM opitemrece oo
+      LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
+      LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+      WHERE oo.vn = ${alias}.vn
+        AND (
+          UPPER(COALESCE(sd.nhso_adp_code, '')) IN (${SYPHILIS_SCREENING_ADP_CODES_SQL})
+          OR UPPER(COALESCE(ndi.name, sd.name, '')) REGEXP '${SYPHILIS_SCREENING_REGEX}'
+        )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM lab_head h
+      JOIN lab_order lo ON h.lab_order_number = lo.lab_order_number
+      JOIN lab_items li ON lo.lab_items_code = li.lab_items_code
+      WHERE h.vn = ${alias}.vn
+        AND lo.lab_order_result IS NOT NULL
+        AND lo.lab_order_result <> ''
+        AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '${SYPHILIS_SCREENING_REGEX}'
+    )
+  )
+`;
+
+export const deleteNonQualifyingPalliativeItems = async (
+  vn: string,
+  actor: { userId?: number | null; username?: string | null },
+) => {
+  const normalizedVn = String(vn || '').trim();
+  if (!/^\d{1,13}$/.test(normalizedVn)) throw new Error('รูปแบบ VN ไม่ถูกต้อง');
+  const connection = await getUTFConnection();
+  try {
+    // MySQL DDL can implicitly commit, so create the audit table before the transaction.
+    await connection.query(PALLIATIVE_ITEM_DELETE_AUDIT_SQL);
+    await connection.beginTransaction();
+
+    const [visitRows] = await connection.query<any[]>(`
+      SELECT o.vn, o.hn, osi.name AS ovstist_name,
+        CASE WHEN UPPER(COALESCE(osi.name, '')) REGEXP 'เยี่ยมบ้าน|HOME[[:space:]_-]*VISIT' THEN 1 ELSE 0 END AS is_home_visit,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo
+          LEFT JOIN s_drugitems sd ON sd.icode=oo.icode
+          WHERE oo.vn=o.vn AND UPPER(COALESCE(sd.nhso_adp_code, '')) IN (${businessRules.adp_codes.palliative.map(c => `'${String(c).toUpperCase()}'`).join(',')})
+        ) THEN 1 ELSE 0 END AS has_pal_adp,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovstdiag d
+          WHERE d.vn=o.vn AND d.diagtype='1'
+            AND REPLACE(UPPER(d.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
+        ) THEN 1 ELSE 0 END AS has_eligible_palliative_diag,
+        (SELECT COUNT(DISTINCT oo.icode) FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count
+      FROM ovst o
+      LEFT JOIN ovstist osi ON osi.ovstist=o.ovstist
+      WHERE o.vn=?
+      FOR UPDATE
+    `, [normalizedVn]);
+    if (visitRows.length === 0) throw new Error('ไม่พบ VN ที่ต้องการแก้ไข');
+
+    const [diagnosisRows] = await connection.query<any[]>(`
+      SELECT ovst_diag_id, icd10, diagtype, doctor, update_datetime
+      FROM ovstdiag
+      WHERE vn=? AND REPLACE(UPPER(icd10), '.', '') IN (${PALLIATIVE_SERVICE_DX_CODES.map(() => '?').join(',')})
+      ORDER BY diagtype, ovst_diag_id
+      FOR UPDATE
+    `, [normalizedVn, ...PALLIATIVE_SERVICE_DX_CODES]);
+    const [serviceRows] = await connection.query<any[]>(`
+      SELECT oo.hos_guid, oo.icode, oo.qty, oo.unitprice, oo.sum_price, oo.income,
+        sd.nhso_adp_code, sd.name AS item_name
+      FROM opitemrece oo
+      INNER JOIN s_drugitems sd ON sd.icode=oo.icode
+      WHERE oo.vn=?
+        AND UPPER(COALESCE(sd.nhso_adp_code, '')) IN (${businessRules.adp_codes.palliative.map(() => '?').join(',')})
+      ORDER BY oo.item_no, oo.hos_guid
+      FOR UPDATE
+    `, [normalizedVn, ...businessRules.adp_codes.palliative.map((code) => String(code).toUpperCase())]);
+    if (diagnosisRows.length === 0 && serviceRows.length === 0) {
+      throw new Error('ไม่พบ Diagnosis หรือรายการบริการ Palliative ใน VN นี้แล้ว');
+    }
+
+    const z515Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z515')?.icd10;
+    const z718Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z718')?.icd10;
+    const visit = visitRows[0];
+    const review = reviewPalliativeCareVisit({
+      z515Code,
+      z718Code,
+      isHomeVisit: visit.is_home_visit,
+      hasPalliativeAdp: visit.has_pal_adp,
+      hasEligibleDiseaseDiagnosis: visit.has_eligible_palliative_diag,
+      drugCount: visit.drug_count,
+    });
+    if (!review.shouldReview) {
+      throw new Error('ลบได้เฉพาะ visit ที่ระบบตรวจว่าไม่เข้าเกณฑ์ Palliative');
+    }
+
+    const diagnosisIds = diagnosisRows.map((row) => Number(row.ovst_diag_id)).filter(Number.isFinite);
+    const serviceGuids = serviceRows.map((row) => String(row.hos_guid || '')).filter(Boolean);
+
+    let deletedDiagnosisCount = 0;
+    if (diagnosisIds.length > 0) {
+      const [diagDeleteResult] = await connection.query(`
+        DELETE FROM ovstdiag
+        WHERE vn=? AND ovst_diag_id IN (${diagnosisIds.map(() => '?').join(',')})
+      `, [normalizedVn, ...diagnosisIds]);
+      deletedDiagnosisCount = Number((diagDeleteResult as { affectedRows?: number }).affectedRows || 0);
+      if (deletedDiagnosisCount !== diagnosisRows.length) {
+        throw new Error('จำนวน Diagnosis ที่ลบไม่ตรงกับข้อมูลที่ตรวจสอบ กรุณาลองใหม่');
+      }
+    }
+
+    let deletedServiceCount = 0;
+    if (serviceGuids.length > 0) {
+      const [serviceDeleteResult] = await connection.query(`
+        DELETE FROM opitemrece
+        WHERE vn=? AND hos_guid IN (${serviceGuids.map(() => '?').join(',')})
+      `, [normalizedVn, ...serviceGuids]);
+      deletedServiceCount = Number((serviceDeleteResult as { affectedRows?: number }).affectedRows || 0);
+      if (deletedServiceCount !== serviceRows.length) {
+        throw new Error('จำนวนรายการบริการ Palliative ที่ลบไม่ตรงกับข้อมูลที่ตรวจสอบ กรุณาลองใหม่');
+      }
+    }
+
+    await connection.query(`
+      INSERT INTO z_fdh_palliative_item_delete_audit
+        (vn, hn, deleted_diagnoses, deleted_service_items, review_reasons,
+         deleted_by_user_id, deleted_by_username)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      normalizedVn,
+      String(visit.hn || ''),
+      JSON.stringify(diagnosisRows),
+      JSON.stringify(serviceRows),
+      JSON.stringify(review.reasons),
+      actor.userId || null,
+      String(actor.username || 'unknown').slice(0, 64),
+    ]);
+    await connection.commit();
+    return {
+      vn: normalizedVn,
+      deletedDiagnosisCount,
+      deletedDiagnosisCodes: diagnosisRows.map((row) => String(row.icd10)),
+      deletedServiceCount,
+      deletedServiceCodes: [...new Set(serviceRows.map((row) => String(row.nhso_adp_code || '').trim()).filter(Boolean))],
+      reviewReasons: review.reasons,
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 export const getSpecificFundData = async (
   fundType: string,
   startDate: string,
@@ -12096,18 +12779,44 @@ export const getSpecificFundData = async (
           pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
           ptt.name as pttypename, ptt.hipdata_code,
           v.pdx,
-          GROUP_CONCAT(DISTINCT IF(dx.icd10='${businessRules.diagnosis_patterns.palliative[0]}', '${businessRules.diagnosis_patterns.palliative[0]}', NULL)) as z515_code,
-          GROUP_CONCAT(DISTINCT IF(dx.icd10='${businessRules.diagnosis_patterns.palliative[1]}', '${businessRules.diagnosis_patterns.palliative[1]}', NULL)) as z718_code,
+          osi.name as ovstist_name,
+          osi.export_code as ovstist_export_code,
+          dep.department as department_name,
+          CASE WHEN UPPER(COALESCE(osi.name, '')) REGEXP 'เยี่ยมบ้าน|HOME[[:space:]_-]*VISIT' THEN 1 ELSE 0 END as is_home_visit,
+          GROUP_CONCAT(DISTINCT IF(REPLACE(UPPER(dx.icd10), '.', '')='${businessRules.diagnosis_patterns.palliative[0]}', dx.icd10, NULL)) as z515_code,
+          GROUP_CONCAT(DISTINCT IF(REPLACE(UPPER(dx.icd10), '.', '')='${businessRules.diagnosis_patterns.palliative[1]}', dx.icd10, NULL)) as z718_code,
           (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.palliative[0]}' LIMIT 1) as has_30001,
           (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.palliative[1]}' LIMIT 1) as has_cons01,
-          (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.palliative[2]}' LIMIT 1) as has_eva001
+          (SELECT 'Y' FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND d.nhso_adp_code='${businessRules.adp_codes.palliative[2]}' LIMIT 1) as has_eva001,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM opitemrece oo
+            LEFT JOIN s_drugitems d ON d.icode=oo.icode
+            WHERE oo.vn=o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})
+          ) THEN 1 ELSE 0 END as has_pal_adp,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ovstdiag eligible_dx
+            WHERE eligible_dx.vn=o.vn AND eligible_dx.diagtype='1'
+              AND REPLACE(UPPER(eligible_dx.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
+          ) THEN 1 ELSE 0 END as has_eligible_palliative_diag,
+          (SELECT GROUP_CONCAT(DISTINCT REPLACE(UPPER(eligible_dx.icd10), '.', '') ORDER BY eligible_dx.diagtype, eligible_dx.icd10 SEPARATOR ', ')
+            FROM ovstdiag eligible_dx
+            WHERE eligible_dx.vn=o.vn AND eligible_dx.diagtype='1'
+              AND REPLACE(UPPER(eligible_dx.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
+          ) as eligible_palliative_diag_codes,
+          (SELECT COUNT(DISTINCT oo.icode)
+            FROM opitemrece oo
+            JOIN drugitems di ON di.icode=oo.icode
+            WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0
+          ) as drug_count
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         LEFT JOIN vn_stat v ON v.vn = o.vn
-        LEFT JOIN ovstdiag dx ON o.vn = dx.vn AND dx.icd10 IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
+        LEFT JOIN ovstist osi ON osi.ovstist = o.ovstist
+        LEFT JOIN kskdepartment dep ON dep.depcode = o.main_dep
+        LEFT JOIN ovstdiag dx ON o.vn = dx.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
         WHERE o.vstdate BETWEEN ? AND ?
-          AND (dx.icd10 IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) OR EXISTS (SELECT 1 FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})))
+          AND (REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) OR EXISTS (SELECT 1 FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})))
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
@@ -12191,16 +12900,16 @@ export const getSpecificFundData = async (
 
     if (fundType === 'knee') {
       const kneeDiagM17Sql = `
-        v.pdx LIKE 'M17%' OR v.dx0 LIKE 'M17%' OR v.dx1 LIKE 'M17%' OR v.dx2 LIKE 'M17%' OR v.dx3 LIKE 'M17%' OR v.dx4 LIKE 'M17%' OR v.dx5 LIKE 'M17%'
+        EXISTS (
+          SELECT 1 FROM ovstdiag kd
+          WHERE kd.vn = o.vn AND REPLACE(UPPER(kd.icd10), '.', '') LIKE 'M17%'
+        )
       `;
       const kneeDiagU5753Sql = `
-        REPLACE(COALESCE(v.pdx, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx0, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx1, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx2, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx3, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx4, ''), '.', '') = 'U5753'
-        OR REPLACE(COALESCE(v.dx5, ''), '.', '') = 'U5753'
+        EXISTS (
+          SELECT 1 FROM ovstdiag kd
+          WHERE kd.vn = o.vn AND REPLACE(UPPER(kd.icd10), '.', '') = 'U5753'
+        )
       `;
       const [rows] = await connection.query(`
         SELECT
@@ -12211,19 +12920,15 @@ export const getSpecificFundData = async (
           ptt.name as pttypename, ptt.hipdata_code,
           COALESCE(v.sex, pt.sex) as sex,
           COALESCE(v.age_y, TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate)) as age_y,
-          'Y' as knee_age_eligible,
-          'Y' as has_knee_diag,
-          'Y' as has_knee_diag_m17,
-          'Y' as has_knee_diag_u5753,
-          CONCAT_WS(', ',
-            CASE WHEN v.pdx LIKE 'M17%' OR v.pdx IN ('U57.53', 'U5753') THEN v.pdx END,
-            CASE WHEN v.dx0 LIKE 'M17%' OR v.dx0 IN ('U57.53', 'U5753') THEN v.dx0 END,
-            CASE WHEN v.dx1 LIKE 'M17%' OR v.dx1 IN ('U57.53', 'U5753') THEN v.dx1 END,
-            CASE WHEN v.dx2 LIKE 'M17%' OR v.dx2 IN ('U57.53', 'U5753') THEN v.dx2 END,
-            CASE WHEN v.dx3 LIKE 'M17%' OR v.dx3 IN ('U57.53', 'U5753') THEN v.dx3 END,
-            CASE WHEN v.dx4 LIKE 'M17%' OR v.dx4 IN ('U57.53', 'U5753') THEN v.dx4 END,
-            CASE WHEN v.dx5 LIKE 'M17%' OR v.dx5 IN ('U57.53', 'U5753') THEN v.dx5 END
-          ) as diag_code,
+          CASE WHEN COALESCE(v.age_y, TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate)) >= 40 THEN 'Y' ELSE 'N' END as knee_age_eligible,
+          CASE WHEN (${kneeDiagM17Sql}) AND (${kneeDiagU5753Sql}) THEN 'Y' ELSE 'N' END as has_knee_diag,
+          CASE WHEN (${kneeDiagM17Sql}) THEN 'Y' ELSE 'N' END as has_knee_diag_m17,
+          CASE WHEN (${kneeDiagU5753Sql}) THEN 'Y' ELSE 'N' END as has_knee_diag_u5753,
+          (SELECT GROUP_CONCAT(DISTINCT kd.icd10 ORDER BY kd.diagtype SEPARATOR ', ')
+             FROM ovstdiag kd
+            WHERE kd.vn = o.vn
+              AND (REPLACE(UPPER(kd.icd10), '.', '') LIKE 'M17%'
+                   OR REPLACE(UPPER(kd.icd10), '.', '') = 'U5753')) as diag_code,
           NULL as oper_code,
           NULL as oper_names,
           'N' as has_knee_massage_thigh,
@@ -12239,9 +12944,18 @@ export const getSpecificFundData = async (
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         WHERE v.vstdate BETWEEN ? AND ?
-          AND v.age_y >= 40
-          AND (${kneeDiagM17Sql})
-          AND (${kneeDiagU5753Sql})
+          AND (
+            (COALESCE(v.age_y, TIMESTAMPDIFF(YEAR, pt.birthday, o.vstdate)) >= 40
+              AND (${kneeDiagM17Sql}) AND (${kneeDiagU5753Sql}))
+            OR EXISTS (
+              SELECT 1
+              FROM health_med_service ks
+              JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+              JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+              WHERE ks.vn = o.vn
+                AND REPLACE(ki.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+            )
+          )
         ORDER BY o.vstdate DESC, o.vn DESC
       `, [startDate, endDate]);
       const kneeRows = rows as Record<string, unknown>[];
@@ -12251,38 +12965,106 @@ export const getSpecificFundData = async (
         const [operationRows] = await connection.query(`
           SELECT
             s.vn,
-            GROUP_CONCAT(DISTINCT i.icd10tm ORDER BY i.icd10tm SEPARATOR ', ') as oper_code,
-            GROUP_CONCAT(DISTINCT i.health_med_operation_item_name ORDER BY i.icd10tm SEPARATOR ', ') as oper_names,
-            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8727811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_thigh,
-            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_knee,
-            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8747811' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_massage_lower_leg,
-            CASE WHEN MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737835' THEN 1 ELSE 0 END) = 1 THEN 'Y' ELSE 'N' END as has_knee_poultice,
-            CASE WHEN
-              MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8727811' THEN 1 ELSE 0 END) = 1
-              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737811' THEN 1 ELSE 0 END) = 1
-              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8747811' THEN 1 ELSE 0 END) = 1
-              AND MAX(CASE WHEN REPLACE(i.icd10tm, '-', '') = '8737835' THEN 1 ELSE 0 END) = 1
-            THEN 'Y' ELSE 'N' END as has_knee_oper,
-            COUNT(DISTINCT REPLACE(i.icd10tm, '-', '')) as knee_oper_count
+            REPLACE(i.icd10tm, '-', '') as raw_code,
+            i.icd10tm,
+            i.health_med_operation_item_name,
+            op.health_med_organ_id
           FROM health_med_service s
           JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
           JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
           WHERE s.vn IN (${vnPlaceholders})
-            AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
-          GROUP BY s.vn
+            AND (
+              REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835')
+              OR (REPLACE(i.icd10tm, '-', '') = '9007811' AND op.health_med_organ_id IN (39,40,41))
+            )
         `, kneeVns);
         const operationMap = new Map<string, Record<string, unknown>>();
         if (Array.isArray(operationRows)) {
           for (const operationRow of operationRows as Record<string, unknown>[]) {
             const vn = normalizeImportCellValue(operationRow.vn);
-            if (vn) operationMap.set(vn, operationRow);
+            if (!vn) continue;
+            const aggregate = operationMap.get(vn) || {
+              operCodes: new Set<string>(),
+              operNames: new Set<string>(),
+              counts: { '8727811': 0, '8737811': 0, '8747811': 0, '8737835': 0 } as Record<string, number>,
+              legacyCount: 0,
+            };
+            const rawCode = normalizeImportCellValue(operationRow.raw_code);
+            const organId = Number(operationRow.health_med_organ_id || 0);
+            const mappedCode = rawCode === '9007811'
+              ? ({ 39: '8727811', 40: '8737811', 41: '8747811' } as Record<number, string>)[organId]
+              : rawCode;
+            if (mappedCode && mappedCode in (aggregate.counts as Record<string, number>)) {
+              (aggregate.counts as Record<string, number>)[mappedCode] += 1;
+              (aggregate.operCodes as Set<string>).add(normalizeImportCellValue(operationRow.icd10tm));
+              (aggregate.operNames as Set<string>).add(normalizeImportCellValue(operationRow.health_med_operation_item_name));
+              if (rawCode === '9007811') aggregate.legacyCount = Number(aggregate.legacyCount || 0) + 1;
+            }
+            operationMap.set(vn, aggregate);
           }
         }
         for (const row of kneeRows) {
           const vn = normalizeImportCellValue(row.vn);
           const operationRow = operationMap.get(vn);
-          if (operationRow) Object.assign(row, operationRow);
-          row.knee_poultice_14d_count = row.has_knee_poultice === 'Y' ? 1 : 0;
+          if (operationRow) {
+            const counts = operationRow.counts as Record<string, number>;
+            const duplicateCodes = Object.entries(counts).filter(([, count]) => count > 1).map(([code]) => code);
+            Object.assign(row, {
+              oper_code: Array.from(operationRow.operCodes as Set<string>).filter(Boolean).join(', '),
+              oper_names: Array.from(operationRow.operNames as Set<string>).filter(Boolean).join(', '),
+              has_knee_massage_thigh: counts['8727811'] > 0 ? 'Y' : 'N',
+              has_knee_massage_knee: counts['8737811'] > 0 ? 'Y' : 'N',
+              has_knee_massage_lower_leg: counts['8747811'] > 0 ? 'Y' : 'N',
+              has_knee_poultice: counts['8737835'] > 0 ? 'Y' : 'N',
+              has_knee_oper: Object.values(counts).every((count) => count > 0) ? 'Y' : 'N',
+              knee_oper_count: Object.values(counts).filter((count) => count > 0).length,
+              knee_has_data_error: duplicateCodes.length > 0 || Number(operationRow.legacyCount || 0) > 0 ? 'Y' : 'N',
+              knee_duplicate_codes: duplicateCodes,
+              knee_legacy_count: Number(operationRow.legacyCount || 0),
+            });
+          }
+        }
+
+        const kneeHns = Array.from(new Set(kneeRows.map((row) => normalizeImportCellValue(row.hn)).filter(Boolean)));
+        if (kneeHns.length > 0) {
+          const hnPlaceholders = kneeHns.map(() => '?').join(',');
+          const [historyRows] = await connection.query(`
+            SELECT DISTINCT s.hn, s.vn, DATE_FORMAT(s.service_date, '%Y-%m-%d') as service_date
+            FROM health_med_service s
+            JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
+            JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
+            WHERE s.hn IN (${hnPlaceholders})
+              AND s.service_date BETWEEN DATE_SUB(?, INTERVAL 13 DAY) AND DATE_ADD(?, INTERVAL 13 DAY)
+              AND REPLACE(i.icd10tm, '-', '') = '8737835'
+            ORDER BY s.hn, s.service_date
+          `, [...kneeHns, startDate, endDate]);
+          const historyByHn = new Map<string, string[]>();
+          for (const historyRow of historyRows as Record<string, unknown>[]) {
+            const hn = normalizeImportCellValue(historyRow.hn);
+            const date = normalizeImportCellValue(historyRow.service_date);
+            if (!hn || !date) continue;
+            const dates = historyByHn.get(hn) || [];
+            dates.push(date);
+            historyByHn.set(hn, dates);
+          }
+          for (const row of kneeRows) {
+            const serviceDate = normalizeImportCellValue(row.serviceDate);
+            const dates = (historyByHn.get(normalizeImportCellValue(row.hn)) || []).sort();
+            let maxCount = 0;
+            for (let left = 0; left < dates.length; left += 1) {
+              const leftTime = new Date(`${dates[left]}T00:00:00Z`).getTime();
+              let count = 0;
+              let includesVisitWindow = false;
+              for (let right = left; right < dates.length; right += 1) {
+                const rightTime = new Date(`${dates[right]}T00:00:00Z`).getTime();
+                if ((rightTime - leftTime) / 86_400_000 > 13) break;
+                count += 1;
+                includesVisitWindow ||= serviceDate >= dates[left] && serviceDate <= dates[right];
+              }
+              if (includesVisitWindow) maxCount = Math.max(maxCount, count);
+            }
+            row.knee_poultice_14d_count = maxCount;
+          }
         }
       }
       return await finalizeRows(kneeRows);
@@ -12368,7 +13150,14 @@ export const getSpecificFundData = async (
             FROM opitemrece oo
             JOIN s_drugitems d ON d.icode = oo.icode
             WHERE oo.vn = o.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}'
-          ) as fp_adp_codes
+          ) as fp_adp_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT REPLACE(dro.icd9, '.', '') ORDER BY dro.icd9 SEPARATOR ', ')
+            FROM doctor_operation dro
+            WHERE dro.vn = o.vn AND REPLACE(dro.icd9, '.', '') IN ('9923', '8605')
+          ) as fp_icd9_codes,
+          (SELECT COALESCE(SUM(COALESCE(oo.qty, 0)), 0) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=o.hn AND YEAR(fy.vstdate)=YEAR(o.vstdate) AND d.nhso_adp_code='FP003_3') as fp_emergency_year_qty,
+          (SELECT COUNT(DISTINCT oo.vn) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=o.hn AND YEAR(fy.vstdate)=YEAR(o.vstdate) AND d.nhso_adp_code='FP003_4') as fp_injection_year_count
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
@@ -12879,7 +13668,7 @@ export const getSpecificFundData = async (
           v.age_y as age,
           v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
           CASE WHEN COALESCE(v.sex, pt.sex) = '1' THEN 'Y' ELSE 'N' END as sex_eligible,
-          CASE WHEN ${buildServiceOrLabNameExistsSql('o', SYPHILIS_SCREENING_REGEX)} THEN 'Y' ELSE 'N' END as has_syphilis_lab,
+          CASE WHEN ${buildSyphilisScreeningExistsSql('o')} THEN 'Y' ELSE 'N' END as has_syphilis_lab,
           (
             SELECT GROUP_CONCAT(DISTINCT li.lab_items_name ORDER BY li.lab_items_name SEPARATOR ', ')
             FROM lab_head h
@@ -12906,7 +13695,10 @@ export const getSpecificFundData = async (
             LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
             LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
             WHERE oo.vn = o.vn
-              AND UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP '${SYPHILIS_SCREENING_REGEX}'
+              AND (
+                UPPER(COALESCE(sd.nhso_adp_code, '')) IN (${SYPHILIS_SCREENING_ADP_CODES_SQL})
+                OR UPPER(COALESCE(ndi.name, sd.name, '')) REGEXP '${SYPHILIS_SCREENING_REGEX}'
+              )
           ) as syphilis_service_names,
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
         FROM ovst o
@@ -12915,7 +13707,7 @@ export const getSpecificFundData = async (
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
           AND COALESCE(v.sex, pt.sex) = '1'
-          AND ${buildServiceOrLabNameExistsSql('o', SYPHILIS_SCREENING_REGEX)}
+          AND ${buildSyphilisScreeningExistsSql('o')}
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
@@ -13084,7 +13876,8 @@ export const getSpecificFundData = async (
                 LEFT JOIN dttm tm ON tm.code = dm.tmcode
                 WHERE dm.vn = o.vn
                   AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-                    IN ('2330011', '2330013')
+                    IN (${ANC_DENTAL_EXAM_PROCEDURE_CODES_SQL})
+                  AND REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), '')), '.', '') = '${ANC_DENTAL_EXAM_ICD9}'
                 LIMIT 1
               ) THEN 'Y' ELSE 'N' END as has_anc_dental_exam_procedure,
               CASE WHEN EXISTS (
@@ -13093,7 +13886,8 @@ export const getSpecificFundData = async (
                 LEFT JOIN dttm tm ON tm.code = dm.tmcode
                 WHERE dm.vn = o.vn
                   AND COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(tm.icd9cm), ''), NULLIF(TRIM(dm.icd9), ''))
-                    IN ('2387010', '2277310', '2277320', '2287310', '2287320')
+                    IN (${ANC_DENTAL_CLEAN_PROCEDURE_CODES_SQL})
+                  AND REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), '')), '.', '') = '${ANC_DENTAL_CLEAN_ICD9}'
                 LIMIT 1
               ) THEN 'Y' ELSE 'N' END as has_anc_dental_clean_procedure,
               (
@@ -13105,6 +13899,15 @@ export const getSpecificFundData = async (
                 LEFT JOIN dttm tm ON tm.code = dm.tmcode
                 WHERE dm.vn = o.vn
               ) as dental_procedure_codes,
+              (
+                SELECT GROUP_CONCAT(DISTINCT CONCAT(
+                  COALESCE(NULLIF(TRIM(tm.icd10tm_operation_code), ''), NULLIF(TRIM(dm.icd9), ''), dm.tmcode),
+                  ':', REPLACE(COALESCE(NULLIF(TRIM(dm.icd9), ''), NULLIF(TRIM(tm.icd9cm), ''), ''), '.', '')
+                ) ORDER BY dm.tm_no SEPARATOR ', ')
+                FROM dtmain dm
+                LEFT JOIN dttm tm ON tm.code = dm.tmcode
+                WHERE dm.vn = o.vn
+              ) as dental_procedure_pairs,
               (
                 SELECT GROUP_CONCAT(
                   DISTINCT CONCAT(
@@ -13152,7 +13955,7 @@ export const getSpecificFundData = async (
         'postnatal_care': '30015',
         'postnatal_supplements': '30016',
         'fluoride': '15001',
-        'contraceptive_pill': ['FP003_1', 'FP003_2'],
+        'contraceptive_pill': ['FP003_1', 'FP003_2', 'FP003_3'],
         'condom': 'FP003_4'
     };
 
@@ -13161,6 +13964,9 @@ export const getSpecificFundData = async (
         const adpCondition = Array.isArray(adpParam) 
             ? `d.nhso_adp_code IN (${adpParam.map(c => `'${c}'`).join(',')})`
             : `d.nhso_adp_code = '${adpParam}'`;
+        const postnatalTraditionalMedicineExclusion = fundType === 'postnatal_care'
+            ? `AND ${buildPostnatalTraditionalMedicineExclusionSql('o')}`
+            : '';
 
         const [rows] = await connection.query(`
             SELECT 
@@ -13195,6 +14001,8 @@ export const getSpecificFundData = async (
               CASE WHEN ${buildPostIronMedExistsSql('o')} THEN 'Y' ELSE 'N' END as has_post_iron_med,
               CASE WHEN EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.icd10 REGEXP '${businessRules.diagnosis_patterns.fp}' LIMIT 1) THEN 'Y' ELSE 'N' END as has_fp_diag,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code REGEXP '${businessRules.adp_codes.fp_regex}' LIMIT 1) THEN 'Y' ELSE 'N' END as has_fp_adp,
+              (SELECT COALESCE(SUM(COALESCE(oo.qty, 0)), 0) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=o.hn AND YEAR(fy.vstdate)=YEAR(o.vstdate) AND d.nhso_adp_code='FP003_3') as fp_emergency_year_qty,
+              (SELECT COUNT(DISTINCT oo.vn) FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode JOIN ovst fy ON fy.vn=oo.vn WHERE fy.hn=o.hn AND YEAR(fy.vstdate)=YEAR(o.vstdate) AND d.nhso_adp_code='FP003_4') as fp_injection_year_count,
               CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND ${adpCondition} LIMIT 1) THEN 'Y' ELSE 'N' END as has_specific_adp,
               (SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ', ') FROM opitemrece oo JOIN s_drugitems d ON d.icode=oo.icode WHERE oo.vn=o.vn AND ${adpCondition}) as adp_names,
               (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
@@ -13203,6 +14011,7 @@ export const getSpecificFundData = async (
             LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
             LEFT JOIN vn_stat v ON v.vn = o.vn
             WHERE o.vstdate BETWEEN ? AND ?
+              ${postnatalTraditionalMedicineExclusion}
               AND (
                 (${fundType === 'preg_test' || fundType === 'pregnancy_test' ? `((${buildPregLabExistsSql('o')} AND ${buildDiagnosisMatchSql('o', 'v', UPT_DX_CODES)}) OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30014'))` : '0'})
                 OR (${fundType === 'postnatal_care' ? `(${buildDiagnosisMatchSql('o', 'v', POSTNATAL_CARE_DX_CODES)} OR EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code = '30015'))` : '0'})
@@ -13665,10 +14474,62 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
         console.log(`  - HN: ${r.hn}, insuranceType: "${r.insuranceType}"`);
       });
     }    connection.release();
-    const returned = detailedData.length;
+
+    let enrichedData = detailedData;
+    let repstmSummary = attachKidneyRepStmTracking(detailedData, [], []).summary;
+    let repstmConnection: mysql.PoolConnection | null = null;
+    try {
+      const visitVns = Array.from(new Set(detailedData.map((row) => String(row.vn || '').trim()).filter(Boolean)));
+      const visitHns = Array.from(new Set(detailedData.map((row) => String(row.hn || '').trim()).filter(Boolean)));
+      const normalizedVisitHns = Array.from(new Set(visitHns.map((hn) => hn.replace(/_/g, '').replace(/^0+/, '') || '0')));
+      if (detailedData.length > 0 && visitVns.length > 0 && visitHns.length > 0) {
+        repstmConnection = await getRepstmConnection();
+        const [repResult] = await repstmConnection.query(
+          `SELECT r.id, r.vn, r.hn, DATE_FORMAT(r.admdate, '%Y-%m-%d') AS service_date,
+                  r.rep_no, r.tran_id, r.compensated, r.errorcode, r.verifycode
+             FROM rep_data r
+            WHERE r.tran_id LIKE 'CHIHD:%'
+              AND (r.vn IN (?)
+               OR (TRIM(LEADING '0' FROM REPLACE(TRIM(r.hn), '_', '')) IN (?)
+                   AND r.admdate >= ? AND r.admdate < DATE_ADD(?, INTERVAL 1 DAY)))`,
+          [visitVns, normalizedVisitHns, startDate, endDate],
+        );
+        const repRows = repResult as any[];
+        const repTranIds = Array.from(new Set(repRows.map((row) => String(row.tran_id || '').trim()).filter(Boolean)));
+        const stmConditions = [
+          's.matched_visit_code IN (?)',
+          's.vn IN (?)',
+          `(TRIM(LEADING '0' FROM REPLACE(TRIM(s.hn), '_', '')) IN (?)
+            AND s.service_datetime >= ? AND s.service_datetime < DATE_ADD(?, INTERVAL 1 DAY))`,
+        ];
+        const stmParams: unknown[] = [visitVns, visitVns, normalizedVisitHns, startDate, endDate];
+        if (repTranIds.length > 0) {
+          stmConditions.push('s.tran_id IN (?)');
+          stmParams.push(repTranIds);
+        }
+        const [stmResult] = await repstmConnection.query(
+          `SELECT s.id, s.vn, s.matched_visit_code, s.hn,
+                  DATE_FORMAT(s.service_datetime, '%Y-%m-%d') AS service_date,
+                  s.statement_no, s.tran_id, s.amount, s.paid_amount, s.errorcode, s.verifycode
+             FROM repstm_statement_data s
+            WHERE s.data_type = 'STM' AND s.tran_id LIKE 'CHIHD:%'
+              AND (${stmConditions.join(' OR ')})`,
+          stmParams,
+        );
+        const attached = attachKidneyRepStmTracking(detailedData, repRows, stmResult as any[]);
+        enrichedData = attached.data;
+        repstmSummary = attached.summary;
+      }
+    } catch (repstmError) {
+      console.error('⚠️ Kidney REP/STM linkage unavailable; returning visit data without claim tracking:', repstmError);
+    } finally {
+      repstmConnection?.release();
+    }
+
+    const returned = enrichedData.length;
     console.log(`✅ Processed ${returned} kidney monitor records - No truncation (all records shown)`);
     return {
-      data: detailedData,
+      data: enrichedData,
       totalCount,
       returned,
       truncated: false,
@@ -13676,6 +14537,7 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
       excludedCount,
       trackingSummary,
       trackingIssues,
+      repstmSummary,
     };
   } catch (error) {
     console.error('Error in getKidneyMonitorDetailed:', error);
@@ -13688,6 +14550,7 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
       excludedCount: 0,
       trackingSummary: summarizeKidneyTrackingVisits([]),
       trackingIssues: findKidneyTrackingIssues([]),
+      repstmSummary: attachKidneyRepStmTracking([], [], []).summary,
     };
   }
 };
@@ -13979,15 +14842,36 @@ export const getEligibleIPD = async (
         ipt.hn,
         ipt.vn,
         CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patientName,
+        pt.sex as sex,
+        DATEDIFF(ipt.regdate, pt.birthday) as ageDays,
         w.name as ward,
         DATE_FORMAT(ipt.regdate, '%Y-%m-%d') as admDate,
-        ipt.dchdate,
+        TIME_FORMAT(ipt.regtime, '%H:%i:%s') as regTime,
+        DATE_FORMAT(ipt.dchdate, '%Y-%m-%d') as dchdate,
+        TIME_FORMAT(ipt.dchtime, '%H:%i:%s') as dchTime,
         CASE 
           WHEN ipt.dchdate IS NULL THEN DATEDIFF(CURDATE(), ipt.regdate)
           ELSE DATEDIFF(ipt.dchdate, ipt.regdate) 
         END as los,
         pttype.name as pttype,
-        COALESCE(ipt.pttype, pttype.hipdata_code) as hipdata_code,
+        COALESCE(pttype.hipdata_code, ipt.pttype) as hipdata_code,
+        COALESCE(
+          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = ipt.vn AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
+          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = ipt.an AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
+          (SELECT vp.auth_code FROM visit_pttype vp WHERE vp.vn = ipt.vn AND COALESCE(vp.auth_code, '') <> '' LIMIT 1),
+          ''
+        ) as authen_code,
+        COALESCE(
+          (SELECT DATE_FORMAT(TIMESTAMP(ah.created_date, ah.created_time), '%Y-%m-%d %H:%i:%s') FROM authenhos ah WHERE ah.vn = ipt.vn AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
+          (SELECT DATE_FORMAT(TIMESTAMP(ah.created_date, ah.created_time), '%Y-%m-%d %H:%i:%s') FROM authenhos ah WHERE ah.vn = ipt.an AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
+          (SELECT DATE_FORMAT(vp.Auth_DateTime, '%Y-%m-%d %H:%i:%s') FROM visit_pttype vp WHERE vp.vn = ipt.vn AND COALESCE(vp.auth_code, '') <> '' LIMIT 1),
+          ''
+        ) as authen_datetime,
+        CASE
+          WHEN EXISTS (SELECT 1 FROM authenhos ah WHERE ah.vn IN (ipt.vn, ipt.an) AND COALESCE(ah.claim_code, '') <> '') THEN 'authenhos'
+          WHEN EXISTS (SELECT 1 FROM visit_pttype vp WHERE vp.vn = ipt.vn AND COALESCE(vp.auth_code, '') <> '') THEN 'visit_pttype'
+          ELSE ''
+        END as authen_source,
         
         -- DRG & RW
         (SELECT drg FROM an_stat WHERE an = ipt.an LIMIT 1) as drg,
@@ -13995,7 +14879,47 @@ export const getEligibleIPD = async (
         
         -- Diagnosis and Procedures
         (SELECT icd10 FROM iptdiag WHERE an = ipt.an AND diagtype = '1' LIMIT 1) as pdx,
+        (SELECT GROUP_CONCAT(DISTINCT icd10 ORDER BY diagtype, icd10 SEPARATOR ',') FROM iptdiag WHERE an = ipt.an) as diagnosis_codes,
         (SELECT GROUP_CONCAT(icd9) FROM iptoprt WHERE an = ipt.an) as or_codes,
+        EXISTS(
+          SELECT 1
+          FROM opitemrece oi
+          JOIN s_drugitems sd ON sd.icode = oi.icode
+          WHERE oi.an = ipt.an
+            AND UPPER(COALESCE(sd.name, '')) REGEXP 'TAMIFLU|OSELTAMIVIR'
+        ) as hasTamiflu,
+        EXISTS(
+          SELECT 1
+          FROM lab_head lh
+          JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+          JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+          WHERE lh.vn IN (ipt.an, ipt.vn)
+            AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP 'INFLUENZA|FLU A|FLU B'
+            AND COALESCE(lo.lab_order_result, '') <> ''
+        ) as hasInfluenzaTest,
+        EXISTS(
+          SELECT 1
+          FROM opitemrece oi
+          JOIN nondrugitems nd ON nd.icode = oi.icode
+          WHERE oi.an = ipt.an
+            AND (
+              UPPER(COALESCE(nd.name, '')) REGEXP '(^|[^A-Z])CT([^A-Z]|$)|COMPUTED TOMOGRAPHY'
+              OR COALESCE(nd.name, '') LIKE '%เอกซเรย์คอมพิวเตอร์%'
+            )
+        ) as hasCtScan,
+        (
+          EXISTS(SELECT 1 FROM referin ri WHERE ri.vn = ipt.vn)
+          OR EXISTS(SELECT 1 FROM referout ro WHERE ro.vn = ipt.vn)
+        ) as hasReferral,
+        (SELECT CONCAT(DATE_FORMAT(prev.dchdate, '%Y-%m-%d'), ' ', TIME_FORMAT(prev.dchtime, '%H:%i:%s'))
+          FROM ipt prev
+          WHERE prev.hn = ipt.hn
+            AND prev.an <> ipt.an
+            AND prev.dchdate IS NOT NULL
+            AND TIMESTAMP(prev.dchdate, COALESCE(prev.dchtime, '00:00:00')) <= TIMESTAMP(ipt.regdate, COALESCE(ipt.regtime, '00:00:00'))
+          ORDER BY prev.dchdate DESC, prev.dchtime DESC
+          LIMIT 1
+        ) as previousDischargeAt,
         
         -- Total Price
         COALESCE((SELECT SUM(sum_price) FROM opitemrece WHERE an = ipt.an), 0) as totalPrice,

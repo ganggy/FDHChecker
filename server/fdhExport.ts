@@ -7,8 +7,15 @@ export const FDH_FILE_CODES = [
 
 export type FdhFileCode = typeof FDH_FILE_CODES[number];
 export type FdhExportProfile = 'standard' | 'fwf-migrants';
+export type FdhPatientType = 'ALL' | 'OPD' | 'IPD';
 export type FdhRow = Record<string, unknown>;
 export type FdhExportData = Record<FdhFileCode, FdhRow[]>;
+
+export interface FdhOopConsolidationResult {
+  rows: FdhRow[];
+  duplicateGroups: number;
+  mergedRows: number;
+}
 
 export interface FdhValidationIssue {
   severity: 'error' | 'warning';
@@ -78,6 +85,58 @@ export const projectFdhData = (data: Partial<FdhExportData>, profile: FdhExportP
       layouts[file].map((field) => [field, row?.[field] ?? '']),
     )),
   ])) as FdhExportData;
+};
+
+export const consolidateFdhOopRows = (input: FdhRow[]): FdhOopConsolidationResult => {
+  const selected = new Map<string, { row: FdhRow; priority: number; occurrences: number }>();
+
+  input.forEach((sourceRow, index) => {
+    const { _SOURCE_PRIORITY: rawPriority, ...row } = sourceRow;
+    const naturalKeyParts = ['HN', 'SEQ', 'OPER'].map((field) => normalizePipeValue(row[field]));
+    const hasNaturalKey = naturalKeyParts.every(Boolean);
+    const key = hasNaturalKey ? naturalKeyParts.join('|') : `__invalid_row_${index}`;
+    const priority = Number.isFinite(Number(rawPriority)) ? Number(rawPriority) : 0;
+    const current = selected.get(key);
+
+    if (!current) {
+      selected.set(key, { row, priority, occurrences: 1 });
+      return;
+    }
+
+    current.occurrences += 1;
+    const currentProvider = normalizePipeValue(current.row.DROPID);
+    const candidateProvider = normalizePipeValue(row.DROPID);
+    if (priority > current.priority || (priority === current.priority && !currentProvider && candidateProvider)) {
+      current.row = row;
+      current.priority = priority;
+    }
+  });
+
+  let duplicateGroups = 0;
+  let mergedRows = 0;
+  selected.forEach((entry) => {
+    if (entry.occurrences > 1) {
+      duplicateGroups += 1;
+      mergedRows += entry.occurrences - 1;
+    }
+  });
+
+  return {
+    rows: [...selected.values()].map((entry) => entry.row),
+    duplicateGroups,
+    mergedRows,
+  };
+};
+
+export const scopeFdhData = (input: Partial<FdhExportData>, patientType: FdhPatientType): FdhExportData => {
+  const data = Object.fromEntries(FDH_FILE_CODES.map((file) => [file, Array.isArray(input[file]) ? input[file]! : []])) as FdhExportData;
+  if (patientType === 'IPD') {
+    return { ...data, OPD: [], ORF: [], ODX: [], OOP: [] };
+  }
+  if (patientType === 'OPD') {
+    return { ...data, IPD: [], IRF: [], IDX: [], IOP: [], LVD: [] };
+  }
+  return data;
 };
 
 export const serializeFdhFile = (
@@ -258,6 +317,7 @@ export const validateFdhData = (
   });
   const opdByKey = new Map(data.OPD.map((row) => [keyOf(row, ['HN', 'SEQ']), row]));
   data.AER.forEach((row, index) => {
+    if (value(row, 'AN')) return;
     const optype = value(opdByKey.get(keyOf(row, ['HN', 'SEQ'])) || {}, 'OPTYPE');
     const ucae = value(row, 'UCAE');
     if (!['0', '1', '2', '3'].includes(optype)) {

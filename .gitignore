@@ -18,6 +18,11 @@ dist-ssr
 .env.*
 !.env.example
 outputs/
+.codex-tmp/
+tmp/
+tmp_*
+server/test_out.json
+backups/
 
 # Runtime knowledge managed by FDH Local AI. The curated governance seed stays versioned.
 knowlage/ksp-vault/FDHChecker/70_AI_Managed/**/*.md

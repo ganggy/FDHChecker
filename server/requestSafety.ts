@@ -9,6 +9,9 @@ const largeJsonBodyPaths = new Set([
   '/api/fdh/view-data',
   '/api/fdh/submit',
   '/api/receivables/batches',
+  '/api/sss/repstm/import',
+  '/api/sss/export',
+  '/api/sss/ipd/export',
 ]);
 const standardJsonParser = express.json({ limit: '2mb' });
 const importJsonParser = express.json({ limit: '25mb' });

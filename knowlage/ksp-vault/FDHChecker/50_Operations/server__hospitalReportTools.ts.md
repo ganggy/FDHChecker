@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/hospitalReportTools.ts"
-source_hash: "3f488ebd86f940644bbdbc90de4cf75fc5771c94cd1f484871d9c48d93b6bf25"
+source_hash: "6832fe4a96c49b63eca799ccf07d09de3af044586865a2155895a644e47d0aa2"
 managed_by: "sync-ksp-vault"
 ---
 # hospitalReportTools.ts
 
 > Source: `server/hospitalReportTools.ts`
-> SHA-256: `3f488ebd86f940644bbdbc90de4cf75fc5771c94cd1f484871d9c48d93b6bf25`
+> SHA-256: `6832fe4a96c49b63eca799ccf07d09de3af044586865a2155895a644e47d0aa2`
 
 ````typescript
 import { getUTFConnection } from './db.js';
@@ -18,7 +18,7 @@ import { answerPatientReportQuestion } from './aiReportTools.js';
 import { buildReportAttachment, type ExportableReport, type ReportFormat } from './aiReportExport.js';
 import { generateAgentText } from './aiService.js';
 
-export type HospitalReportId = 'discharge-summary' | 'operative-note' | 'lab-report' | 'bed-occupancy' | 'cost-per-drg' | 'payer-mix';
+export type HospitalReportId = 'discharge-summary' | 'operative-note' | 'lab-report' | 'bed-occupancy' | 'cost-per-drg' | 'payer-mix' | 'pcu-death';
 
 export type HospitalReportRequest = {
   reportId: HospitalReportId;
@@ -29,8 +29,9 @@ export type HospitalReportRequest = {
   format?: ReportFormat;
   aiSummary?: boolean;
   instructions?: string;
+  registeredBeds?: number;
+  operationalBeds?: number;
 };
-
 type ReportResult = {
   title: string;
   subtitle: string;
@@ -45,6 +46,113 @@ const safeIdentifier = (value: string | undefined) => String(value || '').trim()
 const safeFormat = (value: unknown): ReportFormat | undefined => (
   ['docx', 'xlsx', 'csv', 'json'].includes(String(value)) ? value as ReportFormat : undefined
 );
+
+export const HOSPITAL_PCU_SCOPE = {
+  addressId: '471501',
+  tambon: 'ตองโขบ',
+  amphoe: 'โคกศรีสุพรรณ',
+  province: 'สกลนคร',
+  villages: [1, 2, 4, 5, 7, 8, 9, 10, 13, 14, 15, 16],
+} as const;
+
+const bangkokDateParts = (date: Date) => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value || 0);
+  return { year: value('year'), month: value('month'), day: value('day') };
+};
+
+export const fiscalYearDateRange = (fiscalYears = 3, referenceDate = new Date()) => {
+  const boundedYears = Math.min(3, Math.max(1, Math.trunc(fiscalYears)));
+  const current = bangkokDateParts(referenceDate);
+  const lastFiscalYear = current.year + (current.month >= 10 ? 544 : 543);
+  const firstFiscalYear = lastFiscalYear - boundedYears + 1;
+  return {
+    fiscalYears: Array.from({ length: boundedYears }, (_, index) => firstFiscalYear + index),
+    dateStart: `${firstFiscalYear - 544}-10-01`,
+    dateEnd: `${lastFiscalYear - 543}-09-30`,
+  };
+};
+
+const rangeForExplicitFiscalYears = (years: number[]) => {
+  const distinct = Array.from(new Set(years)).sort((a, b) => a - b);
+  if (!distinct.length || distinct.some((year) => year < 2500 || year > 2700)) return null;
+  const lastYear = distinct[distinct.length - 1];
+  if (lastYear - distinct[0] > 2) throw new Error('รายงานข้อมูลรายบุคคลเลือกได้ไม่เกิน 3 ปีงบประมาณ');
+  return {
+    fiscalYears: Array.from({ length: lastYear - distinct[0] + 1 }, (_, index) => distinct[0] + index),
+    dateStart: `${distinct[0] - 544}-10-01`,
+    dateEnd: `${lastYear - 543}-09-30`,
+  };
+};
+
+export const parseCommunityDeathReportIntent = (
+  question: string,
+  referenceDate = new Date(),
+): HospitalReportRequest | null => {
+  const normalized = String(question || '').normalize('NFKC').toLowerCase();
+  if (!/(เสียชีวิต|ผู้ตาย|การตาย)/.test(normalized)) return null;
+  if (!/(pcu|พี\s*ซี\s*ยู|เขตโรงพยาบาล|ตองโขบ)/i.test(normalized)) return null;
+  const explicitYears = [...normalized.matchAll(/25\d{2}/g)].map((match) => Number(match[0]));
+  const range = rangeForExplicitFiscalYears(explicitYears)
+    || fiscalYearDateRange(/(?:3|สาม)\s*ปี/.test(normalized) ? 3 : 3, referenceDate);
+  const format = /word|docx|เวิร์ด/.test(normalized)
+    ? 'docx'
+    : /csv/.test(normalized)
+      ? 'csv'
+      : /json/.test(normalized)
+        ? 'json'
+        : /excel|xlsx|เอ็กเซล|ไฟล์/.test(normalized)
+          ? 'xlsx'
+          : undefined;
+  return {
+    reportId: 'pcu-death',
+    dateStart: range.dateStart,
+    dateEnd: range.dateEnd,
+    ...(format ? { format: format as ReportFormat } : {}),
+    aiSummary: true,
+    instructions: `ปีงบประมาณ ${range.fiscalYears.join(', ')}`,
+  };
+};
+
+export const parseHospitalReportIntent = (
+  question: string,
+  referenceDate = new Date(),
+): HospitalReportRequest | null => {
+  const death = parseCommunityDeathReportIntent(question, referenceDate);
+  if (death) return death;
+  const normalized = String(question || '').normalize('NFKC').toLowerCase();
+  const requestedFormat = /word|docx|เวิร์ด/.test(normalized)
+    ? 'docx'
+    : /csv/.test(normalized)
+      ? 'csv'
+      : /json/.test(normalized)
+        ? 'json'
+        : /excel|xlsx|เอ็กเซล|ไฟล์/.test(normalized)
+          ? 'xlsx'
+          : undefined;
+  if (/(ครองเตียง|สถานะเตียง|เตียงว่าง|จำนวนเตียง|เตียงตามการขึ้นทะเบียน|กรอบเตียง|รวมทุกตึก)/.test(normalized)) {
+    const registeredBeds = Number(normalized.match(/(\d+)\s*เตียงตามการขึ้นทะเบียน/)?.[1] || 0);
+    const operationalBeds = Number(normalized.match(/(?:และ|,)?\s*(\d+)\s*(?:เตียง)?\s*ตาม\s*(?:กบรส|บรส|กรอบ)/)?.[1] || 0);
+    return {
+      reportId: 'bed-occupancy',
+      ...(registeredBeds > 0 && registeredBeds <= 5_000 ? { registeredBeds } : {}),
+      ...(operationalBeds > 0 && operationalBeds <= 5_000 ? { operationalBeds } : {}),
+      ...(requestedFormat ? { format: requestedFormat as ReportFormat } : {}), aiSummary: true,
+    };
+  }
+  if (/(สัดส่วนสิทธิ|สิทธิการรักษา|payer\s*mix)/.test(normalized)) {
+    const current = bangkokDateParts(referenceDate);
+    const yearMonth = `${current.year}-${String(current.month).padStart(2, '0')}`;
+    const lastDay = new Date(Date.UTC(current.year, current.month, 0)).getUTCDate();
+    return {
+      reportId: 'payer-mix', dateStart: `${yearMonth}-01`, dateEnd: `${yearMonth}-${String(lastDay).padStart(2, '0')}`,
+      ...(requestedFormat ? { format: requestedFormat as ReportFormat } : {}), aiSummary: true,
+    };
+  }
+  return null;
+};
 
 const requireDateRange = (request: HospitalReportRequest) => {
   if (!validDate(request.dateStart) || !validDate(request.dateEnd)) throw new Error('กรุณาระบุวันที่เริ่มต้นและสิ้นสุดให้ถูกต้อง');
@@ -132,7 +240,7 @@ const operativeNote = async (request: HospitalReportRequest): Promise<ReportResu
   }
 };
 
-const bedOccupancy = async (): Promise<ReportResult> => {
+const bedOccupancy = async (request: HospitalReportRequest): Promise<ReportResult> => {
   const connection = await getUTFConnection();
   try {
     const [rows] = await connection.query(
@@ -145,15 +253,104 @@ const bedOccupancy = async (): Promise<ReportResult> => {
        GROUP BY i.ward, w.name
        ORDER BY occupiedBeds DESC, ward`,
     );
+    const data = rows as Array<Record<string, unknown>>;
+    const occupied = data.reduce((sum, row) => sum + Number(row.occupiedBeds || 0), 0);
+    const capacityNotes = [
+      request.registeredBeds
+        ? `จำนวนเตียงตามทะเบียน ${request.registeredBeds} เตียง: ครอง ${occupied} เตียง (${((occupied * 100) / request.registeredBeds).toFixed(1)}%)`
+        : '',
+      request.operationalBeds
+        ? `กรอบเตียงให้บริการ ${request.operationalBeds} เตียง: ครอง ${occupied} เตียง (${((occupied * 100) / request.operationalBeds).toFixed(1)}%)`
+        : '',
+    ].filter(Boolean);
     return {
       title: 'รายงานจำนวนผู้ครองเตียงปัจจุบัน',
       subtitle: 'ผู้ป่วยในที่ยังไม่จำหน่าย แยกตามวอร์ด',
-      rows: rows as Array<Record<string, unknown>>,
+      rows: data,
       columns: [
         { key: 'wardCode', label: 'รหัสวอร์ด' }, { key: 'ward', label: 'วอร์ด', width: 28 },
         { key: 'occupiedBeds', label: 'ครองเตียง' }, { key: 'averageStayDays', label: 'วันนอนเฉลี่ย' },
       ],
-      notes: ['ยังไม่คำนวณอัตราครองเตียงและเตียงว่างจนกว่าจะกำหนดจำนวนเตียงมาตรฐานของแต่ละวอร์ด'],
+      metadata: [
+        ...(request.registeredBeds ? [{ label: 'เตียงตามทะเบียน', value: String(request.registeredBeds) }] : []),
+        ...(request.operationalBeds ? [{ label: 'กรอบเตียงให้บริการ', value: String(request.operationalBeds) }] : []),
+      ],
+      notes: capacityNotes.length
+        ? [...capacityNotes, 'อัตรารวมใช้จำนวนผู้ป่วยที่ยังไม่จำหน่ายเทียบกับจำนวนเตียงรวมที่ผู้ใช้ยืนยัน']
+        : ['ยังไม่คำนวณอัตราครองเตียงและเตียงว่างจนกว่าจะกำหนดจำนวนเตียงมาตรฐานของแต่ละวอร์ด'],
+    };
+  } finally {
+    connection.release();
+  }
+};
+
+const communityDeathReport = async (request: HospitalReportRequest): Promise<ReportResult> => {
+  if (!validDate(request.dateStart) || !validDate(request.dateEnd)) throw new Error('กรุณาระบุช่วงปีงบประมาณให้ถูกต้อง');
+  if (request.dateStart! > request.dateEnd!) throw new Error('วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด');
+  const days = (Date.parse(`${request.dateEnd}T00:00:00Z`) - Date.parse(`${request.dateStart}T00:00:00Z`)) / 86_400_000;
+  if (days > 1_096) throw new Error('รายงานข้อมูลรายบุคคลเลือกได้ไม่เกิน 3 ปีงบประมาณ');
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT
+         YEAR(COALESCE(pd.death_date, p.death_date, pt.deathday)) + 543
+           + IF(MONTH(COALESCE(pd.death_date, p.death_date, pt.deathday)) >= 10, 1, 0) AS fiscalYear,
+         COALESCE(NULLIF(p.patient_hn, ''), NULLIF(pt.hn, ''), '') AS hn,
+         TRIM(CONCAT(COALESCE(p.pname, ''), COALESCE(p.fname, ''), ' ', COALESCE(p.lname, ''))) AS patientName,
+         COALESCE(NULLIF(p.cid, ''), NULLIF(pt.cid, ''), '') AS cid,
+         DATE_FORMAT(COALESCE(p.birthdate, pt.birthday), '%Y-%m-%d') AS birthDate,
+         CONCAT_WS(' ',
+           CONCAT('บ้านเลขที่ ', COALESCE(NULLIF(h.address, ''), '-')),
+           CONCAT('หมู่ ', v.village_moo),
+           CONCAT('ตำบล${HOSPITAL_PCU_SCOPE.tambon}'),
+           CONCAT('อำเภอ${HOSPITAL_PCU_SCOPE.amphoe}'),
+           CONCAT('จังหวัด${HOSPITAL_PCU_SCOPE.province}')
+         ) AS address,
+         DATE_FORMAT(COALESCE(pd.death_date, p.death_date, pt.deathday), '%Y-%m-%d') AS deathDate,
+         COALESCE(NULLIF(pd.death_diag_1, ''), NULLIF(pt.death_diag, ''), '') AS mainDiseaseCode,
+         COALESCE(main_icd.name, '') AS mainDiseaseName,
+         COALESCE(NULLIF(pd.death_cause, ''), NULLIF(pd.death_diag_1, ''), NULLIF(pt.death_diag, ''), '') AS deathCauseCode,
+         COALESCE(NULLIF(pd.death_cause_text, ''), cause_icd.name, main_icd.name, '') AS deathCause
+       FROM person p
+       JOIN house h ON h.house_id = p.house_id
+       JOIN village v ON v.village_id = COALESCE(p.village_id, h.village_id)
+       LEFT JOIN person_death pd ON pd.person_id = p.person_id
+       LEFT JOIN patient pt ON pt.hn = p.patient_hn
+       LEFT JOIN icd101 main_icd ON main_icd.code = COALESCE(NULLIF(pd.death_diag_1, ''), NULLIF(pt.death_diag, ''))
+       LEFT JOIN icd101 cause_icd ON cause_icd.code = NULLIF(pd.death_cause, '')
+       WHERE COALESCE(pd.death_date, p.death_date, pt.deathday) BETWEEN ? AND ?
+         AND v.address_id = ?
+         AND CAST(v.village_moo AS UNSIGNED) IN (${HOSPITAL_PCU_SCOPE.villages.map(() => '?').join(', ')})
+       ORDER BY deathDate, patientName
+       LIMIT 2000`,
+      [request.dateStart, request.dateEnd, HOSPITAL_PCU_SCOPE.addressId, ...HOSPITAL_PCU_SCOPE.villages],
+    );
+    return {
+      title: 'รายงานผู้เสียชีวิตในเขต PCU โรงพยาบาล',
+      subtitle: `ปีงบประมาณตามวันที่เสียชีวิต ${request.dateStart} ถึง ${request.dateEnd}`,
+      rows: rows as Array<Record<string, unknown>>,
+      columns: [
+        { key: 'fiscalYear', label: 'ปีงบประมาณ' },
+        { key: 'hn', label: 'HN' },
+        { key: 'patientName', label: 'ชื่อ-สกุล', width: 24 },
+        { key: 'cid', label: 'CID', width: 16 },
+        { key: 'birthDate', label: 'วันเดือนปีเกิด' },
+        { key: 'address', label: 'ที่อยู่', width: 45 },
+        { key: 'deathDate', label: 'วันที่เสียชีวิต' },
+        { key: 'mainDiseaseCode', label: 'รหัสโรคหลัก' },
+        { key: 'mainDiseaseName', label: 'โรคหลัก (ถ้ามี)', width: 30 },
+        { key: 'deathCauseCode', label: 'รหัสสาเหตุการตาย' },
+        { key: 'deathCause', label: 'สาเหตุการตาย', width: 34 },
+      ],
+      metadata: [
+        { label: 'ขอบเขตพื้นที่', value: `PCU โรงพยาบาล ต.${HOSPITAL_PCU_SCOPE.tambon} หมู่ ${HOSPITAL_PCU_SCOPE.villages.join(', ')}` },
+        { label: 'แหล่งข้อมูล', value: 'person, person_death, patient, house, village, icd101' },
+      ],
+      notes: [
+        'เป็นข้อมูลลับระดับบุคคล ใช้เฉพาะผู้มีสิทธิ์และห้ามส่งต่อนอกงานบริการโดยไม่มีฐานกฎหมาย',
+        'โรคหลักและสาเหตุการตายแสดงตามรหัสที่บันทึกใน HOSxP เท่านั้น AI ไม่เติมหรือวินิจฉัยข้อมูลที่ว่าง',
+        'ขอบเขต PCU อิงภาพยืนยันพื้นที่: ตำบลตองโขบ หมู่ 1, 2, 4, 5, 7, 8, 9, 10, 13, 14, 15, 16',
+      ],
     };
   } finally {
     connection.release();
@@ -246,9 +443,10 @@ export const runHospitalReport = async (input: HospitalReportRequest) => {
   let report: ReportResult;
   if (request.reportId === 'discharge-summary') report = await dischargeSummary(request);
   else if (request.reportId === 'operative-note') report = await operativeNote(request);
-  else if (request.reportId === 'bed-occupancy') report = await bedOccupancy();
+  else if (request.reportId === 'bed-occupancy') report = await bedOccupancy(request);
   else if (request.reportId === 'cost-per-drg') report = await costPerDrg(request);
   else if (request.reportId === 'payer-mix') report = await payerMix(request);
+  else if (request.reportId === 'pcu-death') report = await communityDeathReport(request);
   else throw new Error('รายงานนี้ยังไม่พร้อมใช้งาน');
 
   const exportable: ExportableReport = {
@@ -272,6 +470,5 @@ export const runHospitalReport = async (input: HospitalReportRequest) => {
     attachment,
   };
 };
-
 
 ````

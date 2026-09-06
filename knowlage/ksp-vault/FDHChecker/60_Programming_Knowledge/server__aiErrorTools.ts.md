@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiErrorTools.ts"
-source_hash: "c4671e00f8b053121b0f04a353c3fbc1350dd461f30d0832b8855543bbfc6647"
+source_hash: "0b6404bf669b7562ec74afd1efb79709a0b9d7b65803c7bf9c809bab15d120b7"
 managed_by: "sync-ksp-vault"
 ---
 # aiErrorTools.ts
 
 > Source: `server/aiErrorTools.ts`
-> SHA-256: `c4671e00f8b053121b0f04a353c3fbc1350dd461f30d0832b8855543bbfc6647`
+> SHA-256: `0b6404bf669b7562ec74afd1efb79709a0b9d7b65803c7bf9c809bab15d120b7`
 
 ````typescript
 import fs from 'node:fs';
@@ -25,7 +25,6 @@ export type ErrorAnalysisIntent = {
   codes: string[];
   vn?: string;
 };
-
 let cachedCatalog: ErrorCatalog | null = null;
 
 export const loadErrorCatalog = (): ErrorCatalog => {
@@ -116,6 +115,5 @@ export const answerErrorAnalysisQuestion = async (intent: ErrorAnalysisIntent) =
     report: { type: 'error-analysis', source: 'FDHChecker/REP', vn: intent.vn, codes },
   };
 };
-
 
 ````

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/CheckTable.tsx"
-source_hash: "763f176ef222721a9d966524e6779e3f526309c395fbe255e7ee839fafebe2af"
+source_hash: "6bb2b2e48d03931122a191e4605286dfdc5d2750f36d3cc1637f572c12f0e8c4"
 managed_by: "sync-ksp-vault"
 ---
 # CheckTable.tsx
 
 > Source: `src/components/CheckTable.tsx`
-> SHA-256: `763f176ef222721a9d966524e6779e3f526309c395fbe255e7ee839fafebe2af`
+> SHA-256: `6bb2b2e48d03931122a191e4605286dfdc5d2750f36d3cc1637f572c12f0e8c4`
 
 ````tsx
 import React from 'react';
@@ -60,6 +60,7 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
               <th style={{ textAlign: 'center' }}>Diag</th>
               <th style={{ minWidth: 150 }}>สถานะกองทุน</th>
               <th style={{ minWidth: 180 }}>สถานะ FDH / ECLAIM</th>
+              <th style={{ minWidth: 210 }}>OPD Pre-audit</th>
               <th style={{ textAlign: 'center' }}>สถานะข้อมูล</th>
               <th style={{ textAlign: 'right' }}>ราคา (บาท)</th>
             </tr>
@@ -82,6 +83,7 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                 : 'ไม่ระบุ';
               const fdhLabel = item.fdh_status_label
                 || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
+              const opdAudit = item.opd_pre_audit;
 
               return (
                 <tr
@@ -203,6 +205,36 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                         ECLAIM: {eclaimLabel}
                       </span>
                     </div>
+                  </td>
+                  <td onClick={(event) => event.stopPropagation()}>
+                    {!opdAudit ? (
+                      <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>ไม่ใช่รายการ OPD</span>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, alignItems: 'flex-start' }}>
+                        <span className={`badge ${opdAudit.status === 'clear' ? 'badge-success' : opdAudit.status === 'blocking' ? 'badge-danger' : 'badge-warning'}`}>
+                          {opdAudit.status === 'clear'
+                            ? 'ผ่านกฎ OPD'
+                            : opdAudit.status === 'blocking'
+                              ? `ห้ามส่ง ${opdAudit.blockingCount} จุด`
+                              : `ควรตรวจ ${opdAudit.reviewCount} จุด`}
+                        </span>
+                        {opdAudit.findings.length > 0 && (
+                          <details style={{ fontSize: 11, color: 'var(--text-secondary)', maxWidth: 280 }}>
+                            <summary style={{ cursor: 'pointer' }}>
+                              {opdAudit.findings.slice(0, 2).map((finding) => finding.code).join(', ')}
+                              {opdAudit.findings.length > 2 ? ` +${opdAudit.findings.length - 2}` : ''}
+                            </summary>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 5 }}>
+                              {opdAudit.findings.map((finding) => (
+                                <div key={finding.code} style={{ color: finding.severity === 'blocking' ? '#b91c1c' : '#92400e' }}>
+                                  <strong>{finding.code}</strong>: {finding.message}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>

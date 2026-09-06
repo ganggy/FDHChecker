@@ -3,13 +3,32 @@ import test from 'node:test';
 import {
   getFdhLayouts,
   projectFdhData,
+  scopeFdhData,
   serializeFdhFile,
   buildFdhFiles,
+  consolidateFdhOopRows,
   selectFdhUploadFiles,
   uploadFdhFiles,
   validateFdhData,
   type FdhExportData,
 } from './fdhExport.js';
+
+test('OOP consolidation prefers specialist sources and keeps different procedures', () => {
+  const result = consolidateFdhOopRows([
+    { HN: '0001', SEQ: 'VN1', OPER: '8959', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0001', SEQ: 'VN1', OPER: '8959', DROPID: 'OPER_DOCTOR', _SOURCE_PRIORITY: 2 },
+    { HN: '0001', SEQ: 'VN1', OPER: '8952', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0002', SEQ: 'VN2', OPER: '9654', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0002', SEQ: 'VN2', OPER: '9654', DROPID: 'DENTIST', _SOURCE_PRIORITY: 3 },
+  ]);
+
+  assert.equal(result.rows.length, 3);
+  assert.equal(result.duplicateGroups, 2);
+  assert.equal(result.mergedRows, 2);
+  assert.equal(result.rows.find((row) => row.OPER === '8959')?.DROPID, 'OPER_DOCTOR');
+  assert.equal(result.rows.find((row) => row.OPER === '9654')?.DROPID, 'DENTIST');
+  assert.equal(result.rows.every((row) => !('_SOURCE_PRIORITY' in row)), true);
+});
 
 const emptyData = (): FdhExportData => ({
   INS: [], PAT: [], OPD: [], ORF: [], ODX: [], OOP: [], IPD: [], IRF: [],
@@ -23,6 +42,16 @@ const validFwfData = (): FdhExportData => ({
   OPD: [{ HN: '0001', CLINIC: '00100', DATEOPD: '20260720', TIMEOPD: '0900', SEQ: 'VN1', UUC: '1', TYPEIN: '1' }],
   CHT: [{ HN: '0001', AN: '', DATE: '20260720', TOTAL: 100, PAID: 0, PTTYPE: '37', PERSON_ID: '1234567890123', SEQ: 'VN1', INVOICE_NO: 'INV1' }],
   CHA: [{ HN: '0001', AN: '', DATE: '20260720', CHRGITEM: '01', AMOUNT: 100, PERSON_ID: '1234567890123', SEQ: 'VN1' }],
+});
+
+const validIpdData = (): FdhExportData => ({
+  ...emptyData(),
+  INS: [{ HN: '0002', INSCL: 'UCS', CID: '1234567890123', DATEIN: '20260801', HOSPMAIN: '11101', HOSPSUB: '11101', PERMITNO: 'EP123', AN: 'AN001', SEQ: 'VN2' }],
+  PAT: [{ HCODE: '11101', HN: '0002', DOB: '19800101', SEX: '2', MARRIAGE: '1', OCCUPA: '999', NATION: '099', PERSON_ID: '1234567890123', NAMEPAT: 'IPD TEST,MS', TITLE: 'MS', FNAME: 'IPD', LNAME: 'TEST', IDTYPE: '1' }],
+  IPD: [{ HN: '0002', AN: 'AN001', DATEADM: '20260801', TIMEADM: '0900', DATEDSC: '20260803', TIMEDSC: '1200', DISCHS: '1', DISCHT: '1', WARDDSC: '01', DEPT: '01', UUC: '1', SVCTYPE: 'IMP' }],
+  IDX: [{ AN: 'AN001', DIAG: 'J189', DXTYPE: '1', DRDX: 'DOC1' }],
+  CHT: [{ HN: '0002', AN: 'AN001', DATE: '20260803', TOTAL: 1000, PAID: 0, PTTYPE: '37', PERSON_ID: '1234567890123', SEQ: 'VN2', INVOICE_NO: 'IPD-INV1' }],
+  CHA: [{ HN: '0002', AN: 'AN001', DATE: '20260803', CHRGITEM: '01', AMOUNT: 1000, PERSON_ID: '1234567890123', SEQ: 'VN2' }],
 });
 
 test('FWF Migrants INS layout uses HCODE and current ADP/DRU fields', () => {
@@ -48,6 +77,34 @@ test('preflight accepts a linked and balanced minimal FWF claim', () => {
   const result = validateFdhData(projectFdhData(data, 'fwf-migrants'), 'fwf-migrants', '11101');
   assert.equal(result.valid, true, JSON.stringify(result.errors));
   assert.equal(result.totalRows, 5);
+});
+
+test('preflight accepts a linked and balanced minimal IPD claim', () => {
+  const data = validIpdData();
+  const result = validateFdhData(projectFdhData(data, 'standard'), 'standard', '11101');
+  assert.equal(result.valid, true, JSON.stringify(result.errors));
+  assert.equal(result.counts.IPD, 1);
+  assert.equal(result.counts.OPD, 0);
+  assert.equal(result.totalRows, 6);
+});
+
+test('IPD export scope excludes OPD-specific files without dropping shared claim files', () => {
+  const data = validIpdData();
+  data.OPD = [{ HN: '0002', SEQ: 'VN2' }];
+  data.ODX = [{ HN: '0002', SEQ: 'VN2', DIAG: 'J189' }];
+  const scoped = scopeFdhData(data, 'IPD');
+  assert.equal(scoped.OPD.length, 0);
+  assert.equal(scoped.ODX.length, 0);
+  assert.equal(scoped.IPD.length, 1);
+  assert.equal(scoped.CHT.length, 1);
+  assert.equal(scoped.CHA.length, 1);
+});
+
+test('IPD AER rows are not subjected to OPD OPTYPE validation', () => {
+  const data = validIpdData();
+  data.AER = [{ HN: '0002', AN: 'AN001', DATEOPD: '20260801', SEQ: 'VN2' }];
+  const result = validateFdhData(data, 'standard', '11101');
+  assert.equal(result.errors.some((issue) => issue.code === 'AER_OPTYPE_INVALID'), false);
 });
 
 test('PERMITNO is conditional by fund and remains required for UCS', () => {

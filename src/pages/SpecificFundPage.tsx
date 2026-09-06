@@ -10,7 +10,17 @@ import { formatPalliativeIcd10, PALLIATIVE_DIAGNOSIS_CODE_COUNT, PALLIATIVE_DIAG
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
 import { buildFdhClaimProgress, hasFdhSubmissionData } from '../utils/fdhClaimProgress';
+import { reviewPalliativeCareVisit } from '../utils/palliativeCareReview';
+import { evaluateFamilyPlanningEvidence, FAMILY_PLANNING_SERVICE_RULES } from '../utils/familyPlanningRules';
+import { filterSpecificFundRows } from '../utils/specificFundRules';
 import { fetchAppSettings } from '../services/hosxpService';
+import {
+    ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+    ANC_DENTAL_CLEAN_ICD9,
+    ANC_DENTAL_EXAM_PROCEDURE_CODES,
+    ANC_DENTAL_EXAM_ICD9,
+    hasMatchingDentalProcedureIcd9,
+} from '../utils/ancDentalRules';
 
 const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'palliative', name: 'Palliative Care', description: 'ผู้ป่วยระยะประคับประคอง' },
@@ -28,14 +38,14 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'postnatal_supplements', name: 'เสริมธาตุเหล็กหลังคลอด', description: 'ยาเสริมธาตุเหล็กหลังคลอด' },
     { id: 'fluoride', name: 'เคลือบฟลูออไรด์', description: 'ทันตกรรมป้องกันฟันผุ' },
     { id: 'fp', name: 'วางแผนครอบครัว', description: 'บริการคุมกำเนิดและวางแผนครอบครัว' },
-    { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด', description: 'ยาคุมชนิดเม็ด' },
+    { id: 'contraceptive_pill', name: 'ยาเม็ดคุมกำเนิด', description: 'Anna / Lynestrenol / ยาคุมฉุกเฉิน' },
     { id: 'condom', name: 'ยาฉีดคุมกำเนิด', description: 'ADP FP003_4 อัตรา 60 บาท' },
     { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก', description: 'Pap smear / Cervix screening' },
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองหัวใจหลอดเลือด', description: 'Total Cholesterol และ HDL อายุ 45-70 ปี' },
     { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
-    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
+    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab/บริการ 36003 หรือ 36006' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)' },
     { id: 'mental_health_counselling', name: 'ปรึกษาสุขภาพจิต', description: 'อายุ 12 ปีขึ้นไป + ST-5/9Q + counselling' },
@@ -76,6 +86,11 @@ const parseDentalProcedureDisplay = (value: unknown): DentalProcedureDisplay[] =
         })
         .filter((entry) => entry.code || entry.name);
 };
+
+const getDentalIcd9ForProcedure = (pairs: unknown, procedureCode: string) => String(pairs ?? '')
+    .split(',')
+    .map((pair) => pair.trim().split(':'))
+    .find(([code]) => String(code || '').replace(/\./g, '').trim() === procedureCode.replace(/\./g, '').trim())?.[1]?.replace(/\./g, '').trim() || '';
 
 const CHANNEL_VIEW_LABELS: Record<ClaimChannelView, { title: string; subtitle: string; empty: string }> = {
     all: {
@@ -131,12 +146,20 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [repstmVisit, setRepstmVisit] = useState<any | null>(null);
     const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
     const [showRepCOnly, setShowRepCOnly] = useState(false);
+    const [showPalliativeReviewOnly, setShowPalliativeReviewOnly] = useState(false);
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [fundVisibility, setFundVisibility] = useState<Record<string, boolean>>({});
     const [exportingFundId, setExportingFundId] = useState<string | null>(null);
     const [trackingFdh, setTrackingFdh] = useState(false);
     const [trackProgress, setTrackProgress] = useState<{ done: number; total: number; updated: number; errors: number } | null>(null);
     const [trackResult, setTrackResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [kneeCompletingVn, setKneeCompletingVn] = useState<string | null>(null);
+    const [kneeCompletionMessage, setKneeCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+    const [kneeProviders, setKneeProviders] = useState<Array<{ providerId: number; providerName: string; licenseNo: string }>>([]);
+    const [kneeProviderId, setKneeProviderId] = useState('');
+    const [deletingPalliativeVn, setDeletingPalliativeVn] = useState<string | null>(null);
+    const [markingPalliativeHomeVn, setMarkingPalliativeHomeVn] = useState<string | null>(null);
+    const [palliativeActionMessage, setPalliativeActionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
     const siteSettings = rules.site_settings as {
@@ -173,7 +196,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (!json.success) {
             throw new Error('ไม่สามารถดึงข้อมูลได้');
         }
-        return json.data as any[];
+        return filterSpecificFundRows(fundId, json.data as any[]);
     }, [startDate, endDate]);
 
     const fetchFundData = useCallback(async () => {
@@ -188,6 +211,187 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             setLoading(false);
         }
     }, [activeFund, fetchFundDataByType]);
+
+    const handleKneeCompletion = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const vn = String(item?.vn || '').trim();
+        if (!vn || kneeCompletingVn) return;
+        setKneeCompletingVn(vn);
+        setKneeCompletionMessage(null);
+        try {
+            const previewResponse = await fetch(`/api/hosxp/knee-oppp-completion/${encodeURIComponent(vn)}`);
+            const previewJson = await previewResponse.json();
+            if (!previewResponse.ok || !previewJson.success) throw new Error(previewJson.error || 'ตรวจข้อมูลไม่สำเร็จ');
+            const assessment = previewJson.assessment;
+            if (assessment.ready) {
+                setKneeCompletionMessage({ kind: 'success', text: `VN ${vn} ข้อมูลครบและพร้อมส่งออก 43 แฟ้มแล้ว` });
+                return;
+            }
+            const manualConfirmation = Boolean(!assessment.canComplete && assessment.canCreateService);
+            const creatingService = Boolean(manualConfirmation && !assessment.healthMedServiceId);
+            if (!assessment.canComplete && !manualConfirmation) {
+                setKneeCompletionMessage({
+                    kind: 'warning',
+                    text: `VN ${vn} ยังเติมอัตโนมัติไม่ได้: ${(assessment.blockers || []).join(' • ')}`,
+                });
+                return;
+            }
+            if (manualConfirmation && !kneeProviderId) {
+                setKneeCompletionMessage({ kind: 'warning', text: 'กรุณาเลือกผู้ให้บริการแพทย์แผนไทยก่อนกดตรวจและเติม' });
+                return;
+            }
+
+            const missing = [
+                ...(assessment.missingDiagnoses || []).map((code: string) => `Diagnosis ${code}`),
+                ...(assessment.missingOperations || []).map((code: string) => `หัตถการ ${code}`),
+            ];
+            const duplicates = (assessment.duplicateOperations || [])
+                .map((item: { code: string; count: number }) => `หัตถการ ${item.code} จำนวน ${item.count} รายการ`);
+            const legacy = (assessment.legacyOperations || [])
+                .map((item: { code: string; count: number }) => `รหัสเดิมที่แสดงเป็น ${item.code} จำนวน ${item.count} รายการ`);
+            const rebuildNotice = assessment.requiresOperationRebuild
+                ? `\nพบข้อมูลผิดพลาดที่ต้องแทนที่:\n- ${[...duplicates, ...legacy].join('\n- ')}\n\nระบบจะลบเฉพาะรายการพอกเข่าเก่าของ VN นี้ แล้วสร้างชุดมาตรฐานใหม่อย่างละ 1 รายการ โดยไม่แตะข้อมูลส่วนอื่น\n`
+                : '';
+            const confirmed = window.confirm(
+                `ยืนยันตรวจและแก้ไขข้อมูล VN ${vn}\n\n${creatingService ? 'ระบบจะสร้างรายการบริการแพทย์แผนไทยตามผู้ให้บริการที่เลือก\n' : manualConfirmation ? 'ระบบจะเชื่อมผู้ให้บริการที่เลือกกับรายการบริการเดิม\n' : ''}${rebuildNotice}${missing.length > 0 ? `รายการที่จะเพิ่มเฉพาะที่ยังไม่มี:\n- ${missing.join('\n- ')}\n\n` : ''}โปรดยืนยันว่าได้ตรวจเวชระเบียนแล้ว และผู้ป่วยได้รับกิจกรรมดังกล่าวจริง ระบบจะบันทึกประวัติการแก้ไขทุกครั้ง`,
+            );
+            if (!confirmed) return;
+
+            const commitResponse = await fetch(`/api/hosxp/knee-oppp-completion/${encodeURIComponent(vn)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    confirmClinicalEvidence: true,
+                    createMissingService: manualConfirmation,
+                    providerId: manualConfirmation ? Number(kneeProviderId) : undefined,
+                }),
+            });
+            const commitJson = await commitResponse.json();
+            if (!commitResponse.ok || !commitJson.success) throw new Error(commitJson.error || 'เพิ่มข้อมูลไม่สำเร็จ');
+            const result = commitJson.result;
+            const inserted = [
+                ...(result.rebuiltOperations ? [`ลบรายการพอกเข่าเดิม ${result.deletedOperations || 0} รายการและสร้างชุดใหม่`] : []),
+                ...(result.createdHealthMedService ? ['สร้างบริการแพทย์แผนไทย'] : []),
+                ...(!result.createdHealthMedService && result.linkedSelectedProvider ? ['เชื่อมผู้ให้บริการ'] : []),
+                ...(result.insertedDiagnoses || []).map((code: string) => `Dx ${code}`),
+                ...(result.insertedOperations || []).map((code: string) => `หัตถการ ${code}`),
+            ];
+            setKneeCompletionMessage({
+                kind: 'success',
+                text: inserted.length > 0
+                    ? `VN ${vn} เพิ่มสำเร็จ: ${inserted.join(', ')} — ตรวจซ้ำแล้วไม่สร้างรายการซ้ำ`
+                    : `VN ${vn} ไม่มีรายการต้องเพิ่ม ข้อมูลล่าสุดครบแล้ว`,
+            });
+            await fetchFundData();
+        } catch (completionError) {
+            setKneeCompletionMessage({
+                kind: 'warning',
+                text: completionError instanceof Error ? completionError.message : 'ตรวจ/เพิ่มข้อมูลพอกเข่าไม่สำเร็จ',
+            });
+        } finally {
+            setKneeCompletingVn(null);
+        }
+    }, [fetchFundData, kneeCompletingVn, kneeProviderId]);
+
+    const handleDeletePalliativeItems = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const vn = String(item?.vn || '').trim();
+        if (!vn || deletingPalliativeVn) return;
+        const review = reviewPalliativeCareVisit({
+            z515Code: item?.z515_code,
+            z718Code: item?.z718_code,
+            isHomeVisit: item?.is_home_visit,
+            hasPalliativeAdp: item?.has_pal_adp,
+            hasEligibleDiseaseDiagnosis: item?.has_eligible_palliative_diag,
+            drugCount: item?.drug_count,
+        });
+        const codes = [item?.z515_code, item?.z718_code].filter(Boolean).join(', ');
+        const serviceCodes = [
+            item?.has_30001 === 'Y' ? '30001' : '',
+            item?.has_cons01 === 'Y' ? 'Cons01' : '',
+            item?.has_eva001 === 'Y' ? 'Eva001' : '',
+        ].filter(Boolean).join(', ');
+        const confirmed = window.confirm(
+            `ยืนยันลบรายการ Palliative ของ VN ${vn}\n\nDiagnosis ที่จะลบ: ${codes || 'ไม่พบ (จะไม่ลบ Diagnosis)'}\nรายการบริการที่จะลบ: ${serviceCodes || 'ไม่พบ 30001/Cons01/Eva001'}\nเหตุผลที่เข้ากลุ่มตรวจสอบ:\n- ${review.reasons.join('\n- ')}\n\nระบบจะลบเฉพาะ Diagnosis Z51.5/Z71.8 ที่พบ และบรรทัดค่าบริการที่มี ADP 30001/Cons01/Eva001 ของ visit นี้ ไม่ลบโรค ยา หรือค่าบริการอื่น และจะบันทึก audit snapshot ก่อนลบ`,
+        );
+        if (!confirmed) return;
+
+        setDeletingPalliativeVn(vn);
+        setPalliativeActionMessage(null);
+        try {
+            const response = await fetch(`/api/hosxp/palliative-items/${encodeURIComponent(vn)}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmRemovePalliativeItems: true }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json.success) throw new Error(json.error || 'ลบรายการ Palliative ไม่สำเร็จ');
+            setPalliativeActionMessage({
+                kind: 'success',
+                text: `VN ${vn} ลบ Diagnosis ${json.result?.deletedDiagnosisCodes?.join(', ') || '-'} ${json.result?.deletedDiagnosisCount || 0} รายการ และบริการ ${json.result?.deletedServiceCodes?.join(', ') || '-'} ${json.result?.deletedServiceCount || 0} รายการแล้ว`,
+            });
+            await fetchFundData();
+        } catch (deleteError) {
+            setPalliativeActionMessage({
+                kind: 'warning',
+                text: deleteError instanceof Error ? deleteError.message : 'ลบรายการ Palliative ไม่สำเร็จ',
+            });
+        } finally {
+            setDeletingPalliativeVn(null);
+        }
+    }, [deletingPalliativeVn, fetchFundData]);
+
+    const handleMarkPalliativeHomeVisit = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const vn = String(item?.vn || '').trim();
+        if (!vn || markingPalliativeHomeVn) return;
+        const confirmed = window.confirm(
+            `ยืนยันว่า VN ${vn} มีการออกเยี่ยมบ้านจริง\n\nประเภท visit ปัจจุบัน: ${item?.ovstist_name || item?.ovstist || 'ไม่ระบุ'}\nระบบจะเปลี่ยน ovst.ovstist เป็นรหัส 14 “เยี่ยมบ้าน” และบันทึก audit log\n\nการกดปุ่มนี้ไม่ได้สร้างบันทึกบริการหรือเวชระเบียนใหม่ กรุณากดยืนยันเฉพาะเมื่อมีหลักฐานเยี่ยมบ้านจริง`,
+        );
+        if (!confirmed) return;
+
+        setMarkingPalliativeHomeVn(vn);
+        setPalliativeActionMessage(null);
+        try {
+            const response = await fetch(`/api/hosxp/palliative-home-visit/${encodeURIComponent(vn)}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmActualHomeVisit: true }),
+            });
+            const json = await response.json();
+            if (!response.ok || !json.success) throw new Error(json.error || 'ปรับประเภท visit เป็นเยี่ยมบ้านไม่สำเร็จ');
+            setPalliativeActionMessage({
+                kind: 'success',
+                text: `VN ${vn} เปลี่ยนประเภท visit จาก “${json.result?.oldOvstistName || 'ไม่ระบุ'}” เป็น “${json.result?.newOvstistName || 'เยี่ยมบ้าน'}” แล้ว`,
+            });
+            await fetchFundData();
+        } catch (markError) {
+            setPalliativeActionMessage({
+                kind: 'warning',
+                text: markError instanceof Error ? markError.message : 'ปรับประเภท visit เป็นเยี่ยมบ้านไม่สำเร็จ',
+            });
+        } finally {
+            setMarkingPalliativeHomeVn(null);
+        }
+    }, [fetchFundData, markingPalliativeHomeVn]);
+
+    useEffect(() => {
+        if (activeFund !== 'knee') return;
+        let cancelled = false;
+        void fetch('/api/hosxp/knee-oppp-providers')
+            .then(async (response) => {
+                const json = await response.json();
+                if (!response.ok || !json.success) throw new Error(json.error || 'โหลดผู้ให้บริการไม่สำเร็จ');
+                if (!cancelled) {
+                    setKneeProviders(json.data || []);
+                    setKneeProviderId((current) => current || String(json.data?.[0]?.providerId || ''));
+                }
+            })
+            .catch((providerError) => {
+                if (!cancelled) setKneeCompletionMessage({ kind: 'warning', text: providerError instanceof Error ? providerError.message : 'โหลดผู้ให้บริการไม่สำเร็จ' });
+            });
+        return () => { cancelled = true; };
+    }, [activeFund]);
 
     useEffect(() => {
         const incoming = consumeDashboardNavigation('specific');
@@ -501,7 +705,16 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         };
     };
 
-    const getStatusForFund = (item: any, fundId: string = activeFund) => {
+    const getPalliativeReview = (item: any) => reviewPalliativeCareVisit({
+        z515Code: item?.z515_code,
+        z718Code: item?.z718_code,
+        isHomeVisit: item?.is_home_visit,
+        hasPalliativeAdp: toFlag(item?.has_pal_adp) || toFlag(item?.has_30001) || toFlag(item?.has_cons01) || toFlag(item?.has_eva001),
+        hasEligibleDiseaseDiagnosis: item?.has_eligible_palliative_diag,
+        drugCount: item?.drug_count,
+    });
+
+    const getFundRuleStatus = (item: any, fundId: string = activeFund) => {
         const subfunds: string[] = [];
         const age = Number(item?.age_y ?? item?.age ?? 0);
         const hipdataText = `${item?.hipdata_code || ''} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.toUpperCase();
@@ -516,8 +729,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'palliative') {
             if (!isUcsLike) return buildStatusResult([], [], undefined, false);
-            const isMatched = hasPalliativeDiag && hasPalliativeAdp;
+            const review = getPalliativeReview(item);
             if (hasPalliativeDiag || hasPalliativeAdp) subfunds.push('🕊️ Palliative Care');
+            if (hasPalliativeDiag) {
+                return buildStatusResult(subfunds, review.reasons, undefined, review.qualifiesForService);
+            }
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(
@@ -527,7 +743,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     hasPalliativeDiag
                 ),
                 undefined,
-                isMatched
+                false
             );
         }
 
@@ -727,13 +943,13 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 subfunds,
                 [
                     isMale ? '' : ' เพศชาย',
-                    hasLab ? '' : ' Lab Treponema/Syphilis',
+                    hasLab ? '' : ' Lab/บริการซิฟิลิส 36003 หรือ 36006',
                 ].filter(Boolean),
                 hasLab && !isMale ? 'ไม่ใช่ประชาชนทั่วไปเพศชาย' : undefined,
                 isMatched,
                 [
                     isMale ? 'เพศชาย' : '',
-                    hasLab ? 'Lab Treponema/Syphilis' : '',
+                    hasLab ? 'Lab/บริการซิฟิลิส 36003 หรือ 36006' : '',
                 ].filter(Boolean)
             );
         }
@@ -910,16 +1126,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (fundId === 'anc_dental_exam') {
             const hasExam = toFlag(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
             const hasExamProcedure = toFlag(item?.has_anc_dental_exam_procedure)
-                || hasAnyCodeValue(item?.dental_procedure_codes, ['2330011', '2330013']);
+                || hasAnyCodeValue(item?.dental_procedure_codes, ANC_DENTAL_EXAM_PROCEDURE_CODES);
+            const hasExamProcedurePair = toFlag(item?.has_anc_dental_exam_procedure) || hasMatchingDentalProcedureIcd9(
+                item?.dental_procedure_pairs,
+                ANC_DENTAL_EXAM_PROCEDURE_CODES,
+                ANC_DENTAL_EXAM_ICD9,
+            );
             const ancDentalExamEvidence = isFemale && (hasExam || hasAncDiag || hasExamProcedure);
-            const isMatched = isFemale && hasAncDiag && hasExamProcedure && hasExam;
+            const isMatched = isFemale && hasAncDiag && hasExamProcedurePair && hasExam;
             if (ancDentalExamEvidence) subfunds.push('🦷 ANC ตรวจฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasExam, ' ADP 30008', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasExamProcedure, label: ' หัตถการ 2330011/2330013' },
+                    { met: hasExamProcedurePair, label: ` ICD10TM ${ANC_DENTAL_EXAM_PROCEDURE_CODES.join('/')} + หัตถการ ICD-9 ${ANC_DENTAL_EXAM_ICD9}` },
                 ], isFemale && hasAncDiag && hasExamProcedure),
                 undefined,
                 isMatched
@@ -929,16 +1150,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (fundId === 'anc_dental_clean') {
             const hasClean = toFlag(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
             const hasCleanProcedure = toFlag(item?.has_anc_dental_clean_procedure)
-                || hasAnyCodeValue(item?.dental_procedure_codes, ['2387010', '2277310', '2277320', '2287310', '2287320']);
+                || hasAnyCodeValue(item?.dental_procedure_codes, ANC_DENTAL_CLEAN_PROCEDURE_CODES);
+            const hasCleanProcedurePair = toFlag(item?.has_anc_dental_clean_procedure) || hasMatchingDentalProcedureIcd9(
+                item?.dental_procedure_pairs,
+                ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+                ANC_DENTAL_CLEAN_ICD9,
+            );
             const ancDentalCleanEvidence = isFemale && (hasClean || hasAncDiag || hasCleanProcedure);
-            const isMatched = isFemale && hasAncDiag && hasCleanProcedure && hasClean;
+            const isMatched = isFemale && hasAncDiag && hasCleanProcedurePair && hasClean;
             if (ancDentalCleanEvidence) subfunds.push('🪥 ANC ขัดทำความสะอาดฟัน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasClean, ' ADP 30009', [
                     { met: isFemale, label: ' เพศหญิง' },
                     { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-                    { met: hasCleanProcedure, label: ' หัตถการ 2387010/2277310/2277320/2287310/2287320' },
+                    { met: hasCleanProcedurePair, label: ` ICD10TM ${ANC_DENTAL_CLEAN_PROCEDURE_CODES.join('/')} + หัตถการ ICD-9 ${ANC_DENTAL_CLEAN_ICD9}` },
                 ], isFemale && hasAncDiag && hasCleanProcedure),
                 undefined,
                 isMatched
@@ -988,32 +1214,40 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             const adpNames = String(item?.adp_names || '').toUpperCase();
             const hasAnna = hasAnyCodeValue(item?.fp_adp_codes, ['FP003_1']) || adpNames.includes('ANNA');
             const hasLynestrenol = hasAnyCodeValue(item?.fp_adp_codes, ['FP003_2']) || adpNames.includes('LYNESTRENOL');
-            const hasFpPill = toFlag(item?.has_fp_pill) || toFlag(item?.has_specific_adp) || hasAnna || hasLynestrenol;
+            const hasEmergencyPill = hasAnyCodeValue(item?.fp_adp_codes, ['FP003_3']);
+            const hasFpPill = toFlag(item?.has_fp_pill) || toFlag(item?.has_specific_adp) || hasAnna || hasLynestrenol || hasEmergencyPill;
+            const emergencyYearQty = Number(item?.fp_emergency_year_qty || 0);
+            const pillMissing = getNearStatusMissing(hasFpPill, ' ADP FP003_1 (Anna), FP003_2 (Lynestrenol) หรือ FP003_3 (ฉุกเฉิน)', [
+                { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังการใช้ยาคุมกำเนิด)' },
+            ], hasZ304Diag);
+            if (emergencyYearQty > 2) pillMissing.push(` FP003_3 เกิน 2 แผง/ปี (พบ ${emergencyYearQty})`);
             
             // Only count as matched if they have the specific Z304 diagnosis as requested
-            const isMatched = hasZ304Diag && hasFpPill;
+            const isMatched = hasZ304Diag && hasFpPill && emergencyYearQty <= 2;
             
-            if (hasZ304Diag || hasFpPill || hasFpDiag) subfunds.push('💊 ยาคุมกำเนิด');
+            if (hasZ304Diag || hasFpPill || hasFpDiag) subfunds.push('💊 ยาเม็ดคุมกำเนิด');
             
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasFpPill, ' ADP FP003_1 (Anna) หรือ FP003_2 (Lynestrenol)', [
-                    { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)' },
-                ], hasZ304Diag),
+                pillMissing,
                 undefined,
                 isMatched
             );
         }
 
         if (fundId === 'condom') {
+            const hasZ304Diag = hasDiagCodes(item, ['Z304']);
             const hasInjection = toFlag(item?.has_fp_condom) || toFlag(item?.has_specific_adp) || hasAnyCodeValue(item?.fp_adp_codes, ['FP003_4']);
-            const isMatched = hasFpDiag && hasInjection;
-            if (hasFpDiag || hasInjection) subfunds.push('💉 ยาฉีดคุมกำเนิด');
+            const injectionYearCount = Number(item?.fp_injection_year_count || 0);
+            const injectionMissing = getNearStatusMissing(hasInjection, ' ADP FP003_4', [
+                { met: hasZ304Diag, label: ' Diagnosis Z304' },
+            ], hasZ304Diag);
+            if (injectionYearCount > 5) injectionMissing.push(` FP003_4 เกิน 5 ครั้ง/ปี (พบ ${injectionYearCount})`);
+            const isMatched = hasZ304Diag && hasInjection && injectionYearCount <= 5;
+            if (hasZ304Diag || hasInjection || hasFpDiag) subfunds.push('💉 ยาฉีดคุมกำเนิด');
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasInjection, ' ADP FP003_4', [
-                    { met: hasFpDiag, label: ' Diagnosis Z30x' },
-                ], hasFpDiag),
+                injectionMissing,
                 undefined,
                 isMatched
             );
@@ -1021,13 +1255,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
 
         if (fundId === 'fp') {
             const hasFpAdp = toFlag(item?.has_fp_adp) || hasValue(item?.fp_adp_codes);
-            const isMatched = hasFpDiag && hasFpAdp;
+            const fpResult = evaluateFamilyPlanningEvidence({
+                diagnosisCodes: item?.fp_diags || [item?.pdx, item?.dx0, item?.dx1, item?.dx2, item?.dx3, item?.dx4, item?.dx5].filter(Boolean).join(','),
+                adpCodes: item?.fp_adp_codes,
+                procedureCodes: item?.fp_icd9_codes,
+                emergencyPillYearQuantity: item?.fp_emergency_year_qty,
+                injectionYearCount: item?.fp_injection_year_count,
+            });
+            const isMatched = fpResult.matched;
             if (hasFpDiag || hasFpAdp) subfunds.push('💊 วางแผนครอบครัว');
             return buildStatusResult(
                 subfunds,
-                getNearStatusMissing(hasFpAdp, ' ADP/หัตถการ FP', [
-                    { met: hasFpDiag, label: ' Diagnosis Z30x' },
-                ], hasFpDiag),
+                fpResult.missing.map((message) => ` ${message}`),
                 undefined,
                 isMatched
             );
@@ -1128,6 +1367,47 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         return { status: 'ยังไม่เข้าเงื่อนไข', class: 'badge-warning', icon: '❓', subfunds, matchedConditions: [] as string[], missingConditions: [] as string[] };
     };
 
+    const getManualEvidenceItems = (fundId: string) => {
+        const evidence: Record<string, string[]> = {
+            instrument: ['ตรวจ sticker/serial number หรือใบรับอุปกรณ์จากเอกสาร'],
+            er_emergency: ['ตรวจใบส่งต่อ/หลักฐานรถและบันทึกดูแลระหว่างนำส่ง'],
+            rehab: ['ตรวจแผนรักษา เวลาเริ่ม–สิ้นสุด และลายมือชื่อผู้ให้บริการ'],
+            knee: ['ตรวจรายละเอียดตำแหน่ง เวลา และผู้ให้บริการแพทย์แผนไทย'],
+            fluoride: ['ตรวจซี่ฟัน/ตำแหน่งและผู้ให้บริการในเวชระเบียนทันตกรรม'],
+            anc_ultrasound: ['ตรวจคำสั่งแพทย์และรายงานผล Ultrasound'],
+        };
+        return evidence[fundId] || [];
+    };
+    const getStatusForFund = (item: any, fundId: string = activeFund) => {
+        const base = getFundRuleStatus(item, fundId);
+        const manualEvidenceConditions = getManualEvidenceItems(fundId);
+        if (base.status === 'ยังไม่เข้าเงื่อนไข' || !toFlag(item?.opd_evidence_checked)) {
+            return { ...base, manualEvidenceConditions };
+        }
+
+        const evidenceMissing = [
+            toFlag(item?.has_provider) ? '' : 'แพทย์/ผู้ให้บริการประจำ visit',
+            toFlag(item?.has_clinical_note) ? '' : 'บันทึกอาการสำคัญ/ประวัติ',
+            toFlag(item?.has_lab_order) && !toFlag(item?.has_lab_result) ? 'ผล LAB ตามคำสั่ง' : '',
+            Number(item?.invalid_charge_qty_count ?? 0) > 0 ? 'จำนวนรายการค่าใช้จ่ายต้องมากกว่า 0' : '',
+            Number(item?.duplicate_charge_count ?? 0) > 0 ? 'ตรวจรายการค่าใช้จ่ายซ้ำ' : '',
+            toFlag(item?.has_55020) && toFlag(item?.has_55021) ? 'เลือกค่าบริการ 55020 หรือ 55021 เพียงรายการเดียว' : '',
+            toFlag(item?.has_observation_charge) && (toFlag(item?.has_55020) || toFlag(item?.has_55021))
+                ? 'ห้ามเบิกเตียงสังเกตอาการร่วมกับ 55020/55021'
+                : '',
+        ].filter(Boolean);
+        if (evidenceMissing.length === 0) return { ...base, manualEvidenceConditions };
+
+        const missingConditions = Array.from(new Set([...(base.missingConditions || []), ...evidenceMissing]));
+        return {
+            ...base,
+            status: `ขาด ${missingConditions.join(' + ')}`,
+            class: missingConditions.length <= 2 ? 'badge-warning' : 'badge-danger',
+            icon: missingConditions.length <= 2 ? '⚠️' : '❌',
+            missingConditions,
+            manualEvidenceConditions,
+        };
+    };
     const getStatus = (item: any) => getStatusForFund(item, activeFund);
     const getFdhFailureGuidance = (item: any, status = getStatus(item)) => {
         if (!isFdhProcessingFailed(item)) return '';
@@ -1209,7 +1489,15 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         ))
         : [];
     const excludedAncFailedRows = excludedAncServiceRows.filter(isFdhProcessingFailed);
-    const filteredData = showRepCOnly
+    const palliativeReviewData = activeFund === 'palliative'
+        ? data.filter((item) => getPalliativeReview(item).shouldReview)
+        : [];
+    const palliativeQualifyingData = activeFund === 'palliative'
+        ? data.filter((item) => getPalliativeReview(item).qualifiesForService)
+        : [];
+    const filteredData = showPalliativeReviewOnly && activeFund === 'palliative'
+        ? palliativeReviewData
+        : showRepCOnly
         ? actionableData.filter(hasRepCError)
         : showIncompleteOnly
             ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
@@ -1246,15 +1534,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 'บริการ': status.subfunds.join(' | ') || '',
                 'เงื่อนไขที่ตรง': status.matchedConditions?.join(' | ') || '',
                 'เงื่อนไขที่ขาด': status.missingConditions?.join(' | ') || '',
+                'หลักฐานเอกสารที่ต้องตรวจ': status.manualEvidenceConditions?.join(' | ') || '',
             };
 
             if (fundId === 'palliative') {
+                const review = getPalliativeReview(item);
                 return {
                     ...baseRow,
                     'Diag หลัก': item.pdx || '',
                     'Diag Z515': item.z515_code || '',
                     'Diag Z718': item.z718_code || '',
-                    'ADP Code': item.adp_code || '',
+                    'ADP Code': [item.has_30001 === 'Y' ? '30001' : '', item.has_cons01 === 'Y' ? 'Cons01' : '', item.has_eva001 === 'Y' ? 'Eva001' : ''].filter(Boolean).join(', '),
+                    'ประเภท visit': review.visitKindLabel,
+                    'เข้าเกณฑ์บริการ Palliative': review.qualifiesForService ? 'ใช่' : 'ไม่ใช่',
+                    'เหตุผลที่ต้องตรวจ': review.reasons.join(' | '),
+                    'โรคในบัญชีที่พบ': item.eligible_palliative_diag_codes || '',
                 };
             }
             if (fundId === 'telemedicine') {
@@ -1285,6 +1579,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     ...baseRow,
                     'Diagnosis ฝากครรภ์': item.anc_diags || '',
                     'ADP Codes': item.anc_adp_codes || '',
+                    'คู่รหัส ICD10TM:ICD-9': item.dental_procedure_pairs || '',
                     'ชื่อรายการ ADP': item.adp_names || '',
                     'รหัสหัตถการทันตกรรม': item.dental_procedure_codes || '',
                     'หัตถการทันตกรรม': item.dental_procedure_names || '',
@@ -1838,18 +2133,13 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                             )}
                             {activeFund === 'fp' && (
                                 <>
-                                    <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
-                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ Diagnosis Z30</div>
-                                        <div style={{ color: '#e65100' }}>Z300-Z309 (Z30x)</div>
-                                    </div>
-                                    <div style={{ padding: '12px', background: '#ffe0b2', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
-                                        <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ Z308 + ICD9</div>
-                                        <div style={{ color: '#e65100' }}>9923 (FP002_1) หรือ 8605 (FP002_2)</div>
-                                    </div>
-                                    <div style={{ padding: '12px', background: '#f3e5f5', borderRadius: '8px', borderLeft: '3px solid #9c27b0' }}>
-                                        <div style={{ fontWeight: 700, color: '#9c27b0', marginBottom: '4px' }}>✓ ADP Codes</div>
-                                        <div style={{ color: '#6a1b9a' }}>FP003_1, FP003_2, FP002_1, FP002_2</div>
-                                    </div>
+                                    {FAMILY_PLANNING_SERVICE_RULES.map((rule) => (
+                                        <div key={rule.code} style={{ padding: '12px', background: rule.code.startsWith('FP002') ? '#fff3e0' : '#f3e5f5', borderRadius: '8px', borderLeft: `3px solid ${rule.code.startsWith('FP002') ? '#ff9800' : '#9c27b0'}` }}>
+                                            <div style={{ fontWeight: 700, color: rule.code.startsWith('FP002') ? '#e65100' : '#6a1b9a', marginBottom: 4 }}>{rule.code} · {rule.amount} บาท</div>
+                                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{rule.label}</div>
+                                            <div style={{ fontSize: 10, marginTop: 4, color: 'var(--text-muted)' }}>Diagnosis {rule.diagnosis}{rule.procedure ? ` · ICD-9 ${rule.procedure}` : ''}{rule.annualLimit ? ` · ไม่เกิน ${rule.annualLimit.maximum} ${rule.annualLimit.unit}` : ''}</div>
+                                        </div>
+                                    ))}
                                 </>
                             )}
                             {activeFund === 'preg_test' && (
@@ -1871,11 +2161,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         <div style={{ color: '#1b5e20' }}>{activeFund === 'anc_dental_exam' ? '30008' : '30009'}</div>
                                     </div>
                                     <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3', gridColumn: 'span 2' }}>
-                                        <div style={{ fontWeight: 700, color: '#1565c0', marginBottom: '4px' }}>✓ หัตถการทันตกรรม</div>
+                                        <div style={{ fontWeight: 700, color: '#1565c0', marginBottom: '4px' }}>✓ คู่รหัสหัตถการทันตกรรม</div>
                                         <div style={{ color: '#0d47a1', fontFamily: 'monospace', lineHeight: 1.6 }}>
                                             {activeFund === 'anc_dental_exam'
-                                                ? '2330011, 2330013'
-                                                : '2387010, 2277310, 2277320, 2287310, 2287320'}
+                                                ? `ICD10TM ${ANC_DENTAL_EXAM_PROCEDURE_CODES.join('/')} + ICD-9 ${ANC_DENTAL_EXAM_ICD9}`
+                                                : `ICD10TM ${ANC_DENTAL_CLEAN_PROCEDURE_CODES.join('/')} + ICD-9 ${ANC_DENTAL_CLEAN_ICD9}`}
                                         </div>
                                     </div>
                                     <div style={{ padding: '10px 12px', background: '#f3e5f5', borderRadius: '8px', borderLeft: '3px solid #9c27b0', gridColumn: '1 / -1', color: '#6a1b9a', fontSize: 12 }}>
@@ -2033,10 +2323,32 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     onClick={() => {
                                         setShowIncompleteOnly(!showIncompleteOnly);
                                         setShowRepCOnly(false);
+                                        setShowPalliativeReviewOnly(false);
                                     }}
                                 >
                                     {showIncompleteOnly ? '✓ เฉพาะไม่สมบูรณ์' : '○ ทั้งหมด'}
                                 </button>
+                                {activeFund === 'palliative' && (
+                                    <button
+                                        className="btn"
+                                        style={{
+                                            background: showPalliativeReviewOnly ? '#b91c1c' : '#fff7ed',
+                                            color: showPalliativeReviewOnly ? 'white' : '#9a3412',
+                                            borderColor: '#fb923c',
+                                            padding: '6px 12px',
+                                            fontSize: '12px',
+                                            fontWeight: 700,
+                                        }}
+                                        onClick={() => {
+                                            setShowPalliativeReviewOnly(!showPalliativeReviewOnly);
+                                            setShowIncompleteOnly(false);
+                                            setShowRepCOnly(false);
+                                        }}
+                                        title="ตรวจ visit ที่มี Z51.5/Z71.8 แต่ไม่ครบเกณฑ์บริการ Palliative"
+                                    >
+                                        {showPalliativeReviewOnly ? `✓ แสดงเฉพาะไม่เข้าเกณฑ์ (${palliativeReviewData.length})` : `⚠️ แสดงเฉพาะไม่เข้าเกณฑ์ (${palliativeReviewData.length})`}
+                                    </button>
+                                )}
                                 <button
                                     className="btn"
                                     style={{
@@ -2049,6 +2361,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     onClick={() => {
                                         setShowRepCOnly(!showRepCOnly);
                                         setShowIncompleteOnly(false);
+                                        setShowPalliativeReviewOnly(false);
                                     }}
                                     title="แสดงเฉพาะรายการที่ REP มี Error Code (C)"
                                 >
@@ -2114,13 +2427,57 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                         )}
                         {loading && <div className="loading-container"><div className="spinner" /><span>กำลังโหลดข้อมูล...</span></div>}
                         {error && <div className="alert alert-danger">{error}</div>}
+                        {activeFund === 'knee' && kneeCompletionMessage && (
+                            <div className={`alert ${kneeCompletionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
+                                {kneeCompletionMessage.text}
+                            </div>
+                        )}
+                        {activeFund === 'palliative' && palliativeActionMessage && (
+                            <div className={`alert ${palliativeActionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
+                                {palliativeActionMessage.text}
+                            </div>
+                        )}
+                        {activeFund === 'knee' && (
+                            <div className="card" style={{ marginBottom: 12, borderLeft: '4px solid var(--primary)' }}>
+                                <div className="card-body" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <div>
+                                        <strong style={{ color: 'var(--primary)' }}>OPPP 43 แฟ้ม — ตรวจความครบถ้วนก่อนส่งออก</strong>
+                                        <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                                            ตรวจอายุ, M17 + U57.53, หัตถการ 4 รหัส, วันละ 1 ครั้ง และไม่เกิน 5 ครั้งใน 14 วัน
+                                        </div>
+                                    </div>
+                                    <div style={{ minWidth: 320 }}>
+                                        <label className="form-label" style={{ marginBottom: 4 }}>ผู้ให้บริการสำหรับเติมรายการที่ยังไม่ครบ</label>
+                                        <select className="form-control" value={kneeProviderId} onChange={(event) => setKneeProviderId(event.target.value)}>
+                                            <option value="">-- เลือกผู้ให้บริการแพทย์แผนไทย --</option>
+                                            {kneeProviders.map((provider) => (
+                                                <option key={provider.providerId} value={provider.providerId}>
+                                                    {provider.providerName}{provider.licenseNo ? ` · ใบอนุญาต ${provider.licenseNo}` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <small style={{ display: 'block', marginTop: 4, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                                            ใช้เมื่อเวชระเบียนยืนยันว่าบริการจริง; ระบบสร้างหรือเติมรายการเดิมแบบไม่ซ้ำและเก็บ audit
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         {!loading && !error && (
                 <div className="card" style={{ overflow: 'visible' }}>
-                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
+                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
                         <div style={{ fontWeight: 600, color: 'var(--primary)' }}>
                             รายการตรวจสอบ {funds.find(f => f.id === activeFund)?.name}
                         </div>
-                        <div className="badge badge-primary">รวม {filteredData.length} / {data.length} รายการ</div>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {activeFund === 'palliative' && (
+                                <>
+                                    <span className="badge badge-success" style={{ fontSize: 12, padding: '6px 10px' }}>✓ เข้าเกณฑ์ {palliativeQualifyingData.length}</span>
+                                    <span className="badge badge-danger" style={{ fontSize: 12, padding: '6px 10px' }}>✗ ไม่เข้าเกณฑ์ {palliativeReviewData.length}</span>
+                                </>
+                            )}
+                            <div className="badge badge-primary">แสดง {filteredData.length} / {data.length} รายการ</div>
+                        </div>
                     </div>
                     <div className="specific-fund-table-wrap" style={{ overflowX: 'auto' }}>
                         <table
@@ -2136,6 +2493,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     <th style={{ width: 105 }}>วันที่รับบริการ</th>
                                     {activeFund === 'palliative' && (
                                         <>
+                                            <th style={{ width: 320, textAlign: 'left', background: '#7f1d1d', color: 'white' }}>ผลตรวจ Palliative / ลบ Diag</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag หลัก</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z515)</th>
                                             <th style={{ width: 90, textAlign: 'center' }}>Diag (Z718)</th>
@@ -2167,6 +2525,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             <th style={{ width: 140, textAlign: 'center' }}>Diag M17 + U57.53</th>
                                             <th style={{ width: 240, textAlign: 'left' }}>หัตถการพอกเข่า</th>
                                             <th style={{ width: 95, textAlign: 'center' }}>ครั้ง/2 สัปดาห์</th>
+                                            <th style={{ width: 125, textAlign: 'center' }}>ตรวจ/เติมข้อมูล</th>
                                         </>
                                     )}
                                     {activeFund === 'instrument' && (
@@ -2320,8 +2679,20 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         const sendStatusClass = getEffectiveSendStatusBadgeClass(item);
                                         const fdhStatusLabel = getFdhStatusLabel(item);
                                         const fdhStatusClass = getFdhStatusBadgeClass(item);
+                                        const palliativeReview = activeFund === 'palliative' ? getPalliativeReview(item) : null;
                                         return (
-                                            <tr key={item.vn} onClick={() => handleRowClick(item)} className="clickable-row" style={{ cursor: 'pointer', background: st.status !== 'สมบูรณ์' ? 'rgba(239, 68, 68, 0.04)' : '' }}>
+                                            <tr
+                                                key={item.vn}
+                                                onClick={() => handleRowClick(item)}
+                                                className="clickable-row"
+                                                style={{
+                                                    cursor: 'pointer',
+                                                    background: palliativeReview
+                                                        ? (palliativeReview.qualifiesForService ? 'rgba(34, 197, 94, 0.06)' : 'rgba(239, 68, 68, 0.08)')
+                                                        : st.status !== 'สมบูรณ์' ? 'rgba(239, 68, 68, 0.04)' : '',
+                                                    boxShadow: palliativeReview ? `inset 4px 0 0 ${palliativeReview.qualifiesForService ? '#16a34a' : '#dc2626'}` : undefined,
+                                                }}
+                                            >
                                                 <td style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', padding: '6px 4px' }}>{index + 1}</td>
                                                 <td style={{ padding: '6px 8px' }}>
                                                     <div style={{ fontWeight: 600, color: 'var(--primary)', fontSize: 11 }}>{item.vn}</div>
@@ -2342,6 +2713,56 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{item.vsttime}</div>
                                                 </td>{activeFund === 'palliative' && (
                                                     <>
+                                                        <td style={{ padding: '8px', verticalAlign: 'top' }}>
+                                                            {(() => {
+                                                                const review = getPalliativeReview(item);
+                                                                return (
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'flex-start' }}>
+                                                                        <span
+                                                                            className={`badge ${review.qualifiesForService ? 'badge-success' : 'badge-danger'}`}
+                                                                            style={{ fontSize: 12, padding: '6px 9px' }}
+                                                                        >
+                                                                            {review.qualifiesForService ? '✓ เข้าเกณฑ์ Palliative' : '✗ ไม่เข้าเกณฑ์ Palliative'}
+                                                                        </span>
+                                                                        <strong style={{ fontSize: 11, color: review.qualifiesForService ? '#166534' : '#991b1b' }}>
+                                                                            {review.visitKindLabel}
+                                                                        </strong>
+                                                                        {!review.qualifiesForService && (
+                                                                            <div style={{ fontSize: 10, lineHeight: 1.5, color: '#9a3412' }}>
+                                                                                {review.reasons.map((reason) => <div key={reason}>• {reason}</div>)}
+                                                                                {item.eligible_palliative_diag_codes
+                                                                                    ? <div style={{ marginTop: 3, color: 'var(--text-muted)' }}>โรคหลักที่พบ: {item.eligible_palliative_diag_codes}</div>
+                                                                                    : null}
+                                                                            </div>
+                                                                        )}
+                                                                        {review.canMarkAsHomeVisit && (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn"
+                                                                                style={{ padding: '5px 9px', fontSize: 11, background: '#15803d', color: 'white', borderColor: '#166534', fontWeight: 700 }}
+                                                                                disabled={markingPalliativeHomeVn === String(item.vn) || deletingPalliativeVn === String(item.vn)}
+                                                                                onClick={(event) => void handleMarkPalliativeHomeVisit(item, event)}
+                                                                                title="ใช้เมื่อมีหลักฐานเยี่ยมบ้านจริง: เปลี่ยน ovst.ovstist เป็น 14 และบันทึก audit"
+                                                                            >
+                                                                                {markingPalliativeHomeVn === String(item.vn) ? 'กำลังปรับ...' : '🏠 ยืนยันเป็น visit เยี่ยมบ้าน'}
+                                                                            </button>
+                                                                        )}
+                                                                        {review.shouldReview && (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn"
+                                                                                style={{ padding: '5px 9px', fontSize: 11, background: '#dc2626', color: 'white', borderColor: '#b91c1c', fontWeight: 700 }}
+                                                                                disabled={deletingPalliativeVn === String(item.vn) || markingPalliativeHomeVn === String(item.vn)}
+                                                                                onClick={(event) => void handleDeletePalliativeItems(item, event)}
+                                                                                title="ลบ Z51.5/Z71.8 และรายการ ADP 30001/Cons01/Eva001 ของ VN ที่ไม่เข้าเกณฑ์ พร้อมบันทึก audit"
+                                                                            >
+                                                                                {deletingPalliativeVn === String(item.vn) ? 'กำลังลบ...' : '🗑️ ลบรายการ Palliative'}
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             {item.pdx
                                                                 ? <span className="badge badge-primary">{item.pdx}</span>
@@ -2418,9 +2839,15 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             <strong style={{ color: item.age_y >= 40 ? 'var(--success)' : 'var(--danger)' }}>{item.age_y}</strong>
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            {toFlag(item.has_knee_diag)
-                                                                ? <span className="badge badge-primary">{item.diag_code || 'M17 + U57.53'}</span>
-                                                                : <span className="badge badge-danger">✗ ขาด Dx</span>}
+                                                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                                                <span className={`badge ${toFlag(item.has_knee_diag_m17) ? 'badge-success' : 'badge-danger'}`}>
+                                                                    {toFlag(item.has_knee_diag_m17) ? '✓ M17' : '✗ M17'}
+                                                                </span>
+                                                                <span className={`badge ${toFlag(item.has_knee_diag_u5753) ? 'badge-success' : 'badge-danger'}`}>
+                                                                    {toFlag(item.has_knee_diag_u5753) ? '✓ U57.53' : '✗ U57.53'}
+                                                                </span>
+                                                            </div>
+                                                            {item.diag_code && <div style={{ marginTop: 3, fontSize: 9, color: 'var(--text-muted)' }}>{item.diag_code}</div>}
                                                         </td>
                                                         <td style={{ textAlign: 'left', padding: '6px 8px' }}>
                                                             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -2439,6 +2866,24 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             <span className={`badge ${Number(item.knee_poultice_14d_count || 0) <= 5 ? 'badge-success' : 'badge-danger'}`}>
                                                                 {item.knee_poultice_14d_count || 0}/5
                                                             </span>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <button
+                                                                type="button"
+                                                                className={`btn btn-sm ${toFlag(item.knee_has_data_error) ? 'btn-danger' : toFlag(item.has_knee_oper) && toFlag(item.has_knee_diag) && Number(item.age_y || 0) >= 40 ? 'btn-success' : 'btn-primary'}`}
+                                                                onClick={(event) => void handleKneeCompletion(item, event)}
+                                                                disabled={kneeCompletingVn === String(item.vn)}
+                                                                title={toFlag(item.knee_has_data_error) ? 'พบรายการพอกเข่าเก่าหรือซ้ำ: กดเพื่อตรวจ ลบเฉพาะข้อมูลเก่า และเติมชุดที่ถูกต้องใหม่' : 'ตรวจเงื่อนไขอีกครั้งจากฐาน HOSxP และเพิ่มเฉพาะรายการที่ยังไม่มี'}
+                                                                style={{ whiteSpace: 'nowrap' }}
+                                                            >
+                                                                {kneeCompletingVn === String(item.vn)
+                                                                    ? 'กำลังตรวจ...'
+                                                                    : toFlag(item.knee_has_data_error)
+                                                                        ? '⚠ พบข้อมูลผิดพลาด — ลบเก่า/เติมใหม่'
+                                                                    : toFlag(item.has_knee_oper) && toFlag(item.has_knee_diag) && Number(item.age_y || 0) >= 40
+                                                                        ? '✓ ตรวจซ้ำ'
+                                                                        : 'ตรวจและเติม'}
+                                                            </button>
                                                         </td>
                                                     </>
                                                 )}
@@ -2516,16 +2961,27 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         <td className="dental-procedure-column" style={{ textAlign: 'left', padding: '8px' }}>
                                                             {item.dental_procedure_names ? (
                                                                 <div className="dental-procedure-list" title={item.dental_procedure_names}>
-                                                                    {parseDentalProcedureDisplay(item.dental_procedure_names).map((procedure, procedureIndex) => (
-                                                                        <span
-                                                                            className="dental-procedure-chip"
-                                                                            key={`${procedure.code}-${procedure.name}-${procedureIndex}`}
-                                                                            title={`${procedure.code}${procedure.name ? ` ${procedure.name}` : ''}`}
-                                                                        >
-                                                                            {procedure.code && <strong>{procedure.code}</strong>}
-                                                                            {procedure.name && <span>{procedure.name}</span>}
-                                                                        </span>
-                                                                    ))}
+                                                                    {parseDentalProcedureDisplay(item.dental_procedure_names).map((procedure, procedureIndex) => {
+                                                                        const icd9 = getDentalIcd9ForProcedure(item.dental_procedure_pairs, procedure.code);
+                                                                        const requiredIcd9 = activeFund === 'anc_dental_exam' ? ANC_DENTAL_EXAM_ICD9 : ANC_DENTAL_CLEAN_ICD9;
+                                                                        const allowedCodes = activeFund === 'anc_dental_exam' ? ANC_DENTAL_EXAM_PROCEDURE_CODES : ANC_DENTAL_CLEAN_PROCEDURE_CODES;
+                                                                        const pairMatches = hasAnyCodeValue(procedure.code, allowedCodes) && icd9 === requiredIcd9;
+                                                                        return (
+                                                                            <span
+                                                                                className="dental-procedure-chip"
+                                                                                key={`${procedure.code}-${procedure.name}-${procedureIndex}`}
+                                                                                title={`${procedure.code}${procedure.name ? ` ${procedure.name}` : ''} • ICD-9 ${icd9 || 'ไม่ระบุ'}${pairMatches ? ' ตรงเงื่อนไข' : ' ไม่ตรงเงื่อนไข'}`}
+                                                                            >
+                                                                                {procedure.code && <strong>{procedure.code}</strong>}
+                                                                                {procedure.name && <span>{procedure.name}</span>}
+                                                                                {procedure.code && (
+                                                                                    <small style={{ color: pairMatches ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
+                                                                                        {pairMatches ? `ICD-9 ${icd9} ✓` : `ต้องมี ICD-9 ${requiredIcd9}`}
+                                                                                    </small>
+                                                                                )}
+                                                                            </span>
+                                                                        );
+                                                                    })}
                                                                 </div>
                                                             ) : (
                                                                 <span className="badge badge-danger">✗ ไม่พบหัตถการใน dtmain</span>
@@ -2557,17 +3013,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
                                                             <div style={{ fontSize: 11 }}>
-                                                                {item.pdx === 'Z308' && (
+                                                                {String(item.fp_diags || '').replace(/\./g, '').toUpperCase().includes('Z308') && (
                                                                     <>
                                                                         <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginBottom: 4 }}>Z308</div>
-                                                                        {item.icd9_code === '9923' && <span className="badge badge-success" style={{ marginRight: 4 }}>FP002_1 (9923)</span>}
-                                                                        {item.icd9_code === '8605' && <span className="badge badge-success">FP002_2 (8605)</span>}
-                                                                        {item.icd9_code !== '9923' && item.icd9_code !== '8605' && item.icd9_code && 
-                                                                            <span className="badge badge-warning">ICD9: {item.icd9_code}</span>}
+                                                                        {hasAnyCodeValue(item.fp_adp_codes, ['FP002_1']) && hasAnyCodeValue(item.fp_icd9_codes, ['9923']) && <span className="badge badge-success" style={{ marginRight: 4 }}>FP002_1 (9923)</span>}
+                                                                        {hasAnyCodeValue(item.fp_adp_codes, ['FP002_2']) && hasAnyCodeValue(item.fp_icd9_codes, ['8605']) && <span className="badge badge-success">FP002_2 (8605)</span>}
+                                                                        {hasAnyCodeValue(item.fp_adp_codes, ['FP002_1']) && !hasAnyCodeValue(item.fp_icd9_codes, ['9923']) && <span className="badge badge-danger" style={{ marginRight: 4 }}>✗ ขาด ICD-9 9923</span>}
+                                                                        {hasAnyCodeValue(item.fp_adp_codes, ['FP002_2']) && !hasAnyCodeValue(item.fp_icd9_codes, ['8605']) && <span className="badge badge-danger">✗ ขาด ICD-9 8605</span>}
+                                                                        {!hasAnyCodeValue(item.fp_adp_codes, ['FP002_1', 'FP002_2']) && <span className="badge badge-danger">✗ ขาด ADP FP002_1/FP002_2</span>}
                                                                     </>
                                                                 )}
                                                                 {item.fp_adp_codes && <span className="badge badge-primary">{item.fp_adp_codes}</span>}
-                                                                {!item.fp_adp_codes && item.pdx !== 'Z308' && <span className="badge badge-danger">✗ ขาดรหัส FP</span>}
+                                                                {!item.fp_adp_codes && !String(item.fp_diags || '').replace(/\./g, '').toUpperCase().includes('Z308') && <span className="badge badge-danger">✗ ขาดรหัส FP</span>}
                                                             </div>
                                                         </td>
                                                     </>
@@ -2841,7 +3298,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     </div>
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                                                    <span className={`badge ${st.class}`} style={{ fontSize: 11 }}>{st.icon} {st.status}</span>
+                                                    <span
+                                                        className={`badge ${st.class}`}
+                                                        style={{ fontSize: 11 }}
+                                                        title={[
+                                                            ...(st.missingConditions || []),
+                                                            ...(st.manualEvidenceConditions || []).map((text: string) => `ตรวจเอกสาร: ${text}`),
+                                                        ].join('\n')}
+                                                    >
+                                                        {st.icon} {st.status}
+                                                    </span>
+                                                    {st.manualEvidenceConditions?.length > 0 && (
+                                                        <div style={{ marginTop: 4, fontSize: 9, color: 'var(--text-muted)' }}>
+                                                            📎 มีหลักฐานเอกสารต้องตรวจ
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                                                     <span className={`badge ${sendStatusClass}`} style={{ fontSize: 10 }}>{sendStatusLabel}</span>

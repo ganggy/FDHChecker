@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateReportPayload } from './aiService.js';
+import { compactPromptForContext, estimatePromptTokens, validateReportPayload } from './aiService.js';
+
+test('compacts oversized Thai prompts while preserving the newest question at the end', () => {
+  const system = 'กฎระบบ'.repeat(600);
+  const latestQuestion = 'คำถามล่าสุด: รวมทุกตึก 30 เตียงตามการขึ้นทะเบียน และ 38 ตาม กบรส';
+  const prompt = `${'บริบทเก่า'.repeat(12_000)}\n${latestQuestion}`;
+  const compacted = compactPromptForContext(system, prompt, 8_192, 1_200);
+  assert.ok(estimatePromptTokens(system) + estimatePromptTokens(compacted) <= 8_192 - 1_200 - 512);
+  assert.match(compacted, /ตัดบริบทเก่าที่เกินขนาด/);
+  assert.ok(compacted.endsWith(latestQuestion));
+});
 
 test('accepts a small aggregate report', () => {
   const input = { title: 'ยอดแยกตามกองทุน', rows: [{ fund: 'UCS', total: 120 }] };

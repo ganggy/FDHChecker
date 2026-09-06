@@ -16,6 +16,7 @@ export const StaffPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'complete' | 'incomplete'>('all');
   const [uucFilter, setUucFilter] = useState<'all' | 'UUC1' | 'UUC2'>('all');
   const [specialFilter, setSpecialFilter] = useState<'all' | 'special_only'>('all');
+  const [opdAuditFilter, setOpdAuditFilter] = useState<'all' | 'blocking' | 'review' | 'clear'>('all');
   const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
   const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
 
@@ -59,7 +60,7 @@ export const StaffPage: React.FC = () => {
   }, [todayStr]);
 
   // ดึงข้อมูลทั้งหมดตามช่วงวันที่ (ไม่กรอง fund ฝั่ง server)
-  const { data, totalFromDB, loading, error } = useHOSxPData({
+  const { data, totalFromDB, loading, error, refresh } = useHOSxPData({
     startDate: startDate || undefined,
     endDate: endDate || undefined,
   });
@@ -100,6 +101,16 @@ export const StaffPage: React.FC = () => {
     });
   }
 
+  const opdAuditCounts = filtered.reduce((counts, item) => {
+    const status = item.opd_pre_audit?.status;
+    if (status) counts[status] += 1;
+    return counts;
+  }, { blocking: 0, review: 0, clear: 0 });
+
+  if (opdAuditFilter !== 'all') {
+    filtered = filtered.filter(item => item.opd_pre_audit?.status === opdAuditFilter);
+  }
+
   // เปลี่ยนวันที่ → reset fund selection ถ้า fund นั้นไม่มีในวันใหม่
   const handleDateChange = (field: 'start' | 'end', value: string) => {
     if (field === 'start') setStartDate(value);
@@ -116,7 +127,8 @@ export const StaffPage: React.FC = () => {
 
   // Export CSV
   const handleExportCSV = () => {
-    const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,ECLAIM,สถานะ FDH,วันที่รับบริการ,เวลารับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะข้อมูล,ราคา (บาท)';
+    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const headers = ['#', 'VN', 'HN', 'ชื่อผู้ป่วย', 'สิทธิ์', 'ECLAIM', 'สถานะ FDH', 'วันที่รับบริการ', 'เวลารับบริการ', 'ประเภท', 'DIAG', 'สถานะกองทุน', 'OPD Pre-audit', 'รหัสที่พบ', 'รายละเอียด OPD Pre-audit', 'สถานะข้อมูล', 'ราคา (บาท)'].map(csvCell).join(',');
     const rows = filtered.map((item, index) => {
       const logic = evaluateBillingLogic(item);
       const eclaimCode = String(item.pttype_eclaim_id || '').trim();
@@ -126,6 +138,7 @@ export const StaffPage: React.FC = () => {
         : '-';
       const fdhLabel = item.fdh_status_label
         || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
+      const opdAudit = item.opd_pre_audit;
       return [
         index + 1,
         item.vn || '-',
@@ -139,9 +152,12 @@ export const StaffPage: React.FC = () => {
         item.serviceType,
         item.pdx || item.main_diag || '-',
         logic.isUUC1 ? 'UUC1' : 'UUC2',
-        '-',
+        opdAudit ? (opdAudit.status === 'clear' ? 'ผ่าน' : opdAudit.status === 'blocking' ? 'ห้ามส่ง' : 'ควรตรวจ') : '-',
+        opdAudit?.findings.map(finding => finding.code).join(' | ') || '-',
+        opdAudit?.findings.map(finding => `${finding.code}: ${finding.message}`).join(' | ') || '-',
+        item.status === 'ready' ? 'พร้อมส่ง' : item.status === 'pending' ? 'รอแก้ไข' : 'ไม่ส่ง',
         item.price
-      ].join(',')
+      ].map(csvCell).join(',')
     });
     const csv = [headers, ...rows].join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -161,6 +177,7 @@ export const StaffPage: React.FC = () => {
         : '-';
       const fdhLabel = item.fdh_status_label
         || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
+      const opdAudit = item.opd_pre_audit;
       return {
         '#': index + 1,
         'VN': item.vn || '-',
@@ -174,7 +191,10 @@ export const StaffPage: React.FC = () => {
         'ประเภท': item.serviceType,
         'DIAG': item.pdx || item.main_diag || '-',
         'สถานะกองทุน': logic.isUUC1 ? 'UUC1' : 'UUC2',
-        'สถานะข้อมูล': '-',
+        'OPD Pre-audit': opdAudit ? (opdAudit.status === 'clear' ? 'ผ่าน' : opdAudit.status === 'blocking' ? 'ห้ามส่ง' : 'ควรตรวจ') : '-',
+        'รหัสที่พบ': opdAudit?.findings.map(finding => finding.code).join(' | ') || '-',
+        'รายละเอียด OPD Pre-audit': opdAudit?.findings.map(finding => `${finding.code}: ${finding.message}`).join(' | ') || '-',
+        'สถานะข้อมูล': item.status === 'ready' ? 'พร้อมส่ง' : item.status === 'pending' ? 'รอแก้ไข' : 'ไม่ส่ง',
         'ราคา (บาท)': item.price
       };
     });
@@ -188,7 +208,7 @@ export const StaffPage: React.FC = () => {
       { wch: 5 }, { wch: 15 }, { wch: 12 }, { wch: 30 },
       { wch: 12 }, { wch: 24 }, { wch: 15 }, { wch: 15 },
       { wch: 12 }, { wch: 10 }, { wch: 15 }, { wch: 12 },
-      { wch: 12 }
+      { wch: 16 }, { wch: 28 }, { wch: 48 }, { wch: 14 }, { wch: 12 }
     ];
     worksheet['!cols'] = colWidths;
 
@@ -284,6 +304,20 @@ export const StaffPage: React.FC = () => {
             </div>
 
             <div className="form-group">
+              <label className="form-label">OPD Pre-audit</label>
+              <select
+                className="form-control"
+                value={opdAuditFilter}
+                onChange={(e) => setOpdAuditFilter(e.target.value as typeof opdAuditFilter)}
+              >
+                <option value="all">ทั้งหมด</option>
+                <option value="blocking">🔴 ห้ามส่ง</option>
+                <option value="review">🟡 ควรตรวจ</option>
+                <option value="clear">🟢 ผ่านกฎ OPD</option>
+              </select>
+            </div>
+
+            <div className="form-group">
               <label className="form-label">📅 วันที่เริ่ม</label>
               <input
                 type="date"
@@ -302,6 +336,10 @@ export const StaffPage: React.FC = () => {
                 className="form-control"
               />
             </div>
+
+            <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
+              {loading ? 'กำลังประมวลผล...' : '🔄 ดึงข้อมูลใหม่'}
+            </button>
           </div>
         </div>
       </div>
@@ -356,7 +394,7 @@ export const StaffPage: React.FC = () => {
       {loading && (
         <div className="loading-container">
           <div className="spinner" />
-          <span>กำลังโหลดข้อมูล...</span>
+          <span>กำลังโหลดข้อมูลและประมวลผล OPD Pre-audit...</span>
         </div>
       )}
 
@@ -383,6 +421,9 @@ export const StaffPage: React.FC = () => {
               </div>
               <div className="badge badge-success">✅ สมบูรณ์ {completeCount}</div>
               <div className="badge badge-danger">⚠️ ไม่สมบูรณ์ {incompleteCount}</div>
+              <div className="badge badge-danger">⛔ OPD ห้ามส่ง {opdAuditCounts.blocking}</div>
+              <div className="badge badge-warning">🔎 OPD ควรตรวจ {opdAuditCounts.review}</div>
+              <div className="badge badge-success">🛡️ OPD ผ่าน {opdAuditCounts.clear}</div>
               <div className="badge" style={{ background: 'var(--success-light)', color: 'var(--success)', border: '1px solid #bbf7d0' }}>
                 💰 ประสงค์เบิก {billableValue.toLocaleString()} บาท
               </div>

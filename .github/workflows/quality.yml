@@ -1,0 +1,33 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build:server
+      - name: Validate deployment scripts
+        run: |
+          bash -n deploy/scripts/backup-databases.sh
+          bash -n deploy/scripts/deploy-app.sh
+          node -e "const config=require('./deploy/pm2/ecosystem.config.cjs'); if (!Array.isArray(config.apps) || !config.apps.length) process.exit(1)"
+      - name: Validate PowerShell backup script
+        shell: pwsh
+        run: "[scriptblock]::Create((Get-Content deploy/scripts/backup-databases.ps1 -Raw)) | Out-Null"
+      - name: Block critical production dependency vulnerabilities
+        run: npm audit --omit=dev --audit-level=critical

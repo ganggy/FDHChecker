@@ -121,7 +121,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'ตรวจสุขภาพช่องปากหญิงตั้งครรภ์ (30008)',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
-        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30008', 'หัตถการตรวจช่องปาก 2330011 หรือ 2330013']
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30008', 'ICD10TM 2330011 หรือ 2330010 ต้องคู่กับหัตถการ ICD-9 8931']
     },
     {
         id: 'anc_dental_clean',
@@ -129,7 +129,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'ขูดหินปูน/ทำความสะอาดฟันหญิงตั้งครรภ์ (30009)',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
-        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30009', 'หัตถการขัดทำความสะอาดฟัน 2387010, 2277310, 2277320, 2287310 หรือ 2287320']
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30009', 'ICD10TM 2387010 ต้องคู่กับหัตถการ ICD-9 9654']
     },
     {
         id: 'postnatal_care',
@@ -161,15 +161,15 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'บริการคุมกำเนิดและวางแผนครอบครัว',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z30x', 'กรณี Z308 ให้จับคู่ ICD9/ADP ให้ครบ', 'มี ADP กลุ่ม FP ตามบริการที่ทำจริง']
+        conditions: ['FP002_2: Z308 + ICD-9 8605 · 350 บาท', 'FP003_1/FP003_2/FP003_3/FP003_4: Diagnosis Z304', 'อัตราตามบริการ 40/80/50/60 บาท']
     },
     {
         id: 'contraceptive_pill',
-        name: 'ยาคุมกำเนิด',
-        description: 'ยาคุมชนิดเม็ด (Anna / Lynestrenol)',
+        name: 'ยาเม็ดคุมกำเนิด',
+        description: 'Anna / Lynestrenol / ยาคุมฉุกเฉิน',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)', 'ADP FP003_1 (ยา Anna 40.-) หรือ FP003_2 (ยา Lynestrenol 80.-)']
+        conditions: ['Diagnosis Z304 (การเฝ้าระวังการใช้ยาคุมกำเนิด)', 'FP003_1 Anna 40 บาท / FP003_2 Lynestrenol 80 บาท / FP003_3 ยาคุมฉุกเฉิน 50 บาท']
     },
     {
         // Legacy id retained for saved settings/API compatibility; FP003_4 is injection contraception.
@@ -178,7 +178,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'บริการยาฉีดคุมกำเนิด อัตรา 60 บาท',
         claimChannel: 'e-Claim',
         recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z30x ตามบริการวางแผนครอบครัว', 'ADP FP003_4', 'อัตรา 60 บาทต่อครั้ง']
+        conditions: ['Diagnosis Z304', 'ADP FP003_4', 'อัตรา 60 บาทต่อเข็ม (ไม่เกิน 5 ครั้ง/ปี)']
     },
     {
         id: 'cacervix',
@@ -234,8 +234,8 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         recordingSystem: 'KTB; รายงาน/เชื่อมข้อมูลบางส่วนผ่าน Seamless/DMIS ตามพื้นที่',
         conditions: [
             'ประชาชนทั่วไปเพศชาย',
-            'มี Lab Treponema Pallidum Antibody หรือรายการตรวจซิฟิลิส',
-            'รองรับชื่อ Lab/บริการกลุ่ม Treponema, Syphilis, RPR, VDRL, TPHA, TPPA'
+            'มีผล Lab Treponema Pallidum Antibody/RPR หรือรายการตรวจซิฟิลิส',
+            'รหัสบริการ 36003 (VDRL/RPR) หรือ 36006 (TPHA); ชื่อยาหรือข้อความทั่วไปไม่นับเป็นผลตรวจ'
         ],
         caution: 'ตรวจสอบความเหมาะสมของกลุ่มเป้าหมายตามประกาศกองทุน และผลตรวจที่ผูกกับ visit ให้ถูกต้อง'
     },

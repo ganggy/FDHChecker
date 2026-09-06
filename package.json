@@ -24,13 +24,14 @@
     "ai:status": "curl -sS http://127.0.0.1:3506/api/ai/status",
     "test": "node --import tsx --test server/requestSafety.test.ts server/routes/healthRoutes.test.ts server/mophVaccineRules.test.ts server/fdhExport.test.ts server/fdhClaimProgress.test.ts server/billingUtils.test.ts server/kidneyMonitorRules.test.ts server/kidneyRepStmTracking.test.ts server/repstmArchive.test.ts server/repstmManagement.test.ts server/lineMessaging.test.ts server/fundErrorReport.test.ts server/kneeOpppCompletion.test.ts server/palliativeCareReview.test.ts server/familyPlanningRules.test.ts server/syphilisScreeningRules.test.ts server/dailyWorkOverview.test.ts server/duplicateAppointmentAlert.test.ts server/fsRateRules.test.ts server/revenueOpportunityMonitor.test.ts server/opdPreAuditRules.test.ts server/ipdPreAuditRules.test.ts server/ipdLosRules.test.ts server/sssClaim.test.ts server/sssIpdClaim.test.ts",
     "check:server": "tsc -p server/tsconfig.json --noEmit",
-    "check": "npm run test && npm run check:server && npm run lint && npm run build",
+    "check": "npm run test && npm run test:hospital-db && npm run check:server && npm run lint && npm run build",
     "build": "tsc -b && vite build",
     "build:server": "tsc -p server/tsconfig.json",
     "build:all": "npm run build && npm run build:server",
     "start:production": "node server/dist/server/index.js",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:hospital-db": "node --import tsx --test server/postgresSql.test.ts server/hospitalDatabaseConfig.test.ts server/routes/hospitalDatabaseRoutes.test.ts"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
@@ -41,6 +42,8 @@
     "fast-xml-parser": "^5.10.1",
     "iconv-lite": "^0.7.2",
     "mysql2": "^3.9.0",
+    "node-sql-parser": "^5.4.0",
+    "pg": "^8.23.0",
     "playwright": "^1.59.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -48,10 +51,12 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@eslint/js": "^9.39.4",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^24.12.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.0",

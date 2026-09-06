@@ -7,6 +7,9 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
 import crypto from 'crypto';
+import { createHospitalDatabaseRouter } from './routes/hospitalDatabaseRoutes.js';
+import { activeHospitalDatabaseConfig } from './hospitalDatabase.js';
+import { hospitalDatabaseResponseGuard } from './hospitalDatabaseContext.js';
 import { clearCache, getVisitsCached } from './cacheManager.js';
 import {
   getCheckData,
@@ -138,6 +141,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const app = express();
+if (activeHospitalDatabaseConfig.type === 'postgresql') app.use('/api', hospitalDatabaseResponseGuard);
 app.disable('x-powered-by');
 if (String(process.env.TRUST_PROXY || '') === '1') app.set('trust proxy', 1);
 
@@ -751,6 +755,7 @@ app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
 });
 
 type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean };
+app.use('/api/config/hospital-database', requireAdmin, createHospitalDatabaseRouter());
 const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
   { pattern: /^\/hospital-reports(\/|$)/, pages: ['hospitalReports'] },
@@ -2733,18 +2738,8 @@ app.get('/api/test/ovstost-values', async (req, res) => {
     }
 
     // ดึงค่า ovstost ที่มีในระบบพร้อมจำนวน
-    const mysql = await import('mysql2/promise');
-    const pool = mysql.default.createPool({
-      host: process.env.HOSXP_HOST,
-      user: process.env.HOSXP_USER,
-      password: process.env.HOSXP_PASSWORD,
-      database: process.env.HOSXP_DB,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
-
-    const connection = await pool.getConnection();
+    const connection = await getUTFConnection();
+    try {
 
     // ดึงค่า ovstost ที่แตกต่างกันพร้อมจำนวนและตัวอย่าง
     const [ovstostValues] = await connection.query(`
@@ -2775,8 +2770,7 @@ app.get('/api/test/ovstost-values', async (req, res) => {
       LIMIT 10
     `);
 
-    connection.release();
-    pool.end();
+
 
     res.json({
       success: true,
@@ -2791,6 +2785,7 @@ app.get('/api/test/ovstost-values', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
+    } finally { connection.release(); }
   } catch (error) {
     console.error('Error checking ovstost values:', error);
     res.status(500).json({

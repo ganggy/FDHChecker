@@ -1,4 +1,5 @@
 import { getUTFConnection } from './db.js';
+import { activeHospitalDatabaseConfig } from './hospitalDatabase.js';
 import { answerPatientReportQuestion } from './aiReportTools.js';
 import { buildReportAttachment, type ExportableReport, type ReportFormat } from './aiReportExport.js';
 import { generateAgentText } from './aiService.js';
@@ -872,7 +873,7 @@ export const pcuVisitServiceDetail = async (request: HospitalReportRequest): Pro
   const payerFilterClause = filters.payerGroup === 'uc' ? " AND COALESCE(pt.uc, 'N') = 'Y'" : '';
   const connection = await getUTFConnection();
   try {
-    await connection.query('SET SESSION group_concat_max_len = 65535');
+    if (activeHospitalDatabaseConfig.type === 'mysql') await connection.query('SET SESSION group_concat_max_len = 65535');
     const [rows] = await connection.query(
       `SELECT
          COALESCE(NULLIF(o.hospsub, ''), 'ไม่ระบุ') AS pcuCode,

@@ -1,4 +1,5 @@
-import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
+import type { HospitalConnection } from './hospitalDatabase.js';
+import type { RowDataPacket } from 'mysql2/promise';
 import { getUTFConnection } from './db.js';
 
 export const KNEE_OPPP_CODES = ['8727811', '8737811', '8747811', '8737835'] as const;
@@ -132,7 +133,7 @@ export const getKneeOpppProviders = async () => {
   }
 };
 
-const loadSnapshot = async (connection: PoolConnection, vn: string, lock = false): Promise<KneeCompletionSnapshot> => {
+const loadSnapshot = async (connection: HospitalConnection, vn: string, lock = false): Promise<KneeCompletionSnapshot> => {
   const [visitRows] = await connection.query<RowDataPacket[]>(`
     SELECT
       o.vn,
@@ -261,7 +262,7 @@ export const previewKneeOpppCompletion = async (vn: string) => {
   }
 };
 
-const ensureAuditTable = async (connection: PoolConnection) => {
+const ensureAuditTable = async (connection: HospitalConnection) => {
   await connection.query(`
     CREATE TABLE IF NOT EXISTS z_fdh_knee_completion_audit (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

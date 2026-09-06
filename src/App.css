@@ -1159,6 +1159,110 @@
   line-height: 1.55;
 }
 
+.auth-server-status {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  margin: -0.25rem 0 1rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #dbe5f2;
+  border-radius: 13px;
+  background: #f8fafc;
+}
+
+.auth-server-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 4px #fee2e2;
+}
+
+.auth-server-status.is-ready .auth-server-dot {
+  background: #16a34a;
+  box-shadow: 0 0 0 4px #dcfce7;
+}
+
+.auth-server-status > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-server-status small {
+  color: #64748b;
+  font-size: 0.68rem;
+}
+
+.auth-server-status strong {
+  overflow: hidden;
+  color: #1e293b;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-server-status > button,
+.auth-server-actions button {
+  min-height: 38px;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.auth-server-panel {
+  display: grid;
+  gap: 0.65rem;
+  margin: -0.45rem 0 1rem;
+  padding: 0.85rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: #eff6ff;
+}
+
+.auth-server-panel label {
+  display: grid;
+  gap: 0.35rem;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.auth-server-panel input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.auth-server-panel p {
+  color: #64748b;
+  font-size: 0.7rem;
+}
+
+.auth-server-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.auth-server-actions button.is-primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
 .auth-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2914,6 +3018,8 @@ button.ipd-monitor-kpi:hover { transform: translateY(-1px); box-shadow: 0 10px 2
 .uc-cup-kpis .is-warning { border-color: #fed7aa; background: #fffaf5; }
 .uc-cup-kpis .is-warning strong { color: #c2410c; }
 .uc-cup-groups, .uc-cup-visits { overflow: hidden; }
+.uc-walkin-audit{margin-bottom:16px;overflow:hidden}.uc-walkin-audit>header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding:18px;border-bottom:1px solid #e2e8f0}.uc-walkin-audit>header span{font-size:11px;font-weight:800;letter-spacing:.08em;color:#b45309}.uc-walkin-audit>header h2{margin:4px 0;font-size:18px}.uc-walkin-audit>header p{margin:0;color:#64748b;font-size:12px}.uc-walkin-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 18px}.uc-walkin-summary article{padding:13px;border:1px solid #e2e8f0;border-radius:12px;background:#f8fafc}.uc-walkin-summary span,.uc-walkin-summary strong{display:block}.uc-walkin-summary span{font-size:11px;color:#64748b}.uc-walkin-summary strong{margin-top:4px;font-size:22px}.uc-walkin-summary .is-ok strong{color:#16855f}.uc-walkin-summary .is-missing{border-color:#fecaca;background:#fff5f5}.uc-walkin-summary .is-missing strong{color:#c42d3a}.uc-walkin-warning{margin:0 18px 14px;padding:12px 14px;border-left:4px solid #e14955;border-radius:10px;background:#fff1f2;color:#881c27}.uc-walkin-warning p{margin:3px 0 0;font-size:12px}.uc-walkin-list{max-height:360px;overflow:auto;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0}.uc-walkin-list small{display:block;color:#64748b}.uc-walkin-missing-chip{display:inline-block;padding:4px 8px;border-radius:8px;background:#fee2e2;color:#b91c1c;font-size:11px;font-weight:800}.uc-walkin-confirm{display:flex;align-items:flex-end;gap:12px;padding:16px 18px;background:#fffbeb}.uc-walkin-confirm label{flex:1;font-size:12px}.uc-walkin-confirm input{display:block;width:100%;margin-top:6px;padding:9px 11px;border:1px solid #d7b85f;border-radius:9px;background:#fff}.uc-walkin-confirm>small{max-width:220px;color:#7c6b38;font-size:10px}
+@media(max-width:800px){.uc-walkin-summary{grid-template-columns:1fr 1fr}.uc-walkin-audit>header,.uc-walkin-confirm{align-items:stretch;flex-direction:column}.uc-walkin-confirm>small{max-width:none}}
 .uc-cup-groups > header, .uc-cup-visits > header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid #e2e8f0; }
 .uc-cup-groups h2, .uc-cup-visits h2 { margin: 0 0 3px; color: #0f172a; font-size: 17px; }
 .uc-cup-groups header > span, .uc-cup-visits header > span { padding: 4px 9px; border-radius: 999px; background: #eff6ff; color: #2563eb; font-size: 12px; font-weight: 700; }

@@ -3,13 +3,13 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import ErrorBoundary from './ErrorBoundary.tsx'
+import { getEffectiveApiBaseUrl } from './services/apiEndpointService.ts'
 
 const AUTH_TOKEN_KEY = 'fdh-auth-token';
 
 const installApiFallbackFetch = () => {
   const nativeFetch = window.fetch.bind(window);
   const candidatePorts = ['3506', '3001'];
-  const envBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
 
   const isAbortError = (error: unknown) => {
     return error instanceof DOMException && error.name === 'AbortError';
@@ -17,12 +17,13 @@ const installApiFallbackFetch = () => {
 
   const buildApiCandidates = (apiPath: string): string[] => {
     const urls: string[] = [];
+    const preferredBase = getEffectiveApiBaseUrl();
     const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
     const host = window.location.hostname;
     const currentPort = window.location.port;
 
-    if (envBase) {
-      const trimmed = envBase.replace(/\/+$/, '');
+    if (preferredBase) {
+      const trimmed = preferredBase.replace(/\/+$/, '');
       urls.push(`${trimmed}${apiPath}`);
     }
 
@@ -90,7 +91,7 @@ const installApiFallbackFetch = () => {
       return handleUnauthorized(firstResponse);
     }
 
-    const candidates = buildApiCandidates(requestUrl);
+    const candidates = buildApiCandidates(`${parsedRequestUrl.pathname}${parsedRequestUrl.search}`);
     let fallbackResponse: Response | null = null;
     for (const candidateUrl of candidates) {
       try {
@@ -111,7 +112,7 @@ const installApiFallbackFetch = () => {
       }
     }
 
-    if (firstResponse) {
+    if (firstResponse && !looksLikeWrongServerHtml) {
       return handleUnauthorized(firstResponse);
     }
     if (fallbackResponse) {

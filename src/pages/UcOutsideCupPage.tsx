@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { fetchDiagsAndProceduresData, fetchUcOutsideCupDashboard, fetchVisitChargeItems, type ReconciliationRow, type UcOutsideCupGroup, type UcOutsideCupResponse, type VisitClinicalData } from '../services/hosxpService';
+import { fetchDiagsAndProceduresData, fetchUcOutsideCupDashboard, fetchUcOutsideCupWalkinAudit, fetchVisitChargeItems, insertUcOutsideCupWalkin, type ReconciliationRow, type UcOutsideCupGroup, type UcOutsideCupResponse, type UcOutsideCupWalkinAudit, type VisitClinicalData } from '../services/hosxpService';
 import type { PrescriptionItem } from '../mockData';
 
 const money = (value: unknown) => Number(value || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -8,6 +8,8 @@ const currentFiscalYear = () => {
   return today.getFullYear() + 543 + (today.getMonth() >= 9 ? 1 : 0);
 };
 const fiscalDates = (year: number) => ({ startDate: `${year - 544}-10-01`, endDate: `${year - 543}-09-30` });
+const WALKIN_AUDIT_START = '2024-10-01';
+const todayIso = () => new Date().toISOString().slice(0, 10);
 const statusClass = (status: string) => status.includes('เสร็จ') || status === 'ตรงกัน' ? 'is-ok' : status.includes('รอ') ? 'is-wait' : status === 'ยอดต่าง' ? 'is-error' : '';
 
 const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) => (
@@ -35,6 +37,11 @@ export const UcOutsideCupPage = () => {
   const [prescriptions, setPrescriptions] = useState<PrescriptionItem[]>([]);
   const [prescriptionLoading, setPrescriptionLoading] = useState(false);
   const [visitClinical, setVisitClinical] = useState<VisitClinicalData>({ clinical: {}, diagnoses: [], procedures: [] });
+  const [walkinAudit, setWalkinAudit] = useState<UcOutsideCupWalkinAudit | null>(null);
+  const [walkinLoading, setWalkinLoading] = useState(false);
+  const [walkinInserting, setWalkinInserting] = useState(false);
+  const [walkinConfirmation, setWalkinConfirmation] = useState('');
+  const [walkinMessage, setWalkinMessage] = useState('');
   const loadedInitially = useRef(false);
 
   const load = useCallback(async (nextPage = 1) => {
@@ -60,6 +67,44 @@ export const UcOutsideCupPage = () => {
     loadedInitially.current = true;
     void load(1);
   }, [load]);
+
+  const loadWalkinAudit = useCallback(async () => {
+    setWalkinLoading(true);
+    try {
+      setWalkinAudit(await fetchUcOutsideCupWalkinAudit({ startDate: WALKIN_AUDIT_START, endDate: todayIso(), page: 1, pageSize: 100 }));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'ตรวจสอบ WALKIN ไม่สำเร็จ');
+    } finally {
+      setWalkinLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadWalkinAudit(); }, [loadWalkinAudit]);
+
+  const insertMissingWalkin = async () => {
+    const missing = walkinAudit?.summary.missing_walkin || 0;
+    if (!missing || walkinInserting) return;
+    setWalkinInserting(true);
+    setWalkinMessage('');
+    setError('');
+    try {
+      const result = await insertUcOutsideCupWalkin({
+        startDate: walkinAudit!.period.startDate,
+        endDate: walkinAudit!.period.endDate,
+        expectedCount: missing,
+        confirmation: walkinConfirmation,
+      });
+      setWalkinMessage(`เพิ่ม WALKIN สำเร็จ ${result.insertedCount.toLocaleString('th-TH')} รายการ พร้อมสำหรับส่งออกใหม่`);
+      setWalkinConfirmation('');
+      await loadWalkinAudit();
+      await load(1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'เพิ่มรายการ WALKIN ไม่สำเร็จ');
+      await loadWalkinAudit();
+    } finally {
+      setWalkinInserting(false);
+    }
+  };
 
   const selectFiscalYear = (year: number) => {
     setFiscalYear(year);
@@ -114,6 +159,30 @@ export const UcOutsideCupPage = () => {
       </section>
 
       {error && <div className="alert alert-danger">{error}</div>}
+      {walkinMessage && <div className="alert alert-success">{walkinMessage}</div>}
+
+      <section className="card uc-walkin-audit">
+        <header>
+          <div><span>ตรวจใบสั่งยา · เฉพาะสิทธิ 40/41</span><h2>WALKIN: ผู้ป่วยนอกเหตุสมควร ทั่วประเทศ</h2><p>ตรวจตั้งแต่ปีงบประมาณ 2568 (1 ต.ค. 2567) ถึงปัจจุบัน เฉพาะ UC นอก CUP ในจังหวัด</p></div>
+          <button className="btn btn-sm" type="button" onClick={() => void loadWalkinAudit()} disabled={walkinLoading}>{walkinLoading ? 'กำลังตรวจ…' : 'ตรวจสอบใหม่'}</button>
+        </header>
+        <div className="uc-walkin-summary">
+          <article><span>Visit 40/41</span><strong>{(walkinAudit?.summary.total_visits || 0).toLocaleString('th-TH')}</strong></article>
+          <article className="is-ok"><span>มี WALKIN แล้ว</span><strong>{(walkinAudit?.summary.has_walkin || 0).toLocaleString('th-TH')}</strong></article>
+          <article className="is-missing"><span>ต้องเพิ่ม WALKIN</span><strong>{(walkinAudit?.summary.missing_walkin || 0).toLocaleString('th-TH')}</strong></article>
+          <article><span>ไม่มีแถวต้นแบบ</span><strong>{(walkinAudit?.summary.missing_without_template || 0).toLocaleString('th-TH')}</strong></article>
+        </div>
+        {(walkinAudit?.summary.missing_walkin || 0) > 0 && <div className="uc-walkin-warning"><strong>พบ {(walkinAudit?.summary.missing_walkin || 0).toLocaleString('th-TH')} visit ที่ยังไม่มีรหัส 3010982</strong><p>ระบบจะเพิ่มรายการราคา 0 บาท จำนวน 1 โดยไม่เปลี่ยนยอดใบสั่งยา และไม่เพิ่มซ้ำใน VN ที่มีแล้ว</p></div>}
+        <div className="uc-walkin-list table-responsive"><table className="data-table"><thead><tr><th>วันที่</th><th>VN / HN</th><th>สิทธิ</th><th>HMAIN</th><th>ใบสั่งยาเดิม</th><th>สถานะ</th></tr></thead><tbody>
+          {(walkinAudit?.data || []).map((row) => <tr key={row.vn}><td>{row.service_date}<small>{row.service_time}</small></td><td><strong>{row.vn}</strong><small>HN {row.hn}</small></td><td>{row.pttype}</td><td>{row.hospmain || '-'}</td><td>{row.has_prescription_template ? 'มี' : 'ไม่มี'}</td><td><span className="uc-walkin-missing-chip">ขาด WALKIN</span></td></tr>)}
+          {!walkinLoading && (walkinAudit?.data.length || 0) === 0 && <tr><td colSpan={6} className="uc-cup-empty">ไม่พบรายการที่ขาด</td></tr>}
+        </tbody></table></div>
+        {(walkinAudit?.summary.missing_walkin || 0) > 0 && <div className="uc-walkin-confirm">
+          <label>เพื่อป้องกันการกดผิด กรุณาพิมพ์ <b>{`เพิ่ม WALKIN ${walkinAudit?.summary.missing_walkin || 0} รายการ`}</b><input value={walkinConfirmation} onChange={(event) => setWalkinConfirmation(event.target.value)} placeholder="พิมพ์ข้อความยืนยันให้ตรงทุกตัว" /></label>
+          <button className="btn btn-primary" type="button" onClick={() => void insertMissingWalkin()} disabled={walkinInserting || walkinConfirmation !== `เพิ่ม WALKIN ${walkinAudit?.summary.missing_walkin || 0} รายการ`}>{walkinInserting ? 'กำลังเพิ่มและตรวจสอบ…' : 'เพิ่มรายการที่ขาดเพื่อส่งออกใหม่'}</button>
+          <small>การทำงานนี้สงวนสิทธิ์สำหรับผู้ดูแลระบบ และมี audit log ของ VN/GUID ที่เพิ่มทุกครั้ง</small>
+        </div>}
+      </section>
 
       <section className="uc-cup-kpis">
         <article><span>จำนวน Visit</span><strong>{(summary?.total_visits || 0).toLocaleString('th-TH')}</strong><small>สิทธิการเงิน 07</small></article>

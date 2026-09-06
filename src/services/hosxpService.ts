@@ -1113,6 +1113,26 @@ export interface UcOutsideCupResponse extends ReconciliationResponse {
   group_summary: UcOutsideCupGroup[];
 }
 
+export interface UcOutsideCupWalkinAudit {
+  item: { icode: string; name: string };
+  period: { startDate: string; endDate: string };
+  pttypes: string[];
+  summary: {
+    total_visits: number;
+    has_walkin: number;
+    missing_walkin: number;
+    duplicate_visits: number;
+    missing_without_template: number;
+  };
+  data: Array<{
+    vn: string; hn: string; service_date: string; service_time: string; pttype: string;
+    hospmain: string; has_walkin: boolean; walkin_rows: number; has_prescription_template: boolean;
+  }>;
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export const fetchUcOutsideCupDashboard = async (params: {
   startDate: string;
   endDate: string;
@@ -1133,6 +1153,28 @@ export const fetchUcOutsideCupDashboard = async (params: {
     throw new Error(json.error || 'ไม่สามารถโหลดข้อมูล UC นอก CUP ในจังหวัดได้');
   }
   return json as UcOutsideCupResponse;
+};
+
+export const fetchUcOutsideCupWalkinAudit = async (params: { startDate: string; endDate: string; page?: number; pageSize?: number }) => {
+  const query = new URLSearchParams({
+    startDate: params.startDate, endDate: params.endDate,
+    page: String(params.page || 1), pageSize: String(params.pageSize || 100), missingOnly: 'true',
+  });
+  const response = await fetch(`/api/uc-outside-cup/walkin-audit?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'ตรวจสอบ WALKIN ไม่สำเร็จ');
+  return json.data as UcOutsideCupWalkinAudit;
+};
+
+export const insertUcOutsideCupWalkin = async (payload: {
+  startDate: string; endDate: string; expectedCount: number; confirmation: string;
+}) => {
+  const response = await fetch('/api/uc-outside-cup/walkin-insert', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'เพิ่มรายการ WALKIN ไม่สำเร็จ');
+  return json.data as { insertedCount: number; startDate: string; endDate: string };
 };
 
 export interface Uuc1TrackingSummary {

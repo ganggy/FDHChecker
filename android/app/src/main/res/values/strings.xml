@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FDH Checker</string>
+    <string name="title_activity_main">FDH Checker</string>
+    <string name="package_name">com.fdhchecker.mobile</string>
+    <string name="custom_url_scheme">com.fdhchecker.mobile</string>
+</resources>

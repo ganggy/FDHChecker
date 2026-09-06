@@ -19,7 +19,7 @@ bash deploy/scripts/deploy-app.sh
 
 สคริปต์จะหยุดทันทีหาก branch ไม่ถูกต้อง, working tree ไม่สะอาด, test/build ไม่ผ่าน,
 หา PM2 app ไม่พบ หรือ `/api/live` และ `/api/ready` ไม่พร้อม โดยค่าเริ่มต้นใช้ branch
-`agent/add-local-ai` และ PM2 apps `fdh-backend fdh-frontend`
+`agent/add-local-ai` และ PM2 app `fdh-checker-api`
 
 ปรับค่าผ่าน environment ได้โดยไม่ต้องแก้สคริปต์:
 

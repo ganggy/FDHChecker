@@ -4,7 +4,7 @@ set -Eeuo pipefail
 APP_DIR="${FDH_APP_DIR:-/opt/FDHChecker}"
 DEPLOY_BRANCH="${FDH_DEPLOY_BRANCH:-agent/add-local-ai}"
 HEALTH_BASE_URL="${FDH_HEALTH_BASE_URL:-http://127.0.0.1:3506}"
-PM2_APPS="${FDH_PM2_APPS:-fdh-backend fdh-frontend}"
+PM2_APPS="${FDH_PM2_APPS:-fdh-checker-api}"
 
 log() { printf '[deploy] %s\n' "$*"; }
 fail() { printf '[deploy] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -29,6 +29,7 @@ after_commit="$(git rev-parse HEAD)"
 log "ติดตั้ง dependency และตรวจสอบคุณภาพ"
 npm ci
 npm run check
+npm run build:all
 
 if [[ "${FDH_DEPLOY_BACKUP:-0}" == "1" ]]; then
   log "สำรองฐานข้อมูลตาม FDH_DEPLOY_BACKUP=1"
@@ -57,4 +58,3 @@ for endpoint in live ready; do
 done
 
 log "สำเร็จ ${before_commit:0:8} -> ${after_commit:0:8}; live/ready ผ่าน"
-

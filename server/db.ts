@@ -2157,6 +2157,7 @@ export const getNhsoClosePrivilegeCandidates = async (options: {
          IFNULL(v.uc_money, 0) AS uc_money,
          IFNULL(v.rcpt_money, 0) AS rcpt_money,
          IFNULL(o.ovstost, '') AS ovstost,
+         COALESCE(ost.name, '') AS visit_outcome,
          COALESCE(
            NULLIF((SELECT claim_code FROM authenhos ah2 WHERE ah2.vn = o.vn AND ah2.claim_code REGEXP '^PP' LIMIT 1), ''),
            NULLIF((SELECT auth_code FROM visit_pttype vp2 WHERE vp2.vn = o.vn AND vp2.auth_code REGEXP '^PP' LIMIT 1), ''),
@@ -2194,6 +2195,7 @@ export const getNhsoClosePrivilegeCandidates = async (options: {
          IFNULL(ncp.nhso_privilege_amount, 0) AS nhso_privilege_amount,
          IFNULL(ncp.nhso_cash_amount, 0) AS nhso_cash_amount,
          CASE
+           WHEN TRIM(COALESCE(ost.name, '')) <> 'กลับบ้าน' THEN 0
            WHEN IFNULL(ncp.nhso_status, '') = 'Y' THEN 0
            WHEN IFNULL(ncp.nhso_authen_code, '') REGEXP '^EP' THEN 0
            WHEN IFNULL((SELECT claim_code FROM authenhos ah2 WHERE ah2.vn = o.vn AND ah2.claim_code REGEXP '^EP' LIMIT 1), '') <> '' THEN 0
@@ -2205,6 +2207,7 @@ export const getNhsoClosePrivilegeCandidates = async (options: {
        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
        LEFT JOIN vn_stat v ON v.vn = o.vn
        LEFT JOIN opdscreen s ON s.vn = o.vn
+       LEFT JOIN ovstost ost ON ost.ovstost = o.ovstost
        LEFT JOIN visit_pttype vp ON vp.vn = o.vn AND vp.pttype = o.pttype
        LEFT JOIN authenhos ah ON ah.vn = o.vn
        LEFT JOIN nhso_confirm_privilege ncp ON ncp.vn = o.vn
@@ -2426,9 +2429,11 @@ export const submitNhsoClosePrivileges = async (options: {
       const vn = normalizeImportCellValue(item.vn);
       const cid = normalizeImportCellValue(item.cid);
       const existingRows = await connection.query(
-        `SELECT nhso_status, nhso_seq
-         FROM nhso_confirm_privilege
-         WHERE vn = ?
+        `SELECT ncp.nhso_status, ncp.nhso_seq, COALESCE(ost.name, '') AS visit_outcome
+         FROM ovst o
+         LEFT JOIN ovstost ost ON ost.ovstost = o.ovstost
+         LEFT JOIN nhso_confirm_privilege ncp ON ncp.vn = o.vn
+         WHERE o.vn = ?
          LIMIT 1`,
         [vn]
       );
@@ -2439,6 +2444,12 @@ export const submitNhsoClosePrivileges = async (options: {
       if (!cid || !isValidThaiCid(cid)) {
         summary.skipped += 1;
         summary.results.push({ vn, status: 'skipped', message: 'CID ไม่ถูกต้อง' });
+        continue;
+      }
+
+      if (normalizeImportCellValue(existingRow?.visit_outcome) !== 'กลับบ้าน') {
+        summary.skipped += 1;
+        summary.results.push({ vn, status: 'skipped', message: 'สถานะคนไข้ยังไม่เป็นกลับบ้าน' });
         continue;
       }
 

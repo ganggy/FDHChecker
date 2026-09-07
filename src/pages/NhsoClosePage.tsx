@@ -29,6 +29,7 @@ interface CloseCandidateRow {
   close_code?: string;
   authencode_endpoint?: string;
   close_status?: string;
+  visit_outcome?: string;
   source_id?: string;
   invno?: string;
   can_close?: number;
@@ -570,6 +571,7 @@ export const NhsoClosePage: React.FC = () => {
                   <th>วันที่รับบริการ</th>
                   <th>เวลารับบริการ</th>
                   <th>สิทธิ</th>
+                  <th>สถานะคนไข้</th>
                   <th>ปิดสิทธิ (EP)</th>
                   <th>สถานะปิดสิทธิ</th>
                   <th>ยอดรวม</th>
@@ -580,6 +582,7 @@ export const NhsoClosePage: React.FC = () => {
               <tbody>
                 {rows.length > 0 ? rows.map((row) => {
                   const disabled = Number(row.can_close || 0) !== 1;
+                  const isDischargedHome = String(row.visit_outcome || '').trim() === 'กลับบ้าน';
                   const isSelected = selectedVns.includes(row.vn);
                   const visitDateTime = splitDateTime(row.vst_datetime);
                   const serviceDate = row.service_date || visitDateTime.date;
@@ -587,7 +590,9 @@ export const NhsoClosePage: React.FC = () => {
                   return (
                     <tr key={row.vn} className={`${isSelected ? 'row-selected' : ''} ${disabled ? 'row-muted' : ''}`}>
                       <td className="table-index-cell nhso-select-cell">
-                        <input type="checkbox" checked={isSelected} disabled={disabled} onChange={() => toggleSelection(row.vn)} />
+                        {isDischargedHome && !disabled
+                          ? <input type="checkbox" checked={isSelected} onChange={() => toggleSelection(row.vn)} aria-label={`เลือกปิดสิทธิ VN ${row.vn}`} />
+                          : <span title={isDischargedHome ? 'รายการนี้ปิดสิทธิแล้ว' : 'ต้องมีสถานะคนไข้เป็นกลับบ้านก่อนจึงจะปิดสิทธิ์ได้'}>-</span>}
                       </td>
                       <td className="table-cell-nowrap workflow-id-cell">{row.vn}</td>
                       <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
@@ -600,6 +605,11 @@ export const NhsoClosePage: React.FC = () => {
                       <td className="nhso-right-cell">
                         <div className="nhso-maininscl">{row.maininscl || '-'}</div>
                         <div className="nhso-subtext">{row.pttypename || '-'}</div>
+                      </td>
+                      <td className="table-cell-nowrap">
+                        <span className={`badge ${isDischargedHome ? 'badge-success' : 'badge-warning'}`}>
+                          {row.visit_outcome || 'ไม่ระบุ'}
+                        </span>
                       </td>
                       <td className="table-cell-nowrap workflow-code-cell">{row.close_code || '-'}</td>
                       <td className="table-cell-nowrap">
@@ -614,7 +624,7 @@ export const NhsoClosePage: React.FC = () => {
                   );
                 }) : (
                   <tr>
-                    <td colSpan={12} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                    <td colSpan={13} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                       {loading ? 'กำลังโหลดรายการ...' : 'ไม่พบรายการตามตัวกรองที่เลือก'}
                     </td>
                   </tr>

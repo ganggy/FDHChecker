@@ -4,6 +4,7 @@ import defaultRules from '../config/business_rules.json';
 import { FUND_DEFINITIONS } from '../config/fundDefinitions';
 import { formatLocalDateStamp } from '../utils/dateUtils';
 import { IpdLosSettings } from '../components/IpdLosSettings';
+import { HospitalDatabaseSettings } from '../components/HospitalDatabaseSettings';
 
 interface Config {
     costs: {
@@ -149,7 +150,7 @@ const getGuaranteedFundDefinitions = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced'>('hospital');
+    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced' | 'connection'>('hospital');
     const [frontendConfig, setFrontendConfig] = useState<Config | null>(null);
     const [backendConfig, setBackendConfig] = useState<any | null>(null);
     const [frontendSource, setFrontendSource] = useState<'database' | 'file' | 'unknown'>('unknown');
@@ -464,6 +465,7 @@ export const SettingsPage: React.FC = () => {
             )}
 
             <div className="settings-tabs">
+                <button className={`tab-btn ${activeTab === 'connection' ? 'active' : ''}`} onClick={() => setActiveTab('connection')}>🗄️ ฐานข้อมูล HOSxP</button>
                 <button className={`tab-btn ${activeTab === 'hospital' ? 'active' : ''}`} onClick={() => setActiveTab('hospital')}>🏥 หน่วยบริการ</button>
                 <button className={`tab-btn ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>💰 ต้นทุนและกฎ</button>
                 <button className={`tab-btn ${activeTab === 'ipdLos' ? 'active' : ''}`} onClick={() => setActiveTab('ipdLos')}>🛏️ ICD-10 / LOS</button>
@@ -473,6 +475,7 @@ export const SettingsPage: React.FC = () => {
             </div>
 
             <div className="settings-card">
+                {activeTab === 'connection' && <HospitalDatabaseSettings />}
                 {activeTab === 'ipdLos' && <IpdLosSettings />}
 
                 {activeTab === 'hospital' && frontendConfig && (

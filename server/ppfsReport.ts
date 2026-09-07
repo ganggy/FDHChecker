@@ -1,3 +1,4 @@
+import type { HospitalConnection } from './hospitalDatabase.js';
 import type mysql from 'mysql2/promise';
 import businessRules from './config/business_rules.json';
 import { ensureRepstmTables, getRepstmConnection } from './db.js';
@@ -215,7 +216,7 @@ const getFiscalRange = (thaiFiscalYear: number) => ({
 });
 
 const getLocalStmSummary = async (): Promise<PpfsLocalYearRow[]> => {
-  let connection: mysql.PoolConnection | null = null;
+  let connection: HospitalConnection | null = null;
   try {
     await ensureRepstmTables();
     connection = await getRepstmConnection();

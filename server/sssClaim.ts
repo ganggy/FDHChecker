@@ -1,3 +1,4 @@
+import type { HospitalConnection } from './hospitalDatabase.js';
 import AdmZip from 'adm-zip';
 import crypto from 'crypto';
 import iconv from 'iconv-lite';
@@ -71,7 +72,7 @@ const SSS_IMPORT_ROW_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
-const ensureSssImportTables = async (connection: mysql.PoolConnection) => {
+const ensureSssImportTables = async (connection: HospitalConnection) => {
   await connection.query(SSS_IMPORT_BATCH_SQL);
   await connection.query(SSS_IMPORT_ROW_SQL);
 };

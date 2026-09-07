@@ -1,4 +1,7 @@
 import mysql from 'mysql2/promise';
+import { hospitalPool, activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection } from './hospitalDatabase.js';
+import { mergeFdhClaimDetails } from './fdhClaimDetailMerge.js';
+import { resolveRepstmDatabaseConfig } from './repstmConfig.js';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import businessRules from './config/business_rules.json';
@@ -17,24 +20,13 @@ import { buildPostnatalTraditionalMedicineExclusionSql } from './specificFundRul
 dotenv.config();
 
 // ตั้งค่าการเชื่อมต่อ HOSxP
-const pool = mysql.createPool({
-  host: process.env.HOSXP_HOST,
-  user: process.env.HOSXP_USER,
-  password: process.env.HOSXP_PASSWORD,
-  database: process.env.HOSXP_DB,
-  waitForConnections: true,
-  connectionLimit: 30,  // Increased from 10 to support sequential processing of 580+ records
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
-  charset: 'utf8mb4',
-});
+const pool = hospitalPool;
 
+const repstmConfig = resolveRepstmDatabaseConfig(process.env);
 const repstmPool = mysql.createPool({
-  host: process.env.REPSTM_HOST || process.env.HOSXP_HOST,
-  user: process.env.REPSTM_USER || process.env.HOSXP_USER,
-  password: process.env.REPSTM_PASSWORD || process.env.HOSXP_PASSWORD,
-  database: process.env.REPSTM_DB || 'repstminv',
+  // Preserve the legacy HOSXP_* fallback when the saved HIS override changes
+  // to PostgreSQL, otherwise the existing user database becomes unreachable.
+  ...repstmConfig,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -47,9 +39,7 @@ const repstmDatabaseName = process.env.REPSTM_DB || 'repstminv';
 
 // Helper function สำหรับจัดการ connection และ charset
 export const getUTFConnection = async () => {
-  const connection = await pool.getConnection();
-  await connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
-  return connection;
+  return pool.getConnection();
 };
 
 export const getRepstmConnection = async () => {
@@ -893,7 +883,7 @@ const MOPHCLAIM_SEND_TABLE_SQL = `
 `;
 
 export const ensureAppSettingsTable = async () => {
-  const connection = await getUTFConnection();
+  const connection = await (activeHospitalDatabaseConfig.type === 'postgresql' ? getRepstmConnection() : getUTFConnection());
   try {
     await connection.query(APP_SETTINGS_TABLE_SQL);
   } finally {
@@ -902,6 +892,10 @@ export const ensureAppSettingsTable = async () => {
 };
 
 const ensureFdhClaimStatusSchema = async (connection: any): Promise<void> => {
+  if (activeHospitalDatabaseConfig.type === 'postgresql') {
+    await connection.query('SELECT vn, transaction_uid FROM fdh_claim_status LIMIT 0');
+    return;
+  }
   await connection.query(FDH_CLAIM_STATUS_TABLE_SQL);
 
   const [columnRows] = await connection.query(
@@ -976,7 +970,9 @@ export const ensureFdhClaimStatusTable = async () => {
 export const ensureNhsoClosePrivilegeTable = async () => {
   const connection = await getUTFConnection();
   try {
-    await connection.query(NHSO_CONFIRM_PRIVILEGE_TABLE_SQL);
+    await connection.query(activeHospitalDatabaseConfig.type === 'postgresql'
+      ? 'SELECT vn FROM nhso_confirm_privilege LIMIT 0'
+      : NHSO_CONFIRM_PRIVILEGE_TABLE_SQL);
   } finally {
     connection.release();
   }
@@ -1376,7 +1372,7 @@ const parseStoredSettingValue = <T>(value: unknown): T | null => {
 };
 
 export const getAppSetting = async <T = unknown>(settingKey: string): Promise<T | null> => {
-  const connection = await getUTFConnection();
+  const connection = await (activeHospitalDatabaseConfig.type === 'postgresql' ? getRepstmConnection() : getUTFConnection());
   try {
     await connection.query(APP_SETTINGS_TABLE_SQL);
     const [rows] = await connection.query(
@@ -1394,7 +1390,7 @@ export const getAppSetting = async <T = unknown>(settingKey: string): Promise<T 
 };
 
 export const setAppSetting = async (settingKey: string, settingValue: unknown) => {
-  const connection = await getUTFConnection();
+  const connection = await (activeHospitalDatabaseConfig.type === 'postgresql' ? getRepstmConnection() : getUTFConnection());
   try {
     await connection.query(APP_SETTINGS_TABLE_SQL);
     await connection.query(
@@ -1415,7 +1411,7 @@ export const setAppSetting = async (settingKey: string, settingValue: unknown) =
 export const setAppSettingsBundle = async (
   settings: Array<{ settingKey: string; settingValue: unknown }>
 ) => {
-  const connection = await getUTFConnection();
+  const connection = await (activeHospitalDatabaseConfig.type === 'postgresql' ? getRepstmConnection() : getUTFConnection());
   try {
     await connection.query(APP_SETTINGS_TABLE_SQL);
     await connection.beginTransaction();
@@ -4013,7 +4009,7 @@ export const repairLegacyStatementAmounts = async (): Promise<LegacyStatementAmo
 };
 
 const loadBatchCompletenessProfile = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   batchId: number,
   dataType: RepstmDataType
 ) => {
@@ -4031,7 +4027,7 @@ const loadBatchCompletenessProfile = async (
 };
 
 const updateBatchCompletenessProfile = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   batchId: number,
   profile: ImportCompletenessProfile
 ) => {
@@ -4055,7 +4051,7 @@ const updateBatchCompletenessProfile = async (
 };
 
 const backfillBatchRowIdentities = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   batchId: number,
   dataType: RepstmDataType,
   rows: Record<string, unknown>[]
@@ -4091,7 +4087,7 @@ const formatExistingBatchLabel = (batch: Record<string, unknown>) => {
 };
 
 const loadIndexedOverlapCounts = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   dataType: RepstmDataType,
   rowIdentities: Set<string>
 ) => {
@@ -4122,7 +4118,7 @@ const loadIndexedOverlapCounts = async (
 };
 
 const findRepstmImportDecision = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   dataType: RepstmDataType,
   profile: ImportCompletenessProfile
 ): Promise<RepstmImportDecision> => {
@@ -4407,7 +4403,7 @@ const resolveStatementRecordUid = (
 const resolveVisitDateOnly = (dateTime: string | null) => dateTime?.split(' ')[0] || null;
 
 const resolveRepVisitCode = async (
-  hosConnection: mysql.PoolConnection,
+  hosConnection: HospitalConnection,
   department: string,
   hn: string,
   admdate: string | null,
@@ -4480,7 +4476,7 @@ const resolveRepVisitCode = async (
 };
 
 const resolveRepIncome = async (
-  hosConnection: mysql.PoolConnection,
+  hosConnection: HospitalConnection,
   department: string,
   vn: string,
   an: string
@@ -4509,8 +4505,8 @@ const resolveRepIncome = async (
 };
 
 const importRepDataRows = async (
-  repConnection: mysql.PoolConnection,
-  hosConnection: mysql.PoolConnection,
+  repConnection: HospitalConnection,
+  hosConnection: HospitalConnection,
   batchId: number,
   payload: {
     sourceFilename: string;
@@ -4686,8 +4682,8 @@ const importRepDataRows = async (
 };
 
 const importStatementDataRows = async (
-  repConnection: mysql.PoolConnection,
-  hosConnection: mysql.PoolConnection,
+  repConnection: HospitalConnection,
+  hosConnection: HospitalConnection,
   batchId: number,
   payload: {
     dataType: 'STM' | 'INV';
@@ -4838,7 +4834,7 @@ const summarizeImportRow = (row: Record<string, unknown>) => {
 };
 
 const insertRepstmImportRows = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   batchId: number,
   dataType: 'REP' | 'STM' | 'INV',
   rows: Record<string, unknown>[]
@@ -6916,7 +6912,7 @@ const matchesRepDailyClaimStatus = (claimStatus: string, hasRep: boolean) => {
 };
 
 const loadRepEntriesForVisitCodes = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   vns: string[],
   ans: string[]
 ) => {
@@ -6977,7 +6973,7 @@ const loadRepEntriesForVisitCodes = async (
 };
 
 const loadStmEntriesForVisitCodes = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   vns: string[],
   ans: string[],
   repMap: Map<string, RepDailyRepEntry>
@@ -9312,8 +9308,8 @@ export const searchRepstmManagedBatches = async (filters: {
 };
 
 const restoreRepstmBatchNormalizedRows = async (
-  connection: mysql.PoolConnection,
-  hosConnection: mysql.PoolConnection,
+  connection: HospitalConnection,
+  hosConnection: HospitalConnection,
   batchId: number,
 ) => {
   const [batchRows] = await connection.query(
@@ -9347,8 +9343,8 @@ const restoreRepstmBatchNormalizedRows = async (
 };
 
 const deleteRepstmBatchWithinTransaction = async (
-  connection: mysql.PoolConnection,
-  hosConnection: mysql.PoolConnection,
+  connection: HospitalConnection,
+  hosConnection: HospitalConnection,
   batchId: number,
 ) => {
   const [batchRows] = await connection.query(
@@ -10528,7 +10524,7 @@ export const testDatabaseConnection = async (): Promise<{
       // Get table count
       const [tableRows] = await connection.query(
         'SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ?',
-        [process.env.HOSXP_DB || 'hos']
+        [activeHospitalDatabaseConfig.type === 'postgresql' ? activeHospitalDatabaseConfig.schema : activeHospitalDatabaseConfig.database]
       );
       const tableCount = (tableRows as Record<string, unknown>[])[0]?.count as number || 0;
 
@@ -10672,6 +10668,31 @@ export const testReceiptJoin = async (vn: string): Promise<Record<string, unknow
     connection.release();
   }
 };
+const attachLatestFdhClaimDetails = async (rows: Record<string, unknown>[], patientType: 'OPD' | 'IPD') => {
+  const key = patientType === 'IPD' ? 'an' : 'vn';
+  const codes = [...new Set(rows.map((row) => String(row[key] || '')).filter(Boolean))];
+  if (!codes.length) return rows;
+  const connection = await getRepstmConnection();
+  try {
+    const details: Record<string, unknown>[] = [];
+    for (let offset = 0; offset < codes.length; offset += 500) {
+      const batch = codes.slice(offset, offset + 500);
+      const [found] = await connection.query(`
+        SELECT d.${key}, d.claim_status, d.claim_code, d.upload_uid, d.sent_at,
+          DATE_FORMAT(d.sent_at, '%Y-%m-%d') AS sent_at_day
+        FROM fdh_claim_detail_row d
+        JOIN (
+          SELECT ${key}, MAX(id) AS latest_id FROM fdh_claim_detail_row
+          WHERE ${key} IN (${batch.map(() => '?').join(',')})
+            ${patientType === 'IPD' ? "AND UPPER(IFNULL(patient_type, '')) IN ('IP', 'IPD')" : ''}
+          GROUP BY ${key}
+        ) latest ON latest.latest_id = d.id`, batch);
+      details.push(...found as Record<string, unknown>[]);
+    }
+    return mergeFdhClaimDetails(rows, details, patientType);
+  } finally { connection.release(); }
+};
+
 // ฟังก์ชันดึงข้อมูล Visit ที่เข้าข่ายส่งเบิก FDH
 export const getEligibleVisits = async (
   startDate?: string,
@@ -10927,15 +10948,15 @@ export const getEligibleVisits = async (
           ''
         ) as close_status,
         COALESCE(
-          NULLIF(fdh_detail.claim_status, ''),
-          NULLIF(fdh.fdh_reservation_status, ''),
-          NULLIF(fdh.fdh_claim_status_message, ''),
+          NULLIF(NULL, ''),
+          NULLIF(CONVERT(fdh.fdh_reservation_status USING utf8mb4) COLLATE utf8mb4_unicode_ci, ''),
+          NULLIF(CONVERT(fdh.fdh_claim_status_message USING utf8mb4) COLLATE utf8mb4_unicode_ci, ''),
           IF(fdh.transaction_uid IS NOT NULL, 'ส่ง FDH แล้ว', NULL)
         ) as fdh_status_label,
-        fdh_detail.claim_status as fdh_claim_detail_status,
-        fdh_detail.claim_code as fdh_claim_code,
-        fdh_detail.upload_uid as fdh_upload_uid,
-        fdh_detail.sent_at as fdh_sent_at,
+        NULL as fdh_claim_detail_status,
+        NULL as fdh_claim_code,
+        NULL as fdh_upload_uid,
+        NULL as fdh_sent_at,
         fdh.fdh_reservation_status,
         fdh.fdh_claim_status_message,
         fdh.error_code as fdh_error_code,
@@ -10946,16 +10967,6 @@ export const getEligibleVisits = async (
       LEFT JOIN pttype ON ovst.pttype = pttype.pttype
       LEFT JOIN vn_stat v ON v.vn = ovst.vn
       LEFT JOIN ovstist ON ovstist.ovstist = ovst.ovstist
-      LEFT JOIN (
-        SELECT d.*
-        FROM repstminv.fdh_claim_detail_row d
-        JOIN (
-          SELECT vn, MAX(id) AS latest_id
-          FROM repstminv.fdh_claim_detail_row
-          WHERE IFNULL(vn, '') <> ''
-          GROUP BY vn
-        ) latest ON latest.latest_id = d.id
-      ) fdh_detail ON fdh_detail.vn = ovst.vn
       LEFT JOIN (
         SELECT s.*
         FROM fdh_claim_status s
@@ -10992,10 +11003,7 @@ export const getEligibleVisits = async (
     }
 
     const [rows] = await connection.query(query, params);
-    return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
-  } catch (error) {
-    console.error('Error fetching eligible visits:', error);
-    return [];
+    return await attachLatestFdhClaimDetails((Array.isArray(rows) ? rows : []) as Record<string, unknown>[], 'OPD');
   } finally {
     connection.release();
   }
@@ -11877,7 +11885,7 @@ export const getDiagsAndProcedures = async (vn: string) => {
   }
 };
 
-const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, rows: Record<string, unknown>[]) => {
+const attachSpecificFundStatusFields = async (connection: HospitalConnection, rows: Record<string, unknown>[]) => {
   const uniqueVns = Array.from(
     new Set(
       rows
@@ -12014,7 +12022,7 @@ const attachSpecificFundStatusFields = async (connection: mysql.PoolConnection, 
   const fdhImportMap = new Map<string, ImportedClaimStatus>();
   const repImportMap = new Map<string, ImportedRepStatus>();
   const statementImportMap = new Map<string, ImportedStatementStatus>();
-  let repConnection: mysql.PoolConnection | null = null;
+  let repConnection: HospitalConnection | null = null;
 
   try {
     repConnection = await getRepstmConnection();
@@ -12198,7 +12206,7 @@ export type FdhImportSummary = {
 };
 
 const upsertFdhClaimStatusFromApi = async (
-  connection: mysql.PoolConnection,
+  connection: HospitalConnection,
   vn: string,
   hcode: string,
   message: string,
@@ -14045,6 +14053,7 @@ export const getSpecificFundData = async (
     // สามารถเพิ่มเงื่อนไขกองทุนอื่นๆ ต่อไปได้ที่นี่
     return [];
   } catch (error) {
+    rethrowHospitalDatabaseError(error);
     console.error('Error fetching specific fund data:', error);
     if (options.throwOnError) throw error;
     return [];
@@ -14488,7 +14497,7 @@ export const getKidneyMonitorDetailed = async (startDate: string, endDate: strin
 
     let enrichedData = detailedData;
     let repstmSummary = attachKidneyRepStmTracking(detailedData, [], []).summary;
-    let repstmConnection: mysql.PoolConnection | null = null;
+    let repstmConnection: HospitalConnection | null = null;
     try {
       const visitVns = Array.from(new Set(detailedData.map((row) => String(row.vn || '').trim()).filter(Boolean)));
       const visitHns = Array.from(new Set(detailedData.map((row) => String(row.hn || '').trim()).filter(Boolean)));
@@ -14945,34 +14954,34 @@ export const getEligibleIPD = async (
         ${hasAuditTable ? 'za.status' : 'NULL'} as audit_status,
         ${hasAuditTable ? 'za.updated_by' : 'NULL'} as audit_by,
         ${hasAuditTable ? 'za.updated_at' : 'NULL'} as audit_date,
-        COALESCE(fdh_detail.upload_uid, fdh.transaction_uid) as fdh_transaction_uid,
+        COALESCE(NULL, fdh.transaction_uid) as fdh_transaction_uid,
         COALESCE(
-          fdh_detail.claim_status,
-          fdh.fdh_reservation_status,
-          fdh.fdh_claim_status_message,
+          NULL,
+          CONVERT(fdh.fdh_reservation_status USING utf8mb4) COLLATE utf8mb4_unicode_ci,
+          CONVERT(fdh.fdh_claim_status_message USING utf8mb4) COLLATE utf8mb4_unicode_ci,
           IF(fdh.transaction_uid IS NOT NULL, 'ส่ง FDH แล้ว', NULL)
         ) as fdh_status_label,
         fdh.fdh_reservation_status,
-        COALESCE(fdh_detail.sent_at, fdh.fdh_reservation_datetime) as fdh_reservation_datetime,
+        COALESCE(NULL, fdh.fdh_reservation_datetime) as fdh_reservation_datetime,
         fdh.fdh_claim_status_message,
         fdh.error_code as fdh_error_code,
         fdh.fdh_stm_period,
         fdh.fdh_act_amt,
         fdh.fdh_settle_at,
         fdh.updated_at as fdh_updated_at,
-        fdh_detail.claim_code as fdh_claim_code,
-        fdh_detail.upload_uid as fdh_upload_uid,
-        fdh_detail.claim_status as fdh_claim_detail_status,
-        fdh_detail.sent_at as fdh_claim_detail_sent_at,
+        NULL as fdh_claim_code,
+        NULL as fdh_upload_uid,
+        NULL as fdh_claim_detail_status,
+        NULL as fdh_claim_detail_sent_at,
         CASE
           WHEN ipt.dchdate IS NULL THEN NULL
-          WHEN COALESCE(fdh_detail.sent_at, fdh.fdh_reservation_datetime, fdh.updated_at) IS NOT NULL
-            THEN DATEDIFF(DATE(COALESCE(fdh_detail.sent_at, fdh.fdh_reservation_datetime, fdh.updated_at)), DATE(ipt.dchdate))
+          WHEN COALESCE(NULL, fdh.fdh_reservation_datetime, fdh.updated_at) IS NOT NULL
+            THEN DATEDIFF(DATE(COALESCE(NULL, fdh.fdh_reservation_datetime, fdh.updated_at)), DATE(ipt.dchdate))
           ELSE DATEDIFF(CURDATE(), DATE(ipt.dchdate))
         END as fdh_days_from_discharge,
         CASE
           WHEN ipt.dchdate IS NULL THEN 'ยังไม่จำหน่าย'
-          WHEN COALESCE(fdh_detail.sent_at, fdh.fdh_reservation_datetime, fdh.updated_at) IS NOT NULL THEN 'ส่ง FDH แล้ว'
+          WHEN COALESCE(NULL, fdh.fdh_reservation_datetime, fdh.updated_at) IS NOT NULL THEN 'ส่ง FDH แล้ว'
           ELSE 'ยังไม่ส่ง/ยังไม่พบวันส่ง FDH'
         END as fdh_days_note
         
@@ -14981,17 +14990,6 @@ export const getEligibleIPD = async (
       LEFT JOIN ward w ON ipt.ward = w.ward
       LEFT JOIN pttype ON ipt.pttype = pttype.pttype
       ${hasAuditTable ? 'LEFT JOIN z_fdh_audit_log za ON ipt.an = za.an' : ''}
-      LEFT JOIN (
-        SELECT d.*
-        FROM repstminv.fdh_claim_detail_row d
-        JOIN (
-          SELECT an, MAX(id) AS max_id
-          FROM repstminv.fdh_claim_detail_row
-          WHERE IFNULL(an, '') <> ''
-            AND UPPER(IFNULL(patient_type, '')) IN ('IP', 'IPD')
-          GROUP BY an
-        ) latest ON latest.max_id = d.id
-      ) fdh_detail ON fdh_detail.an = ipt.an
       LEFT JOIN (
         SELECT s.*
         FROM fdh_claim_status s
@@ -15029,10 +15027,7 @@ export const getEligibleIPD = async (
     query += ` ORDER BY ipt.regdate DESC LIMIT ${businessRules.query_limits.ipd_limit}`;
 
     const [rows] = await connection.query(query, params);
-    return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
-  } catch (error) {
-    console.error('Error fetching IPD data:', error);
-    return [];
+    return await attachLatestFdhClaimDetails((Array.isArray(rows) ? rows : []) as Record<string, unknown>[], 'IPD');
   } finally {
     connection.release();
   }

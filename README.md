@@ -115,6 +115,8 @@ npm run check
 
 ## ⚙️ การตั้งค่า
 
+เลือกชนิดฐาน HOSxP ได้ที่ **ตั้งค่าระบบ → ฐานข้อมูล HOSxP** รองรับ MySQL/MariaDB และ PostgreSQL สำหรับการอ่านข้อมูล โดย PostgreSQL ยังต้องตรวจความเข้ากันได้ของแต่ละรายงาน ดู[ขั้นตอนและขอบเขตการรองรับ](./deploy/HOSPITAL_DATABASE.md)
+
 ใช้ [.env.example](./.env.example) เป็นแม่แบบ ห้าม commit `.env`, password หรือ token จริงเข้า Git
 
 ตัวแปรสำคัญ:

@@ -214,10 +214,9 @@ export const IpdClaimMonitorPage = () => {
   const wardOptions = useMemo(() => Array.from(new Set(
     rows.map((row) => String(row.ward || '').trim()).filter(Boolean),
   )).sort((a, b) => a.localeCompare(b, 'th')), [rows]);
-  const filteredRows = useMemo(() => {
+  const scopedRows = useMemo(() => {
     const term = search.trim().toLowerCase();
     return rows.filter((row) => {
-      if (stageFilter !== 'all' && row.stageKey !== stageFilter) return false;
       if (rightFilter !== 'all' && String(row.hipdata_code || 'ไม่ระบุ') !== rightFilter) return false;
       if (wardFilter !== 'all' && String(row.ward || '').trim() !== wardFilter) return false;
       if (auditFilter !== 'all' && (row.pre_audit?.status || 'clear') !== auditFilter) return false;
@@ -225,28 +224,32 @@ export const IpdClaimMonitorPage = () => {
       return [row.an, row.vn, row.hn, row.patient_name, row.ward, row.pttype_name, row.hipdata_code, row.rep_no, row.stm_statement_no, row.inv_statement_no]
         .some((value) => String(value || '').toLowerCase().includes(term));
     });
-  }, [auditFilter, rightFilter, rows, search, stageFilter, wardFilter]);
+  }, [auditFilter, rightFilter, rows, search, wardFilter]);
+
+  const filteredRows = useMemo(() => (
+    stageFilter === 'all' ? scopedRows : scopedRows.filter((row) => row.stageKey === stageFilter)
+  ), [scopedRows, stageFilter]);
 
   const summary = useMemo(() => {
-    const total = rows.length;
-    const fdh = rows.filter((row) => row.fdh_found).length;
-    const rep = rows.filter((row) => Boolean(row.has_rep || row.rep_no)).length;
-    const inv = rows.filter((row) => row.has_inv).length;
-    const stm = rows.filter((row) => row.has_stm).length;
-    const complete = rows.filter((row) => row.stageKey === 'complete').length;
-    const attention = rows.filter((row) => row.stageKey === 'rep_issue' || row.stageKey === 'stm_issue').length;
-    const preAuditRisk = rows.filter((row) => row.pre_audit?.status === 'risk').length;
-    const preAuditReview = rows.filter((row) => row.pre_audit?.status === 'review').length;
-    const expected = rows.reduce((sum, row) => sum + Number(row.expected_receivable || 0), 0);
-    const repAmount = rows.reduce((sum, row) => sum + Number(row.rep_amount || 0), 0);
-    const stmPaid = rows.reduce((sum, row) => sum + Number(row.stm_paid_amount || 0), 0);
+    const total = scopedRows.length;
+    const fdh = scopedRows.filter((row) => row.fdh_found).length;
+    const rep = scopedRows.filter((row) => Boolean(row.has_rep || row.rep_no)).length;
+    const inv = scopedRows.filter((row) => row.has_inv).length;
+    const stm = scopedRows.filter((row) => row.has_stm).length;
+    const complete = scopedRows.filter((row) => row.stageKey === 'complete').length;
+    const attention = scopedRows.filter((row) => row.stageKey === 'rep_issue' || row.stageKey === 'stm_issue').length;
+    const preAuditRisk = scopedRows.filter((row) => row.pre_audit?.status === 'risk').length;
+    const preAuditReview = scopedRows.filter((row) => row.pre_audit?.status === 'review').length;
+    const expected = scopedRows.reduce((sum, row) => sum + Number(row.expected_receivable || 0), 0);
+    const repAmount = scopedRows.reduce((sum, row) => sum + Number(row.rep_amount || 0), 0);
+    const stmPaid = scopedRows.reduce((sum, row) => sum + Number(row.stm_paid_amount || 0), 0);
     return { total, fdh, rep, inv, stm, complete, attention, preAuditRisk, preAuditReview, expected, repAmount, stmPaid };
-  }, [rows]);
+  }, [scopedRows]);
 
-  const stageCounts = useMemo(() => rows.reduce<Record<string, number>>((acc, row) => {
+  const stageCounts = useMemo(() => scopedRows.reduce<Record<string, number>>((acc, row) => {
     acc[row.stageKey] = (acc[row.stageKey] || 0) + 1;
     return acc;
-  }, {}), [rows]);
+  }, {}), [scopedRows]);
 
   const exportExcel = () => {
     const exportRows = filteredRows.map((row, index) => ({

@@ -19,6 +19,7 @@ type IpdOverviewRow = {
   pttype?: string;
   pttype_name?: string;
   hipdata_code?: string;
+  ward?: string;
   income?: number;
   expected_receivable?: number;
   fdh_found?: boolean;
@@ -160,6 +161,7 @@ export const IpdClaimMonitorPage = () => {
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<StageKey | 'all'>('all');
   const [rightFilter, setRightFilter] = useState('all');
+  const [wardFilter, setWardFilter] = useState('all');
   const [auditFilter, setAuditFilter] = useState<'all' | 'clear' | 'review' | 'risk'>('all');
   const [detailVisit, setDetailVisit] = useState<MonitorRow | null>(null);
 
@@ -209,17 +211,21 @@ export const IpdClaimMonitorPage = () => {
   }, []);
 
   const rightOptions = useMemo(() => Array.from(new Set(rows.map((row) => String(row.hipdata_code || 'ไม่ระบุ')))).sort(), [rows]);
+  const wardOptions = useMemo(() => Array.from(new Set(
+    rows.map((row) => String(row.ward || '').trim()).filter(Boolean),
+  )).sort((a, b) => a.localeCompare(b, 'th')), [rows]);
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (stageFilter !== 'all' && row.stageKey !== stageFilter) return false;
       if (rightFilter !== 'all' && String(row.hipdata_code || 'ไม่ระบุ') !== rightFilter) return false;
+      if (wardFilter !== 'all' && String(row.ward || '').trim() !== wardFilter) return false;
       if (auditFilter !== 'all' && (row.pre_audit?.status || 'clear') !== auditFilter) return false;
       if (!term) return true;
-      return [row.an, row.vn, row.hn, row.patient_name, row.pttype_name, row.hipdata_code, row.rep_no, row.stm_statement_no, row.inv_statement_no]
+      return [row.an, row.vn, row.hn, row.patient_name, row.ward, row.pttype_name, row.hipdata_code, row.rep_no, row.stm_statement_no, row.inv_statement_no]
         .some((value) => String(value || '').toLowerCase().includes(term));
     });
-  }, [auditFilter, rightFilter, rows, search, stageFilter]);
+  }, [auditFilter, rightFilter, rows, search, stageFilter, wardFilter]);
 
   const summary = useMemo(() => {
     const total = rows.length;
@@ -249,6 +255,7 @@ export const IpdClaimMonitorPage = () => {
       VN: row.vn || '',
       HN: row.hn || '',
       ชื่อผู้ป่วย: row.patient_name || '',
+      ตึกผู้ป่วย: row.ward || '',
       วันที่จำหน่าย: row.dchdate || '',
       สิทธิ: row.pttype_name || '',
       HIPDATA: row.hipdata_code || '',
@@ -295,6 +302,7 @@ export const IpdClaimMonitorPage = () => {
           <div className="form-group ipd-monitor-search"><label className="form-label">ค้นหา AN / HN / ชื่อ / REP</label><input className="form-control" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="พิมพ์คำค้น..." /></div>
           <div className="form-group"><label className="form-label">สถานะปัจจุบัน</label><select className="form-control" value={stageFilter} onChange={(event) => setStageFilter(event.target.value as StageKey | 'all')}>{STAGES.map((stage) => <option key={stage.key} value={stage.key}>{stage.label}</option>)}</select></div>
           <div className="form-group"><label className="form-label">สิทธิ HIPDATA</label><select className="form-control" value={rightFilter} onChange={(event) => setRightFilter(event.target.value)}><option value="all">ทุกสิทธิ</option>{rightOptions.map((right) => <option key={right} value={right}>{right}</option>)}</select></div>
+          <div className="form-group"><label className="form-label">ตึกผู้ป่วย (Ward)</label><select className="form-control" value={wardFilter} onChange={(event) => setWardFilter(event.target.value)}><option value="all">ทุกตึก</option>{wardOptions.map((ward) => <option key={ward} value={ward}>{ward}</option>)}</select></div>
           <div className="form-group"><label className="form-label">IPD Pre-audit</label><select className="form-control" value={auditFilter} onChange={(event) => setAuditFilter(event.target.value as typeof auditFilter)}><option value="all">ทุกผลตรวจ</option><option value="risk">พบความเสี่ยง</option><option value="review">ต้องทบทวนเวชระเบียน</option><option value="clear">ผ่านกฎอัตโนมัติ</option></select></div>
           <button className="btn btn-primary" type="button" onClick={loadData} disabled={loading}>{loading ? 'กำลังโหลด...' : '🔄 โหลดข้อมูล'}</button>
         </div>
@@ -354,13 +362,14 @@ export const IpdClaimMonitorPage = () => {
         <div className="card-header"><span className="workflow-table-title">รายการติดตามผู้ป่วยใน</span><span className="workflow-table-meta">แสดง {filteredRows.length.toLocaleString('th-TH')} / {rows.length.toLocaleString('th-TH')} เคส</span></div>
         <div className="table-responsive">
           <table className="data-table ipd-monitor-table">
-            <thead><tr><th>#</th><th>AN / HN</th><th>ผู้ป่วย / สิทธิ</th><th>D/C</th><th>ยอดคาดรับ</th><th>IPD Pre-audit</th><th>FDH</th><th>REP</th><th>INV</th><th>STM</th><th>สถานะปัจจุบัน</th><th>รายละเอียด</th></tr></thead>
+            <thead><tr><th>#</th><th>AN / HN</th><th>ผู้ป่วย / สิทธิ</th><th>ตึกผู้ป่วย</th><th>D/C</th><th>ยอดคาดรับ</th><th>IPD Pre-audit</th><th>FDH</th><th>REP</th><th>INV</th><th>STM</th><th>สถานะปัจจุบัน</th><th>รายละเอียด</th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={12} className="empty-cell">กำลังตรวจข้อมูลและกฎ S1...</td></tr> : filteredRows.length === 0 ? <tr><td colSpan={12} className="empty-cell">ไม่พบรายการตามเงื่อนไข</td></tr> : filteredRows.map((row, index) => (
+              {loading ? <tr><td colSpan={13} className="empty-cell">กำลังตรวจข้อมูลและกฎ S1...</td></tr> : filteredRows.length === 0 ? <tr><td colSpan={13} className="empty-cell">ไม่พบรายการตามเงื่อนไข</td></tr> : filteredRows.map((row, index) => (
                 <tr key={visitKey(row)}>
                   <td>{index + 1}</td>
                   <td><strong className="ipd-monitor-id">{row.an || '-'}</strong><small>HN {row.hn || '-'}</small></td>
                   <td><strong>{row.patient_name || '-'}</strong><small>{row.hipdata_code || '-'} · {row.pttype_name || '-'}</small></td>
+                  <td><span>{row.ward || '-'}</span></td>
                   <td><span>{row.dchdate || '-'}</span><small>Admit {row.admdate || '-'}</small></td>
                   <td className="ipd-monitor-money">{money(row.expected_receivable)}</td>
                   <td>

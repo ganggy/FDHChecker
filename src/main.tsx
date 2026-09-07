@@ -59,7 +59,8 @@ const installApiFallbackFetch = () => {
 
     const handleUnauthorized = (response: Response) => {
       const isPublicAuthRequest = ['/api/auth/login', '/api/auth/register'].includes(parsedRequestUrl.pathname);
-      if (response.status === 401 && !isPublicAuthRequest && localStorage.getItem(AUTH_TOKEN_KEY)) {
+      const appSessionIsInvalid = response.headers.get('x-fdh-auth-status') === 'invalid';
+      if (response.status === 401 && appSessionIsInvalid && !isPublicAuthRequest && localStorage.getItem(AUTH_TOKEN_KEY)) {
         localStorage.removeItem(AUTH_TOKEN_KEY);
         window.dispatchEvent(new CustomEvent('fdh:unauthorized'));
       }

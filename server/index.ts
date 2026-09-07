@@ -161,6 +161,7 @@ app.use(cors({
   },
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['X-FDH-Auth-Status'],
   maxAge: 600,
 }));
 app.use((_req, res, next) => {
@@ -278,6 +279,7 @@ const requireAuth = async (req: AuthenticatedRequest, res: Response, next: NextF
     const token = extractBearerToken(req);
     const user = await getAuthUserByToken(token);
     if (!user || !user.approved || !user.is_active) {
+      res.setHeader('X-FDH-Auth-Status', 'invalid');
       return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ' });
     }
     req.authToken = token;

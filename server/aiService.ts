@@ -1,3 +1,4 @@
+import './loadEnv.js';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -18,7 +19,8 @@ const provider = (): AiProvider => process.env.AI_PROVIDER?.trim().toLowerCase()
   ? 'openai'
   : 'ollama';
 const ollamaBaseUrl = () => (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-const ollamaModel = () => process.env.OLLAMA_MODEL || 'qwen3:4b-instruct';
+const ollamaModel = () => process.env.OLLAMA_MODEL || 'fdh-qwen3:4b';
+const ollamaEmbeddingModel = () => process.env.OLLAMA_EMBED_MODEL || 'bge-m3';
 const reportRowLimit = () => Math.max(1, Number(process.env.AI_REPORT_MAX_ROWS) || 50);
 const requestTimeoutMs = () => Math.max(5_000, Number(process.env.AI_TIMEOUT_MS) || 90_000);
 const responseCacheMs = () => Math.max(0, Number(process.env.AI_RESPONSE_CACHE_MS) || 5 * 60_000);
@@ -132,7 +134,7 @@ const callOllama = async (
       signal: AbortSignal.timeout(requestTimeoutMs()),
     });
     const payload = await response.json() as {
-      message?: { content?: string };
+      message?: { content?: string; thinking?: string };
       error?: string | { message?: string; type?: string };
     };
     const errorText = typeof payload.error === 'string'
@@ -150,7 +152,10 @@ const callOllama = async (
       throw new Error(`Ollama ${response.status}: ${errorText}`);
     }
     const text = payload.message?.content?.trim();
-    if (!text) throw new Error('Ollama returned no text');
+    if (!text && payload.message?.thinking?.trim()) {
+      throw new Error(`Ollama model ${ollamaModel()} ส่งเฉพาะ thinking โดยไม่มีคำตอบ กรุณาสร้างโมเดลใหม่จาก qwen3:4b-instruct`);
+    }
+    if (!text) throw new Error('Ollama returned no answer text');
     return text;
   }
   throw new Error('บริบท AI ยาวเกินขนาดหลังจากย่ออัตโนมัติแล้ว กรุณาเริ่มบทสนทนาใหม่');
@@ -302,11 +307,17 @@ export const getAiStatus = async () => {
       signal: AbortSignal.timeout(3_000),
     });
     const payload = await response.json() as { models?: Array<{ name?: string }> };
-    const models = (payload.models || []).map((item) => item.name).filter(Boolean);
+    const models = (payload.models || []).map((item) => item.name).filter((name): name is string => Boolean(name));
+    const hasModel = (model: string) => models.some((name) => name === model || name === `${model}:latest`);
+    const chatConfigured = hasModel(ollamaModel());
+    const embeddingConfigured = hasModel(ollamaEmbeddingModel());
     return {
       provider: selectedProvider,
       model: ollamaModel(),
-      configured: models.some((name) => name === ollamaModel() || name === `${ollamaModel()}:latest`),
+      embedModel: ollamaEmbeddingModel(),
+      configured: chatConfigured && embeddingConfigured,
+      chatConfigured,
+      embeddingConfigured,
       reachable: response.ok,
       baseUrl: ollamaBaseUrl(),
       installedModels: models,
@@ -315,7 +326,10 @@ export const getAiStatus = async () => {
     return {
       provider: selectedProvider,
       model: ollamaModel(),
+      embedModel: ollamaEmbeddingModel(),
       configured: false,
+      chatConfigured: false,
+      embeddingConfigured: false,
       reachable: false,
       baseUrl: ollamaBaseUrl(),
       error: (error as Error).message,

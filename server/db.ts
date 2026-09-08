@@ -9175,6 +9175,86 @@ export const saveReceivableBatch = async (payload: ReceivableBatchPayload) => {
   }
 };
 
+/**
+ * Older import screens could classify NHSO eclaim_* visit-response workbooks as
+ * INV when they contained an (often empty) Invoice column. Re-import the stored
+ * raw rows through the REP mapper, then remove the obsolete INV batch. The
+ * operation is idempotent and only targets the authoritative eclaim_* filename.
+ */
+export const repairMisclassifiedEclaimRepImports = async () => {
+  await ensureRepstmTables();
+  const connection = await getRepstmConnection();
+  let candidates: Record<string, unknown>[] = [];
+  try {
+    const [rows] = await connection.query(
+      `SELECT id, source_filename, file_size, file_hash, sheet_name, imported_by, notes, row_count
+       FROM repstm_import_batch
+       WHERE data_type = 'INV'
+         AND LOWER(SUBSTRING_INDEX(source_filename, ' [', 1)) REGEXP '^eclaim[_-]'
+       ORDER BY id ASC`
+    );
+    candidates = Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+  } finally {
+    connection.release();
+  }
+
+  const summary = { found: candidates.length, repaired: 0, failed: 0 };
+  for (const candidate of candidates) {
+    const batchId = Number(candidate.id || 0);
+    const readConnection = await getRepstmConnection();
+    let rawRows: Record<string, unknown>[] = [];
+    try {
+      const [storedRows] = await readConnection.query(
+        `SELECT raw_data FROM repstm_import_row WHERE batch_id = ? ORDER BY row_no ASC`,
+        [batchId]
+      );
+      rawRows = (Array.isArray(storedRows) ? storedRows : []).map((stored) => {
+        const raw = (stored as Record<string, unknown>).raw_data;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+        try { return JSON.parse(String(raw || '{}')) as Record<string, unknown>; } catch { return {}; }
+      }).filter((row) => Object.keys(row).length > 0);
+    } finally {
+      readConnection.release();
+    }
+
+    if (rawRows.length === 0) {
+      summary.failed += 1;
+      continue;
+    }
+
+    const result = await importRepstmRows({
+      dataType: 'REP',
+      sourceFilename: String(candidate.source_filename || ''),
+      fileSize: candidate.file_size == null ? undefined : Number(candidate.file_size),
+      fileHash: String(candidate.file_hash || ''),
+      sheetName: String(candidate.sheet_name || ''),
+      importedBy: String(candidate.imported_by || 'system-repair'),
+      notes: [String(candidate.notes || '').trim(), `แก้ประเภทอัตโนมัติจาก INV เป็น REP (batch #${batchId})`].filter(Boolean).join(' · '),
+      rows: rawRows,
+    });
+
+    if (!result.success) {
+      summary.failed += 1;
+      continue;
+    }
+
+    // A successful new REP import already removes matching legacy INV batches.
+    // Duplicate/skip results need this explicit cleanup of the obsolete batch.
+    const cleanupConnection = await getRepstmConnection();
+    try {
+      await cleanupConnection.query(
+        `DELETE FROM repstm_import_batch WHERE id = ? AND data_type = 'INV'`,
+        [batchId]
+      );
+      summary.repaired += 1;
+    } finally {
+      cleanupConnection.release();
+    }
+  }
+
+  return summary;
+};
+
 export const getRepstmImportBatches = async (
   dataType?: 'REP' | 'STM' | 'INV',
   limit = 20

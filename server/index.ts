@@ -40,6 +40,7 @@ import {
   getFdhSubmissionLogs,
   getFdhStatusImportLogs,
   ensureRepstmTables,
+  repairMisclassifiedEclaimRepImports,
   importRepstmRows,
   importFdhClaimDetailRows,
   getFdhClaimDetailBatches,
@@ -2954,8 +2955,12 @@ app.get('/api/config/business-rules/backend', async (req, res) => {
 });
 
 ensureRepstmTables()
-  .then(() => {
+  .then(async () => {
     console.log('✅ REP/STM/INV import tables ready in repstminv');
+    const repair = await repairMisclassifiedEclaimRepImports();
+    if (repair.found > 0) {
+      console.log(`✅ REP/INV classification repair: found ${repair.found}, repaired ${repair.repaired}, failed ${repair.failed}`);
+    }
   })
   .catch((error) => {
     console.error('❌ REP/STM/INV table setup failed:', error);
@@ -5066,10 +5071,10 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         }
       }
 
-      // --- Strategy 3: INV ทุกสิทธิที่พบในหน้า validation ของ eClaim ---
+      // --- Strategy 3: REP ทุกสิทธิที่พบในหน้า validation/REP ของ eClaim ---
       // หน้าตรวจสอบแยกสิทธิใช้ maininscl ต่างกัน จึงต้องเปิดครบทุกหน้า
       // ห้ามหยุดที่หน้าที่พบไฟล์หน้าแรก มิฉะนั้นไฟล์ของสิทธิอื่นจะตกหล่น
-      if (fileType === 'ALL' || fileType === 'INV') {
+      if (fileType === 'ALL' || fileType === 'REP') {
         const insuranceCodes = ['ucs', 'ofc', 'lgo', 'bkk'];
         const repSources = [
           ...insuranceCodes.map((fund) => ({
@@ -5130,7 +5135,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             const sourceFiles = await scrapeFilesFromPage(period);
             periodFiles.push(...sourceFiles.map((file) => ({
               ...file,
-              detectedType: 'INV',
+              detectedType: 'REP',
               fund: source.fund,
               sourcePage: file.sourcePage || source.url,
             })));

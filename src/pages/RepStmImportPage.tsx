@@ -9,9 +9,15 @@ import {
   preflightRepstmFiles,
 } from '../services/hosxpService';
 import { navigateFromDashboard } from '../utils/navigationState';
+import {
+  detectRepstmImportType,
+  detectTypeFromFileName,
+  detectTypeFromSheetName,
+  type RepstmImportType,
+} from '../utils/repstmImportClassification';
 import { RepStmImportDetail } from '../components/RepStmImportDetail';
 
-type ImportType = 'REP' | 'STM' | 'INV';
+type ImportType = RepstmImportType;
 
 interface ImportBatch {
   id: number;
@@ -97,31 +103,6 @@ interface EclaimPipelineState {
   message: string;
 }
 
-/** Sheet-name → ImportType map (from Auto4Rep.EXE analysis) */
-const SHEET_TYPE_MAP: Record<string, ImportType> = {
-  statement: 'STM', stm: 'STM',
-  eclaim: 'REP', repdata: 'REP', repeclaim: 'REP', individual: 'REP', detail: 'REP', rep: 'REP',
-  invoice: 'INV', inv: 'INV',
-};
-
-const detectTypeFromSheetName = (sheetName: string): ImportType | null => {
-  const normalized = sheetName.toLowerCase().replace(/[^a-z]/g, '');
-  for (const [key, type] of Object.entries(SHEET_TYPE_MAP)) {
-    if (normalized === key || normalized.startsWith(key)) return type;
-  }
-  return null;
-};
-
-const detectTypeFromFileName = (fileName: string): ImportType | null => {
-  const name = fileName.trim().toLowerCase();
-  // ไฟล์ผลตอบกลับจาก BMS/NHSO ใช้ชื่อ eclaim_* แต่มีข้อมูลระดับ visit แบบ REP
-  if (/^eclaim[_-]/.test(name)) return 'REP';
-  if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice/.test(name)) return 'INV';
-  if (/cocdstm|(^|[_\s.-])stm(?=[_\s.-]|$)|statement/.test(name)) return 'STM';
-  if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata/.test(name)) return 'REP';
-  return null;
-};
-
 const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
   String(file.period || file._period || ''),
   String(file.filename || file.fileName || file.name || ''),
@@ -130,27 +111,7 @@ const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
   String(index),
 ].join('|');
 
-const detectImportType = (fileName: string, headers: string[], rows: Record<string, unknown>[]): ImportType | null => {
-  const normalizedHeaders = headers.map((header) => normalizeHeaderCell(header).toLowerCase());
-  const firstRowKeys = Object.keys(rows[0] || {}).map((key) => normalizeHeaderCell(key).toLowerCase());
-  const bag = `${normalizedHeaders.join(' | ')} | ${firstRowKeys.join(' | ')}`;
-
-  // ใช้โครงสร้างข้อมูลภายในไฟล์ก่อนชื่อไฟล์ เพื่อไม่ให้ REP/INV ปะปนกัน
-  if (bag.includes('invoice') || bag.includes('เลขที่ใบแจ้งหนี้') || bag.includes('invoiceno')) {
-    return 'INV';
-  }
-
-  const repSignalCount = ['tran_id', 'hn', 'an', 'pid', 'ชื่อ - สกุล', 'วันเข้ารักษา', 'ชดเชยสุทธิ', 'พึงรับ']
-    .filter((signal) => bag.includes(signal)).length;
-  if (repSignalCount >= 3) return 'REP';
-
-  if (bag.includes('statement') || bag.includes('stmt_period') || bag.includes('stm_period') || bag.includes('hospcode')) {
-    return 'STM';
-  }
-
-  // ชื่อไฟล์เป็น fallback เมื่อหัวตารางไม่มีสัญญาณเฉพาะเพียงพอ
-  return detectTypeFromFileName(fileName);
-};
+const detectImportType = detectRepstmImportType;
 
 const yieldToBrowser = () => new Promise<void>((resolve) => {
   window.requestAnimationFrame(() => resolve());
@@ -460,7 +421,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimOpen, setEclaimOpen] = useState(false);
   const [eclaimStartDate, setEclaimStartDate] = useState(firstOfMonth);
   const [eclaimEndDate, setEclaimEndDate] = useState(todayStr);
-  const [eclaimFileType, setEclaimFileType] = useState<'STM' | 'INV' | 'ALL'>('ALL');
+  const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
   const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
   const [eclaimBrowserReady, setEclaimBrowserReady] = useState(false);
   const [eclaimBrowserAlive, setEclaimBrowserAlive] = useState(false);
@@ -1411,6 +1372,7 @@ export const RepStmImportPage: React.FC = () => {
                 <label className="form-label">ประเภทไฟล์</label>
                 <select className="form-control" value={eclaimFileType} onChange={(e) => setEclaimFileType(e.target.value as typeof eclaimFileType)}>
                   <option value="ALL">ทุกประเภท</option>
+                  <option value="REP">REP</option>
                   <option value="STM">STM</option>
                   <option value="INV">INV</option>
                 </select>

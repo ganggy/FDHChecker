@@ -29,6 +29,7 @@ after_commit="$(git rev-parse HEAD)"
 log "ติดตั้ง dependency และตรวจสอบคุณภาพ"
 npm ci
 npm run check
+npm run build:all
 
 if [[ "${FDH_DEPLOY_BACKUP:-0}" == "1" ]]; then
   log "สำรองฐานข้อมูลตาม FDH_DEPLOY_BACKUP=1"
@@ -57,4 +58,3 @@ for endpoint in live ready; do
 done
 
 log "สำเร็จ ${before_commit:0:8} -> ${after_commit:0:8}; live/ready ผ่าน"
-

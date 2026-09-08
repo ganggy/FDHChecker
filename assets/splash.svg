@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <defs>
+    <linearGradient id="splash-background" x1="280" y1="160" x2="2450" y2="2580" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172554"/>
+      <stop offset="0.55" stop-color="#1E40AF"/>
+      <stop offset="1" stop-color="#0369A1"/>
+    </linearGradient>
+    <filter id="splash-shadow" x="716" y="650" width="1300" height="1420" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="70" stdDeviation="62" flood-color="#0F172A" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+  <rect width="2732" height="2732" fill="url(#splash-background)"/>
+  <circle cx="2350" cy="420" r="520" fill="#38BDF8" opacity="0.10"/>
+  <circle cx="280" cy="2430" r="700" fill="#2DD4BF" opacity="0.10"/>
+  <g filter="url(#splash-shadow)">
+    <rect x="916" y="770" width="900" height="900" rx="220" fill="#FFFFFF" opacity="0.98"/>
+    <path d="M1134 952h434l164 166v329c0 38-31 69-69 69h-529c-38 0-69-31-69-69v-426c0-38 31-69 69-69Z" fill="#DBEAFE"/>
+    <path d="M1568 952v116c0 28 22 50 50 50h114l-164-166Z" fill="#93C5FD"/>
+    <rect x="1166" y="1153" width="300" height="38" rx="19" fill="#60A5FA"/>
+    <rect x="1166" y="1234" width="236" height="32" rx="16" fill="#93C5FD"/>
+    <circle cx="1582" cy="1415" r="205" fill="#14B8A6" stroke="#FFFFFF" stroke-width="28"/>
+    <path d="m1483 1411 66 68 140-160" fill="none" stroke="#FFFFFF" stroke-width="58" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="1366" y="1920" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="150" font-weight="700" text-anchor="middle">FDH Checker</text>
+  <text x="1366" y="2055" fill="#BFDBFE" font-family="Arial, sans-serif" font-size="58" font-weight="400" text-anchor="middle">CLAIM VALIDATION &amp; WORKFLOW</text>
+</svg>

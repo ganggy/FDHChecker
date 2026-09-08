@@ -91,6 +91,13 @@ const accessIdentity = (req: Request, accessKey: string) => {
   if (headerKey && isAccessKeyMatch(headerKey, accessKey)) {
     return `api:${crypto.createHash('sha256').update(headerKey).digest('hex').slice(0, 20)}`;
   }
+  // Native WebViews cannot reliably share the separate HttpOnly AI cookie with
+  // a remote API origin. The parent /api middleware has already validated this
+  // user from its Bearer token before the AI router runs.
+  const appUser = (req as Request & { authUser?: { id?: number; username?: string } }).authUser;
+  if (appUser?.id) {
+    return `app-user:${appUser.id}:${String(appUser.username || 'unknown')}`;
+  }
   const token = readCookie(req, COOKIE_NAME);
   if (token && verifyAiSessionToken(token, accessKey)) {
     return `session:${crypto.createHash('sha256').update(token).digest('hex').slice(0, 20)}`;

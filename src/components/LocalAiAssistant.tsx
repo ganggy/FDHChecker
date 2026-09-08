@@ -308,16 +308,21 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
             )}
             {status?.auth?.authenticated && messages.map((message, index) => (
               <article key={`${message.role}-${index}`} className={`local-ai-message is-${message.role}`}>
-                <div>{message.text}</div>
+                <div className="local-ai-message-text">{message.text}</div>
                 {message.needsClarification && (
                   <small className="local-ai-clarification-hint">ตอบคำถามนี้เพื่อให้ AI ดำเนินงานเดิมต่อ</small>
                 )}
                 {!!message.sources?.length && (
                   <details>
                     <summary>แหล่งข้อมูล {message.sources.length} รายการ</summary>
+                    <div className="local-ai-sources">
                     {message.sources.map((source) => (
-                      <small key={`${source.id}-${source.source}`}>[{source.id}] {source.source} › {source.heading}</small>
+                      <small key={`${source.id}-${source.source}`}>
+                        <span className="local-ai-source-index">{source.id}</span>
+                        <span><strong>{source.heading}</strong><em>{source.source}</em></span>
+                      </small>
                     ))}
+                    </div>
                   </details>
                 )}
                 {message.attachment && (

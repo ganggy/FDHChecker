@@ -17,6 +17,22 @@ cd /opt/FDHChecker
 bash deploy/scripts/deploy-app.sh
 ```
 
+จากเครื่อง Windows ใช้สคริปต์นี้เพื่อ deploy Backend ไปยัง production โดย SSH จะถามรหัสผ่านเองและไม่มีรหัสผ่านบันทึกอยู่ในไฟล์:
+
+```powershell
+pwsh -File deploy/scripts/deploy-production.ps1
+```
+
+ตัวเลือกที่ใช้บ่อย:
+
+```powershell
+# สำรองฐานข้อมูลก่อน deploy Backend
+pwsh -File deploy/scripts/deploy-production.ps1 -Backup
+
+# Deploy ทั้ง Backend และ Frontend
+pwsh -File deploy/scripts/deploy-production.ps1 -Target all
+```
+
 สคริปต์จะหยุดทันทีหาก branch ไม่ถูกต้อง, working tree ไม่สะอาด, test/build ไม่ผ่าน,
 หา PM2 app ไม่พบ หรือ `/api/live` และ `/api/ready` ไม่พร้อม โดยค่าเริ่มต้นใช้ branch
 `agent/add-local-ai` และ PM2 apps `fdh-backend fdh-frontend`

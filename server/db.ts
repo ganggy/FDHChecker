@@ -9918,6 +9918,8 @@ export const getCheckData = async (
         TIME_FORMAT(ovst.vsttime, '%H:%i:%s') as serviceTime,
         COALESCE(ovst.an, '') as an,
         (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) as main_diag,
+        (SELECT GROUP_CONCAT(DISTINCT icd10 ORDER BY diagtype, icd10 SEPARATOR ',')
+          FROM ovstdiag WHERE vn = ovst.vn) as diagnosis_codes,
         CASE 
           WHEN ovst.an IS NOT NULL AND ovst.an != '' THEN 'ผู้ป่วยใน'
           ELSE 'ผู้ป่วยนอก'

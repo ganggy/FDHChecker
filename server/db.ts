@@ -16,6 +16,7 @@ import { PALLIATIVE_DIAGNOSIS_GROUPS } from '../src/config/palliativeDiagnosisCa
 import { reviewPalliativeCareVisit } from '../src/utils/palliativeCareReview.js';
 import { SYPHILIS_SCREENING_ADP_CODES, SYPHILIS_SCREENING_NAME_PATTERN } from '../src/utils/syphilisScreeningRules.js';
 import { buildPostnatalTraditionalMedicineExclusionSql } from './specificFundRules.js';
+import { resolveStatementVisitKeys } from './repstmVisitKeys.js';
 
 dotenv.config();
 
@@ -12190,6 +12191,9 @@ const attachSpecificFundStatusFields = async (connection: HospitalConnection, ro
     const [statementRows] = await repConnection.query(
       `SELECT
          COALESCE(NULLIF(TRIM(s.matched_visit_code), ''), NULLIF(TRIM(s.vn), ''), NULLIF(TRIM(s.an), ''), '') AS visit_code,
+         MAX(NULLIF(TRIM(s.matched_visit_code), '')) AS matched_visit_code,
+         MAX(NULLIF(TRIM(s.vn), '')) AS vn,
+         MAX(NULLIF(TRIM(s.an), '')) AS an,
          COALESCE(s.tran_id, '') AS tran_id,
          MAX(CASE WHEN s.data_type = 'STM' THEN 1 ELSE 0 END) AS has_stm,
          MAX(CASE WHEN s.data_type = 'INV' THEN 1 ELSE 0 END) AS has_inv,
@@ -12207,26 +12211,26 @@ const attachSpecificFundStatusFields = async (connection: HospitalConnection, ro
       statementParams
     );
     for (const importedRow of (Array.isArray(statementRows) ? statementRows : []) as Record<string, unknown>[]) {
-      const tranId = normalizeImportCellValue(importedRow.tran_id);
-      const visitCode = normalizeImportCellValue(importedRow.visit_code) || tranToVisit.get(tranId) || '';
-      if (!visitCode) continue;
-      const current = statementImportMap.get(visitCode);
       const hasStm = Number(importedRow.has_stm || 0) > 0;
       const hasInv = Number(importedRow.has_inv || 0) > 0;
       const nextStmAmount = hasStm ? Number(importedRow.stm_amount || 0) : null;
       const nextPaidAmount = hasStm ? Number(importedRow.stm_paid_amount || 0) : null;
       const nextInvAmount = hasInv ? Number(importedRow.inv_net_amount || 0) : null;
-      statementImportMap.set(visitCode, {
-        has_stm: Boolean(current?.has_stm || hasStm),
-        has_inv: Boolean(current?.has_inv || hasInv),
-        statement_no: [current?.statement_no, normalizeImportCellValue(importedRow.statement_no)].filter(Boolean).join(', '),
-        stm_amount: current?.stm_amount == null ? nextStmAmount : current.stm_amount + (nextStmAmount || 0),
-        stm_paid_amount: current?.stm_paid_amount == null ? nextPaidAmount : current.stm_paid_amount + (nextPaidAmount || 0),
-        inv_net_amount: current?.inv_net_amount == null ? nextInvAmount : current.inv_net_amount + (nextInvAmount || 0),
-        imported_at: latestTrackingDateTime(current?.imported_at || null, formatTrackingDateTime(importedRow.imported_at)) || '',
-        errorcode: [current?.errorcode, normalizeImportCellValue(importedRow.errorcode)].filter(Boolean).join(', '),
-        verifycode: [current?.verifycode, normalizeImportCellValue(importedRow.verifycode)].filter(Boolean).join(', '),
-      });
+      const visitKeys = resolveStatementVisitKeys(importedRow, tranToVisit);
+      for (const visitCode of visitKeys) {
+        const current = statementImportMap.get(visitCode);
+        statementImportMap.set(visitCode, {
+          has_stm: Boolean(current?.has_stm || hasStm),
+          has_inv: Boolean(current?.has_inv || hasInv),
+          statement_no: [current?.statement_no, normalizeImportCellValue(importedRow.statement_no)].filter(Boolean).join(', '),
+          stm_amount: current?.stm_amount == null ? nextStmAmount : current.stm_amount + (nextStmAmount || 0),
+          stm_paid_amount: current?.stm_paid_amount == null ? nextPaidAmount : current.stm_paid_amount + (nextPaidAmount || 0),
+          inv_net_amount: current?.inv_net_amount == null ? nextInvAmount : current.inv_net_amount + (nextInvAmount || 0),
+          imported_at: latestTrackingDateTime(current?.imported_at || null, formatTrackingDateTime(importedRow.imported_at)) || '',
+          errorcode: [current?.errorcode, normalizeImportCellValue(importedRow.errorcode)].filter(Boolean).join(', '),
+          verifycode: [current?.verifycode, normalizeImportCellValue(importedRow.verifycode)].filter(Boolean).join(', '),
+        });
+      }
     }
   } catch (error) {
     console.error('Error attaching imported FDH/REP/STM status to specific funds:', error);

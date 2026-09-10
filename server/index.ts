@@ -135,6 +135,11 @@ import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdL
 import { collaborationRouter } from './routes/collaborationRoutes.js';
 import { getUcOutsideCupWalkinAudit, insertMissingUcOutsideCupWalkin } from './ucOutsideCupWalkin.js';
 import { completeKneeOpppVisit, getKneeOpppProviders, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
+import {
+  completeAncDentalVisit,
+  isAncDentalServiceKind,
+  previewAncDentalCompletion,
+} from './ancDentalCompletion.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1806,6 +1811,43 @@ app.post('/api/hosxp/knee-oppp-completion/:vn', async (req: AuthenticatedRequest
     return res.status(422).json({
       success: false,
       error: error instanceof Error ? error.message : 'เพิ่มข้อมูลพอกเข่าไม่สำเร็จ',
+    });
+  }
+});
+
+app.get('/api/hosxp/anc-dental-completion/:kind/:vn', async (req, res) => {
+  try {
+    const kind = String(req.params.kind || '').trim();
+    const vn = String(req.params.vn || '').trim();
+    if (!isAncDentalServiceKind(kind)) return res.status(400).json({ success: false, error: 'ประเภทบริการ ANC ทันตกรรมไม่ถูกต้อง' });
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    return res.json({ success: true, assessment: await previewAncDentalCompletion(kind, vn) });
+  } catch (error) {
+    console.error('Unable to preview ANC dental completion:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ตรวจความครบถ้วน ANC ทันตกรรมไม่สำเร็จ',
+    });
+  }
+});
+
+app.post('/api/hosxp/anc-dental-completion/:kind/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const kind = String(req.params.kind || '').trim();
+    const vn = String(req.params.vn || '').trim();
+    if (!isAncDentalServiceKind(kind)) return res.status(400).json({ success: false, error: 'ประเภทบริการ ANC ทันตกรรมไม่ถูกต้อง' });
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const result = await completeAncDentalVisit(kind, vn, {
+      id: req.authUser?.id,
+      name: req.authUser?.display_name || req.authUser?.username,
+    }, req.body?.confirmClinicalEvidence === true);
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to complete ANC dental data:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เติมข้อมูล ANC ทันตกรรมไม่สำเร็จ',
     });
   }
 });

@@ -13,7 +13,7 @@ type CompletionRule = {
 
 const RULES: Record<AncDentalServiceKind, CompletionRule> = {
   exam: { label: 'ANC ตรวจฟัน', adpCode: '30008', procedureCodes: ['2330011', '2330010'], icd9: '8931' },
-  clean: { label: 'ANC ขัดทำความสะอาดฟัน', adpCode: '30009', procedureCodes: ['2387010'], icd9: '9654' },
+  clean: { label: 'ANC ขัดทำความสะอาดฟัน', adpCode: '30009', procedureCodes: ['2387010', '2277310', '2287310'], icd9: '9654' },
 };
 
 export type AncDentalProcedureRow = {

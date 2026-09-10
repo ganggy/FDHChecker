@@ -157,6 +157,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [kneeCompletionMessage, setKneeCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const [kneeProviders, setKneeProviders] = useState<Array<{ providerId: number; providerName: string; licenseNo: string }>>([]);
     const [kneeProviderId, setKneeProviderId] = useState('');
+    const [ancDentalCompletingVn, setAncDentalCompletingVn] = useState<string | null>(null);
+    const [ancDentalCompletionMessage, setAncDentalCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const [deletingPalliativeVn, setDeletingPalliativeVn] = useState<string | null>(null);
     const [markingPalliativeHomeVn, setMarkingPalliativeHomeVn] = useState<string | null>(null);
     const [palliativeActionMessage, setPalliativeActionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
@@ -292,6 +294,72 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             setKneeCompletingVn(null);
         }
     }, [fetchFundData, kneeCompletingVn, kneeProviderId]);
+
+    const handleAncDentalCompletion = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const vn = String(item?.vn || '').trim();
+        const kind = activeFund === 'anc_dental_exam' ? 'exam' : activeFund === 'anc_dental_clean' ? 'clean' : '';
+        if (!vn || !kind || ancDentalCompletingVn) return;
+        setAncDentalCompletingVn(vn);
+        setAncDentalCompletionMessage(null);
+        try {
+            const endpoint = `/api/hosxp/anc-dental-completion/${kind}/${encodeURIComponent(vn)}`;
+            const previewResponse = await fetch(endpoint);
+            const previewJson = await previewResponse.json();
+            if (!previewResponse.ok || !previewJson.success) throw new Error(previewJson.error || 'ตรวจข้อมูลไม่สำเร็จ');
+            const assessment = previewJson.assessment;
+            if (assessment.ready) {
+                setAncDentalCompletionMessage({ kind: 'success', text: `VN ${vn} ข้อมูล ${assessment.label} ครบแล้ว` });
+                return;
+            }
+            if (!assessment.canComplete) {
+                setAncDentalCompletionMessage({
+                    kind: 'warning',
+                    text: `VN ${vn} ยังเติมอัตโนมัติไม่ได้: ${(assessment.blockers || []).join(' • ')}`,
+                });
+                return;
+            }
+            const changes = [
+                !assessment.hasAdp && assessment.selectedCatalogItem
+                    ? `เพิ่ม ADP ${assessment.adpCode} ด้วยรายการ ${assessment.selectedCatalogItem.icode} ${assessment.selectedCatalogItem.name}`
+                    : '',
+                !assessment.hasProcedurePair && assessment.selectedProcedure
+                    ? `เติม ICD-9 ${assessment.requiredIcd9} ให้หัตถการ ${assessment.selectedProcedure.procedureCode}`
+                    : '',
+            ].filter(Boolean);
+            const confirmed = window.confirm(
+                `ยืนยันเติมข้อมูล ${assessment.label} ของ VN ${vn}\n\nรายการที่จะเปลี่ยน:\n- ${changes.join('\n- ')}\n\nโปรดยืนยันว่าได้ตรวจเวชระเบียนแล้วและผู้ป่วยได้รับบริการนี้จริง ระบบจะเติมเฉพาะข้อมูลที่ขาดและบันทึกประวัติการแก้ไข`,
+            );
+            if (!confirmed) return;
+
+            const commitResponse = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmClinicalEvidence: true }),
+            });
+            const commitJson = await commitResponse.json();
+            if (!commitResponse.ok || !commitJson.success) throw new Error(commitJson.error || 'เติมข้อมูลไม่สำเร็จ');
+            const result = commitJson.result;
+            const completed = [
+                result.insertedAdp ? `ADP ${result.insertedAdp.adpCode}` : '',
+                result.updatedProcedure ? `ICD-9 ${result.updatedProcedure.icd9}` : '',
+            ].filter(Boolean);
+            setAncDentalCompletionMessage({
+                kind: 'success',
+                text: completed.length > 0
+                    ? `VN ${vn} เติมสำเร็จ: ${completed.join(', ')} และตรวจซ้ำแล้วข้อมูลครบ`
+                    : `VN ${vn} ไม่มีรายการต้องเพิ่ม ข้อมูลล่าสุดครบแล้ว`,
+            });
+            await fetchFundData();
+        } catch (completionError) {
+            setAncDentalCompletionMessage({
+                kind: 'warning',
+                text: completionError instanceof Error ? completionError.message : 'ตรวจ/เติมข้อมูล ANC ทันตกรรมไม่สำเร็จ',
+            });
+        } finally {
+            setAncDentalCompletingVn(null);
+        }
+    }, [activeFund, ancDentalCompletingVn, fetchFundData]);
 
     const handleDeletePalliativeItems = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
@@ -2432,6 +2500,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                 {kneeCompletionMessage.text}
                             </div>
                         )}
+                        {(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') && ancDentalCompletionMessage && (
+                            <div className={`alert ${ancDentalCompletionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
+                                {ancDentalCompletionMessage.text}
+                            </div>
+                        )}
                         {activeFund === 'palliative' && palliativeActionMessage && (
                             <div className={`alert ${palliativeActionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
                                 {palliativeActionMessage.text}
@@ -2555,6 +2628,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             <th style={{ width: 110, textAlign: 'center' }}>ADP Code</th>
                                             <th className="dental-procedure-column" style={{ width: 360, textAlign: 'left' }}>หัตถการทันตกรรม</th>
                                             <th style={{ width: 110, textAlign: 'center' }}>บันทึกช่องปาก</th>
+                                            <th style={{ width: 155, textAlign: 'center' }}>Auto Complete</th>
                                         </>
                                     )}
                                     {activeFund === 'cacervix' && (
@@ -2991,6 +3065,22 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             {toFlag(item.has_dental_care_record)
                                                                 ? <span className="badge badge-success">✓ มีบันทึก</span>
                                                                 : <span className="badge badge-warning">ไม่พบบันทึก</span>}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <button
+                                                                type="button"
+                                                                className={`btn btn-sm ${getStatus(item).status === 'สมบูรณ์' ? 'btn-success' : 'btn-primary'}`}
+                                                                onClick={(event) => void handleAncDentalCompletion(item, event)}
+                                                                disabled={ancDentalCompletingVn === String(item.vn)}
+                                                                title="ตรวจข้อมูลจาก HOSxP แล้วเติม ADP หรือ ICD-9 เฉพาะรายการที่มีหลักฐานบริการอยู่แล้ว"
+                                                                style={{ whiteSpace: 'nowrap' }}
+                                                            >
+                                                                {ancDentalCompletingVn === String(item.vn)
+                                                                    ? 'กำลังตรวจ...'
+                                                                    : getStatus(item).status === 'สมบูรณ์'
+                                                                        ? '✓ ตรวจซ้ำ'
+                                                                        : '✨ เติมอัตโนมัติ'}
+                                                            </button>
                                                         </td>
                                                     </>
                                                 )}

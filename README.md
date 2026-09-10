@@ -10,7 +10,7 @@
 ![Node.js](https://img.shields.io/badge/Node.js-339933?logo=nodedotjs&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-4479A1?logo=mysql&logoColor=white)
 
-[เริ่มใช้งาน](./QUICK_START.md) · [ติดตั้ง Production](./deploy/README.md) · [แผนพัฒนา](./BACKLOG.md) · [MIT License](./LICENSE)
+[เริ่มใช้งาน](./QUICK_START.md) · [คู่มือใช้งานแยกตามหน้าที่](./docs/USER_MANUAL_BY_ROLE.md) · [ติดตั้ง Production](./deploy/README.md) · [แผนพัฒนา](./BACKLOG.md) · [MIT License](./LICENSE)
 
 </div>
 

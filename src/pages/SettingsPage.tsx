@@ -5,6 +5,7 @@ import { FUND_DEFINITIONS } from '../config/fundDefinitions';
 import { formatLocalDateStamp } from '../utils/dateUtils';
 import { IpdLosSettings } from '../components/IpdLosSettings';
 import { HospitalDatabaseSettings } from '../components/HospitalDatabaseSettings';
+import { SystemUpdatePanel } from '../components/SystemUpdatePanel';
 
 interface Config {
     costs: {
@@ -150,7 +151,7 @@ const getGuaranteedFundDefinitions = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced' | 'connection'>('hospital');
+    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced' | 'connection' | 'update'>('hospital');
     const [frontendConfig, setFrontendConfig] = useState<Config | null>(null);
     const [backendConfig, setBackendConfig] = useState<any | null>(null);
     const [frontendSource, setFrontendSource] = useState<'database' | 'file' | 'unknown'>('unknown');
@@ -472,11 +473,13 @@ export const SettingsPage: React.FC = () => {
                 <button className={`tab-btn ${activeTab === 'db' ? 'active' : ''}`} onClick={() => setActiveTab('db')}>📋 กองทุนและเอกสาร</button>
                 <button className={`tab-btn ${activeTab === 'fdh' ? 'active' : ''}`} onClick={() => setActiveTab('fdh')}>🔐 เชื่อมต่อ FDH</button>
                 <button className={`tab-btn ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>🛠️ ขั้นสูง</button>
+                <button className={`tab-btn ${activeTab === 'update' ? 'active' : ''}`} onClick={() => setActiveTab('update')}>🔄 อัปเดตระบบ</button>
             </div>
 
             <div className="settings-card">
                 {activeTab === 'connection' && <HospitalDatabaseSettings />}
                 {activeTab === 'ipdLos' && <IpdLosSettings />}
+                {activeTab === 'update' && <SystemUpdatePanel />}
 
                 {activeTab === 'hospital' && frontendConfig && (
                     <div className="settings-section">

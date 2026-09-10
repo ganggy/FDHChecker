@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .secrets/
+.update-state/
 
 # Local secrets and generated artifacts
 .env

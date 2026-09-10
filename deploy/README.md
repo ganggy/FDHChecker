@@ -37,6 +37,23 @@ pwsh -File deploy/scripts/deploy-production.ps1 -Target all
 หา PM2 app ไม่พบ หรือ `/api/live` และ `/api/ready` ไม่พร้อม โดยค่าเริ่มต้นใช้ branch
 `agent/add-local-ai` และ PM2 apps `fdh-backend fdh-frontend`
 
+## อัปเดตผ่านหน้าเว็บ
+
+ผู้ดูแลระบบสามารถเปิด **ตั้งค่าระบบ → อัปเดตระบบ** เพื่อตรวจสอบ GitHub และกดยืนยันการอัปเดต ระบบจะแสดงความคืบหน้าของการเชื่อมต่อ ดาวน์โหลด dependency ทดสอบ build รีสตาร์ต และ health check หลัง backend หยุดชั่วคราวหน้าเว็บจะเชื่อมต่อกลับและติดตามงานเดิมจากไฟล์ `.update-state/current.json` โดยอัตโนมัติ
+
+กำหนดค่าที่ `.env` ก่อนใช้งาน:
+
+```bash
+FDH_SELF_UPDATE_ENABLED=1
+FDH_APP_DIR=/opt/FDHChecker
+FDH_DEPLOY_BRANCH=agent/add-local-ai
+FDH_PM2_APPS="fdh-backend fdh-frontend"
+FDH_HEALTH_BASE_URL=http://127.0.0.1:3506
+FDH_DEPLOY_BACKUP=0
+```
+
+ปุ่มอัปเดตจะแสดงเฉพาะหน้า admin และ backend จะไม่เริ่มงานเมื่อ branch ไม่ตรง, working tree มีไฟล์ค้าง, ไม่มีรุ่นใหม่ หรือ commit บน GitHub เปลี่ยนหลังหน้าจอยืนยัน Log อยู่ที่ `.update-state/update-<job-id>.log` และถูกกันออกจาก Git แล้ว
+
 ปรับค่าผ่าน environment ได้โดยไม่ต้องแก้สคริปต์:
 
 ```bash

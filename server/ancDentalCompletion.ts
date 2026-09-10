@@ -146,13 +146,28 @@ const loadSnapshot = async (
 
   const [catalogRows] = await connection.query<RowDataPacket[]>(`
     SELECT sd.icode, COALESCE(NULLIF(TRIM(sd.name), ''), sd.icode) AS item_name,
-      COALESCE(ndi.unitprice, 0) AS unitprice, COALESCE(NULLIF(ndi.income, ''), '00') AS income,
-      COUNT(DISTINCT recent.hos_guid) AS usage_count
+      COALESCE((
+        SELECT recent.unitprice
+        FROM opitemrece recent
+        WHERE recent.icode = sd.icode
+        ORDER BY recent.vstdate DESC, recent.vsttime DESC, recent.item_no DESC
+        LIMIT 1
+      ), 0) AS unitprice,
+      COALESCE((
+        SELECT NULLIF(recent.income, '')
+        FROM opitemrece recent
+        WHERE recent.icode = sd.icode
+        ORDER BY recent.vstdate DESC, recent.vsttime DESC, recent.item_no DESC
+        LIMIT 1
+      ), '00') AS income,
+      (
+        SELECT COUNT(*)
+        FROM opitemrece recent
+        WHERE recent.icode = sd.icode
+          AND recent.vstdate >= DATE_SUB(CURDATE(), INTERVAL 365 DAY)
+      ) AS usage_count
     FROM s_drugitems sd
-    LEFT JOIN nondrugitems ndi ON ndi.icode = sd.icode
-    LEFT JOIN opitemrece recent ON recent.icode = sd.icode AND recent.vstdate >= DATE_SUB(CURDATE(), INTERVAL 365 DAY)
     WHERE TRIM(sd.nhso_adp_code) = ?
-    GROUP BY sd.icode, sd.name, ndi.unitprice, ndi.income
     ORDER BY usage_count DESC, sd.icode
     LIMIT 10
   `, [rule.adpCode]);

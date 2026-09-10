@@ -51,7 +51,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'รายการสมุนไพรและยาไทย',
         claimChannel: 'FDH/e-Claim',
         recordingSystem: 'FDH/e-Claim หรือระบบที่ประกาศกำหนด',
-        conditions: ['สิทธิ UCS/WEL', 'มียาสมุนไพรหรือยาไทย', 'มียอดราคามากกว่า 0 บาท']
+        conditions: ['สิทธิ UCS/WEL', 'มียาสมุนไพรหรือยาไทย', 'มียอดราคามากกว่า 0 บาท', 'ชื่อยาสมุนไพรสัมพันธ์กับ Diagnosis ตามตารางตรวจสอบ']
     },
     {
         id: 'knee',

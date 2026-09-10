@@ -12986,6 +12986,9 @@ export const getSpecificFundData = async (
           pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
           ptt.name as pttypename, ptt.hipdata_code,
           v.pdx,
+          (SELECT GROUP_CONCAT(DISTINCT REPLACE(UPPER(herb_dx.icd10), '.', '') ORDER BY herb_dx.diagtype, herb_dx.icd10 SEPARATOR ', ')
+           FROM ovstdiag herb_dx
+           WHERE herb_dx.vn = o.vn) as diag_codes,
           SUM(oo.qty * oo.unitprice) as herb_total_price,
           GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ') as herb_items
         FROM ovst o

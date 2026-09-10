@@ -13,6 +13,7 @@ import { buildFdhClaimProgress, hasFdhSubmissionData } from '../utils/fdhClaimPr
 import { reviewPalliativeCareVisit } from '../utils/palliativeCareReview';
 import { evaluateFamilyPlanningEvidence, FAMILY_PLANNING_SERVICE_RULES } from '../utils/familyPlanningRules';
 import { filterSpecificFundRows } from '../utils/specificFundRules';
+import { evaluateHerbalMedicationMatch, HERBAL_MEDICATION_RULES } from '../utils/herbalMedicationRules';
 import { fetchAppSettings } from '../services/hosxpService';
 import {
     ANC_DENTAL_CLEAN_PROCEDURE_CODES,
@@ -839,7 +840,25 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             if (!(isUcsLike || hipdataText.includes('WEL'))) return buildStatusResult([], [], undefined, false);
             const hasHerb = Number(item?.herb_total_price || 0) > 0 || toFlag(item?.has_herb);
             if (hasHerb) subfunds.push('🌿 สมุนไพร');
-            return buildStatusResult(subfunds, [hasHerb ? '' : ' รายการสมุนไพร/ยอดราคา'].filter(Boolean));
+            if (!hasHerb) return buildStatusResult(subfunds, ['รายการสมุนไพร/ยอดราคา']);
+            const herbAssessment = evaluateHerbalMedicationMatch(
+                [item?.diag_codes, item?.pdx, item?.main_diag, item?.diag_list, item?.diagnosis_list],
+                item?.herb_items,
+            );
+            if (herbAssessment.status === 'invalid') {
+                return buildStatusResult(subfunds, herbAssessment.reasons, 'ยาสมุนไพรไม่สัมพันธ์กับโรค', false);
+            }
+            if (herbAssessment.status === 'review') {
+                return {
+                    status: 'ต้องตรวจสอบการจับคู่ยา/โรค',
+                    class: 'badge-warning',
+                    icon: '⚠️',
+                    subfunds,
+                    matchedConditions: herbAssessment.matchedSymptoms,
+                    missingConditions: herbAssessment.reasons,
+                };
+            }
+            return buildStatusResult(subfunds, [], undefined, true, herbAssessment.matchedSymptoms);
         }
 
         if (fundId === 'knee') {
@@ -1627,11 +1646,19 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 };
             }
             if (fundId === 'herb') {
+                const herbAssessment = evaluateHerbalMedicationMatch(
+                    [item?.diag_codes, item?.pdx, item?.main_diag, item?.diag_list, item?.diagnosis_list],
+                    item?.herb_items,
+                );
                 return {
                     ...baseRow,
                     'Diag หลัก': item.pdx || '',
+                    'Diagnosis ทั้งหมด': herbAssessment.diagnosisCodes.join(', '),
                     'รายการสมุนไพร': item.herb_items || '',
                     'ยอดรวม': item.herb_total_price || '',
+                    'ผลตรวจยา/โรค': herbAssessment.status === 'valid' ? 'ถูกต้อง' : herbAssessment.status === 'invalid' ? 'ยาไม่สัมพันธ์กับโรค' : 'ต้องตรวจสอบ',
+                    'กลุ่มอาการที่ตรง': herbAssessment.matchedSymptoms.join(', '),
+                    'รายละเอียดการตรวจ': herbAssessment.reasons.join(' | '),
                 };
             }
             if (fundId === 'fp') {
@@ -2096,6 +2123,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     <div style={{ padding: '12px', background: '#fff3e0', borderRadius: '8px', borderLeft: '3px solid #ff9800' }}>
                                         <div style={{ fontWeight: 700, color: '#ff9800', marginBottom: '4px' }}>✓ ยอดราคา</div>
                                         <div style={{ color: '#e65100' }}>{'> 0 บาท'}</div>
+                                    </div>
+                                    <div style={{ padding: '12px', background: '#e3f2fd', borderRadius: '8px', borderLeft: '3px solid #2196f3' }}>
+                                        <div style={{ fontWeight: 700, color: '#1565c0', marginBottom: '4px' }}>✓ ตรวจยาให้ตรงโรค</div>
+                                        <div style={{ color: '#1565c0' }}>{HERBAL_MEDICATION_RULES.length} กลุ่มอาการ · ตรวจ Diagnosis ทุกลำดับ</div>
                                     </div>
                                 </>
                             )}
@@ -2587,8 +2618,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     )}
                                     {activeFund === 'herb' && (
                                         <>
-                                            <th style={{ width: 80, textAlign: 'center' }}>Diag หลัก</th>
+                                            <th style={{ width: 130, textAlign: 'center' }}>Diagnosis</th>
                                             <th style={{ textAlign: 'left' }}>รายการยาสมุนไพร</th>
+                                            <th style={{ width: 210, textAlign: 'center' }}>ตรวจยา/โรค</th>
                                             <th style={{ width: 110, textAlign: 'right' }}>ยอดรวม (฿)</th>
                                         </>
                                     )}
@@ -2893,19 +2925,46 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     </>
                                                 )}
                                                 {activeFund === 'herb' && (
-                                                    <>
-                                                        <td style={{ textAlign: 'center' }}>
-                                                            {item.pdx ? <span className="badge badge-primary">{item.pdx}</span> : <span className="badge" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>-</span>}
-                                                        </td>
-                                                        <td style={{ textAlign: 'left' }}>
-                                                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.herb_items}>
-                                                                {item.herb_items || '-'}
-                                                            </div>
-                                                        </td>
-                                                        <td style={{ textAlign: 'right' }}>
-                                                            {item.herb_total_price ? <strong style={{ color: 'var(--teal)' }}>{Number(item.herb_total_price).toLocaleString()} ฿</strong> : '0 ฿'}
-                                                        </td>
-                                                    </>
+                                                    (() => {
+                                                        const assessment = evaluateHerbalMedicationMatch(
+                                                            [item?.diag_codes, item?.pdx, item?.main_diag, item?.diag_list, item?.diagnosis_list],
+                                                            item?.herb_items,
+                                                        );
+                                                        const badgeClass = assessment.status === 'valid'
+                                                            ? 'badge-success'
+                                                            : assessment.status === 'invalid' ? 'badge-danger' : 'badge-warning';
+                                                        const label = assessment.status === 'valid'
+                                                            ? '✓ ยาตรงกับโรค'
+                                                            : assessment.status === 'invalid' ? '✗ ยาไม่ตรงโรค' : '⚠ ต้องตรวจสอบ';
+                                                        return <>
+                                                            <td style={{ textAlign: 'center' }}>
+                                                                <div style={{ display: 'flex', gap: 4, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                                                    {assessment.diagnosisCodes.length > 0
+                                                                        ? assessment.diagnosisCodes.map((code) => <span key={code} className="badge badge-primary">{code}</span>)
+                                                                        : <span className="badge" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>-</span>}
+                                                                </div>
+                                                            </td>
+                                                            <td style={{ textAlign: 'left' }}>
+                                                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 240, whiteSpace: 'normal', overflowWrap: 'anywhere' }} title={item.herb_items}>
+                                                                    {item.herb_items || '-'}
+                                                                </div>
+                                                            </td>
+                                                            <td style={{ textAlign: 'center' }}>
+                                                                <span className={`badge ${badgeClass}`}>{label}</span>
+                                                                {assessment.matchedSymptoms.length > 0 && (
+                                                                    <div style={{ marginTop: 5, fontSize: 11, color: 'var(--text-secondary)' }}>{assessment.matchedSymptoms.join(', ')}</div>
+                                                                )}
+                                                                {assessment.reasons.length > 0 && (
+                                                                    <div style={{ marginTop: 4, fontSize: 11, color: assessment.status === 'invalid' ? 'var(--danger)' : '#b26a00', whiteSpace: 'normal' }}>
+                                                                        {assessment.reasons.join(' · ')}
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                            <td style={{ textAlign: 'right' }}>
+                                                                {item.herb_total_price ? <strong style={{ color: 'var(--teal)' }}>{Number(item.herb_total_price).toLocaleString()} ฿</strong> : '0 ฿'}
+                                                            </td>
+                                                        </>;
+                                                    })()
                                                 )}
                                                 {activeFund === 'knee' && (
                                                     <>

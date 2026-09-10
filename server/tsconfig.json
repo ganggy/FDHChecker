@@ -15,6 +15,6 @@
     "moduleResolution": "node",
     "rootDir": "..",
     "outDir": "./dist"
-  },  "include": ["index.ts", "requestSafety.test.ts"],
+  },  "include": ["index.ts", "requestSafety.test.ts", "systemUpdate.ts"],
   "exclude": ["dist", "node_modules"]
 }

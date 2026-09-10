@@ -103,6 +103,7 @@ import { aiRouter } from './aiRoutes.js';
 import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
+import { getSystemUpdateInfo, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -744,6 +745,32 @@ app.post('/api/admin/line/test', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('LINE test message failed:', (error as Error).message);
     return res.status(502).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.get('/api/admin/system-update', requireAdmin, async (req, res) => {
+  try {
+    const refreshRemote = String(req.query.refresh || '') === '1';
+    const data = await getSystemUpdateInfo(refreshRemote);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('System update status failed:', error);
+    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'ตรวจสอบรุ่นไม่สำเร็จ' });
+  }
+});
+
+app.post('/api/admin/system-update/start', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const expectedRemoteCommit = String(req.body?.expectedRemoteCommit || '').trim();
+    const actor = String(req.authUser?.username || 'admin');
+    const data = await startSystemUpdate(expectedRemoteCommit, actor);
+    return res.status(202).json({ success: true, data });
+  } catch (error) {
+    console.error('System update start failed:', error);
+    const message = error instanceof Error ? error.message : 'เริ่มอัปเดตไม่สำเร็จ';
+    const status = /กำลังทำงาน|รุ่นล่าสุด|รุ่นใหม่กว่าใบยืนยัน/.test(message) ? 409 : 400;
+    return res.status(status).json({ success: false, error: message });
   }
 });
 

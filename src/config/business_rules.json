@@ -50,7 +50,9 @@
         ],
         "anc_dental_exam_icd9": "8931",
         "anc_dental_clean_procedures": [
-            "2387010"
+            "2387010",
+            "2277310",
+            "2287310"
         ],
         "anc_dental_clean_icd9": "9654",
         "cx_regex": "^1B004|^1B005",

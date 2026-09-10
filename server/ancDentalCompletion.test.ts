@@ -29,6 +29,18 @@ test('ANC dental cleaning is ready only with ADP 30009 and procedure 2387010 pai
   assert.deepEqual(result.missing, []);
 });
 
+test('ANC dental cleaning accepts the HOSxP upper and lower scaling procedure codes', () => {
+  for (const procedureCode of ['2277310', '2287310']) {
+    const result = assessAncDentalCompletion(base({
+      kind: 'clean', hasAdp: true,
+      procedures: [{ tmNo: '2', tmCode: 'D02', procedureCode, icd9: '' }],
+    }));
+    assert.equal(result.canComplete, true);
+    assert.equal(result.selectedProcedure?.procedureCode, procedureCode);
+    assert.deepEqual(result.missing, ['ICD10TM 2387010/2277310/2287310 + ICD-9 9654']);
+  }
+});
+
 test('completion blocks when the visit has no existing dental service evidence', () => {
   const result = assessAncDentalCompletion(base({ hasAdp: false, procedures: [] }));
   assert.equal(result.canComplete, false);

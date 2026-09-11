@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { allMenuItems } from '../config/menuDefinitions';
-import { fetchMemberAdminData, saveGroup, updateMember, type MemberAdminData, type MemberGroup } from '../services/authService';
+import { createMember, fetchMemberAdminData, saveGroup, updateMember, type MemberAdminData, type MemberGroup } from '../services/authService';
 import type { AppPage } from '../utils/navigationState';
 
 const emptyGroup = (): { id: number | null; groupName: string; isAdmin: boolean; menuPermissions: AppPage[] } => ({
@@ -17,6 +17,15 @@ export const MemberAdminPage = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [newUser, setNewUser] = useState({
+    username: '',
+    displayName: '',
+    password: '',
+    confirmPassword: '',
+    groupId: '',
+    isAdmin: false,
+  });
 
   const loadData = async () => {
     setLoading(true);
@@ -45,6 +54,37 @@ export const MemberAdminPage = () => {
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'อัปเดตสมาชิกไม่สำเร็จ');
+    }
+  };
+
+  const handleCreateUser = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    if (newUser.password.length < 12) {
+      setError('รหัสผ่านต้องมีอย่างน้อย 12 ตัวอักษร');
+      return;
+    }
+    if (newUser.password !== newUser.confirmPassword) {
+      setError('ยืนยันรหัสผ่านไม่ตรงกัน');
+      return;
+    }
+    setCreatingUser(true);
+    try {
+      await createMember({
+        username: newUser.username,
+        displayName: newUser.displayName,
+        password: newUser.password,
+        groupId: Number(newUser.groupId) || null,
+        isAdmin: newUser.isAdmin,
+      });
+      setNewUser({ username: '', displayName: '', password: '', confirmPassword: '', groupId: '', isAdmin: false });
+      setMessage('เพิ่มผู้ใช้และเปิดใช้งานแล้ว');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'เพิ่มผู้ใช้ไม่สำเร็จ');
+    } finally {
+      setCreatingUser(false);
     }
   };
 
@@ -105,6 +145,57 @@ export const MemberAdminPage = () => {
       ) : (
         <div className="member-admin-grid">
           <section className="card member-admin-panel">
+            <div className="card-header">
+              <div>
+                <h3>เพิ่มผู้ใช้</h3>
+                <div className="muted">บัญชีที่สร้างจากหน้านี้พร้อมเข้าสู่ระบบทันที</div>
+              </div>
+            </div>
+            <form className="member-create-form" onSubmit={handleCreateUser}>
+              <label>
+                ชื่อผู้ใช้
+                <input
+                  value={newUser.username}
+                  onChange={(event) => setNewUser((current) => ({ ...current, username: event.target.value.toLowerCase() }))}
+                  pattern="[a-z0-9._-]{3,64}"
+                  minLength={3}
+                  maxLength={64}
+                  autoComplete="off"
+                  placeholder="เช่น somchai"
+                  required
+                />
+              </label>
+              <label>
+                ชื่อที่แสดง
+                <input value={newUser.displayName} onChange={(event) => setNewUser((current) => ({ ...current, displayName: event.target.value }))} maxLength={191} placeholder="ชื่อ-นามสกุล" />
+              </label>
+              <label>
+                รหัสผ่าน
+                <input type="password" value={newUser.password} onChange={(event) => setNewUser((current) => ({ ...current, password: event.target.value }))} minLength={12} autoComplete="new-password" required />
+              </label>
+              <label>
+                ยืนยันรหัสผ่าน
+                <input type="password" value={newUser.confirmPassword} onChange={(event) => setNewUser((current) => ({ ...current, confirmPassword: event.target.value }))} minLength={12} autoComplete="new-password" required />
+              </label>
+              <label>
+                กลุ่มผู้ใช้
+                <select value={newUser.groupId} onChange={(event) => setNewUser((current) => ({ ...current, groupId: event.target.value }))}>
+                  <option value="">ผู้ใช้งานทั่วไป</option>
+                  {data?.groups.map((group) => <option key={group.id} value={group.id}>{group.group_name}</option>)}
+                </select>
+              </label>
+              <label className="inline-check member-create-admin">
+                <input type="checkbox" checked={newUser.isAdmin} onChange={(event) => setNewUser((current) => ({ ...current, isAdmin: event.target.checked }))} />
+                ให้สิทธิ์ผู้ดูแลระบบ
+              </label>
+              <div className="member-create-actions">
+                <small>รหัสผ่านอย่างน้อย 12 ตัวอักษร</small>
+                <button className="btn-primary" type="submit" disabled={creatingUser}>
+                  {creatingUser ? 'กำลังเพิ่มผู้ใช้...' : 'เพิ่มผู้ใช้'}
+                </button>
+              </div>
+            </form>
+
             <div className="card-header">
               <h3>ผู้ใช้งาน</h3>
               <span className="workflow-table-meta">{data?.users.length || 0} users</span>

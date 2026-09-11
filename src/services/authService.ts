@@ -112,6 +112,23 @@ export const fetchMemberAdminData = async () => {
   return data.data;
 };
 
+export const createMember = async (payload: {
+  username: string;
+  password: string;
+  displayName?: string;
+  groupId?: number | null;
+  isAdmin?: boolean;
+}) => {
+  const data = await jsonOrThrow<{ success: true; user: MemberUser | null }>(
+    await fetch('/api/admin/members', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    })
+  );
+  return data.user;
+};
+
 export const updateMember = async (
   userId: number,
   payload: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string }

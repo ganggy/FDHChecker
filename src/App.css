@@ -1369,6 +1369,50 @@
   gap: 0.8rem;
 }
 
+.member-create-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  padding: 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  background: linear-gradient(135deg, #f8fbff 0%, #f0fdf4 100%);
+}
+
+.member-create-form label {
+  display: grid;
+  gap: 0.4rem;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.member-create-form input,
+.member-create-form select {
+  min-height: 42px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  color: #0f172a;
+  background: #fff;
+}
+
+.member-create-admin {
+  align-self: end;
+  min-height: 42px;
+}
+
+.member-create-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.member-create-actions small {
+  color: #64748b;
+}
+
 .member-table {
   min-width: 860px;
 }
@@ -1495,6 +1539,12 @@
 
 @media (max-width: 1120px) {
   .member-admin-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .member-create-form {
     grid-template-columns: 1fr;
   }
 }

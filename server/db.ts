@@ -1729,6 +1729,61 @@ export const registerAppUser = async (input: { username: string; password: strin
   }
 };
 
+export const createMemberUser = async (input: {
+  username: string;
+  password: string;
+  displayName?: string;
+  groupId?: number | null;
+  isAdmin?: boolean;
+}) => {
+  await ensureAuthTables();
+  const username = normalizeUsername(input.username);
+  if (!/^[a-z0-9._-]{3,64}$/.test(username)) {
+    return { success: false, status: 400, error: 'ชื่อผู้ใช้ต้องเป็น a-z, 0-9, จุด, ขีดกลาง หรือ underscore อย่างน้อย 3 ตัว' };
+  }
+  if (String(input.password || '').length < 12) {
+    return { success: false, status: 400, error: 'รหัสผ่านต้องมีอย่างน้อย 12 ตัวอักษร' };
+  }
+
+  const connection = await getRepstmConnection();
+  try {
+    let groupId = input.groupId || null;
+    if (groupId) {
+      const [groupRows] = await connection.query('SELECT id FROM app_user_group WHERE id = ? LIMIT 1', [groupId]);
+      if (!Array.isArray(groupRows) || groupRows.length === 0) {
+        return { success: false, status: 400, error: 'ไม่พบกลุ่มผู้ใช้ที่เลือก' };
+      }
+    } else {
+      const [groupRows] = await connection.query(
+        'SELECT id FROM app_user_group WHERE group_key = ? LIMIT 1',
+        [input.isAdmin ? 'admin' : 'staff']
+      );
+      groupId = Array.isArray(groupRows) && groupRows.length > 0 ? Number((groupRows[0] as any).id) : null;
+    }
+
+    const [result] = await connection.query(
+      `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin)
+       VALUES (?, ?, ?, ?, 1, 1, ?)`,
+      [
+        username,
+        hashPassword(input.password),
+        String(input.displayName || username).trim().slice(0, 191),
+        groupId,
+        input.isAdmin ? 1 : 0,
+      ]
+    );
+    const userId = Number((result as any)?.insertId || 0);
+    return { success: true, user: userId ? await getAppUserById(userId) : null };
+  } catch (error: any) {
+    if (String(error?.code || '') === 'ER_DUP_ENTRY') {
+      return { success: false, status: 409, error: 'ชื่อผู้ใช้นี้มีอยู่แล้ว' };
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 export const getMemberAdminData = async () => {
   await ensureAuthTables();
   const connection = await getRepstmConnection();

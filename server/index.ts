@@ -32,6 +32,7 @@ import {
   loginAppUser,
   logoutAppUser,
   changeAppUserPassword,
+  createMemberUser,
   registerAppUser,
   saveMemberGroup,
   updateMemberUser,
@@ -677,6 +678,25 @@ app.get('/api/admin/members', requireAdmin, async (_req, res) => {
   } catch (error) {
     console.error('Member admin data error:', error);
     res.status(500).json({ success: false, error: 'Cannot read member data' });
+  }
+});
+
+app.post('/api/admin/members', requireAdmin, async (req, res) => {
+  try {
+    const result = await createMemberUser({
+      username: String(req.body?.username || ''),
+      password: String(req.body?.password || ''),
+      displayName: String(req.body?.displayName || ''),
+      groupId: req.body?.groupId ? Number(req.body.groupId) : null,
+      isAdmin: Boolean(req.body?.isAdmin),
+    });
+    if (!result.success) {
+      return res.status(result.status || 400).json({ success: false, error: result.error });
+    }
+    res.status(201).json({ success: true, user: result.user ? publicUserPayload(result.user) : null });
+  } catch (error) {
+    console.error('Create member error:', error);
+    res.status(500).json({ success: false, error: 'Cannot create member' });
   }
 });
 

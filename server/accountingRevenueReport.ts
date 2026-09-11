@@ -1,10 +1,11 @@
+import {loadPaccountMappings,accountCategory,type AccountMapping} from './paccountReportMapping.js';
 import { getUTFConnection } from './db.js';
 import { RECEIVABLE_RIGHT_MAPPINGS } from './receivableMapping.js';
 
 export type RevenueCategoryKey = 'uc' | 'agency' | 'local' | 'csm' | 'sss' | 'migrant' | 'stateless' | 'other';
 export type RevenueSourceRow = { pttype?: string | null; pttype_name?: string | null; hipdata_code?: string | null; service_count?: number | string | null; adjrw?: number | string | null; actual_charge?: number | string | null };
 export type RevenueReportRow = {
-  key: RevenueCategoryKey; account_code: string; label: string; service_count: number; adjrw: number; actual_charge: number;
+  key: RevenueCategoryKey; account_code: string; ledger_codes: string[]; label: string; service_count: number; adjrw: number; actual_charge: number;
   rights: Array<{ pttype: string; name: string; hipdata_code: string; service_count: number; adjrw: number; actual_charge: number; mapped_by: 'finance' | 'hipdata' | 'name' | 'fallback' }>;
 };
 
@@ -40,15 +41,17 @@ export const classifyRevenueRight = (row: Pick<RevenueSourceRow, 'pttype' | 'ptt
   return { key: 'other' as const, mapped_by: mapping ? 'finance' as const : 'fallback' as const };
 };
 
-export const aggregateRevenueRows = (sourceRows: RevenueSourceRow[], patientType: 'opd' | 'ipd'): RevenueReportRow[] => {
-  const rows: RevenueReportRow[] = CATEGORY_DEFINITIONS.map((definition) => ({ key: definition.key, account_code: patientType === 'opd' ? definition.opd : definition.ipd, label: definition.label, service_count: 0, adjrw: 0, actual_charge: 0, rights: [] }));
+export const aggregateRevenueRows = (sourceRows: RevenueSourceRow[], patientType: 'opd' | 'ipd', mappings?: Map<string,AccountMapping>): RevenueReportRow[] => {
+  const rows: RevenueReportRow[] = CATEGORY_DEFINITIONS.map((definition) => ({ key: definition.key, account_code: patientType === 'opd' ? definition.opd : definition.ipd, ledger_codes: [], label: definition.label, service_count: 0, adjrw: 0, actual_charge: 0, rights: [] }));
   const byKey = new Map(rows.map((row) => [row.key, row]));
   for (const source of sourceRows) {
-    const classification = classifyRevenueRight(source);
+    const mapping=mappings?.get(clean(source.pttype));
+    const classification = mappings ? (mapping ? {key:accountCategory(mapping.name),mapped_by:'finance' as const} : {key:'other' as const,mapped_by:'fallback' as const}) : classifyRevenueRight(source);
     const target = byKey.get(classification.key)!;
+    if(mapping && !target.ledger_codes.includes(mapping.paccount)) target.ledger_codes.push(mapping.paccount);
     const serviceCount = numeric(source.service_count); const adjrw = numeric(source.adjrw); const actualCharge = numeric(source.actual_charge);
     target.service_count += serviceCount; target.adjrw += adjrw; target.actual_charge += actualCharge;
-    target.rights.push({ pttype: clean(source.pttype), name: clean(source.pttype_name), hipdata_code: upper(source.hipdata_code), service_count: serviceCount, adjrw, actual_charge: actualCharge, mapped_by: classification.mapped_by });
+    target.rights.push({ pttype: clean(source.pttype), name: clean(source.pttype_name)+(mapping ? ` | ${mapping.paccount} ${mapping.name} | ${mapping.register_name} (${mapping.paccount_year})` : ''), hipdata_code: upper(source.hipdata_code), service_count: serviceCount, adjrw, actual_charge: actualCharge, mapped_by: classification.mapped_by });
   }
   return rows;
 };
@@ -81,8 +84,11 @@ export const getAccountingRevenueReport = async (input: { startDate: string; end
          COALESCE(SUM(COALESCE(a.income, 0)), 0) AS actual_charge
        FROM ipt i LEFT JOIN an_stat a ON a.an = i.an LEFT JOIN pttype pt ON pt.pttype = i.pttype
        WHERE i.dchdate BETWEEN ? AND ? GROUP BY i.pttype, pt.name, pt.hipdata_code ORDER BY i.pttype`, [startDate, endDate]);
-    const opd = aggregateRevenueRows(opdRaw as RevenueSourceRow[], 'opd');
-    const ipd = aggregateRevenueRows(ipdRaw as RevenueSourceRow[], 'ipd');
+    const year=Number(endDate.slice(0,4))+543+(Number(endDate.slice(5,7))>=10?1:0);
+    const om=await loadPaccountMappings(connection,'opd',year);
+    const im=await loadPaccountMappings(connection,'ipd',year);
+    const opd = aggregateRevenueRows(opdRaw as RevenueSourceRow[], 'opd',om.result);
+    const ipd = aggregateRevenueRows(ipdRaw as RevenueSourceRow[], 'ipd',im.result);
     const opdSourceCount = (opdRaw as RevenueSourceRow[]).reduce((sum, row) => sum + numeric(row.service_count), 0);
     const ipdSourceCount = (ipdRaw as RevenueSourceRow[]).reduce((sum, row) => sum + numeric(row.service_count), 0);
     const opdGroupedCount = opd.reduce((sum, row) => sum + row.service_count, 0);
@@ -92,6 +98,6 @@ export const getAccountingRevenueReport = async (input: { startDate: string; end
         .map((right) => [`${right.pttype}|${right.name}|${right.hipdata_code}`, right]),
     ).values());
     const usingAdjrw = weightExpression.endsWith('.adjrw');
-    return { startDate, endDate, opd, ipd, audit: { opd_source_count: opdSourceCount, opd_grouped_count: opdGroupedCount, ipd_source_count: ipdSourceCount, ipd_grouped_count: ipdGroupedCount, opd_balanced: opdSourceCount === opdGroupedCount, ipd_balanced: ipdSourceCount === ipdGroupedCount, fallback_rights: fallbackRights }, notes: ['OP Visit นับ VN ไม่ซ้ำตามวันที่รับบริการ (ovst.vstdate)', `น้ำหนักสัมพัทธ์รวมใช้ ${weightExpression} ของผู้ป่วยในที่จำหน่ายในช่วงวันที่เลือก (ipt.dchdate)${usingAdjrw ? '' : ' เนื่องจาก HOSxP แห่งนี้ไม่มีคอลัมน์ adjrw'}`, 'ยอดค่ารักษา HOSxP เป็นยอดอ้างอิงจาก vn_stat/an_stat.income ไม่ใช่รายรับทางบัญชีที่รับเงินจริง'] };
+    return { startDate, endDate, opd, ipd, audit: { opd_source_count: opdSourceCount, opd_grouped_count: opdGroupedCount, ipd_source_count: ipdSourceCount, ipd_grouped_count: ipdGroupedCount, opd_balanced: opdSourceCount === opdGroupedCount, ipd_balanced: ipdSourceCount === ipdGroupedCount, fallback_rights: fallbackRights }, notes: [...om.issues,...im.issues,'จัดกลุ่มจาก paccountopd/paccountipd ตรวจทะเบียนและประเภทด้วย paccount_register/paccount_type และตรวจรหัสกับ paccount','OP Visit นับ VN ไม่ซ้ำตามวันที่รับบริการ (ovst.vstdate)', `น้ำหนักสัมพัทธ์รวมใช้ ${weightExpression} ของผู้ป่วยในที่จำหน่ายในช่วงวันที่เลือก (ipt.dchdate)${usingAdjrw ? '' : ' เนื่องจาก HOSxP แห่งนี้ไม่มีคอลัมน์ adjrw'}`, 'ยอดค่ารักษา HOSxP เป็นยอดอ้างอิงจาก vn_stat/an_stat.income ไม่ใช่รายรับทางบัญชีที่รับเงินจริง'] };
   } finally { connection.release(); }
 };

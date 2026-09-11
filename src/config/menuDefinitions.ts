@@ -45,7 +45,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'ppfsBenchmark', icon: '📈', label: 'เทียบยอด PPFS' },
   { page: 'ppfsVisitMatch', icon: '🔎', label: 'Match PPFS' },
   { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกัน' },
-  { page: 'accountingRevenueBudget', icon: '🧮', label: 'ประมาณการรายได้ 11000' },
+  { page: 'accountingRevenueBudget', icon: '🧮', label: 'รายงานบัญชี / ประมาณการรายได้' },
   { page: 'ucOutsideCup', icon: '🏥', label: 'UC นอก CUP' },
   { page: 'repDeny', icon: '⚠️', label: 'ติด C/Deny' },
   { page: 'admin', icon: '📊', label: 'Dashboard' },

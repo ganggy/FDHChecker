@@ -2574,6 +2574,17 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                             รายการตรวจสอบ {funds.find(f => f.id === activeFund)?.name}
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                            {activeFund === 'herb' && (
+                                <a
+                                    href="https://ndi.fda.moph.go.th/drug_national"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="herb-reference-link"
+                                    title="ตรวจสอบข้อบ่งใช้จากบัญชียาหลักแห่งชาติด้านสมุนไพร"
+                                >
+                                    📚 อ้างอิงบัญชียาหลักแห่งชาติด้านสมุนไพร
+                                </a>
+                            )}
                             {activeFund === 'palliative' && (
                                 <>
                                     <span className="badge badge-success" style={{ fontSize: 12, padding: '6px 10px' }}>✓ เข้าเกณฑ์ {palliativeQualifyingData.length}</span>
@@ -2626,7 +2637,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         <>
                                             <th style={{ width: 150, textAlign: 'center' }}>Diagnosis</th>
                                             <th className="herb-items-column" style={{ width: 320, textAlign: 'left' }}>รายการยาสมุนไพร</th>
-                                            <th className="herb-match-column" style={{ width: 280, textAlign: 'center' }}>ตรวจยา/โรค</th>
+                                            <th className="herb-match-column" style={{ width: 360, textAlign: 'center' }}>ตรวจยา/โรค + รหัสที่สัมพันธ์</th>
                                             <th style={{ width: 110, textAlign: 'right' }}>ยอดรวม (฿)</th>
                                         </>
                                     )}
@@ -2963,6 +2974,23 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                 {assessment.reasons.length > 0 && (
                                                                     <div style={{ marginTop: 4, fontSize: 11, color: assessment.status === 'invalid' ? 'var(--danger)' : '#b26a00', whiteSpace: 'normal' }}>
                                                                         {assessment.reasons.join(' · ')}
+                                                                    </div>
+                                                                )}
+                                                                {assessment.medicineRecommendations.length > 0 && (
+                                                                    <div className="herb-diagnosis-recommendations">
+                                                                        <div className="herb-diagnosis-recommendations__title">
+                                                                            รหัสที่สัมพันธ์กับยานี้ (ตรวจเวชระเบียนก่อนบันทึก)
+                                                                        </div>
+                                                                        {assessment.medicineRecommendations.map((recommendation) => (
+                                                                            <div key={recommendation.medicine} className="herb-diagnosis-recommendation">
+                                                                                <strong>{recommendation.medicine}</strong>
+                                                                                <span>
+                                                                                    {recommendation.indications.map((indication) => (
+                                                                                        `${indication.symptom}: ${indication.diagnosisCodes.join(', ')}`
+                                                                                    )).join(' หรือ ')}
+                                                                                </span>
+                                                                            </div>
+                                                                        ))}
                                                                     </div>
                                                                 )}
                                                             </td>

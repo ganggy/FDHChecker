@@ -77,12 +77,33 @@ export const normalizePipeValue = (value: unknown): string => {
     .trim();
 };
 
+const FDH_FIELD_LENGTH_LIMITS: Partial<Record<FdhFileCode, Record<string, number>>> = {
+  OPD: { DETAIL: 255 },
+};
+
+/**
+ * จำกัดความยาวเฉพาะข้อมูลที่ส่งออก โดยไม่แก้ข้อความต้นฉบับใน HOSxP
+ * FDH ตรวจ OPD.DETAIL ที่ความยาวสูงสุด 255 ตัวอักษร
+ */
+export const normalizeFdhFieldValue = (file: FdhFileCode, field: string, value: unknown): string => {
+  const normalized = normalizePipeValue(value);
+  const maximumLength = FDH_FIELD_LENGTH_LIMITS[file]?.[field];
+  if (!maximumLength) return normalized;
+  return Array.from(normalized).slice(0, maximumLength).join('');
+};
+
+const projectFdhFieldValue = (file: FdhFileCode, field: string, value: unknown): unknown => (
+  FDH_FIELD_LENGTH_LIMITS[file]?.[field]
+    ? normalizeFdhFieldValue(file, field, value)
+    : value ?? ''
+);
+
 export const projectFdhData = (data: Partial<FdhExportData>, profile: FdhExportProfile): FdhExportData => {
   const layouts = getFdhLayouts(profile);
   return Object.fromEntries(FDH_FILE_CODES.map((file) => [
     file,
     (Array.isArray(data[file]) ? data[file] : []).map((row) => Object.fromEntries(
-      layouts[file].map((field) => [field, row?.[field] ?? '']),
+      layouts[file].map((field) => [field, projectFdhFieldValue(file, field, row?.[field])]),
     )),
   ])) as FdhExportData;
 };
@@ -148,7 +169,7 @@ export const serializeFdhFile = (
   const columns = getFdhLayouts(profile)[file];
   const rows = Array.isArray(data[file]) ? data[file]! : [];
   const header = includeHeader ? columns.join('|') : '';
-  const body = rows.map((row) => columns.map((column) => normalizePipeValue(row?.[column])).join('|')).join('\r\n');
+  const body = rows.map((row) => columns.map((column) => normalizeFdhFieldValue(file, column, row?.[column])).join('|')).join('\r\n');
   if (!body) return header;
   return includeHeader ? `${header}\r\n${body}` : body;
 };

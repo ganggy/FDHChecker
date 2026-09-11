@@ -71,6 +71,18 @@ test('pipe serialization strips delimiters and line breaks', () => {
   assert.equal(output.includes('\nNEXT\r\n'), false);
 });
 
+test('OPD DETAIL is limited to the 255 characters accepted by FDH', () => {
+  const data = validFwfData();
+  data.OPD[0].DETAIL = 'อ'.repeat(279);
+
+  const projected = projectFdhData(data, 'standard');
+  assert.equal(Array.from(String(projected.OPD[0].DETAIL)).length, 255);
+
+  const output = serializeFdhFile(data, 'OPD', 'standard', false);
+  const detailIndex = getFdhLayouts('standard').OPD.indexOf('DETAIL');
+  assert.equal(Array.from(output.split('|')[detailIndex]).length, 255);
+});
+
 test('preflight accepts a linked and balanced minimal FWF claim', () => {
   const data = validFwfData();
   data.INS[0].PERMITNO = '';

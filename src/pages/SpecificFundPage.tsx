@@ -3098,18 +3098,23 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                         const icd9 = getDentalIcd9ForProcedure(item.dental_procedure_pairs, procedure.code);
                                                                         const requiredIcd9 = activeFund === 'anc_dental_exam' ? ANC_DENTAL_EXAM_ICD9 : ANC_DENTAL_CLEAN_ICD9;
                                                                         const allowedCodes = activeFund === 'anc_dental_exam' ? ANC_DENTAL_EXAM_PROCEDURE_CODES : ANC_DENTAL_CLEAN_PROCEDURE_CODES;
-                                                                        const pairMatches = hasAnyCodeValue(procedure.code, allowedCodes) && icd9 === requiredIcd9;
+                                                                        const isRequiredProcedure = hasAnyCodeValue(procedure.code, allowedCodes);
+                                                                        const pairMatches = isRequiredProcedure && icd9 === requiredIcd9;
                                                                         return (
                                                                             <span
                                                                                 className="dental-procedure-chip"
                                                                                 key={`${procedure.code}-${procedure.name}-${procedureIndex}`}
-                                                                                title={`${procedure.code}${procedure.name ? ` ${procedure.name}` : ''} • ICD-9 ${icd9 || 'ไม่ระบุ'}${pairMatches ? ' ตรงเงื่อนไข' : ' ไม่ตรงเงื่อนไข'}`}
+                                                                                title={`${procedure.code}${procedure.name ? ` ${procedure.name}` : ''} • ICD-9 ${icd9 || 'ไม่ระบุ'}${isRequiredProcedure ? (pairMatches ? ' ตรงเงื่อนไข' : ' ยังไม่ตรงเงื่อนไข') : ' เป็นหัตถการประกอบ ไม่ใช่รหัสที่ใช้ตัดสินรายการนี้'}`}
                                                                             >
                                                                                 {procedure.code && <strong>{procedure.code}</strong>}
                                                                                 {procedure.name && <span>{procedure.name}</span>}
                                                                                 {procedure.code && (
-                                                                                    <small style={{ color: pairMatches ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
-                                                                                        {pairMatches ? `ICD-9 ${icd9} ✓` : `ต้องมี ICD-9 ${requiredIcd9}`}
+                                                                                    <small style={{ color: pairMatches ? '#15803d' : isRequiredProcedure ? '#b91c1c' : 'var(--text-secondary)', fontWeight: 700 }}>
+                                                                                        {pairMatches
+                                                                                            ? `ICD-9 ${icd9} ✓`
+                                                                                            : isRequiredProcedure
+                                                                                                ? `ต้องมี ICD-9 ${requiredIcd9}`
+                                                                                                : `ICD-9 ${icd9 || '-'} · รายการประกอบ`}
                                                                                     </small>
                                                                                 )}
                                                                             </span>

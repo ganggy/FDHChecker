@@ -13,6 +13,7 @@ export type AuthUser = {
   is_active: boolean;
   is_admin: boolean;
   menu_permissions: AppPage[];
+  fund_permissions: string[] | null;
   last_login_at: string | null;
 };
 
@@ -118,6 +119,7 @@ export const createMember = async (payload: {
   displayName?: string;
   groupId?: number | null;
   isAdmin?: boolean;
+  fundPermissions?: string[] | null;
 }) => {
   const data = await jsonOrThrow<{ success: true; user: MemberUser | null }>(
     await fetch('/api/admin/members', {
@@ -131,7 +133,7 @@ export const createMember = async (payload: {
 
 export const updateMember = async (
   userId: number,
-  payload: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string }
+  payload: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string; fundPermissions?: string[] | null }
 ) => {
   const data = await jsonOrThrow<{ success: true; user: MemberUser | null }>(
     await fetch(`/api/admin/members/${userId}`, {

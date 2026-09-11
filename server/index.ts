@@ -280,6 +280,7 @@ const publicUserPayload = (user: NonNullable<Awaited<ReturnType<typeof getAuthUs
   is_active: Boolean(user.is_active),
   is_admin: Boolean(user.is_admin || user.group_is_admin),
   menu_permissions: user.menu_permissions,
+  fund_permissions: user.is_admin || user.group_is_admin ? null : user.fund_permissions,
   last_login_at: user.last_login_at,
 });
 
@@ -689,6 +690,9 @@ app.post('/api/admin/members', requireAdmin, async (req, res) => {
       displayName: String(req.body?.displayName || ''),
       groupId: req.body?.groupId ? Number(req.body.groupId) : null,
       isAdmin: Boolean(req.body?.isAdmin),
+      fundPermissions: req.body?.fundPermissions == null
+        ? null
+        : Array.isArray(req.body.fundPermissions) ? req.body.fundPermissions.map(String) : [],
     });
     if (!result.success) {
       return res.status(result.status || 400).json({ success: false, error: result.error });
@@ -710,6 +714,11 @@ app.patch('/api/admin/members/:id', requireAdmin, async (req, res) => {
       isAdmin: typeof req.body?.isAdmin === 'boolean' ? req.body.isAdmin : undefined,
       groupId: Object.prototype.hasOwnProperty.call(req.body || {}, 'groupId') ? Number(req.body.groupId || 0) || null : undefined,
       displayName: typeof req.body?.displayName === 'string' ? req.body.displayName : undefined,
+      fundPermissions: Object.prototype.hasOwnProperty.call(req.body || {}, 'fundPermissions')
+        ? req.body.fundPermissions == null
+          ? null
+          : Array.isArray(req.body.fundPermissions) ? req.body.fundPermissions.map(String) : []
+        : undefined,
     });
     res.json({ success: true, user: user ? publicUserPayload(user) : null });
   } catch (error) {
@@ -1742,6 +1751,13 @@ app.get('/api/hosxp/specific-funds', async (req, res) => {
     const { fundType, startDate, endDate } = req.query;
     if (!fundType || !startDate || !endDate) {
       return res.status(400).json({ success: false, error: 'Missing parameters' });
+    }
+    const user = (req as AuthenticatedRequest).authUser;
+    const requestedFund = String(fundType);
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions)
+      && !user.fund_permissions.includes(requestedFund)) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนที่เลือก' });
     }
     console.log(`🔍 Fetching Specific Fund Data: ${fundType} from ${startDate} to ${endDate}`);
     const { getSpecificFundData } = await import('./db.js');

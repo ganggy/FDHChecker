@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { allMenuItems } from '../config/menuDefinitions';
+import { FUND_DEFINITIONS } from '../config/fundDefinitions';
 import { createMember, fetchMemberAdminData, saveGroup, updateMember, type MemberAdminData, type MemberGroup } from '../services/authService';
 import type { AppPage } from '../utils/navigationState';
 
@@ -25,7 +26,10 @@ export const MemberAdminPage = () => {
     confirmPassword: '',
     groupId: '',
     isAdmin: false,
+    allFunds: true,
+    fundPermissions: [] as string[],
   });
+  const [fundEditor, setFundEditor] = useState<{ userId: number; name: string; allFunds: boolean; fundPermissions: string[] } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -77,14 +81,59 @@ export const MemberAdminPage = () => {
         password: newUser.password,
         groupId: Number(newUser.groupId) || null,
         isAdmin: newUser.isAdmin,
+        fundPermissions: newUser.allFunds ? null : newUser.fundPermissions,
       });
-      setNewUser({ username: '', displayName: '', password: '', confirmPassword: '', groupId: '', isAdmin: false });
+      setNewUser({ username: '', displayName: '', password: '', confirmPassword: '', groupId: '', isAdmin: false, allFunds: true, fundPermissions: [] });
       setMessage('เพิ่มผู้ใช้และเปิดใช้งานแล้ว');
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'เพิ่มผู้ใช้ไม่สำเร็จ');
     } finally {
       setCreatingUser(false);
+    }
+  };
+
+  const toggleNewUserFund = (fundId: string) => {
+    setNewUser((current) => ({
+      ...current,
+      fundPermissions: current.fundPermissions.includes(fundId)
+        ? current.fundPermissions.filter((id) => id !== fundId)
+        : [...current.fundPermissions, fundId],
+    }));
+  };
+
+  const openFundEditor = (user: NonNullable<MemberAdminData>['users'][number]) => {
+    setFundEditor({
+      userId: user.id,
+      name: user.display_name || user.username,
+      allFunds: user.is_admin || user.fund_permissions === null,
+      fundPermissions: user.fund_permissions || [],
+    });
+  };
+
+  const toggleEditedFund = (fundId: string) => {
+    setFundEditor((current) => current ? ({
+      ...current,
+      fundPermissions: current.fundPermissions.includes(fundId)
+        ? current.fundPermissions.filter((id) => id !== fundId)
+        : [...current.fundPermissions, fundId],
+    }) : current);
+  };
+
+  const saveFundPermissions = async () => {
+    if (!fundEditor) return;
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      await updateMember(fundEditor.userId, { fundPermissions: fundEditor.allFunds ? null : fundEditor.fundPermissions });
+      setMessage(`บันทึกสิทธิ์กองทุนของ ${fundEditor.name} แล้ว`);
+      setFundEditor(null);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'บันทึกสิทธิ์กองทุนไม่สำเร็จ');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -188,6 +237,25 @@ export const MemberAdminPage = () => {
                 <input type="checkbox" checked={newUser.isAdmin} onChange={(event) => setNewUser((current) => ({ ...current, isAdmin: event.target.checked }))} />
                 ให้สิทธิ์ผู้ดูแลระบบ
               </label>
+              <div className="member-fund-access">
+                <div className="member-fund-access__header">
+                  <strong>กองทุนที่เข้าถึงได้</strong>
+                  <label className="inline-check">
+                    <input type="checkbox" checked={newUser.allFunds} onChange={(event) => setNewUser((current) => ({ ...current, allFunds: event.target.checked }))} />
+                    ทุกกองทุน
+                  </label>
+                </div>
+                {!newUser.allFunds && (
+                  <div className="member-fund-grid">
+                    {FUND_DEFINITIONS.map((fund) => (
+                      <label key={fund.id}>
+                        <input type="checkbox" checked={newUser.fundPermissions.includes(fund.id)} onChange={() => toggleNewUserFund(fund.id)} />
+                        <span>{fund.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="member-create-actions">
                 <small>รหัสผ่านอย่างน้อย 12 ตัวอักษร</small>
                 <button className="btn-primary" type="submit" disabled={creatingUser}>
@@ -243,12 +311,41 @@ export const MemberAdminPage = () => {
                         <button className="btn-secondary btn-small" onClick={() => handleUserUpdate(user.id, { isActive: !user.is_active })}>
                           {user.is_active ? 'ปิดใช้' : 'เปิดใช้'}
                         </button>
+                        <button className="btn-secondary btn-small" onClick={() => openFundEditor(user)}>กองทุน</button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {fundEditor && (
+              <div className="member-fund-editor">
+                <div className="member-fund-access__header">
+                  <div>
+                    <strong>สิทธิ์กองทุน: {fundEditor.name}</strong>
+                    <div className="muted">ใช้กับหน้า “รวมทุกกองทุน” และหน้ากองทุนแยกตามช่องทาง</div>
+                  </div>
+                  <button type="button" className="btn-secondary btn-small" onClick={() => setFundEditor(null)}>ปิด</button>
+                </div>
+                <label className="inline-check">
+                  <input type="checkbox" checked={fundEditor.allFunds} onChange={(event) => setFundEditor((current) => current ? ({ ...current, allFunds: event.target.checked }) : current)} />
+                  เข้าถึงทุกกองทุน
+                </label>
+                {!fundEditor.allFunds && (
+                  <div className="member-fund-grid">
+                    {FUND_DEFINITIONS.map((fund) => (
+                      <label key={fund.id}>
+                        <input type="checkbox" checked={fundEditor.fundPermissions.includes(fund.id)} onChange={() => toggleEditedFund(fund.id)} />
+                        <span>{fund.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <button type="button" className="btn-primary" disabled={saving} onClick={() => void saveFundPermissions()}>
+                  {saving ? 'กำลังบันทึก...' : 'บันทึกสิทธิ์กองทุน'}
+                </button>
+              </div>
+            )}
           </section>
 
           <section className="card member-admin-panel">

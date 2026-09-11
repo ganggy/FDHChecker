@@ -133,9 +133,10 @@ const isFundInChannelView = (fund: FundDefinition, view: ClaimChannelView) => {
 
 interface SpecificFundPageProps {
     channelView?: ClaimChannelView;
+    allowedFundIds?: string[] | null;
 }
 
-export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView = 'all' }) => {
+export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView = 'all', allowedFundIds = null }) => {
     const [activeFund, setActiveFund] = useState('palliative');
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
@@ -182,8 +183,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const clopidogrelLabel = (siteSettings.lab_costs?.rules?.find(r => r.key === 'clopidogrel')?.label) || 'Clopidogrel';
     const funds: FundDefinition[] = (FUND_DEFINITIONS && FUND_DEFINITIONS.length > 0 ? FUND_DEFINITIONS : FALLBACK_FUND_DEFINITIONS);
     const visibleFunds = useMemo(
-        () => funds.filter((fund) => fundVisibility[fund.id] !== false && isFundInChannelView(fund, channelView)),
-        [channelView, fundVisibility, funds]
+        () => funds.filter((fund) => (
+            fundVisibility[fund.id] !== false
+            && isFundInChannelView(fund, channelView)
+            && (allowedFundIds === null || allowedFundIds.includes(fund.id))
+        )),
+        [allowedFundIds, channelView, fundVisibility, funds]
     );
 
     useEffect(() => {
@@ -203,6 +208,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     }, [startDate, endDate]);
 
     const fetchFundData = useCallback(async () => {
+        if (!visibleFunds.some((fund) => fund.id === activeFund)) {
+            setData([]);
+            setLoading(false);
+            setError(null);
+            return;
+        }
         setLoading(true);
         setError(null);
         try {
@@ -213,7 +224,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         } finally {
             setLoading(false);
         }
-    }, [activeFund, fetchFundDataByType]);
+    }, [activeFund, fetchFundDataByType, visibleFunds]);
 
     const handleKneeCompletion = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
@@ -1800,7 +1811,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                             <div className="specific-fund-empty__icon">🚫</div>
                             <div className="specific-fund-empty__title">{CHANNEL_VIEW_LABELS[channelView].empty}</div>
                             <div className="specific-fund-empty__text">
-                                กรุณาไปที่ <strong>ตั้งค่า</strong> แล้วเปิดรายการที่ต้องการแสดงในหน้า <strong>รายกองทุน/43 แฟ้ม</strong>
+                                บัญชีนี้ยังไม่มีกองทุนที่ได้รับอนุญาต หรือรายการถูกปิดไว้ในการตั้งค่าระบบ
                             </div>
                         </div>
                     )}

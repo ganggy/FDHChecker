@@ -1413,6 +1413,62 @@
   color: #64748b;
 }
 
+.member-fund-access {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border: 1px solid #dbe5f2;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.member-fund-access__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.member-fund-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.4rem;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.member-fund-grid label {
+  display: flex;
+  grid-template-columns: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 36px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #fff;
+  font-weight: 700;
+}
+
+.member-fund-grid input {
+  width: auto;
+  min-height: auto;
+}
+
+.member-fund-editor {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border-top: 1px solid #bfdbfe;
+  background: #eff6ff;
+}
+
+.member-fund-editor > .btn-primary {
+  justify-self: end;
+}
+
 .member-table {
   min-width: 860px;
 }

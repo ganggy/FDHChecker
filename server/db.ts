@@ -13,6 +13,7 @@ import { evaluateFsRate, FS_PROJECT_ITEMS_2569 } from './fsRateRules.js';
 import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVisit, summarizeKidneyTrackingVisits } from './kidneyMonitorRules.js';
 import { attachKidneyRepStmTracking } from './kidneyRepStmTracking.js';
 import { PALLIATIVE_DIAGNOSIS_GROUPS } from '../src/config/palliativeDiagnosisCatalog.js';
+import { FUND_DEFINITIONS } from '../src/config/fundDefinitions.js';
 import { reviewPalliativeCareVisit } from '../src/utils/palliativeCareReview.js';
 import { SYPHILIS_SCREENING_ADP_CODES, SYPHILIS_SCREENING_NAME_PATTERN } from '../src/utils/syphilisScreeningRules.js';
 import { buildPostnatalTraditionalMedicineExclusionSql } from './specificFundRules.js';
@@ -386,6 +387,7 @@ const APP_USER_TABLE_SQL = `
     approved TINYINT(1) NOT NULL DEFAULT 0,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     is_admin TINYINT(1) NOT NULL DEFAULT 0,
+    fund_permissions JSON NULL,
     last_login_at DATETIME NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1447,6 +1449,7 @@ export type AppUserRecord = {
   is_admin: number;
   group_is_admin: number;
   menu_permissions: unknown;
+  fund_permissions: string[] | null;
   last_login_at: string | null;
   created_at: string | null;
 };
@@ -1482,6 +1485,15 @@ export const ensureAuthTables = async () => {
     await connection.query(APP_USER_GROUP_TABLE_SQL);
     await connection.query(APP_USER_TABLE_SQL);
     await connection.query(APP_SESSION_TABLE_SQL);
+
+    const [userColumnRows] = await connection.query(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_user' AND COLUMN_NAME = 'fund_permissions'`
+    );
+    if (!Array.isArray(userColumnRows) || userColumnRows.length === 0) {
+      await connection.query('ALTER TABLE app_user ADD COLUMN fund_permissions JSON NULL AFTER is_admin');
+    }
 
     await connection.query(
       `INSERT INTO app_user_group (group_key, group_name, is_admin, menu_permissions)
@@ -1571,12 +1583,13 @@ const mapAppUser = (row: any): AppUserRecord => ({
   is_admin: Number(row.is_admin || 0),
   group_is_admin: Number(row.group_is_admin || 0),
   menu_permissions: normalizeMenuPermissions(row.menu_permissions),
+  fund_permissions: row.fund_permissions == null ? null : normalizeFundPermissions(row.fund_permissions),
   last_login_at: row.last_login_at == null ? null : String(row.last_login_at),
   created_at: row.created_at == null ? null : String(row.created_at),
 });
 
 const getUserSelectSql = () => `
-  SELECT u.id, u.username, u.display_name, u.group_id, u.approved, u.is_active, u.is_admin,
+  SELECT u.id, u.username, u.display_name, u.group_id, u.approved, u.is_active, u.is_admin, u.fund_permissions,
          u.last_login_at, u.created_at,
          g.group_key, g.group_name, g.is_admin AS group_is_admin, g.menu_permissions
   FROM app_user u
@@ -1729,12 +1742,21 @@ export const registerAppUser = async (input: { username: string; password: strin
   }
 };
 
+const normalizeFundPermissions = (value: unknown): string[] => {
+  const raw = parseStoredSettingValue<string[]>(value);
+  const allowed = new Set(FUND_DEFINITIONS.map((fund) => fund.id));
+  return Array.from(new Set((Array.isArray(raw) ? raw : [])
+    .map((fundId) => String(fundId || '').trim())
+    .filter((fundId) => allowed.has(fundId))));
+};
+
 export const createMemberUser = async (input: {
   username: string;
   password: string;
   displayName?: string;
   groupId?: number | null;
   isAdmin?: boolean;
+  fundPermissions?: string[] | null;
 }) => {
   await ensureAuthTables();
   const username = normalizeUsername(input.username);
@@ -1762,14 +1784,15 @@ export const createMemberUser = async (input: {
     }
 
     const [result] = await connection.query(
-      `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin)
-       VALUES (?, ?, ?, ?, 1, 1, ?)`,
+      `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin, fund_permissions)
+       VALUES (?, ?, ?, ?, 1, 1, ?, ?)`,
       [
         username,
         hashPassword(input.password),
         String(input.displayName || username).trim().slice(0, 191),
         groupId,
         input.isAdmin ? 1 : 0,
+        input.fundPermissions == null ? null : JSON.stringify(normalizeFundPermissions(input.fundPermissions)),
       ]
     );
     const userId = Number((result as any)?.insertId || 0);
@@ -1812,7 +1835,7 @@ export const getMemberAdminData = async () => {
 
 export const updateMemberUser = async (
   userId: number,
-  input: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string }
+  input: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string; fundPermissions?: string[] | null }
 ) => {
   await ensureAuthTables();
   const connection = await getRepstmConnection();
@@ -1838,6 +1861,10 @@ export const updateMemberUser = async (
     if (typeof input.displayName === 'string') {
       updates.push('display_name = ?');
       values.push(input.displayName.trim() || null);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'fundPermissions')) {
+      updates.push('fund_permissions = ?');
+      values.push(input.fundPermissions == null ? null : JSON.stringify(normalizeFundPermissions(input.fundPermissions)));
     }
     if (updates.length === 0) return getAppUserById(userId);
     values.push(userId);

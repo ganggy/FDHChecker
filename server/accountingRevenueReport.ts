@@ -37,7 +37,7 @@ export const classifyRevenueRight = (row: Pick<RevenueSourceRow, 'pttype' | 'ptt
   if (/ต่างด้าว/.test(finance) || hipdata === 'NRD' || /ต่างด้าว|แรงงานต่างชาติ/.test(name)) return { key: 'migrant' as const, mapped_by: mapping ? 'finance' as const : name ? 'name' as const : 'hipdata' as const };
   if (/ปัญหาสถานะ|สถานะและสิทธิ/.test(finance) || hipdata === 'STP' || /ปัญหาสถานะ|บุคคลไร้สถานะ/.test(name)) return { key: 'stateless' as const, mapped_by: mapping ? 'finance' as const : name ? 'name' as const : 'hipdata' as const };
   if (/^UC\b|หลักประกันสุขภาพ|บัตรทอง/.test(finance) || hipdata === 'UCS' || /บัตรทอง|หลักประกันสุขภาพ/.test(name)) return { key: 'uc' as const, mapped_by: mapping ? 'finance' as const : name ? 'name' as const : 'hipdata' as const };
-  return { key: 'other' as const, mapped_by: 'fallback' as const };
+  return { key: 'other' as const, mapped_by: mapping ? 'finance' as const : 'fallback' as const };
 };
 
 export const aggregateRevenueRows = (sourceRows: RevenueSourceRow[], patientType: 'opd' | 'ipd'): RevenueReportRow[] => {
@@ -61,10 +61,15 @@ export const getAccountingRevenueReport = async (input: { startDate: string; end
   if (days > 366) throw new Error('ช่วงรายงานต้องไม่เกิน 366 วัน');
   const connection = await getUTFConnection();
   try {
+    const [, iptFields] = await connection.query('SELECT * FROM ipt LIMIT 0');
     const [, anStatFields] = await connection.query('SELECT * FROM an_stat LIMIT 0');
+    const iptColumnNames = new Set((iptFields as Array<{ name?: string }>).map((field) => String(field.name || '').toLowerCase()));
     const anStatColumnNames = new Set((anStatFields as Array<{ name?: string }>).map((field) => String(field.name || '').toLowerCase()));
-    const adjrwColumn = anStatColumnNames.has('adjrw') ? 'adjrw' : anStatColumnNames.has('rw') ? 'rw' : '';
-    if (!adjrwColumn) throw new Error('ไม่พบคอลัมน์ AdjRW หรือ RW ใน an_stat กรุณาตรวจโครงสร้าง HOSxP');
+    const weightExpression = iptColumnNames.has('adjrw') ? 'i.adjrw'
+      : anStatColumnNames.has('adjrw') ? 'a.adjrw'
+        : iptColumnNames.has('rw') ? 'i.rw'
+          : anStatColumnNames.has('rw') ? 'a.rw' : '';
+    if (!weightExpression) throw new Error('ไม่พบคอลัมน์ AdjRW หรือ RW ใน ipt/an_stat กรุณาตรวจโครงสร้าง HOSxP');
     const [opdRaw] = await connection.query(
       `SELECT o.pttype AS pttype, COALESCE(pt.name, '') AS pttype_name, COALESCE(pt.hipdata_code, '') AS hipdata_code,
          COUNT(DISTINCT o.vn) AS service_count, 0 AS adjrw, COALESCE(SUM(COALESCE(v.income, 0)), 0) AS actual_charge
@@ -72,7 +77,7 @@ export const getAccountingRevenueReport = async (input: { startDate: string; end
        WHERE o.vstdate BETWEEN ? AND ? GROUP BY o.pttype, pt.name, pt.hipdata_code ORDER BY o.pttype`, [startDate, endDate]);
     const [ipdRaw] = await connection.query(
       `SELECT i.pttype AS pttype, COALESCE(pt.name, '') AS pttype_name, COALESCE(pt.hipdata_code, '') AS hipdata_code,
-         COUNT(DISTINCT i.an) AS service_count, COALESCE(SUM(COALESCE(a.${adjrwColumn}, 0)), 0) AS adjrw,
+         COUNT(DISTINCT i.an) AS service_count, COALESCE(SUM(COALESCE(${weightExpression}, 0)), 0) AS adjrw,
          COALESCE(SUM(COALESCE(a.income, 0)), 0) AS actual_charge
        FROM ipt i LEFT JOIN an_stat a ON a.an = i.an LEFT JOIN pttype pt ON pt.pttype = i.pttype
        WHERE i.dchdate BETWEEN ? AND ? GROUP BY i.pttype, pt.name, pt.hipdata_code ORDER BY i.pttype`, [startDate, endDate]);
@@ -86,6 +91,7 @@ export const getAccountingRevenueReport = async (input: { startDate: string; end
       [...opd, ...ipd].flatMap((row) => row.rights).filter((right) => right.mapped_by === 'fallback')
         .map((right) => [`${right.pttype}|${right.name}|${right.hipdata_code}`, right]),
     ).values());
-    return { startDate, endDate, opd, ipd, audit: { opd_source_count: opdSourceCount, opd_grouped_count: opdGroupedCount, ipd_source_count: ipdSourceCount, ipd_grouped_count: ipdGroupedCount, opd_balanced: opdSourceCount === opdGroupedCount, ipd_balanced: ipdSourceCount === ipdGroupedCount, fallback_rights: fallbackRights }, notes: ['OP Visit นับ VN ไม่ซ้ำตามวันที่รับบริการ (ovst.vstdate)', `น้ำหนักสัมพัทธ์รวมใช้ an_stat.${adjrwColumn} ของผู้ป่วยในที่จำหน่ายในช่วงวันที่เลือก (ipt.dchdate)${adjrwColumn === 'rw' ? ' เนื่องจาก HOSxP แห่งนี้ไม่มีคอลัมน์ adjrw' : ''}`, 'ยอดค่ารักษา HOSxP เป็นยอดอ้างอิงจาก vn_stat/an_stat.income ไม่ใช่รายรับทางบัญชีที่รับเงินจริง'] };
+    const usingAdjrw = weightExpression.endsWith('.adjrw');
+    return { startDate, endDate, opd, ipd, audit: { opd_source_count: opdSourceCount, opd_grouped_count: opdGroupedCount, ipd_source_count: ipdSourceCount, ipd_grouped_count: ipdGroupedCount, opd_balanced: opdSourceCount === opdGroupedCount, ipd_balanced: ipdSourceCount === ipdGroupedCount, fallback_rights: fallbackRights }, notes: ['OP Visit นับ VN ไม่ซ้ำตามวันที่รับบริการ (ovst.vstdate)', `น้ำหนักสัมพัทธ์รวมใช้ ${weightExpression} ของผู้ป่วยในที่จำหน่ายในช่วงวันที่เลือก (ipt.dchdate)${usingAdjrw ? '' : ' เนื่องจาก HOSxP แห่งนี้ไม่มีคอลัมน์ adjrw'}`, 'ยอดค่ารักษา HOSxP เป็นยอดอ้างอิงจาก vn_stat/an_stat.income ไม่ใช่รายรับทางบัญชีที่รับเงินจริง'] };
   } finally { connection.release(); }
 };

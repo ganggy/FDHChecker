@@ -3524,6 +3524,34 @@ p {
   min-width: 2440px;
 }
 
+.page-container .specific-fund-table-wrap .data-table.specific-fund-table--herb {
+  min-width: 2500px;
+}
+
+.specific-fund-table--herb .herb-items-column {
+  width: 320px;
+  min-width: 320px;
+}
+
+.specific-fund-table--herb .herb-match-column {
+  width: 280px;
+  min-width: 280px;
+}
+
+.specific-fund-table--herb .herb-items-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+  white-space: normal;
+  word-break: normal;
+}
+
+.specific-fund-table--herb .herb-match-column .badge {
+  max-width: 100%;
+  white-space: normal;
+}
+
 .specific-fund-table--dental .dental-procedure-column {
   width: 360px;
 }

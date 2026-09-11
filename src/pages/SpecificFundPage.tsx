@@ -2585,7 +2585,13 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     </div>
                     <div className="specific-fund-table-wrap" style={{ overflowX: 'auto' }}>
                         <table
-                            className={`data-table ${(activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean') ? 'specific-fund-table--dental' : ''}`}
+                            className={`data-table ${
+                                (activeFund === 'anc_dental_exam' || activeFund === 'anc_dental_clean')
+                                    ? 'specific-fund-table--dental'
+                                    : activeFund === 'herb'
+                                        ? 'specific-fund-table--herb'
+                                        : ''
+                            }`}
                             style={{ width: '100%', tableLayout: 'fixed', fontSize: 12 }}
                         >
                             <thead>
@@ -2618,9 +2624,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     )}
                                     {activeFund === 'herb' && (
                                         <>
-                                            <th style={{ width: 130, textAlign: 'center' }}>Diagnosis</th>
-                                            <th style={{ textAlign: 'left' }}>รายการยาสมุนไพร</th>
-                                            <th style={{ width: 210, textAlign: 'center' }}>ตรวจยา/โรค</th>
+                                            <th style={{ width: 150, textAlign: 'center' }}>Diagnosis</th>
+                                            <th className="herb-items-column" style={{ width: 320, textAlign: 'left' }}>รายการยาสมุนไพร</th>
+                                            <th className="herb-match-column" style={{ width: 280, textAlign: 'center' }}>ตรวจยา/โรค</th>
                                             <th style={{ width: 110, textAlign: 'right' }}>ยอดรวม (฿)</th>
                                         </>
                                     )}
@@ -2944,12 +2950,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                         : <span className="badge" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>-</span>}
                                                                 </div>
                                                             </td>
-                                                            <td style={{ textAlign: 'left' }}>
-                                                                <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 240, whiteSpace: 'normal', overflowWrap: 'anywhere' }} title={item.herb_items}>
+                                                            <td className="herb-items-column" style={{ textAlign: 'left' }}>
+                                                                <div className="herb-items-text" title={item.herb_items}>
                                                                     {item.herb_items || '-'}
                                                                 </div>
                                                             </td>
-                                                            <td style={{ textAlign: 'center' }}>
+                                                            <td className="herb-match-column" style={{ textAlign: 'center' }}>
                                                                 <span className={`badge ${badgeClass}`}>{label}</span>
                                                                 {assessment.matchedSymptoms.length > 0 && (
                                                                     <div style={{ marginTop: 5, fontSize: 11, color: 'var(--text-secondary)' }}>{assessment.matchedSymptoms.join(', ')}</div>

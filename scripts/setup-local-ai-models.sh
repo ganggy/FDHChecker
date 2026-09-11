@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 chat_base="qwen3:4b-instruct"
-chat_model="${OLLAMA_MODEL:-fdh-qwen3:4b}"
+chat_model="${OLLAMA_MODEL:-qwen3:4b-instruct}"
 embed_model="${OLLAMA_EMBED_MODEL:-bge-m3}"
 
 command -v ollama >/dev/null 2>&1 || { echo "[local-ai] ไม่พบคำสั่ง ollama" >&2; exit 1; }
@@ -25,6 +25,8 @@ if ! has_model "$embed_model"; then
 fi
 
 echo "[local-ai] create $chat_model from $chat_base"
-ollama create "$chat_model" -f "$project_dir/deploy/ollama/Modelfile.fdh-qwen3"
+if [ "$chat_model" != "$chat_base" ]; then
+  ollama create "$chat_model" -f "$project_dir/deploy/ollama/Modelfile.fdh-qwen3"
+fi
 
 echo "[local-ai] พร้อมใช้งาน: chat=$chat_model embedding=$embed_model"

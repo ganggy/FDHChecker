@@ -19,7 +19,7 @@ const provider = (): AiProvider => process.env.AI_PROVIDER?.trim().toLowerCase()
   ? 'openai'
   : 'ollama';
 const ollamaBaseUrl = () => (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-const ollamaModel = () => process.env.OLLAMA_MODEL || 'fdh-qwen3:4b';
+const ollamaModel = () => process.env.OLLAMA_MODEL || 'qwen3:4b-instruct';
 const ollamaEmbeddingModel = () => process.env.OLLAMA_EMBED_MODEL || 'bge-m3';
 const reportRowLimit = () => Math.max(1, Number(process.env.AI_REPORT_MAX_ROWS) || 50);
 const requestTimeoutMs = () => Math.max(5_000, Number(process.env.AI_TIMEOUT_MS) || 90_000);

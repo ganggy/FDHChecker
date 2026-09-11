@@ -5,6 +5,14 @@ export interface HerbalMedicationRule {
     medicines: string[];
 }
 
+export interface HerbalMedicineRecommendation {
+    medicine: string;
+    indications: Array<{
+        symptom: string;
+        diagnosisCodes: string[];
+    }>;
+}
+
 export type HerbalMedicationMatchStatus = 'valid' | 'invalid' | 'review' | 'no-herb';
 
 export interface HerbalMedicationAssessment {
@@ -14,10 +22,11 @@ export interface HerbalMedicationAssessment {
     matchedMedicines: string[];
     wrongMedicines: string[];
     unknownItems: string[];
+    medicineRecommendations: HerbalMedicineRecommendation[];
     reasons: string[];
 }
 
-/** รายการนี้ถอดตามตารางที่ผู้ใช้กำหนด โรงพยาบาลสามารถแก้ไขเพิ่มชื่อการค้าเป็น alias ได้ภายหลัง */
+/** ข้อบ่งใช้เทียบกับบัญชียาหลักแห่งชาติด้านสมุนไพร ส่วนรหัสวินิจฉัยใช้ตารางจับคู่ของโรงพยาบาล */
 export const HERBAL_MEDICATION_RULES: HerbalMedicationRule[] = [
     {
         id: 'musculoskeletal-pain',
@@ -29,13 +38,13 @@ export const HERBAL_MEDICATION_RULES: HerbalMedicationRule[] = [
         id: 'cold-covid',
         symptom: 'ไข้หวัด/โควิด-19',
         diagnosisCodes: ['U5619', 'J00'],
-        medicines: ['ปราบชมพูทวีป', 'มะขามป้อม', 'ฟ้าทะลายโจร', 'มะแว้ง'],
+        medicines: ['ปราบชมพูทวีป', 'ฟ้าทะลายโจร'],
     },
     {
         id: 'cough',
         symptom: 'ไอ',
         diagnosisCodes: ['U643', 'J069'],
-        medicines: [],
+        medicines: ['มะขามป้อม', 'มะแว้ง', 'ประสะมะแว้ง'],
     },
     {
         id: 'dyspepsia',
@@ -47,13 +56,13 @@ export const HERBAL_MEDICATION_RULES: HerbalMedicationRule[] = [
         id: 'constipation',
         symptom: 'ท้องผูก',
         diagnosisCodes: ['K590', 'U6984'],
-        medicines: ['มะขามแขก', 'เพชรสังฆาต'],
+        medicines: ['มะขามแขก'],
     },
     {
         id: 'hemorrhoid',
         symptom: 'ริดสีดวงทวารหนัก',
         diagnosisCodes: ['K640', 'K641', 'K642', 'U680'],
-        medicines: [],
+        medicines: ['เพชรสังฆาต'],
     },
     {
         id: 'dizziness',
@@ -134,6 +143,7 @@ export function evaluateHerbalMedicationMatch(
             matchedMedicines: [],
             wrongMedicines: [],
             unknownItems: [],
+            medicineRecommendations: [],
             reasons: ['ไม่พบรายการยาสมุนไพร'],
         };
     }
@@ -154,6 +164,13 @@ export function evaluateHerbalMedicationMatch(
     const wrongMedicines = matchedMedicines.filter((medicine) => (
         !(medicineRules.get(medicine) ?? []).some((rule) => matchedRuleIds.has(rule.id))
     ));
+    const medicineRecommendations = matchedMedicines.map((medicine) => ({
+        medicine,
+        indications: (medicineRules.get(medicine) ?? []).map((rule) => ({
+            symptom: rule.symptom,
+            diagnosisCodes: rule.diagnosisCodes,
+        })),
+    }));
     const unknownItems = herbItems
         .split(/[,;|\n]+/)
         .map((item) => item.trim())
@@ -182,6 +199,7 @@ export function evaluateHerbalMedicationMatch(
         matchedMedicines,
         wrongMedicines,
         unknownItems,
+        medicineRecommendations,
         reasons,
     };
 }

@@ -3481,6 +3481,22 @@ p {
   overflow-x: auto;
 }
 
+.herb-reference-link {
+  padding: 5px 9px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.herb-reference-link:hover {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
 .anc-claim-classification-note {
   display: flex;
   gap: 10px;
@@ -3525,7 +3541,7 @@ p {
 }
 
 .page-container .specific-fund-table-wrap .data-table.specific-fund-table--herb {
-  min-width: 2500px;
+  min-width: 2580px;
 }
 
 .specific-fund-table--herb .herb-items-column {
@@ -3534,8 +3550,8 @@ p {
 }
 
 .specific-fund-table--herb .herb-match-column {
-  width: 280px;
-  min-width: 280px;
+  width: 360px;
+  min-width: 360px;
 }
 
 .specific-fund-table--herb .herb-items-text {
@@ -3550,6 +3566,40 @@ p {
 .specific-fund-table--herb .herb-match-column .badge {
   max-width: 100%;
   white-space: normal;
+}
+
+.herb-diagnosis-recommendations {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  text-align: left;
+}
+
+.herb-diagnosis-recommendations__title {
+  color: #1d4ed8;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.herb-diagnosis-recommendation {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.8fr) minmax(0, 1.6fr);
+  gap: 6px;
+  align-items: start;
+  color: #334155;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.herb-diagnosis-recommendation strong {
+  color: #0f766e;
+  overflow-wrap: break-word;
 }
 
 .specific-fund-table--dental .dental-procedure-column {

@@ -143,6 +143,7 @@ import {
   isAncDentalServiceKind,
   previewAncDentalCompletion,
 } from './ancDentalCompletion.js';
+import { completeHerbalDiagnoses, previewHerbalDiagnosisCompletion } from './herbalDiagnosisCompletion.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1914,6 +1915,51 @@ app.post('/api/hosxp/anc-dental-completion/:kind/:vn', async (req: Authenticated
     return res.status(422).json({
       success: false,
       error: error instanceof Error ? error.message : 'เติมข้อมูล ANC ทันตกรรมไม่สำเร็จ',
+    });
+  }
+});
+
+app.get('/api/hosxp/herbal-diagnosis-completion/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const user = req.authUser;
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions) && !user.fund_permissions.includes('herb')) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนสมุนไพร' });
+    }
+    return res.json({ success: true, assessment: await previewHerbalDiagnosisCompletion(vn) });
+  } catch (error) {
+    console.error('Unable to preview herbal diagnosis completion:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ตรวจข้อมูลยาสมุนไพรไม่สำเร็จ',
+    });
+  }
+});
+
+app.post('/api/hosxp/herbal-diagnosis-completion/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const user = req.authUser;
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions) && !user.fund_permissions.includes('herb')) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนสมุนไพร' });
+    }
+    const result = await completeHerbalDiagnoses(
+      vn,
+      Array.isArray(req.body?.diagnosisCodes) ? req.body.diagnosisCodes.map(String) : [],
+      { id: user?.id, name: user?.display_name || user?.username },
+      req.body?.confirmClinicalEvidence === true,
+    );
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to complete herbal diagnoses:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เติม Diagnosis ยาสมุนไพรไม่สำเร็จ',
     });
   }
 });

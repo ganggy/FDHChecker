@@ -33,6 +33,7 @@ const SssRepStmPage = lazyNamed(() => import('./pages/SssRepStmPage'), 'SssRepSt
 const AuthenSyncPage = lazyNamed(() => import('./pages/AuthenSyncPage'), 'AuthenSyncPage');
 const ReceivablePage = lazyNamed(() => import('./pages/ReceivablePage'), 'ReceivablePage');
 const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewPage'), 'InsuranceOverviewPage');
+const AccountingRevenueBudgetPage = lazyNamed(() => import('./pages/AccountingRevenueBudgetPage'), 'AccountingRevenueBudgetPage');
 const UcOutsideCupPage = lazyNamed(() => import('./pages/UcOutsideCupPage'), 'UcOutsideCupPage');
 const VisitReconciliationPage = lazy(() => import('./pages/VisitReconciliationPage'));
 const RepDailySummaryPage = lazy(() => import('./pages/RepDailySummaryPage'));
@@ -436,6 +437,7 @@ function App() {
         {currentPage === 'authenSync' && <AuthenSyncPage />}
         {currentPage === 'receivable' && <ReceivablePage />}
         {currentPage === 'insuranceOverview' && <InsuranceOverviewPage />}
+        {currentPage === 'accountingRevenueBudget' && <AccountingRevenueBudgetPage />}
         {currentPage === 'ucOutsideCup' && <UcOutsideCupPage />}
         {currentPage === 'reconciliation' && <VisitReconciliationPage />}
         {currentPage === 'repDailySummary' && <RepDailySummaryPage />}

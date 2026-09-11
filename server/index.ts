@@ -101,6 +101,7 @@ import {
 import { claimTrackingRouter } from './routes/claimTrackingRoutes.js';
 import { aiRouter } from './aiRoutes.js';
 import { hospitalReportRouter } from './hospitalReportRoutes.js';
+import { accountingRevenueRouter } from './accountingRevenueRoutes.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
 import { getSystemUpdateInfo, startSystemUpdate } from './systemUpdate.js';
@@ -816,6 +817,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/reject-tracking(\/|$)/, pages: ['rejectTracking'] },
   { pattern: /^\/moph\/dmht(\/|$)/, pages: ['mophDmht'] },
   { pattern: /^\/moph\/vaccine(\/|$)/, pages: ['mophVaccine'] },
+  { pattern: /^\/accounting(\/|$)/, pages: ['accountingRevenueBudget'] },
   { pattern: /^\/insurance(\/|$)/, pages: ['insuranceOverview', 'receivable'] },
   { pattern: /^\/fdh\/claim-detail(\/|$)/, pages: ['fdhClaimDetail', 'reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/fdh\/import-status(\/|$)/, pages: ['fdhImport', 'fdh', 'reconciliation', 'ucOutsideCup'] },
@@ -841,6 +843,7 @@ app.use('/api', (req: AuthenticatedRequest, res, next) => {
 // separate HttpOnly AI cookie limits direct model use and is issued silently.
 app.use('/api/ai', aiRouter);
 app.use('/api/hospital-reports', hospitalReportRouter);
+app.use('/api/accounting', accountingRevenueRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

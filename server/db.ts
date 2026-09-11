@@ -8287,6 +8287,7 @@ export const getInsuranceOverview = async (options: {
          ptt.pttype,
          ptt.name AS pttype_name,
          ptt.hipdata_code,
+         COALESCE(w.name, i.ward, '') AS ward,
          fdh.transaction_uid,
          fdh.fdh_reservation_status,
          fdh.fdh_reservation_datetime,
@@ -8300,6 +8301,7 @@ export const getInsuranceOverview = async (options: {
        LEFT JOIN an_stat a ON a.an = i.an
        LEFT JOIN patient pt ON pt.hn = i.hn
        LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
+       LEFT JOIN ward w ON w.ward = i.ward
        LEFT JOIN (
          SELECT s.*
          FROM fdh_claim_status s
@@ -8539,6 +8541,7 @@ export const getInsuranceOverview = async (options: {
         pttype: row.pttype,
         pttype_name: row.pttype_name,
         hipdata_code: row.hipdata_code,
+        ward: row.ward,
         income: toNumber(row.income),
         expected_receivable: expected,
         transaction_uid: fdhClaimDetail?.upload_uid || row.transaction_uid,

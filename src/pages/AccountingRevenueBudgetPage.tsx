@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import './AccountingRevenueBudgetPage.css';
+import businessRules from '../config/business_rules.json';
+import { IpdMonthlyAccounting } from './IpdMonthlyAccounting';
+const hospitalCode = businessRules.site_settings.hospital_code;
+const hospitalName = businessRules.site_settings.hospital_name;
 
 type RightDetail = { pttype: string; name: string; hipdata_code: string; service_count: number; adjrw: number; actual_charge: number; mapped_by: string };
-type RevenueRow = { key: string; account_code: string; label: string; service_count: number; adjrw: number; actual_charge: number; rights: RightDetail[] };
+type RevenueRow = { key: string; account_code: string; ledger_codes: string[]; label: string; service_count: number; adjrw: number; actual_charge: number; rights: RightDetail[] };
 type Report = {
   startDate: string; endDate: string; opd: RevenueRow[]; ipd: RevenueRow[];
   audit: { opd_source_count: number; opd_grouped_count: number; ipd_source_count: number; ipd_grouped_count: number; opd_balanced: boolean; ipd_balanced: boolean; fallback_rights: RightDetail[] };
@@ -29,17 +33,17 @@ const createWorksheet = (title: string, year: number, rows: RevenueRow[], rates:
   const quantityHeader = type === 'opd' ? 'OP Visit' : 'SumAdjRW';
   const rateHeader = type === 'opd' ? 'Charge Per Visit' : 'Charge Per RW';
   const grid: Array<Array<string | number>> = [
-    ['11000', '', '', `ปี ${year}`],
+    [hospitalCode, '', '', `ปี ${year}`],
     ['Revenue', '', '', 'ประมาณการ'],
-    ['รหัส', title, quantityHeader, rateHeader, 'Total Charge', 'ค่ารักษา HOSxP (อ้างอิง)'],
+    ['รหัสบัญชี', title, quantityHeader, rateHeader, 'Total Charge', 'ค่ารักษา HOSxP (อ้างอิง)'],
     ...rows.map((row) => {
       const base = type === 'opd' ? row.service_count : row.adjrw;
       const rate = number(rates[row.account_code]);
-      return [row.account_code, row.label, base, rate, base * rate, row.actual_charge];
+      return [row.ledger_codes?.join(', ') || 'ยังไม่จับคู่บัญชี', row.label, base, rate, base * rate, row.actual_charge];
     }),
   ];
   const totalBase = rows.reduce((sum, row) => sum + (type === 'opd' ? row.service_count : row.adjrw), 0);
-  grid.push([type === 'opd' ? '41111' : '42111', `รวม${title}`, totalBase, '', rows.reduce((sum, row) => sum + (type === 'opd' ? row.service_count : row.adjrw) * number(rates[row.account_code]), 0), rows.reduce((sum, row) => sum + row.actual_charge, 0)]);
+  grid.push(['รวม', `รวม${title}`, totalBase, '', rows.reduce((sum, row) => sum + (type === 'opd' ? row.service_count : row.adjrw) * number(rates[row.account_code]), 0), rows.reduce((sum, row) => sum + row.actual_charge, 0)]);
   const sheet = XLSX.utils.aoa_to_sheet(grid);
   sheet['!cols'] = [{ wch: 12 }, { wch: 50 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 24 }];
   return sheet;
@@ -91,7 +95,7 @@ export const AccountingRevenueBudgetPage = () => {
       ...report.audit.fallback_rights.map((right) => ({ รายการ: `สิทธิยังไม่จับคู่ ${right.pttype}`, ค่า: right.name || right.hipdata_code })),
     ]);
     XLSX.utils.book_append_sheet(workbook, audit, 'ตรวจสอบ');
-    XLSX.writeFile(workbook, `revenue-budget-11000-${targetYear}-${startDate}-${endDate}.xlsx`);
+    XLSX.writeFile(workbook, `revenue-budget-${hospitalCode}-${targetYear}-${startDate}-${endDate}.xlsx`);
   };
 
   const renderTable = (rows: RevenueRow[], type: 'opd' | 'ipd') => {
@@ -102,17 +106,17 @@ export const AccountingRevenueBudgetPage = () => {
         <h2>{type === 'opd' ? '1 OPD' : '2 IPD'}</h2>
         <div className="revenue-budget-table-wrap">
           <table>
-            <thead><tr><th>รหัส</th><th>รายการรายได้</th><th>{type === 'opd' ? 'OP Visit' : 'SumAdjRW'}</th><th>{type === 'opd' ? 'Charge Per Visit' : 'Charge Per RW'}</th><th>Total Charge</th><th>ค่ารักษา HOSxP</th><th>ตรวจสอบสิทธิ</th></tr></thead>
+            <thead><tr><th>รหัสบัญชี</th><th>รายการรายได้</th><th>{type === 'opd' ? 'OP Visit' : 'SumAdjRW'}</th><th>{type === 'opd' ? 'Charge Per Visit' : 'Charge Per RW'}</th><th>Total Charge</th><th>ค่ารักษา HOSxP</th><th>ตรวจสอบสิทธิ</th></tr></thead>
             <tbody>{rows.map((row) => {
               const base = baseFor(row); const rate = number(rates[row.account_code]);
               return <tr key={row.account_code}>
-                <td className="revenue-budget-code">{row.account_code}</td><td>{row.label}</td><td className="num">{quantity(base, type === 'ipd' ? 4 : 0)}</td>
+                <td className="revenue-budget-code">{row.ledger_codes?.length ? row.ledger_codes.map(code=><div key={code}>{code}</div>) : '—'}</td><td>{row.label}</td><td className="num">{quantity(base, type === 'ipd' ? 4 : 0)}</td>
                 <td><input aria-label={`อัตรา ${row.account_code}`} type="number" min="0" step="0.01" value={rates[row.account_code] ?? ''} placeholder="0.00" onChange={(event) => updateRate(row.account_code, event.target.value)} /></td>
                 <td className="num strong">{money(base * rate)}</td><td className="num reference">{money(row.actual_charge)}</td>
                 <td><details><summary>{row.rights.length} สิทธิ</summary><div className="right-detail">{row.rights.length ? row.rights.map((right) => <div key={`${row.account_code}-${right.pttype}`}><b>{right.pttype || '-'}</b> {right.name || right.hipdata_code || 'ไม่ระบุชื่อ'} <span>{right.mapped_by === 'fallback' ? 'ต้องตรวจจับคู่' : quantity(type === 'opd' ? right.service_count : right.adjrw, type === 'ipd' ? 4 : 0)}</span></div>) : 'ไม่มีข้อมูล'}</div></details></td>
               </tr>;
             })}</tbody>
-            <tfoot><tr><td>{type === 'opd' ? '41111' : '42111'}</td><td>รวมรายได้ค่ารักษา {type.toUpperCase()}</td><td className="num">{quantity(rows.reduce((sum, row) => sum + baseFor(row), 0), type === 'ipd' ? 4 : 0)}</td><td></td><td className="num">{money(totalEstimate)}</td><td className="num">{money(rows.reduce((sum, row) => sum + row.actual_charge, 0))}</td><td></td></tr></tfoot>
+            <tfoot><tr><td>{'รวม'}</td><td>รวมรายได้ค่ารักษา {type.toUpperCase()}</td><td className="num">{quantity(rows.reduce((sum, row) => sum + baseFor(row), 0), type === 'ipd' ? 4 : 0)}</td><td></td><td className="num">{money(totalEstimate)}</td><td className="num">{money(rows.reduce((sum, row) => sum + row.actual_charge, 0))}</td><td></td></tr></tfoot>
           </table>
         </div>
       </section>
@@ -120,7 +124,7 @@ export const AccountingRevenueBudgetPage = () => {
   };
 
   return <main className="accounting-revenue-page">
-    <header className="revenue-budget-hero"><div><span className="eyebrow">การเงิน / บัญชี</span><h1>ประมาณการรายได้ 11000</h1><p>จัดกลุ่มสิทธิจาก HOSxP และคำนวณตามแบบฟอร์มบัญชี พร้อมตรวจยอดย้อนกลับถึงข้อมูลต้นทาง</p></div><div className="budget-year"><label>ปีงบประมาณ</label><input type="number" min="2500" max="2700" value={targetYear} onChange={(event) => setTargetYear(number(event.target.value))} /></div></header>
+    <header className="revenue-budget-hero"><div><span className="eyebrow">การเงิน / บัญชี</span><h1>ประมาณการรายได้</h1><p>{hospitalName} · รหัสสถานบริการ {hospitalCode}</p><p>จัดกลุ่มสิทธิจาก HOSxP และคำนวณตามแบบฟอร์มบัญชี พร้อมตรวจยอดย้อนกลับถึงข้อมูลต้นทาง</p></div><div className="budget-year"><label>ปีงบประมาณ</label><input type="number" min="2500" max="2700" value={targetYear} onChange={(event) => setTargetYear(number(event.target.value))} /></div></header>
     <section className="revenue-budget-controls no-print"><label>วันที่เริ่ม<input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label><label>วันที่สิ้นสุด<input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label><button type="button" onClick={() => void loadReport()} disabled={loading}>{loading ? 'กำลังตรวจสอบ...' : 'ดึงข้อมูลและตรวจยอด'}</button><button type="button" className="secondary" onClick={exportExcel} disabled={!report}>ส่งออก Excel</button></section>
     {error && <div className="revenue-budget-error">{error}</div>}
     {report && <>
@@ -129,6 +133,7 @@ export const AccountingRevenueBudgetPage = () => {
         <span>OPD {quantity(report.audit.opd_grouped_count)}/{quantity(report.audit.opd_source_count)}</span><span>IPD {quantity(report.audit.ipd_grouped_count)}/{quantity(report.audit.ipd_source_count)}</span>
         <span className={report.audit.fallback_rights.length ? 'warn' : ''}>สิทธิที่ต้องตรวจจับคู่ {report.audit.fallback_rights.length} รายการ</span>
       </section>
+      <IpdMonthlyAccounting />
       {renderTable(report.opd, 'opd')}{renderTable(report.ipd, 'ipd')}
       <section className="revenue-budget-notes"><h3>หลักการตรวจสอบ</h3>{report.notes.map((note) => <p key={note}>• {note}</p>)}<p>• Total Charge = OP Visit × Charge Per Visit หรือ SumAdjRW × Charge Per RW; ช่องว่างและค่าที่ไม่ใช่ตัวเลขใช้ 0 จึงไม่เกิด #VALUE!</p></section>
     </>}

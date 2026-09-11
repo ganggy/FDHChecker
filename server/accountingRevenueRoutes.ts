@@ -1,7 +1,12 @@
 import { Router } from 'express';
+import { ipdMonthlyAccounting } from './ipdMonthlyAccounting.js';
 import { getAccountingRevenueReport } from './accountingRevenueReport.js';
 
 export const accountingRevenueRouter = Router();
+accountingRevenueRouter.get('/ipd-monthly', async (req,res) => {
+  try { res.json({success:true,data:await ipdMonthlyAccounting(Number(req.query.year))}); }
+  catch(error) { res.status(400).json({success:false,error:(error as Error).message}); }
+});
 accountingRevenueRouter.get('/revenue-budget', async (req, res) => {
   try {
     return res.json({ success: true, data: await getAccountingRevenueReport({ startDate: String(req.query.startDate || ''), endDate: String(req.query.endDate || '') }) });

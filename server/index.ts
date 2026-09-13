@@ -105,7 +105,7 @@ import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { accountingRevenueRouter } from './accountingRevenueRoutes.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
-import { getSystemUpdateInfo, startSystemUpdate } from './systemUpdate.js';
+import { getSystemUpdateInfo, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -1916,6 +1916,20 @@ app.post('/api/hosxp/anc-dental-completion/:kind/:vn', async (req: Authenticated
       success: false,
       error: error instanceof Error ? error.message : 'เติมข้อมูล ANC ทันตกรรมไม่สำเร็จ',
     });
+  }
+});
+
+app.post('/api/admin/system-update/rollback', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const targetCommit = String(req.body?.targetCommit || '').trim();
+    const actor = String(req.authUser?.username || 'admin');
+    const data = await startSystemRollback(targetCommit, actor);
+    return res.status(202).json({ success: true, data });
+  } catch (error) {
+    console.error('System rollback start failed:', error);
+    const message = error instanceof Error ? error.message : 'เริ่มย้อนเวอร์ชันไม่สำเร็จ';
+    const status = /กำลังทำงาน|ใช้งานเวอร์ชันนี้/.test(message) ? 409 : 400;
+    return res.status(status).json({ success: false, error: message });
   }
 });
 

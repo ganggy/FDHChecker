@@ -6,12 +6,24 @@ type UpdateJob = {
   stage: string;
   progress: number;
   message: string;
+  action?: 'update' | 'rollback';
+  actor?: string;
+  changeSummary?: string;
   branch: string;
   fromCommit: string;
   toCommit: string;
   startedAt: string;
   updatedAt: string;
   completedAt?: string;
+};
+
+type VersionNote = {
+  commit: string;
+  shortCommit: string;
+  subject: string;
+  details: string;
+  authoredAt: string;
+  author: string;
 };
 
 type UpdateInfo = {
@@ -25,7 +37,9 @@ type UpdateInfo = {
   behind: number;
   ahead: number;
   dirty: boolean;
-  changes: Array<{ commit: string; subject: string }>;
+  changes: VersionNote[];
+  versions: VersionNote[];
+  history: UpdateJob[];
   checkedAt: string;
   checkError?: string;
   job: UpdateJob | null;
@@ -38,6 +52,11 @@ const readPayload = async (response: Response) => {
 };
 
 const shortCommit = (value: string) => value ? value.slice(0, 8) : '-';
+const thaiDateTime = (value?: string) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+};
 
 export const SystemUpdatePanel = () => {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
@@ -45,6 +64,7 @@ export const SystemUpdatePanel = () => {
   const [starting, setStarting] = useState(false);
   const [connectionState, setConnectionState] = useState<'online' | 'reconnecting'>('online');
   const [error, setError] = useState('');
+  const [selectedRollbackCommit, setSelectedRollbackCommit] = useState('');
 
   const running = info?.job?.status === 'queued' || info?.job?.status === 'running';
 
@@ -91,9 +111,17 @@ export const SystemUpdatePanel = () => {
 
   const confirmationText = useMemo(() => {
     if (!info?.remoteCommit) return '';
-    const details = info.changes.slice(0, 6).map((item) => `• ${item.commit} ${item.subject}`).join('\n');
+    const details = info.changes.slice(0, 8).map((item) => (
+      `• ${item.shortCommit || shortCommit(item.commit)} ${item.subject}${item.details ? `\n  ${item.details}` : ''}`
+    )).join('\n');
     return `ยืนยันอัปเดตระบบจาก ${shortCommit(info.currentCommit)} เป็น ${shortCommit(info.remoteCommit)} ใช่หรือไม่?\n\n${details}\n\nระบบจะตรวจสอบ สร้างโปรแกรม และรีสตาร์ตบริการชั่วคราว`;
   }, [info]);
+
+  const rollbackVersions = useMemo(
+    () => (info?.versions || []).filter((version) => version.commit !== info?.currentCommit),
+    [info?.currentCommit, info?.versions],
+  );
+  const selectedRollback = rollbackVersions.find((version) => version.commit === selectedRollbackCommit) || null;
 
   const startUpdate = async () => {
     if (!info?.available || !info.remoteCommit || !window.confirm(confirmationText)) return;
@@ -110,6 +138,31 @@ export const SystemUpdatePanel = () => {
       window.setTimeout(() => void loadStatus(false), 600);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : 'เริ่มอัปเดตไม่สำเร็จ');
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const startRollback = async () => {
+    if (!selectedRollback || running || starting) return;
+    const detail = selectedRollback.details ? `\n\nรายละเอียด:\n${selectedRollback.details}` : '';
+    const confirmed = window.confirm(
+      `ยืนยันย้อนระบบจาก ${shortCommit(info?.currentCommit || '')} ไปเป็น ${selectedRollback.shortCommit}\n\n${selectedRollback.subject}${detail}\n\nระบบจะสร้างจุดกู้คืน ทดสอบ Build รีสตาร์ตบริการ และกู้รุ่นปัจจุบันกลับอัตโนมัติหากดำเนินการไม่สำเร็จ`,
+    );
+    if (!confirmed) return;
+    setStarting(true);
+    setError('');
+    try {
+      const response = await fetch('/api/admin/system-update/rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetCommit: selectedRollback.commit }),
+      });
+      const payload = await readPayload(response);
+      setInfo((current) => current ? { ...current, job: payload.data as UpdateJob } : current);
+      window.setTimeout(() => void loadStatus(false), 600);
+    } catch (rollbackError) {
+      setError(rollbackError instanceof Error ? rollbackError.message : 'เริ่มย้อนเวอร์ชันไม่สำเร็จ');
     } finally {
       setStarting(false);
     }
@@ -152,7 +205,10 @@ export const SystemUpdatePanel = () => {
         <div className={`system-update-progress-card is-${job.status}`} aria-live="polite">
           <div className="system-update-progress-head">
             <div>
-              <strong>{job.status === 'completed' ? 'อัปเดตสำเร็จ' : job.status === 'failed' ? 'อัปเดตไม่สำเร็จ' : 'กำลังอัปเดตระบบ'}</strong>
+              <strong>{job.status === 'completed'
+                ? (job.action === 'rollback' ? 'ย้อนเวอร์ชันสำเร็จ' : 'อัปเดตสำเร็จ')
+                : job.status === 'failed' ? 'ดำเนินการไม่สำเร็จ'
+                  : (job.action === 'rollback' ? 'กำลังย้อนเวอร์ชัน' : 'กำลังอัปเดตระบบ')}</strong>
               <span>{job.message}</span>
             </div>
             <b>{progress}%</b>
@@ -161,6 +217,8 @@ export const SystemUpdatePanel = () => {
             <div style={{ width: `${progress}%` }} />
           </div>
           <small>ขั้นตอน: {job.stage} · {shortCommit(job.fromCommit)} → {shortCommit(job.toCommit)}</small>
+          {job.changeSummary && <small>รายการ: {job.changeSummary}</small>}
+          <small>ผู้ดำเนินการ: {job.actor || 'admin'} · เริ่ม {thaiDateTime(job.startedAt)}</small>
           {job.status === 'completed' && <small>ระบบจะโหลดหน้าใหม่อัตโนมัติเพื่อใช้รุ่นล่าสุด</small>}
         </div>
       )}
@@ -170,9 +228,16 @@ export const SystemUpdatePanel = () => {
 
       {info?.changes?.length ? (
         <div className="system-update-changes">
-          <h4>รายการเปลี่ยนแปลง</h4>
+          <h4>📝 สิ่งที่จะได้รับจากการอัปเดต</h4>
           {info.changes.map((item) => (
-            <div key={item.commit}><code>{item.commit}</code><span>{item.subject}</span></div>
+            <div key={item.commit}>
+              <code>{item.shortCommit || shortCommit(item.commit)}</code>
+              <span>
+                <strong>{item.subject}</strong>
+                {item.details && <small>{item.details}</small>}
+                <small>{thaiDateTime(item.authoredAt)} · {item.author}</small>
+              </span>
+            </div>
           ))}
         </div>
       ) : null}
@@ -191,6 +256,60 @@ export const SystemUpdatePanel = () => {
         </button>
         {job?.status === 'completed' && <button type="button" className="secondary-btn" onClick={() => window.location.reload()}>โหลดหน้าใหม่ตอนนี้</button>}
       </div>
+
+      <div className="system-update-rollback">
+        <div>
+          <h4>↩️ ย้อนเวอร์ชัน</h4>
+          <p>เลือกรุ่นก่อนหน้าที่ต้องการ ระบบจะสร้างจุดกู้คืนและตรวจสอบความพร้อมก่อนเปิดใช้งาน</p>
+        </div>
+        <div className="system-update-rollback-controls">
+          <select
+            value={selectedRollbackCommit}
+            onChange={(event) => setSelectedRollbackCommit(event.target.value)}
+            disabled={running || starting || rollbackVersions.length === 0}
+          >
+            <option value="">-- เลือกเวอร์ชันก่อนหน้า --</option>
+            {rollbackVersions.map((version) => (
+              <option key={version.commit} value={version.commit}>
+                {version.shortCommit} · {version.subject} · {thaiDateTime(version.authoredAt)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="secondary-btn system-update-rollback-button"
+            onClick={() => void startRollback()}
+            disabled={!selectedRollback || running || starting || Boolean(disabledReason)}
+          >
+            ↩ ยืนยันและย้อนเวอร์ชัน
+          </button>
+        </div>
+        {selectedRollback && (
+          <div className="system-update-selected-version">
+            <strong>{selectedRollback.shortCommit} — {selectedRollback.subject}</strong>
+            {selectedRollback.details && <p>{selectedRollback.details}</p>}
+            <small>บันทึกเมื่อ {thaiDateTime(selectedRollback.authoredAt)} โดย {selectedRollback.author}</small>
+          </div>
+        )}
+      </div>
+
+      {(info?.history || []).length > 0 && (
+        <div className="system-update-history">
+          <h4>🕘 ประวัติการติดตั้ง</h4>
+          {info!.history.map((entry) => (
+            <div key={entry.id}>
+              <span className={`system-update-history-status is-${entry.status}`}>
+                {entry.action === 'rollback' ? 'ย้อนเวอร์ชัน' : 'อัปเดต'} · {entry.status === 'completed' ? 'สำเร็จ' : 'ไม่สำเร็จ'}
+              </span>
+              <div>
+                <strong>{shortCommit(entry.fromCommit)} → {shortCommit(entry.toCommit)}</strong>
+                {entry.changeSummary && <p>{entry.changeSummary}</p>}
+                <small>{thaiDateTime(entry.completedAt || entry.updatedAt)} · โดย {entry.actor || 'admin'}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

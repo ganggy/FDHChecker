@@ -147,7 +147,7 @@ export const SystemUpdatePanel = () => {
     if (!selectedRollback || running || starting) return;
     const detail = selectedRollback.details ? `\n\nรายละเอียด:\n${selectedRollback.details}` : '';
     const confirmed = window.confirm(
-      `ยืนยันย้อนระบบจาก ${shortCommit(info?.currentCommit || '')} ไปเป็น ${selectedRollback.shortCommit}\n\n${selectedRollback.subject}${detail}\n\nระบบจะสร้างจุดกู้คืน ทดสอบ Build รีสตาร์ตบริการ และกู้รุ่นปัจจุบันกลับอัตโนมัติหากดำเนินการไม่สำเร็จ`,
+      `ยืนยันย้อนระบบจาก ${shortCommit(info?.currentCommit || '')} ไปเป็น ${selectedRollback.shortCommit}\n\n${selectedRollback.subject}${detail}\n\nระบบจะสร้างจุดกู้คืน ทดสอบ Build รีสตาร์ตบริการ และกู้รุ่นปัจจุบันกลับอัตโนมัติหากดำเนินการไม่สำเร็จ\n\nการย้อนเวอร์ชันเปลี่ยนเฉพาะโปรแกรม ไม่ย้อนข้อมูลในฐานข้อมูล`,
     );
     if (!confirmed) return;
     setStarting(true);
@@ -260,7 +260,7 @@ export const SystemUpdatePanel = () => {
       <div className="system-update-rollback">
         <div>
           <h4>↩️ ย้อนเวอร์ชัน</h4>
-          <p>เลือกรุ่นก่อนหน้าที่ต้องการ ระบบจะสร้างจุดกู้คืนและตรวจสอบความพร้อมก่อนเปิดใช้งาน</p>
+          <p>เลือกรุ่นก่อนหน้าที่ต้องการ ระบบจะสร้างจุดกู้คืนและตรวจสอบความพร้อมก่อนเปิดใช้งาน การย้อนเวอร์ชันเปลี่ยนเฉพาะโปรแกรมและไม่ย้อนข้อมูลในฐานข้อมูล</p>
         </div>
         <div className="system-update-rollback-controls">
           <select

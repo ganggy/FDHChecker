@@ -18,10 +18,17 @@ LOG_FILE="$STATE_DIR/update-$JOB_ID.log"
 HISTORY_FILE="$STATE_DIR/history-$JOB_ID.json"
 CURRENT_STAGE="starting"
 CODE_CHANGED=0
+RUNNER_NAME="${FDH_UPDATE_RUNNER_NAME:-}"
+PM2_TIMEOUT="${FDH_PM2_TIMEOUT_SECONDS:-120}"
+TIMEOUT_BIN=""
 
 mkdir -p "$STATE_DIR"
 touch "$LOG_FILE"
 chmod 600 "$LOG_FILE"
+# A saved/resurrected PM2 process must never replay a deployment.
+if ! mkdir "$STATE_DIR/started-$JOB_ID" 2>/dev/null; then
+  exit 0
+fi
 
 json_escape() {
   local value="$1"
@@ -45,6 +52,7 @@ write_state() {
   if [[ -n "$completed_at" ]]; then
     printf ',\n  "completedAt": "%s"' "$(json_escape "$completed_at")" >> "$temp_file"
   fi
+  printf ',\n  \"runnerName\": \"%s\"' "$(json_escape "$RUNNER_NAME")" >> "$temp_file"
   printf '\n}\n' >> "$temp_file"
   mv -f "$temp_file" "$STATE_FILE"
   chmod 600 "$STATE_FILE"
@@ -54,21 +62,43 @@ log() {
   printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*" >> "$LOG_FILE"
 }
 
+run_step() {
+  local seconds="$1" label="$2" result=0
+  shift 2
+  log "BEGIN $label timeout=${seconds}s"
+  "$TIMEOUT_BIN" --kill-after=10s "${seconds}s" "$@" >> "$LOG_FILE" 2>&1 || result=$?
+  log "END $label exit=$result"
+  return "$result"
+}
+
+restart_apps() {
+  local app_name
+  for app_name in $PM2_APPS; do
+    run_step "$PM2_TIMEOUT" "pm2 describe $app_name" pm2 describe "$app_name" || return $?
+  done
+  for app_name in $PM2_APPS; do
+    run_step "$PM2_TIMEOUT" "pm2 restart $app_name" pm2 restart "$app_name" || return $?
+  done
+}
+
 fail_job() {
-  local exit_code=$?
-  trap - ERR
+  local exit_code=${1:-$?}
+  trap - ERR EXIT TERM INT HUP
   set +e
   local completed_at recovery_message
   completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
   log "FAILED stage=$CURRENT_STAGE exit=$exit_code"
   recovery_message="ระบบยังไม่ได้เปลี่ยน Source code"
-  if [[ "$CODE_CHANGED" == "1" ]]; then
+  if [[ "$CODE_CHANGED" == "1" && "$CURRENT_STAGE" == "restarting" ]]; then
+    # The daemon may still be handling a timed-out CLI request. Avoid a racing rollback.
+    recovery_message="Source code เปลี่ยนแล้ว แต่รีสตาร์ตไม่ครบ กรุณาตรวจ PM2 และ log ก่อนดำเนินการต่อ"
+  elif [[ "$CODE_CHANGED" == "1" ]]; then
     log "attempting automatic recovery to $FROM_COMMIT"
     write_state "running" "recovering" 98 "เกิดข้อผิดพลาด กำลังกู้คืนรุ่นเดิมอัตโนมัติ"
-    if git reset --hard "$FROM_COMMIT" >> "$LOG_FILE" 2>&1 \
-      && npm ci >> "$LOG_FILE" 2>&1 \
-      && npm run build:all >> "$LOG_FILE" 2>&1 \
-      && pm2 restart $PM2_APPS >> "$LOG_FILE" 2>&1; then
+    if run_step 120 "recovery git reset" git reset --hard "$FROM_COMMIT" \
+      && run_step 900 "recovery dependencies" npm ci \
+      && run_step 1800 "recovery build" npm run build:all \
+      && restart_apps; then
       recovery_message="กู้คืนรุ่นเดิมแล้ว"
       log "automatic recovery completed"
     else
@@ -82,6 +112,18 @@ fail_job() {
   exit "$exit_code"
 }
 trap fail_job ERR
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
+trap 'result=$?; if [[ "$result" != "0" ]]; then fail_job "$result"; fi' EXIT
+
+TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
+[[ -n "$TIMEOUT_BIN" ]] || { log "missing timeout (install coreutils)"; false; }
+[[ "$PM2_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { log "invalid FDH_PM2_TIMEOUT_SECONDS"; false; }
+for app_name in $PM2_APPS; do
+  [[ "$app_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ && "$app_name" != "all" && "$app_name" != fdh-update-* ]] \
+    || { log "invalid restart target"; false; }
+done
 
 for command_name in git npm pm2 curl; do
   command -v "$command_name" >/dev/null 2>&1 || { log "missing command: $command_name"; false; }
@@ -92,7 +134,7 @@ cd "$APP_DIR"
 CURRENT_STAGE="connecting"
 write_state "running" "$CURRENT_STAGE" 8 "กำลังเชื่อมต่อ GitHub"
 log "$ACTION requested by=$ACTOR branch=$DEPLOY_BRANCH from=$FROM_COMMIT to=$TO_COMMIT"
-git fetch --prune origin "$DEPLOY_BRANCH" >> "$LOG_FILE" 2>&1
+run_step 120 "git fetch" git fetch --prune origin "$DEPLOY_BRANCH"
 
 [[ "$(git branch --show-current)" == "$DEPLOY_BRANCH" ]] || { log "branch mismatch"; false; }
 [[ -z "$(git status --porcelain)" ]] || { log "working tree is dirty"; false; }
@@ -117,30 +159,26 @@ CODE_CHANGED=1
 
 CURRENT_STAGE="dependencies"
 write_state "running" "$CURRENT_STAGE" 42 "กำลังติดตั้ง dependency"
-npm ci >> "$LOG_FILE" 2>&1
+run_step 900 "dependencies" npm ci
 
 CURRENT_STAGE="testing"
 write_state "running" "$CURRENT_STAGE" 58 "กำลังทดสอบความถูกต้องของระบบ"
-npm run check >> "$LOG_FILE" 2>&1
+run_step 1800 "tests" npm run check
 
 CURRENT_STAGE="building"
 write_state "running" "$CURRENT_STAGE" 76 "กำลังสร้าง Frontend และ Backend"
-npm run build:all >> "$LOG_FILE" 2>&1
+run_step 1800 "build" npm run build:all
 
 if [[ "${FDH_DEPLOY_BACKUP:-0}" == "1" ]]; then
   CURRENT_STAGE="backup"
   write_state "running" "$CURRENT_STAGE" 83 "กำลังสำรองฐานข้อมูล"
-  bash deploy/scripts/backup-databases.sh >> "$LOG_FILE" 2>&1
+  run_step 1800 "backup" bash deploy/scripts/backup-databases.sh
 fi
 
 CURRENT_STAGE="restarting"
 write_state "running" "$CURRENT_STAGE" 89 "กำลังรีสตาร์ตบริการ ระบบอาจตัดการเชื่อมต่อชั่วคราว"
-for app_name in $PM2_APPS; do
-  pm2 describe "$app_name" >/dev/null 2>&1 || { log "missing PM2 app: $app_name"; false; }
-done
-# shellcheck disable=SC2086
-pm2 restart $PM2_APPS >> "$LOG_FILE" 2>&1
-pm2 save >> "$LOG_FILE" 2>&1
+restart_apps
+# Restarting existing apps does not require saving the global PM2 process list.
 
 CURRENT_STAGE="health_check"
 write_state "running" "$CURRENT_STAGE" 95 "เชื่อมต่อกลับแล้ว กำลังตรวจสอบความพร้อม"

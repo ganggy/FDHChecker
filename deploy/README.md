@@ -56,6 +56,54 @@ FDH_DEPLOY_BACKUP=0
 
 ปุ่มอัปเดตจะแสดงเฉพาะหน้า admin และ backend จะไม่เริ่มงานเมื่อ branch ไม่ตรง, working tree มีไฟล์ค้าง, ไม่มีรุ่นใหม่ หรือ commit บน GitHub เปลี่ยนหลังหน้าจอยืนยัน Log อยู่ที่ `.update-state/update-<job-id>.log` และถูกกันออกจาก Git แล้ว
 
+### การป้องกันสถานะค้างระหว่างรีสตาร์ต
+
+ตัวอัปเดตและตัวย้อนเวอร์ชันเปิดผ่าน PM2 daemon เป็น process แยกชื่อ
+`fdh-update-<job-id>` โดยปิด autorestart และ watch จึงไม่อยู่ใน process tree
+ของ backend ที่กำลังรีสตาร์ต ใช้ผู้ใช้และ `PM2_HOME` เดียวกับบริการ FDH
+และต้องมี GNU `timeout` (หรือ `gtimeout` บน macOS จาก coreutils)
+
+- คำสั่ง PM2 แต่ละครั้งจำกัดเวลา 120 วินาที ปรับได้ด้วย
+  `FDH_PM2_TIMEOUT_SECONDS` และ log จะมี BEGIN/END พร้อม exit code
+  (124 หมายถึง timeout)
+- รีสตาร์ตเฉพาะชื่อใน `FDH_PM2_APPS` ทีละบริการ ไม่ใช้ `restart all`,
+  `pm2 update` หรือ `pm2 save` ซึ่งกระทบ process list ของระบบอื่น
+- ถ้า restart ล้มเหลวหรือเกินเวลา จะบันทึก failed และให้ผู้ดูแลตรวจสอบ
+  ไม่ rollback แข่งกับคำสั่งที่ PM2 daemon อาจยังดำเนินการอยู่
+- หลังสถานะไม่เปลี่ยนเกิน 90 วินาที backend จะตรวจ process ตัวรันผ่าน PM2
+  ถ้าหายหรือหยุดจะแสดง interrupted; ถ้าอ่าน PM2 ไม่ได้จะแจ้งให้ตรวจสอบ
+  และยังกันการเริ่มงานซ้อน ไม่ถือว่า health check ผ่านแปลว่าอัปเดตสำเร็จ
+- งานรุ่นเก่าที่ไม่มี `runnerName` ใช้เกณฑ์เดิม 2 ชั่วโมง
+- `launcher-<job-id>.log` ใช้ตรวจการเปิด process; `update-<job-id>.log`
+  ใช้ตรวจขั้นตอนติดตั้ง เก็บ `started-<job-id>` ไว้เพื่อป้องกันรันงานเดิมซ้ำ
+  หากมีการ save/resurrect PM2 ภายหลัง งานจบจะคงเป็น stopped ใน PM2;
+  ลบเฉพาะ process ชื่องานนั้นได้หลังตรวจว่าเสร็จแล้ว โดยเก็บประวัติใน `.update-state`
+
+### ติดตั้งแพตช์นี้ครั้งแรกจากรุ่นที่ค้าง 89%
+
+หลังนำแพตช์ขึ้น GitHub แล้ว ให้ติดตั้งผ่าน SSH ในช่วงที่รีสตาร์ต FDH ได้
+เพราะปุ่มหน้าเว็บรุ่นเก่าคัดลอก runner ก่อนดึงโค้ดใหม่ จึงยังใช้ runner เก่า
+ในการอัปเดตรอบแรก ตรวจว่างานเดิมจบแล้วและ `git status --short` ไม่มีไฟล์ค้าง
+จากนั้นรันทีละคำสั่งและหยุดหากคำสั่งใดไม่สำเร็จ:
+
+```bash
+cd /opt/FDHChecker
+git pull --ff-only
+npm ci
+npm run check
+npm run build:all
+pm2 restart fdh-backend
+pm2 restart fdh-frontend
+curl --fail --max-time 10 http://127.0.0.1:3506/api/live
+curl --fail --max-time 10 http://127.0.0.1:3506/api/ready
+```
+
+ตรวจว่า upstream ของ branch ตรงกับ `FDH_DEPLOY_BRANCH` ก่อน pull และใช้
+health URL ที่ตั้งไว้หากเปลี่ยนจากค่าเริ่มต้น การทดสอบ runner ใน
+`server/systemUpdate.test.ts` ใช้ git/npm/PM2/curl จำลองและโฟลเดอร์ชั่วคราว
+ไม่เรียกบริการโรงพยาบาลจริง แต่ยังต้องตรวจการอัปเดตจริงบน staging Linux
+ที่ใช้ PM2 แบบเดียวกับ production ก่อนถือว่าทดสอบ deployment ครบ
+
 ปรับค่าผ่าน environment ได้โดยไม่ต้องแก้สคริปต์:
 
 ```bash

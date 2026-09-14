@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { execFile, spawn } from 'child_process';
+import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import path from 'path';
 
@@ -30,6 +30,7 @@ export type SystemUpdateJob = {
   startedAt: string;
   updatedAt: string;
   completedAt?: string;
+  runnerName?: string;
 };
 
 export type SystemUpdateInfo = {
@@ -53,6 +54,7 @@ export type SystemUpdateInfo = {
 
 const commandTimeoutMs = 60_000;
 const activeJobMaxAgeMs = 2 * 60 * 60 * 1000;
+const runnerStartupGraceMs = 90_000;
 
 const appDirectory = () => path.resolve(process.env.FDH_APP_DIR || process.cwd());
 const stateDirectory = () => path.resolve(process.env.FDH_UPDATE_STATE_DIR || path.join(appDirectory(), '.update-state'));
@@ -111,20 +113,63 @@ const normalizeJob = (value: SystemUpdateJob): SystemUpdateJob => ({
   changeSummary: String(value.changeSummary || ''),
 });
 
+export const reconcileUpdateJob = (
+  job: SystemUpdateJob, runnerAlive: boolean | null, now = Date.now(),
+): SystemUpdateJob => {
+  if (!['queued', 'running'].includes(job.status)) return job;
+  const age = now - Date.parse(job.updatedAt);
+  if (age <= runnerStartupGraceMs || runnerAlive === true) return job;
+  // An unavailable PM2 status is not evidence that a managed worker died.
+  if (runnerAlive === null && job.runnerName) return {
+    ...job,
+    message: `ยังตรวจสถานะตัวอัปเดตจาก PM2 ไม่ได้ (ขั้น ${job.stage}) กรุณาตรวจ PM2 และ log บนเซิร์ฟเวอร์ก่อนเริ่มงานใหม่`,
+  };
+  if (runnerAlive === null && age <= activeJobMaxAgeMs) return job;
+  return {
+    ...job, status: 'failed', stage: 'interrupted',
+    message: `ตัวอัปเดตหยุดตอบสนองในขั้น ${job.stage} ยังไม่ยืนยันว่าอัปเดตครบ กรุณาตรวจ log update-${job.id}.log`,
+    updatedAt: new Date(now).toISOString(), completedAt: new Date(now).toISOString(),
+  };
+};
+
+const runnerChecks = new Map<string, { checkedAt: number; alive: boolean | null }>();
+export const parsePm2ProcessList = (output: string): Array<{
+  name?: string; pid?: number; pm2_env?: { status?: string };
+}> => {
+  // Some PM2 versions print a daemon/CLI version warning even with --silent.
+  for (let offset = output.indexOf('['); offset !== -1; offset = output.indexOf('[', offset + 1)) {
+    try {
+      const parsed = JSON.parse(output.slice(offset).trim());
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* Try the next array start after the diagnostic prefix. */ }
+  }
+  throw new Error('PM2 did not return a process list');
+};
+const runnerIsAlive = async (name: string): Promise<boolean | null> => {
+  const cached = runnerChecks.get(name);
+  if (cached && Date.now() - cached.checkedAt < 15_000) return cached.alive;
+  let alive: boolean | null = null;
+  try {
+    const list = parsePm2ProcessList(await run('pm2', ['jlist', '--silent'], 5_000));
+    if (Array.isArray(list)) alive = list.some((entry) => entry.name === name
+      && Boolean(entry.pid) && entry.pm2_env?.status === 'online');
+  } catch { /* Keep the active job locked when PM2 cannot be queried. */ }
+  if (runnerChecks.size > 20) runnerChecks.clear();
+  runnerChecks.set(name, { checkedAt: Date.now(), alive });
+  return alive;
+};
+
 const readCurrentJob = async (): Promise<SystemUpdateJob | null> => {
   try {
     const raw = await fs.readFile(currentJobPath(), 'utf8');
     const job = normalizeJob(JSON.parse(raw) as SystemUpdateJob);
     if (!job?.id || !job.status) return null;
-    if ((job.status === 'queued' || job.status === 'running') && Date.now() - Date.parse(job.updatedAt) > activeJobMaxAgeMs) {
-      return {
-        ...job,
-        status: 'failed',
-        stage: 'stale',
-        message: 'งานอัปเดตหยุดตอบสนองเกิน 2 ชั่วโมง กรุณาตรวจสอบ log บนเซิร์ฟเวอร์',
-        updatedAt: new Date().toISOString(),
-        completedAt: new Date().toISOString(),
-      };
+    if (['queued', 'running'].includes(job.status) && Date.now() - Date.parse(job.updatedAt) > runnerStartupGraceMs) {
+      const alive = job.runnerName ? await runnerIsAlive(job.runnerName) : null;
+      // The runner may have completed while we were querying PM2.
+      const latest = normalizeJob(JSON.parse(await fs.readFile(currentJobPath(), 'utf8')) as SystemUpdateJob);
+      if (latest.id !== job.id || latest.updatedAt !== job.updatedAt || latest.status !== job.status) return latest;
+      return reconcileUpdateJob(job, alive);
     }
     return job;
   } catch {
@@ -217,6 +262,57 @@ const writeInitialJob = async (job: SystemUpdateJob) => {
   await fs.rename(tempPath, currentJobPath());
 };
 
+export const buildUpdateRunnerConfig = (job: SystemUpdateJob, directory: string, stateDir: string) => ({
+  apps: [{
+    name: `fdh-update-${job.id}`,
+    script: path.join(stateDir, `runner-${job.id}.sh`),
+    interpreter: 'bash', cwd: directory,
+    autorestart: false, watch: false,
+    out_file: path.join(stateDir, `launcher-${job.id}.log`),
+    error_file: path.join(stateDir, `launcher-${job.id}.log`),
+    env: {
+      FDH_APP_DIR: directory, FDH_UPDATE_STATE_DIR: stateDir,
+      FDH_UPDATE_JOB_ID: job.id, FDH_UPDATE_STARTED_AT: job.startedAt,
+      FDH_UPDATE_FROM_COMMIT: job.fromCommit, FDH_UPDATE_TO_COMMIT: job.toCommit,
+      FDH_UPDATE_ACTOR: job.actor.slice(0, 80), FDH_UPDATE_ACTION: job.action,
+      FDH_UPDATE_CHANGE_SUMMARY: job.changeSummary, FDH_DEPLOY_BRANCH: job.branch,
+      FDH_UPDATE_RUNNER_NAME: `fdh-update-${job.id}`,
+    },
+  }],
+});
+
+const launchUpdateRunner = async (job: SystemUpdateJob) => {
+  job.runnerName = `fdh-update-${job.id}`;
+  await writeInitialJob(job);
+  let launchRequested = false;
+  try {
+    const config = buildUpdateRunnerConfig(job, appDirectory(), stateDirectory());
+    await fs.copyFile(path.join(appDirectory(), 'deploy/scripts/self-update-runner.sh'), config.apps[0].script);
+    await fs.chmod(config.apps[0].script, 0o700);
+    const configPath = path.join(stateDirectory(), `runner-${job.id}.json`);
+    await fs.writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
+    // PM2's daemon owns the worker; restarting the backend must not kill its child tree.
+    // Do not save the global process list: it includes unrelated apps and this one-shot job.
+    launchRequested = true;
+    await run('pm2', ['start', configPath], 60_000);
+  } catch (error) {
+    await fs.appendFile(path.join(stateDirectory(), `launcher-${job.id}.log`),
+      `${new Date().toISOString()} launch failed: ${error instanceof Error ? error.message : 'unknown error'}\n`,
+      { mode: 0o600 }).catch(() => undefined);
+    // A timed-out CLI may already have launched the worker. Never overwrite its state
+    // or report it as failed until PM2 confirms it is absent/stopped.
+    const alive = launchRequested ? await runnerIsAlive(job.runnerName) : false;
+    if (alive !== false) return;
+    const current = await readCurrentJob();
+    if (current?.id === job.id && current.stage === 'queued') {
+      await writeInitialJob({ ...job, status: 'failed', stage: 'launch_failed',
+        message: 'เริ่มตัวอัปเดตผ่าน PM2 ไม่สำเร็จ กรุณาตรวจ PM2 และ launcher log บนเซิร์ฟเวอร์',
+        updatedAt: new Date().toISOString(), completedAt: new Date().toISOString() });
+    }
+    throw new Error('เริ่มตัวอัปเดตผ่าน PM2 ไม่สำเร็จ');
+  }
+};
+
 export const startSystemUpdate = async (expectedRemoteCommit: string, actor: string) => {
   if (!isEnabled()) throw new Error('ระบบอัปเดตอัตโนมัติถูกปิดหรือไม่รองรับบนเครื่องนี้');
   if (!/^[a-f0-9]{40}$/i.test(expectedRemoteCommit)) throw new Error('รหัสรุ่นที่ยืนยันไม่ถูกต้อง');
@@ -252,32 +348,7 @@ export const startSystemUpdate = async (expectedRemoteCommit: string, actor: str
     startedAt: now,
     updatedAt: now,
   };
-  await writeInitialJob(job);
-
-  const runnerSource = path.join(appDirectory(), 'deploy', 'scripts', 'self-update-runner.sh');
-  const runnerCopy = path.join(stateDirectory(), `runner-${jobId}.sh`);
-  await fs.copyFile(runnerSource, runnerCopy);
-  await fs.chmod(runnerCopy, 0o700);
-
-  const child = spawn('bash', [runnerCopy], {
-    cwd: appDirectory(),
-    detached: true,
-    stdio: 'ignore',
-    env: {
-      ...process.env,
-      FDH_UPDATE_JOB_ID: jobId,
-      FDH_UPDATE_STARTED_AT: now,
-      FDH_UPDATE_FROM_COMMIT: info.currentCommit,
-      FDH_UPDATE_TO_COMMIT: info.remoteCommit,
-      FDH_UPDATE_ACTOR: actor.slice(0, 80),
-      FDH_UPDATE_ACTION: 'update',
-      FDH_UPDATE_CHANGE_SUMMARY: job.changeSummary,
-      FDH_DEPLOY_BRANCH: info.branch,
-      FDH_APP_DIR: appDirectory(),
-      FDH_UPDATE_STATE_DIR: stateDirectory(),
-    },
-  });
-  child.unref();
+  await launchUpdateRunner(job);
   return job;
 };
 
@@ -319,31 +390,6 @@ export const startSystemRollback = async (targetCommit: string, actor: string) =
     startedAt: now,
     updatedAt: now,
   };
-  await writeInitialJob(job);
-
-  const runnerSource = path.join(appDirectory(), 'deploy', 'scripts', 'self-update-runner.sh');
-  const runnerCopy = path.join(stateDirectory(), `runner-${jobId}.sh`);
-  await fs.copyFile(runnerSource, runnerCopy);
-  await fs.chmod(runnerCopy, 0o700);
-
-  const child = spawn('bash', [runnerCopy], {
-    cwd: appDirectory(),
-    detached: true,
-    stdio: 'ignore',
-    env: {
-      ...process.env,
-      FDH_UPDATE_JOB_ID: jobId,
-      FDH_UPDATE_STARTED_AT: now,
-      FDH_UPDATE_FROM_COMMIT: info.currentCommit,
-      FDH_UPDATE_TO_COMMIT: target.commit,
-      FDH_UPDATE_ACTOR: actor.slice(0, 80),
-      FDH_UPDATE_ACTION: 'rollback',
-      FDH_UPDATE_CHANGE_SUMMARY: job.changeSummary,
-      FDH_DEPLOY_BRANCH: info.branch,
-      FDH_APP_DIR: appDirectory(),
-      FDH_UPDATE_STATE_DIR: stateDirectory(),
-    },
-  });
-  child.unref();
+  await launchUpdateRunner(job);
   return job;
 };

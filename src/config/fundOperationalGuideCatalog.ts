@@ -1,4 +1,6 @@
 import type { FundDefinition } from './fundDefinitions';
+import { FAMILY_PLANNING_SERVICE_RULES } from '../utils/familyPlanningRules';
+import { HERBAL_MEDICATION_RULES } from '../utils/herbalMedicationRules';
 
 export interface FundOperationalGuideDetail {
     requiredData: string[];
@@ -109,7 +111,7 @@ export const FUND_OPERATIONAL_GUIDE_DETAILS: Record<string, FundOperationalGuide
         ['ขาด FP003_4', 'บันทึกเป็นบริการคุมกำเนิดชนิดอื่น', 'ราคาไม่เท่ากับ 60 บาท'],
     ),
     cacervix: detail(
-        ['Diagnosis/บริการคัดกรองปากมดลูก', 'ADP 1B004 หรือ 1B005', 'ชนิดตัวอย่าง วันเก็บ และผลตรวจ'],
+        ['Diagnosis Z12.4 หรือ Z01.4 ตามบริการจริง (รูปแบบที่ระบบค้นหา Z124/Z014)', 'ADP 1B004 หรือ 1B005', 'ชนิดตัวอย่าง วันเก็บ และผลตรวจ'],
         ['ตรวจวิธีตรวจให้ตรง ADP', 'ผลและ specimen ต้องผูกผู้ป่วย/visit'],
         ['สลับ 1B004/1B005', 'มี order แต่ไม่มีผล', 'CID หรือ specimen ผิดราย'],
     ),
@@ -223,12 +225,17 @@ export const FUND_OPERATIONAL_GUIDE_DETAILS: Record<string, FundOperationalGuide
 const BASE_REQUIRED_DATA = [
     'HN/CID ชื่อ-สกุล และวันเกิดตรงกับผู้รับบริการ',
     'VN วันเวลา คลินิก/แผนก และผู้ให้บริการถูกต้อง',
-    'สิทธิ PTTYPE/HIPDATA และ Authen/Claim code ของวันรับบริการ',
+    'สิทธิ PTTYPE/HIPDATA และ Authen/Claim code ของวันรับบริการเมื่อช่องทางนั้นกำหนด',
+    'บันทึกอาการสำคัญ/ประวัติ ผลตรวจ และชื่อผู้ให้บริการประจำ visit',
 ];
 
 const BASE_MANUAL_CHECKS = [
     'เทียบรายการในระบบกับเวชระเบียนและบริการที่เกิดขึ้นจริง',
     'ยืนยันว่า Diagnosis, Lab, ยา, หัตถการ และ ADP อยู่ใน VN/วันเดียวกันตามเกณฑ์',
+    'ตรวจอายุ ณ วันบริการ กลุ่มเป้าหมาย และประวัติรับบริการย้อนหลังตามเพดานของรายการ; ไม่ใช้เฉพาะจำนวนในช่วงวันที่ค้นหา',
+    'รายการค่าใช้จ่ายต้องมีจำนวนมากกว่า 0 ไม่ซ้ำ และราคา/ยอดรวมตรงกับบริการจริง',
+    'ถ้ามีค่าบริการ 55020/55021 เลือกได้เพียงรายการเดียว และไม่เบิกร่วมกับค่าเตียงสังเกตอาการ',
+    'ตรวจสิทธิหน่วยบริการ เอกสารอนุมัติ และกำหนดส่งตามประกาศที่ใช้กับวันบริการและพื้นที่',
 ];
 
 const BASE_COMMON_ERRORS = [
@@ -238,10 +245,38 @@ const BASE_COMMON_ERRORS = [
 
 export const buildFundOperationalGuide = (definition: FundDefinition) => {
     const specific = FUND_OPERATIONAL_GUIDE_DETAILS[definition.id] || detail([], [], []);
+    const fpCodes = definition.id === 'fp' ? FAMILY_PLANNING_SERVICE_RULES
+        : definition.id === 'contraceptive_pill' ? FAMILY_PLANNING_SERVICE_RULES.filter((rule) => ['FP003_1', 'FP003_2', 'FP003_3'].includes(rule.code))
+            : definition.id === 'condom' ? FAMILY_PLANNING_SERVICE_RULES.filter((rule) => rule.code === 'FP003_4') : [];
+    const servicePairs = fpCodes.map((rule) => `${rule.label}: Diag ${rule.diagnosis} + ADP ${rule.code}${rule.procedure ? ` + ICD-9 ${rule.procedure}` : ''}; ${rule.amount} บาท${rule.annualLimit ? `; ไม่เกิน ${rule.annualLimit.maximum} ${rule.annualLimit.unit}` : ''}`);
+    const herbalPairs = definition.id === 'herb' ? HERBAL_MEDICATION_RULES.map((rule) => `${rule.symptom}: Diag ${rule.diagnosisCodes.join(' / ')} ↔ ${rule.medicines.join(' / ')} (ตารางจับคู่ของโรงพยาบาล เลือกตามการวินิจฉัยจริง)`) : [];
+    const diagnosisRequirements = [...new Set([
+        ...specific.requiredData,
+        ...(definition.conditions || []),
+        ...servicePairs,
+        ...herbalPairs,
+    ].filter((item) => /diag|รหัสโรค|โรคหลัก/i.test(item)))];
+    if (diagnosisRequirements.length === 0) diagnosisRequirements.push('กฎรายการนี้ยังไม่ระบุ Diag ตายตัว: บันทึกรหัสตามการวินิจฉัย/เหตุผลรับบริการจริง และตรวจรหัสที่ช่องทางรับเคลมกำหนดก่อนส่ง');
+    const additionalConditions: string[] = [];
+    if (definition.id === 'anc' || definition.id.startsWith('anc_') || definition.id === 'postnatal_supplements') additionalConditions.push('เพศหญิงตามข้อมูลผู้รับบริการที่โปรแกรมตรวจ');
+    if (definition.id === 'cacervix') additionalConditions.push('Diag Z12.4 หรือ Z01.4 ตามบริการจริง ต้องมีคู่กับ ADP 1B004 หรือ 1B005');
+    if (definition.id === 'postnatal_care') additionalConditions.push('หน้ารายการนี้กรอง visit ที่มี Diag กลุ่ม U (แพทย์แผนไทย) ออก หากไม่พบ visit ให้ตรวจประเภทบริการก่อน');
+    const passConditions = [...new Set([...(definition.conditions || []), ...servicePairs, ...additionalConditions])];
     return {
         ...definition,
-        requiredData: [...BASE_REQUIRED_DATA, ...specific.requiredData],
-        automatedChecks: definition.conditions || [],
+        diagnosisRequirements,
+        requiredData: [...BASE_REQUIRED_DATA, ...specific.requiredData, ...servicePairs],
+        passConditions,
+        recordingSteps: [
+            'เปิด visit ใน HOSxP ให้ตรง HN/VN และวันบริการ ตรวจข้อมูลทะเบียน สิทธิ และการยืนยันตัวตน',
+            'ส่วนวินิจฉัย: ลง Diag หลัก/ร่วมตามเวชระเบียน พร้อมประเภทการวินิจฉัย; รหัสกลุ่ม เช่น Z34/Z35 ให้เลือกรหัสย่อยที่ตรงข้อมูลจริง',
+            'ส่วนบริการ: บันทึก Lab พร้อมผล ยาพร้อมจำนวน/วิธีใช้ และหัตถการพร้อมผู้ให้บริการตามรายการที่ต้องมีด้านบน',
+            ...(definition.id === 'knee'
+                ? ['งานแพทย์แผนไทย: บันทึกบริการและหัตถการทั้ง 4 รายการ เชื่อมผู้ให้บริการ ตรวจข้อมูลสำหรับส่ง 43 แฟ้ม']
+                : ['ส่วนค่าใช้จ่าย/ส่งออก: ตรวจรหัสบริการที่ผูก ADP หรือรหัสของระบบปลายทางให้ตรงชนิดบริการ จำนวน และราคา']),
+            `บันทึกส่งผ่าน ${definition.recordingSystem || definition.claimChannel || 'ช่องทางตามประกาศ'}${definition.claimChannelNote ? ` (${definition.claimChannelNote})` : ''}`,
+            'กลับหน้ากองทุน เลือกช่วงวันและโหลดข้อมูลใหม่ เปิดรายละเอียด VN แก้รายการที่ขาด แล้วตรวจหลักฐานและผลตอบรับหลังส่ง',
+        ],
         manualChecks: [...BASE_MANUAL_CHECKS, ...specific.manualChecks],
         commonErrors: [...BASE_COMMON_ERRORS, ...specific.commonErrors],
     };

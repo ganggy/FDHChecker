@@ -96,7 +96,7 @@ fail_job() {
     log "attempting automatic recovery to $FROM_COMMIT"
     write_state "running" "recovering" 98 "เกิดข้อผิดพลาด กำลังกู้คืนรุ่นเดิมอัตโนมัติ"
     if run_step 120 "recovery git reset" git reset --hard "$FROM_COMMIT" \
-      && run_step 900 "recovery dependencies" npm ci \
+      && run_step 900 "recovery dependencies" npm ci --include=dev \
       && run_step 1800 "recovery build" npm run build:all \
       && restart_apps; then
       recovery_message="กู้คืนรุ่นเดิมแล้ว"
@@ -159,7 +159,9 @@ CODE_CHANGED=1
 
 CURRENT_STAGE="dependencies"
 write_state "running" "$CURRENT_STAGE" 42 "กำลังติดตั้ง dependency"
-run_step 900 "dependencies" npm ci
+# The PM2 daemon may pass NODE_ENV=production/npm_config_omit=dev to this
+# worker. Tests and both builds still require TypeScript, Vite and test tools.
+run_step 900 "dependencies" npm ci --include=dev
 
 CURRENT_STAGE="testing"
 write_state "running" "$CURRENT_STAGE" 58 "กำลังทดสอบความถูกต้องของระบบ"

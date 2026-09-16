@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { fetchSystemUpdateStatus } from '../services/systemUpdateStatus';
 
 type UpdateJob = {
   id: string;
@@ -64,22 +65,26 @@ export const SystemUpdatePanel = () => {
   const [starting, setStarting] = useState(false);
   const [connectionState, setConnectionState] = useState<'online' | 'reconnecting'>('online');
   const [error, setError] = useState('');
+  const [statusError, setStatusError] = useState('');
+  const statusRequestInFlight = useRef(false);
   const [selectedRollbackCommit, setSelectedRollbackCommit] = useState('');
 
   const running = info?.job?.status === 'queued' || info?.job?.status === 'running';
 
   const loadStatus = useCallback(async (refreshRemote = false) => {
+    if (statusRequestInFlight.current) return;
+    statusRequestInFlight.current = true;
     if (refreshRemote) setChecking(true);
     try {
-      const response = await fetch(`/api/admin/system-update?refresh=${refreshRemote ? '1' : '0'}`, { cache: 'no-store' });
-      const payload = await readPayload(response);
-      setInfo(payload.data as UpdateInfo);
+      const data = await fetchSystemUpdateStatus(refreshRemote);
+      setInfo(data as UpdateInfo);
       setConnectionState('online');
-      setError('');
+      setStatusError('');
     } catch (loadError) {
       setConnectionState('reconnecting');
-      setError(loadError instanceof Error ? loadError.message : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
+      setStatusError(loadError instanceof Error ? loadError.message : 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้');
     } finally {
+      statusRequestInFlight.current = false;
       if (refreshRemote) setChecking(false);
     }
   }, []);
@@ -99,15 +104,18 @@ export const SystemUpdatePanel = () => {
     };
   }, [connectionState, loadStatus, running]);
 
+  const reloadJobId = info?.job?.id;
+  const reloadJobStatus = info?.job?.status;
   useEffect(() => {
-    const job = info?.job;
-    if (job?.status !== 'completed') return;
+    if (reloadJobStatus !== 'completed' || !reloadJobId) return;
     const storageKey = 'fdh-last-reloaded-update-job';
-    if (window.sessionStorage.getItem(storageKey) === job.id) return;
-    window.sessionStorage.setItem(storageKey, job.id);
-    const timer = window.setTimeout(() => window.location.reload(), 2500);
+    if (window.sessionStorage.getItem(storageKey) === reloadJobId) return;
+    const timer = window.setTimeout(() => {
+      window.sessionStorage.setItem(storageKey, reloadJobId);
+      window.location.reload();
+    }, 2500);
     return () => window.clearTimeout(timer);
-  }, [info?.job]);
+  }, [reloadJobId, reloadJobStatus]);
 
   const confirmationText = useMemo(() => {
     if (!info?.remoteCommit) return '';
@@ -144,7 +152,7 @@ export const SystemUpdatePanel = () => {
   };
 
   const startRollback = async () => {
-    if (!selectedRollback || running || starting) return;
+    if (!selectedRollback || running || starting || connectionState !== 'online') return;
     const detail = selectedRollback.details ? `\n\nรายละเอียด:\n${selectedRollback.details}` : '';
     const confirmed = window.confirm(
       `ยืนยันย้อนระบบจาก ${shortCommit(info?.currentCommit || '')} ไปเป็น ${selectedRollback.shortCommit}\n\n${selectedRollback.subject}${detail}\n\nระบบจะสร้างจุดกู้คืน ทดสอบ Build รีสตาร์ตบริการ และกู้รุ่นปัจจุบันกลับอัตโนมัติหากดำเนินการไม่สำเร็จ\n\nการย้อนเวอร์ชันเปลี่ยนเฉพาะโปรแกรม ไม่ย้อนข้อมูลในฐานข้อมูล`,
@@ -198,7 +206,7 @@ export const SystemUpdatePanel = () => {
         <div><span>Branch</span><strong>{info?.branch || '-'}</strong></div>
         <div><span>รุ่นที่ใช้อยู่</span><strong>{shortCommit(info?.currentCommit || '')}</strong></div>
         <div><span>รุ่นบน GitHub</span><strong>{shortCommit(info?.remoteCommit || '')}</strong></div>
-        <div><span>สถานะ</span><strong>{info?.available ? `มีใหม่ ${info.behind} commit` : 'เป็นรุ่นล่าสุด'}</strong></div>
+        <div><span>สถานะ</span><strong>{!info ? 'ยังไม่ได้รับข้อมูล' : connectionState === 'reconnecting' ? 'รอยืนยันสถานะล่าสุด' : info.available ? `มีใหม่ ${info.behind} commit` : 'เป็นรุ่นล่าสุด'}</strong></div>
       </div>
 
       {job && (
@@ -208,7 +216,8 @@ export const SystemUpdatePanel = () => {
               <strong>{job.status === 'completed'
                 ? (job.action === 'rollback' ? 'ย้อนเวอร์ชันสำเร็จ' : 'อัปเดตสำเร็จ')
                 : job.status === 'failed' ? 'ดำเนินการไม่สำเร็จ'
-                  : (job.action === 'rollback' ? 'กำลังย้อนเวอร์ชัน' : 'กำลังอัปเดตระบบ')}</strong>
+                  : connectionState === 'reconnecting' ? 'กำลังรอยืนยันผลจากเซิร์ฟเวอร์'
+                    : (job.action === 'rollback' ? 'กำลังย้อนเวอร์ชัน' : 'กำลังอัปเดตระบบ')}</strong>
               <span>{job.message}</span>
             </div>
             <b>{progress}%</b>
@@ -217,13 +226,19 @@ export const SystemUpdatePanel = () => {
             <div style={{ width: `${progress}%` }} />
           </div>
           <small>ขั้นตอน: {job.stage} · {shortCommit(job.fromCommit)} → {shortCommit(job.toCommit)}</small>
+          {connectionState === 'reconnecting' && <small>ข้อมูลล่าสุดที่อ่านได้: {thaiDateTime(job.updatedAt)} — เปอร์เซ็นต์นี้อาจยังไม่ใช่สถานะปัจจุบัน</small>}
           {job.changeSummary && <small>รายการ: {job.changeSummary}</small>}
           <small>ผู้ดำเนินการ: {job.actor || 'admin'} · เริ่ม {thaiDateTime(job.startedAt)}</small>
           {job.status === 'completed' && <small>ระบบจะโหลดหน้าใหม่อัตโนมัติเพื่อใช้รุ่นล่าสุด</small>}
         </div>
       )}
 
-      {(error || disabledReason) && <div className="alert alert-danger system-update-alert">{error || disabledReason}</div>}
+      {connectionState === 'reconnecting' && <div role="status" className="alert alert-info system-update-alert" style={{ display: 'block' }}>
+        การเชื่อมต่อหน้าจอกับเซิร์ฟเวอร์ขาดช่วง ยังสรุปไม่ได้ว่างานอัปเดตสำเร็จหรือล้มเหลว ระบบกำลังเชื่อมต่อกลับโดยไม่เริ่มอัปเดตซ้ำ
+        <div>{statusError}</div>
+        <button type="button" className="secondary-btn" onClick={() => void loadStatus(false)}>ตรวจสถานะอีกครั้ง</button>
+      </div>}
+      {(error || (info && disabledReason)) && <div className="alert alert-danger system-update-alert">{error || disabledReason}</div>}
       {info?.ahead ? <div className="alert alert-info system-update-alert">เซิร์ฟเวอร์มี commit ที่ยังไม่มีบน GitHub {info.ahead} รายการ ต้องตรวจ branch ก่อนอัปเดต</div> : null}
 
       {info?.changes?.length ? (
@@ -250,7 +265,7 @@ export const SystemUpdatePanel = () => {
           type="button"
           className="save-btn"
           onClick={() => void startUpdate()}
-          disabled={starting || running || !info?.available || Boolean(disabledReason) || Boolean(info?.ahead)}
+          disabled={starting || running || connectionState !== 'online' || !info?.available || Boolean(disabledReason) || Boolean(info?.ahead)}
         >
           {starting ? 'กำลังเริ่มงาน…' : running ? 'กำลังอัปเดต…' : '⬇️ ยืนยันและอัปเดตระบบ'}
         </button>

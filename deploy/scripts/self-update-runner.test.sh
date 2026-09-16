@@ -12,6 +12,7 @@ export FDH_UPDATE_FROM_COMMIT=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export FDH_UPDATE_TO_COMMIT=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 export FDH_PM2_APPS='fdh-backend fdh-frontend' FDH_PM2_TIMEOUT_SECONDS=1
 export FDH_DEPLOY_BACKUP=0
+export NODE_ENV=production npm_config_omit=dev
 export TRACE="$ROOT/trace"
 cat > "$ROOT/bin/git" <<'SH'
 #!/usr/bin/env bash
@@ -24,6 +25,13 @@ SH
 cat > "$ROOT/bin/npm" <<'SH'
 #!/usr/bin/env bash
 echo "npm $*" >> "$TRACE"
+if [[ "$1" == ci && "$*" != *--include=dev* ]]; then
+  echo 'fixture: production install omitted required build tools' >&2
+  exit 9
+fi
+if [[ "$1 $2" == 'run check' && "${SCENARIO:-}" == test-failure ]]; then
+  exit 1
+fi
 SH
 cat > "$ROOT/bin/pm2" <<'SH'
 #!/usr/bin/env bash
@@ -41,7 +49,7 @@ echo "curl $*" >> "$TRACE"
 SH
 chmod +x "$ROOT/bin/"*
 
-for SCENARIO in success rollback failure timeout; do
+for SCENARIO in success rollback test-failure failure timeout; do
   export SCENARIO
   export FDH_UPDATE_JOB_ID="fixture-$SCENARIO"
   export FDH_UPDATE_RUNNER_NAME="fdh-update-$FDH_UPDATE_JOB_ID"
@@ -65,6 +73,14 @@ for SCENARIO in success rollback failure timeout; do
     bash "$SOURCE"
     cmp "$state" "$ROOT/before.json"
     cmp "$TRACE" "$ROOT/before.trace"
+  elif [[ "$SCENARIO" == test-failure ]]; then
+    [[ "$result" != 0 ]]
+    grep -q '"status": "failed"' "$state"
+    grep -q '"stage": "testing"' "$state"
+    grep -q 'automatic recovery completed' "$FDH_UPDATE_STATE_DIR/update-$FDH_UPDATE_JOB_ID.log"
+    [[ "$(grep -c 'npm ci --include=dev' "$TRACE")" == 2 ]]
+    grep -q 'git reset --hard' "$TRACE"
+    grep -q 'pm2 restart fdh-frontend' "$TRACE"
   else
     [[ "$result" != 0 ]]
     grep -q '"status": "failed"' "$state"

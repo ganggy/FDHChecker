@@ -89,7 +89,7 @@ FDH_DEPLOY_BACKUP=0
 ```bash
 cd /opt/FDHChecker
 git pull --ff-only
-npm ci
+npm ci --include=dev
 npm run check
 npm run build:all
 pm2 restart fdh-backend
@@ -133,7 +133,7 @@ pwsh -File deploy/scripts/backup-databases.ps1
 ```bash
 cd /opt/FDHChecker
 git switch --detach <previous-tested-commit>
-npm ci
+npm ci --include=dev
 npm run build:all
 pm2 startOrReload deploy/pm2/ecosystem.config.cjs --update-env
 curl --fail http://127.0.0.1:3506/api/ready
@@ -158,3 +158,9 @@ curl --fail http://127.0.0.1:3506/api/ready
 - เปิดหน้า login และ workflow สำคัญด้วยบัญชีทดสอบ
 - ตรวจว่า CORS และ HTTPS ใช้ hostname จริง
 - เก็บ artifact และ commit id ของรุ่นที่ deploy
+
+### เครื่องมือ build หายบน production
+
+หาก log ขึ้น `tsc: command not found` หรือชุดทดสอบหา dependency ไม่พบ ให้ตรวจว่าการติดตั้งข้าม devDependencies หรือไม่ การอัปเดตและกู้คืนต้องใช้ `npm ci --include=dev` เพราะมีทั้งการทดสอบและ build บนเซิร์ฟเวอร์ แม้ process จะมี `NODE_ENV=production` หรือ `npm_config_omit=dev` อยู่ก็ตาม
+
+ถ้า shell ของ root แจ้ง `pm2: command not found` แต่ API ยังตอบ ให้ตรวจเจ้าของ process และเส้นทางโปรแกรมที่รันอยู่ก่อน ใช้บัญชีและ PM2 instance เดิมในการ deploy อย่าติดตั้ง PM2 อีก instance เพื่อแก้เฉพาะข้อความนี้ รุ่นที่ยังใช้ runner เก่าต้องติดตั้งแพตช์ครั้งแรกผ่าน SSH ตามขั้นตอนด้านบน เนื่องจาก runner ถูกคัดลอกก่อน pull โค้ดใหม่

@@ -863,6 +863,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     });
 
     const getFundRuleStatus = (item: any, fundId: string = activeFund) => {
+        if (item?.eligibility_blocked) return buildStatusResult([], [], String(item.eligibility_reason || 'ต้องตรวจสอบสิทธิ์ก่อนเบิก'), false);
         const subfunds: string[] = [];
         const age = Number(item?.age_y ?? item?.age ?? 0);
         const hipdataText = `${item?.hipdata_code || ''} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.toUpperCase();
@@ -1547,7 +1548,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const getStatusForFund = (item: any, fundId: string = activeFund) => {
         const base = getFundRuleStatus(item, fundId);
         const manualEvidenceConditions = getManualEvidenceItems(fundId);
-        if (base.status === 'ยังไม่เข้าเงื่อนไข' || !toFlag(item?.opd_evidence_checked)) {
+        if (item?.eligibility_blocked || base.status === 'ยังไม่เข้าเงื่อนไข' || !toFlag(item?.opd_evidence_checked)) {
             return { ...base, manualEvidenceConditions };
         }
 
@@ -1633,6 +1634,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         const mockRecord: CheckRecord = {
             id: 0,
             vn: item.vn,
+            an: item.an || undefined,
             hn: item.hn,
             patientName: item.patientName,
             fund: item.pttypename,

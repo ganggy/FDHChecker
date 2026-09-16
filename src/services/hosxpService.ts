@@ -35,11 +35,11 @@ export const fetchHOSxPData = async (
 };
 
 // ฟังก์ชันดึงข้อมูลรายการใบเสร็จจาก opitemrece
-export const fetchReceiptData = async (vn: string) => {
+export const fetchReceiptData = async (vn: string, an?: string) => {
   try {
     console.log(`🧾 Fetching receipt data for VN: ${vn} from opitemrece table`);
 
-    const response = await fetch(`/api/hosxp/receipt/${vn}`, {
+    const response = await fetch(`/api/hosxp/receipt/${encodeURIComponent(vn)}${an ? '?an=' + encodeURIComponent(an) : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -51,7 +51,7 @@ export const fetchReceiptData = async (vn: string) => {
     }
 
     const data = await response.json();
-    console.log(`✅ Receipt API response:`, data);
+
     return data;
   } catch (error) {
     console.error('Error fetching receipt data:', error);
@@ -61,14 +61,15 @@ export const fetchReceiptData = async (vn: string) => {
 
 // ฟังก์ชันดึงข้อมูลการวินิจฉัยและหัตถการ
 export interface VisitClinicalData {
+  warnings?: string[];
   clinical: { cc?: string; hpi?: string };
   diagnoses: Array<{ code?: string; name?: string; type?: string; category?: string }>;
   procedures: Array<{ code?: string; name?: string; type?: string; category?: string }>;
 }
 
-export const fetchDiagsAndProceduresData = async (vn: string) => {
+export const fetchDiagsAndProceduresData = async (vn: string, an?: string) => {
   try {
-    const response = await fetch(`/api/hosxp/visit/${vn}/diags`, {
+    const response = await fetch(`/api/hosxp/visit/${encodeURIComponent(vn)}/diags${an ? '?an=' + encodeURIComponent(an) : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -88,9 +89,9 @@ export const fetchDiagsAndProceduresData = async (vn: string) => {
 };
 
 // ฟังก์ชันดึงข้อมูลค่าบริการ ADP Code
-export const fetchServiceADPData = async (vn: string) => {
+export const fetchServiceADPData = async (vn: string, an?: string) => {
   try {
-    const response = await fetch(`/api/hosxp/services/${vn}`, {
+    const response = await fetch(`/api/hosxp/services/${encodeURIComponent(vn)}${an ? '?an=' + encodeURIComponent(an) : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -110,9 +111,9 @@ export const fetchServiceADPData = async (vn: string) => {
 };
 
 // ฟังก์ชันดึงข้อมูลยาและการรักษา  
-export const fetchPrescriptionData = async (vn: string) => {
+export const fetchPrescriptionData = async (vn: string, an?: string) => {
   try {
-    const response = await fetch(`/api/hosxp/prescriptions/${vn}`, {
+    const response = await fetch(`/api/hosxp/prescriptions/${encodeURIComponent(vn)}${an ? '?an=' + encodeURIComponent(an) : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -339,8 +340,8 @@ export const importRepstmData = async (payload: {
   return json;
 };
 
-export const fetchVisitChargeItems = async (vn: string) => {
-  const response = await fetch(`/api/hosxp/visit-items/${encodeURIComponent(vn)}`);
+export const fetchVisitChargeItems = async (vn: string, an?: string) => {
+  const response = await fetch(`/api/hosxp/visit-items/${encodeURIComponent(vn)}${an ? '?an=' + encodeURIComponent(an) : ''}`);
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error || 'ไม่สามารถอ่านรายการค่าใช้จ่ายของ visit ได้');
@@ -1114,6 +1115,7 @@ export interface UcOutsideCupResponse extends ReconciliationResponse {
 }
 
 export interface UcOutsideCupWalkinAudit {
+  configurationKey: string;
   item: { icode: string; name: string };
   period: { startDate: string; endDate: string };
   pttypes: string[];
@@ -1167,7 +1169,7 @@ export const fetchUcOutsideCupWalkinAudit = async (params: { startDate: string; 
 };
 
 export const insertUcOutsideCupWalkin = async (payload: {
-  startDate: string; endDate: string; expectedCount: number; confirmation: string;
+  startDate: string; endDate: string; expectedCount: number; confirmation: string; configurationKey: string;
 }) => {
   const response = await fetch('/api/uc-outside-cup/walkin-insert', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),

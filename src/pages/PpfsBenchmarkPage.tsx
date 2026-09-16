@@ -196,7 +196,7 @@ export const PpfsBenchmarkPage = () => {
         </div>
         <div className="workflow-hero__meta">
           <span className="workflow-badge">HCODE {report?.hcode || hcode}</span>
-          <span className="workflow-badge">{report?.hospital.hospital_name || 'โรงพยาบาลโคกศรีสุพรรณ'}</span>
+          <span className="workflow-badge">{report?.hospital.hospital_name || 'หน่วยบริการ'}</span>
           <span className="workflow-badge">ดึงล่าสุด {formatDateTime(report?.fetched_at)}</span>
         </div>
       </section>

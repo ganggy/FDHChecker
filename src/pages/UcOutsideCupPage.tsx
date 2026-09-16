@@ -91,6 +91,7 @@ export const UcOutsideCupPage = () => {
       const result = await insertUcOutsideCupWalkin({
         startDate: walkinAudit!.period.startDate,
         endDate: walkinAudit!.period.endDate,
+        configurationKey: walkinAudit!.configurationKey,
         expectedCount: missing,
         confirmation: walkinConfirmation,
       });
@@ -120,12 +121,12 @@ export const UcOutsideCupPage = () => {
     setVisitClinical({ clinical: {}, diagnoses: [], procedures: [] });
     try {
       const [itemsResult, clinicalResult] = await Promise.allSettled([
-        fetchVisitChargeItems(row.vn),
-        fetchDiagsAndProceduresData(row.vn),
+        fetchVisitChargeItems(row.vn, row.an || undefined),
+        fetchDiagsAndProceduresData(row.vn, row.an || undefined),
       ]);
       if (itemsResult.status === 'fulfilled') setPrescriptions(itemsResult.value);
       if (clinicalResult.status === 'fulfilled') setVisitClinical(clinicalResult.value.data);
-      if (itemsResult.status === 'rejected' && clinicalResult.status === 'rejected') throw itemsResult.reason;
+      if (itemsResult.status === 'rejected' || clinicalResult.status === 'rejected') setError('ข้อมูลรายตัวบางส่วนอ่านไม่ได้ กรุณาตรวจสอบการเชื่อมต่อและโครงสร้าง HIS');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'อ่านใบสั่งยาไม่สำเร็จ');
     } finally {
@@ -163,16 +164,16 @@ export const UcOutsideCupPage = () => {
 
       <section className="card uc-walkin-audit">
         <header>
-          <div><span>ตรวจใบสั่งยา · เฉพาะสิทธิ 40/41</span><h2>WALKIN: ผู้ป่วยนอกเหตุสมควร ทั่วประเทศ</h2><p>ตรวจตั้งแต่ปีงบประมาณ 2568 (1 ต.ค. 2567) ถึงปัจจุบัน เฉพาะ UC นอก CUP ในจังหวัด</p></div>
+          <div><span>ตรวจใบสั่งยา · สิทธิ {(walkinAudit?.pttypes || []).join('/') || 'ตามการตั้งค่าโรงพยาบาล'}</span><h2>WALKIN: ผู้ป่วยนอกเหตุสมควร ทั่วประเทศ</h2><p>ตรวจตั้งแต่ปีงบประมาณ 2568 (1 ต.ค. 2567) ถึงปัจจุบัน เฉพาะ UC นอก CUP ในจังหวัด</p></div>
           <button className="btn btn-sm" type="button" onClick={() => void loadWalkinAudit()} disabled={walkinLoading}>{walkinLoading ? 'กำลังตรวจ…' : 'ตรวจสอบใหม่'}</button>
         </header>
         <div className="uc-walkin-summary">
-          <article><span>Visit 40/41</span><strong>{(walkinAudit?.summary.total_visits || 0).toLocaleString('th-TH')}</strong></article>
+          <article><span>Visit {(walkinAudit?.pttypes || []).join('/')}</span><strong>{(walkinAudit?.summary.total_visits || 0).toLocaleString('th-TH')}</strong></article>
           <article className="is-ok"><span>มี WALKIN แล้ว</span><strong>{(walkinAudit?.summary.has_walkin || 0).toLocaleString('th-TH')}</strong></article>
           <article className="is-missing"><span>ต้องเพิ่ม WALKIN</span><strong>{(walkinAudit?.summary.missing_walkin || 0).toLocaleString('th-TH')}</strong></article>
           <article><span>ไม่มีแถวต้นแบบ</span><strong>{(walkinAudit?.summary.missing_without_template || 0).toLocaleString('th-TH')}</strong></article>
         </div>
-        {(walkinAudit?.summary.missing_walkin || 0) > 0 && <div className="uc-walkin-warning"><strong>พบ {(walkinAudit?.summary.missing_walkin || 0).toLocaleString('th-TH')} visit ที่ยังไม่มีรหัส 3010982</strong><p>ระบบจะเพิ่มรายการราคา 0 บาท จำนวน 1 โดยไม่เปลี่ยนยอดใบสั่งยา และไม่เพิ่มซ้ำใน VN ที่มีแล้ว</p></div>}
+        {(walkinAudit?.summary.missing_walkin || 0) > 0 && <div className="uc-walkin-warning"><strong>พบ {(walkinAudit?.summary.missing_walkin || 0).toLocaleString('th-TH')} visit ที่ยังไม่มีรหัส {walkinAudit?.item.icode}</strong><p>ระบบจะเพิ่มรายการราคา 0 บาท จำนวน 1 โดยไม่เปลี่ยนยอดใบสั่งยา และไม่เพิ่มซ้ำใน VN ที่มีแล้ว</p></div>}
         <div className="uc-walkin-list table-responsive"><table className="data-table"><thead><tr><th>วันที่</th><th>VN / HN</th><th>สิทธิ</th><th>HMAIN</th><th>ใบสั่งยาเดิม</th><th>สถานะ</th></tr></thead><tbody>
           {(walkinAudit?.data || []).map((row) => <tr key={row.vn}><td>{row.service_date}<small>{row.service_time}</small></td><td><strong>{row.vn}</strong><small>HN {row.hn}</small></td><td>{row.pttype}</td><td>{row.hospmain || '-'}</td><td>{row.has_prescription_template ? 'มี' : 'ไม่มี'}</td><td><span className="uc-walkin-missing-chip">ขาด WALKIN</span></td></tr>)}
           {!walkinLoading && (walkinAudit?.data.length || 0) === 0 && <tr><td colSpan={6} className="uc-cup-empty">ไม่พบรายการที่ขาด</td></tr>}

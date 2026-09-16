@@ -1,3 +1,4 @@
+import { HospitalScopeSettings } from '../components/HospitalScopeSettings';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import '../styles/Settings.css';
 import defaultRules from '../config/business_rules.json';
@@ -25,6 +26,9 @@ interface Config {
         [key: string]: string;
     };
     site_settings?: {
+        uc_walkin_pttypes?: string[];
+        uc_walkin_icode?: string;
+        pcu_village_ids?: string[];
         hospital_name?: string;
         hospital_code?: string;
         nhso_region?: string;
@@ -484,15 +488,15 @@ export const SettingsPage: React.FC = () => {
                 {activeTab === 'hospital' && frontendConfig && (
                     <div className="settings-section">
                         <h3>🏥 ข้อมูลหน่วยบริการ</h3>
-                        <p className="settings-section-description">ข้อมูลกลางที่ใช้ในหัวรายงาน การเชื่อมต่อ FDH และการอ้างอิงภายในระบบ</p>
+                        <p className="settings-section-description">ชื่อและรหัสหน่วยบริการอ่านจาก opdconfig ของ HIS ที่เชื่อมต่อ</p>
                         <div className="settings-grid">
                             <div className="form-group">
                                 <label>ชื่อหน่วยบริการ</label>
-                                <input type="text" value={mergedSiteSettings?.hospital_name || ''} onChange={(e) => setSiteSetting(['hospital_name'], e.target.value)} />
+                                <input type="text" value={mergedSiteSettings?.hospital_name || ''} readOnly />
                             </div>
                             <div className="form-group">
                                 <label>รหัสหน่วยบริการ (HCODE)</label>
-                                <input type="text" inputMode="numeric" maxLength={5} value={mergedSiteSettings?.hospital_code || ''} onChange={(e) => setSiteSetting(['hospital_code'], e.target.value.replace(/\D/g, '').slice(0, 5))} />
+                                <input type="text" inputMode="numeric" maxLength={5} value={mergedSiteSettings?.hospital_code || ''} readOnly />
                                 <small>ต้องเป็นตัวเลข 5 หลัก และจะใช้ร่วมกับ FDH API</small>
                             </div>
                             <div className="form-group">
@@ -506,6 +510,8 @@ export const SettingsPage: React.FC = () => {
                         </div>
                     </div>
                 )}
+
+                {activeTab === 'hospital' && <HospitalScopeSettings settings={mergedSiteSettings || {}} onChange={setSiteSetting} />}
 
                 {activeTab === 'lab' && (
                     <div className="settings-section">

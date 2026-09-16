@@ -140,10 +140,10 @@
         "er_emergency": "OP AE"
     },
     "site_settings": {
-        "hospital_name": "โรงพยาบาลโคกศรีสุพรรณ",
-        "hospital_code": "11101",
-        "nhso_region": "8",
-        "province": "สกลนคร",
+        "hospital_name": "",
+        "hospital_code": "",
+        "nhso_region": "",
+        "province": "",
         "lab_costs": {
             "default": {
                 "enabled": true,

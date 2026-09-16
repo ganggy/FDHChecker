@@ -5,7 +5,7 @@ import { changePassword, fetchMe, logout, type AuthSession } from './services/au
 import { LocalAiAssistant } from './components/LocalAiAssistant';
 import { TableScrollNavigator } from './components/TableScrollNavigator';
 import type { AppPage } from './utils/navigationState';
-import businessRules from './config/business_rules.json';
+
 import './App.css';
 import './styles/mobile.css';
 
@@ -67,7 +67,15 @@ function App() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
-  const siteSettings = (businessRules as { site_settings?: { hospital_name?: string; nhso_region?: string } }).site_settings || {};
+  const [siteSettings, setSiteSettings] = useState<{ hospital_name?: string; nhso_region?: string }>({});
+  useEffect(() => {
+    let active = true;
+    if (authSession) fetch('/api/config/app-settings').then(response => response.json()).then(result => {
+      if (active && result.success) setSiteSettings(result.data || {});
+    }).catch(() => { if (active) setSiteSettings({}); });
+    else setSiteSettings({});
+    return () => { active = false; };
+  }, [authSession]);
   const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
   const regionLabel = siteSettings.nhso_region ? `เขต ${siteSettings.nhso_region}` : '';
   const isAdmin = Boolean(authSession?.user.is_admin);

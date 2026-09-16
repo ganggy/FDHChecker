@@ -56,7 +56,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
   const [prescriptions, setPrescriptions] = useState<PrescriptionItem[]>([]);
   const [services, setServices] = useState<ServiceADPItem[]>([]);
   const [receiptData, setReceiptData] = useState<ReceiptResponse | null>(null);
-  const [diagsData, setDiagsData] = useState<{ diagnoses: any[], procedures: any[] }>({ diagnoses: [], procedures: [] });
+  const [diagsData, setDiagsData] = useState<{ diagnoses: any[], procedures: any[], warnings?: string[] }>({ diagnoses: [], procedures: [] });
   const [loadingPrescriptions, setLoadingPrescriptions] = useState(false);
   const [loadingServices, setLoadingServices] = useState(false);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
@@ -86,13 +86,13 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
   }, [record]);
 
   useEffect(() => {
-    if (!record?.vn) return;
+    if (!record?.vn && !record?.an) return;
     let mounted = true;
 
     const loadReceiptData = async () => {
       if (mounted) setLoadingReceipt(true);
       try {
-        const data = await fetchReceiptData(record.vn!);
+        const data = await fetchReceiptData(record.vn || record.an || '', record.an);
         if (mounted) { setReceiptData(data); setReceiptError(null); }
       } catch {
         if (mounted) { setReceiptError('ไม่สามารถโหลดข้อมูลใบเสร็จได้'); setReceiptData(null); }
@@ -104,7 +104,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
     const loadPrescriptions = async () => {
       if (mounted) setLoadingPrescriptions(true);
       try {
-        const data = await fetchPrescriptionData(record.vn!);
+        const data = await fetchPrescriptionData(record.vn || record.an || '', record.an);
         if (mounted) { setPrescriptions(data || []); setPrescriptionError(null); }
       } catch {
         if (mounted) { setPrescriptionError('ไม่สามารถโหลดข้อมูลยาได้'); setPrescriptions([]); }
@@ -116,7 +116,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
     const loadServices = async () => {
       if (mounted) setLoadingServices(true);
       try {
-        const data = await fetchServiceADPData(record.vn!);
+        const data = await fetchServiceADPData(record.vn || record.an || '', record.an);
         if (mounted) { setServices(data || []); setServiceError(null); }
       } catch {
         if (mounted) { setServiceError('ไม่สามารถโหลดข้อมูลค่าบริการได้'); setServices([]); }
@@ -128,7 +128,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
     const loadDiags = async () => {
       if (mounted) setLoadingDiags(true);
       try {
-        const res = await fetchDiagsAndProceduresData(record.vn!);
+        const res = await fetchDiagsAndProceduresData(record.vn || record.an || '', record.an);
         if (mounted) {
           setDiagsData(res.data || { diagnoses: [], procedures: [] });
           setDiagsError(null);
@@ -149,7 +149,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
     loadServices();
 
     return () => { mounted = false; };
-  }, [record?.vn]);
+  }, [record?.vn, record?.an]);
 
   if (!record) return null;
 
@@ -240,6 +240,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                   <span>กำลังโหลดข้อมูลวินิจฉัยและหัตถการ...</span>
                 </div>
               )}
+              {diagsData.warnings?.map(warning => <div className="alert alert-warning" key={warning}>{warning}</div>)}
               {diagsError && <div className="alert alert-danger">{diagsError}</div>}
 
               {!loadingDiags && !diagsError && (

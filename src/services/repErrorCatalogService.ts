@@ -11,7 +11,7 @@ let catalogPromise: Promise<RepErrorCatalog> | null = null;
 export const loadRepErrorCatalog = () => {
   if (!catalogPromise) {
     const catalogUrl = `${import.meta.env.BASE_URL}repErrorCatalog.json`;
-    catalogPromise = fetch(catalogUrl, { cache: 'force-cache' })
+    catalogPromise = fetch(catalogUrl, { cache: 'no-cache' })
       .then(async (response) => {
         if (!response.ok) throw new Error(`โหลดคำอธิบาย REP ไม่สำเร็จ (${response.status})`);
         return response.json() as Promise<RepErrorCatalog>;

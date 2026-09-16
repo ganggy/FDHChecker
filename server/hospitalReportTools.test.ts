@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   fiscalYearDateRange,
-  HOSPITAL_PCU_SCOPE,
   parseCommunityDeathReportIntent,
   parseHospitalReportInstructionFilters,
   parseHospitalReportIntent,
@@ -14,12 +13,6 @@ test('turns an explicit UC-only instruction into a real payer filter', () => {
   assert.deepEqual(parseHospitalReportInstructionFilters('บัตรทองเท่านั้น'), { payerGroup: 'uc' });
   assert.deepEqual(parseHospitalReportInstructionFilters('สรุปสำหรับประชุมเช้า'), { payerGroup: undefined });
   assert.deepEqual(parseHospitalReportInstructionFilters('ไม่เอา UC'), { payerGroup: undefined });
-});
-
-test('maps the hospital PCU villages from the confirmed area image', () => {
-  assert.equal(HOSPITAL_PCU_SCOPE.addressId, '471501');
-  assert.deepEqual(HOSPITAL_PCU_SCOPE.villages, [1, 2, 4, 5, 7, 8, 9, 10, 13, 14, 15, 16]);
-  assert.equal(HOSPITAL_PCU_SCOPE.villages.includes(3 as never), false);
 });
 
 test('uses the current and two prior Thai fiscal years for a three-year report', () => {

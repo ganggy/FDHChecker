@@ -108,6 +108,7 @@ const addWebNearStatusMissing = (
 };
 
 export const getFundMissingConditions = (fundId: string, row: FundRow) => {
+  if (row.eligibility_blocked) return []; // Excluded/review cases must not become suggestions to add claim codes.
   const missing: string[] = [];
   const age = Number(row.age_y ?? row.age ?? -1);
   const ageMonths = Number(row.age_month ?? -1);

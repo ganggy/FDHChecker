@@ -1,3 +1,4 @@
+import { readHospitalIdentity, parseSiteWalkinSettings, parseVillageScope } from './siteProfile.js';
 // Backend API Server สำหรับเชื่อมต่อ HOSxP
 // ใช้ Node.js + Express
 
@@ -565,6 +566,10 @@ const validateSiteSettings = (value: unknown) => {
   if (!isPlainRecord(value)) return 'Site settings ต้องเป็น JSON object';
   const hospitalCode = String(value.hospital_code || '').trim();
   if (hospitalCode && !/^\d{5}$/.test(hospitalCode)) return 'รหัสหน่วยบริการต้องเป็นตัวเลข 5 หลัก';
+  try {
+    if (value.uc_walkin_pttypes !== undefined || value.uc_walkin_icode !== undefined) parseSiteWalkinSettings(value);
+    if (value.pcu_village_ids !== undefined && (!Array.isArray(value.pcu_village_ids) || value.pcu_village_ids.length)) parseVillageScope(value.pcu_village_ids);
+  } catch (error) { return error instanceof Error ? error.message : 'การตั้งค่าโรงพยาบาลไม่ถูกต้อง'; }
   return null;
 };
 
@@ -880,21 +885,9 @@ app.use('/api', dateRangeGuard);
 app.use('/api/sss', sssRouter);
 
 const getResolvedHospitalCode = async (): Promise<string> => {
-  const siteSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
-  const appSettingsHcode = siteSettings && typeof siteSettings === 'object'
-    ? String(siteSettings.hospital_code || '')
-    : '';
-
-  if (appSettingsHcode.trim()) {
-    return appSettingsHcode.trim();
-  }
-
-  const dbBusinessRules = await getAppSetting<Record<string, unknown>>(CONFIG_SETTING_KEY);
-  const dbSiteSettings = dbBusinessRules && typeof dbBusinessRules === 'object'
-    ? dbBusinessRules.site_settings as Record<string, unknown> | undefined
-    : undefined;
-  const fallbackHcode = String(dbSiteSettings?.hospital_code || getDefaultFdhApiConfig().hcode || '');
-  return fallbackHcode.trim();
+  const connection = await getUTFConnection();
+  try { return (await readHospitalIdentity(connection)).hospital_code; }
+  finally { connection.release(); }
 };
 
 const getResolvedFdhApiConfig = async (overrides?: Record<string, unknown>) => {
@@ -1499,7 +1492,7 @@ app.get('/api/hosxp/receipt/:vn', async (req, res) => {
     const { vn } = req.params;
     console.log(`🧾 Fetching REAL receipt items for VN: ${vn} from opitemrece table`);
     // ดึงข้อมูลจาก opitemrece table โดยตรง
-    const receiptItems = await getReceiptItems(vn); if (Array.isArray(receiptItems) && receiptItems.length > 0) {
+    const receiptItems = await getReceiptItems(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined); if (Array.isArray(receiptItems) && receiptItems.length > 0) {
       console.log(`✅ Found ${receiptItems.length} receipt items from opitemrece with s_drugitems mapping`);
 
       // คำนวณสถิติเชิงลึก
@@ -1578,7 +1571,7 @@ app.get('/api/hosxp/visit/:vn/diags', async (req, res) => {
     const { vn } = req.params;
     console.log(`🩺 Fetching diags and procedures for VN: ${vn}`);
     const { getDiagsAndProcedures } = await import('./db.js');
-    const data = await getDiagsAndProcedures(vn);
+    const data = await getDiagsAndProcedures(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined);
 
     res.json({
       success: true,
@@ -1601,7 +1594,7 @@ app.get('/api/hosxp/prescriptions/:vn', async (req, res) => {
     console.log(`📊 Fetching REAL prescriptions for VN: ${vn}`);
 
     // Always fetch from database
-    const prescriptions = await getDrugPrices(vn);
+    const prescriptions = await getDrugPrices(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined);
 
     console.log(`✅ Returning ${prescriptions.length} prescription items`);
     res.json(prescriptions);
@@ -1615,7 +1608,7 @@ app.get('/api/hosxp/prescriptions/:vn', async (req, res) => {
 app.get('/api/hosxp/visit-items/:vn', async (req, res) => {
   try {
     const { vn } = req.params;
-    const items = await getVisitChargeItems(vn);
+    const items = await getVisitChargeItems(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined);
     res.json(items);
   } catch (error) {
     console.error('Error fetching visit charge items:', error);
@@ -1630,7 +1623,7 @@ app.get('/api/hosxp/services/:vn', async (req, res) => {
     console.log(`🏥 Fetching REAL ADP services for VN: ${vn}`);
 
     // Always try to fetch from database first
-    const services = await getServiceADPCodes(vn);
+    const services = await getServiceADPCodes(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined);
 
     console.log(`✅ Returning ${services.length} ADP service items`);
     res.json(services);
@@ -3610,6 +3603,7 @@ app.post('/api/uc-outside-cup/walkin-insert', requireAdmin, async (req: Authenti
     const data = await insertMissingUcOutsideCupWalkin({
       startDate: req.body?.startDate,
       endDate: req.body?.endDate,
+      configurationKey: String(req.body?.configurationKey || ''),
       expectedCount: Number(req.body?.expectedCount || 0),
       confirmation: String(req.body?.confirmation || ''),
       actorUserId: Number(user?.id || 0) || null,
@@ -3847,7 +3841,10 @@ app.post('/api/moph-claim/dmht/send', async (req, res) => {
     const apiBaseUrl = getMophClaimApiBaseUrl(config, isTruthyFlag(req.body?.testZone));
     const hcode = String(config.hcode || '').trim();
     const appSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
-    const hospitalName = String(appSettings?.hospital_name || '');
+    const identityConnection = await getUTFConnection();
+    let hospitalName: string;
+    try { hospitalName = (await readHospitalIdentity(identityConnection)).hospital_name; }
+    finally { identityConnection.release(); }
     const connection = await getUTFConnection();
     const results: Record<string, unknown>[] = [];
     try {
@@ -4035,7 +4032,10 @@ app.post('/api/moph-claim/vaccine/send', async (req, res) => {
     const apiBaseUrl = getMophClaimApiBaseUrl(config, isTruthyFlag(req.body?.testZone));
     const hcode = String(config.hcode || '').trim();
     const appSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
-    const hospitalName = String(appSettings?.hospital_name || '');
+    const identityConnection = await getUTFConnection();
+    let hospitalName: string;
+    try { hospitalName = (await readHospitalIdentity(identityConnection)).hospital_name; }
+    finally { identityConnection.release(); }
     const connection = await getUTFConnection();
     const results: Record<string, unknown>[] = [];
     try {
@@ -4253,9 +4253,24 @@ app.post('/api/config/business-rules/frontend', async (req, res) => {
   }
 });
 
+app.get('/api/config/hospital-options', async (_req, res) => {
+  let connection;
+  try {
+    connection = await getUTFConnection();
+    const [villages] = await connection.query('SELECT village_id, village_moo, village_name, address_id FROM village ORDER BY village_id');
+    const [pttypes] = await connection.query('SELECT pttype, name FROM pttype ORDER BY pttype');
+    res.json({ success: true, villages, pttypes });
+  } catch { res.status(500).json({ success: false, error: 'ไม่สามารถอ่าน village/pttype จาก HIS ได้' }); }
+  finally { connection?.release(); }
+});
+
 app.get('/api/config/app-settings', async (req, res) => {
   try {
-    const config = await getAppSetting(APP_SETTINGS_KEY);
+    const saved = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
+    const connection = await getUTFConnection();
+    let config;
+    try { config = { ...(saved || {}), ...await readHospitalIdentity(connection) }; }
+    finally { connection.release(); }
     res.json({
       success: true,
       data: config || null,

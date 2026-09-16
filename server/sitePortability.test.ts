@@ -4,6 +4,8 @@ import type { HospitalConnection } from './hospitalDatabase.js';
 import { readVisitClinical, readVisitItems } from './visitDetails.js';
 import { attachFundEligibility, excludedScreeningCode } from './fundEligibility.js';
 import { parseSiteWalkinSettings, parseVillageScope, readHospitalIdentity } from './siteProfile.js';
+import { PGlite } from '@electric-sql/pglite';
+import { compilePostgresQuery } from './postgresSql.js';
 
 function fakeConnection(schema: Record<string, string[]>, run: (sql: string, values: unknown[]) => unknown[]) {
   return { query: async (sql: string, values: unknown[]) => [sql.includes('information_schema.columns')
@@ -32,7 +34,7 @@ test('IPD clinical lookup uses AN and does not accidentally use the admission VN
 });
 
 test('items survive missing s_drugitems mappings and zero-price medications', async () => {
-  const connection = fakeConnection({ opitemrece: ['an', 'vn'], drugitems: ['icode', 'name'] }, (sql, values) => {
+  const connection = fakeConnection({ opitemrece: ['an', 'vn', 'icode'], drugitems: ['icode', 'name'] }, (sql, values) => {
     assert.ok(!sql.includes('JOIN s_drugitems'));
     assert.ok(!sql.includes('sum_price > 0'));
     assert.ok(sql.includes('o.an = ?')); assert.deepEqual(values, ['an-test']);
@@ -81,4 +83,57 @@ test('hospital identity comes from opdconfig and UC/village scope has no copied 
   assert.throws(() => parseSiteWalkinSettings({ uc_walkin_pttypes: ["50') OR 1=1"], uc_walkin_icode: 'test' }));
   assert.deepEqual(parseVillageScope(['8', '19']), ['8', '19']);
   assert.throws(() => parseVillageScope([]));
+});
+
+test('the detail view retains real summary diagnoses when the separate diagnosis table is empty', async () => {
+  const connection = fakeConnection({ ovstdiag: ['vn', 'icd10'], vn_stat: ['vn', 'pdx', 'dx0'] }, (sql, values) => {
+    assert.deepEqual(values, ['visit-test']);
+    return sql.includes('FROM vn_stat') ? [{ pdx: 'Z131', dx0: 'Z136' }] : [];
+  });
+  const result = await readVisitClinical(connection, 'visit-test');
+  assert.deepEqual(result.diagnoses.map(row => row.code), ['Z131', 'Z136']);
+  assert.ok(result.warnings.some(warning => warning.includes('vn_stat')));
+});
+
+test('portable detail and eligibility SQL execute on an isolated PostgreSQL schema', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`
+      CREATE TABLE ovst(vn text, hn text);
+      CREATE TABLE ovstdiag(vn text, icd10 text, diagtype text);
+      CREATE TABLE vn_stat(hn text, pdx text, dx0 text);
+      CREATE TABLE ipt(an text, hn text);
+      CREATE TABLE iptdiag(an text, icd10 text);
+      CREATE TABLE opitemrece(vn text, an text, icode text, income text, qty numeric, unitprice numeric, sum_price numeric);
+      CREATE TABLE drugitems(icode text, name text);
+      CREATE TABLE s_drugitems(icode text, nhso_adp_code text);
+      CREATE TABLE person_anc_service(vn text, person_anc_id integer);
+      CREATE TABLE dtmain(vn text, tmcode text);
+      INSERT INTO ovst VALUES ('old','test-hn'),('current','test-hn');
+      INSERT INTO ovstdiag VALUES ('old','E11.9','1'),('current','Z131','1');
+      INSERT INTO vn_stat VALUES ('only-summary-hn','E110','Z131');
+      INSERT INTO opitemrece VALUES ('current',NULL,'med','01',2,0,0),('anc',NULL,'us','02',1,0,0);
+      INSERT INTO drugitems VALUES ('med','Synthetic medicine');
+      INSERT INTO s_drugitems VALUES ('us','30010');
+      INSERT INTO person_anc_service VALUES ('anc',1);
+      INSERT INTO dtmain VALUES ('current','testprocedure');
+    `);
+    const connection = { query: async (sql: string, values: unknown[] = []) => {
+      const query = compilePostgresQuery(sql, sql.includes('information_schema.columns') ? ['public', ...values.slice(1)] : values);
+      return [(await db.query(query.text, query.values)).rows];
+    } } as unknown as HospitalConnection;
+    const clinical = await readVisitClinical(connection, 'current');
+    assert.equal(clinical.diagnoses[0].code, 'Z131');
+    assert.equal(clinical.procedures[0].code, 'testprocedure');
+    const items = await readVisitItems(connection, 'current');
+    assert.equal(items[0].drugName, 'Synthetic medicine');
+    assert.equal(items[0].price, 0);
+    const screening = await attachFundEligibility(connection, 'fpg_screening', [{ hn: 'test-hn', vn: 'current' }]);
+    assert.equal(screening[0].eligibility_blocked, true);
+    const summaryOnly = await attachFundEligibility(connection, 'fpg_screening', [{ hn: 'only-summary-hn' }]);
+    assert.match(String(summaryOnly[0].eligibility_reason), /E110/);
+    assert.equal(summaryOnly[0].eligibility_review, false);
+    const anc = await attachFundEligibility(connection, 'anc_ultrasound', [{ hn: 'test-hn', vn: 'anc' }]);
+    assert.equal(anc[0].eligibility_blocked, false);
+  } finally { await db.close(); }
 });

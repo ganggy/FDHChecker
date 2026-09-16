@@ -22,3 +22,7 @@ test('does not mistake ICD-10 codes in a report request for REP errors', () => {
 test('loads the authoritative REP error guidance', () => {
   assert.match(loadErrorCatalog()['116'].description, /เลขบัตรประชาชน/);
 });
+
+test('recognizes corrective prefixes and hyphenated subcodes without truncation', () => {
+  assert.deepEqual(parseErrorAnalysisIntent('REP C256-1 และ 940-1 แก้อย่างไร'), { codes: ['256-1', '940-1'] });
+});

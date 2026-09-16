@@ -221,6 +221,7 @@ export const UcOutsideCupPage = () => {
       </div></Modal>}
 
       {prescriptionVisit && <Modal title={`ตรวจสอบ Visit VN ${prescriptionVisit.vn}`} onClose={() => setPrescriptionVisit(null)}>{prescriptionLoading ? <p>กำลังอ่านข้อมูล Visit…</p> : <div className="uc-cup-visit-review">
+        {visitClinical.warnings?.map(warning => <p role="status" key={warning}>{warning}</p>)}
         <section className="uc-cup-clinical"><h4>อาการสำคัญและประวัติปัจจุบัน</h4><dl><div><dt>CC</dt><dd>{visitClinical.clinical?.cc || 'ไม่ระบุ'}</dd></div><div><dt>HPI</dt><dd>{visitClinical.clinical?.hpi || 'ไม่ระบุ'}</dd></div></dl></section>
         <section><h4>การวินิจฉัย</h4>{visitClinical.diagnoses.length === 0 ? <p className="uc-cup-empty">ไม่พบข้อมูลการวินิจฉัย</p> : <div className="uc-cup-code-list">{visitClinical.diagnoses.map((item, index) => <article key={`${item.code}-${index}`}><span className={item.type === '1' ? 'is-primary' : ''}>{item.type === '1' ? 'PDX' : `DX ${item.type || '-'}`}</span><strong>{item.code || '-'}</strong><p>{item.name || 'ไม่พบคำอธิบาย'}</p></article>)}</div>}</section>
         <section><h4>หัตถการ</h4>{visitClinical.procedures.length === 0 ? <p className="uc-cup-empty">ไม่พบข้อมูลหัตถการ</p> : <div className="uc-cup-code-list">{visitClinical.procedures.map((item, index) => <article key={`${item.code}-${index}`}><span>{item.type || 'หัตถการ'}</span><strong>{item.code || '-'}</strong><p>{item.name || 'ไม่พบคำอธิบาย'}</p></article>)}</div>}</section>

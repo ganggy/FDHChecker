@@ -9,6 +9,7 @@ as the current project state.
 | --- | --- |
 | Product scope and architecture overview | [Project README](../README.md) |
 | Local development | [Quick start](../QUICK_START.md), [package scripts](../package.json) |
+| Hospital setup and claim checks | [ตั้งค่ารายโรงพยาบาล](HOSPITAL_SETUP.md) |
 | Remaining work | [Backlog](../BACKLOG.md) |
 | Production deployment | [Deployment guide](../deploy/README.md) |
 | Local AI and Ollama | [Local AI setup](../LOCAL_AI_SETUP_TH.md) |

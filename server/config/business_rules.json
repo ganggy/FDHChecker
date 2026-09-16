@@ -1,6 +1,6 @@
 {
     "hospital": {
-        "hcode": "11101"
+        "hcode": ""
     },
     "query_limits": {
         "default_limit": 1000,

@@ -1,3 +1,4 @@
+import { readHospitalIdentity } from './siteProfile.js';
 import { attachFundEligibility } from './fundEligibility.js';
 import { readVisitItems, readVisitClinical } from './visitDetails.js';
 import mysql from 'mysql2/promise';
@@ -10694,6 +10695,8 @@ export const getEligibleVisits = async (
 ): Promise<Record<string, unknown>[]> => {
   const connection = await getUTFConnection();
   try {
+    const hospitalCode = (await readHospitalIdentity(connection)).hospital_code;
+    if (!/^\d{5}$/.test(hospitalCode)) throw new Error('ไม่พบรหัสหน่วยบริการใน opdconfig');
     let query = `
       SELECT 
         ovst.vn,
@@ -10906,7 +10909,7 @@ export const getEligibleVisits = async (
         CASE 
           WHEN (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) REGEXP '${businessRules.diagnosis_patterns.cancer}' THEN 'CANCER' -- มะเร็งไปรับบริการที่ไหนก็ได้
           WHEN (pttype.name LIKE '%อุบัติเหตุ%' OR ovst.pt_subtype = '7') THEN 'OP AE' -- อุบัติเหตุ/ฉุกเฉิน
-          WHEN (pttype.name LIKE '%สุขภาพ%' OR pttype.name LIKE '%บัตรทอง%' OR pttype.name = 'UCS') AND ovst.hospmain != '${process.env.HOSXP_HCODE || businessRules.hospital.hcode}' THEN 'OPANY'
+          WHEN (pttype.name LIKE '%สุขภาพ%' OR pttype.name LIKE '%บัตรทอง%' OR pttype.name = 'UCS') AND ovst.hospmain != '${hospitalCode}' THEN 'OPANY'
           ELSE ''
         END as project_code,
         
@@ -11019,21 +11022,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       const normalized = String(value ?? '').trim();
       return /^\d{5}$/.test(normalized) && normalized !== '00000' ? normalized : '';
     };
-    let hcode = validHcode(process.env.HOSXP_HCODE)
-      || validHcode(businessRules.hospital.hcode)
-      || validHcode((businessRules as any)?.site_settings?.hospital_code);
-    try {
-      const [config] = await connection.query('SELECT * FROM opdconfig LIMIT 1');
-      const conf = (config as any)?.[0];
-      if (conf) {
-        hcode = validHcode(conf.hospitalcode) || validHcode(conf.hospital_code) || hcode;
-      }
-    } catch (e) {
-      console.warn('⚠️ Could not fetch hospitalcode from opdconfig, using default:', hcode);
-    }
-    if (!hcode) {
-      throw new Error('ไม่พบ HCODE หน่วยบริการที่ถูกต้อง กรุณาตั้งค่า HOSXP_HCODE เป็นตัวเลข 5 หลักที่ไม่ใช่ 00000');
-    }
+    const hcode = validHcode((await readHospitalIdentity(connection)).hospital_code);
+    if (!hcode) throw new Error('ไม่พบรหัสหน่วยบริการที่ถูกต้องใน opdconfig กรุณาตรวจสอบ HIS ก่อนส่งออก');
 
     const profile = options.profile === 'fwf-migrants' ? 'fwf-migrants' : 'standard';
     const isIpdExport = options.patientType === 'IPD';

@@ -68,7 +68,7 @@ test('actual eligible-visit and enabled fund read queries pass the PostgreSQL co
   context.mock.method(hospitalPool, 'getConnection', async () => ({
     query: async (sql: string, values: unknown[] = []) => {
       compilePostgresQuery(sql, values); compiled++;
-      return [[], []];
+      return [sql.includes('FROM opdconfig') ? [{ hospitalcode: '99999', hospitalname: 'Synthetic Hospital' }] : [], []];
     },
     release() {},
   }));

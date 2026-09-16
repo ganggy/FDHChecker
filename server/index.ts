@@ -886,7 +886,11 @@ app.use('/api/sss', sssRouter);
 
 const getResolvedHospitalCode = async (): Promise<string> => {
   const connection = await getUTFConnection();
-  try { return (await readHospitalIdentity(connection)).hospital_code; }
+  try {
+    const code = (await readHospitalIdentity(connection)).hospital_code;
+    if (!/^\d{5}$/.test(code) || code === '00000') throw new Error('ไม่พบรหัสหน่วยบริการที่ถูกต้องใน opdconfig');
+    return code;
+  }
   finally { connection.release(); }
 };
 
@@ -4269,7 +4273,7 @@ app.get('/api/config/app-settings', async (req, res) => {
     const saved = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
     const connection = await getUTFConnection();
     let config;
-    try { config = { ...(saved || {}), ...await readHospitalIdentity(connection) }; }
+    try { config = { ...businessRules.site_settings, ...(saved || {}), ...await readHospitalIdentity(connection) }; }
     finally { connection.release(); }
     res.json({
       success: true,

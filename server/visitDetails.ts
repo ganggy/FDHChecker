@@ -5,14 +5,17 @@ import { readHospitalSchema } from './hospitalSchema.js';
 export async function readVisitItems(connection: HospitalConnection, vn: string, an?: string): Promise<Record<string, unknown>[]> {
   const has = await readHospitalSchema(connection, ['opitemrece', 'drugitems', 'nondrugitems', 's_drugitems', 'income']);
   const aliases: Record<string, string> = { drugitems: 'di', nondrugitems: 'nd', s_drugitems: 'sd', income: 'inc' };
-  const joined = Object.keys(aliases).filter(table => has(table, table === 'income' ? 'income' : 'icode'));
+  const joined = Object.keys(aliases).filter(table => has(table, table === 'income' ? 'income' : 'icode') && (table !== 'income' || has('opitemrece', 'income')));
   const col = (table: string, name: string) => joined.includes(table) && has(table, name) ? `${aliases[table]}.${name}` : "''";
   const joins = joined.map(table => {
     const key = table === 'income' ? 'income' : 'icode';
     return `LEFT JOIN ${table} ${aliases[table]} ON ${aliases[table]}.${key} = o.${key}`;
   }).join('\n');
   const name = `COALESCE(NULLIF(${col('s_drugitems', 'name')}, ''), NULLIF(${col('drugitems', 'name')}, ''), NULLIF(${col('nondrugitems', 'name')}, ''), o.icode)`;
-  const [rows] = await connection.query(`SELECT o.*, ${name} AS item_name,
+  const fields = ['vn', 'hn', 'an', 'icode', 'qty', 'unitprice', 'sum_price', 'discount', 'vstdate', 'income']
+    .filter(field => has('opitemrece', field)).map(field => `o.${field}`).join(', ');
+  if (!has('opitemrece', 'icode', an ? 'an' : 'vn')) throw new Error('ไม่พบโครงสร้างรายการบริการที่จำเป็นใน opitemrece');
+  const [rows] = await connection.query(`SELECT ${fields}, ${name} AS item_name,
     ${col('income', 'name')} AS income_name,
     ${col('s_drugitems', 'nhso_adp_code')} AS nhso_adp_code,
     ${col('s_drugitems', 'tmlt_code')} AS tmlt_code,
@@ -33,7 +36,7 @@ export async function readVisitItems(connection: HospitalConnection, vn: string,
 }
 
 export async function readVisitClinical(connection: HospitalConnection, vn: string, an?: string) {
-  const has = await readHospitalSchema(connection, ['opdscreen', 'ovstdiag', 'iptdiag', 'icd101', 'icd9cm1',
+  const has = await readHospitalSchema(connection, ['opdscreen', 'ovstdiag', 'iptdiag', 'vn_stat', 'an_stat', 'icd101', 'icd9cm1',
     'doctor_operation', 'er_regist_oper', 'er_oper_code', 'dtmain', 'dttm', 'view_procedure_opd', 'iptoprt',
     'health_med_service', 'health_med_service_operation', 'health_med_operation_item']);
   const warnings: string[] = [];
@@ -53,6 +56,23 @@ export async function readVisitClinical(connection: HospitalConnection, vn: stri
       ${has(table, 'diagtype') ? 'd.diagtype' : "''"} AS type, 'Diag' AS category FROM ${table} d
       ${dictionary ? 'LEFT JOIN icd101 i ON i.code = d.icd10' : ''} WHERE d.${key} = ?`, an || vn);
   } else warnings.push('ไม่พบตารางวินิจฉัยของประเภทบริการนี้');
+  if (!diagnoses.length) {
+    const stats = an ? 'an_stat' : 'vn_stat';
+    const columns = ['pdx', 'dx0', 'dx1', 'dx2', 'dx3', 'dx4', 'dx5'].filter(column => has(stats, column));
+    if (columns.length && has(stats, key)) {
+      const summary = (await query(`SELECT ${columns.join(',')} FROM ${stats} WHERE ${key} = ? LIMIT 1`, an || vn))[0];
+      if (summary) {
+        const seen = new Set<string>();
+        diagnoses = columns.flatMap(column => {
+          const code = String(summary[column] || '').trim();
+          if (!code || seen.has(code)) return [];
+          seen.add(code);
+          return [{ code, name: '', type: column === 'pdx' ? '1' : '2', category: 'Diag', source: stats }];
+        });
+        if (diagnoses.length) warnings.push(`แสดงรหัสจาก ${stats} เนื่องจากไม่พบรายการวินิจฉัยใน ${table}`);
+      }
+    }
+  }
   const procedures: Record<string, unknown>[] = [];
   const add = async (source: string, available: boolean, sql: string, value = an || vn) => {
     if (!available) { warnings.push(`ไม่มีโครงสร้างข้อมูล ${source} ในฐานข้อมูลนี้`); return; }

@@ -2598,30 +2598,18 @@ p {
 }
 
 .detail-modal-table {
-  table-layout: fixed;
+  width: 100%;
 }
 
-.detail-modal-table th,
-.detail-modal-table td,
-.detail-modal-table th:first-child,
-.detail-modal-table td:first-child,
-.detail-modal-table th:nth-child(2),
-.detail-modal-table td:nth-child(2),
-.detail-modal-table th:nth-child(3),
-.detail-modal-table td:nth-child(3),
-.detail-modal-table th:nth-child(4),
-.detail-modal-table td:nth-child(4),
-.detail-modal-table th:nth-child(5),
-.detail-modal-table td:nth-child(5) {
-  width: auto;
-  min-width: 0;
-  max-width: none;
-  text-align: left;
+.detail-modal-table--diagnoses,
+.detail-modal-table--procedures {
+  table-layout: auto;
+  min-width: 100%;
 }
 
 .detail-modal-table thead th,
 .detail-modal-table tbody td {
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .detail-modal-table thead th,

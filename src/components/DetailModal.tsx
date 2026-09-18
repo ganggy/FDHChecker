@@ -255,9 +255,9 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                         <table className="data-table detail-modal-table detail-modal-table--diagnoses">
                           <thead>
                             <tr>
-                              <th style={{ width: 80 }}>Type</th>
-                              <th style={{ width: 100 }}>ICD-10</th>
-                              <th>Description</th>
+                              <th style={{ width: '90px', textAlign: 'center' }}>Type</th>
+                              <th style={{ width: '120px' }}>ICD-10</th>
+                              <th style={{ width: 'auto' }}>Description</th>
                             </tr>
                           </thead>
                           <tbody>

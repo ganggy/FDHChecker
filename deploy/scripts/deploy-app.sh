@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 APP_DIR="${FDH_APP_DIR:-/opt/FDHChecker}"
-DEPLOY_BRANCH="${FDH_DEPLOY_BRANCH:-agent/add-local-ai}"
+DEPLOY_BRANCH="${FDH_DEPLOY_BRANCH:-main}"
 HEALTH_BASE_URL="${FDH_HEALTH_BASE_URL:-http://127.0.0.1:3506}"
 PM2_APPS="${FDH_PM2_APPS:-fdh-backend fdh-frontend}"
 
@@ -27,7 +27,7 @@ git merge --ff-only "origin/$DEPLOY_BRANCH"
 after_commit="$(git rev-parse HEAD)"
 
 log "ติดตั้ง dependency และตรวจสอบคุณภาพ"
-npm ci
+npm ci --include=dev
 npm run check
 npm run build:all
 

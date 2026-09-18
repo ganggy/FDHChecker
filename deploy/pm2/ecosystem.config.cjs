@@ -1,6 +1,6 @@
 module.exports = {
   apps: [{
-    name: 'fdh-checker-api',
+    name: 'fdh-backend',
     cwd: '/opt/FDHChecker',
     script: 'server/dist/server/index.js',
     instances: 1,
@@ -15,6 +15,22 @@ module.exports = {
     },
     output: '/var/log/fdh-checker/api-output.log',
     error: '/var/log/fdh-checker/api-error.log',
+    merge_logs: true,
+    time: true,
+  }, {
+    name: 'fdh-frontend',
+    cwd: '/opt/FDHChecker',
+    script: 'node_modules/vite/bin/vite.js',
+    args: 'preview --host 0.0.0.0 --port 3507 --strictPort',
+    instances: 1,
+    exec_mode: 'fork',
+    autorestart: true,
+    max_memory_restart: '512M',
+    env: {
+      NODE_ENV: 'production',
+    },
+    output: '/var/log/fdh-checker/frontend-output.log',
+    error: '/var/log/fdh-checker/frontend-error.log',
     merge_logs: true,
     time: true,
   }],

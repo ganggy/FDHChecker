@@ -35,7 +35,7 @@ pwsh -File deploy/scripts/deploy-production.ps1 -Target all
 
 สคริปต์จะหยุดทันทีหาก branch ไม่ถูกต้อง, working tree ไม่สะอาด, test/build ไม่ผ่าน,
 หา PM2 app ไม่พบ หรือ `/api/live` และ `/api/ready` ไม่พร้อม โดยค่าเริ่มต้นใช้ branch
-`agent/add-local-ai` และ PM2 apps `fdh-backend fdh-frontend`
+`main` และ PM2 apps `fdh-backend fdh-frontend`
 
 ## อัปเดตผ่านหน้าเว็บ
 
@@ -46,7 +46,7 @@ pwsh -File deploy/scripts/deploy-production.ps1 -Target all
 ```bash
 FDH_SELF_UPDATE_ENABLED=1
 FDH_APP_DIR=/opt/FDHChecker
-FDH_DEPLOY_BRANCH=agent/add-local-ai
+FDH_DEPLOY_BRANCH=main
 FDH_PM2_APPS="fdh-backend fdh-frontend"
 FDH_HEALTH_BASE_URL=http://127.0.0.1:3506
 FDH_DEPLOY_BACKUP=0
@@ -83,7 +83,7 @@ pwsh -File deploy/scripts/backup-databases.ps1
 ```bash
 cd /opt/FDHChecker
 git switch --detach <previous-tested-commit>
-npm ci
+npm ci --include=dev
 npm run build:all
 pm2 startOrReload deploy/pm2/ecosystem.config.cjs --update-env
 curl --fail http://127.0.0.1:3506/api/ready

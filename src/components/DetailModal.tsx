@@ -181,7 +181,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
         <div className="modal-body">
           {/* Patient Info */}
           <div className="section">
-            <div className="info-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+            <div className="info-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: '10px' }}>
               <div className="info-item">
                 <span className="info-label">ชื่อผู้ป่วย</span>
                 <span className="info-value">{record.patientName}</span>

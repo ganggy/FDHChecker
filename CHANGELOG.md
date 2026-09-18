@@ -1,5 +1,12 @@
 # 📝 CHANGELOG - Complete Implementation
 
+## Version 1.0.1 - September 18, 2026
+
+### 🚀 Enhancements & Notification System
+- 🔔 **Navbar Update Notification**: จุดเตือนสีแดงกระพริบและปุ่มแจ้งเตือน "มีอัปเดตใหม่" ที่แถบเมนูด้านบนขวา เมื่อมี Commit ใหม่บน GitHub
+- ⚙️ **Direct Navigation to System Update**: คลิกปุ่มแจ้งเตือนแล้วจะสลับไปยังแท็บ "🔄 อัปเดตระบบ" ในหน้าตั้งค่าให้อัตโนมัติ
+- ⚡ **Background Polling & Caching**: มีระบบ Cache การตรวจสอบสถานะจาก Git ฝั่ง Backend ทุก 10 นาที เพื่อความรวดเร็วและไม่โหลดเครื่องแม่ข่าย
+
 ## Version 1.0.0 - March 15, 2026
 
 ### 🎉 Initial Release - Complete System Implementation

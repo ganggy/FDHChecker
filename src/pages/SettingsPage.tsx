@@ -469,15 +469,32 @@ export const SettingsPage: React.FC = () => {
                 </div>
             )}
 
-            <div className="settings-tabs">
-                <button className={`tab-btn ${activeTab === 'connection' ? 'active' : ''}`} onClick={() => setActiveTab('connection')}>🗄️ ฐานข้อมูล HOSxP</button>
-                <button className={`tab-btn ${activeTab === 'hospital' ? 'active' : ''}`} onClick={() => setActiveTab('hospital')}>🏥 หน่วยบริการ</button>
-                <button className={`tab-btn ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>💰 ต้นทุนและกฎ</button>
-                <button className={`tab-btn ${activeTab === 'ipdLos' ? 'active' : ''}`} onClick={() => setActiveTab('ipdLos')}>🛏️ ICD-10 / LOS</button>
-                <button className={`tab-btn ${activeTab === 'db' ? 'active' : ''}`} onClick={() => setActiveTab('db')}>📋 กองทุนและเอกสาร</button>
-                <button className={`tab-btn ${activeTab === 'fdh' ? 'active' : ''}`} onClick={() => setActiveTab('fdh')}>🔐 เชื่อมต่อ FDH</button>
-                <button className={`tab-btn ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>🛠️ ขั้นสูง</button>
-                <button className={`tab-btn ${activeTab === 'update' ? 'active' : ''}`} onClick={() => setActiveTab('update')}>🔄 อัปเดตระบบ</button>
+            <div className="settings-tab-groups" role="tablist">
+                <div className="settings-tab-cluster">
+                    <span className="settings-tab-cluster-label">🔌 การเชื่อมต่อและระบบ</span>
+                    <div className="settings-tab-cluster-buttons">
+                        <button type="button" className={`tab-btn ${activeTab === 'connection' ? 'active' : ''}`} onClick={() => setActiveTab('connection')}>🗄️ ฐานข้อมูล HOSxP</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'fdh' ? 'active' : ''}`} onClick={() => setActiveTab('fdh')}>🔐 เชื่อมต่อ FDH</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'update' ? 'active' : ''}`} onClick={() => setActiveTab('update')}>🔄 อัปเดตระบบ</button>
+                    </div>
+                </div>
+
+                <div className="settings-tab-cluster">
+                    <span className="settings-tab-cluster-label">🏥 ข้อมูลหน่วยบริการและเอกสาร</span>
+                    <div className="settings-tab-cluster-buttons">
+                        <button type="button" className={`tab-btn ${activeTab === 'hospital' ? 'active' : ''}`} onClick={() => setActiveTab('hospital')}>🏥 ขอบเขตบริการ / WALKIN</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'db' ? 'active' : ''}`} onClick={() => setActiveTab('db')}>📋 ผู้ลงนามและกองทุน</button>
+                    </div>
+                </div>
+
+                <div className="settings-tab-cluster">
+                    <span className="settings-tab-cluster-label">⚖️ กฎเกณฑ์และมาตรฐาน</span>
+                    <div className="settings-tab-cluster-buttons">
+                        <button type="button" className={`tab-btn ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>💰 ต้นทุนและกฎ Lab</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'ipdLos' ? 'active' : ''}`} onClick={() => setActiveTab('ipdLos')}>🛏️ ICD-10 / LOS</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>🛠️ จัดการข้อมูล (JSON)</button>
+                    </div>
+                </div>
             </div>
 
             <div className="settings-card">

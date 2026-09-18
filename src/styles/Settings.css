@@ -83,16 +83,49 @@
     color: var(--danger);
 }
 
-.settings-tabs {
+.settings-tabs,
+.settings-tab-groups {
     display: flex;
-    gap: 10px;
+    gap: 14px;
     margin-bottom: 25px;
-    background: rgba(255, 255, 255, 0.03);
-    padding: 5px;
-    border-radius: 12px;
     width: 100%;
-    overflow-x: auto;
-    scrollbar-width: thin;
+    flex-wrap: wrap;
+}
+
+.settings-tab-cluster {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.025);
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    border-radius: 14px;
+    flex: 1 1 auto;
+    min-width: 240px;
+}
+
+.settings-tab-cluster-label {
+    font-size: 0.74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    padding: 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.settings-tab-cluster-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.settings-tab-cluster-buttons .tab-btn {
+    padding: 8px 14px;
+    font-size: 0.88rem;
+    white-space: nowrap;
 }
 
 .tab-btn {

@@ -2119,6 +2119,9 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       if (item.has_pal_diag && !item.has_pal_adp) issues.push('ER212: ตรวจพบวินิจฉัย Palliative แต่ขาดรายการเบิก');
       if (!item.has_pal_diag && item.has_pal_adp) issues.push('ER213: มีรายการเบิก Palliative แต่ขาดรหัสวินิจฉัยสภาวะ');
       if (hasDrugpWithoutDrugItems(item)) issues.push('ER214: ส่งยาไปรษณีย์ (DRUGP) ต้องมีรายการยา');
+      if (isTruthyFlag(item.is_walkin_pttype) && !isTruthyFlag(item.has_walkin)) {
+        issues.push('WRN-WALKIN: สิทธิ WALKIN แต่วิสิตยังไม่มีรายการค่าบริการ WALKIN (เพิ่มได้จากเมนู UC นอก CUP)');
+      }
 
       // Logic for status
       let status: 'ready' | 'pending' | 'rejected' = 'ready';
@@ -2148,6 +2151,7 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         (isTruthyFlag(item.has_ferrokid_med) || isTruthyFlag(item.has_ferrokid_diag))
       );
       const isSpecialFund = !item.an && (
+        isTruthyFlag(item.has_walkin) || isTruthyFlag(item.is_walkin_pttype) ||
         item.has_anc_diag || item.has_anc_adp ||
         item.has_cx_diag || item.has_cx_adp ||
         item.has_fp_diag || item.has_fp_adp ||

@@ -1380,13 +1380,22 @@ const parseStoredSettingValue = <T>(value: unknown): T | null => {
 export const getAppSetting = async <T = unknown>(settingKey: string): Promise<T | null> => {
   const connection = await (activeHospitalDatabaseConfig.type === 'postgresql' ? getRepstmConnection() : getUTFConnection());
   try {
-    await connection.query(APP_SETTINGS_TABLE_SQL);
-    const [rows] = await connection.query(
-      'SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1',
-      [settingKey]
-    );
-    const record = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
-    return record ? parseStoredSettingValue<T>(record.setting_value) : null;
+    try {
+      const [rows] = await connection.query(
+        'SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1',
+        [settingKey]
+      );
+      const record = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
+      return record ? parseStoredSettingValue<T>(record.setting_value) : null;
+    } catch {
+      await connection.query(APP_SETTINGS_TABLE_SQL);
+      const [rows] = await connection.query(
+        'SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1',
+        [settingKey]
+      );
+      const record = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
+      return record ? parseStoredSettingValue<T>(record.setting_value) : null;
+    }
   } catch (error) {
     console.error('Error reading app setting:', error);
     return null;
@@ -10697,6 +10706,23 @@ export const getEligibleVisits = async (
   try {
     const hospitalCode = (await readHospitalIdentity(connection)).hospital_code;
     if (!/^\d{5}$/.test(hospitalCode)) throw new Error('ไม่พบรหัสหน่วยบริการใน opdconfig');
+
+    let walkinIcode = '';
+    let walkinPttypes: string[] = [];
+    try {
+      const siteSettings = await getAppSetting<Record<string, unknown>>('site_settings');
+      if (siteSettings?.uc_walkin_icode) {
+        walkinIcode = String(siteSettings.uc_walkin_icode).trim();
+      }
+      if (Array.isArray(siteSettings?.uc_walkin_pttypes)) {
+        walkinPttypes = (siteSettings.uc_walkin_pttypes as string[])
+          .map(s => String(s).trim())
+          .filter(s => /^[A-Za-z0-9]+$/.test(s));
+      }
+    } catch {
+      // safe fallback if app_settings is not ready
+    }
+
     let query = `
       SELECT 
         ovst.vn,
@@ -10714,6 +10740,12 @@ export const getEligibleVisits = async (
         
         -- กองทุนพิเศษ Subqueries
         -- บริการจัดการ Tag พื้นฐาน
+        CASE
+          WHEN ${walkinIcode ? `EXISTS (SELECT 1 FROM opitemrece oo WHERE oo.vn = ovst.vn AND oo.icode = '${walkinIcode.replace(/'/g, "''")}' LIMIT 1) OR ` : ''}EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems sd ON sd.icode = oo.icode WHERE oo.vn = ovst.vn AND (sd.nhso_adp_code = 'WALKIN' OR UPPER(sd.name) LIKE '%WALKIN%' OR UPPER(sd.name) LIKE '%เหตุสมควร%') LIMIT 1) OR EXISTS (SELECT 1 FROM opitemrece oo JOIN nondrugitems nd ON nd.icode = oo.icode WHERE oo.vn = ovst.vn AND (UPPER(nd.name) LIKE '%WALKIN%' OR UPPER(nd.name) LIKE '%เหตุสมควร%') LIMIT 1)
+          THEN 1
+          ELSE 0
+        END as has_walkin,
+        ${walkinPttypes.length > 0 ? `CASE WHEN ovst.pttype IN (${walkinPttypes.map(p => `'${p}'`).join(',')}) THEN 1 ELSE 0 END` : '0'} as is_walkin_pttype,
         CASE WHEN ${buildTelemedExistsSql('ovst', 'ovstist')} THEN 1 ELSE 0 END as has_telmed,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '${businessRules.adp_codes.drugp}' LIMIT 1) as has_drugp,
         (SELECT COUNT(DISTINCT oo.icode)

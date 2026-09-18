@@ -29,6 +29,8 @@ const sssKeywords = ['ประกันสังคม', 'sss'];
 const ucsKeywords = [
     ...(insuranceMapping.UCS_SSS?.keywords || []),
     ...(insuranceMapping.UC_EPO?.keywords || []),
+    'walkin',
+    'เหตุสมควร',
 ]
     .filter((value: string) => !sssKeywords.includes(value.toLowerCase()))
     .map((value: string) => value.toLowerCase());
@@ -225,7 +227,8 @@ export const evaluateBillingLogic = (item: any) => {
     const isOFC_LGO = !isPaidInFull && !isSelfPaidMotorInsurance
         && (ofcCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ofcKeywords));
     const isSSS = !isOFC_LGO && (sssCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, sssKeywords));
-    const isUCS = !isOFC_LGO && !isSSS && (ucsCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ucsKeywords));
+    const hasWalkinFlag = toBool(item?.has_walkin) || toBool(item?.is_walkin_pttype);
+    const isUCS = (!isOFC_LGO && !isSSS && (ucsCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ucsKeywords))) || hasWalkinFlag;
     const isUuc2ExportOnly = isSSS || isPaidInFull || isSelfPaidMotorInsurance;
 
     let opacity = 1;
@@ -257,6 +260,14 @@ export const evaluateBillingLogic = (item: any) => {
         const palliativeAdp = toBool(item?.has_pal_adp) || toBool(item?.has_30001) || toBool(item?.has_cons01) || toBool(item?.has_eva001);
         const palliativeMatch = hasPalliativeClaimData(item);
         const palliativeAuthenReady = hasPalliativeAuthenReady(item);
+
+        const hasWalkinItem = toBool(item?.has_walkin);
+        const isWalkinPttype = toBool(item?.is_walkin_pttype);
+        if (hasWalkinItem) {
+            fundNotes.push({ label: '🚶 WALKIN (ผู้ป่วยนอกเหตุสมควร)', kind: 'matched', group: 'other' });
+        } else if (isWalkinPttype) {
+            addWarningFundNote(fundNotes, 'WALKIN (ผู้ป่วยนอกเหตุสมควร)', [' รายการค่าบริการ WALKIN'], 'other');
+        }
 
         if (toBool(item?.has_telmed) || String(item?.ovstist_export_code ?? '').trim() === String(rules.project_codes?.ovstist_tele ?? '5').trim()) {
             fundNotes.push({ label: '📱 Telemedicine', kind: 'matched', group: 'other' });

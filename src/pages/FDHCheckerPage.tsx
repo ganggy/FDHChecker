@@ -48,6 +48,8 @@ interface EligibleVisit {
     has_knee_oper: number;
     has_pal_diag: number;
     has_pal_adp: number;
+    has_walkin?: number;
+    is_walkin_pttype?: number;
     age_y: number;
     fdh_status_label?: string | null;
     fdh_claim_detail_status?: string | null;

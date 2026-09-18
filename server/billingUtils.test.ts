@@ -138,3 +138,36 @@ test('ANC dental rules require the approved ICD10TM and ICD-9 pair', () => {
   assert.equal(complete.specialFundNotes.includes('🪥 ANC ขัดทำความสะอาดฟัน'), true);
   assert.equal(missingMatchingAdp.specialFundNotes.some((note: string) => note.includes('ICD-9 9654')), true);
 });
+
+test('WALKIN matched item qualifies as UUC1 and exports under WALKIN fund', () => {
+  const result = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    main_diag: 'J00',
+    has_walkin: 1,
+    has_close: 1,
+  });
+
+  assert.equal(result.isUUC1, true);
+  assert.equal(result.billingStatusLabel, 'UUC1 เงื่อนไขครบ');
+  assert.equal(result.specialFundNotes.includes('🚶 WALKIN (ผู้ป่วยนอกเหตุสมควร)'), true);
+  assert.equal(result.matchedSpecialFundNotes.includes('WALKIN (ผู้ป่วยนอกเหตุสมควร)'), true);
+  assert.equal(result.detectedSpecialFundNotes.includes('WALKIN (ผู้ป่วยนอกเหตุสมควร)'), true);
+});
+
+test('WALKIN pttype without walkin item is detected as warning with missing service item', () => {
+  const result = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    main_diag: 'J00',
+    is_walkin_pttype: 1,
+    has_walkin: 0,
+    has_close: 0,
+  });
+
+  assert.equal(result.isUUC1, false);
+  assert.equal(result.incompleteFund, true);
+  assert.equal(result.specialFundNotes.some((note: string) => note.includes('WALKIN (ผู้ป่วยนอกเหตุสมควร): ขาด รายการค่าบริการ WALKIN')), true);
+  assert.equal(result.detectedSpecialFundNotes.includes('WALKIN (ผู้ป่วยนอกเหตุสมควร)'), true);
+});
+

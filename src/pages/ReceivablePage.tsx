@@ -382,135 +382,174 @@ export const ReceivablePage = () => {
       </section>
 
       <section className="receivable-filter-panel no-print">
-        <div className="form-group">
-          <label>📅 วันที่เริ่ม</label>
-          <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} />
+        {/* Section 1: HOSxP Query Criteria */}
+        <div className="receivable-filter-section">
+          <div className="receivable-filter-section__title">
+            <span className="receivable-section-icon">📅</span>
+            <span>เงื่อนไขการดึงข้อมูลจาก HOSxP</span>
+          </div>
+          <div className="receivable-filter-grid receivable-filter-grid--query">
+            <div className="form-group">
+              <label>วันที่เริ่ม</label>
+              <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>วันที่สิ้นสุด</label>
+              <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>ประเภทผู้ป่วย</label>
+              <select value={patientType} onChange={(event) => setPatientType(event.target.value)}>
+                <option value="ALL">ทั้งหมด (OPD/IPD)</option>
+                <option value="OPD">OPD</option>
+                <option value="IPD">IPD</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>สิทธิ์ HOSxP</label>
+              <select value={hosxpRight} onChange={(event) => setHosxpRight(event.target.value)}>
+                <option value="ALL">สิทธิ์ทั้งหมด</option>
+                {filterOptions.hosxpRights.map((item) => (
+                  <option key={item.code} value={item.code}>{optionLabel(item.code, item.name)}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>สิทธิการเงิน</label>
+              <select value={financeRight} onChange={(event) => setFinanceRight(event.target.value)}>
+                <option value="ALL">สิทธิการเงินทั้งหมด</option>
+                {filterOptions.financeRights.map((item) => (
+                  <option key={item.code} value={item.code}>{optionLabel(item.code, item.name)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
-        <div className="form-group">
-          <label>📅 วันที่สิ้นสุด</label>
-          <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />
+
+        {/* Section 2: Ledger Settings & Table Filter */}
+        <div className="receivable-filter-section">
+          <div className="receivable-filter-section__title">
+            <span className="receivable-section-icon">💼</span>
+            <span>ตั้งค่ายอดบัญชีลูกหนี้ & ตัวกรองตาราง</span>
+          </div>
+          <div className="receivable-filter-grid receivable-filter-grid--ledger">
+            <div className="form-group receivable-opening-group">
+              <label>ลูกหนี้ยกมาต้นงวด (บาท)</label>
+              <div className="receivable-opening-input-wrap">
+                <span className="receivable-currency-symbol">฿</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={openingBalance}
+                  onChange={(event) => {
+                    setOpeningBalance(toNumber(event.target.value));
+                    setOpeningBalanceManual(true);
+                  }}
+                  placeholder="0.00"
+                  className="receivable-opening-input"
+                />
+                <button
+                  type="button"
+                  className="opening-sync-btn"
+                  onClick={syncFromPreviousBatch}
+                  title="ดึงยอดลูกหนี้ยกมาจากชุดล่าสุดก่อนหน้า"
+                >
+                  🔄 ดึงยอดล่าสุด
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group receivable-notes-group">
+              <label>หมายเหตุชุดลูกหนี้</label>
+              <input
+                value={notes}
+                maxLength={2000}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="เช่น ลูกหนี้สิทธิ์ประจำเดือนกันยายน 2569"
+              />
+            </div>
+
+            <div className="form-group receivable-search-group">
+              <label>ค้นหาในตาราง</label>
+              <div className="receivable-search-input-wrap">
+                <span className="receivable-search-icon">🔍</span>
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="VN / AN / HN / ชื่อผู้ป่วย / รหัสบัญชี"
+                />
+              </div>
+            </div>
+
+            <div className="form-group receivable-readiness-group">
+              <label>ความพร้อม</label>
+              <select value={readiness} onChange={(event) => setReadiness(event.target.value as typeof readiness)}>
+                <option value="ALL">ทั้งหมด</option>
+                <option value="READY">พร้อมตั้งลูกหนี้</option>
+                <option value="REVIEW">ต้องตรวจสอบ</option>
+              </select>
+            </div>
+          </div>
         </div>
-        <div className="form-group">
-          <label>🏥 ประเภทผู้ป่วย</label>
-          <select value={patientType} onChange={(event) => setPatientType(event.target.value)}>
-            <option value="ALL">ทั้งหมด (OPD/IPD)</option>
-            <option value="OPD">OPD</option>
-            <option value="IPD">IPD</option>
-          </select>
-        </div>
-        <div className="form-group">
-          <label>🏷️ สิทธิ์ HOSxP</label>
-          <select value={hosxpRight} onChange={(event) => setHosxpRight(event.target.value)}>
-            <option value="ALL">ทั้งหมด</option>
-            {filterOptions.hosxpRights.map((item) => (
-              <option key={item.code} value={item.code}>{optionLabel(item.code, item.name)}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-group">
-          <label>💳 สิทธิการเงิน</label>
-          <select value={financeRight} onChange={(event) => setFinanceRight(event.target.value)}>
-            <option value="ALL">ทั้งหมด</option>
-            {filterOptions.financeRights.map((item) => (
-              <option key={item.code} value={item.code}>{optionLabel(item.code, item.name)}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-group">
-          <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>📥 ลูกหนี้ยกมา (บาท)</span>
-            <button
-              type="button"
-              className="opening-sync-btn"
-              onClick={syncFromPreviousBatch}
-              title="ดึงยอดลูกหนี้ยกมาจากชุดล่าสุดก่อนหน้า"
-            >
-              🔄 ชุดล่าสุด
-            </button>
-          </label>
-          <input
-            type="number"
-            step="0.01"
-            value={openingBalance}
-            onChange={(event) => {
-              setOpeningBalance(toNumber(event.target.value));
-              setOpeningBalanceManual(true);
-            }}
-            placeholder="0.00"
-          />
-        </div>
-        <div className="form-group form-group--wide">
-          <label>📝 หมายเหตุชุดลูกหนี้</label>
-          <input value={notes} maxLength={2000} onChange={(event) => setNotes(event.target.value)} placeholder="เช่น ลูกหนี้สิทธิ์ประจำเดือนกันยายน 2569" />
-        </div>
-        <div className="form-group form-group--wide">
-          <label>🔍 ค้นหาในผลลัพธ์</label>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="VN / AN / HN / ชื่อผู้ป่วย / รหัสบัญชี"
-          />
-        </div>
-        <div className="form-group">
-          <label>⚡ ความพร้อม</label>
-          <select value={readiness} onChange={(event) => setReadiness(event.target.value as typeof readiness)}>
-            <option value="ALL">ทั้งหมด</option>
-            <option value="READY">พร้อมตั้งลูกหนี้</option>
-            <option value="REVIEW">ต้องตรวจสอบ</option>
-          </select>
-        </div>
+
+        {/* Section 3: Action Toolbar */}
         <div className="receivable-actions">
-          <button
-            className={`btn btn-primary receivable-btn receivable-btn--load${loading ? ' is-loading' : ''}`}
-            onClick={loadData}
-            disabled={loading}
-          >
-            <span className="receivable-btn__icon">↻</span>
-            <span className="receivable-btn__label">{loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}</span>
-          </button>
-          <button
-            className="btn receivable-btn receivable-btn--soft"
-            onClick={() => toggleVisible(true)}
-            disabled={!visibleRows.some(({ row }) => isCandidateReady(row))}
-          >
-            <span className="receivable-btn__icon">✓</span>
-            <span className="receivable-btn__label">เลือกที่แสดง</span>
-          </button>
-          <button
-            className="btn receivable-btn receivable-btn--soft"
-            onClick={() => toggleVisible(false)}
-            disabled={!visibleRows.length}
-          >
-            <span className="receivable-btn__icon">×</span>
-            <span className="receivable-btn__label">ล้างที่แสดง</span>
-          </button>
-          <button
-            className={`btn btn-success receivable-btn receivable-btn--save${saving ? ' is-loading' : ''}`}
-            onClick={saveBatch}
-            disabled={saving || isStale || selectedRows.length === 0 || lastSavedSelection === selectedSignature}
-          >
-            <span className="receivable-btn__icon">💾</span>
-            <span className="receivable-btn__label">{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
-          </button>
-          <button
-            className="btn receivable-btn receivable-btn--excel"
-            onClick={exportExcel}
-            disabled={isStale || selectedRows.length === 0}
-          >
-            <span className="receivable-btn__icon">📊</span>
-            <span className="receivable-btn__label">ส่งออก Excel</span>
-          </button>
-          <button
-            className="btn receivable-btn receivable-btn--print"
-            onClick={() => {
-              if (isStale) return setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนพิมพ์');
-              window.print();
-            }}
-            disabled={isStale || selectedRows.length === 0}
-          >
-            <span className="receivable-btn__icon">🖨</span>
-            <span className="receivable-btn__label">พิมพ์หลักฐาน</span>
-          </button>
+          <div className="receivable-actions__primary">
+            <button
+              className={`btn btn-primary receivable-btn receivable-btn--load${loading ? ' is-loading' : ''}`}
+              onClick={loadData}
+              disabled={loading}
+            >
+              <span className="receivable-btn__icon">↻</span>
+              <span className="receivable-btn__label">{loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}</span>
+            </button>
+            <button
+              className="btn receivable-btn receivable-btn--soft"
+              onClick={() => toggleVisible(true)}
+              disabled={!visibleRows.some(({ row }) => isCandidateReady(row))}
+            >
+              <span className="receivable-btn__icon">✓</span>
+              <span className="receivable-btn__label">เลือกที่แสดง</span>
+            </button>
+            <button
+              className="btn receivable-btn receivable-btn--soft"
+              onClick={() => toggleVisible(false)}
+              disabled={!visibleRows.length}
+            >
+              <span className="receivable-btn__icon">×</span>
+              <span className="receivable-btn__label">ล้างที่แสดง</span>
+            </button>
+          </div>
+
+          <div className="receivable-actions__secondary">
+            <button
+              className={`btn btn-success receivable-btn receivable-btn--save${saving ? ' is-loading' : ''}`}
+              onClick={saveBatch}
+              disabled={saving || isStale || selectedRows.length === 0 || lastSavedSelection === selectedSignature}
+            >
+              <span className="receivable-btn__icon">💾</span>
+              <span className="receivable-btn__label">{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
+            </button>
+            <button
+              className="btn receivable-btn receivable-btn--excel"
+              onClick={exportExcel}
+              disabled={isStale || selectedRows.length === 0}
+            >
+              <span className="receivable-btn__icon">📊</span>
+              <span className="receivable-btn__label">ส่งออก Excel</span>
+            </button>
+            <button
+              className="btn receivable-btn receivable-btn--print"
+              onClick={() => {
+                if (isStale) return setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนพิมพ์');
+                window.print();
+              }}
+              disabled={isStale || selectedRows.length === 0}
+            >
+              <span className="receivable-btn__icon">🖨</span>
+              <span className="receivable-btn__label">พิมพ์หลักฐาน</span>
+            </button>
+          </div>
         </div>
       </section>
 

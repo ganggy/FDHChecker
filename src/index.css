@@ -2071,6 +2071,7 @@ p {
   top: 0;
   z-index: 10;
   min-width: 60px;
+  text-align: left;
   transition: background 0.2s ease;
 }
 
@@ -2598,13 +2599,19 @@ p {
 }
 
 .detail-modal-table {
-  width: 100%;
+  width: 100% !important;
+  min-width: 0 !important;
 }
 
 .detail-modal-table--diagnoses,
 .detail-modal-table--procedures {
-  table-layout: auto;
-  min-width: 100%;
+  table-layout: fixed !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.detail-modal-table thead th {
+  text-align: left;
 }
 
 .detail-modal-table thead th,
@@ -2772,30 +2779,58 @@ p {
 
 .detail-modal-table--diagnoses th:first-child,
 .detail-modal-table--diagnoses td:first-child {
-  width: 120px;
-  min-width: 120px;
+  width: 80px !important;
+  min-width: 80px !important;
+  max-width: 80px !important;
+  text-align: center !important;
   white-space: nowrap;
-  padding-right: 16px;
+  padding: 8px 6px;
 }
 
 .detail-modal-table--diagnoses th:nth-child(2),
 .detail-modal-table--diagnoses td:nth-child(2) {
-  width: 124px;
-  min-width: 124px;
+  width: 100px !important;
+  min-width: 100px !important;
+  max-width: 100px !important;
   white-space: nowrap;
-  padding-left: 16px;
+  padding: 8px 10px;
+}
+
+.detail-modal-table--diagnoses th:nth-child(3),
+.detail-modal-table--diagnoses td:nth-child(3) {
+  width: auto !important;
+  text-align: left !important;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  padding: 8px 12px;
 }
 
 .detail-modal-table--procedures th:first-child,
 .detail-modal-table--procedures td:first-child {
-  width: 148px;
-  min-width: 148px;
+  width: 120px !important;
+  min-width: 120px !important;
+  max-width: 120px !important;
   white-space: nowrap;
+  padding: 8px 10px;
 }
 
 .detail-modal-table--procedures th:nth-child(2),
 .detail-modal-table--procedures td:nth-child(2) {
-  width: auto;
+  width: auto !important;
+  text-align: left !important;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  padding: 8px 12px;
+}
+
+.detail-modal-table--procedures th:nth-child(3),
+.detail-modal-table--procedures td:nth-child(3) {
+  width: 120px !important;
+  min-width: 120px !important;
+  max-width: 120px !important;
+  text-align: center !important;
+  white-space: nowrap;
+  padding: 8px 10px;
 }
 
 .modal-banner {
@@ -4129,6 +4164,25 @@ body {
 .page-container .receivable-table-wrap .data-table {
   min-width: max(100%, var(--table-readable-min));
 }
+
+/* Modal tables must never be forced to page table width */
+.page-container .modal-content .data-table,
+.page-container .modal-overlay .data-table,
+.page-container .detail-modal-table,
+.modal-content .data-table,
+.modal-overlay .data-table,
+.detail-modal-table {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+.page-container .modal-content .modal-table-wrap,
+.page-container .modal-overlay .modal-table-wrap,
+.modal-content .modal-table-wrap {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
 
 .page-header {
   position: relative;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
+import './VisitReconciliationPage.css';
 import {
   fetchReceivableReconciliation,
   fetchReceivableFilterOptions,
@@ -23,11 +24,6 @@ const toNumber = (value: unknown) => {
 
 const formatMoney = (value: unknown) =>
   toNumber(value).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const formatMoneyNull = (value: unknown) => {
-  if (value == null) return '-';
-  return formatMoney(value);
-};
 
 const COMPARE_STATUS_OPTIONS = [
   { value: '', label: 'ทั้งหมด' },
@@ -73,19 +69,12 @@ const StatusBadge = ({ status }: { status: string }) => (
 );
 
 const SummaryCard = ({
-  label, value, sub, color,
-}: { label: string; value: string | number; sub?: string; color?: string }) => (
-  <div style={{
-    background: '#fff',
-    border: '1px solid #e5e7eb',
-    borderRadius: 10,
-    padding: '12px 16px',
-    minWidth: 130,
-    flex: '1 1 130px',
-  }}>
-    <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: 4 }}>{label}</div>
-    <div style={{ fontSize: '1.35rem', fontWeight: 700, color: color || '#111827' }}>{value}</div>
-    {sub && <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: 2 }}>{sub}</div>}
+  label, value, sub, accent = 'blue',
+}: { label: string; value: string | number; sub?: string; accent?: string }) => (
+  <div className={`summary-metric-card accent-${accent}`}>
+    <div className="metric-label">{label}</div>
+    <div className="metric-value">{value}</div>
+    {sub && <div className="metric-subtext">{sub}</div>}
   </div>
 );
 
@@ -230,184 +219,220 @@ export const VisitReconciliationPage = () => {
   );
 
   return (
-    <div style={{ padding: '20px 16px', maxWidth: 1400, margin: '0 auto' }}>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: 4, color: '#1e293b' }}>
-          🔄 กระทบยอด REP / STM / INV visit
-        </h2>
-        <p style={{ color: '#6b7280', fontSize: '0.88rem', margin: 0 }}>
-          เปรียบเทียบยอดตั้งลูกหนี้กับข้อมูล REP, STM, INV visit เพื่อตรวจสอบความสอดคล้อง
-        </p>
-      </div>
-
-      {/* Filter Panel */}
-      <div style={{
-        background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10,
-        padding: '16px 20px', marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end',
-      }}>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-            วันที่เริ่ม
-          </label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={e => setStartDate(e.target.value)}
-            style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.9rem' }}
-          />
+    <div className="reconciliation-page">
+      {/* Hero Section */}
+      <section className="reconciliation-hero">
+        <div className="reconciliation-hero-content">
+          <div className="reconciliation-badge">
+            <span>Audit & Reconciliation</span>
+          </div>
+          <h1>
+            <span>🔄</span>
+            <span>กระทบยอด REP / STM / INV Visit</span>
+          </h1>
+          <p>
+            เปรียบเทียบยอดตั้งลูกหนี้กับข้อมูลผลตอบรับ REP, สลิปโอนเงิน STM และใบแจ้งหนี้ INV ราย Visit เพื่อความถูกต้องทางการเงิน
+          </p>
         </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-            วันที่สิ้นสุด
-          </label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={e => setEndDate(e.target.value)}
-            style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.9rem' }}
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-            ประเภทผู้ป่วย
-          </label>
-          <select
-            value={patientType}
-            onChange={e => setPatientType(e.target.value)}
-            style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.9rem' }}
-          >
-            <option value="ALL">ทั้งหมด</option>
-            <option value="OPD">OPD</option>
-            <option value="IPD">IPD</option>
-          </select>
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-            สิทธิ์ (HOSxP)
-          </label>
-          <select
-            value={hosxpRight}
-            onChange={e => setHosxpRight(e.target.value)}
-            style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.9rem', maxWidth: 200 }}
-          >
-            <option value="ALL">ทั้งหมด</option>
-            {filterOptions.hosxpRights.map(r => (
-              <option key={r.code} value={r.code}>{r.code}: {r.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-            สถานะกระทบยอด
-          </label>
-          <select
-            value={compareStatus}
-            onChange={e => setCompareStatus(e.target.value)}
-            style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.9rem' }}
-          >
-            {COMPARE_STATUS_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 600, color: '#374151', marginBottom: 4 }}>
-            แถวต่อหน้า
-          </label>
-          <select
-            value={pageSize}
-            onChange={e => setPageSize(Number(e.target.value))}
-            style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: '0.9rem' }}
-          >
-            {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <button
-          onClick={() => handleLoad(1)}
-          disabled={loading}
-          style={{
-            padding: '8px 18px', background: loading ? '#9ca3af' : '#2563eb',
-            color: '#fff', border: 'none', borderRadius: 7, fontWeight: 600,
-            fontSize: '0.9rem', cursor: loading ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {loading ? 'กำลังโหลด...' : '🔍 โหลดข้อมูล'}
-        </button>
-        {rows.length > 0 && (
-          <button
-            onClick={handleExport}
-            style={{
-              padding: '8px 16px', background: '#16a34a', color: '#fff',
-              border: 'none', borderRadius: 7, fontWeight: 600, fontSize: '0.9rem', cursor: 'pointer',
-            }}
-          >
-            📥 Export Excel
-          </button>
-        )}
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div style={{ padding: '10px 16px', background: '#fee2e2', color: '#991b1b', borderRadius: 8, marginBottom: 12, fontSize: '0.88rem' }}>
-          {error}
-        </div>
-      )}
-
-      {/* Summary Cards */}
-      {summary && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-          <SummaryCard label="visit ทั้งหมด" value={summary.total_visits.toLocaleString('th-TH')} />
-          <SummaryCard label="เสร็จสิ้นจาก INV" value={(summary.completed_inv || 0).toLocaleString('th-TH')} color="#047857" />
-          <SummaryCard label="ตรงกัน" value={summary.matched.toLocaleString('th-TH')} color="#15803d" />
-          <SummaryCard label="ยอดต่าง" value={summary.mismatched.toLocaleString('th-TH')} color="#b91c1c" />
-          <SummaryCard label="รอ REP" value={summary.pending_rep.toLocaleString('th-TH')} color="#b45309" />
-          <SummaryCard label="รอ STM/INV" value={summary.pending_stm.toLocaleString('th-TH')} color="#7c3aed" />
-          <SummaryCard label="ไม่มีข้อมูล" value={summary.no_data.toLocaleString('th-TH')} color="#6b7280" />
-          <SummaryCard label="ยอดตั้งลูกหนี้รวม" value={`฿${formatMoney(summary.total_claimable)}`} color="#1e40af" />
-          <SummaryCard label="ยอด REP รวม" value={`฿${formatMoney(summary.total_rep)}`} />
-          <SummaryCard label="ยอด STM รวม" value={`฿${formatMoney(summary.total_stm)}`} />
-          <SummaryCard label="ยอดรับ STM รวม" value={`฿${formatMoney(summary.total_stm_paid)}`} color="#047857" />
-          <SummaryCard label="ยอด INV รวม" value={`฿${formatMoney(summary.total_inv)}`} />
-          <SummaryCard label="REP C/Deny" value={summary.rep_issue.toLocaleString('th-TH')} color="#b91c1c" />
-          <SummaryCard label="STM = 0" value={summary.stm_zero.toLocaleString('th-TH')} color="#b91c1c" />
-          <SummaryCard label="รับขาด/รับเกิน" value={`${summary.underpaid.toLocaleString('th-TH')} / ${summary.overpaid.toLocaleString('th-TH')}`} color="#b45309" />
-        </div>
-      )}
-
-      {/* Table */}
-      {rows.length > 0 && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ fontSize: '0.85rem', color: '#374151' }}>
-              แสดง {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, total)} จาก {total.toLocaleString('th-TH')} รายการ
+        <div className="reconciliation-hero-info">
+          <div className="reconciliation-hero-info-row">
+            <span className="reconciliation-hero-info-label">ช่วงวันที่ตรวจสอบ</span>
+            <span className="reconciliation-hero-info-val">{startDate} ถึง {endDate}</span>
+          </div>
+          <div className="reconciliation-hero-info-row">
+            <span className="reconciliation-hero-info-label">ประเภทผู้ป่วย</span>
+            <span className="reconciliation-hero-info-val">{patientType === 'ALL' ? 'ทั้งหมด (OPD + IPD)' : patientType}</span>
+          </div>
+          {summary && (
+            <div className="reconciliation-hero-info-row">
+              <span className="reconciliation-hero-info-label">อัตราตรงกัน/เสร็จสิ้น</span>
+              <span className="reconciliation-hero-info-val" style={{ color: '#059669' }}>
+                {summary.total_visits > 0
+                  ? `${Math.round(((summary.completed_inv + summary.matched) / summary.total_visits) * 100)}%`
+                  : '0%'}
+              </span>
             </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          )}
+        </div>
+      </section>
+
+      {/* Filter Card */}
+      <section className="reconciliation-filter-card">
+        <div className="reconciliation-filter-grid">
+          <div className="reconciliation-form-group">
+            <label>📅 วันที่เริ่ม</label>
+            <input
+              type="date"
+              className="reconciliation-input"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+            />
+          </div>
+          <div className="reconciliation-form-group">
+            <label>📅 วันที่สิ้นสุด</label>
+            <input
+              type="date"
+              className="reconciliation-input"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+            />
+          </div>
+          <div className="reconciliation-form-group">
+            <label>🏥 ประเภทผู้ป่วย</label>
+            <select
+              className="reconciliation-select"
+              value={patientType}
+              onChange={e => setPatientType(e.target.value)}
+            >
+              <option value="ALL">ทั้งหมด (OPD/IPD)</option>
+              <option value="OPD">OPD (ผู้ป่วยนอก)</option>
+              <option value="IPD">IPD (ผู้ป่วยใน)</option>
+            </select>
+          </div>
+          <div className="reconciliation-form-group">
+            <label>🏷️ สิทธิ์ (HOSxP)</label>
+            <select
+              className="reconciliation-select"
+              value={hosxpRight}
+              onChange={e => setHosxpRight(e.target.value)}
+            >
+              <option value="ALL">ทั้งหมดทุกสิทธิ์</option>
+              {filterOptions.hosxpRights.map(r => (
+                <option key={r.code} value={r.code}>{r.code}: {r.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="reconciliation-form-group">
+            <label>📊 สถานะกระทบยอด</label>
+            <select
+              className="reconciliation-select"
+              value={compareStatus}
+              onChange={e => setCompareStatus(e.target.value)}
+            >
+              {COMPARE_STATUS_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="reconciliation-form-group">
+            <label>📄 แสดงต่อหน้า</label>
+            <select
+              className="reconciliation-select"
+              value={pageSize}
+              onChange={e => setPageSize(Number(e.target.value))}
+            >
+              {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s} แถว</option>)}
+            </select>
+          </div>
+          <div className="reconciliation-filter-actions">
+            <button
+              className="rec-btn rec-btn-primary"
+              onClick={() => handleLoad(1)}
+              disabled={loading}
+            >
+              {loading ? '⏳ กำลังโหลด...' : '🔍 โหลดข้อมูล'}
+            </button>
+            {rows.length > 0 && (
               <button
+                className="rec-btn rec-btn-success"
+                onClick={handleExport}
+              >
+                📥 ส่งออก Excel ({rows.length.toLocaleString('th-TH')})
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Error Message */}
+      {error && (
+        <div style={{ padding: '12px 18px', background: '#fee2e2', color: '#991b1b', borderRadius: 14, marginBottom: 16, fontSize: '0.9rem', fontWeight: 600 }}>
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* Summary Dashboard */}
+      {summary && (
+        <section className="reconciliation-summary-dashboard">
+          <div>
+            <div className="summary-group-title">
+              <span>👥 สรุปสถานะการจับคู่ Visit</span>
+            </div>
+            <div className="summary-cards-row">
+              <SummaryCard label="Visit ทั้งหมด" value={summary.total_visits.toLocaleString('th-TH')} accent="blue" />
+              <SummaryCard label="เสร็จสิ้นจาก INV" value={(summary.completed_inv || 0).toLocaleString('th-TH')} sub="มีเงิน INV เข้าแล้ว" accent="emerald" />
+              <SummaryCard label="ตรงกัน 100%" value={summary.matched.toLocaleString('th-TH')} sub="ยอดลูกหนี้ = REP/STM" accent="emerald" />
+              <SummaryCard label="ยอดต่าง" value={summary.mismatched.toLocaleString('th-TH')} sub="ยอดไม่ตรงกัน" accent="rose" />
+              <SummaryCard label="รอ REP" value={summary.pending_rep.toLocaleString('th-TH')} sub="ยังไม่พบผลตอบรับ" accent="amber" />
+              <SummaryCard label="รอ STM / INV" value={summary.pending_stm.toLocaleString('th-TH')} sub="รอรับชำระเงิน" accent="purple" />
+              <SummaryCard label="ไม่มีข้อมูล" value={summary.no_data.toLocaleString('th-TH')} sub="ยังไม่ส่งตรวจ" accent="gray" />
+            </div>
+          </div>
+
+          <div>
+            <div className="summary-group-title">
+              <span>💰 เปรียบเทียบยอดเงินทางบัญชี</span>
+            </div>
+            <div className="summary-cards-row">
+              <SummaryCard label="ยอดตั้งลูกหนี้รวม" value={`฿${formatMoney(summary.total_claimable)}`} sub="ยอดเรียกเก็บตามสิทธิ์" accent="blue" />
+              <SummaryCard label="ยอด REP รวม" value={`฿${formatMoney(summary.total_rep)}`} sub="ตอบรับจากกองทุน" accent="teal" />
+              <SummaryCard label="ยอด STM รวม" value={`฿${formatMoney(summary.total_stm)}`} sub="ยอดแจ้งโอน" accent="purple" />
+              <SummaryCard label="ยอดรับจริง (STM Paid)" value={`฿${formatMoney(summary.total_stm_paid)}`} sub="เงินโอนเข้าบัญชีจริง" accent="emerald" />
+              <SummaryCard label="ยอดรับสุทธิ INV" value={`฿${formatMoney(summary.total_inv)}`} sub="เงินตามใบเสร็จ INV" accent="teal" />
+            </div>
+          </div>
+
+          <div>
+            <div className="summary-group-title">
+              <span>⚠️ รายการที่ต้องติดตาม / ตรวจสอบ</span>
+            </div>
+            <div className="summary-cards-row">
+              <SummaryCard label="REP C / Deny" value={summary.rep_issue.toLocaleString('th-TH')} sub="ติดปัญหา C หรือปฏิเสธ" accent="rose" />
+              <SummaryCard label="STM = 0 บาท" value={summary.stm_zero.toLocaleString('th-TH')} sub="ชดเชย 0 บาท" accent="rose" />
+              <SummaryCard label="รับขาด / รับเกิน" value={`${summary.underpaid.toLocaleString('th-TH')} / ${summary.overpaid.toLocaleString('th-TH')}`} sub="รายการขาด / เกิน" accent="amber" />
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Table Section */}
+      {rows.length > 0 && (
+        <section className="reconciliation-table-card">
+          <div className="reconciliation-table-header">
+            <div className="rec-count-badge">
+              <span>📋 แสดง {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, total)} จาก {total.toLocaleString('th-TH')} รายการ</span>
+            </div>
+            <div className="rec-pagination">
+              <button
+                className="rec-page-btn"
                 onClick={() => handleLoad(1)}
                 disabled={page === 1 || loading}
-                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: page === 1 ? '#f9fafb' : '#fff', cursor: page === 1 ? 'default' : 'pointer', fontSize: '0.82rem' }}
+                title="หน้าแรก"
               >«</button>
               <button
+                className="rec-page-btn"
                 onClick={() => handleLoad(page - 1)}
                 disabled={page === 1 || loading}
-                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: page === 1 ? '#f9fafb' : '#fff', cursor: page === 1 ? 'default' : 'pointer', fontSize: '0.82rem' }}
+                title="ก่อนหน้า"
               >‹ ก่อนหน้า</button>
-              <span style={{ fontSize: '0.82rem', color: '#374151', padding: '4px 8px' }}>หน้า {page}/{totalPages}</span>
+              <span className="rec-page-indicator">หน้า {page} / {totalPages}</span>
               <button
+                className="rec-page-btn"
                 onClick={() => handleLoad(page + 1)}
                 disabled={page >= totalPages || loading}
-                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: page >= totalPages ? '#f9fafb' : '#fff', cursor: page >= totalPages ? 'default' : 'pointer', fontSize: '0.82rem' }}
+                title="ถัดไป"
               >ถัดไป ›</button>
               <button
+                className="rec-page-btn"
                 onClick={() => handleLoad(totalPages)}
                 disabled={page >= totalPages || loading}
-                style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: page >= totalPages ? '#f9fafb' : '#fff', cursor: page >= totalPages ? 'default' : 'pointer', fontSize: '0.82rem' }}
+                title="หน้าสุดท้าย"
               >»</button>
             </div>
           </div>
 
-          <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid #e5e7eb' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+          <div className="reconciliation-table-wrap">
+            <table className="rec-table">
               <thead>
                 <tr>
                   {th('ประเภท', 'patient_type')}
@@ -432,65 +457,72 @@ export const VisitReconciliationPage = () => {
               </thead>
               <tbody>
                 {sortedRows.map((row, idx) => {
-                  const isOdd = idx % 2 === 1;
                   return (
-                    <tr key={`${row.visit_key}:${idx}`} style={{ background: isOdd ? '#f9fafb' : '#fff' }}>
-                      <td style={{ padding: '7px 10px', color: '#374151' }}>
+                    <tr key={`${row.visit_key}:${idx}`}>
+                      <td>
                         <span style={{
-                          padding: '1px 7px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 600,
-                          background: row.patient_type === 'IPD' ? '#dbeafe' : '#e0fdf4',
-                          color: row.patient_type === 'IPD' ? '#1d4ed8' : '#065f46',
+                          padding: '2px 8px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 700,
+                          background: row.patient_type === 'IPD' ? '#dbeafe' : '#dcfce7',
+                          color: row.patient_type === 'IPD' ? '#1d4ed8' : '#15803d',
                         }}>
                           {row.patient_type}
                         </span>
                       </td>
-                      <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>{row.service_date || '-'}</td>
-                      <td style={{ padding: '7px 10px', fontFamily: 'monospace' }}>{row.hn}</td>
-                      <td style={{ padding: '7px 10px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{row.service_date || '-'}</td>
+                      <td className="rec-td-mono">{row.hn}</td>
+                      <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
                         {row.patient_name}
                       </td>
-                      <td style={{ padding: '7px 10px', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {row.pttype_name || row.pttype}
                       </td>
-                      <td style={{ padding: '7px 10px', fontFamily: 'monospace', fontSize: '0.78rem' }}>
+                      <td className="rec-td-mono" style={{ fontSize: '0.78rem' }}>
                         {row.vn || row.an || '-'}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 600, color: '#1e40af' }}>
+                      <td className="rec-td-num" style={{ color: '#1e40af' }}>
                         {formatMoney(row.claimable_amount)}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.has_rep ? '#166534' : '#9ca3af' }}>
+                      <td className="rec-td-num" style={{ color: row.has_rep ? '#166534' : '#94a3b8' }}>
                         {row.has_rep ? formatMoney(row.rep_amount) : '-'}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.has_stm ? '#166534' : '#9ca3af' }}>
+                      <td className="rec-td-num" style={{ color: row.has_stm ? '#166534' : '#94a3b8' }}>
                         {row.has_stm ? formatMoney(row.stm_amount) : '-'}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.has_stm ? '#166534' : '#9ca3af', fontWeight: row.stm_paid_amount != null ? 600 : undefined }}>
+                      <td className="rec-td-num" style={{ color: row.has_stm ? '#166534' : '#94a3b8', fontWeight: 700 }}>
                         {row.has_stm ? formatMoney(row.stm_paid_amount) : '-'}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.has_inv ? '#166534' : '#9ca3af' }}>
+                      <td className="rec-td-num" style={{ color: row.has_inv ? '#166534' : '#94a3b8' }}>
                         {row.has_inv ? formatMoney(row.inv_amount) : '-'}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.diff_rep == null ? '#9ca3af' : Math.abs(toNumber(row.diff_rep)) < 0.01 ? '#166534' : '#b91c1c', fontWeight: row.diff_rep != null ? 600 : undefined }}>
-                        {formatMoneyNull(row.diff_rep)}
+                      <td className="rec-td-num">
+                        {row.diff_rep == null ? '-' : Math.abs(toNumber(row.diff_rep)) < 0.01 ? (
+                          <span className="rec-diff-zero">{formatMoney(row.diff_rep)}</span>
+                        ) : (
+                          <span className="rec-diff-nonzero">{formatMoney(row.diff_rep)}</span>
+                        )}
                       </td>
-                      <td style={{ padding: '7px 10px', textAlign: 'right', color: row.diff_stm_paid == null ? '#9ca3af' : Math.abs(toNumber(row.diff_stm_paid)) < 0.01 ? '#166534' : '#b91c1c', fontWeight: row.diff_stm_paid != null ? 600 : undefined }}>
-                        {formatMoneyNull(row.diff_stm_paid)}
+                      <td className="rec-td-num">
+                        {row.diff_stm_paid == null ? '-' : Math.abs(toNumber(row.diff_stm_paid)) < 0.01 ? (
+                          <span className="rec-diff-zero">{formatMoney(row.diff_stm_paid)}</span>
+                        ) : (
+                          <span className="rec-diff-nonzero">{formatMoney(row.diff_stm_paid)}</span>
+                        )}
                       </td>
-                      <td style={{ padding: '7px 10px', fontSize: '0.76rem', color: '#6b7280', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ fontSize: '0.76rem', color: '#64748b', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <div>{row.rep_no || '-'}</div>
                         {row.rep_senddate && <small>{row.rep_senddate}</small>}
                       </td>
-                      <td style={{ padding: '7px 10px', fontSize: '0.76rem', color: '#6b7280', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ fontSize: '0.76rem', color: '#64748b', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         <div>{row.stm_statement_no || '-'}</div>
                         {row.stm_imported_at && <small>{row.stm_imported_at}</small>}
                       </td>
-                      <td style={{ padding: '7px 10px', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: row.issue_status === 'ปกติ' ? '#166534' : '#b91c1c', fontWeight: 600 }}>
+                      <td style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: row.issue_status === 'ปกติ' ? '#166534' : '#b91c1c', fontWeight: 700 }}>
                         {row.issue_status || '-'}
                       </td>
-                      <td style={{ padding: '7px 10px' }}>
+                      <td>
                         <StatusBadge status={row.compare_status} />
                       </td>
-                      <td style={{ padding: '7px 10px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                      <td style={{ color: '#64748b', whiteSpace: 'nowrap' }}>
                         {row.days_to_rep ?? '-'} / {row.days_to_stm ?? '-'}
                       </td>
                     </tr>
@@ -499,18 +531,31 @@ export const VisitReconciliationPage = () => {
               </tbody>
             </table>
           </div>
-        </>
+        </section>
       )}
 
+      {/* Empty State when searched but nothing found */}
       {!loading && rows.length === 0 && summary && (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: '#6b7280', fontSize: '0.95rem' }}>
-          ไม่พบข้อมูลในช่วงวันที่และเงื่อนไขที่เลือก
+        <div className="reconciliation-empty-container">
+          <div className="rec-empty-icon">🔍</div>
+          <div className="rec-empty-title">ไม่พบรายการที่ตรงกับเงื่อนไข</div>
+          <div className="rec-empty-desc">
+            ไม่พบข้อมูลการกระทบยอดในช่วงวันที่ <strong>{startDate}</strong> ถึง <strong>{endDate}</strong> สำหรับเงื่อนไขที่เลือก กรุณาลองปรับช่วงวันที่หรือตัวกรองสถานะ
+          </div>
         </div>
       )}
 
+      {/* Empty State before search */}
       {!loading && !summary && (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af', fontSize: '1rem' }}>
-          เลือกช่วงวันที่แล้วกด <strong>โหลดข้อมูล</strong> เพื่อเปรียบเทียบยอด REP / STM / INV
+        <div className="reconciliation-empty-container">
+          <div className="rec-empty-icon">🗂️</div>
+          <div className="rec-empty-title">เริ่มต้นตรวจสอบการกระทบยอด REP / STM / INV</div>
+          <div className="rec-empty-desc">
+            เลือกช่วงวันที่และสิทธิ์ที่ต้องการตรวจสอบ แล้วกดปุ่ม <strong>โหลดข้อมูล</strong> ระบบจะดึงยอดตั้งลูกหนี้สิทธิ์มาเปรียบเทียบกับผลตอบรับ REP, สลิปโอนเงิน STM และใบเสร็จ INV เพื่อตรวจหายอดต่างและรายการค้างชดเชย
+          </div>
+          <button className="rec-btn rec-btn-primary" onClick={() => handleLoad(1)} disabled={loading}>
+            {loading ? 'กำลังโหลด...' : '🔍 โหลดข้อมูลทันที'}
+          </button>
         </div>
       )}
     </div>

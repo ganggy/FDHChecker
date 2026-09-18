@@ -58,6 +58,7 @@ import {
   getStatementVisitRows,
   getReceivableCandidates,
   getReceivableBatches,
+  getReceivableLatestBalance,
   getReceivableFilterOptions,
   getMophDmhtCandidates,
   getMophVaccineCandidates,
@@ -4162,6 +4163,19 @@ app.get('/api/receivables/batches', async (req, res) => {
   } catch (error) {
     console.error('Error fetching receivable batches:', error);
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการอ่านประวัติบัญชีลูกหนี้' });
+  }
+});
+
+app.get('/api/receivables/balance-overview', async (req, res) => {
+  try {
+    const data = await getReceivableLatestBalance({
+      beforeDate: String(req.query.beforeDate || req.query.startDate || ''),
+      patientType: String(req.query.patientType || 'ALL'),
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Error fetching receivable balance overview:', error);
+    res.json({ success: true, data: { suggestedOpeningBalance: 0 } });
   }
 });
 

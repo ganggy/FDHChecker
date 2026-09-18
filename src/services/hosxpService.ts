@@ -609,7 +609,21 @@ export const fetchReceivableFilterOptions = async (): Promise<ReceivableFilterOp
   return json.data || { hosxpRights: [], financeRights: [] };
 };
 
-export const fetchReceivableBatches = async (limit = 50) => {
+export interface ReceivableBatch {
+  id: number;
+  batch_no?: string | null;
+  patient_type?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  item_count?: number | string | null;
+  total_receivable?: number | string | null;
+  opening_balance?: number | string | null;
+  collected_amount?: number | string | null;
+  closing_balance?: number | string | null;
+  created_at?: string | null;
+}
+
+export const fetchReceivableBatches = async (limit = 50): Promise<ReceivableBatch[]> => {
   const response = await fetch(`/api/receivables/batches?limit=${limit}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
@@ -622,6 +636,26 @@ export const fetchReceivableBatches = async (limit = 50) => {
   return json.data || [];
 };
 
+export const fetchReceivableLatestBalance = async (params: {
+  beforeDate?: string;
+  patientType?: string;
+}): Promise<{ previousBatchNo?: string; previousEndDate?: string; suggestedOpeningBalance: number }> => {
+  const query = new URLSearchParams();
+  if (params.beforeDate) query.set('beforeDate', params.beforeDate);
+  if (params.patientType) query.set('patientType', params.patientType);
+
+  try {
+    const response = await fetch(`/api/receivables/balance-overview?${query.toString()}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const json = await response.json();
+    return json?.data || { suggestedOpeningBalance: 0 };
+  } catch {
+    return { suggestedOpeningBalance: 0 };
+  }
+};
+
 export const saveReceivableBatch = async (payload: {
   startDate: string;
   endDate: string;
@@ -631,6 +665,9 @@ export const saveReceivableBatch = async (payload: {
   financeRight?: string;
   createdBy?: string;
   notes?: string;
+  openingBalance?: number;
+  collectedAmount?: number;
+  closingBalance?: number;
   items: ReceivableCandidate[];
 }) => {
   const response = await fetch('/api/receivables/batches', {

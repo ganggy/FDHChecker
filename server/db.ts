@@ -793,6 +793,9 @@ const RECEIVABLE_BATCH_TABLE_SQL = `
     notes TEXT NULL,
     item_count INT NOT NULL DEFAULT 0,
     total_receivable DECIMAL(15,2) NOT NULL DEFAULT 0,
+    opening_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
+    collected_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    closing_balance DECIMAL(15,2) NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_batch_no (batch_no),
     INDEX idx_created_at (created_at),
@@ -1243,6 +1246,27 @@ const ensureRepstmTablesUncached = async () => {
         && Number((columnRows[0] as Record<string, unknown>).count || 0) > 0;
       if (!exists) {
         await connection.query(`ALTER TABLE repstm_import_batch ${alterSql}`);
+      }
+    }
+
+    const receivableBatchColumns: Array<[string, string]> = [
+      ['opening_balance', 'ADD COLUMN opening_balance DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER total_receivable'],
+      ['collected_amount', 'ADD COLUMN collected_amount DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER opening_balance'],
+      ['closing_balance', 'ADD COLUMN closing_balance DECIMAL(15,2) NOT NULL DEFAULT 0 AFTER collected_amount'],
+    ];
+    for (const [columnName, alterSql] of receivableBatchColumns) {
+      const [columnRows] = await connection.query(
+        `SELECT COUNT(*) AS count
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'receivable_batch'
+           AND COLUMN_NAME = ?`,
+        [columnName]
+      );
+      const exists = Array.isArray(columnRows)
+        && Number((columnRows[0] as Record<string, unknown>).count || 0) > 0;
+      if (!exists) {
+        await connection.query(`ALTER TABLE receivable_batch ${alterSql}`);
       }
     }
 
@@ -5465,6 +5489,9 @@ export interface ReceivableQueryParams {
 export interface ReceivableBatchPayload extends ReceivableQueryParams {
   createdBy?: string;
   notes?: string;
+  openingBalance?: number | string;
+  collectedAmount?: number | string;
+  closingBalance?: number | string;
   items: Record<string, unknown>[];
 }
 
@@ -6071,7 +6098,11 @@ export const getReceivableBatches = async (limit = 50): Promise<Record<string, u
   try {
     await ensureRepstmTables();
     const [rows] = await connection.query(
-      `SELECT id, batch_no, patient_type, start_date, end_date, created_by, notes, item_count, total_receivable, created_at
+      `SELECT id, batch_no, patient_type, start_date, end_date, created_by, notes, item_count, total_receivable,
+              COALESCE(opening_balance, 0) AS opening_balance,
+              COALESCE(collected_amount, 0) AS collected_amount,
+              COALESCE(closing_balance, 0) AS closing_balance,
+              created_at
        FROM receivable_batch
        ORDER BY created_at DESC
        LIMIT ?`,
@@ -6081,6 +6112,54 @@ export const getReceivableBatches = async (limit = 50): Promise<Record<string, u
   } catch (error) {
     console.error('Error reading receivable batches:', error);
     return [];
+  } finally {
+    connection.release();
+  }
+};
+
+export const getReceivableLatestBalance = async (params: {
+  beforeDate?: string;
+  patientType?: string;
+}): Promise<{
+  previousBatchNo?: string;
+  previousEndDate?: string;
+  suggestedOpeningBalance: number;
+}> => {
+  const connection = await getRepstmConnection();
+  try {
+    await ensureRepstmTables();
+    const conditions: string[] = [];
+    const sqlParams: unknown[] = [];
+    if (params.beforeDate) {
+      conditions.push('end_date <= ?');
+      sqlParams.push(params.beforeDate);
+    }
+    if (params.patientType && params.patientType !== 'ALL') {
+      conditions.push('(patient_type = ? OR patient_type = "ALL")');
+      sqlParams.push(params.patientType);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const [rows] = await connection.query(
+      `SELECT batch_no, end_date, closing_balance, total_receivable
+       FROM receivable_batch
+       ${whereClause}
+       ORDER BY end_date DESC, id DESC
+       LIMIT 1`,
+      sqlParams
+    );
+    if (Array.isArray(rows) && rows.length > 0) {
+      const row = rows[0] as any;
+      const closing = Number(row.closing_balance ?? row.total_receivable ?? 0);
+      return {
+        previousBatchNo: row.batch_no,
+        previousEndDate: row.end_date,
+        suggestedOpeningBalance: Number.isFinite(closing) ? closing : 0,
+      };
+    }
+    return { suggestedOpeningBalance: 0 };
+  } catch (error) {
+    console.error('Error reading receivable latest balance:', error);
+    return { suggestedOpeningBalance: 0 };
   } finally {
     connection.release();
   }
@@ -9216,11 +9295,17 @@ export const saveReceivableBatch = async (payload: ReceivableBatchPayload) => {
     transactionStarted = true;
     const batchNo = `AR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const totalReceivable = items.reduce((sum, item) => sum + toReceivableNumber(item.claimable_amount), 0);
+    const openingBalance = toReceivableNumber(payload.openingBalance);
+    const collectedAmount = toReceivableNumber(payload.collectedAmount);
+    const calculatedClosing = openingBalance + totalReceivable - collectedAmount;
+    const closingBalance = payload.closingBalance !== undefined && payload.closingBalance !== null && payload.closingBalance !== ''
+      ? toReceivableNumber(payload.closingBalance)
+      : calculatedClosing;
 
     const [insertResult] = await connection.query(
       `INSERT INTO receivable_batch
-        (batch_no, patient_type, start_date, end_date, created_by, notes, item_count, total_receivable)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        (batch_no, patient_type, start_date, end_date, created_by, notes, item_count, total_receivable, opening_balance, collected_amount, closing_balance)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         batchNo,
         patientType,
@@ -9230,6 +9315,9 @@ export const saveReceivableBatch = async (payload: ReceivableBatchPayload) => {
         String(payload.notes || '').trim().slice(0, 2000) || null,
         items.length,
         totalReceivable,
+        openingBalance,
+        collectedAmount,
+        closingBalance,
       ]
     );
     const batchId = Number((insertResult as any).insertId || 0);

@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   fetchAppSettings,
   fetchReceivableBatches,
   fetchReceivableCandidates,
   fetchReceivableFilterOptions,
+  fetchReceivableLatestBalance,
   saveReceivableBatch,
+  type ReceivableBatch,
   type ReceivableCandidate,
   type ReceivableFilterOptions,
 } from '../services/hosxpService';
@@ -23,16 +25,6 @@ type ReceivableSettings = {
     insurance_head?: Signer;
     finance?: Signer;
   };
-};
-
-type ReceivableBatch = {
-  id: number;
-  batch_no?: string | null;
-  start_date?: string | null;
-  end_date?: string | null;
-  item_count?: number | string | null;
-  total_receivable?: number | string | null;
-  created_at?: string | null;
 };
 
 const todayIso = () => {
@@ -103,6 +95,47 @@ export const ReceivablePage = () => {
   const [batches, setBatches] = useState<ReceivableBatch[]>([]);
   const [loadedSignature, setLoadedSignature] = useState<string | null>(null);
   const [lastSavedSelection, setLastSavedSelection] = useState('');
+  const [openingBalance, setOpeningBalance] = useState<number>(0);
+  const [openingBalanceManual, setOpeningBalanceManual] = useState<boolean>(false);
+  const [previousBatchInfo, setPreviousBatchInfo] = useState<{ batchNo?: string; endDate?: string } | null>(null);
+
+  const checkLatestBalance = useCallback(async (date: string, type: string) => {
+    try {
+      const res = await fetchReceivableLatestBalance({ beforeDate: date, patientType: type });
+      if (res) {
+        if (!openingBalanceManual) {
+          setOpeningBalance(Number(res.suggestedOpeningBalance || 0));
+        }
+        if (res.previousBatchNo) {
+          setPreviousBatchInfo({ batchNo: res.previousBatchNo, endDate: res.previousEndDate });
+        } else {
+          setPreviousBatchInfo(null);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [openingBalanceManual]);
+
+  useEffect(() => {
+    void checkLatestBalance(startDate, patientType);
+  }, [startDate, patientType, checkLatestBalance]);
+
+  const syncFromPreviousBatch = async () => {
+    try {
+      const res = await fetchReceivableLatestBalance({ beforeDate: startDate, patientType });
+      setOpeningBalance(Number(res?.suggestedOpeningBalance || 0));
+      setOpeningBalanceManual(false);
+      if (res?.previousBatchNo) {
+        setPreviousBatchInfo({ batchNo: res.previousBatchNo, endDate: res.previousEndDate });
+        setMessage(`ดึงยอดลูกหนี้ยกมา ${formatMoney(res.suggestedOpeningBalance)} บาท จากชุด ${res.previousBatchNo}`);
+      } else {
+        setMessage('ไม่พบชุดลูกหนี้ก่อนหน้า กำหนดยอดลูกหนี้ยกมาเป็น 0.00 บาท');
+      }
+    } catch {
+      setError('ไม่สามารถดึงยอดจากชุดก่อนหน้าได้');
+    }
+  };
 
   useEffect(() => {
     fetchAppSettings<ReceivableSettings>()
@@ -156,6 +189,21 @@ export const ReceivablePage = () => {
   const totalClaimable = useMemo(
     () => selectedRows.reduce((sum, row) => sum + toNumber(row.claimable_amount), 0),
     [selectedRows],
+  );
+
+  const totalCollected = useMemo(
+    () => selectedRows.reduce((sum, row) => sum + (toNumber(row.receipt_amount) > 0 ? toNumber(row.receipt_amount) : 0), 0),
+    [selectedRows],
+  );
+
+  const collectedCount = useMemo(
+    () => selectedRows.filter((row) => toNumber(row.receipt_amount) > 0).length,
+    [selectedRows],
+  );
+
+  const closingBalance = useMemo(
+    () => toNumber(openingBalance) + totalClaimable - totalCollected,
+    [openingBalance, totalClaimable, totalCollected],
   );
 
   const debtorCodeCount = useMemo(
@@ -262,7 +310,16 @@ export const ReceivablePage = () => {
       ยอดตั้งลูกหนี้: toNumber(row.claimable_amount),
     }));
 
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const summaryHeader = [
+      { ลำดับ: 'สรุปยอดบัญชีลูกหนี้', ประเภท: `ช่วงวันที่ ${startDate} ถึง ${endDate}` },
+      { ลำดับ: 'ลูกหนี้ยกมา (บาท)', ประเภท: toNumber(openingBalance) },
+      { ลำดับ: 'ตั้งลูกหนี้ในงวด (บาท)', ประเภท: totalClaimable },
+      { ลำดับ: 'รับชำระ/ชดเชยแล้ว (บาท)', ประเภท: totalCollected },
+      { ลำดับ: 'ลูกหนี้ยกไปคงเหลือ (บาท)', ประเภท: closingBalance },
+      { ลำดับ: '-------------------' },
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet([...summaryHeader, ...exportRows]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Receivable');
     XLSX.writeFile(workbook, `receivable_${startDate}_${endDate}.xlsx`);
@@ -292,9 +349,12 @@ export const ReceivablePage = () => {
         hosxpRight,
         financeRight,
         notes,
+        openingBalance: toNumber(openingBalance),
+        collectedAmount: totalCollected,
+        closingBalance,
         items: selectedRows,
       });
-      setMessage(`บันทึกชุดบัญชีลูกหนี้สำเร็จ เลขที่ชุด ${result.batchNo || result.batchId || '-'}`);
+      setMessage(`บันทึกชุดบัญชีลูกหนี้สำเร็จ เลขที่ชุด ${result.batchNo || result.batchId || '-'} (ยกไป ${formatMoney(closingBalance)} บาท)`);
       setLastSavedSelection(selectedSignature);
       const latest = await fetchReceivableBatches(10);
       setBatches(latest);
@@ -323,23 +383,23 @@ export const ReceivablePage = () => {
 
       <section className="receivable-filter-panel no-print">
         <div className="form-group">
-          <label>วันที่เริ่ม</label>
+          <label>📅 วันที่เริ่ม</label>
           <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} />
         </div>
         <div className="form-group">
-          <label>วันที่สิ้นสุด</label>
+          <label>📅 วันที่สิ้นสุด</label>
           <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />
         </div>
         <div className="form-group">
-          <label>ประเภทผู้ป่วย</label>
+          <label>🏥 ประเภทผู้ป่วย</label>
           <select value={patientType} onChange={(event) => setPatientType(event.target.value)}>
-            <option value="ALL">ทั้งหมด</option>
+            <option value="ALL">ทั้งหมด (OPD/IPD)</option>
             <option value="OPD">OPD</option>
             <option value="IPD">IPD</option>
           </select>
         </div>
         <div className="form-group">
-          <label>สิทธิ์ HOSxP</label>
+          <label>🏷️ สิทธิ์ HOSxP</label>
           <select value={hosxpRight} onChange={(event) => setHosxpRight(event.target.value)}>
             <option value="ALL">ทั้งหมด</option>
             {filterOptions.hosxpRights.map((item) => (
@@ -348,7 +408,7 @@ export const ReceivablePage = () => {
           </select>
         </div>
         <div className="form-group">
-          <label>สิทธิการเงิน</label>
+          <label>💳 สิทธิการเงิน</label>
           <select value={financeRight} onChange={(event) => setFinanceRight(event.target.value)}>
             <option value="ALL">ทั้งหมด</option>
             {filterOptions.financeRights.map((item) => (
@@ -356,12 +416,35 @@ export const ReceivablePage = () => {
             ))}
           </select>
         </div>
-        <div className="form-group form-group--wide">
-          <label>หมายเหตุชุดลูกหนี้</label>
-          <input value={notes} maxLength={2000} onChange={(event) => setNotes(event.target.value)} placeholder="เช่น ลูกหนี้เดือนเมษายน 2569" />
+        <div className="form-group">
+          <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>📥 ลูกหนี้ยกมา (บาท)</span>
+            <button
+              type="button"
+              className="opening-sync-btn"
+              onClick={syncFromPreviousBatch}
+              title="ดึงยอดลูกหนี้ยกมาจากชุดล่าสุดก่อนหน้า"
+            >
+              🔄 ชุดล่าสุด
+            </button>
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={openingBalance}
+            onChange={(event) => {
+              setOpeningBalance(toNumber(event.target.value));
+              setOpeningBalanceManual(true);
+            }}
+            placeholder="0.00"
+          />
         </div>
         <div className="form-group form-group--wide">
-          <label>ค้นหาในผลลัพธ์</label>
+          <label>📝 หมายเหตุชุดลูกหนี้</label>
+          <input value={notes} maxLength={2000} onChange={(event) => setNotes(event.target.value)} placeholder="เช่น ลูกหนี้สิทธิ์ประจำเดือนกันยายน 2569" />
+        </div>
+        <div className="form-group form-group--wide">
+          <label>🔍 ค้นหาในผลลัพธ์</label>
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -369,7 +452,7 @@ export const ReceivablePage = () => {
           />
         </div>
         <div className="form-group">
-          <label>ความพร้อม</label>
+          <label>⚡ ความพร้อม</label>
           <select value={readiness} onChange={(event) => setReadiness(event.target.value as typeof readiness)}>
             <option value="ALL">ทั้งหมด</option>
             <option value="READY">พร้อมตั้งลูกหนี้</option>
@@ -439,24 +522,71 @@ export const ReceivablePage = () => {
         </div>
       )}
 
+      {/* 4 Financial Metric Cards: เสาหลักทางบัญชีลูกหนี้ */}
       <section className="receivable-summary-grid">
-        <div className="summary-card">
-          <span>รายการที่เลือก</span>
-          <strong>{selectedRows.length.toLocaleString('th-TH')}</strong>
+        <div className="summary-card summary-card--opening">
+          <span>
+            <span>📥 ลูกหนี้ยกมา</span>
+            {previousBatchInfo && <small style={{ color: '#2563eb' }}>ชุด {previousBatchInfo.batchNo}</small>}
+          </span>
+          <strong>{formatMoney(openingBalance)} บาท</strong>
+          <small>
+            {previousBatchInfo
+              ? `ยกมาจากงวดก่อนหน้า (สิ้นสุด ${formatDate(previousBatchInfo.endDate)})`
+              : 'ยอดลูกหนี้คงค้างยกมา (ปรับยอดได้ในตัวกรอง)'}
+          </small>
         </div>
-        <div className="summary-card">
-          <span>ยอดตั้งลูกหนี้</span>
+
+        <div className="summary-card summary-card--claimable">
+          <span>
+            <span>➕ ตั้งลูกหนี้ในงวด</span>
+            <small>{selectedRows.length.toLocaleString('th-TH')} รายการ</small>
+          </span>
           <strong>{formatMoney(totalClaimable)} บาท</strong>
+          <small>ยอดเรียกเก็บค่ารักษาที่เลือกตั้งลูกหนี้</small>
         </div>
-        <div className="summary-card">
-          <span>พร้อมตั้ง / ต้องตรวจสอบ</span>
-          <strong>{readyRows.length.toLocaleString('th-TH')} / {reviewRows.length.toLocaleString('th-TH')}</strong>
+
+        <div className="summary-card summary-card--collected">
+          <span>
+            <span>➖ รับชำระแล้ว</span>
+            <small>{collectedCount.toLocaleString('th-TH')} รายการ</small>
+          </span>
+          <strong>{formatMoney(totalCollected)} บาท</strong>
+          <small>ยอดเงินที่ได้รับชำระ/ออกใบเสร็จในงวด</small>
         </div>
-        <div className="summary-card">
-          <span>รหัสลูกหนี้ / รายรับที่ใช้</span>
-          <strong>{debtorCodeCount.toLocaleString('th-TH')} / {revenueCodeCount.toLocaleString('th-TH')}</strong>
+
+        <div className="summary-card summary-card--closing">
+          <span>
+            <span>📤 ลูกหนี้ยกไปคงเหลือ</span>
+            <small>Ending Balance</small>
+          </span>
+          <strong>{formatMoney(closingBalance)} บาท</strong>
+          <small>
+            ยกมา ({formatMoney(openingBalance)}) + ตั้งงวดนี้ ({formatMoney(totalClaimable)}) - ชำระ ({formatMoney(totalCollected)})
+          </small>
         </div>
       </section>
+
+      <div className="receivable-secondary-metrics no-print">
+        <span className="receivable-pill-item">
+          <span>✅ พร้อมตั้งลูกหนี้:</span>
+          <strong>{readyRows.length.toLocaleString('th-TH')}</strong> รายการ
+        </span>
+        <span className="receivable-pill-item">
+          <span>⚠️ ต้องตรวจสอบ:</span>
+          <strong style={{ color: reviewRows.length > 0 ? '#b91c1c' : '#15803d' }}>
+            {reviewRows.length.toLocaleString('th-TH')}
+          </strong> รายการ
+        </span>
+        <span className="receivable-pill-item">
+          <span>🏷️ รหัสลูกหนี้ที่ใช้:</span>
+          <strong>{debtorCodeCount.toLocaleString('th-TH')}</strong> รหัส
+        </span>
+        <span className="receivable-pill-item">
+          <span>📊 รหัสรายรับที่ใช้:</span>
+          <strong>{revenueCodeCount.toLocaleString('th-TH')}</strong> รหัส
+        </span>
+      </div>
 
       <section className="receivable-table-card">
         <div className="section-header">
@@ -567,9 +697,12 @@ export const ReceivablePage = () => {
           {batches.map((batch) => (
             <div key={batch.id} className="history-item">
               <strong title={batch.batch_no || `#${batch.id}`}>{batch.batch_no || `#${batch.id}`}</strong>
-              <span>{formatDate(batch.start_date)} ถึง {formatDate(batch.end_date)}</span>
-              <span>{Number(batch.item_count || 0).toLocaleString('th-TH')} รายการ</span>
-              <span>{formatMoney(batch.total_receivable)} บาท</span>
+              <span>{formatDate(batch.start_date)} ถึง {formatDate(batch.end_date)} ({Number(batch.item_count || 0).toLocaleString('th-TH')} รายการ)</span>
+              <span>📥 ยกมา: {formatMoney(batch.opening_balance)} บ.</span>
+              <span>➕ ตั้งลูกหนี้: {formatMoney(batch.total_receivable)} บ.</span>
+              <span style={{ fontWeight: 700, color: '#047857' }}>
+                📤 ยกไป: {formatMoney(batch.closing_balance ?? batch.total_receivable)} บ.
+              </span>
             </div>
           ))}
         </div>
@@ -579,6 +712,27 @@ export const ReceivablePage = () => {
         <h1>รายงานบัญชีลูกหนี้สิทธิ์</h1>
         <p>{settings?.hospital_name || ''} {settings?.hospital_code ? `(${settings.hospital_code})` : ''}</p>
         <p>ช่วงวันที่ {startDate} ถึง {endDate} | ประเภท {patientType} | สิทธิ์ HOSxP {selectedHosxpRightLabel} | สิทธิการเงิน {selectedFinanceRightLabel}</p>
+
+        {/* Financial Summary Box in Print */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, margin: '14px 0 18px', border: '1px solid #cbd5e1', padding: '12px 14px', borderRadius: 8, background: '#f8fafc' }}>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>ลูกหนี้ยกมา:</span>
+            <strong style={{ display: 'block', fontSize: '1.1rem', color: '#1e3a8a' }}>{formatMoney(openingBalance)} บาท</strong>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>ตั้งลูกหนี้ในงวดนี้:</span>
+            <strong style={{ display: 'block', fontSize: '1.1rem', color: '#047857' }}>{formatMoney(totalClaimable)} บาท</strong>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>รับชำระแล้วในงวด:</span>
+            <strong style={{ display: 'block', fontSize: '1.1rem', color: '#b45309' }}>{formatMoney(totalCollected)} บาท</strong>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>ลูกหนี้ยกไปคงเหลือ:</span>
+            <strong style={{ display: 'block', fontSize: '1.15rem', color: '#0f172a' }}>{formatMoney(closingBalance)} บาท</strong>
+          </div>
+        </div>
+
         <table>
           <thead>
             <tr>
@@ -620,7 +774,7 @@ export const ReceivablePage = () => {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={13}>รวม</td>
+              <td colSpan={13}>รวมยอดตั้งลูกหนี้ในงวดนี้ ({selectedRows.length} รายการ)</td>
               <td>{formatMoney(totalClaimable)}</td>
             </tr>
           </tfoot>

@@ -133,9 +133,10 @@ const isFundInChannelView = (fund: FundDefinition, view: ClaimChannelView) => {
 
 interface SpecificFundPageProps {
     channelView?: ClaimChannelView;
+    allowedFundIds?: string[] | null;
 }
 
-export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView = 'all' }) => {
+export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView = 'all', allowedFundIds = null }) => {
     const [activeFund, setActiveFund] = useState('palliative');
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
@@ -160,6 +161,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [kneeProviderId, setKneeProviderId] = useState('');
     const [ancDentalCompletingVn, setAncDentalCompletingVn] = useState<string | null>(null);
     const [ancDentalCompletionMessage, setAncDentalCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+    const [herbalCompletingVn, setHerbalCompletingVn] = useState<string | null>(null);
+    const [herbalCompletionMessage, setHerbalCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const [deletingPalliativeVn, setDeletingPalliativeVn] = useState<string | null>(null);
     const [markingPalliativeHomeVn, setMarkingPalliativeHomeVn] = useState<string | null>(null);
     const [palliativeActionMessage, setPalliativeActionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
@@ -182,8 +185,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const clopidogrelLabel = (siteSettings.lab_costs?.rules?.find(r => r.key === 'clopidogrel')?.label) || 'Clopidogrel';
     const funds: FundDefinition[] = (FUND_DEFINITIONS && FUND_DEFINITIONS.length > 0 ? FUND_DEFINITIONS : FALLBACK_FUND_DEFINITIONS);
     const visibleFunds = useMemo(
-        () => funds.filter((fund) => fundVisibility[fund.id] !== false && isFundInChannelView(fund, channelView)),
-        [channelView, fundVisibility, funds]
+        () => funds.filter((fund) => (
+            fundVisibility[fund.id] !== false
+            && isFundInChannelView(fund, channelView)
+            && (allowedFundIds === null || allowedFundIds.includes(fund.id))
+        )),
+        [allowedFundIds, channelView, fundVisibility, funds]
     );
 
     useEffect(() => {
@@ -203,6 +210,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     }, [startDate, endDate]);
 
     const fetchFundData = useCallback(async () => {
+        if (!visibleFunds.some((fund) => fund.id === activeFund)) {
+            setData([]);
+            setLoading(false);
+            setError(null);
+            return;
+        }
         setLoading(true);
         setError(null);
         try {
@@ -213,7 +226,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         } finally {
             setLoading(false);
         }
-    }, [activeFund, fetchFundDataByType]);
+    }, [activeFund, fetchFundDataByType, visibleFunds]);
 
     const handleKneeCompletion = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
@@ -361,6 +374,72 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             setAncDentalCompletingVn(null);
         }
     }, [activeFund, ancDentalCompletingVn, fetchFundData]);
+
+    const handleHerbalDiagnosisCompletion = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        const vn = String(item?.vn || '').trim();
+        if (!vn || herbalCompletingVn) return;
+        setHerbalCompletingVn(vn);
+        setHerbalCompletionMessage(null);
+        try {
+            const endpoint = `/api/hosxp/herbal-diagnosis-completion/${encodeURIComponent(vn)}`;
+            const previewResponse = await fetch(endpoint);
+            const previewJson = await previewResponse.json();
+            if (!previewResponse.ok || !previewJson.success) throw new Error(previewJson.error || 'ตรวจข้อมูลยาสมุนไพรไม่สำเร็จ');
+            const assessment = previewJson.assessment;
+            if (assessment.ready) {
+                setHerbalCompletionMessage({ kind: 'success', text: `VN ${vn} มียาและ Diagnosis ที่สัมพันธ์กันแล้ว` });
+                return;
+            }
+            if (!assessment.canComplete) {
+                setHerbalCompletionMessage({ kind: 'warning', text: `VN ${vn}: ${(assessment.blockers || []).join(' • ')}` });
+                return;
+            }
+
+            const candidates = (assessment.diagnosisCandidates || []).filter((candidate: any) => !candidate.alreadyPresent);
+            const candidateText = candidates.map((candidate: any) => (
+                `${candidate.code} = ${(candidate.symptoms || []).join('/')} (${(candidate.medicines || []).join(', ')})`
+            )).join('\n');
+            const entered = window.prompt(
+                `เลือก Diagnosis ที่ตรงกับอาการจริงของผู้ป่วย VN ${vn}\nกรอกได้หลายรหัส คั่นด้วยเครื่องหมายจุลภาค\n\n${candidateText}`,
+                candidates.length === 1 ? String(candidates[0].code) : '',
+            );
+            if (entered === null) return;
+            const selectedCodes = Array.from(new Set(entered.split(/[,\s]+/).map((code) => code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean)));
+            const allowedCodes = new Set(candidates.map((candidate: any) => String(candidate.code)));
+            const invalidCodes = selectedCodes.filter((code) => !allowedCodes.has(code));
+            if (selectedCodes.length === 0) throw new Error('กรุณาเลือก Diagnosis อย่างน้อย 1 รหัส');
+            if (invalidCodes.length > 0) throw new Error(`รหัสที่เลือกไม่อยู่ในรายการที่สัมพันธ์กับยา: ${invalidCodes.join(', ')}`);
+
+            const confirmed = window.confirm(
+                `ยืนยันเพิ่ม Diagnosis ${selectedCodes.join(', ')} ให้ VN ${vn}\n\nโปรดยืนยันหลังตรวจเวชระเบียนแล้วว่า Diagnosis ตรงกับอาการจริงของผู้ป่วย ระบบจะเพิ่มเป็นโรครองและไม่แก้ Diagnosis เดิม`,
+            );
+            if (!confirmed) return;
+
+            const commitResponse = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ diagnosisCodes: selectedCodes, confirmClinicalEvidence: true }),
+            });
+            const commitJson = await commitResponse.json();
+            if (!commitResponse.ok || !commitJson.success) throw new Error(commitJson.error || 'เติม Diagnosis ไม่สำเร็จ');
+            const inserted = commitJson.result?.insertedDiagnoses || [];
+            setHerbalCompletionMessage({
+                kind: 'success',
+                text: inserted.length > 0
+                    ? `VN ${vn} เพิ่ม Diagnosis ${inserted.join(', ')} แล้ว`
+                    : `VN ${vn} มี Diagnosis ที่เลือกอยู่แล้ว ไม่ได้เพิ่มข้อมูลซ้ำ`,
+            });
+            await fetchFundData();
+        } catch (completionError) {
+            setHerbalCompletionMessage({
+                kind: 'warning',
+                text: completionError instanceof Error ? completionError.message : 'เติม Diagnosis ยาสมุนไพรไม่สำเร็จ',
+            });
+        } finally {
+            setHerbalCompletingVn(null);
+        }
+    }, [fetchFundData, herbalCompletingVn]);
 
     const handleDeletePalliativeItems = useCallback(async (item: any, event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
@@ -784,6 +863,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     });
 
     const getFundRuleStatus = (item: any, fundId: string = activeFund) => {
+        if (item?.eligibility_blocked) return buildStatusResult([], [], String(item.eligibility_reason || 'ต้องตรวจสอบสิทธิ์ก่อนเบิก'), false);
         const subfunds: string[] = [];
         const age = Number(item?.age_y ?? item?.age ?? 0);
         const hipdataText = `${item?.hipdata_code || ''} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.toUpperCase();
@@ -1468,7 +1548,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const getStatusForFund = (item: any, fundId: string = activeFund) => {
         const base = getFundRuleStatus(item, fundId);
         const manualEvidenceConditions = getManualEvidenceItems(fundId);
-        if (base.status === 'ยังไม่เข้าเงื่อนไข' || !toFlag(item?.opd_evidence_checked)) {
+        if (item?.eligibility_blocked || base.status === 'ยังไม่เข้าเงื่อนไข' || !toFlag(item?.opd_evidence_checked)) {
             return { ...base, manualEvidenceConditions };
         }
 
@@ -1554,6 +1634,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         const mockRecord: CheckRecord = {
             id: 0,
             vn: item.vn,
+            an: item.an || undefined,
             hn: item.hn,
             patientName: item.patientName,
             fund: item.pttypename,
@@ -1800,7 +1881,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                             <div className="specific-fund-empty__icon">🚫</div>
                             <div className="specific-fund-empty__title">{CHANNEL_VIEW_LABELS[channelView].empty}</div>
                             <div className="specific-fund-empty__text">
-                                กรุณาไปที่ <strong>ตั้งค่า</strong> แล้วเปิดรายการที่ต้องการแสดงในหน้า <strong>รายกองทุน/43 แฟ้ม</strong>
+                                บัญชีนี้ยังไม่มีกองทุนที่ได้รับอนุญาต หรือรายการถูกปิดไว้ในการตั้งค่าระบบ
                             </div>
                         </div>
                     )}
@@ -2536,6 +2617,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                 {ancDentalCompletionMessage.text}
                             </div>
                         )}
+                        {activeFund === 'herb' && herbalCompletionMessage && (
+                            <div className={`alert ${herbalCompletionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
+                                {herbalCompletionMessage.text}
+                            </div>
+                        )}
                         {activeFund === 'palliative' && palliativeActionMessage && (
                             <div className={`alert ${palliativeActionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
                                 {palliativeActionMessage.text}
@@ -2638,6 +2724,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             <th style={{ width: 150, textAlign: 'center' }}>Diagnosis</th>
                                             <th className="herb-items-column" style={{ width: 320, textAlign: 'left' }}>รายการยาสมุนไพร</th>
                                             <th className="herb-match-column" style={{ width: 360, textAlign: 'center' }}>ตรวจยา/โรค + รหัสที่สัมพันธ์</th>
+                                            <th style={{ width: 130, textAlign: 'center' }}>AUTO COMPLETE</th>
                                             <th style={{ width: 110, textAlign: 'right' }}>ยอดรวม (฿)</th>
                                         </>
                                     )}
@@ -2993,6 +3080,27 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                         ))}
                                                                     </div>
                                                                 )}
+                                                            </td>
+                                                            <td style={{ textAlign: 'center' }}>
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn"
+                                                                    style={{
+                                                                        padding: '6px 10px',
+                                                                        fontSize: 11,
+                                                                        background: assessment.status === 'valid' ? '#e8f5e9' : '#2563eb',
+                                                                        color: assessment.status === 'valid' ? '#166534' : 'white',
+                                                                        borderColor: assessment.status === 'valid' ? '#86efac' : '#1d4ed8',
+                                                                        fontWeight: 700,
+                                                                    }}
+                                                                    disabled={herbalCompletingVn === String(item.vn)}
+                                                                    onClick={(event) => void handleHerbalDiagnosisCompletion(item, event)}
+                                                                    title="ตรวจรหัสที่สัมพันธ์กับยา เลือก Diagnosis หลังตรวจเวชระเบียน แล้วเพิ่มเป็นโรครองโดยไม่แก้ข้อมูลเดิม"
+                                                                >
+                                                                    {herbalCompletingVn === String(item.vn)
+                                                                        ? 'กำลังตรวจ...'
+                                                                        : assessment.status === 'valid' ? '✓ ตรวจซ้ำ' : '✨ เติม Diagnosis'}
+                                                                </button>
                                                             </td>
                                                             <td style={{ textAlign: 'right' }}>
                                                                 {item.herb_total_price ? <strong style={{ color: 'var(--teal)' }}>{Number(item.herb_total_price).toLocaleString()} ฿</strong> : '0 ฿'}

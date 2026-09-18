@@ -491,7 +491,7 @@ export const GuidePage: React.FC = () => {
         }
     };
 
-    const normalizedSearchTerm = searchTerm.trim().replace('.', '').toLowerCase();
+    const normalizedSearchTerm = searchTerm.trim().replaceAll('.', '').toLowerCase();
     const operationalGuides = FUND_DEFINITIONS.map(buildFundOperationalGuide);
     const filteredOperationalGuides = operationalGuides.filter((guide) => {
         const searchableText = [
@@ -500,7 +500,9 @@ export const GuidePage: React.FC = () => {
             guide.claimChannel,
             guide.recordingSystem,
             ...guide.requiredData,
-            ...guide.automatedChecks,
+            ...guide.diagnosisRequirements,
+            ...guide.passConditions,
+            ...guide.recordingSteps,
             ...guide.manualChecks,
             ...guide.commonErrors,
         ].filter(Boolean).join(' ').replaceAll('.', '').toLowerCase();
@@ -522,7 +524,7 @@ export const GuidePage: React.FC = () => {
             <div className="page-header" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
                     <h1 className="page-title">📚 คู่มือและเงื่อนไขกองทุน (Knowledge Base)</h1>
-                    <p className="page-subtitle">อ้างอิงข้อมูลเงื่อนไขการเบิกจ่าย รหัสโรค และมูลค่าชดเชยของแต่ละกองทุน สปสช. (อัปเดต 2569)</p>
+                    <p className="page-subtitle">คู่มือรหัส Diag ข้อมูลที่ต้องคีย์ และเงื่อนไขก่อนส่งตามกฎที่ตั้งไว้ในโปรแกรม — ต้องตรวจประกาศที่ใช้กับวันบริการประกอบ</p>
                 </div>
                 <div style={{ maxWidth: 400 }}>
                     <div style={{ position: 'relative' }}>
@@ -543,13 +545,17 @@ export const GuidePage: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
                     <div>
                         <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: 20 }}>✅ Checklist ก่อนส่งเบิกทุกกองทุน</h2>
-                        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13 }}>ข้อมูลที่ต้องกรอก • ระบบตรวจอัตโนมัติ • จุดตรวจด้วยตนเอง • ข้อผิดพลาดที่พบบ่อย</p>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13 }}>Diag • ข้อมูลที่ต้องคีย์ • ขั้นตอนบันทึก • เงื่อนไขที่ต้องผ่าน • หลักฐานประกอบ</p>
                     </div>
                     <span className="badge badge-primary" style={{ padding: '7px 12px', fontSize: 12 }}>
                         แสดง {filteredOperationalGuides.length} / {operationalGuides.length} กองทุน
                     </span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 12 }}>
+                <div style={{ padding: 12, marginBottom: 12, borderRadius: 8, background: '#fffbeb', color: '#92400e', fontSize: 12, lineHeight: 1.6 }}>
+                    <strong>อ่านก่อนคีย์:</strong> ลง Diag และบริการตามเวชระเบียนจริงเท่านั้น รหัส ICD-10, ICD-9, ICD10TM และ ADP เป็นคนละช่องข้อมูล เครื่องหมาย “หรือ” ให้เลือกตามบริการ ส่วน “และ/คู่กับ” ต้องครบทั้งคู่
+                    <br />สถานะ “สมบูรณ์” หมายถึงผ่านเฉพาะข้อมูลที่โปรแกรมตรวจได้ ยังต้องตรวจเอกสาร ความถี่ สิทธิ และผลตอบรับของกองทุน ไม่ใช่ผลอนุมัติจ่าย
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: 12 }}>
                     {filteredOperationalGuides.map((guide) => (
                         <details key={guide.id} className="card" style={{ overflow: 'hidden', borderLeft: '4px solid var(--primary)' }}>
                             <summary style={{ cursor: 'pointer', padding: 16, listStylePosition: 'inside' }}>
@@ -560,11 +566,16 @@ export const GuidePage: React.FC = () => {
                                 <div style={{ margin: '5px 0 0 20px', color: 'var(--text-secondary)', fontSize: 11 }}>{guide.description}</div>
                             </summary>
                             <div style={{ padding: '0 16px 16px', display: 'grid', gap: 10 }}>
+                                <ChecklistBlock title="🩺 ต้องใช้ Diag อะไร / คู่รหัสที่ต้องมี" items={guide.diagnosisRequirements} color="#9d174d" background="#fdf2f8" />
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
                                     <ChecklistBlock title="📝 ข้อมูลที่ต้องกรอก/ต้องมี" items={guide.requiredData} color="#2563eb" background="#eff6ff" />
-                                    <ChecklistBlock title="🤖 ระบบตรวจอัตโนมัติ" items={guide.automatedChecks} color="#7c3aed" background="#f5f3ff" />
+                                    <ChecklistBlock title="✅ เงื่อนไขรายการที่ต้องผ่าน" items={guide.passConditions} color="#7c3aed" background="#f5f3ff" />
                                     <ChecklistBlock title="👀 เจ้าหน้าที่ต้องตรวจ" items={guide.manualChecks} color="#047857" background="#ecfdf5" />
                                     <ChecklistBlock title="⚠️ ข้อผิดพลาดที่พบบ่อย" items={guide.commonErrors} color="#c2410c" background="#fff7ed" />
+                                </div>
+                                <div style={{ padding: 11, borderRadius: 9, background: 'var(--surface-2)', fontSize: 12, lineHeight: 1.6 }}>
+                                    <strong>⌨️ คีย์ที่ไหน / ทำตามลำดับ</strong>
+                                    <ol style={{ margin: '6px 0 0', paddingLeft: 20 }}>{guide.recordingSteps.map((step) => <li key={step}>{step}</li>)}</ol>
                                 </div>
                                 {guide.caution && (
                                     <div style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid #fbbf24', background: '#fffbeb', color: '#92400e', fontSize: 11, lineHeight: 1.5 }}>
@@ -572,7 +583,7 @@ export const GuidePage: React.FC = () => {
                                     </div>
                                 )}
                                 <div style={{ padding: '9px 11px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', fontSize: 11, lineHeight: 1.5 }}>
-                                    <strong>พร้อมส่งเมื่อ:</strong> ข้อมูลผู้ป่วย สิทธิ/Authen เวชระเบียน และเงื่อนไขอัตโนมัติครบทั้งหมด ไม่มีรายการผิด VN/ผิดวัน และเจ้าหน้าที่ตรวจหลักฐานจริงแล้ว
+                                    <strong>พร้อมส่งเมื่อ:</strong> ข้อมูลที่ต้องคีย์และเงื่อนไขรายการครบ ตรวจหลักฐานจริงและสิทธิ/Authen ตามช่องทางแล้ว ไม่มีข้อมูลผิด VN/วันหรือรายการซ้ำ กรณีจับคู่ข้ามวันต้องมีหลักฐานเชื่อมโยงตามเกณฑ์ หลังส่งให้ตรวจผลรับข้อมูล/รายการปฏิเสธและติดตามการจ่ายอีกครั้ง
                                 </div>
                             </div>
                         </details>

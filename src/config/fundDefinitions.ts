@@ -80,7 +80,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ตรวจครรภ์ (UPT)',
         description: 'คัดกรองการตั้งครรภ์',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามประกาศ',
         conditions: ['ADP 30014', 'Diagnosis Z320 หรือ Z321', 'มีรายการ 31101 / Lab UPT']
     },
     {
@@ -88,7 +88,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC Visit',
         description: 'ตรวจครรภ์คุณภาพ / ฝากครรภ์',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30011']
     },
     {
@@ -96,7 +96,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC Ultrasound',
         description: 'อัลตราซาวนด์ระหว่างตั้งครรภ์',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30010 (ถือเป็นหลักฐานบริการ ANC Ultrasound)']
     },
     {
@@ -104,7 +104,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC Lab 1',
         description: 'ห้องแล็บชุดที่ 1 ของ ANC',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30012', 'CBC', 'DCIP', 'ABO group cell grouping', 'Rh grouping tube method', 'HBs Ag', 'Treponema Pallidum Antibody', 'HIV-Ab Screening rapid test']
     },
     {
@@ -112,7 +112,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC Lab 2',
         description: 'ห้องแล็บชุดที่ 2 ของ ANC',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30013', 'Anti-HIV ANC 2 (Screening) Rapid', 'Treponema Pallidum Antibody (ANC 2)', 'CBC (Complete blood count without smear)']
     },
     {
@@ -120,7 +120,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC ตรวจฟัน',
         description: 'ตรวจสุขภาพช่องปากหญิงตั้งครรภ์ (30008)',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30008', 'ICD10TM 2330011 หรือ 2330010 ต้องคู่กับหัตถการ ICD-9 8931']
     },
     {
@@ -128,7 +128,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC ขัดทำความสะอาดฟัน',
         description: 'ขูดหินปูน/ทำความสะอาดฟันหญิงตั้งครรภ์ (30009)',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30009', 'ICD10TM 2387010 หรือรหัส Scaling 2277310/2287310 ต้องคู่กับหัตถการ ICD-9 9654']
     },
     {
@@ -136,7 +136,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ดูแลหลังคลอด',
         description: 'ติดตาม/ตรวจหลังคลอด',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามประกาศ',
         conditions: ['Diagnosis Z390 หรือ Z391 หรือ Z392', 'ADP 30015']
     },
     {
@@ -144,7 +144,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'เสริมธาตุเหล็กหลังคลอด',
         description: 'ยาเสริมธาตุเหล็กหลังคลอด',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามประกาศ',
         conditions: ['Diagnosis Z391 หรือ Z392', 'ADP 30016', 'มีรายการยาเสริมธาตุเหล็กตามเกณฑ์']
     },
     {
@@ -152,7 +152,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'เคลือบฟลูออไรด์',
         description: 'ทันตกรรมป้องกันฟันผุ',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือระบบที่ประกาศกำหนด',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim หรือระบบที่ประกาศกำหนด',
         conditions: ['ADP 15001', 'อยู่ในช่วงอายุหรือสิทธิที่หน่วยบริการใช้เบิก']
     },
     {
@@ -160,7 +160,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'วางแผนครอบครัว',
         description: 'บริการคุมกำเนิดและวางแผนครอบครัว',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามรายการย่อย',
         conditions: ['FP002_2: Z308 + ICD-9 8605 · 350 บาท', 'FP003_1/FP003_2/FP003_3/FP003_4: Diagnosis Z304', 'อัตราตามบริการ 40/80/50/60 บาท']
     },
     {
@@ -168,7 +168,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ยาเม็ดคุมกำเนิด',
         description: 'Anna / Lynestrenol / ยาคุมฉุกเฉิน',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามรายการย่อย',
         conditions: ['Diagnosis Z304 (การเฝ้าระวังการใช้ยาคุมกำเนิด)', 'FP003_1 Anna 40 บาท / FP003_2 Lynestrenol 80 บาท / FP003_3 ยาคุมฉุกเฉิน 50 บาท']
     },
     {
@@ -177,7 +177,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ยาฉีดคุมกำเนิด',
         description: 'บริการยาฉีดคุมกำเนิด อัตรา 60 บาท',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามรายการย่อย',
         conditions: ['Diagnosis Z304', 'ADP FP003_4', 'อัตรา 60 บาทต่อเข็ม (ไม่เกิน 5 ครั้ง/ปี)']
     },
     {
@@ -201,7 +201,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'คัดกรองเบาหวาน',
         description: 'กลุ่มเสี่ยงอายุ 35-59 ปี ด้วย FPG',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
         conditions: ['อายุ 35-59 ปี', 'Lab FPG', 'Diagnosis Z131 หรือ Z133 หรือ Z136', 'ADP 12003', 'อัตรา 50 บาทต่อครั้ง']
     },
     {
@@ -209,7 +209,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'คัดกรองหัวใจหลอดเลือด',
         description: 'ตรวจ Total Cholesterol และ HDL ตามเกณฑ์ปี 2569',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
         conditions: ['อายุ 45-70 ปี', 'Lab Total Cholesterol และ HDL', 'Diagnosis Z136', 'ADP 12004', 'อัตรา 160 บาทต่อครั้ง']
     },
     {

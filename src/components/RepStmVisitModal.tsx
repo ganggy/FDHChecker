@@ -119,7 +119,7 @@ const splitCodes = (value: unknown) => String(value ?? '')
 
 const getErrorExplanation = (row: Record<string, unknown>, code: string, notes: CodeNotes, catalog: Record<string, RepErrorCatalogEntry>) => {
   const normalizedCode = code.replace(/\s+/g, '');
-  const catalogCode = catalog[normalizedCode] ? normalizedCode : /^C\d+$/.test(normalizedCode) ? normalizedCode.slice(1) : normalizedCode;
+  const catalogCode = catalog[normalizedCode] ? normalizedCode : /^C\d+(?:-\d+)?$/.test(normalizedCode) ? normalizedCode.slice(1) : normalizedCode;
   const specific = notes[code] || notes[normalizedCode] || notes[catalogCode];
   const catalogEntry = catalog[catalogCode];
   if (specific) return { description: specific, guide: catalogEntry?.guide || '', type: catalogEntry?.type || 'บันทึกของหน่วยงาน' };

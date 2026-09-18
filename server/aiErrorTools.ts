@@ -25,7 +25,7 @@ export const loadErrorCatalog = (): ErrorCatalog => {
   return cachedCatalog;
 };
 
-const normalizeCode = (value: string) => value.trim().toUpperCase();
+const normalizeCode = (value: string) => value.trim().toUpperCase().replace(/^C(?=\d+(?:-\d+)?$)/, '');
 
 export const parseErrorAnalysisIntent = (question: string): ErrorAnalysisIntent | null => {
   const normalized = question.trim();
@@ -33,7 +33,7 @@ export const parseErrorAnalysisIntent = (question: string): ErrorAnalysisIntent 
   if (!hasErrorLanguage && !/รหัส/i.test(normalized)) return null;
   const vn = normalized.match(/\bvn\s*[:#-]?\s*(\d{6,20})\b/i)?.[1];
   const catalog = loadErrorCatalog();
-  const candidates = normalized.match(/\b(?:[a-z]{1,3}\d{2,4}|\d{3,4})\b/gi) || [];
+  const candidates = normalized.match(/\b(?:[a-z]{1,3}\d{2,4}|\d{3,4})(?:-\d+)?\b/gi) || [];
   const codes = [...new Set(candidates.map(normalizeCode).filter((code) => Boolean(catalog[code])))];
   // The word "รหัส" also appears in clinical report requests such as
   // "รหัสโรค ICD-10 O240-O249". Only claim this intent when the

@@ -1,3 +1,6 @@
+import { readHospitalSchema } from './hospitalSchema.js';
+import { parseVillageScope } from './siteProfile.js';
+import { getAppSetting } from './db.js';
 import { getUTFConnection } from './db.js';
 import { activeHospitalDatabaseConfig } from './hospitalDatabase.js';
 import { answerPatientReportQuestion } from './aiReportTools.js';
@@ -39,13 +42,7 @@ const safeFormat = (value: unknown): ReportFormat | undefined => (
   ['docx', 'xlsx', 'csv', 'json'].includes(String(value)) ? value as ReportFormat : undefined
 );
 
-export const HOSPITAL_PCU_SCOPE = {
-  addressId: '471501',
-  tambon: 'ตองโขบ',
-  amphoe: 'โคกศรีสุพรรณ',
-  province: 'สกลนคร',
-  villages: [1, 2, 4, 5, 7, 8, 9, 10, 13, 14, 15, 16],
-} as const;
+
 
 const bangkokDateParts = (date: Date) => {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -318,8 +315,12 @@ const communityDeathReport = async (request: HospitalReportRequest): Promise<Rep
   if (request.dateStart! > request.dateEnd!) throw new Error('วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด');
   const days = (Date.parse(`${request.dateEnd}T00:00:00Z`) - Date.parse(`${request.dateStart}T00:00:00Z`)) / 86_400_000;
   if (days > 1_096) throw new Error('รายงานข้อมูลรายบุคคลเลือกได้ไม่เกิน 3 ปีงบประมาณ');
+  const settings = await getAppSetting<Record<string, unknown>>('site_settings');
+  const villageIds = parseVillageScope(settings?.pcu_village_ids);
   const connection = await getUTFConnection();
   try {
+    const has = await readHospitalSchema(connection, ['thaiaddress']);
+    const hasAddress = has('thaiaddress', 'addressid', 'full_name');
     const [rows] = await connection.query(
       `SELECT
          YEAR(COALESCE(pd.death_date, p.death_date, pt.deathday)) + 543
@@ -331,9 +332,8 @@ const communityDeathReport = async (request: HospitalReportRequest): Promise<Rep
          CONCAT_WS(' ',
            CONCAT('บ้านเลขที่ ', COALESCE(NULLIF(h.address, ''), '-')),
            CONCAT('หมู่ ', v.village_moo),
-           CONCAT('ตำบล${HOSPITAL_PCU_SCOPE.tambon}'),
-           CONCAT('อำเภอ${HOSPITAL_PCU_SCOPE.amphoe}'),
-           CONCAT('จังหวัด${HOSPITAL_PCU_SCOPE.province}')
+           v.village_name,
+           ${hasAddress ? 'ta.full_name' : 'v.address_id'}
          ) AS address,
          DATE_FORMAT(COALESCE(pd.death_date, p.death_date, pt.deathday), '%Y-%m-%d') AS deathDate,
          COALESCE(NULLIF(pd.death_diag_1, ''), NULLIF(pt.death_diag, ''), '') AS mainDiseaseCode,
@@ -343,16 +343,16 @@ const communityDeathReport = async (request: HospitalReportRequest): Promise<Rep
        FROM person p
        JOIN house h ON h.house_id = p.house_id
        JOIN village v ON v.village_id = COALESCE(p.village_id, h.village_id)
+       ${hasAddress ? 'LEFT JOIN thaiaddress ta ON ta.addressid = v.address_id' : ''}
        LEFT JOIN person_death pd ON pd.person_id = p.person_id
        LEFT JOIN patient pt ON pt.hn = p.patient_hn
        LEFT JOIN icd101 main_icd ON main_icd.code = COALESCE(NULLIF(pd.death_diag_1, ''), NULLIF(pt.death_diag, ''))
        LEFT JOIN icd101 cause_icd ON cause_icd.code = NULLIF(pd.death_cause, '')
        WHERE COALESCE(pd.death_date, p.death_date, pt.deathday) BETWEEN ? AND ?
-         AND v.address_id = ?
-         AND CAST(v.village_moo AS UNSIGNED) IN (${HOSPITAL_PCU_SCOPE.villages.map(() => '?').join(', ')})
+         AND v.village_id IN (${villageIds.map(() => '?').join(', ')})
        ORDER BY deathDate, patientName
        LIMIT 2000`,
-      [request.dateStart, request.dateEnd, HOSPITAL_PCU_SCOPE.addressId, ...HOSPITAL_PCU_SCOPE.villages],
+      [request.dateStart, request.dateEnd, ...villageIds],
     );
     return {
       title: 'รายงานผู้เสียชีวิตในเขต PCU โรงพยาบาล',
@@ -372,13 +372,13 @@ const communityDeathReport = async (request: HospitalReportRequest): Promise<Rep
         { key: 'deathCause', label: 'สาเหตุการตาย', width: 34 },
       ],
       metadata: [
-        { label: 'ขอบเขตพื้นที่', value: `PCU โรงพยาบาล ต.${HOSPITAL_PCU_SCOPE.tambon} หมู่ ${HOSPITAL_PCU_SCOPE.villages.join(', ')}` },
+        { label: 'ขอบเขตพื้นที่', value: `หมู่บ้านจาก village ตามการตั้งค่า ${villageIds.length} แห่ง` },
         { label: 'แหล่งข้อมูล', value: 'person, person_death, patient, house, village, icd101' },
       ],
       notes: [
         'เป็นข้อมูลลับระดับบุคคล ใช้เฉพาะผู้มีสิทธิ์และห้ามส่งต่อนอกงานบริการโดยไม่มีฐานกฎหมาย',
         'โรคหลักและสาเหตุการตายแสดงตามรหัสที่บันทึกใน HOSxP เท่านั้น AI ไม่เติมหรือวินิจฉัยข้อมูลที่ว่าง',
-        'ขอบเขต PCU อิงภาพยืนยันพื้นที่: ตำบลตองโขบ หมู่ 1, 2, 4, 5, 7, 8, 9, 10, 13, 14, 15, 16',
+        'ขอบเขต PCU ใช้ village_id ที่เลือกในหน้าตั้งค่าของโรงพยาบาล ที่อยู่ใช้ village และ thaiaddress',
       ],
     };
   } finally {

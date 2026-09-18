@@ -167,7 +167,7 @@ const splitCodes = (value?: string) =>
 
 const findCatalogEntry = (catalog: Record<string, RepErrorCatalogEntry>, code: string) => {
   const normalized = code.toUpperCase().replace(/\s+/g, '');
-  return catalog[normalized] || (/^C\d+$/.test(normalized) ? catalog[normalized.slice(1)] : undefined);
+  return catalog[normalized] || (/^C\d+(?:-\d+)?$/.test(normalized) ? catalog[normalized.slice(1)] : undefined);
 };
 
 const getCategory = (code: string): Exclude<RepCategory, 'all'> => {

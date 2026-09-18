@@ -12,6 +12,8 @@
 
 [เริ่มใช้งาน](./QUICK_START.md) · [คู่มือใช้งานแยกตามหน้าที่](./docs/USER_MANUAL_BY_ROLE.md) · [ติดตั้ง Production](./deploy/README.md) · [แผนพัฒนา](./BACKLOG.md) · [MIT License](./LICENSE)
 
+[เลือกเอกสารตามงาน](./docs/README.md) · [แนวทางสำหรับ Coding Agent](./AGENTS.md)
+
 </div>
 
 ---

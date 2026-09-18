@@ -1,3 +1,6 @@
+import { readHospitalIdentity } from './siteProfile.js';
+import { attachFundEligibility } from './fundEligibility.js';
+import { readVisitItems, readVisitClinical } from './visitDetails.js';
 import mysql from 'mysql2/promise';
 import { hospitalPool, activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection } from './hospitalDatabase.js';
 import { mergeFdhClaimDetails } from './fdhClaimDetailMerge.js';
@@ -13,6 +16,7 @@ import { evaluateFsRate, FS_PROJECT_ITEMS_2569 } from './fsRateRules.js';
 import { findKidneyTrackingIssues, isDialysisMonitorVisit, isKidneyUnitServiceVisit, summarizeKidneyTrackingVisits } from './kidneyMonitorRules.js';
 import { attachKidneyRepStmTracking } from './kidneyRepStmTracking.js';
 import { PALLIATIVE_DIAGNOSIS_GROUPS } from '../src/config/palliativeDiagnosisCatalog.js';
+import { FUND_DEFINITIONS } from '../src/config/fundDefinitions.js';
 import { reviewPalliativeCareVisit } from '../src/utils/palliativeCareReview.js';
 import { SYPHILIS_SCREENING_ADP_CODES, SYPHILIS_SCREENING_NAME_PATTERN } from '../src/utils/syphilisScreeningRules.js';
 import { buildPostnatalTraditionalMedicineExclusionSql } from './specificFundRules.js';
@@ -386,6 +390,7 @@ const APP_USER_TABLE_SQL = `
     approved TINYINT(1) NOT NULL DEFAULT 0,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     is_admin TINYINT(1) NOT NULL DEFAULT 0,
+    fund_permissions JSON NULL,
     last_login_at DATETIME NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1447,6 +1452,7 @@ export type AppUserRecord = {
   is_admin: number;
   group_is_admin: number;
   menu_permissions: unknown;
+  fund_permissions: string[] | null;
   last_login_at: string | null;
   created_at: string | null;
 };
@@ -1482,6 +1488,15 @@ export const ensureAuthTables = async () => {
     await connection.query(APP_USER_GROUP_TABLE_SQL);
     await connection.query(APP_USER_TABLE_SQL);
     await connection.query(APP_SESSION_TABLE_SQL);
+
+    const [userColumnRows] = await connection.query(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_user' AND COLUMN_NAME = 'fund_permissions'`
+    );
+    if (!Array.isArray(userColumnRows) || userColumnRows.length === 0) {
+      await connection.query('ALTER TABLE app_user ADD COLUMN fund_permissions JSON NULL AFTER is_admin');
+    }
 
     await connection.query(
       `INSERT INTO app_user_group (group_key, group_name, is_admin, menu_permissions)
@@ -1571,12 +1586,13 @@ const mapAppUser = (row: any): AppUserRecord => ({
   is_admin: Number(row.is_admin || 0),
   group_is_admin: Number(row.group_is_admin || 0),
   menu_permissions: normalizeMenuPermissions(row.menu_permissions),
+  fund_permissions: row.fund_permissions == null ? null : normalizeFundPermissions(row.fund_permissions),
   last_login_at: row.last_login_at == null ? null : String(row.last_login_at),
   created_at: row.created_at == null ? null : String(row.created_at),
 });
 
 const getUserSelectSql = () => `
-  SELECT u.id, u.username, u.display_name, u.group_id, u.approved, u.is_active, u.is_admin,
+  SELECT u.id, u.username, u.display_name, u.group_id, u.approved, u.is_active, u.is_admin, u.fund_permissions,
          u.last_login_at, u.created_at,
          g.group_key, g.group_name, g.is_admin AS group_is_admin, g.menu_permissions
   FROM app_user u
@@ -1729,6 +1745,71 @@ export const registerAppUser = async (input: { username: string; password: strin
   }
 };
 
+const normalizeFundPermissions = (value: unknown): string[] => {
+  const raw = parseStoredSettingValue<string[]>(value);
+  const allowed = new Set(FUND_DEFINITIONS.map((fund) => fund.id));
+  return Array.from(new Set((Array.isArray(raw) ? raw : [])
+    .map((fundId) => String(fundId || '').trim())
+    .filter((fundId) => allowed.has(fundId))));
+};
+
+export const createMemberUser = async (input: {
+  username: string;
+  password: string;
+  displayName?: string;
+  groupId?: number | null;
+  isAdmin?: boolean;
+  fundPermissions?: string[] | null;
+}) => {
+  await ensureAuthTables();
+  const username = normalizeUsername(input.username);
+  if (!/^[a-z0-9._-]{3,64}$/.test(username)) {
+    return { success: false, status: 400, error: 'ชื่อผู้ใช้ต้องเป็น a-z, 0-9, จุด, ขีดกลาง หรือ underscore อย่างน้อย 3 ตัว' };
+  }
+  if (String(input.password || '').length < 12) {
+    return { success: false, status: 400, error: 'รหัสผ่านต้องมีอย่างน้อย 12 ตัวอักษร' };
+  }
+
+  const connection = await getRepstmConnection();
+  try {
+    let groupId = input.groupId || null;
+    if (groupId) {
+      const [groupRows] = await connection.query('SELECT id FROM app_user_group WHERE id = ? LIMIT 1', [groupId]);
+      if (!Array.isArray(groupRows) || groupRows.length === 0) {
+        return { success: false, status: 400, error: 'ไม่พบกลุ่มผู้ใช้ที่เลือก' };
+      }
+    } else {
+      const [groupRows] = await connection.query(
+        'SELECT id FROM app_user_group WHERE group_key = ? LIMIT 1',
+        [input.isAdmin ? 'admin' : 'staff']
+      );
+      groupId = Array.isArray(groupRows) && groupRows.length > 0 ? Number((groupRows[0] as any).id) : null;
+    }
+
+    const [result] = await connection.query(
+      `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin, fund_permissions)
+       VALUES (?, ?, ?, ?, 1, 1, ?, ?)`,
+      [
+        username,
+        hashPassword(input.password),
+        String(input.displayName || username).trim().slice(0, 191),
+        groupId,
+        input.isAdmin ? 1 : 0,
+        input.fundPermissions == null ? null : JSON.stringify(normalizeFundPermissions(input.fundPermissions)),
+      ]
+    );
+    const userId = Number((result as any)?.insertId || 0);
+    return { success: true, user: userId ? await getAppUserById(userId) : null };
+  } catch (error: any) {
+    if (String(error?.code || '') === 'ER_DUP_ENTRY') {
+      return { success: false, status: 409, error: 'ชื่อผู้ใช้นี้มีอยู่แล้ว' };
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 export const getMemberAdminData = async () => {
   await ensureAuthTables();
   const connection = await getRepstmConnection();
@@ -1757,7 +1838,7 @@ export const getMemberAdminData = async () => {
 
 export const updateMemberUser = async (
   userId: number,
-  input: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string }
+  input: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string; fundPermissions?: string[] | null }
 ) => {
   await ensureAuthTables();
   const connection = await getRepstmConnection();
@@ -1783,6 +1864,10 @@ export const updateMemberUser = async (
     if (typeof input.displayName === 'string') {
       updates.push('display_name = ?');
       values.push(input.displayName.trim() || null);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'fundPermissions')) {
+      updates.push('fund_permissions = ?');
+      values.push(input.fundPermissions == null ? null : JSON.stringify(normalizeFundPermissions(input.fundPermissions)));
     }
     if (updates.length === 0) return getAppUserById(userId);
     values.push(userId);
@@ -8287,6 +8372,7 @@ export const getInsuranceOverview = async (options: {
          ptt.pttype,
          ptt.name AS pttype_name,
          ptt.hipdata_code,
+         COALESCE(w.name, i.ward, '') AS ward,
          fdh.transaction_uid,
          fdh.fdh_reservation_status,
          fdh.fdh_reservation_datetime,
@@ -8300,6 +8386,7 @@ export const getInsuranceOverview = async (options: {
        LEFT JOIN an_stat a ON a.an = i.an
        LEFT JOIN patient pt ON pt.hn = i.hn
        LEFT JOIN pttype ptt ON ptt.pttype = i.pttype
+       LEFT JOIN ward w ON w.ward = i.ward
        LEFT JOIN (
          SELECT s.*
          FROM fdh_claim_status s
@@ -8539,6 +8626,7 @@ export const getInsuranceOverview = async (options: {
         pttype: row.pttype,
         pttype_name: row.pttype_name,
         hipdata_code: row.hipdata_code,
+        ward: row.ward,
         income: toNumber(row.income),
         expected_receivable: expected,
         transaction_uid: fdhClaimDetail?.upload_uid || row.transaction_uid,
@@ -10325,195 +10413,17 @@ export const validateCheckCompletenesss = async (
 };
 
 // ฟังก์ชันดึงข้อมูลยา (เฉพาะรายการที่อยู่ในตาราง drugitems)
-export const getDrugPrices = async (vn: string): Promise<Record<string, unknown>[]> => {
-  const connection = await pool.getConnection();
-  try {
-    const [rows] = await connection.query(
-      `SELECT 
-        opitemrece.icode,
-        COALESCE(s_drugitems.name, drugitems.name, opitemrece.icode) as drugName,
-        opitemrece.qty,
-        opitemrece.unitprice as unitPrice,
-        (opitemrece.qty * opitemrece.unitprice) as price,
-        s_drugitems.nhso_adp_code,
-        s_drugitems.tmlt_code,
-        s_drugitems.ttmt_code,
-        CASE 
-          WHEN s_drugitems.nhso_adp_code IS NOT NULL AND s_drugitems.nhso_adp_code != ''
-          THEN 1 
-          ELSE 0 
-        END as has_adp_mapping
-      FROM opitemrece
-      INNER JOIN drugitems ON opitemrece.icode = drugitems.icode
-      LEFT JOIN s_drugitems ON opitemrece.icode = s_drugitems.icode
-      WHERE opitemrece.vn = ?
-      ORDER BY opitemrece.icode`,
-      [vn]
-    );
-
-    return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
-  } catch (error) {
-    console.error('Error fetching drug prices:', error);
-    return [];
-  } finally {
-    connection.release();
-  }
-};
-
-// รายการค่าใช้จ่ายทั้งหมดของ visit สำหรับตรวจสอบกับใบสั่งยา/ยอดเรียกเก็บ
-// ใช้ LEFT JOIN เพื่อไม่ให้เวชภัณฑ์ ค่าบริการ หรือรายการที่ยังไม่ผูก drugitems หายไป
-export const getVisitChargeItems = async (vn: string): Promise<Record<string, unknown>[]> => {
+export const getVisitChargeItems = async (vn: string, an?: string): Promise<Record<string, unknown>[]> => {
   const connection = await getUTFConnection();
-  try {
-    const [rows] = await connection.query(
-      `SELECT
-         oo.icode,
-         COALESCE(NULLIF(sd.name, ''), NULLIF(di.name, ''), NULLIF(ndi.name, ''), oo.icode) AS drugName,
-         COALESCE(inc.name, '') AS incomeName,
-         CASE
-           WHEN di.icode IS NOT NULL OR sd.icode IS NOT NULL THEN 'ยา'
-           WHEN ndi.icode IS NOT NULL THEN 'เวชภัณฑ์/ค่าบริการ'
-           ELSE 'รายการอื่น'
-         END AS itemType,
-         COALESCE(oo.qty, 0) AS qty,
-         COALESCE(oo.unitprice, 0) AS unitPrice,
-         COALESCE(oo.sum_price, oo.qty * oo.unitprice, 0) AS price,
-         COALESCE(sd.nhso_adp_code, '') AS adp_code,
-         COALESCE(sd.ttmt_code, di.ttmt_code, '') AS nhso_code,
-         CASE WHEN COALESCE(sd.nhso_adp_code, '') <> '' THEN 1 ELSE 0 END AS has_adp_mapping
-       FROM opitemrece oo
-       LEFT JOIN income inc ON inc.income = oo.income
-       LEFT JOIN drugitems di ON di.icode = oo.icode
-       LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
-       LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
-       WHERE oo.vn = ?
-       ORDER BY oo.income, oo.icode`,
-      [vn]
-    );
-    return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
-  } catch (error) {
-    console.error('Error fetching visit charge items:', error);
-    throw error;
-  } finally {
-    connection.release();
-  }
+  try { return await readVisitItems(connection, vn, an); }
+  finally { connection.release(); }
 };
+export const getDrugPrices = async (vn: string, an?: string) =>
+  (await getVisitChargeItems(vn, an)).filter(row => Number(row.is_drug) === 1);
+export const getServiceADPCodes = async (vn: string, an?: string) =>
+  (await getVisitChargeItems(vn, an)).filter(row => Number(row.is_drug) !== 1);
+export const getReceiptItems = getVisitChargeItems;
 
-// ฟังก์ชันดึงข้อมูลค่าบริการ ADP Code (เฉพาะรายการที่ไม่ใช่ยา)
-export const getServiceADPCodes = async (vn: string): Promise<Record<string, unknown>[]> => {
-  const connection = await pool.getConnection();
-  try {
-    const [rows] = await connection.query(
-      `SELECT DISTINCT
-        opitemrece.icode,
-        opitemrece.income,
-        income.name as income_name,
-        COALESCE(nondrugitems.name, opitemrece.icode) as adp_name,
-        opitemrece.unitprice as adp_price,
-        s_drugitems.nhso_adp_code as adp_code,
-        CASE 
-          WHEN s_drugitems.nhso_adp_code IS NOT NULL AND s_drugitems.nhso_adp_code != ''
-          THEN 1 
-          ELSE 0 
-        END as can_claim
-      FROM opitemrece
-      LEFT JOIN income ON opitemrece.income = income.income
-      LEFT JOIN s_drugitems ON opitemrece.icode = s_drugitems.icode
-      LEFT JOIN nondrugitems ON opitemrece.icode = nondrugitems.icode
-      WHERE opitemrece.vn = ? 
-      AND opitemrece.income IS NOT NULL
-      AND opitemrece.icode NOT IN (
-        SELECT icode FROM drugitems
-      )
-      ORDER BY opitemrece.income`,
-      [vn]
-    );
-
-    return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
-  } catch (error) {
-    console.error('Error fetching service ADP codes:', error);
-    return [];
-  } finally {
-    connection.release();
-  }
-};
-
-// ฟังก์ชันดึงข้อมูลรายการใบเสร็จจาก opitemrece โยงกับ s_drugitems
-export const getReceiptItems = async (vn: string): Promise<Record<string, unknown>[]> => {
-  const connection = await pool.getConnection();
-  try {
-    const [rows] = await connection.query(
-      `SELECT 
-        opitemrece.vn,
-        opitemrece.hn,
-        opitemrece.an,
-        opitemrece.icode,
-        opitemrece.qty,
-        opitemrece.unitprice,
-        opitemrece.sum_price,
-        opitemrece.discount,
-        opitemrece.vstdate,
-        opitemrece.income,
-        income.name as income_name,
-        income.income_group,
-        
-        -- ชื่อรายการจากตารางต่างๆ
-        COALESCE(s_drugitems.name, drugitems.name, nondrugitems.name, opitemrece.icode) as item_name,
-          -- ข้อมูลจาก s_drugitems (รหัสต่างๆ)
-        s_drugitems.nhso_adp_code,
-        s_drugitems.tmlt_code,
-        s_drugitems.ttmt_code,
-        s_drugitems.name as s_drugname,
-        s_drugitems.ename as s_drugname_en,
-        s_drugitems.strength as s_strength,
-        s_drugitems.units as s_units,
-        
-        -- จำแนกประเภทรายการ
-        CASE 
-          WHEN s_drugitems.icode IS NOT NULL THEN 'ยา (s_drugitems)'
-          WHEN drugitems.icode IS NOT NULL THEN 'ยา (drugitems)'
-          WHEN nondrugitems.icode IS NOT NULL THEN 'เวชภัณฑ์'
-          WHEN income.income_group = 'DRUG' THEN 'ยา'
-          WHEN income.income_group = 'LAB' THEN 'การตรวจวิเคราะห์'
-          WHEN income.income_group = 'XRAY' THEN 'การตรวจเอกซเรย์'
-          WHEN income.income_group = 'TREAT' THEN 'การรักษา'
-          ELSE 'บริการอื่นๆ'
-        END as item_type,
-        
-        -- สถานะการเบิก/เคลม
-        CASE 
-          WHEN s_drugitems.nhso_adp_code IS NOT NULL AND s_drugitems.nhso_adp_code != '' THEN 1
-          ELSE 0 
-        END as has_nhso_adp,
-        
-        CASE 
-          WHEN s_drugitems.tmlt_code IS NOT NULL AND s_drugitems.tmlt_code != '' THEN 1
-          ELSE 0 
-        END as has_tmlt,
-        
-        CASE 
-          WHEN s_drugitems.ttmt_code IS NOT NULL AND s_drugitems.ttmt_code != '' THEN 1
-          ELSE 0 
-        END as has_ttmt
-        
-      FROM opitemrece
-      LEFT JOIN income ON opitemrece.income = income.income
-      LEFT JOIN s_drugitems ON opitemrece.icode = s_drugitems.icode
-      LEFT JOIN drugitems ON opitemrece.icode = drugitems.icode  
-      LEFT JOIN nondrugitems ON opitemrece.icode = nondrugitems.icode
-      WHERE opitemrece.vn = ?
-      ORDER BY opitemrece.income, opitemrece.icode`,
-      [vn]
-    );
-
-    return (Array.isArray(rows) ? rows : []) as Record<string, unknown>[];
-  } catch (error) {
-    console.error('Error fetching receipt items with s_drugitems mapping:', error);
-    return [];
-  } finally {
-    connection.release();
-  }
-};
 export const getProcedures = async (vn: string) => {
   const connection = await pool.getConnection();
   try {
@@ -10785,6 +10695,8 @@ export const getEligibleVisits = async (
 ): Promise<Record<string, unknown>[]> => {
   const connection = await getUTFConnection();
   try {
+    const hospitalCode = (await readHospitalIdentity(connection)).hospital_code;
+    if (!/^\d{5}$/.test(hospitalCode)) throw new Error('ไม่พบรหัสหน่วยบริการใน opdconfig');
     let query = `
       SELECT 
         ovst.vn,
@@ -10997,7 +10909,7 @@ export const getEligibleVisits = async (
         CASE 
           WHEN (SELECT icd10 FROM ovstdiag WHERE vn = ovst.vn AND diagtype = '1' LIMIT 1) REGEXP '${businessRules.diagnosis_patterns.cancer}' THEN 'CANCER' -- มะเร็งไปรับบริการที่ไหนก็ได้
           WHEN (pttype.name LIKE '%อุบัติเหตุ%' OR ovst.pt_subtype = '7') THEN 'OP AE' -- อุบัติเหตุ/ฉุกเฉิน
-          WHEN (pttype.name LIKE '%สุขภาพ%' OR pttype.name LIKE '%บัตรทอง%' OR pttype.name = 'UCS') AND ovst.hospmain != '${process.env.HOSXP_HCODE || businessRules.hospital.hcode}' THEN 'OPANY'
+          WHEN (pttype.name LIKE '%สุขภาพ%' OR pttype.name LIKE '%บัตรทอง%' OR pttype.name = 'UCS') AND ovst.hospmain != '${hospitalCode}' THEN 'OPANY'
           ELSE ''
         END as project_code,
         
@@ -11110,21 +11022,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       const normalized = String(value ?? '').trim();
       return /^\d{5}$/.test(normalized) && normalized !== '00000' ? normalized : '';
     };
-    let hcode = validHcode(process.env.HOSXP_HCODE)
-      || validHcode(businessRules.hospital.hcode)
-      || validHcode((businessRules as any)?.site_settings?.hospital_code);
-    try {
-      const [config] = await connection.query('SELECT * FROM opdconfig LIMIT 1');
-      const conf = (config as any)?.[0];
-      if (conf) {
-        hcode = validHcode(conf.hospitalcode) || validHcode(conf.hospital_code) || hcode;
-      }
-    } catch (e) {
-      console.warn('⚠️ Could not fetch hospitalcode from opdconfig, using default:', hcode);
-    }
-    if (!hcode) {
-      throw new Error('ไม่พบ HCODE หน่วยบริการที่ถูกต้อง กรุณาตั้งค่า HOSXP_HCODE เป็นตัวเลข 5 หลักที่ไม่ใช่ 00000');
-    }
+    const hcode = validHcode((await readHospitalIdentity(connection)).hospital_code);
+    if (!hcode) throw new Error('ไม่พบรหัสหน่วยบริการที่ถูกต้องใน opdconfig กรุณาตรวจสอบ HIS ก่อนส่งออก');
 
     const profile = options.profile === 'fwf-migrants' ? 'fwf-migrants' : 'standard';
     const isIpdExport = options.patientType === 'IPD';
@@ -11837,135 +11736,10 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
   }
 };
 
-export const getDiagsAndProcedures = async (vn: string) => {
+export const getDiagsAndProcedures = async (vn: string, an?: string) => {
   const connection = await getUTFConnection();
-  try {
-    const [clinicalRows] = await connection.query(`
-      SELECT
-        COALESCE(os.cc, '') AS cc,
-        COALESCE(os.hpi, '') AS hpi
-      FROM ovst o
-      LEFT JOIN opdscreen os ON os.vn = o.vn
-      WHERE o.vn = ?
-      LIMIT 1
-    `, [vn]);
-
-    const [diags] = await connection.query(`
-      SELECT 
-        d.icd10 as code,
-        i.name as name,
-        d.diagtype as type,
-        'Diag' as category
-      FROM ovstdiag d
-      LEFT JOIN icd101 i ON d.icd10 = i.code
-      WHERE d.vn = ?
-      ORDER BY d.diagtype
-    `, [vn]);
-
-    const [procs] = await connection.query(`
-      SELECT 
-        o.icd9 as code,
-        i.name as name,
-        'แพทย์' as type,
-        'Procedure' as category
-      FROM doctor_operation o
-      LEFT JOIN icd9cm1 i ON o.icd9 = i.code
-      WHERE o.vn = ?
-      UNION ALL
-      SELECT 
-        eo.er_oper_code as code,
-        e.name as name,
-        'ER' as type,
-        'Procedure' as category
-      FROM er_regist_oper eo
-      LEFT JOIN er_oper_code e ON eo.er_oper_code = e.er_oper_code
-      WHERE eo.vn = ?
-      UNION ALL
-      SELECT
-        COALESCE(
-          NULLIF(TRIM(tm.icd10tm_operation_code), ''),
-          NULLIF(TRIM(tm.icd9cm), ''),
-          NULLIF(TRIM(dm.icd9), ''),
-          dm.tmcode
-        ) as code,
-        COALESCE(
-          NULLIF(TRIM(tm.thai_name), ''),
-          NULLIF(TRIM(tm.name), ''),
-          NULLIF(TRIM(dm.ttcode), ''),
-          'หัตถการทันตกรรม'
-        ) as name,
-        'Dental' as type,
-        'Procedure' as category
-      FROM dtmain dm
-      LEFT JOIN dttm tm ON tm.code = dm.tmcode
-      WHERE dm.vn = ?
-      UNION ALL
-      SELECT
-        CASE
-          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 39 THEN '8727811'
-          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 40 THEN '8737811'
-          WHEN REPLACE(hmi.icd10tm, '-', '') = '9007811' AND hso.health_med_organ_id = 41 THEN '8747811'
-          ELSE hmi.icd10tm
-        END as code,
-        COALESCE(NULLIF(TRIM(hmi.health_med_operation_item_name), ''), 'หัตถการแพทย์แผนไทย') as name,
-        'แพทย์แผนไทย' as type,
-        'Procedure' as category
-      FROM health_med_service hms
-      JOIN health_med_service_operation hso ON hso.health_med_service_id = hms.health_med_service_id
-      JOIN health_med_operation_item hmi ON hmi.health_med_operation_item_id = hso.health_med_operation_item_id
-      WHERE hms.vn = ?
-      UNION ALL
-      SELECT
-        vp.code,
-        vp.name,
-        'OPD/43 แฟ้ม' as type,
-        'Procedure' as category
-      FROM view_procedure_opd vp
-      WHERE vp.vn = ?
-      UNION ALL
-      SELECT
-        ipo.icd9 as code,
-        COALESCE(NULLIF(TRIM(ic9.name), ''), NULLIF(TRIM(ipo.oper_note_text), ''), 'หัตถการผู้ป่วยใน') as name,
-        'ผู้ป่วยใน' as type,
-        'Procedure' as category
-      FROM ipt
-      JOIN iptoprt ipo ON ipo.an = ipt.an
-      LEFT JOIN icd9cm1 ic9 ON ic9.code = ipo.icd9
-      WHERE ipt.vn = ?
-      ORDER BY code
-    `, [vn, vn, vn, vn, vn, vn]);
-
-    const procedureRows = Array.isArray(procs) ? procs as Record<string, unknown>[] : [];
-    const procedureMap = new Map<string, Record<string, unknown>>();
-    for (const procedure of procedureRows) {
-      const code = normalizeImportCellValue(procedure.code);
-      const name = normalizeImportCellValue(procedure.name);
-      if (!code && !name) continue;
-      const key = code.replace(/[.\-\s]/g, '').toUpperCase() || name.toUpperCase();
-      const existing = procedureMap.get(key);
-      if (!existing) {
-        procedureMap.set(key, { ...procedure, code, name });
-        continue;
-      }
-      const existingName = normalizeImportCellValue(existing.name);
-      if (name.length > existingName.length) existing.name = name;
-      const sources = new Set(
-        [normalizeImportCellValue(existing.type), normalizeImportCellValue(procedure.type)].filter(Boolean)
-      );
-      existing.type = Array.from(sources).join(', ');
-    }
-
-    return {
-      clinical: Array.isArray(clinicalRows) ? clinicalRows[0] || { cc: '', hpi: '' } : { cc: '', hpi: '' },
-      diagnoses: Array.isArray(diags) ? diags : [],
-      procedures: Array.from(procedureMap.values())
-    };
-  } catch (error) {
-    console.error('Error fetching diags and procs:', error);
-    return { clinical: { cc: '', hpi: '' }, diagnoses: [], procedures: [] };
-  } finally {
-    connection.release();
-  }
+  try { return await readVisitClinical(connection, vn, an); }
+  finally { connection.release(); }
 };
 
 const attachSpecificFundStatusFields = async (connection: HospitalConnection, rows: Record<string, unknown>[]) => {
@@ -12870,11 +12644,10 @@ export const getSpecificFundData = async (
 ) => {
   const connection = await getUTFConnection();
   try {
-    const finalizeRows = (rows: Record<string, unknown>[]) => (
-      options.includeTracking === false
-        ? Promise.resolve(rows)
-        : attachSpecificFundStatusFields(connection, rows)
-    );
+    const finalizeRows = async (rows: Record<string, unknown>[]) => {
+      const evaluated = await attachFundEligibility(connection, fundType, rows);
+      return options.includeTracking === false ? evaluated : attachSpecificFundStatusFields(connection, evaluated);
+    };
     if (fundType === 'palliative') {
       const [rows] = await connection.query(`
         SELECT 
@@ -15124,7 +14897,6 @@ export const getEligibleIPD = async (
 
 // API สำหรับดึงข้อมูลสรุปชาร์ตผู้ป่วยในแบบละเอียด (IPD Chart Review)
 export const getIPDChartDetails = async (an: string) => {
-  const t0 = Date.now();
   const warnings: string[] = [];
   // Use 6 separate connections so all queries run in parallel. Each section is
   // isolated because HOSxP schemas can differ slightly between hospitals.
@@ -15149,7 +14921,7 @@ export const getIPDChartDetails = async (an: string) => {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       warnings.push(`${section}: ${message}`);
-      console.error(`IPD chart section failed (${section}) for AN=${an}:`, error);
+      console.error(`IPD chart section failed (${section})`);
       return [];
     }
   };
@@ -15205,18 +14977,12 @@ export const getIPDChartDetails = async (an: string) => {
         ORDER BY h.order_date DESC
         LIMIT ${businessRules.query_limits.lab_limit}
       `, [an, an]),
-      runSectionQuery('drug', c6, `
-        SELECT d.name, SUM(o.qty) as total_qty, SUM(o.sum_price) as total_price
-        FROM opitemrece o
-        JOIN s_drugitems d ON o.icode = d.icode
-        WHERE o.an = ? AND o.sum_price > 0
-        GROUP BY o.icode, d.name
-        ORDER BY total_price DESC
-        LIMIT ${businessRules.query_limits.drug_limit}
-      `, [an]),
+      readVisitItems(c6, '', an).then(items => items.filter(item => Number(item.is_drug) === 1).map(item => ({
+        name: item.item_name, total_qty: item.qty, total_price: item.price,
+      }))),
     ]);
 
-    console.log(`📋 getIPDChartDetails AN=${an} done in ${Date.now() - t0}ms`);
+
 
     const patientRow = patient[0] || null;
     if (!patientRow) return null;

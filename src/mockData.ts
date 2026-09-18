@@ -48,6 +48,7 @@ export interface CheckRecord {
   id: number;
   hn: string;
   vn?: string;
+  an?: string;
   patientName: string;
   fund: string;
   serviceDate: string;

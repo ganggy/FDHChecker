@@ -1,3 +1,4 @@
+import { readHospitalIdentity, parseSiteWalkinSettings, parseVillageScope } from './siteProfile.js';
 // Backend API Server สำหรับเชื่อมต่อ HOSxP
 // ใช้ Node.js + Express
 
@@ -32,6 +33,7 @@ import {
   loginAppUser,
   logoutAppUser,
   changeAppUserPassword,
+  createMemberUser,
   registerAppUser,
   saveMemberGroup,
   updateMemberUser,
@@ -104,7 +106,7 @@ import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { accountingRevenueRouter } from './accountingRevenueRoutes.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
-import { getSystemUpdateInfo, startSystemUpdate } from './systemUpdate.js';
+import { getSystemUpdateInfo, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -142,6 +144,7 @@ import {
   isAncDentalServiceKind,
   previewAncDentalCompletion,
 } from './ancDentalCompletion.js';
+import { completeHerbalDiagnoses, previewHerbalDiagnosisCompletion } from './herbalDiagnosisCompletion.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -279,6 +282,7 @@ const publicUserPayload = (user: NonNullable<Awaited<ReturnType<typeof getAuthUs
   is_active: Boolean(user.is_active),
   is_admin: Boolean(user.is_admin || user.group_is_admin),
   menu_permissions: user.menu_permissions,
+  fund_permissions: user.is_admin || user.group_is_admin ? null : user.fund_permissions,
   last_login_at: user.last_login_at,
 });
 
@@ -562,6 +566,10 @@ const validateSiteSettings = (value: unknown) => {
   if (!isPlainRecord(value)) return 'Site settings ต้องเป็น JSON object';
   const hospitalCode = String(value.hospital_code || '').trim();
   if (hospitalCode && !/^\d{5}$/.test(hospitalCode)) return 'รหัสหน่วยบริการต้องเป็นตัวเลข 5 หลัก';
+  try {
+    if (value.uc_walkin_pttypes !== undefined || value.uc_walkin_icode !== undefined) parseSiteWalkinSettings(value);
+    if (value.pcu_village_ids !== undefined && (!Array.isArray(value.pcu_village_ids) || value.pcu_village_ids.length)) parseVillageScope(value.pcu_village_ids);
+  } catch (error) { return error instanceof Error ? error.message : 'การตั้งค่าโรงพยาบาลไม่ถูกต้อง'; }
   return null;
 };
 
@@ -680,6 +688,28 @@ app.get('/api/admin/members', requireAdmin, async (_req, res) => {
   }
 });
 
+app.post('/api/admin/members', requireAdmin, async (req, res) => {
+  try {
+    const result = await createMemberUser({
+      username: String(req.body?.username || ''),
+      password: String(req.body?.password || ''),
+      displayName: String(req.body?.displayName || ''),
+      groupId: req.body?.groupId ? Number(req.body.groupId) : null,
+      isAdmin: Boolean(req.body?.isAdmin),
+      fundPermissions: req.body?.fundPermissions == null
+        ? null
+        : Array.isArray(req.body.fundPermissions) ? req.body.fundPermissions.map(String) : [],
+    });
+    if (!result.success) {
+      return res.status(result.status || 400).json({ success: false, error: result.error });
+    }
+    res.status(201).json({ success: true, user: result.user ? publicUserPayload(result.user) : null });
+  } catch (error) {
+    console.error('Create member error:', error);
+    res.status(500).json({ success: false, error: 'Cannot create member' });
+  }
+});
+
 app.patch('/api/admin/members/:id', requireAdmin, async (req, res) => {
   try {
     const userId = Number(req.params.id || 0);
@@ -690,6 +720,11 @@ app.patch('/api/admin/members/:id', requireAdmin, async (req, res) => {
       isAdmin: typeof req.body?.isAdmin === 'boolean' ? req.body.isAdmin : undefined,
       groupId: Object.prototype.hasOwnProperty.call(req.body || {}, 'groupId') ? Number(req.body.groupId || 0) || null : undefined,
       displayName: typeof req.body?.displayName === 'string' ? req.body.displayName : undefined,
+      fundPermissions: Object.prototype.hasOwnProperty.call(req.body || {}, 'fundPermissions')
+        ? req.body.fundPermissions == null
+          ? null
+          : Array.isArray(req.body.fundPermissions) ? req.body.fundPermissions.map(String) : []
+        : undefined,
     });
     res.json({ success: true, user: user ? publicUserPayload(user) : null });
   } catch (error) {
@@ -850,21 +885,13 @@ app.use('/api', dateRangeGuard);
 app.use('/api/sss', sssRouter);
 
 const getResolvedHospitalCode = async (): Promise<string> => {
-  const siteSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
-  const appSettingsHcode = siteSettings && typeof siteSettings === 'object'
-    ? String(siteSettings.hospital_code || '')
-    : '';
-
-  if (appSettingsHcode.trim()) {
-    return appSettingsHcode.trim();
+  const connection = await getUTFConnection();
+  try {
+    const code = (await readHospitalIdentity(connection)).hospital_code;
+    if (!/^\d{5}$/.test(code) || code === '00000') throw new Error('ไม่พบรหัสหน่วยบริการที่ถูกต้องใน opdconfig');
+    return code;
   }
-
-  const dbBusinessRules = await getAppSetting<Record<string, unknown>>(CONFIG_SETTING_KEY);
-  const dbSiteSettings = dbBusinessRules && typeof dbBusinessRules === 'object'
-    ? dbBusinessRules.site_settings as Record<string, unknown> | undefined
-    : undefined;
-  const fallbackHcode = String(dbSiteSettings?.hospital_code || getDefaultFdhApiConfig().hcode || '');
-  return fallbackHcode.trim();
+  finally { connection.release(); }
 };
 
 const getResolvedFdhApiConfig = async (overrides?: Record<string, unknown>) => {
@@ -1469,7 +1496,7 @@ app.get('/api/hosxp/receipt/:vn', async (req, res) => {
     const { vn } = req.params;
     console.log(`🧾 Fetching REAL receipt items for VN: ${vn} from opitemrece table`);
     // ดึงข้อมูลจาก opitemrece table โดยตรง
-    const receiptItems = await getReceiptItems(vn); if (Array.isArray(receiptItems) && receiptItems.length > 0) {
+    const receiptItems = await getReceiptItems(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined); if (Array.isArray(receiptItems) && receiptItems.length > 0) {
       console.log(`✅ Found ${receiptItems.length} receipt items from opitemrece with s_drugitems mapping`);
 
       // คำนวณสถิติเชิงลึก
@@ -1548,7 +1575,7 @@ app.get('/api/hosxp/visit/:vn/diags', async (req, res) => {
     const { vn } = req.params;
     console.log(`🩺 Fetching diags and procedures for VN: ${vn}`);
     const { getDiagsAndProcedures } = await import('./db.js');
-    const data = await getDiagsAndProcedures(vn);
+    const data = await getDiagsAndProcedures(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined);
 
     res.json({
       success: true,
@@ -1571,7 +1598,7 @@ app.get('/api/hosxp/prescriptions/:vn', async (req, res) => {
     console.log(`📊 Fetching REAL prescriptions for VN: ${vn}`);
 
     // Always fetch from database
-    const prescriptions = await getDrugPrices(vn);
+    const prescriptions = await getDrugPrices(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined);
 
     console.log(`✅ Returning ${prescriptions.length} prescription items`);
     res.json(prescriptions);
@@ -1585,7 +1612,7 @@ app.get('/api/hosxp/prescriptions/:vn', async (req, res) => {
 app.get('/api/hosxp/visit-items/:vn', async (req, res) => {
   try {
     const { vn } = req.params;
-    const items = await getVisitChargeItems(vn);
+    const items = await getVisitChargeItems(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined);
     res.json(items);
   } catch (error) {
     console.error('Error fetching visit charge items:', error);
@@ -1600,7 +1627,7 @@ app.get('/api/hosxp/services/:vn', async (req, res) => {
     console.log(`🏥 Fetching REAL ADP services for VN: ${vn}`);
 
     // Always try to fetch from database first
-    const services = await getServiceADPCodes(vn);
+    const services = await getServiceADPCodes(vn, typeof req.query.an === 'string' ? req.query.an.trim() || undefined : undefined);
 
     console.log(`✅ Returning ${services.length} ADP service items`);
     res.json(services);
@@ -1722,6 +1749,13 @@ app.get('/api/hosxp/specific-funds', async (req, res) => {
     const { fundType, startDate, endDate } = req.query;
     if (!fundType || !startDate || !endDate) {
       return res.status(400).json({ success: false, error: 'Missing parameters' });
+    }
+    const user = (req as AuthenticatedRequest).authUser;
+    const requestedFund = String(fundType);
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions)
+      && !user.fund_permissions.includes(requestedFund)) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนที่เลือก' });
     }
     console.log(`🔍 Fetching Specific Fund Data: ${fundType} from ${startDate} to ${endDate}`);
     const { getSpecificFundData } = await import('./db.js');
@@ -1882,6 +1916,64 @@ app.post('/api/hosxp/anc-dental-completion/:kind/:vn', async (req: Authenticated
   }
 });
 
+app.post('/api/admin/system-update/rollback', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const targetCommit = String(req.body?.targetCommit || '').trim();
+    const actor = String(req.authUser?.username || 'admin');
+    const data = await startSystemRollback(targetCommit, actor);
+    return res.status(202).json({ success: true, data });
+  } catch (error) {
+    console.error('System rollback start failed:', error);
+    const message = error instanceof Error ? error.message : 'เริ่มย้อนเวอร์ชันไม่สำเร็จ';
+    const status = /กำลังทำงาน|ใช้งานเวอร์ชันนี้/.test(message) ? 409 : 400;
+    return res.status(status).json({ success: false, error: message });
+  }
+});
+
+app.get('/api/hosxp/herbal-diagnosis-completion/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const user = req.authUser;
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions) && !user.fund_permissions.includes('herb')) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนสมุนไพร' });
+    }
+    return res.json({ success: true, assessment: await previewHerbalDiagnosisCompletion(vn) });
+  } catch (error) {
+    console.error('Unable to preview herbal diagnosis completion:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ตรวจข้อมูลยาสมุนไพรไม่สำเร็จ',
+    });
+  }
+});
+
+app.post('/api/hosxp/herbal-diagnosis-completion/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const user = req.authUser;
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions) && !user.fund_permissions.includes('herb')) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนสมุนไพร' });
+    }
+    const result = await completeHerbalDiagnoses(
+      vn,
+      Array.isArray(req.body?.diagnosisCodes) ? req.body.diagnosisCodes.map(String) : [],
+      { id: user?.id, name: user?.display_name || user?.username },
+      req.body?.confirmClinicalEvidence === true,
+    );
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to complete herbal diagnoses:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เติม Diagnosis ยาสมุนไพรไม่สำเร็จ',
+    });
+  }
+});
 // มอนิเตอร์โอกาสรายได้: แยกยอดค่าบริการ ยอดเคลม และยอดรับจริง
 // พร้อมชี้รายการที่ต้องตรวจเวชระเบียน โดยไม่สรุปว่า "ยอดต่ำ = ลงข้อมูลผิด"
 app.get('/api/hosxp/revenue-opportunity-monitor', async (req, res) => {
@@ -3514,6 +3606,7 @@ app.post('/api/uc-outside-cup/walkin-insert', requireAdmin, async (req: Authenti
     const data = await insertMissingUcOutsideCupWalkin({
       startDate: req.body?.startDate,
       endDate: req.body?.endDate,
+      configurationKey: String(req.body?.configurationKey || ''),
       expectedCount: Number(req.body?.expectedCount || 0),
       confirmation: String(req.body?.confirmation || ''),
       actorUserId: Number(user?.id || 0) || null,
@@ -3751,7 +3844,10 @@ app.post('/api/moph-claim/dmht/send', async (req, res) => {
     const apiBaseUrl = getMophClaimApiBaseUrl(config, isTruthyFlag(req.body?.testZone));
     const hcode = String(config.hcode || '').trim();
     const appSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
-    const hospitalName = String(appSettings?.hospital_name || '');
+    const identityConnection = await getUTFConnection();
+    let hospitalName: string;
+    try { hospitalName = (await readHospitalIdentity(identityConnection)).hospital_name; }
+    finally { identityConnection.release(); }
     const connection = await getUTFConnection();
     const results: Record<string, unknown>[] = [];
     try {
@@ -3939,7 +4035,10 @@ app.post('/api/moph-claim/vaccine/send', async (req, res) => {
     const apiBaseUrl = getMophClaimApiBaseUrl(config, isTruthyFlag(req.body?.testZone));
     const hcode = String(config.hcode || '').trim();
     const appSettings = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
-    const hospitalName = String(appSettings?.hospital_name || '');
+    const identityConnection = await getUTFConnection();
+    let hospitalName: string;
+    try { hospitalName = (await readHospitalIdentity(identityConnection)).hospital_name; }
+    finally { identityConnection.release(); }
     const connection = await getUTFConnection();
     const results: Record<string, unknown>[] = [];
     try {
@@ -4157,9 +4256,24 @@ app.post('/api/config/business-rules/frontend', async (req, res) => {
   }
 });
 
+app.get('/api/config/hospital-options', async (_req, res) => {
+  let connection;
+  try {
+    connection = await getUTFConnection();
+    const [villages] = await connection.query('SELECT village_id, village_moo, village_name, address_id FROM village ORDER BY village_id');
+    const [pttypes] = await connection.query('SELECT pttype, name FROM pttype ORDER BY pttype');
+    res.json({ success: true, villages, pttypes });
+  } catch { res.status(500).json({ success: false, error: 'ไม่สามารถอ่าน village/pttype จาก HIS ได้' }); }
+  finally { connection?.release(); }
+});
+
 app.get('/api/config/app-settings', async (req, res) => {
   try {
-    const config = await getAppSetting(APP_SETTINGS_KEY);
+    const saved = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
+    const connection = await getUTFConnection();
+    let config;
+    try { config = { ...businessRules.site_settings, ...(saved || {}), ...await readHospitalIdentity(connection) }; }
+    finally { connection.release(); }
     res.json({
       success: true,
       data: config || null,

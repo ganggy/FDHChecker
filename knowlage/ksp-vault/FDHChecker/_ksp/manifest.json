@@ -1056,8 +1056,8 @@
     },
     {
       "output": "30_Claims_and_Knowledge/vault/REP_ERROR_CODE_CATALOG.md",
-      "sha256": "cc838fc53064cf1c5b9b5f742dbd7068690746f86d85550a57db650bfb1cc7f6",
-      "bytes": 535470,
+      "sha256": "2426e35ee97b46ff7c4d42dce6c88eb56e8d4a45b156a8d7fa65b6f82947b289",
+      "bytes": 592123,
       "type": "domain-knowledge",
       "source": "knowlage/vault/REP_ERROR_CODE_CATALOG.md"
     },
@@ -1134,8 +1134,8 @@
     },
     {
       "output": "10_Rules_and_Config/public__repErrorCatalog.json.md",
-      "sha256": "6619a958e46e37598fc4f9aafc57b80c5e1447ffdb25329727eb115d07952dc1",
-      "bytes": 585736,
+      "sha256": "0fee4e6404e72f6954c30ead92f3cd363925aafa6eee779f15ece8edf9129810",
+      "bytes": 647036,
       "type": "source-snapshot",
       "source": "public/repErrorCatalog.json"
     },

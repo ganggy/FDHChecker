@@ -6,6 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   backgroundColor: '#f8fafc',
   server: {
+    url: 'http://147.50.107.211:3507',
     androidScheme: 'https',
     iosScheme: 'capacitor',
   },

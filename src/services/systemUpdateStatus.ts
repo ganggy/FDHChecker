@@ -16,3 +16,27 @@ export async function fetchSystemUpdateStatus(refreshRemote = false, timeoutMs =
     throw error;
   } finally { clearTimeout(timer); }
 }
+
+export type QuickUpdateInfo = {
+  available: boolean;
+  behind: number;
+  checkedAt: string;
+  changesCount?: number;
+};
+
+export async function checkSystemUpdateQuick(refresh = false, timeoutMs = 8000): Promise<QuickUpdateInfo> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`/api/system/update-check?refresh=${refresh ? '1' : '0'}`, {
+      cache: 'no-store', signal: controller.signal,
+    });
+    if (!response.ok) return { available: false, behind: 0, checkedAt: new Date().toISOString() };
+    const payload = await response.json().catch(() => null);
+    return payload?.data || { available: false, behind: 0, checkedAt: new Date().toISOString() };
+  } catch {
+    return { available: false, behind: 0, checkedAt: new Date().toISOString() };
+  } finally {
+    clearTimeout(timer);
+  }
+}

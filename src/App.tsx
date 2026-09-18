@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { LoginPage } from './pages/LoginPage';
 import { adminOnlyPages, menuLabelByPage, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
 import { changePassword, fetchMe, logout, type AuthSession } from './services/authService';
+import { checkSystemUpdateQuick, type QuickUpdateInfo } from './services/systemUpdateStatus';
 import { LocalAiAssistant } from './components/LocalAiAssistant';
 import { TableScrollNavigator } from './components/TableScrollNavigator';
 import type { AppPage } from './utils/navigationState';
@@ -76,6 +77,31 @@ function App() {
     else setSiteSettings({});
     return () => { active = false; };
   }, [authSession]);
+
+  const [updateInfo, setUpdateInfo] = useState<QuickUpdateInfo | null>(null);
+  useEffect(() => {
+    if (!authSession) {
+      setUpdateInfo(null);
+      return;
+    }
+    let active = true;
+    const checkUpdate = async (refresh = false) => {
+      try {
+        const result = await checkSystemUpdateQuick(refresh);
+        if (active) setUpdateInfo(result);
+      } catch {
+        // silent check error
+      }
+    };
+
+    void checkUpdate(false);
+    const timer = window.setInterval(() => void checkUpdate(false), 10 * 60 * 1000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [authSession]);
+
   const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
   const regionLabel = siteSettings.nhso_region ? `เขต ${siteSettings.nhso_region}` : '';
   const isAdmin = Boolean(authSession?.user.is_admin);
@@ -256,16 +282,34 @@ function App() {
               <div>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</div>
               <div>{new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
             </div>
+            {updateInfo?.available && (
+              <button
+                type="button"
+                className="nav-update-badge"
+                onClick={() => {
+                  window.sessionStorage.setItem('settings_target_tab', 'update');
+                  goToPage('settings');
+                }}
+                title={`มีอัปเดตใหม่ (${updateInfo.behind} รายการ) — คลิกเพื่อไปยังหน้าอัปเดตระบบ`}
+              >
+                <span className="update-pulse-dot" />
+                <span>มีอัปเดตใหม่ ({updateInfo.behind})</span>
+              </button>
+            )}
             <button className="nav-btn nav-icon-btn" onClick={() => setPasswordDialogOpen(true)} title="เปลี่ยนรหัสผ่าน">
               <span style={{ fontSize: '1.15rem' }}>🔑</span>
             </button>
             {canOpenPage('settings') && (
               <button
                 className={`nav-btn nav-icon-btn ${currentPage === 'settings' ? 'active' : ''}`}
-                onClick={() => goToPage('settings')}
-                title="ตั้งค่าระบบ"
+                onClick={() => {
+                  if (updateInfo?.available) window.sessionStorage.setItem('settings_target_tab', 'update');
+                  goToPage('settings');
+                }}
+                title={updateInfo?.available ? `ตั้งค่าระบบ — มีอัปเดตใหม่ (${updateInfo.behind} รายการ)` : 'ตั้งค่าระบบ'}
               >
                 <span style={{ fontSize: '1.4rem' }}>⚙️</span>
+                {updateInfo?.available && <span className="nav-icon-badge-dot" />}
               </button>
             )}
             <button className="nav-btn nav-icon-btn" onClick={handleLogout} title="ออกจากระบบ">
@@ -279,6 +323,7 @@ function App() {
               aria-expanded={mobileMenuOpen}
             >
               <span aria-hidden="true">☰</span>
+              {updateInfo?.available && <span className="nav-icon-badge-dot" />}
             </button>
           </div>
         </div>
@@ -418,7 +463,15 @@ function App() {
 
             <footer className="mobile-nav-actions">
               <button type="button" onClick={() => { setMobileMenuOpen(false); setPasswordDialogOpen(true); }}>🔑 เปลี่ยนรหัสผ่าน</button>
-              {canOpenPage('settings') && <button type="button" onClick={() => goToPage('settings')}>⚙️ ตั้งค่า</button>}
+              {canOpenPage('settings') && (
+                <button type="button" onClick={() => {
+                  if (updateInfo?.available) window.sessionStorage.setItem('settings_target_tab', 'update');
+                  setMobileMenuOpen(false);
+                  goToPage('settings');
+                }}>
+                  ⚙️ ตั้งค่าระบบ {updateInfo?.available ? `🔔 (มีอัปเดตใหม่ ${updateInfo.behind})` : ''}
+                </button>
+              )}
               <button type="button" className="is-danger" onClick={() => void handleLogout()}>⏻ ออกจากระบบ</button>
             </footer>
           </aside>

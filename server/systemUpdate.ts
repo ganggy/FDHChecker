@@ -393,3 +393,31 @@ export const startSystemRollback = async (targetCommit: string, actor: string) =
   await launchUpdateRunner(job);
   return job;
 };
+
+let cachedUpdateCheck: { available: boolean; behind: number; checkedAt: string; changesCount: number } | null = null;
+let lastRemoteFetchTime = 0;
+const REMOTE_CHECK_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes cache
+
+export const getQuickUpdateCheck = async (forceRefresh = false): Promise<{ available: boolean; behind: number; checkedAt: string; changesCount: number }> => {
+  const now = Date.now();
+  const shouldFetch = forceRefresh || (now - lastRemoteFetchTime > REMOTE_CHECK_INTERVAL_MS);
+
+  if (!shouldFetch && cachedUpdateCheck) {
+    return cachedUpdateCheck;
+  }
+
+  try {
+    const info = await getSystemUpdateInfo(shouldFetch);
+    lastRemoteFetchTime = now;
+    cachedUpdateCheck = {
+      available: Boolean(info.available),
+      behind: Number(info.behind || 0),
+      checkedAt: info.checkedAt || new Date().toISOString(),
+      changesCount: Array.isArray(info.changes) ? info.changes.length : Number(info.behind || 0),
+    };
+    return cachedUpdateCheck;
+  } catch {
+    return cachedUpdateCheck || { available: false, behind: 0, checkedAt: new Date().toISOString(), changesCount: 0 };
+  }
+};
+

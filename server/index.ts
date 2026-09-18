@@ -106,7 +106,7 @@ import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { accountingRevenueRouter } from './accountingRevenueRoutes.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
-import { getSystemUpdateInfo, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
+import { getQuickUpdateCheck, getSystemUpdateInfo, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -817,6 +817,17 @@ const publicHealthPaths = new Set(['/health', '/live', '/ready']);
 app.use('/api', (req: AuthenticatedRequest, res, next) => {
   if (publicHealthPaths.has(req.path)) return next();
   return void requireAuth(req, res, next);
+});
+
+app.get('/api/system/update-check', async (req: AuthenticatedRequest, res) => {
+  try {
+    const force = String(req.query.refresh || '') === '1';
+    const data = await getQuickUpdateCheck(force);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, data });
+  } catch (error) {
+    return res.json({ success: true, data: { available: false, behind: 0, checkedAt: new Date().toISOString() } });
+  }
 });
 
 // Configuration may be read by authenticated workflow pages, but only admins may change it.

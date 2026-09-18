@@ -155,7 +155,14 @@ const getGuaranteedFundDefinitions = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced' | 'connection' | 'update'>('hospital');
+    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced' | 'connection' | 'update'>(() => {
+        const target = window.sessionStorage.getItem('settings_target_tab');
+        if (target === 'update') {
+            window.sessionStorage.removeItem('settings_target_tab');
+            return 'update';
+        }
+        return 'hospital';
+    });
     const [frontendConfig, setFrontendConfig] = useState<Config | null>(null);
     const [backendConfig, setBackendConfig] = useState<any | null>(null);
     const [frontendSource, setFrontendSource] = useState<'database' | 'file' | 'unknown'>('unknown');
@@ -217,6 +224,19 @@ export const SettingsPage: React.FC = () => {
     useEffect(() => {
         void fetchConfigs();
     }, [fetchConfigs]);
+
+    useEffect(() => {
+        const checkTargetTab = () => {
+            const target = window.sessionStorage.getItem('settings_target_tab');
+            if (target === 'update') {
+                window.sessionStorage.removeItem('settings_target_tab');
+                setActiveTab('update');
+            }
+        };
+        checkTargetTab();
+        window.addEventListener('fdh:navigate', checkTargetTab);
+        return () => window.removeEventListener('fdh:navigate', checkTargetTab);
+    }, []);
 
     useEffect(() => {
         const warnBeforeLeave = (event: BeforeUnloadEvent) => {

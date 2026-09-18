@@ -39,7 +39,7 @@ API ยกเว้น health และการเข้าสู่ระบ�
 - SSH host: `192.168.2.202`
 - SSH user: `war12oc`
 - Project path: `/opt/FDHChecker`
-- Git branch: `agent/add-local-ai`
+- Git branch: `main`
 - Public frontend: `http://147.50.107.211:3507`
 - Public backend: `http://147.50.107.211:3506`
 - PM2 applications: `fdh-frontend` และ `fdh-backend`

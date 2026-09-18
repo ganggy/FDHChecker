@@ -3,7 +3,7 @@ param(
     [string]$Server = '192.168.2.202',
     [string]$SshUser = 'war12oc',
     [string]$ProjectPath = '/opt/FDHChecker',
-    [string]$Branch = 'agent/add-local-ai',
+    [string]$Branch = 'main',
     [ValidateSet('backend', 'frontend', 'all')]
     [string]$Target = 'backend',
     [switch]$Backup

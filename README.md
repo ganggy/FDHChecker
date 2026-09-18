@@ -50,41 +50,231 @@ HOSxP → ตรวจความพร้อมราย Visit → ส่ง�
 | Database | MySQL / MariaDB สำหรับ HOSxP และฐาน REP/STM/INV |
 | Production | PM2 · Nginx / HTTPS |
 
-## 🚀 เริ่มพัฒนา
+## 🖥️ ความต้องการของระบบ (System Requirements)
 
-รันคำสั่งจากโฟลเดอร์โปรเจกต์ โดยใช้ Node.js และ npm พร้อมการเชื่อมต่อฐานข้อมูลที่กำหนดใน `.env`
+### 1. สเปกฮาร์ดแวร์ (Hardware Requirements)
+| ทรัพยากร | ขั้นต่ำ (Minimum) | แนะนำ (Recommended) |
+| :--- | :--- | :--- |
+| **CPU** | 2 Cores | 4 Cores ขึ้นไป (รองรับการประมวลผลเคลมปริมาณมาก) |
+| **RAM** | 4 GB | 8 GB ขึ้นไป (แนะนำ 16 GB หากเปิดใช้งานโมเดล Local AI) |
+| **Disk Space** | 20 GB | 50 GB+ (SSD / NVMe แนะนำสำหรับเก็บ Log และไฟล์สำรองฐานข้อมูล) |
 
-**1. ติดตั้งและเปิด Backend**
+### 2. ซอฟต์แวร์และ Runtime (Software & Environment)
+- **ระบบปฏิบัติการ (OS):** 
+  - **Production:** Linux แนะนำ **AlmaLinux 9 / Rocky Linux 9 / RHEL 9** หรือ **Ubuntu 22.04 / 24.04 LTS** / Debian 12
+  - **Development / Test:** Windows 10/11, macOS หรือ Linux
+- **Node.js:** v22.x LTS (หรือ v20.x ขึ้นไป)
+- **Package Manager:** `npm` v10+ (มาพร้อมกับ Node.js)
+- **Process Manager:** `pm2` สำหรับจัดการรัน Backend และ Frontend บน Production
+- **Web Server / Reverse Proxy:** `Nginx` (พร้อมการตั้งค่า SSL/TLS ผ่าน Let's Encrypt / Certbot)
+- **คำสั่งและเครื่องมือพื้นฐาน:** `git`, `curl`, `mysqldump` (MySQL Client tools), GNU `coreutils` (`timeout`)
 
-```powershell
-npm install
-Copy-Item .env.example .env
-npm run server
+### 3. ระบบฐานข้อมูล (Database)
+- **ฐานข้อมูล HOSxP (HIS):**
+  - **MySQL 5.7+ / MariaDB 10.3+ / Percona Server** (ใช้การเชื่อมต่อแบบ UTF-8 / TIS-620 ตามโครงสร้างเดิมของ รพ.)
+  - *สิทธิ์ฐานข้อมูล:* แนะนำสิทธิ์ **Read-Only (SELECT)** เพื่อความปลอดภัยสูงสุดของข้อมูลผู้ป่วย (หากต้องการใช้ระบบบันทึกรายการ UC WALKIN หรือ sync ค่าบริการ 0 บาทอัตโนมัติ ต้องเปิดสิทธิ์ INSERT ในตารางที่เกี่ยวข้องตามความยินยอม)
+  - รองรับโหมดอ่านผ่าน **PostgreSQL** สำหรับโรงพยาบาลที่ใช้ HIS บน PostgreSQL
+- **ฐานข้อมูลจัดการระบบ (REP / STM / INV / Users):**
+  - แนะนำแยก Database ต่างหาก เช่น `repstminv` หรือรวมในฐานเดียวกัน
+  - ต้องมีสิทธิ์ `CREATE`, `ALTER`, `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `DROP` สำหรับตารางจัดการสิทธิ์ผู้ใช้ (`app_user`, `app_user_group`), ตารางบันทึกไฟล์ลูกหนี้/สเตทเมนต์ (`repstm_*`), และตารางตั้งค่าระบบ (`app_settings`)
+
+### 4. พอร์ตและการเชื่อมต่อเครือข่าย (Network & Ports)
+- **พอร์ตภายในเครื่อง (Internal):**
+  - `3506` : Backend Express API
+  - `3507` : Frontend Vite Application
+- **พอร์ตภายนอก (External / Public):**
+  - `80` (HTTP) และ `443` (HTTPS) ผ่าน Nginx Reverse Proxy
+- **การเชื่อมต่อออกภายนอก (Outbound Internet):**
+  - พอร์ต `443` สำหรับส่งเคลมและดึงสิทธิ์กับ FDH Gateway (`fdh.moph.go.th`), NHSO e-Claim API, MOPH Claim API และดาวน์โหลดอัปเดตจาก GitHub
+
+---
+
+## 🛠️ ขั้นตอนการติดตั้งระบบ (Installation Guide)
+
+### 📌 แนวทางที่ 1: ติดตั้งสำหรับใช้งานจริง (Production บน Linux)
+
+#### ขั้นตอนที่ 1: เตรียมเครื่องและติดตั้งแพ็กเกจที่จำเป็น
+**บน AlmaLinux 9 / Rocky Linux 9 / RHEL:**
+```bash
+# อัปเดตระบบและติดตั้งเครื่องมือพื้นฐาน
+sudo dnf update -y
+sudo dnf install -y git curl nginx mysql
+
+# ติดตั้ง Node.js 22 LTS ผ่าน NodeSource
+curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
+sudo dnf install -y nodejs
+
+# ติดตั้ง PM2 globally
+sudo npm install -g pm2
 ```
 
-**2. เปิด Frontend ในอีก terminal**
+**บน Ubuntu 22.04 / 24.04 LTS / Debian:**
+```bash
+# อัปเดตระบบและติดตั้งเครื่องมือพื้นฐาน
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl nginx mysql-client coreutils
 
-```powershell
+# ติดตั้ง Node.js 22 LTS ผ่าน NodeSource
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt install -y nodejs
+
+# ติดตั้ง PM2 globally
+sudo npm install -g pm2
+```
+
+#### ขั้นตอนที่ 2: ดาวน์โหลด Source Code
+```bash
+# Clone repository มายังไดเรกทอรีติดตั้ง (แนะนำ /opt/FDHChecker)
+sudo git clone https://github.com/ganggy/FDHChecker.git /opt/FDHChecker
+sudo chown -R $USER:$USER /opt/FDHChecker
+cd /opt/FDHChecker
+
+# ตรวจสอบว่าอยู่บน branch main
+git checkout main
+```
+
+#### ขั้นตอนที่ 3: สร้างโฟลเดอร์ Log และกำหนดค่าคอนฟิก (.env)
+```bash
+# สร้างโฟลเดอร์เก็บ log สำหรับ PM2
+sudo install -d -o "$USER" -g "$USER" /var/log/fdh-checker
+
+# คัดลอกไฟล์แม่แบบคอนฟิก
+cp .env.example .env
+chmod 600 .env
+
+# แก้ไขไฟล์ .env ตามค่าจริงของโรงพยาบาล
+nano .env
+```
+> [!IMPORTANT]
+> **ค่าสำคัญที่ต้องระบุใน `.env`:**
+> - `HOSXP_HOST`, `HOSXP_PORT`, `HOSXP_DB`, `HOSXP_USER`, `HOSXP_PASS`: การเชื่อมต่อฐานข้อมูล HOSxP
+> - `REPSTM_HOST`, `REPSTM_PORT`, `REPSTM_DB`, `REPSTM_USER`, `REPSTM_PASS`: การเชื่อมต่อฐานข้อมูลจัดการลูกหนี้และผู้ใช้
+> - `JWT_SECRET`: รหัสลับสำหรับสร้าง Token เข้ารหัส (แนะนำสุ่มสตริงยาว 32+ ตัวอักษร)
+> - `CORS_ORIGINS`: โดเมนหรือ IP ที่อนุญาตให้เรียกใช้งาน (เช่น `http://192.168.2.202:3507,https://fdh.yourhospital.go.th`)
+> - `FDH_SELF_UPDATE_ENABLED=1`: เปิดให้กดอัปเดตผ่านหน้าเว็บได้
+> - `APP_BOOTSTRAP_ADMIN_USERNAME` และ `APP_BOOTSTRAP_ADMIN_PASSWORD`: กำหนดบัญชี Admin แรกเข้าชั่วคราว
+
+#### ขั้นตอนที่ 4: ติดตั้ง Dependencies และ Build ระบบ
+```bash
+# ติดตั้ง dependencies ตาม package-lock
+npm ci --include=dev
+
+# ตรวจสอบความถูกต้องของระบบ
+npm run check
+
+# Build ทั้ง Frontend และ Backend สำหรับ Production
+npm run build:all
+```
+
+#### ขั้นตอนที่ 5: เริ่มต้นระบบครั้งแรก (สร้างตารางและบัญชี Admin)
+```bash
+# รัน backend ชั่วคราวเพื่อให้ระบบสร้างตารางและบัญชี Admin เริ่มต้น
+node server/dist/server/index.js
+# เมื่อขึ้นข้อความระบบพร้อมทำงาน ให้กด Ctrl + C เพื่อหยุด
+```
+> [!TIP]
+> หลังจากสร้างบัญชี Admin เรียบร้อยแล้ว ให้เปิดไฟล์ `.env` แล้วลบหรือ Comment ค่า `APP_BOOTSTRAP_ADMIN_USERNAME` และ `APP_BOOTSTRAP_ADMIN_PASSWORD` ออก เพื่อความปลอดภัย
+
+#### ขั้นตอนที่ 6: จัดการ Process ด้วย PM2 และตั้งให้เปิดอัตโนมัติตอนบูตเครื่อง
+```bash
+# เริ่มต้นบริการ Backend และ Frontend ผ่าน PM2
+pm2 start deploy/pm2/ecosystem.config.cjs
+
+# บันทึกสถานะ process
+pm2 save
+
+# ตั้งค่าให้ PM2 สตาร์ตอัตโนมัติเมื่อเปิดเครื่อง (ทำตามคำแนะนำที่ระบบแสดงผล)
+pm2 startup
+```
+
+ตรวจสอบสถานะการทำงาน:
+```bash
+pm2 status
+pm2 logs --lines 50
+```
+
+#### ขั้นตอนที่ 7: ตั้งค่า Nginx Reverse Proxy และ HTTPS
+คัดลอกไฟล์คอนฟิกตัวอย่างไปยัง Nginx:
+```bash
+sudo cp deploy/nginx/fdh-checker.conf /etc/nginx/conf.d/fdh-checker.conf
+
+# แก้ไข server_name และเส้นทาง SSL certificate ตามโดเมนจริงของโรงพยาบาล
+sudo nano /etc/nginx/conf.d/fdh-checker.conf
+
+# ตรวจสอบความถูกต้องและโหลดการตั้งค่าใหม่
+sudo nginx -t
+sudo systemctl enable nginx
+sudo systemctl restart nginx
+```
+
+#### ขั้นตอนที่ 8: ตรวจสอบความพร้อมของระบบ (Health Check)
+```bash
+curl -I http://127.0.0.1:3506/api/live
+curl -I http://127.0.0.1:3506/api/ready
+```
+เมื่อผลลัพธ์ตอบกลับเป็น `HTTP/1.1 200 OK` แสดงว่าระบบติดตั้งสมบูรณ์และพร้อมให้บริการ
+
+---
+
+### 💻 แนวทางที่ 2: ติดตั้งสำหรับทดสอบหรือพัฒนา (Development บน Windows / macOS / Linux)
+
+```bash
+# 1. Clone repository
+git clone https://github.com/ganggy/FDHChecker.git
+cd FDHChecker
+
+# 2. ติดตั้ง dependencies
+npm install
+
+# 3. สร้างไฟล์ .env จากแม่แบบ
+cp .env.example .env     # บน Linux/macOS
+# หรือบน Windows PowerShell: Copy-Item .env.example .env
+
+# 4. แก้ไข .env ให้ชี้ไปยังฐานข้อมูลทดสอบ
+# 5. เปิด Backend (Terminal 1)
+npm run server
+
+# 6. เปิด Frontend (Terminal 2)
 npm run dev
 ```
+เข้าใช้งานระบบได้ที่ `http://localhost:3507` (Backend API อยู่ที่ `http://localhost:3506`)
 
-**3. เข้าใช้งานและตรวจสถานะ**
+---
 
-| บริการ | URL |
-| :--- | :--- |
-| Frontend | http://localhost:3507 |
-| Backend | http://localhost:3506 |
-| Health check | http://localhost:3506/api/health |
+## 🔄 การอัปเดตระบบในอนาคต (System Updates)
 
-ระบบไม่สร้างรหัสผู้ดูแลแบบ hardcode หากฐานข้อมูลยังไม่มี Admin ให้ตั้งค่า `APP_BOOTSTRAP_ADMIN_USERNAME` และ `APP_BOOTSTRAP_ADMIN_PASSWORD` ชั่วคราว รันระบบหนึ่งครั้ง แล้วนำสองค่านี้ออกจาก `.env`
+### วิธีที่ 1: อัปเดตผ่านหน้าเว็บ (แนะนำสำหรับผู้ดูแลระบบ)
+1. เข้าสู่ระบบด้วยบัญชี Admin แล้วไปที่เมนู **ตั้งค่าระบบ → อัปเดตระบบ**
+2. ระบบจะตรวจสอบ commit ล่าสุดจาก GitHub (`main`) อัตโนมัติ พร้อมแสดงรายการเปลี่ยนแปลง
+3. กดยืนยัน **"ดำเนินการอัปเดต"** ระบบจะรัน pipeline (ดึงโค้ด, ตรวจสอบ, build, รีสตาร์ต PM2 และ health check) ให้อัตโนมัติโดยไม่ทำให้ระบบค้าง
 
-## ✅ ตรวจคุณภาพก่อนส่งขึ้นระบบ
-
-```powershell
-npm run check
+### วิธีที่ 2: อัปเดตผ่านสคริปต์บนเซิร์ฟเวอร์
+```bash
+cd /opt/FDHChecker
+bash deploy/scripts/deploy-app.sh
 ```
 
-คำสั่งนี้รัน automated tests, ตรวจ TypeScript backend, ESLint และ production build
+---
+
+## ⚙️ การตั้งค่าระบบสำคัญใน `.env`
+
+| ตัวแปร | รายละเอียด | ค่าเริ่มต้น / ตัวอย่าง |
+| :--- | :--- | :--- |
+| `PORT` | พอร์ต Backend API | `3506` |
+| `HOSXP_HOST` | ที่อยู่ Host ของฐานข้อมูล HOSxP | `192.168.2.254` |
+| `HOSXP_PORT` | พอร์ต MySQL HOSxP | `3306` |
+| `HOSXP_DB` | ชื่อฐานข้อมูล HOSxP | `hos` |
+| `REPSTM_HOST` | ที่อยู่ Host ของฐานข้อมูล REP/STM | `192.168.2.254` |
+| `REPSTM_DB` | ชื่อฐานข้อมูล REP/STM | `repstminv` |
+| `CORS_ORIGINS` | รายการโดเมนที่อนุญาต (คั่นด้วยจุลภาค) | `http://localhost:3507,http://192.168.2.202:3507` |
+| `TRUST_PROXY` | เปิดใช้งานเมื่อวางหลัง Nginx / Reverse Proxy | `1` |
+| `JWT_SECRET` | คีย์เข้ารหัส JWT สำหรับ Session ผู้ใช้ | สตริงสุ่มความยาว 32+ ตัวอักษร |
+| `HOSXP_QUERY_MAX_DAYS` | จำนวนวันสูงสุดที่ค้นหา Visit ต่อครั้ง | `90` |
+| `OUTBOUND_HTTP_TIMEOUT_MS` | Timeout สำหรับเชื่อมต่อ API ภายนอก (มิลลิวินาที) | `30000` |
+| `FDH_SELF_UPDATE_ENABLED` | เปิดใช้งานเมนูอัปเดตผ่านหน้าเว็บ | `1` |
+| `FDH_DEPLOY_BRANCH` | Branch ที่ใช้ในการอัปเดต | `main` |
+
+---
 
 ## 📡 FDH 16 แฟ้ม API
 
@@ -115,31 +305,9 @@ npm run check
 
 </details>
 
-## ⚙️ การตั้งค่า
+## 📦 การสำรองและกู้คืนข้อมูล (Backup & Rollback)
 
-เลือกชนิดฐาน HOSxP ได้ที่ **ตั้งค่าระบบ → ฐานข้อมูล HOSxP** รองรับ MySQL/MariaDB และ PostgreSQL สำหรับการอ่านข้อมูล โดย PostgreSQL ยังต้องตรวจความเข้ากันได้ของแต่ละรายงาน ดู[ขั้นตอนและขอบเขตการรองรับ](./deploy/HOSPITAL_DATABASE.md)
-
-ใช้ [.env.example](./.env.example) เป็นแม่แบบ ห้าม commit `.env`, password หรือ token จริงเข้า Git
-
-ตัวแปรสำคัญ:
-
-- `HOSXP_*` การเชื่อมต่อ HOSxP
-- `REPSTM_*` ฐานข้อมูล REP/STM/INV
-- `CORS_ORIGINS` URL ที่อนุญาตให้เรียก API
-- `TRUST_PROXY=1` เมื่อวางหลัง reverse proxy
-- `HOSXP_QUERY_MAX_DAYS` เพดานช่วงค้นหา Visit
-- `OUTBOUND_HTTP_TIMEOUT_MS` timeout สำหรับ FDH/NHSO/MOPH
-
-## 📦 Production
-
-1. ตั้งค่า `.env` บนเครื่องปลายทางโดยไม่เก็บใน Git
-2. รัน `npm ci` และ `npm run check`
-3. build frontend และ backend ด้วย `npm run build:all`
-4. สำรองฐานข้อมูล แล้วรัน backend ผ่าน PM2 และวาง Nginx/HTTPS ด้านหน้า
-5. ตรวจ `/api/live` และ `/api/ready` หลัง deploy
-6. เปลี่ยน bootstrap password และ token ที่ใช้ติดตั้งทันที
-
-ตัวอย่าง PM2, Nginx, backup และ rollback อยู่ที่ [deploy/README.md](./deploy/README.md)
+- ดูขั้นตอนการสำรองฐานข้อมูลอัตโนมัติ การ rollback และการกู้คืนระบบเพิ่มเติมได้ที่ [deploy/README.md](./deploy/README.md)
 
 ## 🗂️ โครงสร้างหลัก
 

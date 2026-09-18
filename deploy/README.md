@@ -2,13 +2,79 @@
 
 เป้าหมายของโฟลเดอร์นี้คือให้ production มีขั้นตอน build, health check, restart, rollback และ backup ที่ทำซ้ำได้ โดยตัวอย่างใช้ AlmaLinux 9, Nginx และ PM2
 
-## เตรียมเครื่องครั้งแรก
+## ความต้องการของระบบ (System Requirements)
 
-1. ติดตั้ง Node.js 22 LTS, Nginx, PM2, MySQL client และ `mysqldump`
-2. clone repository ไว้ที่ `/opt/FDHChecker` ซึ่งตรงกับ systemd service เดิม
-3. สร้าง `/opt/FDHChecker/.env` จาก `.env.example` และจำกัดสิทธิ์เป็น `600`
-4. สร้าง log directory: `sudo install -d -o "$USER" -g "$USER" /var/log/fdh-checker`
-5. แก้ hostname และ certificate path ใน `deploy/nginx/fdh-checker.conf` ก่อนติดตั้ง
+- **OS**: AlmaLinux 9 / Rocky Linux 9 / RHEL 9 (แนะนำ) หรือ Ubuntu 22.04 / 24.04 LTS / Debian 12
+- **Hardware**: CPU 2 Cores+ (แนะนำ 4 Cores), RAM 4 GB+ (แนะนำ 8 GB+), Disk SSD 20 GB+
+- **Runtime**: Node.js v22.x LTS, npm v10+, PM2, Nginx, Git, MySQL Client tools (`mysqldump`), GNU `coreutils`
+- **Network**: Port 3506 (Backend), Port 3507 (Frontend), Port 80/443 (Nginx), Outbound 443 (FDH Gateway / NHSO)
+
+## เตรียมเครื่องครั้งแรก (First-time Server Setup)
+
+### 1. ติดตั้งแพ็กเกจระบบและ Node.js 22 LTS
+**สำหรับ AlmaLinux 9 / Rocky Linux 9:**
+```bash
+sudo dnf update -y
+sudo dnf install -y git curl nginx mysql
+curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
+sudo dnf install -y nodejs
+sudo npm install -g pm2
+```
+
+**สำหรับ Ubuntu 22.04 / 24.04 LTS:**
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git curl nginx mysql-client coreutils
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt install -y nodejs
+sudo npm install -g pm2
+```
+
+### 2. ดาวน์โหลดโค้ดและเตรียม Directory
+```bash
+sudo git clone https://github.com/ganggy/FDHChecker.git /opt/FDHChecker
+sudo chown -R $USER:$USER /opt/FDHChecker
+cd /opt/FDHChecker
+git checkout main
+
+# สร้างโฟลเดอร์สำหรับเก็บ Log
+sudo install -d -o "$USER" -g "$USER" /var/log/fdh-checker
+```
+
+### 3. ตั้งค่าคอนฟิก (.env)
+```bash
+cp .env.example .env
+chmod 600 .env
+nano .env
+```
+กำหนดค่าการเชื่อมต่อฐานข้อมูล HOSxP, ฐานข้อมูล REP/STM, JWT_SECRET, CORS_ORIGINS และบัญชี Admin ชั่วคราว (`APP_BOOTSTRAP_ADMIN_*`)
+
+### 4. ติดตั้ง Dependency, Build และสร้างฐานข้อมูลครั้งแรก
+```bash
+npm ci --include=dev
+npm run check
+npm run build:all
+
+# รัน Backend ชั่วคราวเพื่อสร้าง Table และ User Admin
+node server/dist/server/index.js
+# กด Ctrl+C หลังจากขึ้นว่าระบบพร้อมทำงาน
+```
+
+### 5. เปิดใช้งานบริการด้วย PM2
+```bash
+pm2 start deploy/pm2/ecosystem.config.cjs
+pm2 save
+pm2 startup
+```
+
+### 6. ตั้งค่า Nginx Reverse Proxy
+```bash
+sudo cp deploy/nginx/fdh-checker.conf /etc/nginx/conf.d/fdh-checker.conf
+# ปรับแก้ server_name และเส้นทาง SSL certificate ให้ตรงกับโดเมน
+sudo nano /etc/nginx/conf.d/fdh-checker.conf
+sudo nginx -t
+sudo systemctl enable nginx && sudo systemctl restart nginx
+```
 
 ## Deploy
 

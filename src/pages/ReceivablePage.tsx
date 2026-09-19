@@ -381,6 +381,25 @@ export const ReceivablePage = () => {
         <div className="receivable-hero-note">
           <strong>{settings?.hospital_name || 'หน่วยบริการ'}</strong>
           <span>ตั้งลูกหนี้เฉพาะรายการที่เข้าเกณฑ์เบิกได้ เช่น กองทุนพิเศษ ยาสมุนไพร ค่าบริการ OPD อุปกรณ์/ADP ที่เบิกได้</span>
+          <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.82rem' }}>
+            <a
+              href="/manual_accounts_receivable.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#2563eb', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              📖 เปิดคู่มือการใช้งาน (HTML)
+            </a>
+            <span style={{ color: '#cbd5e1' }}>|</span>
+            <a
+              href="/manual_accounts_receivable.pdf"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#059669', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              📄 ดาวน์โหลดคู่มือ PDF (A4)
+            </a>
+          </div>
         </div>
       </section>
 

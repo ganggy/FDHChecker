@@ -523,8 +523,37 @@ export const GuidePage: React.FC = () => {
         <div className="page-container" style={{ padding: '0 16px' }}>
             <div className="page-header" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
-                    <h1 className="page-title">📚 คู่มือและเงื่อนไขกองทุน (Knowledge Base)</h1>
-                    <p className="page-subtitle">คู่มือรหัส Diag ข้อมูลที่ต้องคีย์ และเงื่อนไขก่อนส่งตามกฎที่ตั้งไว้ในโปรแกรม — ต้องตรวจประกาศที่ใช้กับวันบริการประกอบ</p>
+                    <h1 className="page-title">📚 คู่มือการใช้งานและเงื่อนไขกองทุน (Knowledge Base)</h1>
+                    <p className="page-subtitle">คู่มือการใช้งานระบบ FDH Checker, รหัส Diag, ข้อมูลที่ต้องคีย์ และเงื่อนไขการพิมพ์รายงานบัญชีลูกหนี้สิทธิ์</p>
+                    <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <a
+                            href="/manual_system_overview.html"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-primary btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 14px', borderRadius: 6, fontWeight: 700 }}
+                        >
+                            📘 คู่มือการใช้งานทั้งระบบ (Full Manual HTML)
+                        </a>
+                        <a
+                            href="/manual_system_overview.pdf"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-success btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 14px', borderRadius: 6, fontWeight: 700 }}
+                        >
+                            📄 ดาวน์โหลดคู่มือทั้งระบบ (PDF A4)
+                        </a>
+                        <a
+                            href="/manual_accounts_receivable.html"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-secondary btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 14px', borderRadius: 6 }}
+                        >
+                            💼 คู่มือเฉพาะบัญชีลูกหนี้ 5 รายงาน
+                        </a>
+                    </div>
                 </div>
                 <div style={{ maxWidth: 400 }}>
                     <div style={{ position: 'relative' }}>

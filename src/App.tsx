@@ -297,6 +297,16 @@ function App() {
                 <span>มีอัปเดตใหม่ ({updateInfo.behind})</span>
               </button>
             )}
+            <a
+              href="/manual_system_overview.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="nav-btn nav-icon-btn"
+              title="คู่มือการใช้งานระบบ (เปิดคู่มือ HTML / ดาวน์โหลด PDF)"
+              style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <span style={{ fontSize: '1.25rem' }}>📖</span>
+            </a>
             <button className="nav-btn nav-icon-btn" onClick={() => setPasswordDialogOpen(true)} title="เปลี่ยนรหัสผ่าน">
               <span style={{ fontSize: '1.15rem' }}>🔑</span>
             </button>

@@ -162,11 +162,31 @@ export const ReceivableReportModal: React.FC<Props> = ({
         {/* Modal Controls Bar (Hidden in Print) */}
         <div className="receivable-modal-controls no-print">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '1.5rem' }}>🖨️</span>
               <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>
                 พิมพ์รายงานบัญชีลูกหนี้สิทธิ์ (5 รูปแบบมาตรฐาน)
               </h2>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginLeft: '0.5rem', fontSize: '0.82rem' }}>
+                <a
+                  href="/manual_accounts_receivable.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#2563eb', fontWeight: 600, textDecoration: 'none', background: '#eff6ff', padding: '2px 8px', borderRadius: '4px', border: '1px solid #bfdbfe' }}
+                  title="เปิดดูคู่มือพร้อมภาพประกอบ"
+                >
+                  📖 คู่มือการพิมพ์ (HTML)
+                </a>
+                <a
+                  href="/manual_accounts_receivable.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#059669', fontWeight: 600, textDecoration: 'none', background: '#ecfdf5', padding: '2px 8px', borderRadius: '4px', border: '1px solid #a7f3d0' }}
+                  title="ดาวน์โหลดคู่มือฉบับ PDF A4"
+                >
+                  📄 PDF A4
+                </a>
+              </div>
             </div>
             <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.3rem', cursor: 'pointer', color: '#64748b' }}>
               ✕

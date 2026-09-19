@@ -4306,7 +4306,18 @@ app.get('/api/config/app-settings', async (req, res) => {
     const saved = await getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY);
     const connection = await getUTFConnection();
     let config;
-    try { config = { ...businessRules.site_settings, ...(saved || {}), ...await readHospitalIdentity(connection) }; }
+    try {
+      const hisIdentity = await readHospitalIdentity(connection);
+      const customHospitalName = String(saved?.hospital_name || '').trim();
+      const customHospitalCode = String(saved?.hospital_code || '').trim();
+      config = {
+        ...businessRules.site_settings,
+        ...hisIdentity,
+        ...(saved || {}),
+        hospital_name: customHospitalName || hisIdentity.hospital_name || '',
+        hospital_code: customHospitalCode || hisIdentity.hospital_code || '',
+      };
+    }
     finally { connection.release(); }
     res.json({
       success: true,

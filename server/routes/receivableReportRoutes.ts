@@ -7,6 +7,7 @@ import {
   getDetailedOpd,
   getDetailedIpd,
 } from '../receivableReportService.js';
+import { getAppSetting } from '../db.js';
 
 export const receivableReportRouter = Router();
 
@@ -23,6 +24,8 @@ receivableReportRouter.get('/print-report', async (req, res) => {
     }
 
     const hospital = await getHospitalInfo();
+    const siteSettings = await getAppSetting<Record<string, unknown>>('site_settings').catch(() => null);
+    const signers = (siteSettings?.receivable_signers || null) as Record<string, { name?: string; position?: string }> | null;
 
     if (reportType === '1') {
       const data = await getDebtorOpdSummary(startDate, endDate);
@@ -57,6 +60,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
         reportType: '1',
         title: 'รายงานบัญชีลูกหนี้ สรุปรวมสิทธิการรักษา ผู้ป่วยนอก',
         hospital,
+        signers,
         startDate,
         endDate,
         data,
@@ -97,6 +101,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
         reportType: '2',
         title: 'รายงานบัญชีลูกหนี้ แยกตามสิทธิการรักษา ผู้ป่วยนอก',
         hospital,
+        signers,
         startDate,
         endDate,
         data,
@@ -139,6 +144,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
         reportType: '3',
         title: 'รายงานบัญชีลูกหนี้ แยกตามสิทธิการรักษา ผู้ป่วยใน',
         hospital,
+        signers,
         startDate,
         endDate,
         data,
@@ -191,6 +197,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
         reportType: '4',
         title: 'รายงานค่ารักษาพยาบาลลูกหนี้ผู้ป่วยนอก แบบแจกแจงรายละเอียด',
         hospital,
+        signers,
         startDate,
         endDate,
         data,
@@ -245,6 +252,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
         reportType: '5',
         title: 'รายงานค่ารักษาพยาบาลลูกหนี้ผู้ป่วยใน แบบแจกแจงรายละเอียด',
         hospital,
+        signers,
         startDate,
         endDate,
         data,

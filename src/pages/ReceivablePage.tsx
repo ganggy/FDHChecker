@@ -840,17 +840,17 @@ export const ReceivablePage = () => {
         <div className="signature-grid">
           <div>
             <div className="signature-line" />
-            <strong>{signers.finance.name || '........................................'}</strong>
+            <strong>{signers.finance.name ? `( ${signers.finance.name} )` : '........................................'}</strong>
             <span>{signers.finance.position}</span>
           </div>
           <div>
             <div className="signature-line" />
-            <strong>{signers.insurance.name || '........................................'}</strong>
+            <strong>{signers.insurance.name ? `( ${signers.insurance.name} )` : '........................................'}</strong>
             <span>{signers.insurance.position}</span>
           </div>
           <div>
             <div className="signature-line" />
-            <strong>{signers.director.name || '........................................'}</strong>
+            <strong>{signers.director.name ? `( ${signers.director.name} )` : '........................................'}</strong>
             <span>{signers.director.position}</span>
           </div>
         </div>
@@ -862,10 +862,11 @@ export const ReceivablePage = () => {
         defaultStartDate={startDate}
         defaultEndDate={endDate}
         defaultPttype={hosxpRight}
-        hospitalName={settings?.hospital_name || 'โรงพยาบาลชุมชน โรงพยาบาลโคกศรีสุพรรณ'}
+        hospitalName={settings?.hospital_name || ''}
         signers={{
-          insurance: { name: signers.insurance.name || 'นางจิรวรรณ แก้วชุมภู', position: signers.insurance.position },
-          finance: { name: signers.finance.name || 'นางสุพรรษา วงษาคร', position: signers.finance.position },
+          director: { name: signers.director.name, position: signers.director.position },
+          insurance: { name: signers.insurance.name, position: signers.insurance.position },
+          finance: { name: signers.finance.name, position: signers.finance.position },
         }}
       />
     </div>

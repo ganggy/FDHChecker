@@ -1,4 +1,4 @@
-import { getUTFConnection } from './db.js';
+import { getUTFConnection, getAppSetting } from './db.js';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
 
 export interface DebtorMetadata {
@@ -58,9 +58,9 @@ export const resolveDebtorForPttype = (pttype: string, isIpd = false) => {
   const meta = DEBTOR_METADATA[debtorCode];
   return {
     debtorCode,
-    debtorName: meta?.name || mapping?.finance_name || 'ลูกหนี้ค่ารักษาพยาบาล',
+    debtorName: meta?.name || 'ลูกหนี้ค่ารักษาพยาบาล',
     recognition: meta?.recognition || '',
-    controlRegister: meta?.register || 'รายตัว',
+    controlRegister: meta?.register || 'รายสิทธิ',
   };
 };
 
@@ -68,17 +68,43 @@ export const resolveDebtorForPttype = (pttype: string, isIpd = false) => {
 export const getHospitalInfo = async () => {
   const connection = await getUTFConnection();
   try {
-    const [rows] = await connection.query(
-      `SELECT hospitalcode, hospitalname FROM opdconfig LIMIT 1`
-    );
-    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
+    let rows: unknown[] = [];
+    try {
+      const [res] = await connection.query(`SELECT * FROM opdconfig LIMIT 1`);
+      rows = Array.isArray(res) ? res : [];
+    } catch {
+      rows = [];
+    }
+    const row = rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
+    const siteSettings = await getAppSetting<Record<string, unknown>>('site_settings').catch(() => null);
+    const hospitalCode = String(siteSettings?.hospital_code || row?.hospitalcode || row?.hospital_code || '').trim();
+    const hospitalName = String(siteSettings?.hospital_name || row?.hospitalname || row?.hospital_name || '').trim() || 'โรงพยาบาล';
+    const chwpart = String(row?.chwpart || '').trim();
+    const amppart = String(row?.amppart || '').trim();
     return {
-      hospitalCode: String(row?.hospitalcode || '11101'),
-      hospitalName: String(row?.hospitalname || 'โรงพยาบาลชุมชน โรงพยาบาลโคกศรีสุพรรณ'),
+      hospitalCode,
+      hospitalName,
+      chwpart,
+      amppart,
     };
   } finally {
     connection.release();
   }
+};
+
+const buildInCupSqlCondition = (hosp: { hospitalCode: string; chwpart: string; amppart: string }, alias = 'o') => {
+  const hospCol = `${alias}.hospmain`;
+  const cleanCode = hosp.hospitalCode.replace(/\D/g, '');
+  const cleanChw = hosp.chwpart.replace(/\D/g, '');
+  const cleanAmp = hosp.amppart.replace(/\D/g, '');
+
+  if (cleanChw && cleanAmp && cleanCode) {
+    return `((p.chwpart = '${cleanChw}' AND p.amppart = '${cleanAmp}') OR ${hospCol} = '${cleanCode}')`;
+  }
+  if (cleanCode) {
+    return `(${hospCol} = '${cleanCode}')`;
+  }
+  return `(${hospCol} = (SELECT hospitalcode FROM opdconfig LIMIT 1))`;
 };
 
 // ==========================================
@@ -102,6 +128,8 @@ export interface DebtorOpdSummaryItem {
 }
 
 export const getDebtorOpdSummary = async (startDate: string, endDate: string) => {
+  const hosp = await getHospitalInfo();
+  const inCupCondition = buildInCupSqlCondition(hosp, 'o');
   const connection = await getUTFConnection();
   try {
     const [rows] = await connection.query(
@@ -110,7 +138,7 @@ export const getDebtorOpdSummary = async (startDate: string, endDate: string) =>
          COUNT(DISTINCT o.hn) AS patient_count,
          COUNT(DISTINCT o.vn) AS visit_count,
          SUM(CASE WHEN o.ovstist = '01' OR o.vstdate = p.firstday THEN 1 ELSE 0 END) AS new_count,
-         SUM(CASE WHEN (p.chwpart = '47' AND p.amppart = '15') OR o.hospmain = '11101' THEN 1 ELSE 0 END) AS in_cup_count,
+         SUM(CASE WHEN ${inCupCondition} THEN 1 ELSE 0 END) AS in_cup_count,
          SUM(COALESCE(v.income, 0)) AS total_income,
          SUM(COALESCE(v.rcpt_money, 0)) AS paid_money
        FROM ovst o
@@ -203,6 +231,8 @@ export interface PttypeOpdSummaryItem {
 }
 
 export const getPttypeOpdSummary = async (startDate: string, endDate: string) => {
+  const hosp = await getHospitalInfo();
+  const inCupCondition = buildInCupSqlCondition(hosp, 'o');
   const connection = await getUTFConnection();
   try {
     const [rows] = await connection.query(
@@ -214,7 +244,7 @@ export const getPttypeOpdSummary = async (startDate: string, endDate: string) =>
          COUNT(DISTINCT o.hn) AS patient_count,
          COUNT(DISTINCT o.vn) AS visit_count,
          SUM(CASE WHEN o.ovstist = '01' OR o.vstdate = p.firstday THEN 1 ELSE 0 END) AS new_count,
-         SUM(CASE WHEN (p.chwpart = '47' AND p.amppart = '15') OR o.hospmain = '11101' THEN 1 ELSE 0 END) AS in_cup_count,
+         SUM(CASE WHEN ${inCupCondition} THEN 1 ELSE 0 END) AS in_cup_count,
          SUM(COALESCE(v.income, 0)) AS total_income,
          SUM(COALESCE(v.rcpt_money, 0)) AS paid_money
        FROM ovst o
@@ -235,29 +265,29 @@ export const getPttypeOpdSummary = async (startDate: string, endDate: string) =>
       const pttype = String(r.pttype || '').trim();
       const debtor = resolveDebtorForPttype(pttype, false);
       const visitCount = Number(r.visit_count || 0);
-      const patientCount = Number(r.patient_count || 0);
-      const newCount = Number(r.new_count || 0);
       const inCup = Number(r.in_cup_count || 0);
+      const outCup = Math.max(0, visitCount - inCup);
       const totalAmount = Number(r.total_income || 0);
       const paidAmount = Number(r.paid_money || 0);
+      const remainAmount = Math.max(0, totalAmount - paidAmount);
 
       results.push({
         no: idx++,
         pttype,
-        nhsoCode: String(r.nhso_code || pttype),
+        nhsoCode: String(r.nhso_code || ''),
         pcode: String(r.pcode || ''),
-        pttypeName: String(r.pttype_name || pttype),
+        pttypeName: String(r.pttype_name || ''),
         debtorCode: debtor.debtorCode,
         debtorName: debtor.debtorName,
-        patientCount,
+        patientCount: Number(r.patient_count || 0),
         visitCount,
-        newCount,
-        oldCount: Math.max(0, visitCount - newCount),
+        newCount: Number(r.new_count || 0),
+        oldCount: Math.max(0, visitCount - Number(r.new_count || 0)),
         inCupCount: inCup,
-        outCupCount: Math.max(0, visitCount - inCup),
+        outCupCount: outCup,
         totalAmount,
         paidAmount,
-        remainAmount: Math.max(0, totalAmount - paidAmount),
+        remainAmount,
       });
     }
 
@@ -291,6 +321,8 @@ export interface PttypeIpdSummaryItem {
 }
 
 export const getPttypeIpdSummary = async (startDate: string, endDate: string) => {
+  const hosp = await getHospitalInfo();
+  const inCupCondition = buildInCupSqlCondition(hosp, 'ov');
   const connection = await getUTFConnection();
   try {
     const [rows] = await connection.query(
@@ -302,7 +334,7 @@ export const getPttypeIpdSummary = async (startDate: string, endDate: string) =>
          COUNT(DISTINCT i.hn) AS patient_count,
          COUNT(DISTINCT i.an) AS visit_count,
          SUM(CASE WHEN i.dchdate = p.firstday OR i.regdate = p.firstday THEN 1 ELSE 0 END) AS new_count,
-         SUM(CASE WHEN (p.chwpart = '47' AND p.amppart = '15') OR ov.hospmain = '11101' THEN 1 ELSE 0 END) AS in_cup_count,
+         SUM(CASE WHEN ${inCupCondition} THEN 1 ELSE 0 END) AS in_cup_count,
          SUM(GREATEST(DATEDIFF(COALESCE(i.dchdate, CURDATE()), i.regdate), 1)) AS los_days,
          SUM(COALESCE(a.income, 0)) AS total_income,
          SUM(COALESCE(a.rcpt_money, 0)) AS paid_money

@@ -529,7 +529,13 @@ export const SettingsPage: React.FC = () => {
                         <div className="settings-grid">
                             <div className="form-group">
                                 <label>ชื่อหน่วยบริการ</label>
-                                <input type="text" value={mergedSiteSettings?.hospital_name || ''} readOnly />
+                                <input
+                                    type="text"
+                                    value={mergedSiteSettings?.hospital_name || ''}
+                                    onChange={(e) => setSiteSetting(['hospital_name'], e.target.value)}
+                                    placeholder="ชื่อโรงพยาบาล (หากเว้นว่างจะดึงจาก opdconfig อัตโนมัติ)"
+                                />
+                                <small>ใช้แสดงเป็นหัวเอกสารและรายงานบัญชีลูกหนี้ หากเว้นว่างจะดึงจาก opdconfig</small>
                             </div>
                             <div className="form-group">
                                 <label>รหัสหน่วยบริการ (HCODE)</label>

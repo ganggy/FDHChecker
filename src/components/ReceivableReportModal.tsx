@@ -11,6 +11,7 @@ interface Props {
   defaultPttype?: string;
   hospitalName?: string;
   signers?: {
+    director?: { name?: string; position?: string };
     insurance?: { name?: string; position?: string };
     finance?: { name?: string; position?: string };
   };
@@ -57,7 +58,7 @@ export const ReceivableReportModal: React.FC<Props> = ({
   defaultStartDate = new Date().toISOString().slice(0, 10),
   defaultEndDate = new Date().toISOString().slice(0, 10),
   defaultPttype = 'ALL',
-  hospitalName = 'โรงพยาบาลชุมชน โรงพยาบาลโคกศรีสุพรรณ',
+  hospitalName = '',
   signers,
 }) => {
   const [reportType, setReportType] = useState<ReportType>('1');
@@ -131,10 +132,29 @@ export const ReceivableReportModal: React.FC<Props> = ({
 
   const dataList: any[] = reportData?.data || [];
   const totals: any = reportData?.totals || {};
-  const currentHospital = reportData?.hospital?.hospitalName || hospitalName;
+  const currentHospital = (reportData?.hospital?.hospitalName || hospitalName || '').trim() || 'โรงพยาบาล';
 
-  const insuranceOfficerName = signers?.insurance?.name || 'นางจิรวรรณ แก้วชุมภู';
-  const financeOfficerName = signers?.finance?.name || 'นางสุพรรษา วงษาคร';
+  const insuranceOfficerName = (
+    reportData?.signers?.insurance_head?.name ||
+    signers?.insurance?.name ||
+    ''
+  ).trim();
+  const insuranceOfficerPosition = (
+    reportData?.signers?.insurance_head?.position ||
+    signers?.insurance?.position ||
+    'หัวหน้างานประกันสุขภาพ'
+  ).trim();
+
+  const financeOfficerName = (
+    reportData?.signers?.finance?.name ||
+    signers?.finance?.name ||
+    ''
+  ).trim();
+  const financeOfficerPosition = (
+    reportData?.signers?.finance?.position ||
+    signers?.finance?.position ||
+    'เจ้าหน้าที่การเงิน'
+  ).trim();
 
   return (
     <div className="receivable-modal-backdrop" onClick={onClose}>
@@ -684,17 +704,17 @@ export const ReceivableReportModal: React.FC<Props> = ({
                 </table>
               )}
 
-              {/* Signatures Footer matching Screenshots */}
+              {/* Signatures Footer */}
               <div className="receivable-doc-signatures">
                 <div className="receivable-sig-box">
                   <div className="receivable-sig-label">
                     ลงชื่อ ........................................................................ ผู้ส่งข้อมูล
                   </div>
                   <div className="receivable-sig-name">
-                    ( {insuranceOfficerName} )
+                    ( {insuranceOfficerName || '........................................................................'} )
                   </div>
                   <div className="receivable-sig-pos">
-                    งานประกันสุขภาพ
+                    {insuranceOfficerPosition}
                   </div>
                 </div>
 
@@ -703,10 +723,10 @@ export const ReceivableReportModal: React.FC<Props> = ({
                     ลงชื่อ ........................................................................ ผู้รับข้อมูล
                   </div>
                   <div className="receivable-sig-name">
-                    ( {financeOfficerName} )
+                    ( {financeOfficerName || '........................................................................'} )
                   </div>
                   <div className="receivable-sig-pos">
-                    งานการเงินและบัญชี
+                    {financeOfficerPosition}
                   </div>
                 </div>
               </div>

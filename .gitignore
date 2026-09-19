@@ -43,3 +43,6 @@ knowlage/ksp-vault/FDHChecker/_ksp/ai-revisions/
 *.njsproj
 *.sln
 *.sw?
+.agents/
+skills-lock.json
+

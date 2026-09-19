@@ -52,6 +52,7 @@ const RevenueOpportunityPage = lazyNamed(() => import('./pages/RevenueOpportunit
 const MophDmhtClaimPage = lazyNamed(() => import('./pages/MophDmhtClaimPage'), 'MophDmhtClaimPage');
 const MophVaccineClaimPage = lazyNamed(() => import('./pages/MophVaccineClaimPage'), 'MophVaccineClaimPage');
 const GuidePage = lazyNamed(() => import('./pages/GuidePage'), 'GuidePage');
+const Icd9LookupPage = lazyNamed(() => import('./pages/Icd9LookupPage'), 'Icd9LookupPage');
 const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage');
 const MemberAdminPage = lazyNamed(() => import('./pages/MemberAdminPage'), 'MemberAdminPage');
 
@@ -521,6 +522,7 @@ function App() {
         {currentPage === 'rejectTracking' && <RejectedClaimTrackingPage />}
         {currentPage === 'uuc1Tracking' && <Uuc1TrackingPage />}
         {currentPage === 'guide' && <GuidePage />}
+        {currentPage === 'icd9Lookup' && <Icd9LookupPage />}
         {currentPage === 'settings' && <SettingsPage />}
         {currentPage === 'memberAdmin' && <MemberAdminPage />}
         </Suspense>

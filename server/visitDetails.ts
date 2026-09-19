@@ -82,12 +82,24 @@ export async function readVisitClinical(connection: HospitalConnection, vn: stri
   const icd9 = has('icd9cm1', 'code', 'name');
   if (an) {
     await add('หัตถการ IPD', has('iptoprt', 'an', 'icd9'), `SELECT p.icd9 AS code,
-      ${icd9 ? 'i.name' : "''"} AS name, 'ผู้ป่วยใน' AS type FROM iptoprt p
-      ${icd9 ? 'LEFT JOIN icd9cm1 i ON i.code = p.icd9' : ''} WHERE p.an = ?`);
+      ${icd9 ? 'COALESCE(i.name, "")' : "''"} AS name, 'ผู้ป่วยใน' AS type FROM iptoprt p
+      ${icd9 ? "LEFT JOIN icd9cm1 i ON REPLACE(i.code, '.', '') = REPLACE(p.icd9, '.', '')" : ''} WHERE p.an = ?`);
+    const orOperIpd = has('operation_list', 'an', 'operation_name');
+    if (orOperIpd) {
+      await add('ห้องผ่าตัด (OR)', true, `SELECT COALESCE(NULLIF(p.operation_detail_name, ''), '') AS code,
+        COALESCE(NULLIF(p.operation_name, ''), 'ผ่าตัด') AS name, 'ห้องผ่าตัด (OR)' AS type
+        FROM operation_list p WHERE p.an = ?`);
+    }
   } else {
     await add('หัตถการแพทย์', has('doctor_operation', 'vn', 'icd9'), `SELECT p.icd9 AS code,
-      ${icd9 ? 'i.name' : "''"} AS name, 'แพทย์' AS type FROM doctor_operation p
-      ${icd9 ? 'LEFT JOIN icd9cm1 i ON i.code = p.icd9' : ''} WHERE p.vn = ?`);
+      ${icd9 ? 'COALESCE(i.name, "")' : "''"} AS name, 'แพทย์' AS type FROM doctor_operation p
+      ${icd9 ? "LEFT JOIN icd9cm1 i ON REPLACE(i.code, '.', '') = REPLACE(p.icd9, '.', '')" : ''} WHERE p.vn = ?`);
+    const orOper = has('operation_list', 'vn', 'operation_name');
+    if (orOper) {
+      await add('ห้องผ่าตัด (OR)', true, `SELECT COALESCE(NULLIF(p.operation_detail_name, ''), '') AS code,
+        COALESCE(NULLIF(p.operation_name, ''), 'ผ่าตัด') AS name, 'ห้องผ่าตัด (OR)' AS type
+        FROM operation_list p WHERE p.vn = ?`);
+    }
     const er = has('er_oper_code', 'er_oper_code', 'name');
     await add('หัตถการ ER', has('er_regist_oper', 'vn', 'er_oper_code'), `SELECT p.er_oper_code AS code,
       ${er ? 'e.name' : "''"} AS name, 'ER' AS type FROM er_regist_oper p

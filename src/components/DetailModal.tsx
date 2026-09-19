@@ -298,9 +298,36 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                           <tbody>
                             {diagsData.procedures.map((item, idx) => (
                               <tr key={'proc-' + idx}>
-                                <td style={{ fontWeight: 600, fontFamily: 'monospace' }}>{item.code}</td>
-                                <td>{item.name || '-'}</td>
-                                <td>{item.type || '-'}</td>
+                                <td>
+                                  {item.code ? (
+                                    <span className="badge badge-primary" style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>
+                                      {item.code}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-muted)' }}>-</span>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 500 }}>{item.name || '-'}</div>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span
+                                    className="badge"
+                                    style={{
+                                      background: item.type === 'ผู้ป่วยใน' ? 'rgba(59, 130, 246, 0.15)' :
+                                                  item.type === 'ห้องผ่าตัด (OR)' ? 'rgba(239, 68, 68, 0.15)' :
+                                                  item.type === 'ทันตกรรม' ? 'rgba(16, 185, 129, 0.15)' :
+                                                  item.type === 'แพทย์แผนไทย' ? 'rgba(245, 158, 11, 0.15)' : 'var(--surface-2)',
+                                      color: item.type === 'ผู้ป่วยใน' ? 'var(--primary)' :
+                                             item.type === 'ห้องผ่าตัด (OR)' ? '#dc2626' :
+                                             item.type === 'ทันตกรรม' ? 'var(--teal)' :
+                                             item.type === 'แพทย์แผนไทย' ? '#d97706' : 'var(--text-secondary)',
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    {item.type || '-'}
+                                  </span>
+                                </td>
                               </tr>
                             ))}
                           </tbody>

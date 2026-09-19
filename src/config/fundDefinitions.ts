@@ -504,4 +504,33 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         ],
         caution: 'เป็นตัวชี้วัดคุณภาพบริการเพื่อป้องกันการถูกตัดขาในผู้ป่วยเบาหวาน'
     },
+    {
+        id: 'cataract',
+        name: 'ผ่าตัดต้อกระจก (Cataract)',
+        description: 'บริการผ่าตัดต้อกระจกพร้อมใส่เลนส์แก้วตาเทียม (IOL)',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH หรือ e-Claim สปสช. (ระบบลงทะเบียนต้อกระจก Cataract Pre-authorization)',
+        conditions: [
+            'มีหัตถการ ICD-9 ผ่าตัดต้อกระจก: 13.41 (Phacoemulsification), 13.59 (Extracapsular cataract extraction - ECCE), 13.19/13.2',
+            'มีหัตถการใส่เลนส์แก้วตาเทียม ICD-9: 13.71 (Insertion of intraocular lens prosthesis at time of cataract extraction)',
+            'มี Diagnosis ต้อกระจก ICD-10 กลุ่ม H25 (Senile cataract) หรือ H26',
+            'ขอรหัสอนุมัติ Pre-authorization จากระบบสปสช. ก่อนหรือหลังทำตามเกณฑ์'
+        ],
+        caution: 'ต้องตรวจสอบการบันทึกตาข้างที่ทำ (Left/Right) ในใบผ่าตัดและการส่งข้อมูล Pre-auth ต้อกระจก'
+    },
+    {
+        id: 'endoscopy',
+        name: 'ส่องกล้องระบบทางเดินอาหาร (GI Endoscopy)',
+        description: 'บริการส่องกล้องทางเดินอาหารส่วนต้น (EGD/Gastroscopy) และลำไส้ใหญ่ (Colonoscopy)',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH หรือ e-Claim ตามระบบ Fast track / Fee Schedule',
+        conditions: [
+            'หัตถการส่องกล้องลำไส้ใหญ่ Colonoscopy: ICD-9 45.23 (Total colonoscopy), 45.24 (Flexible sigmoidoscopy)',
+            'หัตถการส่องกล้องหลอดอาหารและกระเพาะอาหาร: ICD-9 44.13 (Gastroscopy), 42.23 (Esophagoscopy)',
+            'กรณีตัดชิ้นเนื้อ (Biopsy): ICD-9 45.25 (Endoscopic biopsy of large intestine) หรือ 44.14 (Endoscopic biopsy of stomach)',
+            'กรณีผู้ป่วยผลคัดกรอง Fit Test Positive ให้ระบุรหัสส่งต่อหรือตรวจยืนยันมะเร็งลำไส้ใหญ่'
+        ],
+        caution: 'ตรวจสอบภาพถ่ายการส่องกล้อง (Endoscopic Photos) และผลพยาธิวิทยา (Pathology Report) ในเวชระเบียน'
+    },
 ];
+

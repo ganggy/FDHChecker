@@ -107,6 +107,7 @@ import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { accountingRevenueRouter } from './accountingRevenueRoutes.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
+import { icd9Router } from './routes/icd9Routes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
@@ -871,6 +872,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/fdh(\/|$)/, pages: ['fdh', 'fundFdh', 'fdhImport', 'staff', 'ipd'] },
   { pattern: /^\/hosxp\/ipd(\/|$)/, pages: ['ipd', 'ipdClaimMonitor'] },
   { pattern: /^\/hosxp(\/|$)/, pages: ['staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup'] },
+  { pattern: /^\/icd9(\/|$)/, pages: ['staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup', 'settings', 'hospitalReports'] },
 ];
 
 app.use('/api', (req: AuthenticatedRequest, res, next) => {
@@ -891,6 +893,7 @@ app.use('/api', (req: AuthenticatedRequest, res, next) => {
 app.use('/api/ai', aiRouter);
 app.use('/api/hospital-reports', hospitalReportRouter);
 app.use('/api/accounting', accountingRevenueRouter);
+app.use('/api/icd9', icd9Router);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

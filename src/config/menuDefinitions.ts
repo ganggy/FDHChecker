@@ -60,13 +60,14 @@ export const toolNavItems: NavItem[] = [
   { page: 'revenueOpportunity', icon: '🧭', label: 'โอกาสสร้างรายได้' },
   { page: 'mophDmht', icon: '🧪', label: 'MOPH DMHT' },
   { page: 'mophVaccine', icon: '💉', label: 'MOPH Vaccine' },
+  { page: 'icd9Lookup', icon: '🔍', label: 'ค้นหารหัสหัตถการ ICD-9' },
   { page: 'guide', icon: '📚', label: 'คู่มือกองทุน', soft: true },
 ];
 
 export const toolNavGroups: NavGroup[] = [
   { label: 'นำเข้า/ตรวจสิทธิ', icon: '📥', pages: ['authenSync', 'fdhImport', 'fdhClaimDetail', 'preValidator', 'repstm'] },
   { label: 'ติดตามผลเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
-  { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'fundOther', 'specific', 'guide'] },
+  { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
   { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
   { label: 'รายงาน/สถิติ', icon: '📊', pages: ['aiReports', 'hospitalReports', 'admin'] },

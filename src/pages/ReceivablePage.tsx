@@ -11,6 +11,8 @@ import {
   type ReceivableCandidate,
   type ReceivableFilterOptions,
 } from '../services/hosxpService';
+import { ReceivableReportModal } from '../components/ReceivableReportModal';
+import '../styles/receivableReport.css';
 
 type Signer = {
   name?: string;
@@ -98,6 +100,7 @@ export const ReceivablePage = () => {
   const [openingBalance, setOpeningBalance] = useState<number>(0);
   const [openingBalanceManual, setOpeningBalanceManual] = useState<boolean>(false);
   const [previousBatchInfo, setPreviousBatchInfo] = useState<{ batchNo?: string; endDate?: string } | null>(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   const checkLatestBalance = useCallback(async (date: string, type: string) => {
     try {
@@ -531,6 +534,22 @@ export const ReceivablePage = () => {
               <span className="receivable-btn__label">{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
             </button>
             <button
+              type="button"
+              className="btn btn-primary receivable-btn receivable-btn--report"
+              onClick={() => setIsReportModalOpen(true)}
+              style={{
+                background: 'linear-gradient(135deg, #1d4ed8 0%, #0284c7 100%)',
+                color: '#ffffff',
+                fontWeight: 700,
+                border: 'none',
+                boxShadow: '0 2px 6px rgba(2, 132, 199, 0.25)',
+              }}
+              title="พิมพ์รายงานบัญชีลูกหนี้มาตรฐาน 5 แบบ (สรุปรวมสิทธิ OPD, แยกตามสิทธิ OPD/IPD, และแบบแจกแจงรายละเอียด 12/13 หมวด)"
+            >
+              <span className="receivable-btn__icon">📑</span>
+              <span className="receivable-btn__label">พิมพ์รายงานสิทธิ์ (5 แบบ)</span>
+            </button>
+            <button
               className="btn receivable-btn receivable-btn--excel"
               onClick={exportExcel}
               disabled={isStale || selectedRows.length === 0}
@@ -547,7 +566,7 @@ export const ReceivablePage = () => {
               disabled={isStale || selectedRows.length === 0}
             >
               <span className="receivable-btn__icon">🖨</span>
-              <span className="receivable-btn__label">พิมพ์หลักฐาน</span>
+              <span className="receivable-btn__label">พิมพ์หลักฐานงวด</span>
             </button>
           </div>
         </div>
@@ -836,6 +855,19 @@ export const ReceivablePage = () => {
           </div>
         </div>
       </section>
+
+      <ReceivableReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        defaultStartDate={startDate}
+        defaultEndDate={endDate}
+        defaultPttype={hosxpRight}
+        hospitalName={settings?.hospital_name || 'โรงพยาบาลชุมชน โรงพยาบาลโคกศรีสุพรรณ'}
+        signers={{
+          insurance: { name: signers.insurance.name || 'นางจิรวรรณ แก้วชุมภู', position: signers.insurance.position },
+          finance: { name: signers.finance.name || 'นางสุพรรษา วงษาคร', position: signers.finance.position },
+        }}
+      />
     </div>
   );
 };

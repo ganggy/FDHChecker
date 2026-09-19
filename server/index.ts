@@ -108,6 +108,7 @@ import { accountingRevenueRouter } from './accountingRevenueRoutes.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
 import { icd9Router } from './routes/icd9Routes.js';
+import { receivableReportRouter } from './routes/receivableReportRoutes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
@@ -894,6 +895,7 @@ app.use('/api/ai', aiRouter);
 app.use('/api/hospital-reports', hospitalReportRouter);
 app.use('/api/accounting', accountingRevenueRouter);
 app.use('/api/icd9', icd9Router);
+app.use('/api/receivables/reports', receivableReportRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

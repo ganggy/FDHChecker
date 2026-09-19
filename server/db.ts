@@ -14032,6 +14032,542 @@ export const getSpecificFundData = async (
         return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
+    if (fundType === 'ttm_massage') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          v.pdx,
+          (
+            SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.diagtype SEPARATOR ', ')
+            FROM ovstdiag dx WHERE dx.vn = o.vn
+          ) as diag_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT ki.icd10tm ORDER BY ki.icd10tm SEPARATOR ', ')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn
+              AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U59%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7810')
+          ) as oper_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT ki.item_name ORDER BY ki.item_name SEPARATOR ' | ')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn
+              AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U59%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7810')
+          ) as oper_names,
+          (
+            SELECT d.name FROM health_med_service ks
+            LEFT JOIN doctor d ON d.code = ks.doctor_code
+            WHERE ks.vn = o.vn LIMIT 1
+          ) as provider_name,
+          (
+            SELECT d.licenseno FROM health_med_service ks
+            LEFT JOIN doctor d ON d.code = ks.doctor_code
+            WHERE ks.vn = o.vn LIMIT 1
+          ) as provider_license_no,
+          (SELECT TIME_FORMAT(ks.service_time, '%H:%i') FROM health_med_service ks WHERE ks.vn = o.vn LIMIT 1) as service_start_time,
+          (SELECT TIME_FORMAT(ks.service_finish_time, '%H:%i') FROM health_med_service ks WHERE ks.vn = o.vn LIMIT 1) as service_finish_time,
+          (
+            SELECT TIMESTAMPDIFF(MINUTE, ks.service_time, ks.service_finish_time)
+            FROM health_med_service ks WHERE ks.vn = o.vn LIMIT 1
+          ) as service_duration_min,
+          'Y' as has_ttm_oper,
+          'Y' as has_massage_oper,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ovstdiag dx
+            WHERE dx.vn = o.vn
+              AND (REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^M[0-9]|^G81|^U5[3-9]|^U6[0-9]|^U7[0-7]')
+          ) THEN 'Y' ELSE 'N' END as has_ttm_diag,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM health_med_service ks
+            JOIN doctor d ON d.code = ks.doctor_code
+            WHERE ks.vn = o.vn AND d.licenseno IS NOT NULL AND TRIM(d.licenseno) <> ''
+          ) THEN 'Y' ELSE 'N' END as has_provider_license,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND EXISTS (
+            SELECT 1 FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn
+              AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U59%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7810')
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'ttm_compress') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          v.pdx,
+          (SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.diagtype SEPARATOR ', ') FROM ovstdiag dx WHERE dx.vn = o.vn) as diag_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT ki.icd10tm ORDER BY ki.icd10tm SEPARATOR ', ')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U60%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7820')
+          ) as oper_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT ki.item_name ORDER BY ki.item_name SEPARATOR ' | ')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U60%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7820')
+          ) as oper_names,
+          (SELECT d.name FROM health_med_service ks LEFT JOIN doctor d ON d.code = ks.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
+          (SELECT d.licenseno FROM health_med_service ks LEFT JOIN doctor d ON d.code = ks.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_license_no,
+          'Y' as has_ttm_oper,
+          'Y' as has_compress_oper,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ovstdiag dx
+            WHERE dx.vn = o.vn AND (REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^M[0-9]|^G81|^U5[3-9]|^U6[0-9]|^U7[0-7]')
+          ) THEN 'Y' ELSE 'N' END as has_ttm_diag,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND EXISTS (
+            SELECT 1 FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U60%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7820')
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'ttm_steam') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          v.pdx,
+          (SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.diagtype SEPARATOR ', ') FROM ovstdiag dx WHERE dx.vn = o.vn) as diag_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT ki.icd10tm ORDER BY ki.icd10tm SEPARATOR ', ')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U61%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^8707830')
+          ) as oper_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT ki.item_name ORDER BY ki.item_name SEPARATOR ' | ')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U61%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^8707830')
+          ) as oper_names,
+          (SELECT d.name FROM health_med_service ks LEFT JOIN doctor d ON d.code = ks.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
+          'Y' as has_ttm_oper,
+          'Y' as has_steam_oper,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ovstdiag dx
+            WHERE dx.vn = o.vn AND (REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^J[0-9]|^M[0-9]|^U5[3-9]|^U6[0-9]|^U7[0-7]')
+          ) THEN 'Y' ELSE 'N' END as has_ttm_diag,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND EXISTS (
+            SELECT 1 FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U61%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^8707830')
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'ttm_postnatal') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          v.pdx,
+          (SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.diagtype SEPARATOR ', ') FROM ovstdiag dx WHERE dx.vn = o.vn) as diag_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT ki.icd10tm ORDER BY ki.icd10tm SEPARATOR ', ')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn AND REPLACE(ki.icd10tm, '-', '') LIKE 'U62%'
+          ) as oper_codes,
+          (
+            SELECT GROUP_CONCAT(DISTINCT ki.item_name ORDER BY ki.item_name SEPARATOR ' | ')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+            WHERE ks.vn = o.vn AND REPLACE(ki.icd10tm, '-', '') LIKE 'U62%'
+          ) as oper_names,
+          (SELECT d.name FROM health_med_service ks LEFT JOIN doctor d ON d.code = ks.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
+          'Y' as has_postnatal_oper,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ovstdiag dx
+            WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z391', 'Z392', 'Z390')
+          ) THEN 'Y' ELSE 'N' END as has_postnatal_diag,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (
+            EXISTS (
+              SELECT 1 FROM health_med_service ks
+              JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+              JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
+              WHERE ks.vn = o.vn AND REPLACE(ki.icd10tm, '-', '') LIKE 'U62%'
+            )
+            OR EXISTS (
+              SELECT 1 FROM ovstdiag dx
+              WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z391', 'Z392')
+            )
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'fecal_fit_test') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          CASE WHEN v.age_y BETWEEN 50 AND 70 THEN 'Y' ELSE 'N' END as age_eligible,
+          (SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.diagtype SEPARATOR ', ') FROM ovstdiag dx WHERE dx.vn = o.vn) as diag_codes,
+          COALESCE(
+            (
+              SELECT GROUP_CONCAT(DISTINCT pst.pp_special_type_name SEPARATOR ' | ')
+              FROM pp_special ps
+              JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) IN ('1B0060', '1B0061', '1B0080', '1B0081') OR pst.pp_special_type_name REGEXP 'มะเร็งลำไส้|Fit')
+            ),
+            (
+              SELECT GROUP_CONCAT(DISTINCT CONCAT(li.lab_items_name, ': ', lo.lab_order_result) SEPARATOR ' | ')
+              FROM lab_head lh
+              JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+              JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+              WHERE lh.vn = o.vn
+                AND UPPER(li.lab_items_name) REGEXP 'FIT|OCCULT|FOBT'
+            )
+          ) as fit_test_result,
+          COALESCE(
+            (
+              SELECT GROUP_CONCAT(DISTINCT pst.pp_special_type_name SEPARATOR ', ')
+              FROM pp_special ps
+              JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) IN ('1B0060', '1B0061', '1B0080', '1B0081') OR pst.pp_special_type_name REGEXP 'มะเร็งลำไส้|Fit')
+            ),
+            (
+              SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ', ')
+              FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code IN ('1B0080', '1B0081') OR UPPER(d.name) REGEXP 'FIT|OCCULT')
+            )
+          ) as fit_service_names,
+          CASE WHEN (
+            EXISTS (
+              SELECT 1 FROM pp_special ps
+              LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) IN ('1B0060', '1B0061', '1B0080', '1B0081') OR pst.pp_special_type_name REGEXP 'มะเร็งลำไส้|Fit')
+            )
+            OR EXISTS (
+              SELECT 1 FROM lab_head lh
+              JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+              JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+              WHERE lh.vn = o.vn AND (UPPER(li.lab_items_name) REGEXP 'FIT|OCCULT|FOBT')
+            )
+            OR EXISTS (
+              SELECT 1 FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code IN ('1B0080', '1B0081') OR UPPER(d.name) REGEXP 'FIT|OCCULT')
+            )
+          ) THEN 'Y' ELSE 'N' END as has_fit_test,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (
+            EXISTS (
+              SELECT 1 FROM pp_special ps
+              LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) IN ('1B0060', '1B0061', '1B0080', '1B0081') OR pst.pp_special_type_name REGEXP 'มะเร็งลำไส้|Fit')
+            )
+            OR EXISTS (
+              SELECT 1 FROM lab_head lh
+              JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+              JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+              WHERE lh.vn = o.vn AND (UPPER(li.lab_items_name) REGEXP 'FIT|OCCULT|FOBT')
+            )
+            OR EXISTS (
+              SELECT 1 FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code IN ('1B0080', '1B0081') OR UPPER(d.name) REGEXP 'FIT|OCCULT')
+            )
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'ncd_screening') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          CASE WHEN v.age_y >= 35 THEN 'Y' ELSE 'N' END as age_eligible,
+          o.bps, o.bpd,
+          o.bw as weight, o.height, o.bmi,
+          CASE WHEN o.bps > 0 AND o.bpd > 0 THEN 'Y' ELSE 'N' END as has_bp,
+          CASE WHEN o.bmi > 0 OR (o.bw > 0 AND o.height > 0) THEN 'Y' ELSE 'N' END as has_bmi,
+          (
+            SELECT lo.lab_order_result
+            FROM lab_head lh
+            JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+            JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+            WHERE lh.vn = o.vn AND UPPER(li.lab_items_name) REGEXP 'GLUCOSE|FBS|FPG|DTX'
+            LIMIT 1
+          ) as fbs,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM lab_head lh
+            JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+            JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+            WHERE lh.vn = o.vn AND UPPER(li.lab_items_name) REGEXP 'GLUCOSE|FBS|FPG|DTX'
+          ) THEN 'Y' ELSE 'N' END as has_fbs,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (v.age_y >= 35 OR o.bps > 0)
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'dspm_screening') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          TIMESTAMPDIFF(MONTH, pt.birthday, o.vstdate) as age_months,
+          CASE WHEN v.age_y <= 5 THEN 'Y' ELSE 'N' END as age_eligible,
+          COALESCE(
+            (
+              SELECT GROUP_CONCAT(DISTINCT COALESCE(ps.pp_special_code, pst.pp_special_code) ORDER BY COALESCE(ps.pp_special_code, pst.pp_special_code) SEPARATOR ', ')
+              FROM pp_special ps
+              LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) LIKE '1B26%' OR COALESCE(ps.pp_special_code, pst.pp_special_code) LIKE '1B27%')
+            ),
+            (
+              SELECT GROUP_CONCAT(DISTINCT d.nhso_adp_code ORDER BY d.nhso_adp_code SEPARATOR ', ')
+              FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND d.nhso_adp_code IN ('1B260', '1B261', '1B262', '1B263')
+            )
+          ) as dspm_code,
+          COALESCE(
+            (
+              SELECT GROUP_CONCAT(DISTINCT pst.pp_special_type_name ORDER BY pst.pp_special_type_name SEPARATOR ' | ')
+              FROM pp_special ps
+              JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) LIKE '1B26%' OR COALESCE(ps.pp_special_code, pst.pp_special_code) LIKE '1B27%' OR pst.pp_special_type_name REGEXP 'DSPM|DAIM|พัฒนาการ')
+            ),
+            (
+              SELECT GROUP_CONCAT(DISTINCT d.name ORDER BY d.name SEPARATOR ' | ')
+              FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code IN ('1B260', '1B261', '1B262', '1B263') OR UPPER(d.name) REGEXP 'DSPM|DAIM|พัฒนาการ')
+            )
+          ) as dspm_desc,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM pp_special ps
+            LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+            WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) LIKE '1B26%' OR COALESCE(ps.pp_special_code, pst.pp_special_code) LIKE '1B27%' OR pst.pp_special_type_name REGEXP 'DSPM|DAIM|พัฒนาการ')
+          ) OR EXISTS (
+            SELECT 1 FROM opitemrece oo
+            JOIN nondrugitems d ON d.icode = oo.icode
+            WHERE oo.vn = o.vn AND (d.nhso_adp_code IN ('1B260', '1B261', '1B262', '1B263') OR UPPER(d.name) REGEXP 'DSPM|DAIM|พัฒนาการ')
+          ) THEN 'Y' ELSE 'N' END as has_dspm,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (
+            EXISTS (
+              SELECT 1 FROM pp_special ps
+              LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) LIKE '1B26%' OR COALESCE(ps.pp_special_code, pst.pp_special_code) LIKE '1B27%' OR pst.pp_special_type_name REGEXP 'DSPM|DAIM|พัฒนาการ')
+            )
+            OR EXISTS (
+              SELECT 1 FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code IN ('1B260', '1B261', '1B262', '1B263') OR UPPER(d.name) REGEXP 'DSPM|DAIM|พัฒนาการ')
+            )
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'retinopathy_screening') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          v.pdx,
+          (SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.diagtype SEPARATOR ', ') FROM ovstdiag dx WHERE dx.vn = o.vn) as diag_codes,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^E1[0-4]'
+          ) OR (v.pdx REGEXP '^E1[0-4]') THEN 'Y' ELSE 'N' END as has_dm_diag,
+          (
+            SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ' | ')
+            FROM opitemrece oo
+            JOIN nondrugitems d ON d.icode = oo.icode
+            WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0120' OR UPPER(d.name) REGEXP 'RETINOPATHY|FUNDUS|จอตา|จอประสาทตา')
+          ) as retinopathy_service_names,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM opitemrece oo
+            JOIN nondrugitems d ON d.icode = oo.icode
+            WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0120' OR UPPER(d.name) REGEXP 'RETINOPATHY|FUNDUS|จอตา|จอประสาทตา')
+          ) THEN 'Y' ELSE 'N' END as has_retinopathy_exam,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (
+            EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^E1[0-4]')
+            OR (v.pdx REGEXP '^E1[0-4]')
+            OR EXISTS (
+              SELECT 1 FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0120' OR UPPER(d.name) REGEXP 'RETINOPATHY|FUNDUS|จอตา|จอประสาทตา')
+            )
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
+    if (fundType === 'foot_screening') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          ptt.name as pttypename, ptt.hipdata_code,
+          COALESCE(v.sex, pt.sex) as sex,
+          v.age_y as age,
+          v.pdx,
+          (SELECT GROUP_CONCAT(DISTINCT dx.icd10 ORDER BY dx.diagtype SEPARATOR ', ') FROM ovstdiag dx WHERE dx.vn = o.vn) as diag_codes,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^E1[0-4]'
+          ) OR (v.pdx REGEXP '^E1[0-4]') THEN 'Y' ELSE 'N' END as has_dm_diag,
+          (
+            SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ' | ')
+            FROM opitemrece oo
+            JOIN nondrugitems d ON d.icode = oo.icode
+            WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0110' OR UPPER(d.name) REGEXP 'FOOT|เท้าเบาหวาน|ตรวจเท้า')
+          ) as foot_service_names,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM opitemrece oo
+            JOIN nondrugitems d ON d.icode = oo.icode
+            WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0110' OR UPPER(d.name) REGEXP 'FOOT|เท้าเบาหวาน|ตรวจเท้า')
+          ) THEN 'Y' ELSE 'N' END as has_foot_exam,
+          (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
+        FROM ovst o
+        JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND (
+            EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^E1[0-4]')
+            OR (v.pdx REGEXP '^E1[0-4]')
+            OR EXISTS (
+              SELECT 1 FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0110' OR UPPER(d.name) REGEXP 'FOOT|เท้าเบาหวาน|ตรวจเท้า')
+            )
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC
+      `, [startDate, endDate]);
+      return await finalizeRows(rows as Record<string, unknown>[]);
+    }
+
     // สามารถเพิ่มเงื่อนไขกองทุนอื่นๆ ต่อไปได้ที่นี่
     return [];
   } catch (error) {

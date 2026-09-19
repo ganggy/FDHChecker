@@ -64,6 +64,15 @@ export const REPORT_FUNDS: FundSpec[] = [
   { id: 'osteoporosis_screening', name: 'คัดกรองกระดูกพรุน' },
   { id: 'autism_tdas_screening', name: 'คัดกรองออทิสติก TDAS' },
   { id: 'clopidogrel', name: 'ยา Clopidogrel' },
+  { id: 'ttm_massage', name: 'นวดไทยเพื่อการรักษา (43 แฟ้ม)' },
+  { id: 'ttm_compress', name: 'ประคบสมุนไพร (43 แฟ้ม)' },
+  { id: 'ttm_steam', name: 'อบไอน้ำสมุนไพร (43 แฟ้ม)' },
+  { id: 'ttm_postnatal', name: 'ฟื้นฟูมารดาหลังคลอด (43 แฟ้ม)' },
+  { id: 'fecal_fit_test', name: 'คัดกรองมะเร็งลำไส้ใหญ่ Fit Test (43 แฟ้ม)' },
+  { id: 'ncd_screening', name: 'คัดกรองเบาหวานและความดัน NCD (43 แฟ้ม)' },
+  { id: 'dspm_screening', name: 'คัดกรองพัฒนาการเด็ก DSPM (43 แฟ้ม)' },
+  { id: 'retinopathy_screening', name: 'คัดกรองจอประสาทตาเบาหวาน (43 แฟ้ม)' },
+  { id: 'foot_screening', name: 'คัดกรองสุขภาพเท้าเบาหวาน (43 แฟ้ม)' },
 ];
 
 const flag = (value: unknown) => value === true || value === 1 || value === '1' || value === 'Y' || value === 'y';
@@ -282,6 +291,46 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
     case 'autism_tdas_screening':
       requireValue(missing, flag(row.age_eligible), 'อายุ/กลุ่มเป้าหมายตามเกณฑ์'); requireValue(missing, flag(row.sex_eligible), 'เพศตามเกณฑ์'); requireValue(missing, flag(row.has_specific_evidence) || present(row.specific_lab_names) || present(row.specific_service_names), text(row.specific_evidence_label) || 'หลักฐานบริการ/Lab'); break;
     case 'clopidogrel': requireValue(missing, flag(row.has_clopidogrel) || flag(row.has_clopidogrel_drug), 'รายการยา Clopidogrel'); break;
+    case 'ttm_massage':
+      requireValue(missing, flag(row.has_ttm_oper) || flag(row.has_massage_oper), 'หัตถการนวดรักษา (U59)');
+      requireValue(missing, flag(row.has_ttm_diag), 'Diagnosis โรคกล้ามเนื้อ/กระดูก/อัมพฤกษ์');
+      requireValue(missing, flag(row.has_provider_license) || present(row.provider_license_no), 'เลขที่ใบประกอบวิชาชีพแพทย์แผนไทย');
+      break;
+    case 'ttm_compress':
+      requireValue(missing, flag(row.has_ttm_oper) || flag(row.has_compress_oper), 'หัตถการประคบสมุนไพร (U60)');
+      requireValue(missing, flag(row.has_ttm_diag), 'Diagnosis ที่สอดคล้อง');
+      requireValue(missing, present(row.provider_name) || flag(row.has_provider_license), 'ผู้ให้บริการแพทย์แผนไทย');
+      break;
+    case 'ttm_steam':
+      requireValue(missing, flag(row.has_ttm_oper) || flag(row.has_steam_oper), 'หัตถการอบสมุนไพร (U61)');
+      requireValue(missing, flag(row.has_ttm_diag), 'Diagnosis โรคทางเดินหายใจ/ภูมิแพ้/ปวดเมื่อย');
+      break;
+    case 'ttm_postnatal':
+      requireValue(missing, flag(row.has_postnatal_oper), 'หัตถการฟื้นฟูหลังคลอด (ทับหม้อเกลือ/นวดประคบ U62)');
+      requireValue(missing, flag(row.has_postnatal_diag) || hasCode(row, ['Z391', 'Z392']), 'Diagnosis ดูแลหลังคลอด Z39.1/Z39.2');
+      break;
+    case 'fecal_fit_test':
+      requireValue(missing, flag(row.age_eligible) || (age >= 50 && age <= 70), 'อายุ 50-70 ปี');
+      requireValue(missing, flag(row.has_fit_test) || present(row.fit_test_result), 'รหัสบริการ 1B0080 หรือผล Fit Test');
+      break;
+    case 'ncd_screening':
+      requireValue(missing, flag(row.age_eligible) || age >= 35, 'อายุ 35 ปีขึ้นไป');
+      requireValue(missing, flag(row.has_bp) || (present(row.bps) && present(row.bpd)), 'ค่าความดัน SBP/DBP');
+      requireValue(missing, flag(row.has_bmi) || present(row.bmi), 'ค่าดัชนีมวลกาย (BMI)');
+      requireValue(missing, flag(row.has_fbs) || present(row.fbs), 'ผลตรวจน้ำตาลในเลือด (FPG/DTX)');
+      break;
+    case 'dspm_screening':
+      requireValue(missing, flag(row.age_eligible) || age <= 5, 'เด็กอายุ 0-5 ปี');
+      requireValue(missing, flag(row.has_dspm) || present(row.dspm_code), 'รหัสประเมินพัฒนาการ DSPM (1B260-1B263)');
+      break;
+    case 'retinopathy_screening':
+      requireValue(missing, flag(row.has_dm_diag) || hasPrefix(row, 'E10') || hasPrefix(row, 'E11') || hasPrefix(row, 'E14'), 'Diagnosis เบาหวาน E10-E14');
+      requireValue(missing, flag(row.has_retinopathy_exam) || present(row.retinopathy_date), 'การตรวจจอประสาทตา (1B0120)');
+      break;
+    case 'foot_screening':
+      requireValue(missing, flag(row.has_dm_diag) || hasPrefix(row, 'E10') || hasPrefix(row, 'E11') || hasPrefix(row, 'E14'), 'Diagnosis เบาหวาน E10-E14');
+      requireValue(missing, flag(row.has_foot_exam) || present(row.foot_exam_date), 'การตรวจสุขภาพเท้า (1B0110)');
+      break;
   }
   return missing;
 };

@@ -63,6 +63,15 @@ const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'proton', name: 'รังสีรักษา (Proton)', description: 'ฉายแสงโปรตอน' },
     { id: 'cxr', name: 'อ่านฟิล์ม CXR', description: 'อ่านฟิล์มทรวงอก' },
     { id: 'clopidogrel', name: 'Clopidogrel', description: 'ยาต้านเกล็ดเลือด' },
+    { id: 'ttm_massage', name: 'นวดไทยเพื่อการรักษา', description: 'บริการนวดรักษา 43 แฟ้ม (U59)' },
+    { id: 'ttm_compress', name: 'ประคบสมุนไพร', description: 'บริการประคบสมุนไพร 43 แฟ้ม (U60)' },
+    { id: 'ttm_steam', name: 'อบไอน้ำสมุนไพร', description: 'บริการอบไอน้ำสมุนไพร 43 แฟ้ม (U61)' },
+    { id: 'ttm_postnatal', name: 'ฟื้นฟูมารดาหลังคลอด', description: 'ทับหม้อเกลือ/ประคบหลังคลอด 43 แฟ้ม (U62)' },
+    { id: 'fecal_fit_test', name: 'คัดกรองมะเร็งลำไส้ใหญ่ (Fit Test)', description: 'ตรวจ Fit Test 43 แฟ้ม (1B0080)' },
+    { id: 'ncd_screening', name: 'คัดกรองเบาหวาน/ความดัน', description: 'คัดกรองความเสี่ยง NCD 43 แฟ้ม (NCDSCREEN)' },
+    { id: 'dspm_screening', name: 'คัดกรองพัฒนาการเด็ก', description: 'ตรวจพัฒนาการเด็ก DSPM/DAIM 43 แฟ้ม' },
+    { id: 'retinopathy_screening', name: 'คัดกรองจอประสาทตาเบาหวาน', description: 'ตรวจจอประสาทตาเบาหวาน 43 แฟ้ม (1B0120)' },
+    { id: 'foot_screening', name: 'คัดกรองสุขภาพเท้าเบาหวาน', description: 'ตรวจสุขภาพเท้าเบาหวาน 43 แฟ้ม (1B0110)' },
 ];
 
 type ClaimChannelView = 'all' | 'fdh' | '43' | 'ktb' | 'other';
@@ -1527,6 +1536,201 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             return buildStatusResult(subfunds, [hasCxr ? '' : ' รายการ CXR'].filter(Boolean));
         }
 
+        if (fundId === 'ttm_massage') {
+            const hasOper = toFlag(item?.has_ttm_oper) || toFlag(item?.has_massage_oper);
+            const hasDiag = toFlag(item?.has_ttm_diag);
+            const hasLicense = toFlag(item?.has_provider_license) || hasValue(item?.provider_license_no);
+            const duration = Number(item?.service_duration_min || 0);
+            const isMatched = hasOper && hasDiag && hasLicense;
+            if (hasOper || hasDiag) subfunds.push('💆 นวดไทยเพื่อการรักษา (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasOper ? '' : ' หัตถการนวดรักษา (U59)',
+                    hasDiag ? '' : ' Diagnosis โรคกล้ามเนื้อ/อัมพฤกษ์',
+                    hasLicense ? '' : ' เลขที่ใบประกอบวิชาชีพแพทย์แผนไทย',
+                    duration > 0 && duration < 45 ? ' เวลาบริการน้อยกว่า 45 นาที' : '',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasOper ? 'หัตถการ U59' : '',
+                    hasDiag ? 'วินิจฉัยโรคกล้ามเนื้อ/ข้อ' : '',
+                    hasLicense ? `ใบประกอบ: ${item?.provider_license_no || 'มี'}` : '',
+                    duration >= 45 ? `${duration} นาที` : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'ttm_compress') {
+            const hasOper = toFlag(item?.has_ttm_oper) || toFlag(item?.has_compress_oper);
+            const hasDiag = toFlag(item?.has_ttm_diag);
+            const hasProvider = hasValue(item?.provider_name) || toFlag(item?.has_provider_license);
+            const isMatched = hasOper && hasDiag;
+            if (hasOper || hasDiag) subfunds.push('🌿 ประคบสมุนไพร (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasOper ? '' : ' หัตถการประคบสมุนไพร (U60)',
+                    hasDiag ? '' : ' Diagnosis ที่สอดคล้อง',
+                    hasProvider ? '' : ' ผู้ให้บริการแพทย์แผนไทย',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasOper ? 'หัตถการ U60' : '',
+                    hasDiag ? 'วินิจฉัยโรคกล้ามเนื้อ' : '',
+                    hasProvider ? `ผู้ตรวจ: ${item?.provider_name || 'มี'}` : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'ttm_steam') {
+            const hasOper = toFlag(item?.has_ttm_oper) || toFlag(item?.has_steam_oper);
+            const hasDiag = toFlag(item?.has_ttm_diag);
+            const isMatched = hasOper && hasDiag;
+            if (hasOper || hasDiag) subfunds.push('♨️ อบไอน้ำสมุนไพร (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasOper ? '' : ' หัตถการอบสมุนไพร (U61)',
+                    hasDiag ? '' : ' Diagnosis โรคทางเดินหายใจ/ภูมิแพ้/ปวดเมื่อย',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasOper ? 'หัตถการ U61' : '',
+                    hasDiag ? 'วินิจฉัยที่สอดคล้อง' : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'ttm_postnatal') {
+            const hasOper = toFlag(item?.has_postnatal_oper);
+            const hasDiag = toFlag(item?.has_postnatal_diag);
+            const isMatched = hasOper && hasDiag;
+            if (hasOper || hasDiag) subfunds.push('🤱 ฟื้นฟูมารดาหลังคลอด (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasOper ? '' : ' หัตถการฟื้นฟูหลังคลอด (U62 ทับหม้อเกลือ/ประคบ)',
+                    hasDiag ? '' : ' Diagnosis ดูแลหลังคลอด Z39.1/Z39.2',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasOper ? 'หัตถการ U62' : '',
+                    hasDiag ? 'Diagnosis หลังคลอด' : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'fecal_fit_test') {
+            const hasAge = toFlag(item?.age_eligible) || (age >= 50 && age <= 70);
+            const hasFit = toFlag(item?.has_fit_test) || hasValue(item?.fit_test_result) || hasValue(item?.fit_service_names);
+            const isMatched = hasAge && hasFit;
+            if (hasFit) subfunds.push('🔬 คัดกรองมะเร็งลำไส้ใหญ่ Fit Test (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasAge ? '' : ' อายุ 50-70 ปี',
+                    hasFit ? '' : ' รหัส 1B0080 หรือผล Fit Test',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasAge ? 'อายุ 50-70 ปี' : '',
+                    hasFit ? `ผล Fit Test: ${item?.fit_test_result || item?.fit_service_names || 'ตรวจแล้ว'}` : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'ncd_screening') {
+            const hasAge = toFlag(item?.age_eligible) || age >= 35;
+            const hasBp = toFlag(item?.has_bp) || (Number(item?.bps) > 0 && Number(item?.bpd) > 0);
+            const hasBmi = toFlag(item?.has_bmi) || Number(item?.bmi) > 0 || (Number(item?.weight) > 0 && Number(item?.height) > 0);
+            const hasFbs = toFlag(item?.has_fbs) || hasValue(item?.fbs);
+            const isMatched = hasAge && hasBp && hasBmi;
+            if (hasBp || hasFbs || hasAge) subfunds.push('📊 คัดกรองเบาหวาน-ความดัน NCD (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasAge ? '' : ' อายุ 35 ปีขึ้นไป',
+                    hasBp ? '' : ' ความดัน SBP/DBP',
+                    hasBmi ? '' : ' ค่าดัชนีมวลกาย (BMI)',
+                    hasFbs ? '' : ' ผลน้ำตาล FPG/DTX',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasAge ? `${age} ปี` : '',
+                    hasBp ? `BP: ${item?.bps}/${item?.bpd}` : '',
+                    hasBmi ? `BMI: ${Number(item?.bmi || 0).toFixed(1)}` : '',
+                    hasFbs ? `FBS: ${item?.fbs}` : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'dspm_screening') {
+            const hasAge = toFlag(item?.age_eligible) || age <= 5;
+            const hasDspm = toFlag(item?.has_dspm) || hasValue(item?.dspm_code) || hasValue(item?.dspm_desc);
+            const isMatched = hasAge && hasDspm;
+            if (hasDspm) subfunds.push('👶 พัฒนาการเด็ก DSPM/DAIM (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasAge ? '' : ' เด็กอายุ 0-5 ปี',
+                    hasDspm ? '' : ' รหัสพัฒนาการ 1B260-1B263',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasAge ? `${age} ปี` : '',
+                    hasDspm ? `DSPM: ${item?.dspm_code || item?.dspm_desc || 'ประเมินแล้ว'}` : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'retinopathy_screening') {
+            const hasDm = toFlag(item?.has_dm_diag);
+            const hasExam = toFlag(item?.has_retinopathy_exam) || hasValue(item?.retinopathy_service_names);
+            const isMatched = hasDm && hasExam;
+            if (hasDm || hasExam) subfunds.push('👁️ คัดกรองจอประสาทตาเบาหวาน (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasDm ? '' : ' Diagnosis เบาหวาน E10-E14',
+                    hasExam ? '' : ' รหัสบริการตรวจจอตา 1B0120',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasDm ? 'ผู้ป่วยเบาหวาน' : '',
+                    hasExam ? `ตรวจจอตา: ${item?.retinopathy_service_names || 'ตรวจแล้ว'}` : '',
+                ].filter(Boolean)
+            );
+        }
+
+        if (fundId === 'foot_screening') {
+            const hasDm = toFlag(item?.has_dm_diag);
+            const hasExam = toFlag(item?.has_foot_exam) || hasValue(item?.foot_service_names);
+            const isMatched = hasDm && hasExam;
+            if (hasDm || hasExam) subfunds.push('🦶 คัดกรองสุขภาพเท้าเบาหวาน (43 แฟ้ม)');
+            return buildStatusResult(
+                subfunds,
+                [
+                    hasDm ? '' : ' Diagnosis เบาหวาน E10-E14',
+                    hasExam ? '' : ' รหัสบริการตรวจเท้า 1B0110',
+                ].filter(Boolean),
+                undefined,
+                isMatched,
+                [
+                    hasDm ? 'ผู้ป่วยเบาหวาน' : '',
+                    hasExam ? `ตรวจเท้า: ${item?.foot_service_names || 'ตรวจแล้ว'}` : '',
+                ].filter(Boolean)
+            );
+        }
+
         if (subfunds.length > 0) {
             return { status: 'สมบูรณ์', class: 'badge-success', icon: '✅', subfunds, matchedConditions: subfunds, missingConditions: [] as string[] };
         }
@@ -2737,6 +2941,43 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                             <th style={{ width: 125, textAlign: 'center' }}>ตรวจ/เติมข้อมูล</th>
                                         </>
                                     )}
+                                    {(activeFund === 'ttm_massage' || activeFund === 'ttm_compress' || activeFund === 'ttm_steam' || activeFund === 'ttm_postnatal') && (
+                                        <>
+                                            <th style={{ width: 140, textAlign: 'center' }}>หัตถการ 43 แฟ้ม</th>
+                                            <th style={{ width: 220, textAlign: 'left' }}>ชื่อหัตถการ</th>
+                                            <th style={{ width: 140, textAlign: 'center' }}>Diag ที่สัมพันธ์</th>
+                                            <th style={{ width: 160, textAlign: 'left' }}>ผู้ให้บริการ/ใบประกอบ</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>เวลาบริการ</th>
+                                        </>
+                                    )}
+                                    {activeFund === 'fecal_fit_test' && (
+                                        <>
+                                            <th style={{ width: 60, textAlign: 'center' }}>อายุ</th>
+                                            <th style={{ width: 200, textAlign: 'center' }}>ผลตรวจ Fit Test</th>
+                                            <th style={{ width: 240, textAlign: 'left' }}>รายการบริการ/ADP</th>
+                                        </>
+                                    )}
+                                    {activeFund === 'ncd_screening' && (
+                                        <>
+                                            <th style={{ width: 60, textAlign: 'center' }}>อายุ</th>
+                                            <th style={{ width: 120, textAlign: 'center' }}>ความดัน (BP)</th>
+                                            <th style={{ width: 110, textAlign: 'center' }}>BMI</th>
+                                            <th style={{ width: 120, textAlign: 'center' }}>น้ำตาล (FBS/DTX)</th>
+                                        </>
+                                    )}
+                                    {activeFund === 'dspm_screening' && (
+                                        <>
+                                            <th style={{ width: 100, textAlign: 'center' }}>อายุเด็ก</th>
+                                            <th style={{ width: 130, textAlign: 'center' }}>รหัส DSPM</th>
+                                            <th style={{ width: 240, textAlign: 'left' }}>ผลการประเมินพัฒนาการ</th>
+                                        </>
+                                    )}
+                                    {(activeFund === 'retinopathy_screening' || activeFund === 'foot_screening') && (
+                                        <>
+                                            <th style={{ width: 120, textAlign: 'center' }}>เบาหวาน (DM)</th>
+                                            <th style={{ width: 260, textAlign: 'left' }}>การตรวจคัดกรองภาวะแทรกซ้อน</th>
+                                        </>
+                                    )}
                                     {activeFund === 'instrument' && (
                                         <>
                                             <th style={{ textAlign: 'left' }}>รายการอุปกรณ์</th>
@@ -3159,6 +3400,178 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                         ? '✓ ตรวจซ้ำ'
                                                                         : 'ตรวจและเติม'}
                                                             </button>
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {(activeFund === 'ttm_massage' || activeFund === 'ttm_compress' || activeFund === 'ttm_steam' || activeFund === 'ttm_postnatal') && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.oper_codes ? (
+                                                                <span className="badge badge-primary" style={{ fontFamily: 'monospace', fontSize: 11 }}>
+                                                                    {item.oper_codes}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge badge-danger">✗ ขาดหัตถการ</span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left' }}>
+                                                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.oper_names}>
+                                                                {item.oper_names || '-'}
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {toFlag(item.has_ttm_diag) || toFlag(item.has_postnatal_diag) ? (
+                                                                <span className="badge badge-success" title={item.diag_codes}>
+                                                                    {item.diag_codes || '✓ ผ่าน'}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge badge-warning" title={item.diag_codes || 'ไม่พบ ICD-10TM ที่กำหนด'}>
+                                                                    {item.diag_codes ? `⚠ ${item.diag_codes}` : '✗ ขาด Diag'}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left' }}>
+                                                            <div style={{ fontSize: 12 }}>
+                                                                {item.provider_name ? (
+                                                                    <>
+                                                                        <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>
+                                                                            {item.provider_name}
+                                                                        </div>
+                                                                        {item.provider_license_no ? (
+                                                                            <span className="badge badge-light" style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+                                                                                เลข: {item.provider_license_no}
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="badge badge-danger" style={{ fontSize: 10 }}>✗ ขาดเลขใบประกอบ</span>
+                                                                        )}
+                                                                    </>
+                                                                ) : (
+                                                                    <span style={{ color: 'var(--text-secondary)' }}>-</span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.service_duration_min ? (
+                                                                <span style={{ fontSize: 12, fontWeight: 500 }}>
+                                                                    {item.service_duration_min} น.
+                                                                </span>
+                                                            ) : item.service_start_time ? (
+                                                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                                                    {item.service_start_time}-{item.service_finish_time || ''}
+                                                                </span>
+                                                            ) : (
+                                                                <span style={{ color: 'var(--text-secondary)' }}>-</span>
+                                                            )}
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {activeFund === 'fecal_fit_test' && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.age !== undefined && item.age !== null ? (
+                                                                <span className={`badge ${Number(item.age) >= 50 && Number(item.age) <= 70 ? 'badge-success' : 'badge-warning'}`}>
+                                                                    {item.age} ปี
+                                                                </span>
+                                                            ) : '-'}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.fit_test_result ? (
+                                                                <span className="badge badge-info" style={{ maxWidth: 180, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-block' }} title={item.fit_test_result}>
+                                                                    {item.fit_test_result}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge badge-danger">✗ ไม่พบผลแล็ป</span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left' }}>
+                                                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.fit_service_names}>
+                                                                {item.fit_service_names || '-'}
+                                                            </div>
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {activeFund === 'ncd_screening' && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.age !== undefined && item.age !== null ? (
+                                                                <span className={`badge ${Number(item.age) >= 35 ? 'badge-success' : 'badge-warning'}`}>
+                                                                    {item.age} ปี
+                                                                </span>
+                                                            ) : '-'}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.bps && item.bpd ? (
+                                                                <span style={{ fontSize: 12, fontWeight: 600 }}>
+                                                                    {item.bps}/{item.bpd}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge badge-danger">✗ ขาด BP</span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.bmi ? (
+                                                                <span style={{ fontSize: 12 }}>
+                                                                    {Number(item.bmi).toFixed(1)}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge badge-danger">✗ ขาด BMI</span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.fbs ? (
+                                                                <span className="badge badge-primary" style={{ fontSize: 11 }}>
+                                                                    {item.fbs} mg/dL
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge badge-warning">ยังไม่ตรวจ</span>
+                                                            )}
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {activeFund === 'dspm_screening' && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            <span style={{ fontSize: 12 }}>
+                                                                {item.age_months !== undefined && item.age_months !== null
+                                                                    ? `${Math.floor(Number(item.age_months) / 12)} ปี ${Number(item.age_months) % 12} ด.`
+                                                                    : `${item.age || 0} ปี`}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {item.dspm_code ? (
+                                                                <span className="badge badge-primary" style={{ fontFamily: 'monospace' }}>
+                                                                    {item.dspm_code}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge badge-danger">✗ ขาดรหัส 1B26x</span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left' }}>
+                                                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.dspm_desc}>
+                                                                {item.dspm_desc || '-'}
+                                                            </div>
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {(activeFund === 'retinopathy_screening' || activeFund === 'foot_screening') && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center' }}>
+                                                            {toFlag(item.has_dm_diag) ? (
+                                                                <span className="badge badge-success" title={item.diag_codes}>
+                                                                    ✓ DM ({item.pdx || 'มี Diag'})
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge badge-danger" title={item.diag_codes || 'ไม่พบรหัสกลุ่ม E10-E14'}>
+                                                                    ✗ ขาด Diag เบาหวาน
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'left' }}>
+                                                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={item.retinopathy_service_names || item.foot_service_names}>
+                                                                {activeFund === 'retinopathy_screening'
+                                                                    ? (item.retinopathy_service_names || <span className="badge badge-danger">✗ ขาดรหัส 1B0120</span>)
+                                                                    : (item.foot_service_names || <span className="badge badge-danger">✗ ขาดรหัส 1B0110</span>)}
+                                                            </div>
                                                         </td>
                                                     </>
                                                 )}

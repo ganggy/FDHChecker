@@ -556,7 +556,7 @@ export const getDetailedIpd = async (
          DATE_FORMAT(COALESCE(i.dchdate, i.regdate), '%d/%m/%Y') AS dch_date,
          i.pttype,
          pt.cid,
-         COALESCE(a.rcp_no, '') AS receipt_no,
+         TRIM(BOTH '"' FROM COALESCE(a.rcpno_list, '')) AS receipt_no,
          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
          i.hn,
          i.an,

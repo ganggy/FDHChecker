@@ -271,6 +271,7 @@ export const buildUpdateRunnerConfig = (job: SystemUpdateJob, directory: string,
     out_file: path.join(stateDir, `launcher-${job.id}.log`),
     error_file: path.join(stateDir, `launcher-${job.id}.log`),
     env: {
+      PATH: process.env.PATH || '',
       FDH_APP_DIR: directory, FDH_UPDATE_STATE_DIR: stateDir,
       FDH_UPDATE_JOB_ID: job.id, FDH_UPDATE_STARTED_AT: job.startedAt,
       FDH_UPDATE_FROM_COMMIT: job.fromCommit, FDH_UPDATE_TO_COMMIT: job.toCommit,

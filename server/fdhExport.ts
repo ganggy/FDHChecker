@@ -301,7 +301,7 @@ export const validateFdhData = (
   data.INS.forEach((row, index) => {
     const hn = value(row, 'HN');
     const inscl = value(row, 'INSCL').toUpperCase();
-    if (profile === 'standard' && ['UCS', 'WEL', 'OFC', 'LGO'].includes(inscl) && !value(row, 'PERMITNO')) {
+    if (profile === 'standard' && ['UCS', 'WEL'].includes(inscl) && !value(row, 'PERMITNO')) {
       add({
         code: 'PERMITNO_REQUIRED',
         file: 'INS',

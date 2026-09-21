@@ -126,6 +126,18 @@ test('PERMITNO is conditional by fund and remains required for UCS', () => {
   assert.equal(result.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), true);
 });
 
+test('PERMITNO is not required for OFC and LGO rights', () => {
+  const dataOfc = validFwfData();
+  dataOfc.INS[0] = { ...dataOfc.INS[0], INSCL: 'OFC', DATEIN: '20260720', PERMITNO: '' };
+  const resultOfc = validateFdhData(projectFdhData(dataOfc, 'standard'), 'standard', '11101');
+  assert.equal(resultOfc.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
+
+  const dataLgo = validFwfData();
+  dataLgo.INS[0] = { ...dataLgo.INS[0], INSCL: 'LGO', DATEIN: '20260720', PERMITNO: '' };
+  const resultLgo = validateFdhData(projectFdhData(dataLgo, 'standard'), 'standard', '11101');
+  assert.equal(resultLgo.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
+});
+
 test('preflight rejects an AER row that is not refer, accident or emergency', () => {
   const data = validFwfData();
   data.AER = [{

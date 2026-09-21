@@ -73,6 +73,13 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
               const fdhLabel = item.fdh_status_label
                 || (item.has_close ? 'ปิดสิทธิแล้ว (EP)' : item.has_authen ? 'มี Authen (PP)' : 'ยังไม่มีสถานะ FDH');
               const opdAudit = item.opd_pre_audit;
+              const isOfcOrLgo = logic.isUUC1 && (
+                logic.billingStatusLabel?.includes('OFC') ||
+                logic.billingStatusLabel?.includes('LGO') ||
+                item.hipdata_code === 'OFC' ||
+                item.hipdata_code === 'LGO' ||
+                item.hipdata_code === 'CSCD'
+              );
 
               return (
                 <tr
@@ -186,10 +193,10 @@ export const CheckTable: React.FC<CheckTableProps> = ({ items, onRowClick }) => 
                   <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
                       <span className={`badge ${item.status === 'ready' ? 'badge-success' : item.status === 'pending' ? 'badge-warning' : 'badge-danger'}`}>
-                        {item.status === 'ready' ? 'พร้อมส่ง' : item.status === 'pending' ? 'รอปิดสิทธิ/แก้ไข' : 'ไม่ส่ง'}
+                        {item.status === 'ready' ? 'พร้อมส่ง' : item.status === 'pending' ? (isOfcOrLgo ? 'รอแก้ไข' : 'รอปิดสิทธิ/แก้ไข') : 'ไม่ส่ง'}
                       </span>
-                      <span className={`badge ${item.has_close ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: 10 }}>
-                        EP {item.has_close ? '✓' : '✗'}
+                      <span className={`badge ${item.has_close ? 'badge-success' : isOfcOrLgo ? 'badge-secondary' : 'badge-warning'}`} style={{ fontSize: 10 }}>
+                        EP {item.has_close ? '✓' : isOfcOrLgo ? '—' : '✗'}
                       </span>
                     </div>
                   </td>

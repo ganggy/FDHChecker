@@ -13,7 +13,7 @@ const insuranceMapping = rules.insurance_mapping || {};
 const diagnosisPatterns = rules.diagnosis_patterns || {};
 
 const ofcCodes = new Set(
-    [...(insuranceMapping.OFC_LGO?.hipdata_codes || []), 'OFC', 'LGO', 'A1']
+    [...(insuranceMapping.OFC_LGO?.hipdata_codes || []), 'OFC', 'LGO', 'A1', 'CSCD']
         .map((value: string) => value.toUpperCase())
 );
 const sssCodes = new Set(['SSS']);
@@ -23,7 +23,7 @@ const ucsCodes = new Set(
         .map((value: string) => value.toUpperCase())
 );
 
-const ofcKeywords = [...(insuranceMapping.OFC_LGO?.keywords || []), 'CSCD']
+const ofcKeywords = [...(insuranceMapping.OFC_LGO?.keywords || []), 'cscd', 'เบิกตรง', 'เบิกจ่ายตรง']
     .map((value: string) => value.toLowerCase());
 const sssKeywords = ['ประกันสังคม', 'sss'];
 const ucsKeywords = [
@@ -677,7 +677,7 @@ export const evaluateBillingLogic = (item: any) => {
 
     if (item?.serviceType !== 'ผู้ป่วยใน' && toBool(item?.has_close)) {
         fundNotes.push({ label: '🔐 ปิดสิทธิแล้ว (EP)', kind: 'ep', group: 'other' });
-    } else if (item?.serviceType !== 'ผู้ป่วยใน' && isUUC1) {
+    } else if (item?.serviceType !== 'ผู้ป่วยใน' && isUUC1 && !isOFC_LGO) {
         fundNotes.push({ label: '🔐 ยังไม่ปิดสิทธิ (EP)', kind: 'ep', group: 'other' });
         billingStatusLabel = 'UUC1 รอปิดสิทธิ (EP)';
     }

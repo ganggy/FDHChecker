@@ -1415,8 +1415,12 @@ app.get('/api/hosxp/checks', async (req, res) => {
       if (hasDrugpWithoutDrugItems(rec)) {
         issues.push('ส่งยาไปรษณีย์ (DRUGP) ต้องมีรายการยา');
       }
-      const isOFC_LGO = rec.hipdata_code === 'OFC' || rec.hipdata_code === 'LGO';
-      const isUCS = rec.hipdata_code === 'UCS' || rec.hipdata_code === 'WEL';
+      const hipdataCode = String(rec.hipdata_code || '').trim().toUpperCase();
+      const fundUpper = String(rec.fund || '').toUpperCase();
+      const isOFC_CSCD_LGO = hipdataCode === 'OFC' || hipdataCode === 'LGO' || hipdataCode === 'CSCD'
+        || fundUpper.includes('CSCD') || fundUpper.includes('OFC') || fundUpper.includes('LGO')
+        || /ข้าราชการ|เบิกตรง|เบิกจ่ายตรง|อปท|องค์กรปกครองส่วนท้องถิ่น/.test(rec.fund || '');
+      const isUCS = hipdataCode === 'UCS' || hipdataCode === 'WEL';
       const mainDiag = String(rec.main_diag || '');
       const fundName = String(rec.fund || '');
 
@@ -1454,11 +1458,14 @@ app.get('/api/hosxp/checks', async (req, res) => {
         fundName.includes('OP Refer')
       );
 
-      const isBillable = !isIPD && (isOFC_LGO || (isUCS && isSpecialFund));
+      const isBillable = !isIPD && (isOFC_CSCD_LGO || (isUCS && isSpecialFund));
       const hasCloseEp = !!rec.has_close_ep;
       const hasAuthenPp = !!rec.has_authen_pp;
 
-      if (isBillable && !hasCloseEp) {
+      // สิทธิ OFC, CSCD, LGO ไม่จำเป็นต้องปิดสิทธิ EP ส่งออกได้ทันที
+      // เฉพาะบัตรทอง (UCS) ที่เข้ากองทุนพิเศษเท่านั้นที่ต้องปิดสิทธิ EP
+      const requiresCloseEp = !isIPD && isUCS && isSpecialFund;
+      if (requiresCloseEp && !hasCloseEp) {
         issues.push('ยังไม่ปิดสิทธิ (EP)');
       }
 
@@ -1474,9 +1481,11 @@ app.get('/api/hosxp/checks', async (req, res) => {
         has_close: hasCloseEp ? 1 : 0,
         fdh_status_label: hasCloseEp
           ? 'ปิดสิทธิแล้ว (EP)'
-          : hasAuthenPp
-            ? 'มี Authen (PP)'
-            : 'ยังไม่มีสถานะ FDH',
+          : isOFC_CSCD_LGO
+            ? 'พร้อมส่ง (เบิกตรง/OFC/LGO)'
+            : hasAuthenPp
+              ? 'มี Authen (PP)'
+              : 'ยังไม่มีสถานะ FDH',
         _dataSource: 'HOSxP-Database'
       };
     });
@@ -2196,12 +2205,19 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         (item.fund || '').includes('OP Refer')
       );
 
-      const isOFC_LGO = item.hipdata_code === 'OFC' || item.hipdata_code === 'LGO';
-      const isUCS = item.hipdata_code === 'UCS' || item.hipdata_code === 'WEL';
-      const isBillable = !item.an && (isOFC_LGO || (isUCS && isSpecialFund));
+      const hipdataCode = String(item.hipdata_code || '').trim().toUpperCase();
+      const fundUpper = String(item.fund || '').toUpperCase();
+      const isOFC_CSCD_LGO = hipdataCode === 'OFC' || hipdataCode === 'LGO' || hipdataCode === 'CSCD'
+        || fundUpper.includes('CSCD') || fundUpper.includes('OFC') || fundUpper.includes('LGO')
+        || /ข้าราชการ|เบิกตรง|เบิกจ่ายตรง|อปท|องค์กรปกครองส่วนท้องถิ่น/.test(item.fund || '');
+      const isUCS = hipdataCode === 'UCS' || hipdataCode === 'WEL';
+      const isBillable = !item.an && (isOFC_CSCD_LGO || (isUCS && isSpecialFund));
       const palliativeAuthenReady = !item.an && hasPalliativeAuthenReady(item);
 
-      if (isBillable && !hasCloseEp && !palliativeAuthenReady) {
+      // สิทธิ OFC, CSCD, LGO ไม่จำเป็นต้องปิดสิทธิ EP ส่งออกได้ทันที
+      // เฉพาะบัตรทอง (UCS) ที่เข้ากองทุนพิเศษเท่านั้นที่ต้องปิดสิทธิ EP
+      const requiresCloseEp = !item.an && isUCS && isSpecialFund && !palliativeAuthenReady;
+      if (requiresCloseEp && !hasCloseEp) {
         issues.push('ER108: ยังไม่ปิดสิทธิ NHSO (EP)');
         if (status === 'ready') status = 'pending';
       }

@@ -83,6 +83,15 @@ interface FdhValidationResult {
     totalRows: number;
 }
 
+const isOfcOrLgoVisit = (item: any, logic?: any) => {
+    const hipdataCode = String(item?.hipdata_code || '').trim().toUpperCase();
+    const fundText = `${item?.fund || ''} ${item?.hipdata_desc || ''}`.toLowerCase();
+    return hipdataCode === 'OFC' || hipdataCode === 'LGO' || hipdataCode === 'CSCD'
+        || fundText.includes('cscd') || fundText.includes('ofc') || fundText.includes('lgo')
+        || /ข้าราชการ|เบิกตรง|เบิกจ่ายตรง|อปท|องค์กรปกครองส่วนท้องถิ่น/.test(fundText)
+        || Boolean(logic?.billingStatusLabel?.includes('OFC/LGO'));
+};
+
 export const FDHCheckerPage: React.FC = () => {
     const [data, setData] = useState<EligibleVisit[]>([]);
     const [loading, setLoading] = useState(false);
@@ -422,6 +431,7 @@ export const FDHCheckerPage: React.FC = () => {
         const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะ FDH,สถานะข้อมูล,ราคา (บาท)';
         const rows = filtered.map((item, index) => {
             const logic = evaluateBillingLogic(item);
+            const isOfcOrLgo = isOfcOrLgoVisit(item, logic);
             return [
                 index + 1,
                 item.vn,
@@ -434,8 +444,8 @@ export const FDHCheckerPage: React.FC = () => {
                 logic.isUUC1 ? 'UUC1' : 'UUC2',
                 item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
                 item.status === 'ready'
-                    ? (item.palliative_authen_ready && !item.has_close ? 'พร้อมส่ง (Palliative/Authen)' : 'พร้อมส่ง (ปิดสิทธิแล้ว)')
-                    : 'รอแก้ไข/รอปิดสิทธิ',
+                    ? (isOfcOrLgo ? 'พร้อมส่ง (OFC/LGO)' : (item.palliative_authen_ready && !item.has_close ? 'พร้อมส่ง (Palliative/Authen)' : 'พร้อมส่ง (ปิดสิทธิแล้ว)'))
+                    : (isOfcOrLgo ? 'รอแก้ไข' : 'รอแก้ไข/รอปิดสิทธิ'),
                 item.total_price
             ].join(',')
         });
@@ -450,6 +460,7 @@ export const FDHCheckerPage: React.FC = () => {
     const handleExportExcel = () => {
         const dataForExcel = filtered.map((item, index) => {
             const logic = evaluateBillingLogic(item);
+            const isOfcOrLgo = isOfcOrLgoVisit(item, logic);
             return {
                 '#': index + 1,
                 'VN': item.vn,
@@ -462,8 +473,8 @@ export const FDHCheckerPage: React.FC = () => {
                 'สถานะกองทุน': logic.isUUC1 ? 'UUC1' : 'UUC2',
                 'สถานะ FDH': item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
                 'สถานะข้อมูล': item.status === 'ready'
-                    ? (item.palliative_authen_ready && !item.has_close ? 'พร้อมส่ง (Palliative/Authen)' : 'พร้อมส่ง (ปิดสิทธิแล้ว)')
-                    : 'รอแก้ไข/รอปิดสิทธิ',
+                    ? (isOfcOrLgo ? 'พร้อมส่ง (OFC/LGO)' : (item.palliative_authen_ready && !item.has_close ? 'พร้อมส่ง (Palliative/Authen)' : 'พร้อมส่ง (ปิดสิทธิแล้ว)'))
+                    : (isOfcOrLgo ? 'รอแก้ไข' : 'รอแก้ไข/รอปิดสิทธิ'),
                 'ราคา (บาท)': item.total_price
             };
         });
@@ -1025,6 +1036,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 {filtered.length > 0 ? (
                                     filtered.map((item, index) => {
                                         const logic = evaluateBillingLogic(item);
+                                        const isOfcOrLgo = isOfcOrLgoVisit(item, logic);
                                         const readyForSelectedFund = isReadyForExportFund(item);
                                         const fdhStatus = String(item.fdh_status_label || '').trim();
                                         const fdhStatusText = `${fdhStatus} ${item.fdh_error_code || ''}`.trim();
@@ -1136,6 +1148,8 @@ export const FDHCheckerPage: React.FC = () => {
                                                         <span style={{ color: 'var(--success)' }}>✓</span>
                                                     ) : item.palliative_authen_ready ? (
                                                         <span className="badge badge-success">Authen ผ่าน</span>
+                                                    ) : isOfcOrLgo ? (
+                                                        <span className="badge badge-secondary" style={{ fontSize: 10, background: '#f1f5f9', color: '#64748b' }}>ไม่จำเป็น</span>
                                                     ) : (
                                                         <span style={{ color: 'var(--danger)' }}>✗</span>
                                                     )}
@@ -1182,7 +1196,7 @@ export const FDHCheckerPage: React.FC = () => {
                                                         <span className="badge badge-success">🟢 พร้อมส่ง</span>
                                                     ) : item.status === 'pending' ? (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                            <span className="badge badge-warning">🟡 รอแก้ไข / รอปิดสิทธิ</span>
+                                                            <span className="badge badge-warning">{isOfcOrLgo ? '🟡 รอแก้ไข' : '🟡 รอแก้ไข / รอปิดสิทธิ'}</span>
                                                             <div style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 600 }}>ต้องแก้: {item.missing.join(', ')}</div>
                                                         </div>
                                                     ) : (

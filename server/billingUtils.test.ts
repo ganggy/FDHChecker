@@ -62,7 +62,7 @@ test('self-paid motor insurance exports as UUC2', () => {
   assert.match(result.billingStatusLabel, /^UUC2 พ\.ร\.บ\.ชำระเงินเอง/);
 });
 
-test('normal OFC remains a UUC1 whole-visit claim', () => {
+test('normal OFC remains a UUC1 whole-visit claim without requiring EP close', () => {
   const result = evaluateBillingLogic({
     ...opdVisit,
     pttype_code: '20',
@@ -71,6 +71,32 @@ test('normal OFC remains a UUC1 whole-visit claim', () => {
   });
 
   assert.equal(result.isUUC1, true);
+  assert.equal(result.billingStatusLabel, 'เบิกได้ทั้ง Visit (OFC/LGO)');
+  assert.equal(result.specialFundNotes.some((note: string) => note.includes('ยังไม่ปิดสิทธิ')), false);
+});
+
+test('CSCD and LGO do not require EP close and remain whole-visit claims', () => {
+  const cscdResult = evaluateBillingLogic({
+    ...opdVisit,
+    pttype_code: '30',
+    hipdata_code: 'CSCD',
+    fund: 'เบิกจ่ายตรงกรมบัญชีกลาง CSCD',
+  });
+
+  assert.equal(cscdResult.isUUC1, true);
+  assert.equal(cscdResult.billingStatusLabel, 'เบิกได้ทั้ง Visit (OFC/LGO)');
+  assert.equal(cscdResult.specialFundNotes.some((note: string) => note.includes('ยังไม่ปิดสิทธิ')), false);
+
+  const lgoResult = evaluateBillingLogic({
+    ...opdVisit,
+    pttype_code: '21',
+    hipdata_code: 'LGO',
+    fund: 'สิทธิกองทุนบุคลากรองค์การปกครองส่วนท้องถิ่น (อปท.)',
+  });
+
+  assert.equal(lgoResult.isUUC1, true);
+  assert.equal(lgoResult.billingStatusLabel, 'เบิกได้ทั้ง Visit (OFC/LGO)');
+  assert.equal(lgoResult.specialFundNotes.some((note: string) => note.includes('ยังไม่ปิดสิทธิ')), false);
 });
 
 test('OPD Palliative with Authen Code is ready without a close EP', () => {

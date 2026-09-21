@@ -89,6 +89,10 @@ export const FDHCheckerPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'pending'>('all');
     const [fdhStatusFilter, setFdhStatusFilter] = useState<FdhStatusFilter>('all');
+    const [selectedPttypes, setSelectedPttypes] = useState<string[]>([]);
+    const [isPttypeDropdownOpen, setIsPttypeDropdownOpen] = useState(false);
+    const [pttypeSearchQuery, setPttypeSearchQuery] = useState('');
+    const pttypeDropdownRef = useRef<HTMLDivElement>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [selectedVns, setSelectedVns] = useState<string[]>([]);
@@ -199,6 +203,20 @@ export const FDHCheckerPage: React.FC = () => {
         return () => scroller.removeEventListener('wheel', forwardVerticalWheelToPage);
     }, [loading, error]);
 
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (pttypeDropdownRef.current && !pttypeDropdownRef.current.contains(e.target as Node)) {
+                setIsPttypeDropdownOpen(false);
+            }
+        };
+        if (isPttypeDropdownOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isPttypeDropdownOpen]);
+
     const specialFundOptions = Array.from(data.reduce((options, item) => {
         const logic = evaluateBillingLogic(item);
         new Set<string>(logic.detectedSpecialFundNotes).forEach((fundName) => {
@@ -223,6 +241,62 @@ export const FDHCheckerPage: React.FC = () => {
         && (exportFund === ALL_SPECIAL_FUNDS
             || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund));
 
+    const fundFilteredData = data.filter(matchesExportFund);
+
+    const matchesPttype = (item: EligibleVisit) => {
+        if (selectedPttypes.length === 0) return true;
+        const pttypeName = String(item.fund || 'ไม่ระบุสิทธิ์').trim();
+        const pttypeCode = String(item.pttype_code || '').trim();
+        const key = pttypeCode ? `${pttypeCode}: ${pttypeName}` : pttypeName;
+        return selectedPttypes.includes(key)
+            || (pttypeCode && selectedPttypes.includes(pttypeCode))
+            || (pttypeName && selectedPttypes.includes(pttypeName));
+    };
+
+    const scopedData = fundFilteredData.filter(matchesPttype);
+
+    const pttypeOptions = Array.from(fundFilteredData.reduce((options, item) => {
+        const pttypeName = String(item.fund || 'ไม่ระบุสิทธิ์').trim();
+        const pttypeCode = String(item.pttype_code || '').trim();
+        const key = pttypeCode ? `${pttypeCode}: ${pttypeName}` : pttypeName;
+        const current = options.get(key) || { key, pttypeCode, name: pttypeName, total: 0, ready: 0, pending: 0 };
+        current.total += 1;
+        if (item.status === 'ready') {
+            current.ready += 1;
+        } else {
+            current.pending += 1;
+        }
+        options.set(key, current);
+        return options;
+    }, new Map<string, { key: string; pttypeCode: string; name: string; total: number; ready: number; pending: number }>()).values())
+        .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+    const displayedPttypeOptions = pttypeOptions.filter((opt) => {
+        if (!pttypeSearchQuery.trim()) return true;
+        const q = pttypeSearchQuery.trim().toLowerCase();
+        return opt.key.toLowerCase().includes(q) || opt.name.toLowerCase().includes(q) || opt.pttypeCode.toLowerCase().includes(q);
+    });
+
+    const handleTogglePttype = (key: string) => {
+        setSelectedPttypes((prev) => (
+            prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+        ));
+        setSelectedVns([]);
+        setPreviewValidation(null);
+    };
+
+    const handleSelectAllPttypes = () => {
+        setSelectedPttypes([]);
+        setSelectedVns([]);
+        setPreviewValidation(null);
+    };
+
+    const handleClearPttypes = () => {
+        setSelectedPttypes([]);
+        setSelectedVns([]);
+        setPreviewValidation(null);
+    };
+
     const hasFdhSubmission = (item: EligibleVisit) => Boolean(
         item.fdh_has_submission ||
         item.fdh_claim_code ||
@@ -237,6 +311,7 @@ export const FDHCheckerPage: React.FC = () => {
     );
 
     const isSelectableForExport = (item: EligibleVisit) => isReadyForExportFund(item)
+        && matchesPttype(item)
         && (isFailedFdhSubmission(item) || confirmResend || !hasFdhSubmission(item));
 
     const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLowerCase();
@@ -251,6 +326,7 @@ export const FDHCheckerPage: React.FC = () => {
             item.hn,
             item.patientName,
             item.fund,
+            item.pttype_code,
             item.hipdata_code,
             item.serviceDate,
             item.main_diag,
@@ -271,6 +347,7 @@ export const FDHCheckerPage: React.FC = () => {
 
     const filtered = data.filter(item => {
         if (!matchesExportFund(item)) return false;
+        if (!matchesPttype(item)) return false;
         if (statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
         if (statusFilter === 'pending' && isReadyForExportFund(item)) return false;
         if (fdhStatusFilter === 'not-submitted' && hasFdhSubmission(item)) return false;
@@ -469,20 +546,20 @@ export const FDHCheckerPage: React.FC = () => {
         }
     };
 
-    const fundFilteredData = data.filter(matchesExportFund);
-    const readyCount = fundFilteredData.filter(isReadyForExportFund).length;
-    const pendingCount = fundFilteredData.length - readyCount;
+    const readyCount = scopedData.filter(isReadyForExportFund).length;
+    const pendingCount = scopedData.length - readyCount;
     const exportVisitCount = getReadyVns().length;
     const selectedVisibleCount = selectedVns.filter((vn) => filtered.some((item) => item.vn === vn && isSelectableForExport(item))).length;
     const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
     const visiblePendingCount = filtered.length - visibleReadyCount;
     const visibleAlreadySentCount = filtered.filter((item) => isReadyForExportFund(item) && hasFdhSubmission(item)).length;
-    const failedFdhCount = fundFilteredData.filter(isFailedFdhSubmission).length;
-    const notSubmittedFdhCount = fundFilteredData.filter((item) => !hasFdhSubmission(item)).length;
-    const submittedFdhCount = fundFilteredData.length - notSubmittedFdhCount;
+    const failedFdhCount = scopedData.filter(isFailedFdhSubmission).length;
+    const notSubmittedFdhCount = scopedData.filter((item) => !hasFdhSubmission(item)).length;
+    const submittedFdhCount = scopedData.length - notSubmittedFdhCount;
 
     const clearListFilters = () => {
         setExportFund(ALL_SPECIAL_FUNDS);
+        setSelectedPttypes([]);
         setStatusFilter('all');
         setFdhStatusFilter('all');
         setSearchTerm('');
@@ -537,7 +614,7 @@ export const FDHCheckerPage: React.FC = () => {
                         type="button"
                         className="btn btn-secondary fdh-filter-clear"
                         onClick={clearListFilters}
-                        disabled={exportFund === ALL_SPECIAL_FUNDS && statusFilter === 'all' && fdhStatusFilter === 'all' && !searchTerm}
+                        disabled={exportFund === ALL_SPECIAL_FUNDS && selectedPttypes.length === 0 && statusFilter === 'all' && fdhStatusFilter === 'all' && !searchTerm}
                     >
                         ล้างตัวกรอง
                     </button>
@@ -617,10 +694,161 @@ export const FDHCheckerPage: React.FC = () => {
                                 value={statusFilter}
                                 onChange={(e) => setStatusFilter(e.target.value as any)}
                             >
-                                <option value="all">ทั้งหมด ({data.length})</option>
+                                <option value="all">ทั้งหมด ({scopedData.length})</option>
                                 <option value="ready">🟢 ข้อมูลพร้อมส่ง ({readyCount})</option>
                                 <option value="pending">🟡 ข้อมูลรอแก้ไข ({pendingCount})</option>
                             </select>
+                        </div>
+
+                        <div className={`form-group fdh-filter-pttype-group${isPttypeDropdownOpen ? ' fdh-filter-pttype-group--open' : ''}`} ref={pttypeDropdownRef}>
+                            <label className="form-label">🏷️ สิทธิการรักษา (Checklist)</label>
+                            <button
+                                type="button"
+                                className={`form-control fdh-filter-select fdh-checklist-trigger${selectedPttypes.length > 0 ? ' fdh-checklist-trigger--active' : ''}`}
+                                onClick={() => setIsPttypeDropdownOpen((prev) => !prev)}
+                                aria-expanded={isPttypeDropdownOpen}
+                            >
+                                <span className="fdh-checklist-trigger-text">
+                                    {selectedPttypes.length === 0
+                                        ? `ทุกสิทธิการรักษา (${pttypeOptions.length} สิทธิ์)`
+                                        : selectedPttypes.length === 1
+                                            ? selectedPttypes[0]
+                                            : `เลือก ${selectedPttypes.length} สิทธิการรักษา`
+                                    }
+                                </span>
+                                <span className="fdh-checklist-chevron">{isPttypeDropdownOpen ? '▴' : '▾'}</span>
+                            </button>
+
+                            {isPttypeDropdownOpen && (
+                                <div className="fdh-checklist-popover" role="dialog" aria-label="เลือกสิทธิการรักษา">
+                                    <div className="fdh-checklist-header">
+                                        <div className="fdh-checklist-header-title">
+                                            <strong>เลือกสิทธิการรักษา</strong>
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>
+                                                ({selectedPttypes.length > 0 ? `เลือก ${selectedPttypes.length}/${pttypeOptions.length} สิทธิ์` : 'ทุกสิทธิ์'})
+                                            </span>
+                                        </div>
+                                        <div className="fdh-checklist-actions">
+                                            {selectedPttypes.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-secondary fdh-checklist-btn-xs"
+                                                    onClick={handleClearPttypes}
+                                                >
+                                                    ล้างเลือก
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary fdh-checklist-btn-xs"
+                                                onClick={handleSelectAllPttypes}
+                                            >
+                                                ทุกสิทธิ์
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {pttypeOptions.length > 5 && (
+                                        <div className="fdh-checklist-search">
+                                            <input
+                                                type="text"
+                                                className="form-control fdh-checklist-search-input"
+                                                placeholder="🔍 ค้นหารหัส หรือชื่อสิทธิ์..."
+                                                value={pttypeSearchQuery}
+                                                onChange={(e) => setPttypeSearchQuery(e.target.value)}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="fdh-checklist-list">
+                                        <label className={`fdh-checklist-item${selectedPttypes.length === 0 ? ' fdh-checklist-item--selected' : ''}`}>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedPttypes.length === 0}
+                                                onChange={() => handleClearPttypes()}
+                                            />
+                                            <div className="fdh-checklist-item-body">
+                                                <div className="fdh-checklist-item-name">
+                                                    <strong>ทุกสิทธิการรักษา (ทั้งหมด)</strong>
+                                                </div>
+                                                <div className="fdh-checklist-item-meta">
+                                                    <span className="badge badge-primary">{fundFilteredData.length} visit</span>
+                                                </div>
+                                            </div>
+                                        </label>
+
+                                        <div className="fdh-checklist-divider" />
+
+                                        {displayedPttypeOptions.map((opt) => {
+                                            const isChecked = selectedPttypes.includes(opt.key);
+                                            return (
+                                                <label
+                                                    key={opt.key}
+                                                    className={`fdh-checklist-item${isChecked ? ' fdh-checklist-item--selected' : ''}`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => handleTogglePttype(opt.key)}
+                                                    />
+                                                    <div className="fdh-checklist-item-body">
+                                                        <div className="fdh-checklist-item-name">{opt.key}</div>
+                                                        <div className="fdh-checklist-item-meta">
+                                                            <span className="badge badge-primary">{opt.total} visit</span>
+                                                            <span className="badge badge-success">พร้อม {opt.ready}</span>
+                                                            {opt.pending > 0 && (
+                                                                <span className="badge badge-warning">รอแก้ {opt.pending}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
+
+                                        {displayedPttypeOptions.length === 0 && (
+                                            <div className="fdh-checklist-empty">
+                                                ไม่พบสิทธิการรักษาที่ตรงกับคำค้น
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="fdh-checklist-footer">
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary fdh-checklist-done-btn"
+                                            onClick={() => setIsPttypeDropdownOpen(false)}
+                                        >
+                                            ✓ เรียบร้อย ({selectedPttypes.length > 0 ? `เลือก ${selectedPttypes.length} สิทธิ์` : 'ทุกสิทธิ์'})
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="fdh-filter-help">
+                                {selectedPttypes.length === 0 ? (
+                                    <span>ทุกสิทธิการรักษา ({pttypeOptions.length} สิทธิ์)</span>
+                                ) : (
+                                    <span style={{ color: '#1d4ed8', fontWeight: 600 }}>
+                                        ✓ เลือก {selectedPttypes.length} สิทธิ์
+                                        <button
+                                            type="button"
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: '#ef4444',
+                                                cursor: 'pointer',
+                                                marginLeft: 6,
+                                                padding: 0,
+                                                fontSize: 10,
+                                                textDecoration: 'underline'
+                                            }}
+                                            onClick={handleClearPttypes}
+                                        >
+                                            (ล้าง)
+                                        </button>
+                                    </span>
+                                )}
+                            </div>
                         </div>
 
                         <div className="form-group">
@@ -641,7 +869,7 @@ export const FDHCheckerPage: React.FC = () => {
                                     }
                                 }}
                             >
-                                <option value="all">ทุกสถานะ FDH ({fundFilteredData.length})</option>
+                                <option value="all">ทุกสถานะ FDH ({scopedData.length})</option>
                                 <option value="not-submitted">ยังไม่ส่ง / ไม่พบใน FDH ({notSubmittedFdhCount})</option>
                                 <option value="failed">🔴 ประมวลผลไม่ผ่าน — ส่งซ้ำ ({failedFdhCount})</option>
                                 <option value="submitted">เคยส่ง / มีสถานะ FDH ({submittedFdhCount})</option>
@@ -674,7 +902,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 )}
                             </div>
                             <div className="fdh-filter-help">
-                                แสดง {filtered.length} รายการ จากทั้งหมด {fundFilteredData.length} รายการ
+                                แสดง {filtered.length} รายการ จากทั้งหมด {scopedData.length} รายการ
                                 {searchTerm ? ` • พร้อมส่ง ${visibleReadyCount} • รอแก้ ${visiblePendingCount}` : ''}
                             </div>
                         </div>
@@ -750,7 +978,7 @@ export const FDHCheckerPage: React.FC = () => {
 
             {!loading && !error && (
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-                    <span className="badge badge-primary">OPD Visit {fundFilteredData.length}</span>
+                    <span className="badge badge-primary">OPD Visit {scopedData.length}</span>
                     <span className="badge badge-success">พร้อมส่ง {readyCount}</span>
                     <span className="badge badge-warning">รอแก้ไข {pendingCount}</span>
                     <span className="badge badge-info">ยังไม่ส่ง {notSubmittedFdhCount}</span>

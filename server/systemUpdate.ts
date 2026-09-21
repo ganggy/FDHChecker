@@ -159,6 +159,21 @@ const runnerIsAlive = async (name: string): Promise<boolean | null> => {
   return alive;
 };
 
+export const cleanupStoppedRunners = async (): Promise<void> => {
+  try {
+    const list = parsePm2ProcessList(await run('pm2', ['jlist', '--silent'], 5_000));
+    if (!Array.isArray(list)) return;
+    const stopped = list.filter((entry) => entry.name?.startsWith('fdh-update-') && entry.pm2_env?.status !== 'online');
+    for (const entry of stopped) {
+      if (entry.name) {
+        await run('pm2', ['delete', entry.name], 5_000).catch(() => undefined);
+      }
+    }
+  } catch {
+    /* Ignore PM2 errors during cleanup */
+  }
+};
+
 const readCurrentJob = async (): Promise<SystemUpdateJob | null> => {
   try {
     const raw = await fs.readFile(currentJobPath(), 'utf8');
@@ -283,6 +298,7 @@ export const buildUpdateRunnerConfig = (job: SystemUpdateJob, directory: string,
 });
 
 const launchUpdateRunner = async (job: SystemUpdateJob) => {
+  await cleanupStoppedRunners();
   job.runnerName = `fdh-update-${job.id}`;
   await writeInitialJob(job);
   let launchRequested = false;

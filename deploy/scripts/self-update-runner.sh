@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:${PATH:-}"
+export PATH="${PATH:+${PATH}:}/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 
 APP_DIR="${FDH_APP_DIR:-/opt/FDHChecker}"
 STATE_DIR="${FDH_UPDATE_STATE_DIR:-$APP_DIR/.update-state}"

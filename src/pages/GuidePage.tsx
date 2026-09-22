@@ -527,16 +527,17 @@ export const GuidePage: React.FC = () => {
                     <p className="page-subtitle">คู่มือการใช้งานระบบ FDH Checker, รหัส Diag, ข้อมูลที่ต้องคีย์ และเงื่อนไขการพิมพ์รายงานบัญชีลูกหนี้สิทธิ์</p>
                     <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                         <a
-                            href="/manual_system_overview.html"
+                            href="/manual_system_overview.html?v=20260922"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn btn-primary btn-sm"
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 14px', borderRadius: 6, fontWeight: 700 }}
                         >
-                            📘 คู่มือการใช้งานทั้งระบบ (Full Manual HTML)
+                            📘 เปิดคู่มือทั้งระบบในแท็บใหม่
                         </a>
                         <a
-                            href="/manual_system_overview.pdf"
+                            href="/manual_system_overview.pdf?v=20260922"
+                            download="FDH-Checker-คู่มือทั้งระบบ.pdf"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn btn-success btn-sm"
@@ -554,6 +555,20 @@ export const GuidePage: React.FC = () => {
                             💼 คู่มือเฉพาะบัญชีลูกหนี้ 5 รายงาน
                         </a>
                     </div>
+                    <p style={{ margin: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>
+                        ฉบับ 22 กันยายน 2569 · 42 หน้า · 32 บท ครบ 44 เมนู ตั้งแต่ติดตั้งและตั้งค่าโรงพยาบาล งาน OPD/IPD ส่งเคลม ลูกหนี้ รายงาน จนถึงอัปเดต สำรองและกู้คืนระบบ
+                    </p>
+                    <details className="card" style={{ marginTop: 12 }}>
+                        <summary style={{ padding: 16, cursor: 'pointer', fontWeight: 700, color: 'var(--primary)' }}>
+                            อ่านคู่มือทั้งระบบในหน้านี้
+                        </summary>
+                        <iframe
+                            title="คู่มือ FDH Checker ทั้งระบบ 32 บท"
+                            src="/manual_system_overview.html?v=20260922"
+                            loading="lazy"
+                            style={{ width: '100%', height: '75vh', minHeight: 400, border: 0 }}
+                        />
+                    </details>
                 </div>
                 <div style={{ maxWidth: 400 }}>
                     <div style={{ position: 'relative' }}>

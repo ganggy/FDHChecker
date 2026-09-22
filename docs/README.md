@@ -1,5 +1,27 @@
 # Documentation entry point
 
+## คู่มือทั้งระบบ (22 กันยายน 2569)
+
+- [ฉบับอ่านบนเว็บและพิมพ์](manual_system_overview.html)
+- [PDF สำหรับแจกและอบรม](manual_system_overview.pdf)
+- [ต้นฉบับ Markdown](FULL_SYSTEM_MANUAL.md)
+
+คู่มือฉบับเต็มมี 32 บท ครอบคลุมการติดตั้ง ตั้งค่ารายโรงพยาบาล งาน OPD/IPD
+เคลม กองทุน นำเข้าผล ลูกหนี้ รายงาน AI/LINE บริหารระบบ อัปเดต สำรอง
+กู้คืน และแก้ปัญหา พร้อมดัชนีครบ 44 เมนูและ 52 กองทุนตามโค้ดที่ตรวจ
+ระบุรายงานที่ยังต้องเชื่อมข้อมูลเพิ่มและข้อจำกัดของสคริปต์ติดตั้งอย่างชัดเจน
+
+สร้างเอกสารซ้ำหลังแก้ต้นฉบับ:
+
+```powershell
+uv run --with markdown python scripts/build-system-manual.py
+node scripts/render-system-manual.mjs
+```
+
+ตัวสร้าง HTML ตรวจเมนูตกหล่นและลิงก์เอกสารก่อนสร้าง ส่วน PDF ใช้ Playwright
+กับ Edge บน Windows หรือ Chromium บนระบบอื่น ต้องตรวจภาพหน้า PDF อีกครั้ง
+หลังเปลี่ยนเนื้อหาหรือรูปแบบ ตัวสร้างนี้ไม่เชื่อมฐานโรงพยาบาล
+
 Choose documents by task. Current code, configuration, and tests establish
 implemented behavior; documentation describes intent and operating procedures.
 Resolve discrepancies explicitly rather than treating an old completion report

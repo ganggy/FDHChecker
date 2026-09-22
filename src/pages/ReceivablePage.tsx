@@ -381,7 +381,27 @@ export const ReceivablePage = () => {
         <div className="receivable-hero-note">
           <strong>{settings?.hospital_name || 'หน่วยบริการ'}</strong>
           <span>ตั้งลูกหนี้เฉพาะรายการที่เข้าเกณฑ์เบิกได้ เช่น กองทุนพิเศษ ยาสมุนไพร ค่าบริการ OPD อุปกรณ์/ADP ที่เบิกได้</span>
-          <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.82rem' }}>
+          <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.82rem' }}>
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableSettlement' } }))}
+              style={{
+                background: '#0284c7',
+                color: '#ffffff',
+                border: 'none',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontWeight: 700,
+                cursor: 'pointer',
+                fontSize: '0.8rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+              }}
+            >
+              💳 ไปที่ระบบตัดรับรู้ลูกหนี้ (เมื่อได้รับเงินโอน)
+            </button>
+            <span style={{ color: '#cbd5e1' }}>|</span>
             <a
               href="/manual_accounts_receivable.html"
               target="_blank"

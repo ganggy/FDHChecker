@@ -33,6 +33,7 @@ const SssExportPage = lazyNamed(() => import('./pages/SssExportPage'), 'SssExpor
 const SssRepStmPage = lazyNamed(() => import('./pages/SssRepStmPage'), 'SssRepStmPage');
 const AuthenSyncPage = lazyNamed(() => import('./pages/AuthenSyncPage'), 'AuthenSyncPage');
 const ReceivablePage = lazyNamed(() => import('./pages/ReceivablePage'), 'ReceivablePage');
+const ReceivableSettlementPage = lazyNamed(() => import('./pages/ReceivableSettlementPage'), 'ReceivableSettlementPage');
 const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewPage'), 'InsuranceOverviewPage');
 const AccountingRevenueBudgetPage = lazyNamed(() => import('./pages/AccountingRevenueBudgetPage'), 'AccountingRevenueBudgetPage');
 const UcOutsideCupPage = lazyNamed(() => import('./pages/UcOutsideCupPage'), 'UcOutsideCupPage');
@@ -508,6 +509,7 @@ function App() {
         {currentPage === 'sssRepStm' && <SssRepStmPage />}
         {currentPage === 'authenSync' && <AuthenSyncPage />}
         {currentPage === 'receivable' && <ReceivablePage />}
+        {currentPage === 'receivableSettlement' && <ReceivableSettlementPage />}
         {currentPage === 'insuranceOverview' && <InsuranceOverviewPage />}
         {currentPage === 'accountingRevenueBudget' && <AccountingRevenueBudgetPage />}
         {currentPage === 'ucOutsideCup' && <UcOutsideCupPage />}

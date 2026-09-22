@@ -452,6 +452,65 @@ export const RECEIVABLE_ITEM_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+export const RECEIVABLE_SETTLEMENT_BATCH_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS receivable_settlement_batch (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    settlement_no VARCHAR(64) NOT NULL,
+    payer_type VARCHAR(32) NOT NULL DEFAULT 'NHSO',
+    statement_no VARCHAR(128) NULL,
+    transfer_date DATE NOT NULL,
+    bank_account VARCHAR(128) NULL,
+    total_claimable DECIMAL(15,2) NOT NULL DEFAULT 0,
+    total_received DECIMAL(15,2) NOT NULL DEFAULT 0,
+    total_diff DECIMAL(15,2) NOT NULL DEFAULT 0,
+    total_disallowance DECIMAL(15,2) NOT NULL DEFAULT 0,
+    total_overpay DECIMAL(15,2) NOT NULL DEFAULT 0,
+    item_count INT NOT NULL DEFAULT 0,
+    created_by VARCHAR(128) NULL,
+    notes TEXT NULL,
+    journal_payload JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_settlement_no (settlement_no),
+    INDEX idx_statement_no (statement_no),
+    INDEX idx_transfer_date (transfer_date),
+    INDEX idx_created_at (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const RECEIVABLE_SETTLEMENT_ITEM_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS receivable_settlement_item (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    settlement_batch_id BIGINT NOT NULL,
+    patient_type VARCHAR(8) NOT NULL DEFAULT 'OPD',
+    vn VARCHAR(32) NULL,
+    an VARCHAR(32) NULL,
+    hn VARCHAR(32) NULL,
+    cid VARCHAR(32) NULL,
+    patient_name VARCHAR(255) NULL,
+    service_date DATE NULL,
+    pttype VARCHAR(16) NULL,
+    pttype_name VARCHAR(255) NULL,
+    hipdata_code VARCHAR(32) NULL,
+    debtor_code VARCHAR(32) NULL,
+    revenue_code VARCHAR(32) NULL,
+    claimable_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    paid_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    diff_amount DECIMAL(15,2) NOT NULL DEFAULT 0,
+    settle_action VARCHAR(32) NOT NULL DEFAULT 'full',
+    error_code VARCHAR(128) NULL,
+    statement_record_id BIGINT NULL,
+    notes VARCHAR(255) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_settlement_batch_id (settlement_batch_id),
+    INDEX idx_vn (vn),
+    INDEX idx_an (an),
+    INDEX idx_hn (hn),
+    CONSTRAINT fk_settlement_item_batch
+      FOREIGN KEY (settlement_batch_id) REFERENCES receivable_settlement_batch(id)
+      ON DELETE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 export const MOPHCLAIM_SEND_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS mophclaim_send (
     vn VARCHAR(25) NOT NULL,
@@ -572,6 +631,8 @@ const ensureRepstmTablesUncached = async () => {
     await connection.query(REPSTM_DELETE_AUDIT_TABLE_SQL);
     await connection.query(RECEIVABLE_BATCH_TABLE_SQL);
     await connection.query(RECEIVABLE_ITEM_TABLE_SQL);
+    await connection.query(RECEIVABLE_SETTLEMENT_BATCH_TABLE_SQL);
+    await connection.query(RECEIVABLE_SETTLEMENT_ITEM_TABLE_SQL);
     await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
 
     const repSeqColumnTables = ['rep_data', 'rep_data_verify'];

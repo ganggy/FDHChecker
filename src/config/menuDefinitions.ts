@@ -40,6 +40,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'rejectTracking', icon: '🔴', label: 'ติดตามเคส Reject' },
   { page: 'uuc1Tracking', icon: '📌', label: 'เคสบัตรทองรอเบิก (UUC1)' },
   { page: 'receivable', icon: '💼', label: 'บัญชีลูกหนี้สิทธิ' },
+  { page: 'receivableSettlement', icon: '💳', label: 'ตัดรับรู้ลูกหนี้' },
   { page: 'reconciliation', icon: '🔄', label: 'กระทบยอด REP/STM' },
   { page: 'repDailySummary', icon: '📊', label: 'สรุป REP รายวัน' },
   { page: 'ppfsBenchmark', icon: '📈', label: 'เทียบยอดจัดสรร PPFS' },
@@ -69,7 +70,7 @@ export const toolNavGroups: NavGroup[] = [
   { label: 'ติดตามผลเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
   { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
-  { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
+  { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'receivableSettlement', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
   { label: 'รายงาน/สถิติ', icon: '📊', pages: ['aiReports', 'hospitalReports', 'admin'] },
   { label: 'บริหารระบบ', icon: '⚙️', pages: ['memberAdmin', 'repstmManage'] },
 ];

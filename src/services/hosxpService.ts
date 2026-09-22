@@ -1550,3 +1550,169 @@ export const submitToFDH = async (records: CheckRecord[]) => {
     throw error;
   }
 };
+
+export interface SettlementStatementSummary {
+  statement_no: string;
+  data_type: string;
+  filefrom: string;
+  record_count: number;
+  total_paid_amount: number;
+  total_invoice_amount: number;
+  min_service_date: string | null;
+  max_service_date: string | null;
+  filename: string;
+  imported_at: string;
+}
+
+export interface SettlementCandidateItem {
+  id: number;
+  statement_no: string;
+  tran_id: string | null;
+  hn: string | null;
+  vn: string | null;
+  an: string | null;
+  cid: string | null;
+  patient_name: string | null;
+  patient_type: string;
+  service_date: string | null;
+  maininscl: string | null;
+  subinscl: string | null;
+  errorcode: string | null;
+  verifycode: string | null;
+  debtor_code: string;
+  revenue_code: string;
+  claimable_amount: number;
+  paid_amount: number;
+  diff_amount: number;
+  settle_action: 'full' | 'partial' | 'writeoff_diff' | 'hold_appeal';
+  notes?: string;
+}
+
+export interface SettlementJournalEntry {
+  type: 'DEBIT' | 'CREDIT';
+  account_code: string;
+  account_name: string;
+  amount: number;
+}
+
+export interface SettlementCandidateResult {
+  statement_no: string;
+  payer_type: string;
+  total_cases: number;
+  total_claimable: number;
+  total_received: number;
+  total_diff: number;
+  total_disallowance: number;
+  total_overpay: number;
+  items: SettlementCandidateItem[];
+  journal_entries: SettlementJournalEntry[];
+  is_balanced: boolean;
+}
+
+export interface SettlementBatchHistory {
+  id: number;
+  settlement_no: string;
+  payer_type: string;
+  statement_no: string;
+  transfer_date: string;
+  bank_account: string;
+  total_claimable: number;
+  total_received: number;
+  total_diff: number;
+  total_disallowance: number;
+  total_overpay: number;
+  item_count: number;
+  created_by: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface SettlementVoucherDetail {
+  batch: SettlementBatchHistory & { journal_entries: SettlementJournalEntry[] };
+  items: Array<{
+    id: number;
+    patient_type: string;
+    vn: string | null;
+    an: string | null;
+    hn: string | null;
+    cid: string | null;
+    patient_name: string | null;
+    service_date: string | null;
+    pttype: string | null;
+    pttype_name: string | null;
+    hipdata_code: string | null;
+    debtor_code: string | null;
+    revenue_code: string | null;
+    claimable_amount: number;
+    paid_amount: number;
+    diff_amount: number;
+    settle_action: string;
+    error_code: string | null;
+    notes: string | null;
+  }>;
+  hospital: {
+    hospital_code: string;
+    hospital_name: string;
+  };
+}
+
+export const fetchSettlementStatements = async (payerType?: string): Promise<SettlementStatementSummary[]> => {
+  const query = new URLSearchParams();
+  if (payerType) query.set('payerType', payerType);
+  const response = await fetch(`/api/receivables/settlement/statements?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถดึงข้อมูล Statement ได้');
+  }
+  return json.data || [];
+};
+
+export const fetchSettlementCandidates = async (statementNo: string): Promise<SettlementCandidateResult> => {
+  const query = new URLSearchParams({ statementNo });
+  const response = await fetch(`/api/receivables/settlement/candidates?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถคำนวณข้อมูลตัดลูกหนี้ได้');
+  }
+  return json.data;
+};
+
+export const executeSettlement = async (payload: {
+  payer_type: string;
+  statement_no: string;
+  transfer_date: string;
+  bank_account?: string;
+  notes?: string;
+  created_by?: string;
+  items: any[];
+}) => {
+  const response = await fetch('/api/receivables/settlement/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'บันทึกตัดลูกหนี้ไม่สำเร็จ');
+  }
+  return json.data;
+};
+
+export const fetchSettlementHistory = async (limit = 50): Promise<SettlementBatchHistory[]> => {
+  const response = await fetch(`/api/receivables/settlement/history?limit=${limit}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถดึงประวัติการตัดลูกหนี้ได้');
+  }
+  return json.data || [];
+};
+
+export const fetchSettlementVoucher = async (id: number): Promise<SettlementVoucherDetail> => {
+  const response = await fetch(`/api/receivables/settlement/voucher/${id}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถดึงข้อมูลใบสำคัญได้');
+  }
+  return json.data;
+};
+

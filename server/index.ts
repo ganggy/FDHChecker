@@ -109,6 +109,7 @@ import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
 import { icd9Router } from './routes/icd9Routes.js';
 import { receivableReportRouter } from './routes/receivableReportRoutes.js';
+import { receivableSettlementRouter } from './routes/receivableSettlementRoutes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
@@ -857,7 +858,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
   { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
-  { pattern: /^\/receivable(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
+  { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
   { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'repstmManage', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
   { pattern: /^\/rep-(daily|deny)(\/|$)/, pages: ['repDailySummary', 'repDeny'] },
   { pattern: /^\/uuc1(\/|$)/, pages: ['uuc1Tracking'] },
@@ -896,6 +897,7 @@ app.use('/api/hospital-reports', hospitalReportRouter);
 app.use('/api/accounting', accountingRevenueRouter);
 app.use('/api/icd9', icd9Router);
 app.use('/api/receivables/reports', receivableReportRouter);
+app.use('/api/receivables/settlement', receivableSettlementRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

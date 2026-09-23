@@ -132,28 +132,35 @@ export const SystemUpdatePanel = () => {
     };
   }, [connectionState, loadStatus, running]);
 
+  const reloadTriggeredRef = useRef(false);
   const reloadJobId = info?.job?.id;
   const reloadJobStatus = info?.job?.status;
   useEffect(() => {
     if (reloadJobStatus !== 'completed' || !reloadJobId) return;
     const storageKey = 'fdh-last-reloaded-update-job';
     if (window.sessionStorage.getItem(storageKey) === reloadJobId) return;
-    window.sessionStorage.setItem(storageKey, reloadJobId);
-    window.sessionStorage.setItem('fdh-update-success-banner', `อัปเดตระบบเสร็จสมบูรณ์เรียบร้อยแล้ว (รุ่น ${shortCommit(info?.job?.toCommit || '')})`);
+    if (reloadTriggeredRef.current) return;
+    reloadTriggeredRef.current = true;
+
+    try {
+      window.sessionStorage.setItem('settings_target_tab', 'update');
+      window.sessionStorage.setItem('fdh-update-success-banner', `อัปเดตระบบเสร็จสมบูรณ์เรียบร้อยแล้ว (รุ่น ${shortCommit(info?.job?.toCommit || info?.currentCommit || '')})`);
+      window.sessionStorage.setItem(storageKey, reloadJobId);
+    } catch {
+      // ignore
+    }
 
     setCountdown(5);
+    let secondsLeft = 5;
     const interval = window.setInterval(() => {
-      setCountdown((prev) => {
-        if (prev === null || prev <= 1) {
-          window.clearInterval(interval);
-          window.location.reload();
-          return 0;
-        }
-        return prev - 1;
-      });
+      secondsLeft -= 1;
+      setCountdown(secondsLeft > 0 ? secondsLeft : 0);
+      if (secondsLeft <= 0) {
+        window.clearInterval(interval);
+        window.location.reload();
+      }
     }, 1000);
-    return () => window.clearInterval(interval);
-  }, [reloadJobId, reloadJobStatus, info?.job?.toCommit]);
+  }, [reloadJobId, reloadJobStatus, info?.currentCommit, info?.job?.toCommit]);
 
   const confirmationText = useMemo(() => {
     if (!info?.remoteCommit) return '';
@@ -246,21 +253,21 @@ export const SystemUpdatePanel = () => {
       });
       const toCommitShort = shortCommit(res?.toCommit || info?.remoteCommit || '');
       try {
+        window.sessionStorage.setItem('settings_target_tab', 'update');
         window.sessionStorage.setItem('fdh-update-success-banner', `อัปเดตระบบตรงสำเร็จเป็นรุ่น ${toCommitShort} เรียบร้อยแล้ว`);
       } catch {
         // ignore
       }
       setDirectNotice(`✅ อัปเดตระบบสำเร็จเป็นรุ่น ${toCommitShort} เรียบร้อยแล้ว! กำลังเตรียมรีเฟรชหน้าจอ...`);
       setCountdown(5);
+      let secondsLeft = 5;
       const interval = window.setInterval(() => {
-        setCountdown((prev) => {
-          if (prev === null || prev <= 1) {
-            window.clearInterval(interval);
-            window.location.reload();
-            return 0;
-          }
-          return prev - 1;
-        });
+        secondsLeft -= 1;
+        setCountdown(secondsLeft > 0 ? secondsLeft : 0);
+        if (secondsLeft <= 0) {
+          window.clearInterval(interval);
+          window.location.reload();
+        }
       }, 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'อัปเดตสำรองไม่สำเร็จ');

@@ -2662,7 +2662,8 @@ export const getEligibleVisits = async (
   startDate?: string,
   endDate?: string,
   fund?: string,
-  applyLimit: boolean = true
+  applyLimit: boolean = true,
+  targetVns?: string[]
 ): Promise<Record<string, unknown>[]> => {
   const connection = await getUTFConnection();
   try {
@@ -2971,14 +2972,22 @@ export const getEligibleVisits = async (
 
     const params: (string | number)[] = [];
 
-    if (startDate) {
-      query += ` AND ovst.vstdate >= ?`;
-      params.push(startDate);
-    }
+    if (targetVns && targetVns.length > 0) {
+      const sanitizedVns = targetVns.map(v => String(v).trim()).filter(Boolean);
+      if (sanitizedVns.length > 0) {
+        query += ` AND ovst.vn IN (${sanitizedVns.map(() => '?').join(',')})`;
+        params.push(...sanitizedVns);
+      }
+    } else {
+      if (startDate) {
+        query += ` AND ovst.vstdate >= ?`;
+        params.push(startDate);
+      }
 
-    if (endDate) {
-      query += ` AND ovst.vstdate <= ?`;
-      params.push(endDate);
+      if (endDate) {
+        query += ` AND ovst.vstdate <= ?`;
+        params.push(endDate);
+      }
     }
 
     if (fund && fund !== 'ทั้งหมด' && fund !== '') {
@@ -2987,7 +2996,7 @@ export const getEligibleVisits = async (
     }
 
     query += ` ORDER BY ovst.vstdate DESC, ovst.vsttime DESC`;
-    if (applyLimit) {
+    if (applyLimit && (!targetVns || targetVns.length === 0)) {
       query += ` LIMIT ${businessRules.query_limits.default_limit}`;
     }
 

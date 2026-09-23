@@ -78,6 +78,7 @@ export const dateRangeGuard: RequestHandler = (req, res, next) => {
   const hasStart = req.query.startDate != null && String(req.query.startDate).trim() !== '';
   const hasEnd = req.query.endDate != null && String(req.query.endDate).trim() !== '';
   if (!hasStart && !hasEnd) return next();
+  if (req.query.vns || req.query.vn || req.query.an) return next();
   const maxDays = /^\/hosxp\/(checks|eligible-visits)$/.test(req.path) ? 93 : 1_096;
   const validation = validateDateRange(req.query.startDate, req.query.endDate, maxDays);
   if (!validation.ok) return res.status(400).json({ success: false, error: validation.error });

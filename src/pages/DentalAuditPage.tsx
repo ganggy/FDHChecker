@@ -271,10 +271,15 @@ export function DentalAuditPage() {
       alert('กรุณาเลือกรายการที่ต้องการส่งออก FDH');
       return;
     }
+    const selectedVisits = visits.filter((v) => vnsToSend.includes(v.vn));
+    const dates = selectedVisits.map((v) => v.service_date).filter(Boolean).sort();
+    const effectiveStartDate = dates.length > 0 ? dates[0] : startDate;
+    const effectiveEndDate = dates.length > 0 ? dates[dates.length - 1] : endDate;
+
     navigateFromDashboard('fdh', {
       source: 'dashboard',
-      startDate,
-      endDate,
+      startDate: effectiveStartDate,
+      endDate: effectiveEndDate,
       contextLabel: `ส่งออกจากงานทันตกรรม: ${vnsToSend.length} รายการ`,
       fdh: {
         targetVns: vnsToSend,

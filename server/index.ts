@@ -23,6 +23,7 @@ import {
   getServiceADPCodes,
   getKidneyMonitorDetailed,
   getFsMonitor,
+  getEligibleVisits,
   getUTFConnection,
   getAppSetting,
   setAppSetting,
@@ -2104,15 +2105,32 @@ app.post('/api/hosxp/audit', express.json(), async (req, res) => {
 // API สำหรับดึงข้อมูล Visit ที่เข้าข่ายเบิก FDH
 app.get('/api/hosxp/eligible-visits', async (req, res) => {
   try {
-    const { startDate, endDate, fund } = req.query;
-    console.log(`🔍 Checking FDH eligibility - Dates: ${startDate} to ${endDate}, Fund: ${fund || 'All'}`);
+    const { startDate, endDate, fund, vns } = req.query;
+    const targetVns = typeof vns === 'string'
+      ? vns.split(',').map((s) => s.trim()).filter(Boolean)
+      : Array.isArray(vns)
+      ? vns.map(String).map((s) => s.trim()).filter(Boolean)
+      : [];
 
-    // Try real database first
-    let data = await getVisitsCached(
-      startDate as string,
-      endDate as string,
-      fund as string
-    );
+    console.log(`🔍 Checking FDH eligibility - Dates: ${startDate} to ${endDate}, Fund: ${fund || 'All'}, Targets: ${targetVns.length} VNs`);
+
+    let data: Record<string, unknown>[] = [];
+    if (targetVns.length > 0) {
+      data = await getEligibleVisits(
+        startDate as string,
+        endDate as string,
+        fund as string,
+        false,
+        targetVns
+      );
+    } else {
+      // Try real database first
+      data = await getVisitsCached(
+        startDate as string,
+        endDate as string,
+        fund as string
+      );
+    }
 
     if (!Array.isArray(data) || data.length === 0) {
       console.log(`⚠️ No eligible visits found for the given criteria.`);

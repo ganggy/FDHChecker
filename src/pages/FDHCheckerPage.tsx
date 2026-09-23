@@ -127,6 +127,12 @@ export const FDHCheckerPage: React.FC = () => {
     const [endDate, setEndDate] = useState(todayStr);
 
     const syncFdhIpdAuthen = async (rangeStart: string, rangeEnd: string, force = false) => {
+        const start = new Date(rangeStart);
+        const end = new Date(rangeEnd);
+        const dayDiff = Math.floor((end.getTime() - start.getTime()) / 86400000);
+        if (dayDiff > 31) {
+            return;
+        }
         setIpdAuthenSyncing(true);
         setIpdAuthenNotice(null);
         try {
@@ -149,22 +155,35 @@ export const FDHCheckerPage: React.FC = () => {
         }
     };
 
-    const fetchEligibleData = async (dateRange?: { startDate?: string; endDate?: string; forceIpdAuthen?: boolean }) => {
+    const fetchEligibleData = async (dateRange?: { startDate?: string; endDate?: string; forceIpdAuthen?: boolean; targetVns?: string[] }) => {
         const rangeStart = dateRange?.startDate ?? startDate;
         const rangeEnd = dateRange?.endDate ?? endDate;
+        const targetList = dateRange?.targetVns !== undefined ? dateRange.targetVns : incomingTargetVns;
+        const hasTargets = targetList.length > 0;
+
         setLoading(true);
         setError(null);
-        setSelectedVns([]); // Clear selection on refresh
+        setSelectedVns(hasTargets ? targetList : []);
         try {
-            const syncKey = `${rangeStart}:${rangeEnd}`;
-            if (dateRange?.forceIpdAuthen || lastIpdAuthenSyncKey.current !== syncKey) {
-                lastIpdAuthenSyncKey.current = syncKey;
-                await syncFdhIpdAuthen(rangeStart, rangeEnd, Boolean(dateRange?.forceIpdAuthen));
+            if (!hasTargets) {
+                const syncKey = `${rangeStart}:${rangeEnd}`;
+                if (dateRange?.forceIpdAuthen || lastIpdAuthenSyncKey.current !== syncKey) {
+                    lastIpdAuthenSyncKey.current = syncKey;
+                    await syncFdhIpdAuthen(rangeStart, rangeEnd, Boolean(dateRange?.forceIpdAuthen));
+                }
             }
-            const response = await fetch(`/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}`);
+
+            const url = hasTargets
+                ? `/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}&vns=${encodeURIComponent(targetList.join(','))}`
+                : `/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}`;
+
+            const response = await fetch(url);
             const result = await response.json();
             if (result.success) {
                 setData(result.data);
+                if (hasTargets) {
+                    setSelectedVns(targetList);
+                }
             } else {
                 setError(result.error || 'Failed to fetch data');
             }
@@ -201,6 +220,7 @@ export const FDHCheckerPage: React.FC = () => {
         fetchEligibleData({
             startDate: incoming?.startDate ?? todayStr,
             endDate: incoming?.endDate ?? todayStr,
+            targetVns: incoming?.fdh?.targetVns,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -986,7 +1006,10 @@ export const FDHCheckerPage: React.FC = () => {
                     </div>
                     <button
                         type="button"
-                        onClick={() => setIncomingTargetVns([])}
+                        onClick={() => {
+                            setIncomingTargetVns([]);
+                            fetchEligibleData({ targetVns: [] });
+                        }}
                         style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', color: '#1e40af', cursor: 'pointer', fontWeight: 600 }}
                     >
                         ✕ ปลดล็อก (แสดงทั้งหมด)

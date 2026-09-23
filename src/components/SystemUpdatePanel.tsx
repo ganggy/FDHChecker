@@ -76,6 +76,26 @@ export const SystemUpdatePanel = () => {
   const [forceStash, setForceStash] = useState(true);
   const [directNotice, setDirectNotice] = useState<string | null>(null);
   const [copiedCmd, setCopiedCmd] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [successBanner, setSuccessBanner] = useState<string | null>(() => {
+    try {
+      return window.sessionStorage.getItem('fdh-update-success-banner');
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (successBanner) {
+      try {
+        window.sessionStorage.removeItem('fdh-update-success-banner');
+      } catch {
+        // ignore
+      }
+      const timer = window.setTimeout(() => setSuccessBanner(null), 15000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [successBanner]);
 
   const running = info?.job?.status === 'queued' || info?.job?.status === 'running';
 
@@ -118,12 +138,22 @@ export const SystemUpdatePanel = () => {
     if (reloadJobStatus !== 'completed' || !reloadJobId) return;
     const storageKey = 'fdh-last-reloaded-update-job';
     if (window.sessionStorage.getItem(storageKey) === reloadJobId) return;
-    const timer = window.setTimeout(() => {
-      window.sessionStorage.setItem(storageKey, reloadJobId);
-      window.location.reload();
-    }, 2500);
-    return () => window.clearTimeout(timer);
-  }, [reloadJobId, reloadJobStatus]);
+    window.sessionStorage.setItem(storageKey, reloadJobId);
+    window.sessionStorage.setItem('fdh-update-success-banner', `อัปเดตระบบเสร็จสมบูรณ์เรียบร้อยแล้ว (รุ่น ${shortCommit(info?.job?.toCommit || '')})`);
+
+    setCountdown(5);
+    const interval = window.setInterval(() => {
+      setCountdown((prev) => {
+        if (prev === null || prev <= 1) {
+          window.clearInterval(interval);
+          window.location.reload();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [reloadJobId, reloadJobStatus, info?.job?.toCommit]);
 
   const confirmationText = useMemo(() => {
     if (!info?.remoteCommit) return '';
@@ -214,10 +244,24 @@ export const SystemUpdatePanel = () => {
         force: forceStash,
         expectedRemoteCommit: info?.remoteCommit,
       });
-      setDirectNotice(`✅ อัปเดตสำรองสำเร็จเป็นรุ่น ${shortCommit(res?.toCommit || info?.remoteCommit || '')} เรียบร้อยแล้ว กำลังรีโหลดหน้าเว็บ...`);
-      window.setTimeout(() => {
-        window.location.reload();
-      }, 2500);
+      const toCommitShort = shortCommit(res?.toCommit || info?.remoteCommit || '');
+      try {
+        window.sessionStorage.setItem('fdh-update-success-banner', `อัปเดตระบบตรงสำเร็จเป็นรุ่น ${toCommitShort} เรียบร้อยแล้ว`);
+      } catch {
+        // ignore
+      }
+      setDirectNotice(`✅ อัปเดตระบบสำเร็จเป็นรุ่น ${toCommitShort} เรียบร้อยแล้ว! กำลังเตรียมรีเฟรชหน้าจอ...`);
+      setCountdown(5);
+      const interval = window.setInterval(() => {
+        setCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            window.clearInterval(interval);
+            window.location.reload();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'อัปเดตสำรองไม่สำเร็จ');
       setDirectNotice(null);
@@ -263,6 +307,74 @@ export const SystemUpdatePanel = () => {
           {connectionState === 'online' ? '● เชื่อมต่อแล้ว' : '◌ กำลังเชื่อมต่อใหม่…'}
         </span>
       </div>
+
+      {successBanner && (
+        <div style={{
+          backgroundColor: 'rgba(16, 185, 129, 0.15)',
+          border: '1.5px solid #10b981',
+          color: '#059669',
+          padding: '14px 18px',
+          borderRadius: '12px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          boxShadow: '0 4px 12px rgba(16, 185, 129, 0.15)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.95rem', fontWeight: 600 }}>
+            <span style={{ fontSize: '1.4rem' }}>🎉</span>
+            <span>{successBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSuccessBanner(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#059669',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontSize: '1rem',
+              padding: '4px 8px',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {countdown !== null && (
+        <div style={{
+          backgroundColor: 'rgba(16, 185, 129, 0.12)',
+          border: '2px solid #10b981',
+          color: '#059669',
+          padding: '16px 20px',
+          borderRadius: '12px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px',
+          boxShadow: '0 4px 16px rgba(16, 185, 129, 0.2)',
+        }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>✅</span>
+              <span>อัปเดตระบบสำเร็จเรียบร้อยแล้ว!</span>
+            </div>
+            <div style={{ fontSize: '0.88rem', marginTop: '4px', opacity: 0.9 }}>
+              กำลังจะรีเฟรชหน้าจออัตโนมัติในอีก <strong style={{ fontSize: '1.1rem', color: '#047857' }}>{countdown}</strong> วินาที เพื่อใช้งานโค้ดเวอร์ชันล่าสุด
+            </div>
+          </div>
+          <button
+            type="button"
+            className="save-btn"
+            onClick={() => window.location.reload()}
+            style={{ background: '#10b981', borderColor: '#10b981', color: '#fff', padding: '8px 18px', fontWeight: 600 }}
+          >
+            🔄 รีเฟรชหน้าจอทันที
+          </button>
+        </div>
+      )}
 
       <div className="system-update-version-grid">
         <div><span>Branch</span><strong>{info?.branch || '-'}</strong></div>

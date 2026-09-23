@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { navigateFromDashboard } from '../utils/navigationState';
 
 export type DentalCategory =
   | 'ALL'
@@ -139,6 +140,8 @@ export function DentalAuditPage() {
   } | null>(null);
 
   const [detailModalVisit, setDetailModalVisit] = useState<DentalAuditVisit | null>(null);
+  const [fixedVns, setFixedVns] = useState<Set<string>>(new Set());
+  const [selectedRowVns, setSelectedRowVns] = useState<Set<string>>(new Set());
 
   const fetchVisits = async () => {
     setLoading(true);
@@ -216,6 +219,7 @@ export function DentalAuditPage() {
         throw new Error(json.error || 'แก้ไขข้อมูลทางคลินิกไม่สำเร็จ');
       }
       setSingleFixResult({ actions: json.data.actionsApplied });
+      setFixedVns((prev) => new Set(prev).add(singleFixTarget.vn));
       void fetchVisits();
     } catch (err) {
       setSingleFixResult({
@@ -249,12 +253,40 @@ export function DentalAuditPage() {
         failedCount: json.data.failedCount,
         results: json.data.results,
       });
+      const newlyFixed = new Set(fixedVns);
+      (json.data.results || []).forEach((r: { vn: string; success: boolean }) => {
+        if (r.success) newlyFixed.add(r.vn);
+      });
+      setFixedVns(newlyFixed);
       void fetchVisits();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไขแบบกลุ่ม');
     } finally {
       setBatchFixSubmitting(false);
     }
+  };
+
+  const handleSendToFdh = (vnsToSend: string[]) => {
+    if (vnsToSend.length === 0) {
+      alert('กรุณาเลือกรายการที่ต้องการส่งออก FDH');
+      return;
+    }
+    navigateFromDashboard('fdh', {
+      source: 'dashboard',
+      startDate,
+      endDate,
+      contextLabel: `ส่งออกจากงานทันตกรรม: ${vnsToSend.length} รายการ`,
+      fdh: {
+        targetVns: vnsToSend,
+        statusFilter: 'all',
+      },
+    });
+  };
+
+  const handleCopyVns = (vns: string[]) => {
+    if (vns.length === 0) return;
+    void navigator.clipboard.writeText(vns.join(', '));
+    alert(`คัดลอก ${vns.length} VN เรียบร้อยแล้ว (สามารถนำไปวางค้นหาในหน้าส่งออก FDH ได้ทันที)`);
   };
 
   const handleExportExcel = () => {
@@ -331,6 +363,33 @@ export function DentalAuditPage() {
           >
             📥 ส่งออก Excel
           </button>
+          {selectedRowVns.size > 0 && (
+            <button
+              type="button"
+              onClick={() => handleSendToFdh(Array.from(selectedRowVns))}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#059669', border: 'none', color: '#fff', padding: '8px 14px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 4px rgba(5,150,105,0.3)' }}
+            >
+              🚀 ส่งออก FDH ที่เลือก ({selectedRowVns.size} เคส)
+            </button>
+          )}
+          {fixedVns.size > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => handleSendToFdh(Array.from(fixedVns))}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', color: '#fff', padding: '8px 14px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 4px rgba(16,185,129,0.3)' }}
+              >
+                🚀 ส่งออก FDH เคสที่เพิ่งแก้ ({fixedVns.size} เคส)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCopyVns(Array.from(fixedVns))}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#fff', border: '1px solid #10b981', color: '#047857', padding: '8px 12px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}
+              >
+                📋 คัดลอก VN ({fixedVns.size})
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => { setBatchFixResult(null); setBatchFixOpen(true); }}
@@ -564,7 +623,18 @@ export function DentalAuditPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', textAlign: 'left' }}>
               <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontWeight: 600 }}>
-                  <th style={{ padding: '12px 14px', width: '50px' }}>#</th>
+                  <th style={{ padding: '12px 10px', width: '38px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={visits.length > 0 && visits.every((v) => selectedRowVns.has(v.vn))}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedRowVns(new Set(visits.map((v) => v.vn)));
+                        else setSelectedRowVns(new Set());
+                      }}
+                      title="เลือกทั้งหมด"
+                    />
+                  </th>
+                  <th style={{ padding: '12px 14px', width: '45px' }}>#</th>
                   <th style={{ padding: '12px 14px', width: '110px' }}>วันที่-เวลา</th>
                   <th style={{ padding: '12px 14px', width: '120px' }}>สิทธิการรักษา</th>
                   <th style={{ padding: '12px 14px', width: '180px' }}>ข้อมูลผู้ป่วย</th>
@@ -580,16 +650,29 @@ export function DentalAuditPage() {
                   const rowNumber = (page - 1) * pageSize + idx + 1;
                   const isCritical = v.audit_status === 'critical';
                   const isWarning = v.audit_status === 'warning';
+                  const isRowSelected = selectedRowVns.has(v.vn);
 
                   return (
                     <tr
                       key={v.vn}
                       style={{
                         borderBottom: '1px solid #f1f5f9',
-                        background: isCritical ? '#fffafb' : isWarning ? '#fffdfa' : '#fff',
+                        background: isRowSelected ? '#f0fdf4' : isCritical ? '#fffafb' : isWarning ? '#fffdfa' : '#fff',
                         transition: 'background 0.15s ease',
                       }}
                     >
+                      <td style={{ padding: '12px 10px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={isRowSelected}
+                          onChange={() => {
+                            const next = new Set(selectedRowVns);
+                            if (next.has(v.vn)) next.delete(v.vn);
+                            else next.add(v.vn);
+                            setSelectedRowVns(next);
+                          }}
+                        />
+                      </td>
                       <td style={{ padding: '12px 14px', color: '#94a3b8' }}>{rowNumber}</td>
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ fontWeight: 600, color: '#1e293b' }}>{v.service_date}</div>
@@ -602,7 +685,14 @@ export function DentalAuditPage() {
                         </div>
                       </td>
                       <td style={{ padding: '12px 14px' }}>
-                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{v.patient_name || 'ไม่ระบุชื่อ'}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600, color: '#0f172a' }}>{v.patient_name || 'ไม่ระบุชื่อ'}</span>
+                          {fixedVns.has(v.vn) && (
+                            <span style={{ background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', padding: '1px 5px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
+                              ✨ เพิ่งแก้ไขเสร็จ
+                            </span>
+                          )}
+                        </div>
                         <div style={{ fontSize: '11px', color: '#64748b' }}>
                           HN: <span style={{ fontFamily: 'monospace' }}>{v.hn}</span> | VN: <span style={{ fontFamily: 'monospace' }}>{v.vn}</span>
                         </div>
@@ -738,6 +828,24 @@ export function DentalAuditPage() {
                             }}
                           >
                             🔍 ดูรายละเอียด
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSendToFdh([v.vn])}
+                            title="ส่งเฉพาะวิสิตนี้ไปยังหน้าส่งออก FDH โดยตรง"
+                            style={{
+                              background: '#ecfdf5',
+                              color: '#047857',
+                              border: '1px solid #a7f3d0',
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              width: '100%',
+                            }}
+                          >
+                            🚀 ส่ง FDH เคสนี้
                           </button>
                         </div>
                       </td>

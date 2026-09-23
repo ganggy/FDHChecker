@@ -14,6 +14,8 @@ export interface DashboardNavigationPayload {
   };
   fdh?: {
     statusFilter?: 'all' | 'ready' | 'pending';
+    search?: string;
+    targetVns?: string[];
   };
   specific?: {
     activeFund?: string;

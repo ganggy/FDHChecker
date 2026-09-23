@@ -105,6 +105,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [selectedVns, setSelectedVns] = useState<string[]>([]);
+    const [incomingTargetVns, setIncomingTargetVns] = useState<string[]>([]);
     const [exporting, setExporting] = useState(false);
     const [previewData, setPreviewData] = useState<any>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -179,6 +180,10 @@ export const FDHCheckerPage: React.FC = () => {
         if (incoming?.startDate) setStartDate(incoming.startDate);
         if (incoming?.endDate) setEndDate(incoming.endDate);
         if (incoming?.fdh?.statusFilter) setStatusFilter(incoming.fdh.statusFilter);
+        if (incoming?.fdh?.targetVns && incoming.fdh.targetVns.length > 0) {
+            setIncomingTargetVns(incoming.fdh.targetVns);
+            setSelectedVns(incoming.fdh.targetVns);
+        }
 
         if (incoming) {
             const noteParts: string[] = [];
@@ -186,6 +191,9 @@ export const FDHCheckerPage: React.FC = () => {
             noteParts.push(`ช่วงวันที่ ${incoming?.startDate ?? todayStr} ถึง ${incoming?.endDate ?? todayStr}`);
             if (incoming?.fdh?.statusFilter && incoming.fdh.statusFilter !== 'all') {
                 noteParts.push(`สถานะ ${incoming.fdh.statusFilter === 'ready' ? 'พร้อมส่ง' : 'รอแก้ไข'}`);
+            }
+            if (incoming?.fdh?.targetVns && incoming.fdh.targetVns.length > 0) {
+                noteParts.push(`เลือกเฉพาะ ${incoming.fdh.targetVns.length} รายการที่ส่งต่อมา`);
             }
             setDashboardContextItems(noteParts);
         }
@@ -355,6 +363,7 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const filtered = data.filter(item => {
+        if (incomingTargetVns.length > 0 && !incomingTargetVns.includes(item.vn)) return false;
         if (!matchesExportFund(item)) return false;
         if (!matchesPttype(item)) return false;
         if (statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
@@ -966,6 +975,24 @@ export const FDHCheckerPage: React.FC = () => {
                     </section>
                 </div>
             </div>
+
+            {incomingTargetVns.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: '8px', padding: '12px 16px', marginBottom: 16, color: '#1e40af', fontSize: '13px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <div>
+                        <strong style={{ fontSize: '14px' }}>🎯 กำลังล็อกแสดงผลเฉพาะ {incomingTargetVns.length} วิสิตที่เลือกส่งต่อมา</strong>
+                        <div style={{ fontSize: '12px', color: '#3b82f6', marginTop: 2 }}>
+                            ระบบเลือกและล็อกรายการเหล่านี้ไว้ให้แล้วเพื่อป้องกันไม่ให้วิสิตอื่นที่ไม่เกี่ยวข้องถูกส่งออกไปด้วย
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setIncomingTargetVns([])}
+                        style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', color: '#1e40af', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                        ✕ ปลดล็อก (แสดงทั้งหมด)
+                    </button>
+                </div>
+            )}
 
             {(ipdAuthenSyncing || ipdAuthenNotice) && (
                 <div className={`alert ${ipdAuthenNotice?.type === 'warning' ? 'alert-warning' : 'alert-info'}`} style={{ marginBottom: 16 }}>

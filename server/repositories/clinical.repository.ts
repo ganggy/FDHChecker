@@ -2160,20 +2160,29 @@ export const getSpecificFundData = async (
               AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U59%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7810')
           ) as oper_names,
           (
-            SELECT d.name FROM health_med_service ks
-            LEFT JOIN doctor d ON d.code = ks.doctor_code
+            SELECT COALESCE(hmd.health_med_doctor_name, d.name) FROM health_med_service ks
+            LEFT JOIN health_med_doctor hmd ON hmd.health_med_doctor_id = ks.health_med_doctor_id
+            LEFT JOIN doctor d ON d.code = hmd.doctor_code
             WHERE ks.vn = o.vn LIMIT 1
           ) as provider_name,
           (
-            SELECT d.licenseno FROM health_med_service ks
-            LEFT JOIN doctor d ON d.code = ks.doctor_code
+            SELECT COALESCE(hmd.license_number, d.licenseno) FROM health_med_service ks
+            LEFT JOIN health_med_doctor hmd ON hmd.health_med_doctor_id = ks.health_med_doctor_id
+            LEFT JOIN doctor d ON d.code = hmd.doctor_code
             WHERE ks.vn = o.vn LIMIT 1
           ) as provider_license_no,
           (SELECT TIME_FORMAT(ks.service_time, '%H:%i') FROM health_med_service ks WHERE ks.vn = o.vn LIMIT 1) as service_start_time,
-          (SELECT TIME_FORMAT(ks.service_finish_time, '%H:%i') FROM health_med_service ks WHERE ks.vn = o.vn LIMIT 1) as service_finish_time,
           (
-            SELECT TIMESTAMPDIFF(MINUTE, ks.service_time, ks.service_finish_time)
-            FROM health_med_service ks WHERE ks.vn = o.vn LIMIT 1
+            SELECT TIME_FORMAT(ADDTIME(ks.service_time, SEC_TO_TIME(COALESCE(kop.health_med_service_operation_time_minute, 0) * 60)), '%H:%i')
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            WHERE ks.vn = o.vn LIMIT 1
+          ) as service_finish_time,
+          (
+            SELECT COALESCE(kop.health_med_service_operation_time_minute, 0)
+            FROM health_med_service ks
+            JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
+            WHERE ks.vn = o.vn LIMIT 1
           ) as service_duration_min,
           'Y' as has_ttm_oper,
           'Y' as has_massage_oper,
@@ -2184,8 +2193,12 @@ export const getSpecificFundData = async (
           ) THEN 'Y' ELSE 'N' END as has_ttm_diag,
           CASE WHEN EXISTS (
             SELECT 1 FROM health_med_service ks
-            JOIN doctor d ON d.code = ks.doctor_code
-            WHERE ks.vn = o.vn AND d.licenseno IS NOT NULL AND TRIM(d.licenseno) <> ''
+            LEFT JOIN health_med_doctor hmd ON hmd.health_med_doctor_id = ks.health_med_doctor_id
+            LEFT JOIN doctor d ON d.code = hmd.doctor_code
+            WHERE ks.vn = o.vn AND (
+              (hmd.license_number IS NOT NULL AND TRIM(hmd.license_number) <> '')
+              OR (d.licenseno IS NOT NULL AND TRIM(d.licenseno) <> '')
+            )
           ) THEN 'Y' ELSE 'N' END as has_provider_license,
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
         FROM ovst o
@@ -2232,8 +2245,8 @@ export const getSpecificFundData = async (
             JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
             WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U60%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7820')
           ) as oper_names,
-          (SELECT d.name FROM health_med_service ks LEFT JOIN doctor d ON d.code = ks.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
-          (SELECT d.licenseno FROM health_med_service ks LEFT JOIN doctor d ON d.code = ks.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_license_no,
+          (SELECT COALESCE(hmd.health_med_doctor_name, d.name) FROM health_med_service ks LEFT JOIN health_med_doctor hmd ON hmd.health_med_doctor_id = ks.health_med_doctor_id LEFT JOIN doctor d ON d.code = hmd.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
+          (SELECT COALESCE(hmd.license_number, d.licenseno) FROM health_med_service ks LEFT JOIN health_med_doctor hmd ON hmd.health_med_doctor_id = ks.health_med_doctor_id LEFT JOIN doctor d ON d.code = hmd.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_license_no,
           'Y' as has_ttm_oper,
           'Y' as has_compress_oper,
           CASE WHEN EXISTS (
@@ -2284,7 +2297,7 @@ export const getSpecificFundData = async (
             JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
             WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U61%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^8707830')
           ) as oper_names,
-          (SELECT d.name FROM health_med_service ks LEFT JOIN doctor d ON d.code = ks.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
+          (SELECT COALESCE(hmd.health_med_doctor_name, d.name) FROM health_med_service ks LEFT JOIN health_med_doctor hmd ON hmd.health_med_doctor_id = ks.health_med_doctor_id LEFT JOIN doctor d ON d.code = hmd.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
           'Y' as has_ttm_oper,
           'Y' as has_steam_oper,
           CASE WHEN EXISTS (
@@ -2335,7 +2348,7 @@ export const getSpecificFundData = async (
             JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
             WHERE ks.vn = o.vn AND REPLACE(ki.icd10tm, '-', '') LIKE 'U62%'
           ) as oper_names,
-          (SELECT d.name FROM health_med_service ks LEFT JOIN doctor d ON d.code = ks.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
+          (SELECT COALESCE(hmd.health_med_doctor_name, d.name) FROM health_med_service ks LEFT JOIN health_med_doctor hmd ON hmd.health_med_doctor_id = ks.health_med_doctor_id LEFT JOIN doctor d ON d.code = hmd.doctor_code WHERE ks.vn = o.vn LIMIT 1) as provider_name,
           'Y' as has_postnatal_oper,
           CASE WHEN EXISTS (
             SELECT 1 FROM ovstdiag dx

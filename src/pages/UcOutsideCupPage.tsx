@@ -1028,7 +1028,17 @@ export const UcOutsideCupPage = () => {
                         <strong style={{ color: '#dc2626' }}>ลบหัตถการส่งเสริมป้องกัน ANC</strong> (เช่น ตรวจฟัน/ขัดฟันหญิงตั้งครรภ์) ออกจากระบบทันตกรรม (dtmain) เพื่อไม่ให้ปะปนกับการรักษาปกติ
                       </span>
                     )}
-                    {!['ADD_K051', 'ADD_K021', 'ADD_K011', 'ADD_K083', 'SWAP_Z012', 'REMOVE_DUP_DX', 'INSERT_WALKIN', 'REMOVE_ANC_PROC'].includes(action) && (
+                    {action === 'SYNC_DENTAL_PROC' && (
+                      <span>
+                        <strong style={{ color: '#0284c7' }}>ย้ายรหัสหัตถการ ICD-9</strong> (เช่น 89.31 ตรวจฟัน, 99.97) จากช่องวินิจฉัยโรค (ovstdiag) เข้าสู่ระบบทันตกรรม (dtmain) และลบรหัสตกค้างออกจาก ovstdiag เพื่อความถูกต้องของแฟ้มเวชระเบียนและ e-Claim
+                      </span>
+                    )}
+                    {action === 'REMOVE_NUMERIC_DX' && (
+                      <span>
+                        <strong style={{ color: '#dc2626' }}>ลบรหัสหัตถการตกค้างในช่องวินิจฉัย</strong> ออกจาก ovstdiag เนื่องจากมีหัตถการในระบบทันตกรรมอยู่แล้ว
+                      </span>
+                    )}
+                    {!['ADD_K051', 'ADD_K021', 'ADD_K011', 'ADD_K083', 'SWAP_Z012', 'REMOVE_DUP_DX', 'INSERT_WALKIN', 'REMOVE_ANC_PROC', 'SYNC_DENTAL_PROC', 'REMOVE_NUMERIC_DX'].includes(action) && (
                       <strong>{action}</strong>
                     )}
                   </li>
@@ -1120,6 +1130,10 @@ export const UcOutsideCupPage = () => {
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                   <span>🗑️</span>
                   <span><strong>ลบหัตถการ ANC ปะปน</strong>: ลบหัตถการตรวจสุขภาพช่องปาก/ขัดฟันหญิงตั้งครรภ์ที่ลงปะปนในบริการรักษาทันตกรรมปกติ</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🦷</span>
+                  <span><strong>ย้ายรหัสหัตถการตกค้าง (89.31/99.97)</strong>: ย้ายรหัสหัตถการตัวเลขจากช่องวินิจฉัยเข้าสู่ระบบทันตกรรม (dtmain) และลบรหัสตกค้างออกจาก ovstdiag</span>
                 </div>
               </div>
             </div>

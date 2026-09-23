@@ -238,7 +238,9 @@ export type WalkinAutoFixAction =
   | 'SWAP_Z012'
   | 'REMOVE_DUP_DX'
   | 'INSERT_WALKIN'
-  | 'REMOVE_ANC_PROC';
+  | 'REMOVE_ANC_PROC'
+  | 'SYNC_DENTAL_PROC'
+  | 'REMOVE_NUMERIC_DX';
 
 export type WalkinAuditIssue = {
   code: string;
@@ -484,15 +486,42 @@ export const evaluateWalkinVisitAudit = (visit: {
       });
     }
 
-    // Rule D7: มีบริการทันตกรรมแต่ไม่มีรหัสหัตถการ (ICD-9)
+    // Rule D7: มีบริการทันตกรรมแต่ไม่มีรหัสหัตถการ (ICD-9) หรือมีรหัสหัตถการตัวเลขตกค้างใน ovstdiag
+    const numericDxList = diagnoses.filter((d) => /^\d+$/.test(clean(d.code)));
     if ((hasDentalCharge || hasDentalDept) && allProcCodes.length === 0) {
+      if (numericDxList.length > 0) {
+        const numCodesStr = numericDxList.map((d) => d.code).join(', ');
+        issues.push({
+          code: 'C-804-MISSING-PROC',
+          level: 'critical',
+          title: 'มีบริการทันตกรรมแต่ไม่พบหัตถการ (พบรหัสตกค้างในช่องวินิจฉัย)',
+          detail: `มีการคิดค่าบริการทันตกรรม แต่ไม่พบหัตถการใน dtmain โดยพบรหัสหัตถการ (${numCodesStr}) ตกค้างอยู่ในช่องวินิจฉัยโรค (ovstdiag) เสี่ยงติด C Error 804`,
+          recommendation: `ย้ายรหัสหัตถการ (${numCodesStr}) จากช่องวินิจฉัยเข้าสู่ระบบทันตกรรม (dtmain) และลบรหัสตกค้างออกจาก ovstdiag`,
+          category: 'dental',
+          autoFixable: true,
+          fixAction: 'SYNC_DENTAL_PROC',
+        });
+      } else {
+        issues.push({
+          code: 'C-804-MISSING-PROC',
+          level: 'critical',
+          title: 'มีบริการทันตกรรมแต่ไม่พบรหัสหัตถการ (ICD-9)',
+          detail: 'มีการคิดค่าบริการทันตกรรม แต่ไม่มีการลงรหัสหัตถการ ICD-9 ใน dtmain หรือ doctor_operation ทำให้แฟ้มหัตถการว่าง เสี่ยงติด C Error 804',
+          recommendation: 'ลงบันทึกหัตถการพร้อมรหัส ICD-9 (เช่น 23.09, 23.2, 96.54) ในระบบทันตกรรม HOSxP',
+          category: 'dental',
+        });
+      }
+    } else if (numericDxList.length > 0) {
+      const numCodesStr = numericDxList.map((d) => d.code).join(', ');
       issues.push({
-        code: 'C-804-MISSING-PROC',
+        code: 'C-804-NUMERIC-DX',
         level: 'critical',
-        title: 'มีบริการทันตกรรมแต่ไม่พบรหัสหัตถการ (ICD-9)',
-        detail: 'มีการคิดค่าบริการทันตกรรม แต่ไม่มีการลงรหัสหัตถการ ICD-9 ใน dtmain หรือ doctor_operation ทำให้แฟ้มหัตถการว่าง เสี่ยงติด C Error 804',
-        recommendation: 'ลงบันทึกหัตถการพร้อมรหัส ICD-9 (เช่น 23.09, 23.2, 96.54) ในระบบทันตกรรม HOSxP',
+        title: 'พบรหัสหัตถการตกค้างในช่องวินิจฉัยโรค (ovstdiag)',
+        detail: `พบรหัส (${numCodesStr}) ในช่องวินิจฉัยโรค ซึ่งเป็นรหัสหัตถการไม่ใช่รหัสโรค ICD-10 ทำให้ติด C Error รูปแบบรหัสโรคไม่ถูกต้อง`,
+        recommendation: `ลบรหัสหัตถการ (${numCodesStr}) ออกจาก ovstdiag เนื่องจากมีหัตถการในระบบทันตกรรมอยู่แล้ว`,
         category: 'dental',
+        autoFixable: true,
+        fixAction: 'REMOVE_NUMERIC_DX',
       });
     }
 
@@ -1368,6 +1397,111 @@ export const fixWalkinClinicalVisit = async (
       const totalDeleted = deletedDm + deletedDop;
       if (totalDeleted > 0) {
         executedActions.push(`ลบหัตถการส่งเสริมป้องกัน ANC (${names.length ? names.join(', ') : 'ตรวจฟัน/ขัดฟัน ANC'}) จำนวน ${totalDeleted} รายการ ออกจาก dtmain`);
+      }
+    } else if (action === 'SYNC_DENTAL_PROC') {
+      const [numDxRows] = await connection.query(
+        `SELECT ovst_diag_id, icd10, diagtype, doctor
+         FROM ovstdiag
+         WHERE vn = ? AND icd10 REGEXP '^[0-9]'`,
+        [vn]
+      );
+      const numericItems = (Array.isArray(numDxRows) ? numDxRows : []) as Array<Record<string, unknown>>;
+      if (numericItems.length > 0) {
+        const [ovstData] = await connection.query(
+          `SELECT hn, vstdate, vsttime, doctor FROM ovst WHERE vn = ? LIMIT 1`,
+          [vn]
+        );
+        const ovst = (Array.isArray(ovstData) ? ovstData[0] : null) as Record<string, unknown> | null;
+        const vstdate = ovst?.vstdate;
+        const vsttime = ovst?.vsttime;
+        const ovstDoctor = String(ovst?.doctor || '900');
+        const ovstHn = String(ovst?.hn || hn);
+
+        const [maxTmRows] = await connection.query(
+          `SELECT COALESCE(MAX(tm_no), 0) AS max_no FROM dtmain WHERE vn = ?`,
+          [vn]
+        );
+        let nextTmNo = Number((maxTmRows as Array<{ max_no: number }>)[0]?.max_no || 0);
+
+        const [maxIdRows] = await connection.query(
+          `SELECT COALESCE(MAX(dtmain_id), 0) AS max_id FROM dtmain`
+        );
+        let nextDtmainId = Number((maxIdRows as Array<{ max_id: number }>)[0]?.max_id || 0);
+
+        const primaryIcd = diags.find((d) => d.diagtype === '1')?.code || 'Z012';
+        const syncedDesc: string[] = [];
+
+        for (const item of numericItems) {
+          const rawCode = String(item.icd10 || '').trim();
+          const cleanCode = rawCode.replace(/[.\s-]/g, '');
+          const ovstDiagId = Number(item.ovst_diag_id);
+
+          const [dttmMatches] = await connection.query(
+            `SELECT code, name, icd9cm, icd10tm_operation_code
+             FROM dttm
+             WHERE icd9cm = ? OR REPLACE(icd9cm, '.', '') = ? OR code = ?
+             ORDER BY code ASC
+             LIMIT 1`,
+            [rawCode, cleanCode, cleanCode]
+          );
+          const dttmMatch = (Array.isArray(dttmMatches) ? dttmMatches[0] : null) as Record<string, unknown> | null;
+
+          let tmcode = dttmMatch ? String(dttmMatch.code) : '';
+          let icd9 = dttmMatch ? String(dttmMatch.icd10tm_operation_code || dttmMatch.icd9cm || rawCode) : rawCode;
+
+          if (!tmcode) {
+            if (cleanCode === '8931') {
+              tmcode = '3002';
+              icd9 = '2330010';
+            } else if (cleanCode === '9997') {
+              tmcode = '1062';
+              icd9 = '9997';
+            } else {
+              tmcode = cleanCode;
+            }
+          }
+
+          nextTmNo++;
+          nextDtmainId++;
+
+          await connection.query(
+            `INSERT INTO dtmain (
+              dtmain_id, vn, hn, vstdate, vsttime, doctor, tmcode, icd9, icd, tm_no, fee
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+            [
+              nextDtmainId,
+              vn,
+              ovstHn,
+              vstdate,
+              vsttime,
+              String(item.doctor || ovstDoctor),
+              tmcode,
+              icd9,
+              primaryIcd,
+              nextTmNo,
+            ]
+          );
+
+          await connection.query(
+            `DELETE FROM ovstdiag WHERE vn = ? AND ovst_diag_id = ?`,
+            [vn, ovstDiagId]
+          );
+
+          syncedDesc.push(`${rawCode} (เข้า dtmain รหัส ${tmcode})`);
+        }
+
+        if (syncedDesc.length > 0) {
+          executedActions.push(`ย้ายรหัสหัตถการ ${syncedDesc.join(', ')} จาก ovstdiag เข้าสู่ dtmain เรียบร้อย`);
+        }
+      }
+    } else if (action === 'REMOVE_NUMERIC_DX') {
+      const [delRes] = await connection.query(
+        `DELETE FROM ovstdiag WHERE vn = ? AND icd10 REGEXP '^[0-9]'`,
+        [vn]
+      );
+      const delCount = Number((delRes as { affectedRows?: number }).affectedRows || 0);
+      if (delCount > 0) {
+        executedActions.push(`ลบรหัสหัตถการตัวเลขตกค้าง (${delCount} รายการ) ออกจาก ovstdiag เรียบร้อย`);
       }
     }
   }

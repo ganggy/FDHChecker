@@ -247,4 +247,54 @@ test('Dental Audit: male patient with ANC dental procedure flags C-808-ANC-PROC-
   assert.ok(result.auto_fix_actions.includes('REMOVE_ANC_PROC'));
 });
 
+test('Dental Audit: numeric procedure code (8931) in ovstdiag without procedures flags C-804-MISSING-PROC with SYNC_DENTAL_PROC', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '670101014',
+    hn: '000014',
+    service_date: '2024-10-15',
+    diagnoses: [
+      { code: 'K05.1', diagtype: '1' },
+      { code: 'Z01.2', diagtype: '2' },
+      { code: '8931', diagtype: '2' },
+    ],
+    procedures: [],
+    chargeItems: [{ icode: '3000047', sum_price: 100, income: '66', name: 'ค่าบริการทั่วไปผู้ป่วยนอก' }],
+    department: 'ทันตกรรม',
+    has_walkin: true,
+  });
+
+  assert.equal(result.is_dental, true);
+  assert.equal(result.audit_status, 'critical');
+  const issue = result.issues.find((i) => i.code === 'C-804-MISSING-PROC');
+  assert.ok(issue, 'Should find C-804-MISSING-PROC');
+  assert.equal(issue.autoFixable, true);
+  assert.equal(issue.fixAction, 'SYNC_DENTAL_PROC');
+  assert.equal(result.can_auto_fix, true);
+  assert.ok(result.auto_fix_actions.includes('SYNC_DENTAL_PROC'));
+});
+
+test('Dental Audit: numeric procedure code in ovstdiag when procedures already exist flags C-804-NUMERIC-DX with REMOVE_NUMERIC_DX', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '670101015',
+    hn: '000015',
+    service_date: '2024-10-15',
+    diagnoses: [
+      { code: 'K05.1', diagtype: '1' },
+      { code: '8931', diagtype: '2' },
+    ],
+    procedures: [{ code: '96.54', type: 'Dental' }],
+    chargeItems: [{ icode: '3000047', sum_price: 100, income: '66' }],
+    has_walkin: true,
+  });
+
+  assert.equal(result.is_dental, true);
+  assert.equal(result.audit_status, 'critical');
+  const issue = result.issues.find((i) => i.code === 'C-804-NUMERIC-DX');
+  assert.ok(issue, 'Should find C-804-NUMERIC-DX');
+  assert.equal(issue.autoFixable, true);
+  assert.equal(issue.fixAction, 'REMOVE_NUMERIC_DX');
+  assert.equal(result.can_auto_fix, true);
+  assert.ok(result.auto_fix_actions.includes('REMOVE_NUMERIC_DX'));
+});
+
 

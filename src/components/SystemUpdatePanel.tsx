@@ -137,6 +137,10 @@ export const SystemUpdatePanel = () => {
   const reloadJobStatus = info?.job?.status;
   useEffect(() => {
     if (reloadJobStatus !== 'completed' || !reloadJobId) return;
+    const completedAtMs = info?.job?.completedAt ? new Date(info.job.completedAt).getTime() : 0;
+    const isRecentJob = completedAtMs > 0 && (Date.now() - completedAtMs < 180_000);
+    if (!isRecentJob) return;
+
     const storageKey = 'fdh-last-reloaded-update-job';
     if (window.sessionStorage.getItem(storageKey) === reloadJobId) return;
     if (reloadTriggeredRef.current) return;
@@ -160,7 +164,7 @@ export const SystemUpdatePanel = () => {
         window.location.reload();
       }
     }, 1000);
-  }, [reloadJobId, reloadJobStatus, info?.currentCommit, info?.job?.toCommit]);
+  }, [reloadJobId, reloadJobStatus, info?.currentCommit, info?.job?.toCommit, info?.job?.completedAt]);
 
   const confirmationText = useMemo(() => {
     if (!info?.remoteCommit) return '';
@@ -291,6 +295,16 @@ export const SystemUpdatePanel = () => {
 
   const job = info?.job;
   const progress = Math.max(0, Math.min(100, Number(job?.progress || 0)));
+  const isUpToDate = Boolean(
+    info &&
+    !info.available &&
+    !info.ahead &&
+    info.currentCommit &&
+    info.remoteCommit &&
+    info.currentCommit === info.remoteCommit
+  );
+  const lastJob = (info?.job?.status === 'completed' ? info.job : null)
+    || (info?.history?.[0]?.status === 'completed' ? info.history[0] : null);
   const disabledReason = !info?.enabled
     ? 'ระบบอัปเดตอัตโนมัติไม่ได้เปิดบนเซิร์ฟเวอร์นี้'
     : info.checkError
@@ -351,35 +365,97 @@ export const SystemUpdatePanel = () => {
 
       {countdown !== null && (
         <div style={{
-          backgroundColor: 'rgba(16, 185, 129, 0.12)',
-          border: '2px solid #10b981',
-          color: '#059669',
-          padding: '16px 20px',
+          backgroundColor: '#ecfdf5',
+          border: '2px solid #059669',
+          color: '#065f46',
+          padding: '18px 22px',
           borderRadius: '12px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: '12px',
-          boxShadow: '0 4px 16px rgba(16, 185, 129, 0.2)',
+          boxShadow: '0 6px 20px rgba(5, 150, 105, 0.25)',
         }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>✅</span>
-              <span>อัปเดตระบบสำเร็จเรียบร้อยแล้ว!</span>
-            </div>
-            <div style={{ fontSize: '0.88rem', marginTop: '4px', opacity: 0.9 }}>
-              กำลังจะรีเฟรชหน้าจออัตโนมัติในอีก <strong style={{ fontSize: '1.1rem', color: '#047857' }}>{countdown}</strong> วินาที เพื่อใช้งานโค้ดเวอร์ชันล่าสุด
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <span style={{ fontSize: '2.2rem' }}>🎉</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '1.15rem', color: '#047857' }}>
+                ✅ อัปเดตระบบสำเร็จเรียบร้อยแล้ว (100%)!
+              </div>
+              <div style={{ fontSize: '0.92rem', marginTop: '4px', opacity: 0.95 }}>
+                กำลังจะรีเฟรชหน้าจออัตโนมัติในอีก <strong style={{ fontSize: '1.25rem', color: '#047857' }}>{countdown}</strong> วินาที เพื่อใช้งานโค้ดเวอร์ชันล่าสุด
+              </div>
             </div>
           </div>
           <button
             type="button"
             className="save-btn"
             onClick={() => window.location.reload()}
-            style={{ background: '#10b981', borderColor: '#10b981', color: '#fff', padding: '8px 18px', fontWeight: 600 }}
+            style={{
+              background: '#059669',
+              borderColor: '#047857',
+              color: '#fff',
+              padding: '10px 22px',
+              fontWeight: 700,
+              fontSize: '0.95rem',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
           >
             🔄 รีเฟรชหน้าจอทันที
           </button>
+        </div>
+      )}
+
+      {isUpToDate && !countdown && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.08) 100%)',
+          border: '1.5px solid #10b981',
+          borderRadius: '14px',
+          padding: '16px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '14px',
+          boxShadow: '0 4px 14px rgba(16, 185, 129, 0.12)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{
+              fontSize: '1.6rem',
+              background: '#10b981',
+              color: '#fff',
+              width: '40px',
+              height: '40px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>✓</div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '1.1rem', color: '#047857' }}>
+                🎉 ระบบเป็นรุ่นล่าสุดและอัปเดตสำเร็จแล้ว!
+              </div>
+              <div style={{ fontSize: '0.9rem', color: '#065f46', marginTop: '2px' }}>
+                กำลังทำงานบนรุ่น <strong>{shortCommit(info?.currentCommit || '')}</strong>
+                {lastJob?.completedAt ? ` (อัปเดตล่าสุดเมื่อ ${thaiDateTime(lastJob.completedAt)})` : ''}
+                {lastJob?.changeSummary ? ` — ${lastJob.changeSummary}` : ''}
+              </div>
+            </div>
+          </div>
+          <span style={{
+            background: '#10b981',
+            color: '#fff',
+            padding: '6px 14px',
+            borderRadius: '20px',
+            fontSize: '0.85rem',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+          }}>
+            ● ระบบพร้อมใช้งาน
+          </span>
         </div>
       )}
 
@@ -387,7 +463,7 @@ export const SystemUpdatePanel = () => {
         <div><span>Branch</span><strong>{info?.branch || '-'}</strong></div>
         <div><span>รุ่นที่ใช้อยู่</span><strong>{shortCommit(info?.currentCommit || '')}</strong></div>
         <div><span>รุ่นบน GitHub</span><strong>{shortCommit(info?.remoteCommit || '')}</strong></div>
-        <div><span>สถานะ</span><strong>{!info ? 'ยังไม่ได้รับข้อมูล' : connectionState === 'reconnecting' ? 'รอยืนยันสถานะล่าสุด' : info.available ? `มีใหม่ ${info.behind} commit` : 'เป็นรุ่นล่าสุด'}</strong></div>
+        <div><span>สถานะ</span><strong>{!info ? 'ยังไม่ได้รับข้อมูล' : connectionState === 'reconnecting' ? 'รอยืนยันสถานะล่าสุด' : info.available ? <span style={{ color: '#d97706' }}>⚡ มีรุ่นใหม่ ({info.behind} commit)</span> : <span style={{ color: '#059669' }}>✅ เป็นรุ่นล่าสุดแล้ว</span>}</strong></div>
       </div>
 
       {job && (

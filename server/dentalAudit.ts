@@ -1089,6 +1089,15 @@ export const fixDentalClinicalVisit = async (input: {
     const ovstDoctor = String(ovstRow?.doctor || '900');
     const ovstStaff = String(ovstRow?.staff || input.actorName || 'dental');
 
+    const [maxDiagRows] = await connection.query(
+      `SELECT COALESCE(MAX(ovst_diag_id), 0) AS max_id FROM ovstdiag`
+    );
+    let nextDiagId = Number((maxDiagRows as Array<{ max_id: number }>)[0]?.max_id || 0);
+    const getNextDiagId = () => {
+      nextDiagId += 1;
+      return nextDiagId;
+    };
+
     for (const action of evaluated.auto_fix_actions) {
       if (action === 'ADD_K051') {
         const [existsK051] = await connection.query(
@@ -1096,10 +1105,11 @@ export const fixDentalClinicalVisit = async (input: {
           [vn]
         );
         if (!Array.isArray(existsK051) || existsK051.length === 0) {
+          const diagId = getNextDiagId();
           await connection.query(
-            `INSERT INTO ovstdiag (vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff)
-             VALUES (?, ?, ?, ?, 'K051', '2', ?, ?)`,
-            [vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
+            `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
+             VALUES (?, ?, ?, ?, ?, 'K051', '2', ?, ?, 1)`,
+            [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
           );
           executedActions.push('เพิ่มรหัสโรคเหงือกอักเสบ K05.1 (diagtype=2) สำหรับหัตถการขูดหินปูน');
         }
@@ -1109,10 +1119,11 @@ export const fixDentalClinicalVisit = async (input: {
           [vn]
         );
         if (!Array.isArray(existsK021) || existsK021.length === 0) {
+          const diagId = getNextDiagId();
           await connection.query(
-            `INSERT INTO ovstdiag (vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff)
-             VALUES (?, ?, ?, ?, 'K021', '2', ?, ?)`,
-            [vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
+            `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
+             VALUES (?, ?, ?, ?, ?, 'K021', '2', ?, ?, 1)`,
+            [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
           );
           executedActions.push('เพิ่มรหัสโรคฟันผุ K02.1 (diagtype=2) สำหรับหัตถการอุดฟัน');
         }
@@ -1122,10 +1133,11 @@ export const fixDentalClinicalVisit = async (input: {
           [vn]
         );
         if (!Array.isArray(existsK011) || existsK011.length === 0) {
+          const diagId = getNextDiagId();
           await connection.query(
-            `INSERT INTO ovstdiag (vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff)
-             VALUES (?, ?, ?, ?, 'K011', '2', ?, ?)`,
-            [vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
+            `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
+             VALUES (?, ?, ?, ?, ?, 'K011', '2', ?, ?, 1)`,
+            [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
           );
           executedActions.push('เพิ่มรหัสฟันคุด K01.1 (diagtype=2) สำหรับหัตถการผ่าฟันคุด');
         }
@@ -1153,10 +1165,11 @@ export const fixDentalClinicalVisit = async (input: {
             [vn, (existingNewPdx[0] as Record<string, unknown>).ovst_diag_id]
           );
         } else {
+          const diagId = getNextDiagId();
           await connection.query(
-            `INSERT INTO ovstdiag (vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff)
-             VALUES (?, ?, ?, ?, ?, '1', ?, ?)`,
-            [vn, ovstHn, ovstVstdate, ovstVsttime, newPdx, ovstDoctor, ovstStaff]
+            `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
+             VALUES (?, ?, ?, ?, ?, ?, '1', ?, ?, 1)`,
+            [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, newPdx, ovstDoctor, ovstStaff]
           );
         }
         await connection.query(`UPDATE vn_stat SET pdx = ? WHERE vn = ?`, [newPdx, vn]).catch(() => {});
@@ -1185,10 +1198,11 @@ export const fixDentalClinicalVisit = async (input: {
             [dentalPdx, vn, curPdxRow.ovst_diag_id]
           );
         } else {
+          const diagId = getNextDiagId();
           await connection.query(
-            `INSERT INTO ovstdiag (vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff)
-             VALUES (?, ?, ?, ?, ?, '1', ?, ?)`,
-            [vn, ovstHn, ovstVstdate, ovstVsttime, dentalPdx, ovstDoctor, ovstStaff]
+            `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
+             VALUES (?, ?, ?, ?, ?, ?, '1', ?, ?, 1)`,
+            [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, dentalPdx, ovstDoctor, ovstStaff]
           );
         }
 
@@ -1324,10 +1338,11 @@ export const fixDentalClinicalVisit = async (input: {
           );
 
           if (diags.length === 0) {
+            const diagId = getNextDiagId();
             await connection.query(
-              `INSERT INTO ovstdiag (vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff)
-               VALUES (?, ?, ?, ?, 'Z012', '1', ?, ?)`,
-              [vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
+              `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
+               VALUES (?, ?, ?, ?, ?, 'Z012', '1', ?, ?, 1)`,
+              [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
             );
             await connection.query(`UPDATE vn_stat SET pdx = 'Z012' WHERE vn = ?`, [vn]).catch(() => {});
           }

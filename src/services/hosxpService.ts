@@ -1253,6 +1253,8 @@ export interface UcWalkinClinicalAuditRow {
   total_charge: number;
   issues: WalkinAuditIssue[];
   audit_status: 'critical' | 'warning' | 'valid';
+  can_auto_fix?: boolean;
+  auto_fix_actions?: string[];
 }
 
 export interface UcWalkinClinicalAuditSummary {
@@ -1263,6 +1265,7 @@ export interface UcWalkinClinicalAuditSummary {
   dental_total: number;
   dental_issue_count: number;
   missing_walkin_count: number;
+  auto_fixable_count?: number;
 }
 
 export interface UcWalkinClinicalAuditResponse {
@@ -1295,6 +1298,39 @@ export const fetchUcOutsideCupClinicalAudit = async (params: {
   const json = await response.json();
   if (!response.ok || !json.success) throw new Error(json.error || 'ตรวจสอบเวชระเบียน WALKIN ไม่สำเร็จ');
   return json.data as UcWalkinClinicalAuditResponse;
+};
+
+export const fixUcOutsideCupClinicalIssueSingle = async (vn: string): Promise<{
+  success: boolean;
+  vn: string;
+  hn: string;
+  actions: string[];
+  message: string;
+}> => {
+  const response = await fetch('/api/uc-outside-cup/walkin-clinical-fix-single', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vn }),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'แก้ไขข้อมูลทางคลินิกไม่สำเร็จ');
+  return json.data;
+};
+
+export const batchFixUcOutsideCupClinicalIssues = async (vns: string[]): Promise<{
+  total: number;
+  success_count: number;
+  failed_count: number;
+  details: Array<{ vn: string; success: boolean; actions: string[]; message: string }>;
+}> => {
+  const response = await fetch('/api/uc-outside-cup/walkin-clinical-fix-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vns }),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'แก้ไขข้อมูลทางคลินิกแบบกลุ่มไม่สำเร็จ');
+  return json.data;
 };
 
 export interface Uuc1TrackingSummary {

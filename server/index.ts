@@ -141,7 +141,13 @@ import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
 import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 import { collaborationRouter } from './routes/collaborationRoutes.js';
-import { getUcOutsideCupClinicalAudit, getUcOutsideCupWalkinAudit, insertMissingUcOutsideCupWalkin } from './ucOutsideCupWalkin.js';
+import {
+  batchFixWalkinClinicalIssues,
+  fixWalkinClinicalIssueSingle,
+  getUcOutsideCupClinicalAudit,
+  getUcOutsideCupWalkinAudit,
+  insertMissingUcOutsideCupWalkin,
+} from './ucOutsideCupWalkin.js';
 import { completeKneeOpppVisit, getKneeOpppProviders, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
 import {
   completeAncDentalVisit,
@@ -3677,6 +3683,41 @@ app.post('/api/uc-outside-cup/walkin-insert', requireAdmin, async (req: Authenti
     return res.status(status).json({ success: false, error: message });
   }
 });
+
+app.post('/api/uc-outside-cup/walkin-clinical-fix-single', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.authUser;
+    const vn = String(req.body?.vn || '').trim();
+    if (!vn) return res.status(400).json({ success: false, error: 'ระบุ VN ไม่ถูกต้อง' });
+    const result = await fixWalkinClinicalIssueSingle({
+      vn,
+      actorUserId: Number(user?.id || 0) || null,
+      actorName: String(user?.display_name || user?.username || 'admin'),
+    });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'แก้ไขข้อมูลทางคลินิกไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/uc-outside-cup/walkin-clinical-fix-batch', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.authUser;
+    const vns = Array.isArray(req.body?.vns) ? req.body.vns : [];
+    if (!vns.length) return res.status(400).json({ success: false, error: 'ไม่พบรายการ VN ที่ต้องการแก้ไข' });
+    const result = await batchFixWalkinClinicalIssues({
+      vns,
+      actorUserId: Number(user?.id || 0) || null,
+      actorName: String(user?.display_name || user?.username || 'admin'),
+    });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'แก้ไขข้อมูลทางคลินิกแบบกลุ่มไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
 
 app.get('/api/ppfs/nhso-report', async (req, res) => {
   try {

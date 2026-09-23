@@ -175,5 +175,76 @@ test('General Audit: missing WALKIN icode flags WRN-MISSING-WALKIN', () => {
 
   assert.equal(result.audit_status, 'warning');
   assert.ok(result.issues.some((i) => i.code === 'WRN-MISSING-WALKIN'));
+  assert.equal(result.can_auto_fix, true);
+  assert.ok(result.auto_fix_actions.includes('INSERT_WALKIN'));
 });
+
+test('Auto-Fix tagging: dental issues correctly identify auto-fix actions', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '670101011',
+    hn: '000011',
+    service_date: '2024-10-15',
+    diagnoses: [{ code: 'Z01.2', diagtype: '1' }],
+    procedures: [
+      { code: '96.54', type: 'Dental' },
+      { code: '23.19', type: 'Dental' },
+    ],
+    chargeItems: [{ icode: '30009', sum_price: 300, income: '13' }],
+    has_walkin: false,
+  });
+
+  assert.equal(result.can_auto_fix, true);
+  assert.ok(result.auto_fix_actions.includes('ADD_K051'), 'Should suggest ADD_K051 for scaling');
+  assert.ok(result.auto_fix_actions.includes('ADD_K011'), 'Should suggest ADD_K011 for impacted tooth');
+  assert.ok(result.auto_fix_actions.includes('SWAP_Z012'), 'Should suggest SWAP_Z012');
+  assert.ok(result.auto_fix_actions.includes('INSERT_WALKIN'), 'Should suggest INSERT_WALKIN');
+});
+
+test('Dental Audit: ANC dental procedure mixed in curative filling flags C-808-ANC-PROC-MIXED with REMOVE_ANC_PROC', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '670101012',
+    hn: '000012',
+    sex: '2',
+    service_date: '2024-10-15',
+    diagnoses: [{ code: 'K02.1', diagtype: '1' }],
+    procedures: [
+      { code: '23.2', type: 'Dental' },
+      { code: '2330011', name: 'ตรวจสุขภาพช่องปากหญิงตั้งครรภ์', type: 'Dental' },
+    ],
+    chargeItems: [{ icode: '30010', sum_price: 400, income: '13' }],
+    has_walkin: true,
+  });
+
+  assert.equal(result.is_dental, true);
+  assert.equal(result.audit_status, 'critical');
+  const issue = result.issues.find((i) => i.code === 'C-808-ANC-PROC-MIXED');
+  assert.ok(issue, 'Should find C-808-ANC-PROC-MIXED');
+  assert.equal(issue.autoFixable, true);
+  assert.equal(issue.fixAction, 'REMOVE_ANC_PROC');
+  assert.equal(result.can_auto_fix, true);
+  assert.ok(result.auto_fix_actions.includes('REMOVE_ANC_PROC'));
+});
+
+test('Dental Audit: male patient with ANC dental procedure flags C-808-ANC-PROC-MIXED with REMOVE_ANC_PROC', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '670101013',
+    hn: '000013',
+    sex: '1', // Male
+    service_date: '2024-10-15',
+    diagnoses: [{ code: 'K05.1', diagtype: '1' }],
+    procedures: [
+      { code: '96.54', type: 'Dental' },
+      { code: '2387010', name: 'ขัดฟันหญิงมีครรภ์', type: 'Dental' },
+    ],
+    chargeItems: [{ icode: '30009', sum_price: 300, income: '13' }],
+    has_walkin: true,
+  });
+
+  assert.equal(result.is_dental, true);
+  assert.equal(result.audit_status, 'critical');
+  const issue = result.issues.find((i) => i.code === 'C-808-ANC-PROC-MIXED');
+  assert.ok(issue, 'Should find C-808-ANC-PROC-MIXED for male patient');
+  assert.ok(result.auto_fix_actions.includes('REMOVE_ANC_PROC'));
+});
+
 

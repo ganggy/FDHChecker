@@ -1,5 +1,6 @@
 import { parseSiteWalkinSettings, readHospitalIdentity } from './siteProfile.js';
 import { getRepstmConnection, getUTFConnection, getAppSetting } from './db.js';
+import type { HospitalConnection } from './hospitalDatabase.js';
 
 export const UC_WALKIN_NAME = 'WALKIN:ผู้ป่วยนอกเหตุสมควร ทั่วประเทศ';
 export const UC_WALKIN_START_DATE = '2024-10-01';
@@ -229,6 +230,16 @@ export const insertMissingUcOutsideCupWalkin = async (input: {
 
 export type WalkinAuditIssueLevel = 'critical' | 'warning' | 'info';
 
+export type WalkinAutoFixAction =
+  | 'ADD_K051'
+  | 'ADD_K021'
+  | 'ADD_K011'
+  | 'ADD_K083'
+  | 'SWAP_Z012'
+  | 'REMOVE_DUP_DX'
+  | 'INSERT_WALKIN'
+  | 'REMOVE_ANC_PROC';
+
 export type WalkinAuditIssue = {
   code: string;
   level: WalkinAuditIssueLevel;
@@ -236,6 +247,8 @@ export type WalkinAuditIssue = {
   detail: string;
   recommendation: string;
   category: 'dental' | 'clinical' | 'billing';
+  autoFixable?: boolean;
+  fixAction?: WalkinAutoFixAction;
 };
 
 export type UcWalkinClinicalAuditRow = {
@@ -260,12 +273,16 @@ export type UcWalkinClinicalAuditRow = {
     name?: string;
     type?: string;
     tooth?: string;
+    tmcode?: string;
+    icd10tm?: string;
   }>;
   has_walkin: boolean;
   walkin_rows: number;
   total_charge: number;
   issues: WalkinAuditIssue[];
   audit_status: 'critical' | 'warning' | 'valid';
+  can_auto_fix: boolean;
+  auto_fix_actions: string[];
 };
 
 export type UcWalkinClinicalAuditSummary = {
@@ -276,6 +293,7 @@ export type UcWalkinClinicalAuditSummary = {
   dental_total: number;
   dental_issue_count: number;
   missing_walkin_count: number;
+  auto_fixable_count: number;
 };
 
 export const evaluateWalkinVisitAudit = (visit: {
@@ -290,7 +308,7 @@ export const evaluateWalkinVisitAudit = (visit: {
   hospmain?: string;
   department?: string;
   diagnoses: Array<{ code: string; name?: string; diagtype: string }>;
-  procedures: Array<{ code: string; name?: string; type?: string; tooth?: string }>;
+  procedures: Array<{ code: string; name?: string; type?: string; tooth?: string; tmcode?: string; icd10tm?: string }>;
   chargeItems?: Array<{ icode: string; name?: string; qty?: number; unitprice?: number; sum_price?: number; income?: string }>;
   has_walkin: boolean;
   walkin_rows?: number;
@@ -300,6 +318,8 @@ export const evaluateWalkinVisitAudit = (visit: {
   issues: WalkinAuditIssue[];
   audit_status: 'critical' | 'warning' | 'valid';
   total_charge: number;
+  can_auto_fix: boolean;
+  auto_fix_actions: string[];
 } => {
   const issues: WalkinAuditIssue[] = [];
   const clean = (val: unknown) => String(val || '').trim().toUpperCase().replace(/[.\s-]/g, '');
@@ -367,6 +387,8 @@ export const evaluateWalkinVisitAudit = (visit: {
           detail: 'พบหัตถการขูดหินปูน/ทำความสะอาดฟัน แต่ไม่มีรหัสวินิจฉัยกลุ่มโรคเหงือกอักเสบหรือปริทันต์อักเสบ (K05.0-K05.6) ทำให้เสี่ยงติด C Error 804 / 800',
           recommendation: 'เพิ่มหรือแก้ไขรหัสวินิจฉัยในระบบทันตกรรม HOSxP เป็น K05.1 (Chronic gingivitis) หรือ K05.3 (Chronic periodontitis)',
           category: 'dental',
+          autoFixable: true,
+          fixAction: 'ADD_K051',
         });
       }
     }
@@ -386,6 +408,8 @@ export const evaluateWalkinVisitAudit = (visit: {
           detail: 'พบหัตถการอุดฟัน แต่ไม่พบรหัสวินิจฉัยโรคฟันผุ (K02) หรือฟันสึกกร่อน (K03) เสี่ยงติด C Error 804',
           recommendation: 'เพิ่มหรือแก้ไขรหัสวินิจฉัยในระบบทันตกรรม HOSxP เป็นกลุ่มฟันผุ (K02.0-K02.9) หรือฟันสึก (K03.0-K03.2)',
           category: 'dental',
+          autoFixable: true,
+          fixAction: 'ADD_K021',
         });
       }
     }
@@ -402,6 +426,8 @@ export const evaluateWalkinVisitAudit = (visit: {
           detail: 'พบหัตถการผ่าฟันคุด 23.19 แต่ไม่พบรหัสวินิจฉัย K01.0 หรือ K01.1 เสี่ยงติด C Error 804',
           recommendation: 'เพิ่มรหัสวินิจฉัย K01.1 (Impacted teeth) หรือ K01.0 ในระบบทันตกรรม HOSxP',
           category: 'dental',
+          autoFixable: true,
+          fixAction: 'ADD_K011',
         });
       }
     }
@@ -418,6 +444,8 @@ export const evaluateWalkinVisitAudit = (visit: {
           detail: 'พบหัตถการถอนรากฟัน 23.11 แต่ไม่มีรหัสวินิจฉัย K08.3 (Retained dental root) เสี่ยงติด C Error 804',
           recommendation: 'เพิ่มรหัสวินิจฉัย K08.3 ในระบบทันตกรรม HOSxP',
           category: 'dental',
+          autoFixable: true,
+          fixAction: 'ADD_K083',
         });
       }
     }
@@ -451,6 +479,8 @@ export const evaluateWalkinVisitAudit = (visit: {
         detail: 'ตามหลักเกณฑ์ e-Claim หากมีการรักษาทางทันตกรรม (เช่น อุดฟัน, ถอนฟัน, ขูดหินปูน) ห้ามใช้ Z01.2 เป็นโรคหลัก ทำให้ติด C Error 800 / A14',
         recommendation: 'เปลี่ยนโรคหลัก (PDX) เป็นรหัสโรคที่ให้การรักษา (เช่น K02.1, K05.1) และเปลี่ยน Z01.2 เป็นโรครองหรือลบออก',
         category: 'dental',
+        autoFixable: true,
+        fixAction: 'SWAP_Z012',
       });
     }
 
@@ -475,6 +505,62 @@ export const evaluateWalkinVisitAudit = (visit: {
         detail: 'มีการทำหัตถการทันตกรรม แต่รหัสโรคในเวชระเบียนไม่มีหมวดช่องปากและฟันเลย เสี่ยงติด C Error 800',
         recommendation: 'เพิ่มรหัสการวินิจฉัยโรคฟัน (K00-K14) ในระบบทันตกรรม HOSxP',
         category: 'dental',
+      });
+    }
+
+    // Rule D9: หัตถการส่งเสริมป้องกัน ANC ปะปนในบริการทันตกรรมปกติ (C-808-ANC-PROC-MIXED)
+    const ancProcCodes = new Set(['2330011', '2330010', '2387010', '2277310', '2287310']);
+    const hasAncProc = procedures.some((p) => {
+      const c = clean(p.code);
+      const tm = clean(p.tmcode);
+      const icd10tm = clean(p.icd10tm);
+      const name = String(p.name || '');
+      return (
+        ancProcCodes.has(c) ||
+        ancProcCodes.has(tm) ||
+        ancProcCodes.has(icd10tm) ||
+        name.includes('หญิงมีครรภ์') ||
+        name.includes('หญิงตั้งครรภ์') ||
+        name.includes('ตรวจฟัน ANC') ||
+        name.includes('ขัดฟัน ANC')
+      );
+    });
+
+    const sex = String(visit.sex || '').trim().toUpperCase();
+    const isMale = sex === '1' || sex === 'M' || sex === 'ชาย';
+    const hasCurativeDentalProc = procedures.some((p) => {
+      const c = clean(p.code);
+      const name = String(p.name || '');
+      if (ancProcCodes.has(c) || name.includes('หญิงมีครรภ์') || name.includes('หญิงตั้งครรภ์') || name.includes('ตรวจฟัน ANC') || name.includes('ขัดฟัน ANC')) {
+        return false;
+      }
+      return (
+        c.startsWith('230') ||
+        c.startsWith('231') ||
+        c.startsWith('232') ||
+        c.startsWith('234') ||
+        c.startsWith('237') ||
+        c === '9654' ||
+        c === '9651' ||
+        name.includes('อุดฟัน') ||
+        name.includes('ถอนฟัน') ||
+        name.includes('ผ่าฟันคุด') ||
+        name.includes('ขูดหินปูน') ||
+        name.includes('รักษาราก')
+      );
+    });
+    const hasPregnancyDx = allDxCodes.some((c) => c.startsWith('Z34') || c.startsWith('Z35') || c.startsWith('Z39'));
+
+    if (hasAncProc && (isMale || hasCurativeDentalProc || !hasPregnancyDx)) {
+      issues.push({
+        code: 'C-808-ANC-PROC-MIXED',
+        level: 'critical',
+        title: 'พบหัตถการส่งเสริมป้องกัน ANC ปะปนในบริการทันตกรรมปกติ',
+        detail: 'ตรวจพบหัตถการตรวจสุขภาพช่องปาก/ขัดฟันหญิงตั้งครรภ์ (ANC) ปะปนใน Visit การรักษาทันตกรรมปกติ หรือผู้ป่วยไม่ใช่กลุ่มเป้าหมาย ANC ทำให้เสี่ยงติด C Error หรือถูกปฏิเสธชดเชย',
+        recommendation: 'ลบหัตถการส่งเสริมป้องกัน ANC ออกจาก dtmain ให้เหลือเฉพาะหัตถการรักษาจริง',
+        category: 'dental',
+        autoFixable: true,
+        fixAction: 'REMOVE_ANC_PROC',
       });
     }
   }
@@ -514,6 +600,8 @@ export const evaluateWalkinVisitAudit = (visit: {
       detail: `พบรหัสโรครองซ้ำกับโรคหลัก (${pdx}) ระบบ e-Claim จะปฏิเสธการจ่ายด้วย C-803`,
       recommendation: 'ลบรหัสโรคที่ซ้ำกับโรคหลักออกจาก ovstdiag ใน HOSxP',
       category: 'clinical',
+      autoFixable: true,
+      fixAction: 'REMOVE_DUP_DX',
     });
   }
 
@@ -564,6 +652,8 @@ export const evaluateWalkinVisitAudit = (visit: {
       detail: 'วิสิตนี้เป็นสิทธิ UC นอก CUP แต่ยังไม่มีรหัสค่าบริการ WALKIN ทำให้ไม่สามารถส่งออกเป็นกองทุนผู้ป่วยนอกเหตุสมควร ทั่วประเทศ ได้',
       recommendation: 'กดปุ่มเพิ่ม WALKIN ในแท็บกระทบยอด หรือเพิ่มรายการในใบสั่งยา HOSxP',
       category: 'billing',
+      autoFixable: true,
+      fixAction: 'INSERT_WALKIN',
     });
   }
 
@@ -593,11 +683,17 @@ export const evaluateWalkinVisitAudit = (visit: {
   const hasWarning = uniqueIssues.some((i) => i.level === 'warning');
   const audit_status: 'critical' | 'warning' | 'valid' = hasCritical ? 'critical' : hasWarning ? 'warning' : 'valid';
 
+  const autoFixableIssues = uniqueIssues.filter((i) => i.autoFixable);
+  const can_auto_fix = autoFixableIssues.length > 0;
+  const auto_fix_actions = autoFixableIssues.map((i) => i.fixAction as string).filter(Boolean);
+
   return {
     is_dental,
     issues: uniqueIssues,
     audit_status,
     total_charge: totalCharge,
+    can_auto_fix,
+    auto_fix_actions,
   };
 };
 
@@ -649,6 +745,16 @@ export const getUcOutsideCupClinicalAudit = async (input: {
 
     const whereClause = whereConditions.join(' AND ');
 
+    const [countRows] = await connection.query(
+      `SELECT COUNT(*) AS total_count
+       FROM ovst o
+       LEFT JOIN patient p ON p.hn = o.hn
+       LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+       WHERE ${whereClause}`,
+      whereParams
+    );
+    const dbTotalVisits = Number((Array.isArray(countRows) ? countRows[0] : null) && ((countRows as Array<{ total_count?: unknown }>)[0]?.total_count || 0));
+
     const [allVisitRows] = await connection.query(
       `SELECT o.vn, o.hn, DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
               TIME_FORMAT(o.vsttime, '%H:%i:%s') AS service_time, o.pttype,
@@ -662,7 +768,7 @@ export const getUcOutsideCupClinicalAudit = async (input: {
        LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
        WHERE ${whereClause}
        ORDER BY o.vstdate DESC, o.vsttime DESC
-       LIMIT 1000`,
+       LIMIT 10000`,
       whereParams
     );
 
@@ -670,13 +776,14 @@ export const getUcOutsideCupClinicalAudit = async (input: {
     if (visits.length === 0) {
       return {
         summary: {
-          total_visits: 0,
+          total_visits: dbTotalVisits,
           valid_count: 0,
           critical_count: 0,
           warning_count: 0,
           dental_total: 0,
           dental_issue_count: 0,
           missing_walkin_count: 0,
+          auto_fixable_count: 0,
         },
         data: [],
         total: 0,
@@ -708,7 +815,9 @@ export const getUcOutsideCupClinicalAudit = async (input: {
       `SELECT dm.vn,
               COALESCE(NULLIF(dm.icd9, ''), NULLIF(tm.icd10tm_operation_code, ''), NULLIF(tm.icd9cm, ''), dm.tmcode, '') AS code,
               COALESCE(tm.name, 'หัตถการทันตกรรม') AS name,
-              'Dental' AS type
+              'Dental' AS type,
+              COALESCE(dm.tmcode, '') AS tmcode,
+              COALESCE(tm.icd10tm_operation_code, '') AS icd10tm
        FROM dtmain dm
        LEFT JOIN dttm tm ON tm.code = dm.tmcode
        WHERE dm.vn IN (${vns.map(() => '?').join(',')})`,
@@ -732,7 +841,7 @@ export const getUcOutsideCupClinicalAudit = async (input: {
       diagsByVn.set(vn, list);
     }
 
-    const procsByVn = new Map<string, Array<{ code: string; name?: string; type?: string }>>();
+    const procsByVn = new Map<string, Array<{ code: string; name?: string; type?: string; tmcode?: string; icd10tm?: string }>>();
     for (const raw of (Array.isArray(doctorOperRows) ? doctorOperRows : []) as Array<Record<string, unknown>>) {
       const vn = String(raw.vn || '');
       const list = procsByVn.get(vn) || [];
@@ -742,7 +851,13 @@ export const getUcOutsideCupClinicalAudit = async (input: {
     for (const raw of (Array.isArray(dentalOperRows) ? dentalOperRows : []) as Array<Record<string, unknown>>) {
       const vn = String(raw.vn || '');
       const list = procsByVn.get(vn) || [];
-      list.push({ code: String(raw.code || ''), name: String(raw.name || ''), type: 'Dental' });
+      list.push({
+        code: String(raw.code || ''),
+        name: String(raw.name || ''),
+        type: 'Dental',
+        tmcode: String(raw.tmcode || ''),
+        icd10tm: String(raw.icd10tm || ''),
+      });
       procsByVn.set(vn, list);
     }
 
@@ -773,6 +888,7 @@ export const getUcOutsideCupClinicalAudit = async (input: {
     let dentalTotal = 0;
     let dentalIssueCount = 0;
     let missingWalkinCount = 0;
+    let autoFixableCount = 0;
 
     for (const v of visits) {
       const vn = String(v.vn || '');
@@ -806,6 +922,7 @@ export const getUcOutsideCupClinicalAudit = async (input: {
       }
 
       if (walkinRows === 0) missingWalkinCount++;
+      if (evaluation.can_auto_fix) autoFixableCount++;
 
       if (input.auditStatus === 'CRITICAL' && evaluation.audit_status !== 'critical') continue;
       if (input.auditStatus === 'WARNING' && evaluation.audit_status !== 'warning') continue;
@@ -830,6 +947,8 @@ export const getUcOutsideCupClinicalAudit = async (input: {
         total_charge: evaluation.total_charge,
         issues: evaluation.issues,
         audit_status: evaluation.audit_status,
+        can_auto_fix: evaluation.can_auto_fix,
+        auto_fix_actions: evaluation.auto_fix_actions,
       });
     }
 
@@ -838,13 +957,14 @@ export const getUcOutsideCupClinicalAudit = async (input: {
 
     return {
       summary: {
-        total_visits: visits.length,
+        total_visits: dbTotalVisits || visits.length,
         valid_count: validCount,
         critical_count: criticalCount,
         warning_count: warningCount,
         dental_total: dentalTotal,
         dental_issue_count: dentalIssueCount,
         missing_walkin_count: missingWalkinCount,
+        auto_fixable_count: autoFixableCount,
       } satisfies UcWalkinClinicalAuditSummary,
       data: paginatedData,
       total,
@@ -855,4 +975,509 @@ export const getUcOutsideCupClinicalAudit = async (input: {
     connection.release();
   }
 };
+
+export const CLINICAL_FIX_LOG_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS uc_walkin_clinical_fix_log (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(25) NOT NULL,
+    hn VARCHAR(15) NOT NULL,
+    actor_user_id BIGINT NULL,
+    actor_name VARCHAR(160) NOT NULL,
+    actions_json LONGTEXT NOT NULL,
+    result_status VARCHAR(20) NOT NULL,
+    error_message TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_uc_walkin_fix_vn (vn),
+    INDEX idx_uc_walkin_fix_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const logWalkinClinicalFix = async (data: {
+  vn: string;
+  hn: string;
+  actorUserId: number | null;
+  actorName: string;
+  actions: string[];
+  resultStatus: 'SUCCESS' | 'FAILED';
+  errorMessage: string | null;
+}) => {
+  try {
+    const logConnection = await getRepstmConnection();
+    try {
+      await logConnection.query(CLINICAL_FIX_LOG_TABLE_SQL);
+      await logConnection.query(
+        `INSERT INTO uc_walkin_clinical_fix_log
+           (vn, hn, actor_user_id, actor_name, actions_json, result_status, error_message)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          data.vn,
+          data.hn,
+          data.actorUserId,
+          data.actorName.slice(0, 160),
+          JSON.stringify(data.actions),
+          data.resultStatus,
+          data.errorMessage,
+        ]
+      );
+    } finally {
+      logConnection.release();
+    }
+  } catch (error) {
+    console.error('Unable to write UC WALKIN clinical fix log:', error);
+  }
+};
+
+export const getNextOvstDiagId = async (connection: HospitalConnection): Promise<number | null> => {
+  try {
+    const [rows] = await connection.query('SELECT Get_SerialNumber(?) AS id', ['ovst_diag_id']);
+    const id = Number((rows as Array<{ id?: unknown }>)[0]?.id);
+    if (Number.isFinite(id) && id > 0) return id;
+  } catch {
+    // fallback to MAX + 1
+  }
+  try {
+    const [rows] = await connection.query('SELECT COALESCE(MAX(ovst_diag_id), 0) + 1 AS id FROM ovstdiag');
+    const id = Number((rows as Array<{ id?: unknown }>)[0]?.id);
+    if (Number.isFinite(id) && id > 0) return id;
+  } catch {
+    // fallback
+  }
+  return null;
+};
+
+export const fixWalkinClinicalVisit = async (
+  connection: HospitalConnection,
+  vn: string,
+  _actor?: { id?: number | string | null; name?: string }
+): Promise<{ success: boolean; vn: string; hn: string; actions: string[]; message: string }> => {
+  const [visitRows] = await connection.query(
+    `SELECT o.vn, o.hn, DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+            TIME_FORMAT(o.vsttime, '%H:%i:%s') AS service_time, o.pttype,
+            COALESCE(o.hospmain, '') AS hospmain,
+            COALESCE(CONCAT(p.pname, p.fname, ' ', p.lname), '') AS patient_name,
+            COALESCE(p.sex, '') AS sex,
+            COALESCE(TIMESTAMPDIFF(YEAR, p.birthday, o.vstdate), 0) AS age_y,
+            COALESCE(k.department, o.main_dep, '') AS department
+     FROM ovst o
+     LEFT JOIN patient p ON p.hn = o.hn
+     LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+     WHERE o.vn = ?
+     LIMIT 1`,
+    [vn]
+  );
+  const visits = (Array.isArray(visitRows) ? visitRows : []) as Array<Record<string, unknown>>;
+  if (!visits.length) {
+    return { success: false, vn, hn: '', actions: [], message: `ไม่พบข้อมูล Visit ${vn}` };
+  }
+  const visit = visits[0];
+  const hn = String(visit.hn || '');
+
+  const [diagRows] = await connection.query(
+    `SELECT d.vn, d.icd10, COALESCE(d.diagtype, '4') AS diagtype, COALESCE(i.name, '') AS name
+     FROM ovstdiag d
+     LEFT JOIN icd101 i ON i.code = d.icd10
+     WHERE d.vn = ?
+     ORDER BY d.diagtype`,
+    [vn]
+  );
+
+  const [doctorOperRows] = await connection.query(
+    `SELECT dop.vn, dop.icd9 AS code, COALESCE(i.name, '') AS name, 'Doctor' AS type
+     FROM doctor_operation dop
+     LEFT JOIN icd9cm1 i ON REPLACE(i.code, '.', '') = REPLACE(dop.icd9, '.', '')
+     WHERE dop.vn = ?`,
+    [vn]
+  );
+
+  const [dentalOperRows] = await connection.query(
+    `SELECT dm.vn,
+            COALESCE(NULLIF(dm.icd9, ''), NULLIF(tm.icd10tm_operation_code, ''), NULLIF(tm.icd9cm, ''), dm.tmcode, '') AS code,
+            COALESCE(tm.name, 'หัตถการทันตกรรม') AS name,
+            'Dental' AS type,
+            COALESCE(dm.tmcode, '') AS tmcode,
+            COALESCE(tm.icd10tm_operation_code, '') AS icd10tm
+     FROM dtmain dm
+     LEFT JOIN dttm tm ON tm.code = dm.tmcode
+     WHERE dm.vn = ?`,
+    [vn]
+  );
+
+  const { icode } = parseSiteWalkinSettings(await getAppSetting('site_settings'));
+
+  const [chargeRows] = await connection.query(
+    `SELECT opi.vn, opi.icode, opi.qty, opi.unitprice, opi.sum_price, opi.income,
+            COALESCE(sd.name, '') AS name
+     FROM opitemrece opi
+     LEFT JOIN s_drugitems sd ON sd.icode = opi.icode
+     WHERE opi.vn = ?`,
+    [vn]
+  );
+
+  const diags = ((Array.isArray(diagRows) ? diagRows : []) as Array<Record<string, unknown>>).map((d) => ({
+    code: String(d.icd10 || ''),
+    name: String(d.name || ''),
+    diagtype: String(d.diagtype || '4'),
+  }));
+
+  const procs = [
+    ...((Array.isArray(doctorOperRows) ? doctorOperRows : []) as Array<Record<string, unknown>>).map((p) => ({
+      code: String(p.code || ''),
+      name: String(p.name || ''),
+      type: 'Doctor',
+    })),
+    ...((Array.isArray(dentalOperRows) ? dentalOperRows : []) as Array<Record<string, unknown>>).map((p) => ({
+      code: String(p.code || ''),
+      name: String(p.name || ''),
+      type: 'Dental',
+      tmcode: String(p.tmcode || ''),
+      icd10tm: String(p.icd10tm || ''),
+    })),
+  ];
+
+  const charges = ((Array.isArray(chargeRows) ? chargeRows : []) as Array<Record<string, unknown>>).map((c) => ({
+    icode: String(c.icode || ''),
+    name: String(c.name || ''),
+    qty: Number(c.qty || 0),
+    unitprice: Number(c.unitprice || 0),
+    sum_price: Number(c.sum_price || 0),
+    income: String(c.income || ''),
+  }));
+
+  const walkinRows = charges.filter((c) => c.icode === icode).length;
+
+  const evaluation = evaluateWalkinVisitAudit({
+    vn,
+    hn,
+    patient_name: String(visit.patient_name || ''),
+    sex: String(visit.sex || ''),
+    age_y: Number(visit.age_y || 0),
+    service_date: String(visit.service_date || ''),
+    service_time: String(visit.service_time || ''),
+    pttype: String(visit.pttype || ''),
+    hospmain: String(visit.hospmain || ''),
+    department: String(visit.department || ''),
+    diagnoses: diags,
+    procedures: procs,
+    chargeItems: charges,
+    has_walkin: walkinRows > 0,
+    walkin_rows: walkinRows,
+  });
+
+  if (!evaluation.can_auto_fix || evaluation.auto_fix_actions.length === 0) {
+    return { success: false, vn, hn, actions: [], message: 'ไม่มีรายการที่สามารถแก้ไขอัตโนมัติได้สำหรับ Visit นี้' };
+  }
+
+  const executedActions: string[] = [];
+  const hospitalCode = (await readHospitalIdentity(connection)).hospital_code || '00000';
+
+  const getCanonicalIcd10 = async (targetCode: string): Promise<string> => {
+    try {
+      const cleanTarget = targetCode.replace(/[.\s-]/g, '').toUpperCase();
+      const [rows] = await connection.query('SELECT code FROM icd101 WHERE REPLACE(code, \'.\', \'\') = ? LIMIT 1', [cleanTarget]);
+      const matched = (rows as Array<{ code?: string }>)[0]?.code;
+      if (matched) return matched;
+    } catch {
+      // fallback
+    }
+    return targetCode;
+  };
+
+  const insertOvstDiag = async (targetCode: string, diagtype: '1' | '2'): Promise<boolean> => {
+    const canonical = await getCanonicalIcd10(targetCode);
+    const cleanTarget = canonical.replace(/[.\s-]/g, '').toUpperCase();
+    const nextId = await getNextOvstDiagId(connection);
+
+    if (nextId != null) {
+      const [insertRes] = await connection.query(
+        `INSERT IGNORE INTO ovstdiag
+           (ovst_diag_id, vn, icd10, hn, vstdate, vsttime, diagtype, icd103, hcode, doctor, hos_guid, dx_guid, update_datetime)
+         SELECT
+           ?, o.vn, ?, o.hn, o.vstdate, o.vsttime, ?, LEFT(?, 3),
+           COALESCE((SELECT NULLIF(hcode, '') FROM ovstdiag WHERE vn = o.vn LIMIT 1), ?),
+           COALESCE((SELECT NULLIF(doctor, '') FROM ovstdiag WHERE vn = o.vn LIMIT 1), NULLIF(o.doctor, '')),
+           UPPER(CONCAT('{', UUID(), '}')), UPPER(CONCAT('{', UUID(), '}')), NOW()
+         FROM ovst o
+         WHERE o.vn = ?
+           AND NOT EXISTS (SELECT 1 FROM ovstdiag d WHERE d.vn = o.vn AND REPLACE(UPPER(d.icd10), '.', '') = ?)`,
+        [nextId, canonical, diagtype, cleanTarget, hospitalCode, vn, cleanTarget]
+      );
+      return Number((insertRes as { affectedRows?: number }).affectedRows || 0) > 0;
+    } else {
+      const [insertRes] = await connection.query(
+        `INSERT IGNORE INTO ovstdiag
+           (ovst_diag_id, vn, icd10, hn, vstdate, vsttime, diagtype, icd103, hcode, doctor, hos_guid, dx_guid, update_datetime)
+         SELECT
+           Get_SerialNumber('ovst_diag_id'), o.vn, ?, o.hn, o.vstdate, o.vsttime, ?, LEFT(?, 3),
+           COALESCE((SELECT NULLIF(hcode, '') FROM ovstdiag WHERE vn = o.vn LIMIT 1), ?),
+           COALESCE((SELECT NULLIF(doctor, '') FROM ovstdiag WHERE vn = o.vn LIMIT 1), NULLIF(o.doctor, '')),
+           UPPER(CONCAT('{', UUID(), '}')), UPPER(CONCAT('{', UUID(), '}')), NOW()
+         FROM ovst o
+         WHERE o.vn = ?
+           AND NOT EXISTS (SELECT 1 FROM ovstdiag d WHERE d.vn = o.vn AND REPLACE(UPPER(d.icd10), '.', '') = ?)`,
+        [canonical, diagtype, cleanTarget, hospitalCode, vn, cleanTarget]
+      );
+      return Number((insertRes as { affectedRows?: number }).affectedRows || 0) > 0;
+    }
+  };
+
+  for (const action of evaluation.auto_fix_actions) {
+    if (action === 'ADD_K051') {
+      const ok = await insertOvstDiag('K05.1', '2');
+      if (ok) executedActions.push('เพิ่มรหัสโรค K05.1 (เหงือกอักเสบ)');
+    } else if (action === 'ADD_K021') {
+      const ok = await insertOvstDiag('K02.1', '2');
+      if (ok) executedActions.push('เพิ่มรหัสโรค K02.1 (ฟันผุลึกถึงเนื้อฟัน)');
+    } else if (action === 'ADD_K011') {
+      const ok = await insertOvstDiag('K01.1', '2');
+      if (ok) executedActions.push('เพิ่มรหัสโรค K01.1 (ฟันคุด)');
+    } else if (action === 'ADD_K083') {
+      const ok = await insertOvstDiag('K08.3', '2');
+      if (ok) executedActions.push('เพิ่มรหัสโรค K08.3 (รากฟันตกค้าง)');
+    } else if (action === 'SWAP_Z012') {
+      await connection.query(
+        `UPDATE ovstdiag
+         SET diagtype = '2', update_datetime = NOW()
+         WHERE vn = ? AND REPLACE(UPPER(icd10), '.', '') = 'Z012' AND diagtype = '1'`,
+        [vn]
+      );
+
+      const [existingDentalDx] = await connection.query(
+        `SELECT icd10 FROM ovstdiag
+         WHERE vn = ? AND (icd10 LIKE 'K0%' OR icd10 LIKE 'K1%') AND diagtype <> '1'
+         ORDER BY (icd10 LIKE 'K05%') DESC, (icd10 LIKE 'K02%') DESC
+         LIMIT 1`,
+        [vn]
+      );
+
+      const targetDentalDxRow = (Array.isArray(existingDentalDx) ? existingDentalDx[0] : null) as { icd10?: string } | null;
+      let promotedCode = '';
+
+      if (targetDentalDxRow?.icd10) {
+        promotedCode = String(targetDentalDxRow.icd10);
+        await connection.query(
+          `UPDATE ovstdiag
+           SET diagtype = '1', update_datetime = NOW()
+           WHERE vn = ? AND icd10 = ?
+           LIMIT 1`,
+          [vn, promotedCode]
+        );
+      } else {
+        const cleanProcs = procs.map((p) => p.code.replace(/[.\s-]/g, '').toUpperCase());
+        if (cleanProcs.some((c) => c.startsWith('232') || c.startsWith('234'))) {
+          promotedCode = await getCanonicalIcd10('K02.1');
+        } else {
+          promotedCode = await getCanonicalIcd10('K05.1');
+        }
+        await insertOvstDiag(promotedCode, '1');
+      }
+
+      await connection.query('UPDATE vn_stat SET pdx = ? WHERE vn = ?', [promotedCode, vn]).catch(() => {});
+      executedActions.push(`สลับ Z01.2 เป็นโรครอง และเปลี่ยนโรคหลักเป็น ${promotedCode}`);
+    } else if (action === 'REMOVE_DUP_DX') {
+      const pdxList = diags.filter((d) => String(d.diagtype).trim() === '1');
+      const pdxClean = pdxList[0]?.code ? pdxList[0].code.replace(/[.\s-]/g, '').toUpperCase() : '';
+      if (pdxClean) {
+        const [delRes] = await connection.query(
+          `DELETE FROM ovstdiag
+           WHERE vn = ? AND diagtype <> '1' AND REPLACE(UPPER(icd10), '.', '') = ?`,
+          [vn, pdxClean]
+        );
+        const delCount = Number((delRes as { affectedRows?: number }).affectedRows || 0);
+        if (delCount > 0) executedActions.push(`ลบรหัสโรครองซ้ำกับโรคหลัก (${pdxList[0].code}) จำนวน ${delCount} แถว`);
+      }
+    } else if (action === 'INSERT_WALKIN') {
+      const [insertRes] = await connection.query(
+        `INSERT INTO opitemrece (
+           hos_guid, vn, hn, an, icode, qty, drugusage, idr, iperday, iperdose, unitprice,
+           vstdate, vsttime, doctor, rxdate, rxtime, sp_use, hcode, print, dep_code,
+           finance_number, discount, use_right, node_id, order_no, sub_type, pttype, income,
+           item_type, staff, paidst, item_no, last_modified, sum_price, cost,
+           stock_department_id, command_doctor, opi_doctor_finance_type_id
+         )
+         SELECT UPPER(CONCAT('{', UUID(), '}')), o.vn, o.hn, NULL, ?, 1, '', 'N/A', 0, 0, 0,
+                o.vstdate, o.vsttime, COALESCE(NULLIF(base.doctor, ''), o.doctor, ''),
+                o.vstdate, o.vsttime, '', ?, 'N',
+                COALESCE(NULLIF(base.dep_code, ''), NULLIF(o.main_dep, ''), '000'),
+                base.finance_number, 0, base.use_right, '', NULL, '3', o.pttype, '00',
+                '', COALESCE(NULLIF(base.staff, ''), o.staff, ''), COALESCE(NULLIF(base.paidst, ''), '02'),
+                COALESCE((SELECT MAX(COALESCE(i.item_no, 0)) + 1 FROM opitemrece i WHERE i.vn = o.vn), 1),
+                NOW(), 0, 0, NULL, NULL, NULL
+         FROM ovst o
+         LEFT JOIN opitemrece base ON base.hos_guid = (SELECT MIN(b.hos_guid) FROM opitemrece b WHERE b.vn = o.vn)
+         WHERE o.vn = ?
+           AND NOT EXISTS (SELECT 1 FROM opitemrece existing WHERE existing.vn = o.vn AND existing.icode = ?)`,
+        [icode, hospitalCode, vn, icode]
+      );
+      const inserted = Number((insertRes as { affectedRows?: number }).affectedRows || 0);
+      if (inserted > 0) executedActions.push(`เพิ่มรายการค่าบริการ WALKIN (${icode}) ราคา 0 บาท`);
+    } else if (action === 'REMOVE_ANC_PROC') {
+      const [ancRows] = await connection.query(
+        `SELECT dm.tmcode, COALESCE(tm.name, '') AS name
+         FROM dtmain dm
+         LEFT JOIN dttm tm ON tm.code = dm.tmcode
+         WHERE dm.vn = ?
+           AND (
+             COALESCE(tm.icd10tm_operation_code, '') IN ('2330011', '2330010', '2387010', '2277310', '2287310')
+             OR dm.tmcode IN ('2330011', '2330010', '2387010', '2277310', '2287310')
+             OR COALESCE(dm.icd9, '') IN ('2330011', '2330010', '2387010', '2277310', '2287310')
+             OR COALESCE(tm.name, '') LIKE '%หญิงมีครรภ์%'
+             OR COALESCE(tm.name, '') LIKE '%หญิงตั้งครรภ์%'
+             OR COALESCE(tm.name, '') LIKE '%ANC%'
+           )`,
+        [vn]
+      );
+      const rows = (Array.isArray(ancRows) ? ancRows : []) as Array<Record<string, unknown>>;
+      const names = rows.map((r) => String(r.name || r.tmcode || '')).filter(Boolean);
+
+      const [delDmRes] = await connection.query(
+        `DELETE dm FROM dtmain dm
+         LEFT JOIN dttm tm ON tm.code = dm.tmcode
+         WHERE dm.vn = ?
+           AND (
+             COALESCE(tm.icd10tm_operation_code, '') IN ('2330011', '2330010', '2387010', '2277310', '2287310')
+             OR dm.tmcode IN ('2330011', '2330010', '2387010', '2277310', '2287310')
+             OR COALESCE(dm.icd9, '') IN ('2330011', '2330010', '2387010', '2277310', '2287310')
+             OR COALESCE(tm.name, '') LIKE '%หญิงมีครรภ์%'
+             OR COALESCE(tm.name, '') LIKE '%หญิงตั้งครรภ์%'
+             OR COALESCE(tm.name, '') LIKE '%ANC%'
+           )`,
+        [vn]
+      );
+      const deletedDm = Number((delDmRes as { affectedRows?: number }).affectedRows || 0);
+
+      const [delDopRes] = await connection.query(
+        `DELETE FROM doctor_operation
+         WHERE vn = ?
+           AND icd9 IN ('2330011', '2330010', '2387010', '2277310', '2287310')`,
+        [vn]
+      );
+      const deletedDop = Number((delDopRes as { affectedRows?: number }).affectedRows || 0);
+
+      await connection.query(
+        `DELETE opi FROM opitemrece opi
+         JOIN s_drugitems sd ON sd.icode = opi.icode
+         WHERE opi.vn = ?
+           AND (
+             sd.nhso_adp_code IN ('30008', '30009')
+             OR sd.name LIKE '%หญิงมีครรภ์%'
+             OR sd.name LIKE '%หญิงตั้งครรภ์%'
+           )`,
+        [vn]
+      ).catch(() => {});
+
+      const totalDeleted = deletedDm + deletedDop;
+      if (totalDeleted > 0) {
+        executedActions.push(`ลบหัตถการส่งเสริมป้องกัน ANC (${names.length ? names.join(', ') : 'ตรวจฟัน/ขัดฟัน ANC'}) จำนวน ${totalDeleted} รายการ ออกจาก dtmain`);
+      }
+    }
+  }
+
+  const success = executedActions.length > 0;
+  return {
+    success,
+    vn,
+    hn,
+    actions: executedActions,
+    message: success ? `แก้ไขข้อมูลสำเร็จ: ${executedActions.join(', ')}` : 'ไม่มีการเปลี่ยนแปลงข้อมูล',
+  };
+};
+
+export const fixWalkinClinicalIssueSingle = async (input: {
+  vn: string;
+  actorUserId?: number | null;
+  actorName: string;
+}): Promise<{ success: boolean; vn: string; hn: string; actions: string[]; message: string }> => {
+  const connection = await getUTFConnection();
+  try {
+    await connection.beginTransaction();
+    const result = await fixWalkinClinicalVisit(connection, input.vn, {
+      id: input.actorUserId,
+      name: input.actorName,
+    });
+
+    if (result.success) {
+      await connection.commit();
+    } else {
+      await connection.rollback();
+    }
+
+    await logWalkinClinicalFix({
+      vn: input.vn,
+      hn: result.hn || '',
+      actorUserId: input.actorUserId || null,
+      actorName: input.actorName,
+      actions: result.actions,
+      resultStatus: result.success ? 'SUCCESS' : 'FAILED',
+      errorMessage: result.success ? null : result.message,
+    });
+
+    return result;
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    await logWalkinClinicalFix({
+      vn: input.vn,
+      hn: '',
+      actorUserId: input.actorUserId || null,
+      actorName: input.actorName,
+      actions: [],
+      resultStatus: 'FAILED',
+      errorMessage: errorMsg,
+    }).catch(() => {});
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const batchFixWalkinClinicalIssues = async (input: {
+  vns: string[];
+  actorUserId?: number | null;
+  actorName: string;
+}): Promise<{
+  total: number;
+  success_count: number;
+  failed_count: number;
+  details: Array<{ vn: string; success: boolean; actions: string[]; message: string }>;
+}> => {
+  const vns = [...new Set((input.vns || []).map((v) => String(v).trim()).filter(Boolean))];
+  if (vns.length === 0) throw new Error('ไม่พบรายการ VN ที่ต้องการแก้ไข');
+  if (vns.length > 500) throw new Error('สามารถแก้ไขได้สูงสุดครั้งละ 500 รายการ');
+
+  const details: Array<{ vn: string; success: boolean; actions: string[]; message: string }> = [];
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const vn of vns) {
+    try {
+      const res = await fixWalkinClinicalIssueSingle({
+        vn,
+        actorUserId: input.actorUserId,
+        actorName: input.actorName,
+      });
+      if (res.success) {
+        successCount++;
+      } else {
+        failedCount++;
+      }
+      details.push(res);
+    } catch (err) {
+      failedCount++;
+      details.push({
+        vn,
+        success: false,
+        actions: [],
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return {
+    total: vns.length,
+    success_count: successCount,
+    failed_count: failedCount,
+    details,
+  };
+};
+
 

@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  batchFixUcOutsideCupClinicalIssues,
   fetchDiagsAndProceduresData,
   fetchUcOutsideCupClinicalAudit,
   fetchUcOutsideCupDashboard,
   fetchUcOutsideCupWalkinAudit,
   fetchVisitChargeItems,
+  fixUcOutsideCupClinicalIssueSingle,
   insertUcOutsideCupWalkin,
   type ReconciliationRow,
   type UcOutsideCupGroup,
   type UcOutsideCupResponse,
   type UcOutsideCupWalkinAudit,
   type UcWalkinClinicalAuditResponse,
+  type UcWalkinClinicalAuditRow,
   type VisitClinicalData,
 } from '../services/hosxpService';
 import type { PrescriptionItem } from '../mockData';
@@ -65,6 +68,11 @@ export const UcOutsideCupPage = () => {
   const [auditPage, setAuditPage] = useState(1);
   const [auditResult, setAuditResult] = useState<UcWalkinClinicalAuditResponse | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [fixingVn, setFixingVn] = useState<string | null>(null);
+  const [batchFixing, setBatchFixing] = useState(false);
+  const [singleFixConfirmRow, setSingleFixConfirmRow] = useState<UcWalkinClinicalAuditRow | null>(null);
+  const [showBatchFixConfirm, setShowBatchFixConfirm] = useState(false);
+  const [clinicalFixMessage, setClinicalFixMessage] = useState('');
 
   const load = useCallback(async (nextPage = 1) => {
     setLoading(true);
@@ -158,6 +166,45 @@ export const UcOutsideCupPage = () => {
     }
   };
 
+  const handleSingleFix = async (row: UcWalkinClinicalAuditRow) => {
+    setFixingVn(row.vn);
+    setClinicalFixMessage('');
+    setError('');
+    try {
+      const res = await fixUcOutsideCupClinicalIssueSingle(row.vn);
+      setClinicalFixMessage(`✅ ${row.vn} (HN ${row.hn}): ${res.message}`);
+      setSingleFixConfirmRow(null);
+      await loadClinicalAudit(auditPage);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'แก้ไขข้อมูลทางคลินิกไม่สำเร็จ');
+    } finally {
+      setFixingVn(null);
+    }
+  };
+
+  const handleBatchFix = async () => {
+    const fixableRows = (auditResult?.data || []).filter((r) => r.can_auto_fix);
+    if (fixableRows.length === 0) return;
+    setBatchFixing(true);
+    setClinicalFixMessage('');
+    setError('');
+    try {
+      const vns = fixableRows.map((r) => r.vn);
+      const res = await batchFixUcOutsideCupClinicalIssues(vns);
+      setClinicalFixMessage(
+        `⚡ แก้ไขข้อมูลอัตโนมัติสำเร็จ ${res.success_count.toLocaleString('th-TH')} จาก ${res.total.toLocaleString('th-TH')} รายการ ${
+          res.failed_count > 0 ? `(ไม่สำเร็จ ${res.failed_count} รายการ)` : ''
+        }`
+      );
+      setShowBatchFixConfirm(false);
+      await loadClinicalAudit(auditPage);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'แก้ไขข้อมูลแบบกลุ่มไม่สำเร็จ');
+    } finally {
+      setBatchFixing(false);
+    }
+  };
+
   const selectFiscalYear = (year: number) => {
     setFiscalYear(year);
     setDates(fiscalDates(year));
@@ -234,6 +281,30 @@ export const UcOutsideCupPage = () => {
 
       {error && <div className="alert alert-danger">{error}</div>}
       {walkinMessage && <div className="alert alert-success">{walkinMessage}</div>}
+      {clinicalFixMessage && (
+        <div
+          className="alert alert-success"
+          style={{
+            background: '#dcfce7',
+            color: '#166534',
+            border: '1px solid #86efac',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>{clinicalFixMessage}</span>
+          <button
+            type="button"
+            style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '16px', color: '#166534' }}
+            onClick={() => setClinicalFixMessage('')}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* TAB 1: CLINICAL & DENTAL AUDIT */}
       {activeTab === 'audit' && (
@@ -290,6 +361,54 @@ export const UcOutsideCupPage = () => {
               <small>ผ่านเกณฑ์เบื้องต้น</small>
             </article>
           </section>
+
+          {(auditResult?.summary.auto_fixable_count || 0) > 0 && (
+            <section
+              className="card"
+              style={{
+                background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+                border: '1px solid #f59e0b',
+                borderRadius: '14px',
+                padding: '16px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '16px',
+              }}
+            >
+              <div>
+                <strong style={{ color: '#b45309', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  ⚡ ตรวจพบรายการที่สามารถแก้ไขให้อัตโนมัติได้ {(auditResult?.summary.auto_fixable_count || 0).toLocaleString('th-TH')} รายการ
+                </strong>
+                <p style={{ margin: '6px 0 0', color: '#78350f', fontSize: '13px', lineHeight: 1.5 }}>
+                  ระบบสามารถจับคู่รหัสโรคทันตกรรมให้ตรงกับหัตถการ (ขูดหินปูน K05.1 / อุดฟัน K02.1 / ผ่าฟันคุด K01.1 / ถอนรากฟัน K08.3),
+                  สลับ Z01.2 เป็นโรครอง, ลบโรครองที่ซ้ำ และเพิ่ม icode ค่าบริการ WALKIN ให้อัตโนมัติ
+                </p>
+              </div>
+              <button
+                className="btn btn-warning"
+                type="button"
+                style={{
+                  background: '#d97706',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '10px 22px',
+                  borderRadius: '10px',
+                  fontWeight: 700,
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                  boxShadow: '0 4px 12px rgba(217, 119, 6, 0.25)',
+                }}
+                disabled={batchFixing}
+                onClick={() => setShowBatchFixConfirm(true)}
+              >
+                {batchFixing
+                  ? 'กำลังดำเนินการแก้ไข…'
+                  : `⚡ แก้ไขอัตโนมัติทุกเคสในหน้านี้ (${(auditResult?.data || []).filter((r) => r.can_auto_fix).length} เคส)`}
+              </button>
+            </section>
+          )}
 
           <section className="uc-cup-filters card">
             <label>
@@ -351,7 +470,7 @@ export const UcOutsideCupPage = () => {
                     <th style={{ width: '100px' }}>ค่าบริการ</th>
                     <th style={{ width: '240px' }}>ผลการตรวจ / เสี่ยงติด C</th>
                     <th>คำแนะนำการแก้ไขใน HOSxP</th>
-                    <th style={{ width: '90px' }}>ตรวจ Visit</th>
+                    <th style={{ width: '130px' }}>จัดการ / ตรวจ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -485,9 +604,37 @@ export const UcOutsideCupPage = () => {
                           )}
                         </td>
                         <td>
+                          {row.can_auto_fix && (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              style={{
+                                background: '#f59e0b',
+                                color: '#fff',
+                                border: 'none',
+                                marginBottom: '6px',
+                                width: '100%',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                padding: '5px 6px',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '4px',
+                              }}
+                              disabled={fixingVn === row.vn}
+                              onClick={() => setSingleFixConfirmRow(row)}
+                              title="แก้ไขรหัสโรค/บริการให้อัตโนมัติ"
+                            >
+                              {fixingVn === row.vn ? 'กำลังแก้…' : '⚡ แก้ไขอัตโนมัติ'}
+                            </button>
+                          )}
                           <button
                             className="btn btn-sm"
                             type="button"
+                            style={{ width: '100%' }}
                             onClick={() => void openPrescription({ vn: row.vn, hn: row.hn, pttype: row.pttype, hospmain: row.hospmain, service_date: row.service_date, claimable_amount: row.total_charge } as any)}
                           >
                             ตรวจ Visit
@@ -814,6 +961,202 @@ export const UcOutsideCupPage = () => {
               </section>
             </div>
           )}
+        </Modal>
+      )}
+
+      {singleFixConfirmRow && (
+        <Modal title="ยืนยันการแก้ไขข้อมูลเวชระเบียนอัตโนมัติ" onClose={() => setSingleFixConfirmRow(null)}>
+          <div style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                <div><strong>VN:</strong> <span style={{ fontFamily: 'monospace' }}>{singleFixConfirmRow.vn}</span></div>
+                <div><strong>HN:</strong> <span style={{ fontFamily: 'monospace' }}>{singleFixConfirmRow.hn}</span></div>
+                <div><strong>ผู้ป่วย:</strong> {singleFixConfirmRow.patient_name || '-'}</div>
+              </div>
+              <div style={{ marginTop: '6px', color: '#64748b', fontSize: '13px' }}>
+                วันที่รับบริการ: {singleFixConfirmRow.service_date} {singleFixConfirmRow.service_time} &nbsp;|&nbsp;
+                สิทธิ: {singleFixConfirmRow.pttype} &nbsp;|&nbsp;
+                รพ.หลัก: {singleFixConfirmRow.hospmain || '-'} &nbsp;|&nbsp;
+                แผนก: {singleFixConfirmRow.department || '-'}
+              </div>
+            </div>
+
+            <div>
+              <h4 style={{ margin: '0 0 10px', color: '#0f172a', fontSize: '15px' }}>
+                รายการที่ระบบจะแก้ไขและปรับปรุงให้อัตโนมัติ:
+              </h4>
+              <ul style={{ margin: 0, paddingLeft: '22px', display: 'grid', gap: '8px', fontSize: '13px', color: '#1e293b' }}>
+                {(singleFixConfirmRow.auto_fix_actions || []).map((action, idx) => (
+                  <li key={idx} style={{ lineHeight: 1.4 }}>
+                    {action === 'ADD_K051' && (
+                      <span>
+                        <strong style={{ color: '#0284c7' }}>เพิ่มรหัสโรค K05.1 (Chronic gingivitis)</strong> เป็นโรครอง (diagtype=2) เพื่อให้สัมพันธ์กับหัตถการขูดหินปูน
+                      </span>
+                    )}
+                    {action === 'ADD_K021' && (
+                      <span>
+                        <strong style={{ color: '#0284c7' }}>เพิ่มรหัสโรค K02.1 (Caries of dentine)</strong> เป็นโรครอง (diagtype=2) เพื่อให้สัมพันธ์กับหัตถการอุดฟัน
+                      </span>
+                    )}
+                    {action === 'ADD_K011' && (
+                      <span>
+                        <strong style={{ color: '#0284c7' }}>เพิ่มรหัสโรค K01.1 (Impacted teeth)</strong> เป็นโรครอง (diagtype=2) เพื่อให้สัมพันธ์กับหัตถการผ่าฟันคุด
+                      </span>
+                    )}
+                    {action === 'ADD_K083' && (
+                      <span>
+                        <strong style={{ color: '#0284c7' }}>เพิ่มรหัสโรค K08.3 (Retained dental root)</strong> เป็นโรครอง (diagtype=2) เพื่อให้สัมพันธ์กับหัตถการถอนรากฟัน
+                      </span>
+                    )}
+                    {action === 'SWAP_Z012' && (
+                      <span>
+                        <strong style={{ color: '#d97706' }}>สลับรหัสตรวจฟัน Z01.2</strong> จากโรคหลัก (PDX) เป็นโรครอง (diagtype=2) และกำหนดรหัสการรักษาเป็นโรคหลัก (PDX)
+                      </span>
+                    )}
+                    {action === 'REMOVE_DUP_DX' && (
+                      <span>
+                        <strong style={{ color: '#dc2626' }}>ลบรหัสโรครองที่ซ้ำกับโรคหลัก</strong> ออกจาก ovstdiag เพื่อป้องกันการถูกปฏิเสธ C-803
+                      </span>
+                    )}
+                    {action === 'INSERT_WALKIN' && (
+                      <span>
+                        <strong style={{ color: '#16a34a' }}>เพิ่มรายการค่าบริการ WALKIN</strong> (icode สิทธิผู้ป่วยนอกเหตุสมควร) ราคา 0 บาท ลงในใบสั่งยา (opitemrece)
+                      </span>
+                    )}
+                    {action === 'REMOVE_ANC_PROC' && (
+                      <span>
+                        <strong style={{ color: '#dc2626' }}>ลบหัตถการส่งเสริมป้องกัน ANC</strong> (เช่น ตรวจฟัน/ขัดฟันหญิงตั้งครรภ์) ออกจากระบบทันตกรรม (dtmain) เพื่อไม่ให้ปะปนกับการรักษาปกติ
+                      </span>
+                    )}
+                    {!['ADD_K051', 'ADD_K021', 'ADD_K011', 'ADD_K083', 'SWAP_Z012', 'REMOVE_DUP_DX', 'INSERT_WALKIN', 'REMOVE_ANC_PROC'].includes(action) && (
+                      <strong>{action}</strong>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div
+              style={{
+                background: '#fffbeb',
+                border: '1px solid #fcd34d',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                fontSize: '12px',
+                color: '#92400e',
+              }}
+            >
+              ⚠️ การแก้ไขนี้จะดำเนินการผ่าน Database Transaction และบันทึกประวัติการแก้ไขลงระบบเพื่อความโปร่งใสและตรวจสอบย้อนหลังได้
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                disabled={fixingVn === singleFixConfirmRow.vn}
+                onClick={() => setSingleFixConfirmRow(null)}
+              >
+                ยกเลิก
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                style={{ background: '#d97706', borderColor: '#d97706', fontWeight: 600 }}
+                disabled={fixingVn === singleFixConfirmRow.vn}
+                onClick={() => void handleSingleFix(singleFixConfirmRow)}
+              >
+                {fixingVn === singleFixConfirmRow.vn ? 'กำลังบันทึกการแก้ไข…' : '⚡ ยืนยันแก้ไขข้อมูล Visit นี้'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showBatchFixConfirm && (
+        <Modal title="ยืนยันการแก้ไขข้อมูลเวชระเบียนอัตโนมัติแบบกลุ่ม" onClose={() => setShowBatchFixConfirm(false)}>
+          <div style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ background: '#eff6ff', padding: '14px 18px', borderRadius: '10px', border: '1px solid #bfdbfe' }}>
+              <div style={{ fontSize: '16px', fontWeight: 'bold', color: '#1e40af' }}>
+                รายการที่สามารถแก้ไขได้ในหน้านี้: {(auditResult?.data || []).filter((r) => r.can_auto_fix).length.toLocaleString('th-TH')} รายการ
+              </div>
+              <p style={{ margin: '6px 0 0', color: '#3b82f6', fontSize: '13px' }}>
+                จากรายการที่มีปัญหาทั้งหมด {(auditResult?.summary.auto_fixable_count || 0).toLocaleString('th-TH')} รายการในช่วงวันที่ที่เลือก
+              </p>
+            </div>
+
+            <div>
+              <h4 style={{ margin: '0 0 10px', color: '#0f172a', fontSize: '15px' }}>
+                กฎความปลอดภัยทางคลินิกที่ระบบจะดำเนินการ:
+              </h4>
+              <div style={{ display: 'grid', gap: '8px', fontSize: '13px', color: '#334155' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🦷</span>
+                  <span><strong>ขูดหินปูน (96.54)</strong>: เพิ่มรหัสโรค K05.1 (Chronic gingivitis) เพื่อป้องกัน C-804 / C-800</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🦷</span>
+                  <span><strong>อุดฟัน (23.2/23.4)</strong>: เพิ่มรหัสโรค K02.1 (Caries of dentine) เพื่อป้องกัน C-804</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🦷</span>
+                  <span><strong>ผ่าฟันคุด (23.19)</strong>: เพิ่มรหัสโรค K01.1 (Impacted teeth) เพื่อป้องกัน C-804</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🦷</span>
+                  <span><strong>ถอนรากฟัน (23.11)</strong>: เพิ่มรหัสโรค K08.3 (Retained dental root) เพื่อป้องกัน C-804</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🔄</span>
+                  <span><strong>สลับรหัส Z01.2</strong>: หากเป็นโรคหลักแต่มีการรักษาทางทันตกรรม จะสลับเป็นโรครองและตั้งรหัสรักษาเป็นโรคหลัก</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🧹</span>
+                  <span><strong>ลบรหัสซ้ำ (C-803)</strong>: ลบรหัสโรครองที่ระบุซ้ำกับโรคหลัก</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🏷️</span>
+                  <span><strong>เพิ่ม WALKIN</strong>: เพิ่ม icode ค่าบริการ WALKIN ราคา 0 บาท ในใบสั่งยา</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🗑️</span>
+                  <span><strong>ลบหัตถการ ANC ปะปน</strong>: ลบหัตถการตรวจสุขภาพช่องปาก/ขัดฟันหญิงตั้งครรภ์ที่ลงปะปนในบริการรักษาทันตกรรมปกติ</span>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: '#fffbeb',
+                border: '1px solid #fcd34d',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                fontSize: '12px',
+                color: '#92400e',
+              }}
+            >
+              ⚠️ ระบบจะประมวลผลทีละ Visit โดยใช้ Transaction และบันทึกประวัติการแก้ไขลงตาราง Audit Log
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                disabled={batchFixing}
+                onClick={() => setShowBatchFixConfirm(false)}
+              >
+                ยกเลิก
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                style={{ background: '#d97706', borderColor: '#d97706', fontWeight: 600 }}
+                disabled={batchFixing}
+                onClick={() => void handleBatchFix()}
+              >
+                {batchFixing ? 'กำลังดำเนินการแก้ไขแบบกลุ่ม…' : '⚡ ยืนยันแก้ไขทุกเคสในหน้านี้'}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

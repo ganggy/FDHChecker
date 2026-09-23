@@ -50,6 +50,9 @@ export type SystemUpdateInfo = {
   checkedAt: string;
   checkError?: string;
   job: SystemUpdateJob | null;
+  directSupported?: boolean;
+  canResetLock?: boolean;
+  isWindows?: boolean;
 };
 
 const commandTimeoutMs = 60_000;
@@ -86,6 +89,16 @@ const run = (command: string, args: string[], timeout = commandTimeoutMs) => new
 });
 
 const runGit = (args: string[], timeout?: number) => run('git', args, timeout);
+
+const runNpm = (args: string[], timeout = 300_000) => {
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  return run(npmCmd, args, timeout);
+};
+
+const runPm2 = (args: string[], timeout = 30_000) => {
+  const pm2Cmd = process.platform === 'win32' ? 'pm2.cmd' : 'pm2';
+  return run(pm2Cmd, args, timeout);
+};
 
 const readVersionNote = async (commit: string): Promise<SystemVersionNote> => {
   const output = await runGit(['show', '-s', '--format=%H%n%h%n%aI%n%an%n%s%n%b', commit]);
@@ -150,7 +163,7 @@ const runnerIsAlive = async (name: string): Promise<boolean | null> => {
   if (cached && Date.now() - cached.checkedAt < 15_000) return cached.alive;
   let alive: boolean | null = null;
   try {
-    const list = parsePm2ProcessList(await run('pm2', ['jlist', '--silent'], 5_000));
+    const list = parsePm2ProcessList(await runPm2(['jlist', '--silent'], 5_000));
     if (Array.isArray(list)) alive = list.some((entry) => entry.name === name
       && Boolean(entry.pid) && entry.pm2_env?.status === 'online');
   } catch { /* Keep the active job locked when PM2 cannot be queried. */ }
@@ -161,12 +174,12 @@ const runnerIsAlive = async (name: string): Promise<boolean | null> => {
 
 export const cleanupStoppedRunners = async (): Promise<void> => {
   try {
-    const list = parsePm2ProcessList(await run('pm2', ['jlist', '--silent'], 5_000));
+    const list = parsePm2ProcessList(await runPm2(['jlist', '--silent'], 5_000));
     if (!Array.isArray(list)) return;
     const stopped = list.filter((entry) => entry.name?.startsWith('fdh-update-') && entry.pm2_env?.status !== 'online');
     for (const entry of stopped) {
       if (entry.name) {
-        await run('pm2', ['delete', entry.name], 5_000).catch(() => undefined);
+        await runPm2(['delete', entry.name], 5_000).catch(() => undefined);
       }
     }
   } catch {
@@ -210,8 +223,8 @@ const readHistory = async (): Promise<SystemUpdateJob[]> => {
   }
 };
 
-const isSupported = () => process.platform !== 'win32';
-const isEnabled = () => isSupported() && String(process.env.FDH_SELF_UPDATE_ENABLED || '1') !== '0';
+const isSupported = () => true;
+const isEnabled = () => String(process.env.FDH_SELF_UPDATE_ENABLED || '1') !== '0';
 
 export const getSystemUpdateInfo = async (refreshRemote = false): Promise<SystemUpdateInfo> => {
   const branch = configuredBranch();
@@ -233,6 +246,9 @@ export const getSystemUpdateInfo = async (refreshRemote = false): Promise<System
     history,
     checkedAt,
     job,
+    directSupported: true,
+    canResetLock: Boolean(job && ['queued', 'running', 'failed'].includes(job.status)),
+    isWindows: process.platform === 'win32',
   };
 
   try {
@@ -311,7 +327,7 @@ const launchUpdateRunner = async (job: SystemUpdateJob) => {
     // PM2's daemon owns the worker; restarting the backend must not kill its child tree.
     // Do not save the global process list: it includes unrelated apps and this one-shot job.
     launchRequested = true;
-    await run('pm2', ['start', configPath], 60_000);
+    await runPm2(['start', configPath], 60_000);
   } catch (error) {
     await fs.appendFile(path.join(stateDirectory(), `launcher-${job.id}.log`),
       `${new Date().toISOString()} launch failed: ${error instanceof Error ? error.message : 'unknown error'}\n`,
@@ -333,6 +349,10 @@ const launchUpdateRunner = async (job: SystemUpdateJob) => {
 export const startSystemUpdate = async (expectedRemoteCommit: string, actor: string) => {
   if (!isEnabled()) throw new Error('ระบบอัปเดตอัตโนมัติถูกปิดหรือไม่รองรับบนเครื่องนี้');
   if (!/^[a-f0-9]{40}$/i.test(expectedRemoteCommit)) throw new Error('รหัสรุ่นที่ยืนยันไม่ถูกต้อง');
+
+  if (process.platform === 'win32') {
+    return startDirectSystemUpdate({ expectedRemoteCommit, actor, force: false });
+  }
 
   const existingJob = await readCurrentJob();
   if (existingJob?.status === 'queued' || existingJob?.status === 'running') {
@@ -409,6 +429,132 @@ export const startSystemRollback = async (targetCommit: string, actor: string) =
   };
   await launchUpdateRunner(job);
   return job;
+};
+
+export const startDirectSystemUpdate = async (options: {
+  force?: boolean;
+  actor?: string;
+  expectedRemoteCommit?: string;
+} = {}): Promise<SystemUpdateJob> => {
+  const branch = configuredBranch();
+  const actor = options.actor || 'admin';
+  const force = Boolean(options.force);
+
+  await fs.access(path.join(appDirectory(), '.git')).catch(() => {
+    throw new Error('ไม่พบโฟลเดอร์ Git repository บนเซิร์ฟเวอร์');
+  });
+
+  const fromCommit = await runGit(['rev-parse', 'HEAD']);
+
+  // Fetch remote branch
+  await runGit(['fetch', '--prune', 'origin', branch], 120_000);
+  const toCommit = await runGit(['rev-parse', `origin/${branch}`]);
+
+  if (options.expectedRemoteCommit && options.expectedRemoteCommit.toLowerCase() !== toCommit.toLowerCase() && !force) {
+    throw new Error('GitHub มีรุ่นใหม่กว่าใบยืนยัน กรุณาตรวจสอบรายการเปลี่ยนแปลงอีกครั้ง');
+  }
+
+  // Check dirty working tree
+  const worktreeStatus = await runGit(['status', '--porcelain']);
+  const isDirty = Boolean(worktreeStatus.trim());
+
+  if (isDirty) {
+    if (!force) {
+      throw new Error('เซิร์ฟเวอร์มีไฟล์แก้ไขค้างอยู่ กรุณากดเลือก "สำรอง/ข้ามไฟล์ค้าง (Force/Stash)" เพื่อดำเนินการ');
+    }
+    // Stash local modifications
+    try {
+      await runGit(['stash', 'push', '-u', '-m', `fdh-auto-stash-before-update-${Date.now()}`]);
+    } catch {
+      await runGit(['reset', '--hard', 'HEAD']);
+    }
+  }
+
+  // Update working branch to latest
+  try {
+    await runGit(['checkout', branch]);
+    if (force) {
+      await runGit(['reset', '--hard', `origin/${branch}`]);
+    } else {
+      await runGit(['pull', 'origin', branch]);
+    }
+  } catch {
+    await runGit(['reset', '--hard', `origin/${branch}`]);
+  }
+
+  const finalCommit = await runGit(['rev-parse', 'HEAD']);
+
+  // Build frontend
+  try {
+    await runNpm(['run', 'build'], 300_000);
+  } catch (buildErr) {
+    const errorMsg = buildErr instanceof Error ? buildErr.message : String(buildErr);
+    throw new Error(`ดึงโค้ดสำเร็จ (${finalCommit.slice(0, 8)}) แต่ Build ไม่สำเร็จ: ${errorMsg}`);
+  }
+
+  // Record completed job
+  const jobId = `direct-${Date.now()}`;
+  const now = new Date().toISOString();
+  const job: SystemUpdateJob = {
+    id: jobId,
+    status: 'completed',
+    stage: 'completed',
+    progress: 100,
+    message: `อัปเดตระบบตรงสำเร็จโดย ${actor} (รุ่น ${finalCommit.slice(0, 8)})`,
+    action: 'update',
+    actor,
+    changeSummary: `Direct update: ${fromCommit.slice(0, 8)} -> ${finalCommit.slice(0, 8)}`,
+    branch,
+    fromCommit,
+    toCommit: finalCommit,
+    startedAt: now,
+    updatedAt: now,
+    completedAt: now,
+  };
+
+  await fs.mkdir(stateDirectory(), { recursive: true });
+  await fs.writeFile(currentJobPath(), `${JSON.stringify(job, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  await fs.writeFile(path.join(stateDirectory(), `history-${jobId}.json`), `${JSON.stringify(job, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+
+  // Restart via PM2 if alive
+  try {
+    await runPm2(['reload', 'all'], 30_000);
+  } catch {
+    // PM2 might not be active or this is Windows standalone
+  }
+
+  return job;
+};
+
+export const resetSystemUpdateLock = async (actor: string = 'admin') => {
+  await cleanupStoppedRunners();
+  let clearedJobId: string | null = null;
+  try {
+    const current = await readCurrentJob();
+    if (current) {
+      clearedJobId = current.id;
+      const updatedJob: SystemUpdateJob = {
+        ...current,
+        status: 'failed',
+        stage: 'unlocked',
+        message: `ผู้ดูแลระบบ (${actor}) ทำการปลดล็อกสถานะงานเรียบร้อยแล้ว`,
+        updatedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      };
+      await fs.writeFile(currentJobPath(), `${JSON.stringify(updatedJob, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      await fs.writeFile(path.join(stateDirectory(), `history-${current.id}.json`), `${JSON.stringify(updatedJob, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    } else {
+      await fs.unlink(currentJobPath()).catch(() => undefined);
+    }
+  } catch {
+    await fs.unlink(currentJobPath()).catch(() => undefined);
+  }
+
+  return {
+    success: true,
+    clearedJobId,
+    message: 'ปลดล็อกสถานะงานเรียบร้อยแล้ว สามารถเริ่มอัปเดตใหม่ได้ทันที',
+  };
 };
 
 let cachedUpdateCheck: { available: boolean; behind: number; checkedAt: string; changesCount: number } | null = null;

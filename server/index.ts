@@ -111,7 +111,7 @@ import { sssRouter } from './routes/sssRoutes.js';
 import { icd9Router } from './routes/icd9Routes.js';
 import { receivableReportRouter } from './routes/receivableReportRoutes.js';
 import { receivableSettlementRouter } from './routes/receivableSettlementRoutes.js';
-import { getQuickUpdateCheck, getSystemUpdateInfo, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
+import { getQuickUpdateCheck, getSystemUpdateInfo, resetSystemUpdateLock, startDirectSystemUpdate, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
@@ -828,6 +828,31 @@ app.post('/api/admin/system-update/start', requireAdmin, async (req: Authenticat
     const message = error instanceof Error ? error.message : 'เริ่มอัปเดตไม่สำเร็จ';
     const status = /กำลังทำงาน|รุ่นล่าสุด|รุ่นใหม่กว่าใบยืนยัน/.test(message) ? 409 : 400;
     return res.status(status).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/admin/system-update/direct', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const actor = String(req.authUser?.username || 'admin');
+    const force = Boolean(req.body?.force);
+    const expectedRemoteCommit = req.body?.expectedRemoteCommit ? String(req.body.expectedRemoteCommit).trim() : undefined;
+    const data = await startDirectSystemUpdate({ force, actor, expectedRemoteCommit });
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('Direct system update failed:', error);
+    const message = error instanceof Error ? error.message : 'อัปเดตตรงไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/admin/system-update/reset-lock', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const actor = String(req.authUser?.username || 'admin');
+    const data = await resetSystemUpdateLock(actor);
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('Reset system update lock failed:', error);
+    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'ปลดล็อกสถานะไม่สำเร็จ' });
   }
 });
 

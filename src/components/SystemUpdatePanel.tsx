@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { fetchSystemUpdateStatus } from '../services/systemUpdateStatus';
+import { fetchSystemUpdateStatus, resetSystemUpdateLock, startDirectSystemUpdate } from '../services/systemUpdateStatus';
 
 type UpdateJob = {
   id: string;
@@ -44,6 +44,9 @@ type UpdateInfo = {
   checkedAt: string;
   checkError?: string;
   job: UpdateJob | null;
+  directSupported?: boolean;
+  canResetLock?: boolean;
+  isWindows?: boolean;
 };
 
 const readPayload = async (response: Response) => {
@@ -68,6 +71,11 @@ export const SystemUpdatePanel = () => {
   const [statusError, setStatusError] = useState('');
   const statusRequestInFlight = useRef(false);
   const [selectedRollbackCommit, setSelectedRollbackCommit] = useState('');
+  const [directUpdating, setDirectUpdating] = useState(false);
+  const [resettingLock, setResettingLock] = useState(false);
+  const [forceStash, setForceStash] = useState(true);
+  const [directNotice, setDirectNotice] = useState<string | null>(null);
+  const [copiedCmd, setCopiedCmd] = useState(false);
 
   const running = info?.job?.status === 'queued' || info?.job?.status === 'running';
 
@@ -176,6 +184,60 @@ export const SystemUpdatePanel = () => {
     }
   };
 
+  const handleResetLock = async () => {
+    if (!window.confirm('ยืนยันปลดล็อกสถานะงานอัปเดตที่ค้างอยู่ใช่หรือไม่?\n\nเมื่อปลดล็อกแล้วจะสามารถเริ่มอัปเดตใหม่ได้ทันที')) return;
+    setResettingLock(true);
+    setError('');
+    setDirectNotice(null);
+    try {
+      const res = await resetSystemUpdateLock();
+      setDirectNotice(res?.message || 'ปลดล็อกสถานะเรียบร้อยแล้ว');
+      await loadStatus(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ปลดล็อกสถานะไม่สำเร็จ');
+    } finally {
+      setResettingLock(false);
+    }
+  };
+
+  const handleDirectUpdate = async () => {
+    const confirmMsg = forceStash
+      ? 'ยืนยันเริ่ม "อัปเดตระบบสำรอง (Direct Force Update)" ใช่หรือไม่?\n\nระบบจะสำรองไฟล์ที่ค้างไว้ (Auto-stash), ดึงโค้ดล่าสุดจาก GitHub, และ Build ระบบใหม่ทันที'
+      : 'ยืนยันเริ่ม "อัปเดตระบบสำรอง (Direct Update)" ใช่หรือไม่?';
+    if (!window.confirm(confirmMsg)) return;
+
+    setDirectUpdating(true);
+    setError('');
+    setDirectNotice('กำลังดึงโค้ดล่าสุดจาก GitHub และทำการ Build ระบบใหม่ กรุณารอสักครู่…');
+    try {
+      const res = await startDirectSystemUpdate({
+        force: forceStash,
+        expectedRemoteCommit: info?.remoteCommit,
+      });
+      setDirectNotice(`✅ อัปเดตสำรองสำเร็จเป็นรุ่น ${shortCommit(res?.toCommit || info?.remoteCommit || '')} เรียบร้อยแล้ว กำลังรีโหลดหน้าเว็บ...`);
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'อัปเดตสำรองไม่สำเร็จ');
+      setDirectNotice(null);
+    } finally {
+      setDirectUpdating(false);
+    }
+  };
+
+  const fallbackCliCommand = info?.isWindows
+    ? 'git fetch origin main && git stash && git checkout main && git pull origin main && npm run build'
+    : 'git fetch origin main && git stash && git checkout main && git pull origin main && npm run build && pm2 reload all';
+
+  const handleCopyCliCommand = () => {
+    if (navigator?.clipboard) {
+      navigator.clipboard.writeText(fallbackCliCommand);
+      setCopiedCmd(true);
+      window.setTimeout(() => setCopiedCmd(false), 3000);
+    }
+  };
+
   const job = info?.job;
   const progress = Math.max(0, Math.min(100, Number(job?.progress || 0)));
   const disabledReason = !info?.enabled
@@ -258,18 +320,86 @@ export const SystemUpdatePanel = () => {
       ) : null}
 
       <div className="system-update-actions">
-        <button type="button" className="secondary-btn" onClick={() => void loadStatus(true)} disabled={checking || running || starting}>
+        <button type="button" className="secondary-btn" onClick={() => void loadStatus(true)} disabled={checking || running || starting || directUpdating}>
           {checking ? 'กำลังตรวจ GitHub…' : '↻ ตรวจสอบรุ่นใหม่'}
         </button>
         <button
           type="button"
           className="save-btn"
           onClick={() => void startUpdate()}
-          disabled={starting || running || connectionState !== 'online' || !info?.available || Boolean(disabledReason) || Boolean(info?.ahead)}
+          disabled={starting || running || directUpdating || connectionState !== 'online' || !info?.available || Boolean(disabledReason) || Boolean(info?.ahead)}
         >
           {starting ? 'กำลังเริ่มงาน…' : running ? 'กำลังอัปเดต…' : '⬇️ ยืนยันและอัปเดตระบบ'}
         </button>
+        {(running || job?.status === 'running' || job?.status === 'queued' || job?.status === 'failed' || info?.canResetLock) && (
+          <button
+            type="button"
+            className="secondary-btn"
+            style={{ color: '#d97706', borderColor: 'rgba(245, 158, 11, 0.45)' }}
+            onClick={handleResetLock}
+            disabled={resettingLock || directUpdating}
+          >
+            {resettingLock ? 'กำลังปลดล็อก…' : '🔓 ปลดล็อกสถานะค้าง'}
+          </button>
+        )}
         {job?.status === 'completed' && <button type="button" className="secondary-btn" onClick={() => window.location.reload()}>โหลดหน้าใหม่ตอนนี้</button>}
+      </div>
+
+      {/* ทางเลือกสำรอง: อัปเดตตรง (Direct Force Update) */}
+      <div className="system-update-direct-box">
+        <div className="system-update-direct-header">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <span className="system-update-badge-fallback">⚡ ทางเลือกสำรอง</span>
+              <h4 style={{ margin: 0 }}>อัปเดตระบบแบบตรง (Direct Force Update)</h4>
+            </div>
+            <p className="system-update-direct-desc">
+              ใช้เมื่อปุ่มปกติกดไม่ได้ เช่น ติดไฟล์แก้ไขค้างบนเซิร์ฟเวอร์ (Dirty Tree), เครื่องเซิร์ฟเวอร์เป็น Windows, หรือ PM2 ไม่ตอบสนอง
+            </p>
+          </div>
+        </div>
+
+        {directNotice && (
+          <div className="alert alert-info system-update-alert" style={{ display: 'block', margin: '10px 0' }}>
+            {directNotice}
+          </div>
+        )}
+
+        <div className="system-update-direct-controls">
+          <label className="system-update-checkbox-label">
+            <input
+              type="checkbox"
+              checked={forceStash}
+              onChange={(e) => setForceStash(e.target.checked)}
+              disabled={directUpdating || starting}
+            />
+            <span>สำรองและข้ามไฟล์ที่แก้ไขค้างอยู่บนเครื่องอัตโนมัติ (Force Stash & Update)</span>
+          </label>
+
+          <button
+            type="button"
+            className="save-btn system-update-direct-btn"
+            onClick={handleDirectUpdate}
+            disabled={directUpdating || starting || running}
+          >
+            {directUpdating ? '⚡ กำลังดึงโค้ดและ Build ใหม่…' : '⚡ ยืนยันอัปเดตสำรองทันที'}
+          </button>
+        </div>
+
+        <div className="system-update-cli-fallback">
+          <div className="system-update-cli-header">
+            <span>💻 หรือคัดลอกคำสั่งไปวางรันใน Terminal / PowerShell ด้วยตนเอง:</span>
+            <button
+              type="button"
+              className="secondary-btn"
+              style={{ padding: '3px 10px', fontSize: '0.78rem' }}
+              onClick={handleCopyCliCommand}
+            >
+              {copiedCmd ? '✅ คัดลอกแล้ว!' : '📋 คัดลอกคำสั่ง'}
+            </button>
+          </div>
+          <code className="system-update-cli-code">{fallbackCliCommand}</code>
+        </div>
       </div>
 
       <div className="system-update-rollback">

@@ -409,6 +409,95 @@
     background: rgba(16, 185, 129, 0.12);
 }
 
+.system-update-direct-box {
+    margin-top: 20px;
+    padding: 18px;
+    border: 1px dashed rgba(245, 158, 11, 0.4);
+    border-radius: 14px;
+    background: rgba(245, 158, 11, 0.04);
+}
+
+.system-update-direct-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.system-update-badge-fallback {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #b45309;
+    background: rgba(245, 158, 11, 0.18);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.system-update-direct-desc {
+    margin: 4px 0 12px;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    line-height: 1.4;
+}
+
+.system-update-direct-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 12px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+}
+
+.system-update-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.86rem;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.system-update-direct-btn {
+    background: linear-gradient(135deg, #d97706, #b45309) !important;
+    color: #fff !important;
+    border: none !important;
+}
+
+.system-update-cli-fallback {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.system-update-cli-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.system-update-cli-code {
+    display: block;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    font-family: monospace;
+    font-size: 0.78rem;
+    color: #38bdf8;
+    word-break: break-all;
+    user-select: all;
+}
+
 @media (max-width: 760px) {
     .system-update-heading {
         flex-direction: column;

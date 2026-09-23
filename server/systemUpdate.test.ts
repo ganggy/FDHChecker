@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildUpdateRunnerConfig, parsePm2ProcessList, reconcileUpdateJob, validateUpdateBranch, type SystemUpdateJob } from './systemUpdate.js';
+import { buildUpdateRunnerConfig, parsePm2ProcessList, reconcileUpdateJob, resetSystemUpdateLock, validateUpdateBranch, type SystemUpdateJob } from './systemUpdate.js';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -79,3 +79,10 @@ test('rejects branch traversal and shell metacharacters', () => {
   assert.equal(validateUpdateBranch('main; reboot'), false);
   assert.equal(validateUpdateBranch('$(whoami)'), false);
 });
+
+test('resetSystemUpdateLock clears or marks job as failed and returns success', async () => {
+  const result = await resetSystemUpdateLock('test-admin');
+  assert.equal(result.success, true);
+  assert.match(result.message, /ปลดล็อกสถานะ/);
+});
+

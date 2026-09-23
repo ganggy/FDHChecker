@@ -40,3 +40,28 @@ export async function checkSystemUpdateQuick(refresh = false, timeoutMs = 8000):
     clearTimeout(timer);
   }
 }
+
+export async function resetSystemUpdateLock(): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/admin/system-update/reset-lock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.success !== true) {
+    throw new Error(payload?.error || 'ปลดล็อกสถานะไม่สำเร็จ');
+  }
+  return payload.data;
+}
+
+export async function startDirectSystemUpdate(options: { force?: boolean; expectedRemoteCommit?: string } = {}): Promise<any> {
+  const response = await fetch('/api/admin/system-update/direct', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.success !== true) {
+    throw new Error(payload?.error || 'เริ่มอัปเดตตรงไม่สำเร็จ');
+  }
+  return payload.data;
+}

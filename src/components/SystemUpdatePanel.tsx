@@ -138,7 +138,8 @@ export const SystemUpdatePanel = () => {
   useEffect(() => {
     if (reloadJobStatus !== 'completed' || !reloadJobId) return;
     const completedAtMs = info?.job?.completedAt ? new Date(info.job.completedAt).getTime() : 0;
-    const isRecentJob = completedAtMs > 0 && (Date.now() - completedAtMs < 180_000);
+    // อนุญาตให้ trigger ได้ถ้า job complete ภายใน 2 ชั่วโมง (PM2 restart อาจช้า หรือ user เปิดหน้าหลัง restart)
+    const isRecentJob = completedAtMs > 0 && (Date.now() - completedAtMs < 7_200_000);
     if (!isRecentJob) return;
 
     const storageKey = 'fdh-last-reloaded-update-job';

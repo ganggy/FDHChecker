@@ -739,7 +739,6 @@ export const getDentalClinicalAudit = async (input: {
               COALESCE(NULLIF(dm.icd9, ''), NULLIF(tm.icd10tm_operation_code, ''), NULLIF(tm.icd9cm, ''), dm.tmcode, '') AS code,
               COALESCE(tm.name, 'หัตถการทันตกรรม') AS name,
               'Dental' AS type,
-              COALESCE(dm.tooth, '') AS tooth,
               COALESCE(dm.tmcode, '') AS tmcode,
               COALESCE(tm.icd10tm_operation_code, '') AS icd10tm
        FROM dtmain dm
@@ -992,7 +991,6 @@ export const fixDentalClinicalVisit = async (input: {
               COALESCE(NULLIF(dm.icd9, ''), NULLIF(tm.icd10tm_operation_code, ''), NULLIF(tm.icd9cm, ''), dm.tmcode, '') AS code,
               COALESCE(tm.name, 'หัตถการทันตกรรม') AS name,
               'Dental' AS type,
-              COALESCE(dm.tooth, '') AS tooth,
               COALESCE(dm.tmcode, '') AS tmcode,
               COALESCE(tm.icd10tm_operation_code, '') AS icd10tm
        FROM dtmain dm
@@ -1405,7 +1403,6 @@ export const fixDentalClinicalVisit = async (input: {
               COALESCE(NULLIF(dm.icd9, ''), NULLIF(tm.icd10tm_operation_code, ''), NULLIF(tm.icd9cm, ''), dm.tmcode, '') AS code,
               COALESCE(tm.name, 'หัตถการทันตกรรม') AS name,
               'Dental' AS type,
-              COALESCE(dm.tooth, '') AS tooth,
               COALESCE(dm.tmcode, '') AS tmcode,
               COALESCE(tm.icd10tm_operation_code, '') AS icd10tm
        FROM dtmain dm

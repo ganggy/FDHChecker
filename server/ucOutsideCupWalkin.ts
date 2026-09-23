@@ -226,3 +226,633 @@ export const insertMissingUcOutsideCupWalkin = async (input: {
     connection.release();
   }
 };
+
+export type WalkinAuditIssueLevel = 'critical' | 'warning' | 'info';
+
+export type WalkinAuditIssue = {
+  code: string;
+  level: WalkinAuditIssueLevel;
+  title: string;
+  detail: string;
+  recommendation: string;
+  category: 'dental' | 'clinical' | 'billing';
+};
+
+export type UcWalkinClinicalAuditRow = {
+  vn: string;
+  hn: string;
+  patient_name: string;
+  sex: string;
+  age_y: number;
+  service_date: string;
+  service_time: string;
+  pttype: string;
+  hospmain: string;
+  department: string;
+  is_dental: boolean;
+  diagnoses: Array<{
+    code: string;
+    name?: string;
+    diagtype: string;
+  }>;
+  procedures: Array<{
+    code: string;
+    name?: string;
+    type?: string;
+    tooth?: string;
+  }>;
+  has_walkin: boolean;
+  walkin_rows: number;
+  total_charge: number;
+  issues: WalkinAuditIssue[];
+  audit_status: 'critical' | 'warning' | 'valid';
+};
+
+export type UcWalkinClinicalAuditSummary = {
+  total_visits: number;
+  valid_count: number;
+  critical_count: number;
+  warning_count: number;
+  dental_total: number;
+  dental_issue_count: number;
+  missing_walkin_count: number;
+};
+
+export const evaluateWalkinVisitAudit = (visit: {
+  vn: string;
+  hn: string;
+  patient_name?: string;
+  sex?: string;
+  age_y?: number;
+  service_date: string;
+  service_time?: string;
+  pttype?: string;
+  hospmain?: string;
+  department?: string;
+  diagnoses: Array<{ code: string; name?: string; diagtype: string }>;
+  procedures: Array<{ code: string; name?: string; type?: string; tooth?: string }>;
+  chargeItems?: Array<{ icode: string; name?: string; qty?: number; unitprice?: number; sum_price?: number; income?: string }>;
+  has_walkin: boolean;
+  walkin_rows?: number;
+  total_charge?: number;
+}): {
+  is_dental: boolean;
+  issues: WalkinAuditIssue[];
+  audit_status: 'critical' | 'warning' | 'valid';
+  total_charge: number;
+} => {
+  const issues: WalkinAuditIssue[] = [];
+  const clean = (val: unknown) => String(val || '').trim().toUpperCase().replace(/[.\s-]/g, '');
+
+  const diagnoses = visit.diagnoses || [];
+  const procedures = visit.procedures || [];
+  const chargeItems = visit.chargeItems || [];
+
+  const pdxList = diagnoses.filter((d) => String(d.diagtype).trim() === '1');
+  const pdx = pdxList[0]?.code ? clean(pdxList[0].code) : '';
+  const secondaryDx = diagnoses.filter((d) => String(d.diagtype).trim() !== '1').map((d) => clean(d.code)).filter(Boolean);
+  const allDxCodes = diagnoses.map((d) => clean(d.code)).filter(Boolean);
+  const allProcCodes = procedures.map((p) => clean(p.code)).filter(Boolean);
+
+  let totalCharge = Number(visit.total_charge || 0);
+  if (!totalCharge && chargeItems.length > 0) {
+    totalCharge = chargeItems.reduce((sum, item) => sum + Number(item.sum_price ?? (Number(item.qty || 0) * Number(item.unitprice || 0))), 0);
+  }
+
+  // Dental classification
+  const dept = String(visit.department || '');
+  const hasDentalDept = dept.includes('ทันต');
+  const hasDentalProc = procedures.some((p) => {
+    const c = clean(p.code);
+    return (
+      p.type === 'Dental' ||
+      c.startsWith('23') ||
+      c === '8931' ||
+      c === '9654' ||
+      c === '9651' ||
+      ['2387010', '2277310', '2287310', '2330011', '2330010'].includes(c) ||
+      String(p.name || '').includes('ฟัน') ||
+      String(p.name || '').includes('ทันต') ||
+      String(p.name || '').includes('ขูดหินปูน') ||
+      String(p.name || '').includes('อุดฟัน') ||
+      String(p.name || '').includes('ถอนฟัน')
+    );
+  });
+  const hasDentalDx = allDxCodes.some((c) =>
+    (c.startsWith('K0') && c >= 'K00' && c <= 'K089') ||
+    c.startsWith('K1') ||
+    c.startsWith('Z012')
+  );
+  const hasDentalCharge = chargeItems.some((i) =>
+    i.income === '08' || i.income === '13' ||
+    String(i.name || '').includes('ทันต') ||
+    String(i.name || '').includes('ฟัน')
+  );
+  const is_dental = hasDentalDept || hasDentalProc || hasDentalDx || hasDentalCharge;
+
+  // --- DENTAL CLINICAL RULES ---
+  if (is_dental) {
+    // Rule D1: ขูดหินปูน (Scaling / Prophylaxis: 9654, 9651, 2387010, 2277310, 2287310)
+    const hasScalingProc = procedures.some((p) => {
+      const c = clean(p.code);
+      return c === '9654' || c === '9651' || c === '2387010' || c === '2277310' || c === '2287310' || String(p.name || '').includes('ขูดหินปูน');
+    });
+    if (hasScalingProc) {
+      const hasGingivalDx = allDxCodes.some((c) => c.startsWith('K05'));
+      if (!hasGingivalDx) {
+        issues.push({
+          code: 'C-804-SCALING',
+          level: 'critical',
+          title: 'ขูดหินปูน (96.54) รหัสโรคไม่สัมพันธ์กับหัตถการ',
+          detail: 'พบหัตถการขูดหินปูน/ทำความสะอาดฟัน แต่ไม่มีรหัสวินิจฉัยกลุ่มโรคเหงือกอักเสบหรือปริทันต์อักเสบ (K05.0-K05.6) ทำให้เสี่ยงติด C Error 804 / 800',
+          recommendation: 'เพิ่มหรือแก้ไขรหัสวินิจฉัยในระบบทันตกรรม HOSxP เป็น K05.1 (Chronic gingivitis) หรือ K05.3 (Chronic periodontitis)',
+          category: 'dental',
+        });
+      }
+    }
+
+    // Rule D2: อุดฟัน (Filling / Restoration: 232x, 234x, 237x)
+    const hasFillingProc = procedures.some((p) => {
+      const c = clean(p.code);
+      return c.startsWith('232') || c.startsWith('234') || String(p.name || '').includes('อุดฟัน');
+    });
+    if (hasFillingProc) {
+      const hasCariesOrWearDx = allDxCodes.some((c) => c.startsWith('K02') || c.startsWith('K030') || c.startsWith('K031') || c.startsWith('K032'));
+      if (!hasCariesOrWearDx) {
+        issues.push({
+          code: 'C-804-FILLING',
+          level: 'critical',
+          title: 'อุดฟัน (23.2/23.4) รหัสโรคไม่สัมพันธ์กับหัตถการ',
+          detail: 'พบหัตถการอุดฟัน แต่ไม่พบรหัสวินิจฉัยโรคฟันผุ (K02) หรือฟันสึกกร่อน (K03) เสี่ยงติด C Error 804',
+          recommendation: 'เพิ่มหรือแก้ไขรหัสวินิจฉัยในระบบทันตกรรม HOSxP เป็นกลุ่มฟันผุ (K02.0-K02.9) หรือฟันสึก (K03.0-K03.2)',
+          category: 'dental',
+        });
+      }
+    }
+
+    // Rule D3: ผ่าฟันคุด (Impacted tooth: 2319)
+    const hasImpactedProc = procedures.some((p) => clean(p.code) === '2319' || String(p.name || '').includes('ผ่าฟันคุด'));
+    if (hasImpactedProc) {
+      const hasImpactedDx = allDxCodes.some((c) => c.startsWith('K010') || c.startsWith('K011') || c === 'K01');
+      if (!hasImpactedDx) {
+        issues.push({
+          code: 'C-804-IMPACTED',
+          level: 'critical',
+          title: 'ผ่าฟันคุด (23.19) ต้องคู่กับรหัสฟันคุด K01.1/K01.0',
+          detail: 'พบหัตถการผ่าฟันคุด 23.19 แต่ไม่พบรหัสวินิจฉัย K01.0 หรือ K01.1 เสี่ยงติด C Error 804',
+          recommendation: 'เพิ่มรหัสวินิจฉัย K01.1 (Impacted teeth) หรือ K01.0 ในระบบทันตกรรม HOSxP',
+          category: 'dental',
+        });
+      }
+    }
+
+    // Rule D4: ถอนรากฟัน (Removal of residual root: 2311)
+    const hasRootProc = procedures.some((p) => clean(p.code) === '2311' || String(p.name || '').includes('ถอนรากฟัน'));
+    if (hasRootProc) {
+      const hasRootDx = allDxCodes.some((c) => c.startsWith('K083') || c.startsWith('K04'));
+      if (!hasRootDx) {
+        issues.push({
+          code: 'C-804-ROOT',
+          level: 'critical',
+          title: 'ถอนรากฟัน (23.11) ต้องมีรหัสรากฟันตกค้าง K08.3',
+          detail: 'พบหัตถการถอนรากฟัน 23.11 แต่ไม่มีรหัสวินิจฉัย K08.3 (Retained dental root) เสี่ยงติด C Error 804',
+          recommendation: 'เพิ่มรหัสวินิจฉัย K08.3 ในระบบทันตกรรม HOSxP',
+          category: 'dental',
+        });
+      }
+    }
+
+    // Rule D5: ถอนฟันทั่วไป (Extraction: 2301, 2309)
+    const hasExtractionProc = procedures.some((p) => {
+      const c = clean(p.code);
+      return c === '2301' || c === '2309' || String(p.name || '').includes('ถอนฟัน');
+    });
+    if (hasExtractionProc && !hasDentalDx) {
+      issues.push({
+        code: 'C-804-EXTRACTION',
+        level: 'critical',
+        title: 'ถอนฟัน แต่ไม่มีรหัสวินิจฉัยโรคช่องปากและฟัน (K00-K08)',
+        detail: 'พบหัตถการถอนฟัน แต่ไม่มีรหัสวินิจฉัยฟันผุ (K02), โรคโพรงประสาทฟัน (K04) หรือโรคปริทันต์ (K05)',
+        recommendation: 'บันทึกรหัสวินิจฉัยโรคฟันที่เกี่ยวข้อง เช่น K02.1 หรือ K04.0 ในระบบทันตกรรม HOSxP',
+        category: 'dental',
+      });
+    }
+
+    // Rule D6: ตรวจฟันแต่ทำหัตถการรักษาอื่น (Z01.2 as PDX with therapeutic procedures)
+    const hasTherapeuticDentalProc = procedures.some((p) => {
+      const c = clean(p.code);
+      return c.startsWith('23') || c === '9654' || c === '9651';
+    });
+    if (pdx.startsWith('Z012') && hasTherapeuticDentalProc) {
+      issues.push({
+        code: 'C-800-Z012-PDX',
+        level: 'critical',
+        title: 'มีการรักษาแต่ใช้รหัสตรวจฟัน Z01.2 เป็นโรคหลัก (PDX)',
+        detail: 'ตามหลักเกณฑ์ e-Claim หากมีการรักษาทางทันตกรรม (เช่น อุดฟัน, ถอนฟัน, ขูดหินปูน) ห้ามใช้ Z01.2 เป็นโรคหลัก ทำให้ติด C Error 800 / A14',
+        recommendation: 'เปลี่ยนโรคหลัก (PDX) เป็นรหัสโรคที่ให้การรักษา (เช่น K02.1, K05.1) และเปลี่ยน Z01.2 เป็นโรครองหรือลบออก',
+        category: 'dental',
+      });
+    }
+
+    // Rule D7: มีบริการทันตกรรมแต่ไม่มีรหัสหัตถการ (ICD-9)
+    if ((hasDentalCharge || hasDentalDept) && allProcCodes.length === 0) {
+      issues.push({
+        code: 'C-804-MISSING-PROC',
+        level: 'critical',
+        title: 'มีบริการทันตกรรมแต่ไม่พบรหัสหัตถการ (ICD-9)',
+        detail: 'มีการคิดค่าบริการทันตกรรม แต่ไม่มีการลงรหัสหัตถการ ICD-9 ใน dtmain หรือ doctor_operation ทำให้แฟ้มหัตถการว่าง เสี่ยงติด C Error 804',
+        recommendation: 'ลงบันทึกหัตถการพร้อมรหัส ICD-9 (เช่น 23.09, 23.2, 96.54) ในระบบทันตกรรม HOSxP',
+        category: 'dental',
+      });
+    }
+
+    // Rule D8: มีหัตถการทันตกรรมแต่ไม่มีรหัสการวินิจฉัยหมวดฟันเลย
+    if (hasDentalProc && !hasDentalDx) {
+      issues.push({
+        code: 'C-800-NO-DENTAL-DX',
+        level: 'critical',
+        title: 'มีหัตถการทันตกรรมแต่ไม่พบรหัสวินิจฉัยหมวดฟัน (K00-K14)',
+        detail: 'มีการทำหัตถการทันตกรรม แต่รหัสโรคในเวชระเบียนไม่มีหมวดช่องปากและฟันเลย เสี่ยงติด C Error 800',
+        recommendation: 'เพิ่มรหัสการวินิจฉัยโรคฟัน (K00-K14) ในระบบทันตกรรม HOSxP',
+        category: 'dental',
+      });
+    }
+  }
+
+  // --- GENERAL CLINICAL & WALKIN RULES ---
+
+  // Rule G1: ขาดรหัสการวินิจฉัยโรคหลัก (PDX)
+  if (!pdx) {
+    issues.push({
+      code: 'C-MISSING-PDX',
+      level: 'critical',
+      title: 'ขาดรหัสการวินิจฉัยโรคหลัก (PDX)',
+      detail: 'ไม่พบรหัสโรคหลัก (diagtype=1) ในเวชระเบียน ทำให้ไม่สามารถส่งเบิก e-Claim ได้',
+      recommendation: 'กำหนดรหัสโรคหลัก (diagtype=1) ในหน้าเวชระเบียน OPD HOSxP',
+      category: 'clinical',
+    });
+  }
+
+  // Rule G2: ใช้รหัสสาเหตุภายนอก (V-Y) เป็นโรคหลัก (PDX)
+  if (pdx && /^[VWXY]/.test(pdx)) {
+    issues.push({
+      code: 'C-801-EXTERNAL-PDX',
+      level: 'critical',
+      title: 'ห้ามใช้รหัสสาเหตุภายนอก (V-Y) เป็นโรคหลัก (PDX)',
+      detail: 'รหัสสาเหตุภายนอก (V01-Y98) ใช้เป็นโรคหลักไม่ได้ ต้องใช้รหัสการบาดเจ็บ (หมวด S หรือ T) เป็น PDX เสี่ยงติด C Error 800/801',
+      recommendation: 'เปลี่ยนโรคหลัก (PDX) เป็นรหัสการบาดเจ็บ (หมวด S หรือ T) และใส่รหัสสาเหตุภายนอกเป็น diagtype=5',
+      category: 'clinical',
+    });
+  }
+
+  // Rule G3: รหัสโรครองซ้ำกับโรคหลัก (C-803)
+  if (pdx && secondaryDx.includes(pdx)) {
+    issues.push({
+      code: 'C-803-DUPLICATE-DX',
+      level: 'critical',
+      title: 'รหัสการวินิจฉัยอื่นซ้ำกับโรคหลัก (C-803)',
+      detail: `พบรหัสโรครองซ้ำกับโรคหลัก (${pdx}) ระบบ e-Claim จะปฏิเสธการจ่ายด้วย C-803`,
+      recommendation: 'ลบรหัสโรคที่ซ้ำกับโรคหลักออกจาก ovstdiag ใน HOSxP',
+      category: 'clinical',
+    });
+  }
+
+  // Rule G4: หัตถการไม่สัมพันธ์กับเพศ (C-806)
+  const sex = String(visit.sex || '').trim().toUpperCase();
+  const isMale = sex === '1' || sex === 'M' || sex === 'ชาย';
+  const isFemale = sex === '2' || sex === 'F' || sex === 'หญิง';
+  if (isMale) {
+    const hasGynProc = procedures.some((p) => {
+      const c = clean(p.code);
+      const prefix = parseInt(c.slice(0, 2), 10);
+      return prefix >= 65 && prefix <= 75;
+    });
+    if (hasGynProc) {
+      issues.push({
+        code: 'C-806-SEX-MISMATCH',
+        level: 'critical',
+        title: 'รหัสหัตถการไม่สอดคล้องกับเพศผู้ป่วย (C-806)',
+        detail: 'ผู้ป่วยเพศชายแต่มีรหัสหัตถการทางสูตินรีเวช เสี่ยงติด C Error 806',
+        recommendation: 'ตรวจสอบเพศและรหัสหัตถการใน HOSxP ให้ถูกต้อง',
+        category: 'clinical',
+      });
+    }
+  } else if (isFemale) {
+    const hasMaleProc = procedures.some((p) => {
+      const c = clean(p.code);
+      const prefix = parseInt(c.slice(0, 2), 10);
+      return prefix >= 60 && prefix <= 64;
+    });
+    if (hasMaleProc) {
+      issues.push({
+        code: 'C-806-SEX-MISMATCH',
+        level: 'critical',
+        title: 'รหัสหัตถการไม่สอดคล้องกับเพศผู้ป่วย (C-806)',
+        detail: 'ผู้ป่วยเพศหญิงแต่มีรหัสหัตถการของอวัยวะสืบพันธุ์ชาย เสี่ยงติด C Error 806',
+        recommendation: 'ตรวจสอบเพศและรหัสหัตถการใน HOSxP ให้ถูกต้อง',
+        category: 'clinical',
+      });
+    }
+  }
+
+  // Rule G5: ขาดรหัสบริการ WALKIN (icode)
+  if (!visit.has_walkin) {
+    issues.push({
+      code: 'WRN-MISSING-WALKIN',
+      level: 'warning',
+      title: 'ยังไม่มีรายการค่าบริการ WALKIN ในใบสั่งยา',
+      detail: 'วิสิตนี้เป็นสิทธิ UC นอก CUP แต่ยังไม่มีรหัสค่าบริการ WALKIN ทำให้ไม่สามารถส่งออกเป็นกองทุนผู้ป่วยนอกเหตุสมควร ทั่วประเทศ ได้',
+      recommendation: 'กดปุ่มเพิ่ม WALKIN ในแท็บกระทบยอด หรือเพิ่มรายการในใบสั่งยา HOSxP',
+      category: 'billing',
+    });
+  }
+
+  // Rule G6: ไม่มีรายการค่าใช้จ่ายหรือยอดรวมเป็น 0
+  if (totalCharge <= 0 && (!chargeItems.length || chargeItems.every((i) => Number(i.sum_price || 0) <= 0))) {
+    issues.push({
+      code: 'WRN-NO-CHARGES',
+      level: 'warning',
+      title: 'ไม่พบรายการค่าบริการหรือยอดเงินรวมเป็น 0',
+      detail: 'ไม่พบรายการยาหรือค่าบริการในใบสั่งยา หรือยอดรวมเป็น 0 บาท',
+      recommendation: 'ตรวจสอบการลงรายการยาและค่าบริการใน HOSxP',
+      category: 'billing',
+    });
+  }
+
+  // Deduplicate issues by code
+  const uniqueIssues: WalkinAuditIssue[] = [];
+  const seenCodes = new Set<string>();
+  for (const issue of issues) {
+    if (!seenCodes.has(issue.code)) {
+      seenCodes.add(issue.code);
+      uniqueIssues.push(issue);
+    }
+  }
+
+  const hasCritical = uniqueIssues.some((i) => i.level === 'critical');
+  const hasWarning = uniqueIssues.some((i) => i.level === 'warning');
+  const audit_status: 'critical' | 'warning' | 'valid' = hasCritical ? 'critical' : hasWarning ? 'warning' : 'valid';
+
+  return {
+    is_dental,
+    issues: uniqueIssues,
+    audit_status,
+    total_charge: totalCharge,
+  };
+};
+
+export const getUcOutsideCupClinicalAudit = async (input: {
+  startDate?: string;
+  endDate?: string;
+  serviceCategory?: 'ALL' | 'DENTAL' | 'GENERAL';
+  auditStatus?: 'ALL' | 'CRITICAL' | 'WARNING' | 'VALID';
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}) => {
+  const { startDate, endDate } = validateUcWalkinRange(input.startDate, input.endDate);
+  const { pttypes, icode } = parseSiteWalkinSettings(await getAppSetting('site_settings'));
+  const page = Math.max(1, Math.trunc(Number(input.page || 1)));
+  const pageSize = Math.max(10, Math.min(200, Math.trunc(Number(input.pageSize || 50))));
+  const offset = (page - 1) * pageSize;
+  const connection = await getUTFConnection();
+
+  try {
+    const whereConditions: string[] = [
+      'o.vstdate BETWEEN ? AND ?',
+      `o.pttype IN (${pttypes.map(() => '?').join(',')})`,
+      "IFNULL(o.an, '') = ''",
+    ];
+    const whereParams: unknown[] = [startDate, endDate, ...pttypes];
+
+    if (input.search && input.search.trim()) {
+      const q = `%${input.search.trim()}%`;
+      whereConditions.push('(o.vn LIKE ? OR o.hn LIKE ? OR p.fname LIKE ? OR p.lname LIKE ?)');
+      whereParams.push(q, q, q, q);
+    }
+
+    if (input.serviceCategory === 'DENTAL') {
+      whereConditions.push(`(
+        o.main_dep IN (SELECT depcode FROM kskdepartment WHERE department LIKE '%ทันต%')
+        OR EXISTS (SELECT 1 FROM dtmain dm WHERE dm.vn = o.vn)
+        OR EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND (dx.icd10 LIKE 'K0%' OR dx.icd10 LIKE 'K1%' OR dx.icd10 = 'Z012'))
+        OR EXISTS (SELECT 1 FROM opitemrece oi WHERE oi.vn = o.vn AND oi.income IN ('08', '13'))
+      )`);
+    } else if (input.serviceCategory === 'GENERAL') {
+      whereConditions.push(`NOT (
+        o.main_dep IN (SELECT depcode FROM kskdepartment WHERE department LIKE '%ทันต%')
+        OR EXISTS (SELECT 1 FROM dtmain dm WHERE dm.vn = o.vn)
+        OR EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND (dx.icd10 LIKE 'K0%' OR dx.icd10 LIKE 'K1%' OR dx.icd10 = 'Z012'))
+        OR EXISTS (SELECT 1 FROM opitemrece oi WHERE oi.vn = o.vn AND oi.income IN ('08', '13'))
+      )`);
+    }
+
+    const whereClause = whereConditions.join(' AND ');
+
+    const [allVisitRows] = await connection.query(
+      `SELECT o.vn, o.hn, DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+              TIME_FORMAT(o.vsttime, '%H:%i:%s') AS service_time, o.pttype,
+              COALESCE(o.hospmain, '') AS hospmain,
+              COALESCE(CONCAT(p.pname, p.fname, ' ', p.lname), '') AS patient_name,
+              COALESCE(p.sex, '') AS sex,
+              COALESCE(TIMESTAMPDIFF(YEAR, p.birthday, o.vstdate), 0) AS age_y,
+              COALESCE(k.department, o.main_dep, '') AS department
+       FROM ovst o
+       LEFT JOIN patient p ON p.hn = o.hn
+       LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+       WHERE ${whereClause}
+       ORDER BY o.vstdate DESC, o.vsttime DESC
+       LIMIT 1000`,
+      whereParams
+    );
+
+    const visits = (Array.isArray(allVisitRows) ? allVisitRows : []) as Array<Record<string, unknown>>;
+    if (visits.length === 0) {
+      return {
+        summary: {
+          total_visits: 0,
+          valid_count: 0,
+          critical_count: 0,
+          warning_count: 0,
+          dental_total: 0,
+          dental_issue_count: 0,
+          missing_walkin_count: 0,
+        },
+        data: [],
+        total: 0,
+        page,
+        pageSize,
+      };
+    }
+
+    const vns = visits.map((v) => String(v.vn || ''));
+
+    const [diagRows] = await connection.query(
+      `SELECT d.vn, d.icd10, COALESCE(d.diagtype, '4') AS diagtype, COALESCE(i.name, '') AS name
+       FROM ovstdiag d
+       LEFT JOIN icd101 i ON i.code = d.icd10
+       WHERE d.vn IN (${vns.map(() => '?').join(',')})
+       ORDER BY d.vn, d.diagtype`,
+      vns
+    );
+
+    const [doctorOperRows] = await connection.query(
+      `SELECT dop.vn, dop.icd9 AS code, COALESCE(i.name, '') AS name, 'Doctor' AS type
+       FROM doctor_operation dop
+       LEFT JOIN icd9cm1 i ON REPLACE(i.code, '.', '') = REPLACE(dop.icd9, '.', '')
+       WHERE dop.vn IN (${vns.map(() => '?').join(',')})`,
+      vns
+    );
+
+    const [dentalOperRows] = await connection.query(
+      `SELECT dm.vn,
+              COALESCE(NULLIF(dm.icd9, ''), NULLIF(tm.icd10tm_operation_code, ''), NULLIF(tm.icd9cm, ''), dm.tmcode, '') AS code,
+              COALESCE(tm.name, 'หัตถการทันตกรรม') AS name,
+              'Dental' AS type
+       FROM dtmain dm
+       LEFT JOIN dttm tm ON tm.code = dm.tmcode
+       WHERE dm.vn IN (${vns.map(() => '?').join(',')})`,
+      vns
+    );
+
+    const [chargeRows] = await connection.query(
+      `SELECT opi.vn, opi.icode, opi.qty, opi.unitprice, opi.sum_price, opi.income,
+              COALESCE(sd.name, '') AS name
+       FROM opitemrece opi
+       LEFT JOIN s_drugitems sd ON sd.icode = opi.icode
+       WHERE opi.vn IN (${vns.map(() => '?').join(',')})`,
+      vns
+    );
+
+    const diagsByVn = new Map<string, Array<{ code: string; name?: string; diagtype: string }>>();
+    for (const raw of (Array.isArray(diagRows) ? diagRows : []) as Array<Record<string, unknown>>) {
+      const vn = String(raw.vn || '');
+      const list = diagsByVn.get(vn) || [];
+      list.push({ code: String(raw.icd10 || ''), name: String(raw.name || ''), diagtype: String(raw.diagtype || '4') });
+      diagsByVn.set(vn, list);
+    }
+
+    const procsByVn = new Map<string, Array<{ code: string; name?: string; type?: string }>>();
+    for (const raw of (Array.isArray(doctorOperRows) ? doctorOperRows : []) as Array<Record<string, unknown>>) {
+      const vn = String(raw.vn || '');
+      const list = procsByVn.get(vn) || [];
+      list.push({ code: String(raw.code || ''), name: String(raw.name || ''), type: 'Doctor' });
+      procsByVn.set(vn, list);
+    }
+    for (const raw of (Array.isArray(dentalOperRows) ? dentalOperRows : []) as Array<Record<string, unknown>>) {
+      const vn = String(raw.vn || '');
+      const list = procsByVn.get(vn) || [];
+      list.push({ code: String(raw.code || ''), name: String(raw.name || ''), type: 'Dental' });
+      procsByVn.set(vn, list);
+    }
+
+    const chargesByVn = new Map<string, Array<{ icode: string; name?: string; qty: number; unitprice: number; sum_price: number; income?: string }>>();
+    const walkinCountByVn = new Map<string, number>();
+    for (const raw of (Array.isArray(chargeRows) ? chargeRows : []) as Array<Record<string, unknown>>) {
+      const vn = String(raw.vn || '');
+      const itemIcode = String(raw.icode || '');
+      if (itemIcode === icode) {
+        walkinCountByVn.set(vn, (walkinCountByVn.get(vn) || 0) + 1);
+      }
+      const list = chargesByVn.get(vn) || [];
+      list.push({
+        icode: itemIcode,
+        name: String(raw.name || ''),
+        qty: Number(raw.qty || 0),
+        unitprice: Number(raw.unitprice || 0),
+        sum_price: Number(raw.sum_price || 0),
+        income: String(raw.income || ''),
+      });
+      chargesByVn.set(vn, list);
+    }
+
+    const evaluatedRows: UcWalkinClinicalAuditRow[] = [];
+    let validCount = 0;
+    let criticalCount = 0;
+    let warningCount = 0;
+    let dentalTotal = 0;
+    let dentalIssueCount = 0;
+    let missingWalkinCount = 0;
+
+    for (const v of visits) {
+      const vn = String(v.vn || '');
+      const walkinRows = walkinCountByVn.get(vn) || 0;
+      const charges = chargesByVn.get(vn) || [];
+      const evaluation = evaluateWalkinVisitAudit({
+        vn,
+        hn: String(v.hn || ''),
+        patient_name: String(v.patient_name || ''),
+        sex: String(v.sex || ''),
+        age_y: Number(v.age_y || 0),
+        service_date: String(v.service_date || ''),
+        service_time: String(v.service_time || ''),
+        pttype: String(v.pttype || ''),
+        hospmain: String(v.hospmain || ''),
+        department: String(v.department || ''),
+        diagnoses: diagsByVn.get(vn) || [],
+        procedures: procsByVn.get(vn) || [],
+        chargeItems: charges,
+        has_walkin: walkinRows > 0,
+        walkin_rows: walkinRows,
+      });
+
+      if (evaluation.audit_status === 'critical') criticalCount++;
+      else if (evaluation.audit_status === 'warning') warningCount++;
+      else validCount++;
+
+      if (evaluation.is_dental) {
+        dentalTotal++;
+        if (evaluation.audit_status !== 'valid') dentalIssueCount++;
+      }
+
+      if (walkinRows === 0) missingWalkinCount++;
+
+      if (input.auditStatus === 'CRITICAL' && evaluation.audit_status !== 'critical') continue;
+      if (input.auditStatus === 'WARNING' && evaluation.audit_status !== 'warning') continue;
+      if (input.auditStatus === 'VALID' && evaluation.audit_status !== 'valid') continue;
+
+      evaluatedRows.push({
+        vn,
+        hn: String(v.hn || ''),
+        patient_name: String(v.patient_name || ''),
+        sex: String(v.sex || ''),
+        age_y: Number(v.age_y || 0),
+        service_date: String(v.service_date || ''),
+        service_time: String(v.service_time || ''),
+        pttype: String(v.pttype || ''),
+        hospmain: String(v.hospmain || ''),
+        department: String(v.department || ''),
+        is_dental: evaluation.is_dental,
+        diagnoses: diagsByVn.get(vn) || [],
+        procedures: procsByVn.get(vn) || [],
+        has_walkin: walkinRows > 0,
+        walkin_rows: walkinRows,
+        total_charge: evaluation.total_charge,
+        issues: evaluation.issues,
+        audit_status: evaluation.audit_status,
+      });
+    }
+
+    const total = evaluatedRows.length;
+    const paginatedData = evaluatedRows.slice(offset, offset + pageSize);
+
+    return {
+      summary: {
+        total_visits: visits.length,
+        valid_count: validCount,
+        critical_count: criticalCount,
+        warning_count: warningCount,
+        dental_total: dentalTotal,
+        dental_issue_count: dentalIssueCount,
+        missing_walkin_count: missingWalkinCount,
+      } satisfies UcWalkinClinicalAuditSummary,
+      data: paginatedData,
+      total,
+      page,
+      pageSize,
+    };
+  } finally {
+    connection.release();
+  }
+};
+

@@ -141,7 +141,7 @@ import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
 import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 import { collaborationRouter } from './routes/collaborationRoutes.js';
-import { getUcOutsideCupWalkinAudit, insertMissingUcOutsideCupWalkin } from './ucOutsideCupWalkin.js';
+import { getUcOutsideCupClinicalAudit, getUcOutsideCupWalkinAudit, insertMissingUcOutsideCupWalkin } from './ucOutsideCupWalkin.js';
 import { completeKneeOpppVisit, getKneeOpppProviders, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
 import {
   completeAncDentalVisit,
@@ -3635,6 +3635,24 @@ app.get('/api/uc-outside-cup/walkin-audit', async (req, res) => {
     return res.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'ตรวจสอบ WALKIN ไม่สำเร็จ';
+    return res.status(/วันที่|ปีงบประมาณ/.test(message) ? 400 : 500).json({ success: false, error: message });
+  }
+});
+
+app.get('/api/uc-outside-cup/walkin-clinical-audit', async (req, res) => {
+  try {
+    const data = await getUcOutsideCupClinicalAudit({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      serviceCategory: req.query.serviceCategory === 'DENTAL' || req.query.serviceCategory === 'GENERAL' ? req.query.serviceCategory : 'ALL',
+      auditStatus: req.query.auditStatus === 'CRITICAL' || req.query.auditStatus === 'WARNING' || req.query.auditStatus === 'VALID' ? req.query.auditStatus : 'ALL',
+      search: req.query.search ? String(req.query.search) : undefined,
+      page: req.query.page ? Number(req.query.page) : 1,
+      pageSize: req.query.pageSize ? Number(req.query.pageSize) : 50,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ตรวจสอบเวชระเบียน WALKIN ไม่สำเร็จ';
     return res.status(/วันที่|ปีงบประมาณ/.test(message) ? 400 : 500).json({ success: false, error: message });
   }
 });

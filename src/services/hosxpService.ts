@@ -1216,6 +1216,87 @@ export const insertUcOutsideCupWalkin = async (payload: {
   return json.data as { insertedCount: number; startDate: string; endDate: string };
 };
 
+export interface WalkinAuditIssue {
+  code: string;
+  level: 'critical' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  recommendation: string;
+  category: 'dental' | 'clinical' | 'billing';
+}
+
+export interface UcWalkinClinicalAuditRow {
+  vn: string;
+  hn: string;
+  patient_name: string;
+  sex: string;
+  age_y: number;
+  service_date: string;
+  service_time: string;
+  pttype: string;
+  hospmain: string;
+  department: string;
+  is_dental: boolean;
+  diagnoses: Array<{
+    code: string;
+    name?: string;
+    diagtype: string;
+  }>;
+  procedures: Array<{
+    code: string;
+    name?: string;
+    type?: string;
+    tooth?: string;
+  }>;
+  has_walkin: boolean;
+  walkin_rows: number;
+  total_charge: number;
+  issues: WalkinAuditIssue[];
+  audit_status: 'critical' | 'warning' | 'valid';
+}
+
+export interface UcWalkinClinicalAuditSummary {
+  total_visits: number;
+  valid_count: number;
+  critical_count: number;
+  warning_count: number;
+  dental_total: number;
+  dental_issue_count: number;
+  missing_walkin_count: number;
+}
+
+export interface UcWalkinClinicalAuditResponse {
+  summary: UcWalkinClinicalAuditSummary;
+  data: UcWalkinClinicalAuditRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export const fetchUcOutsideCupClinicalAudit = async (params: {
+  startDate?: string;
+  endDate?: string;
+  serviceCategory?: 'ALL' | 'DENTAL' | 'GENERAL';
+  auditStatus?: 'ALL' | 'CRITICAL' | 'WARNING' | 'VALID';
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<UcWalkinClinicalAuditResponse> => {
+  const query = new URLSearchParams();
+  if (params.startDate) query.set('startDate', params.startDate);
+  if (params.endDate) query.set('endDate', params.endDate);
+  if (params.serviceCategory && params.serviceCategory !== 'ALL') query.set('serviceCategory', params.serviceCategory);
+  if (params.auditStatus && params.auditStatus !== 'ALL') query.set('auditStatus', params.auditStatus);
+  if (params.search?.trim()) query.set('search', params.search.trim());
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+
+  const response = await fetch(`/api/uc-outside-cup/walkin-clinical-audit?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'ตรวจสอบเวชระเบียน WALKIN ไม่สำเร็จ');
+  return json.data as UcWalkinClinicalAuditResponse;
+};
+
 export interface Uuc1TrackingSummary {
   total_visits: number;
   rep_received: number;

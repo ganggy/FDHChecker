@@ -3172,6 +3172,20 @@ button.ipd-monitor-kpi:hover { transform: translateY(-1px); box-shadow: 0 10px 2
 @media (max-width: 1280px) { .uc-cup-filters { grid-template-columns: repeat(3, 1fr); }.uc-cup-kpis { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 760px) { .uc-cup-hero { align-items: stretch; flex-direction: column; }.uc-cup-filters, .uc-cup-kpis, .uc-cup-evidence, .uc-cup-clinical dl { grid-template-columns: 1fr; }.uc-cup-code-list article { grid-template-columns: 70px 90px 1fr; }.uc-cup-page .uc-cup-prescription-table { min-width: 680px; } }
 
+.uc-cup-tabs { display: flex; gap: 8px; border-bottom: 2px solid #e2e8f0; padding-bottom: 0; margin-bottom: 4px; }
+.uc-cup-tab-btn { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border: none; border-bottom: 3px solid transparent; background: transparent; color: #64748b; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; }
+.uc-cup-tab-btn:hover { color: #1e40af; background: #f8fafc; border-radius: 8px 8px 0 0; }
+.uc-cup-tab-btn.is-active { color: #2563eb; border-bottom-color: #2563eb; background: #eff6ff; border-radius: 8px 8px 0 0; }
+.uc-cup-kpis .is-critical-kpi { border-color: #fca5a5; background: #fef2f2; }
+.uc-cup-kpis .is-dental-kpi { border-color: #fde68a; background: #fffbeb; }
+.uc-cup-kpis .is-valid-kpi { border-color: #bbf7d0; background: #f0fdf4; }
+.uc-cup-kpis .is-warning-kpi { border-color: #fed7aa; background: #fffaf5; }
+.uc-audit-table tr.row-critical { background: #fff5f5; }
+.uc-audit-table tr.row-critical:hover { background: #fee2e2; }
+.uc-audit-table tr.row-warning { background: #fffdf5; }
+.uc-audit-table tr.row-warning:hover { background: #fef9c3; }
+
+
 .password-dialog-backdrop {
   position: fixed;
   z-index: 3000;

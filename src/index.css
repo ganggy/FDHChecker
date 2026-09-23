@@ -1717,8 +1717,15 @@ p {
 
 /* FDH OPD export filters: keep long fund/status values readable and group actions by task. */
 .fdh-filter-card {
+  position: relative;
+  z-index: 5;
   overflow: visible;
   border-color: #cbdcf8;
+}
+
+.fdh-filter-card--dropdown-open,
+.fdh-filter-card:has(.fdh-filter-pttype-group--open) {
+  z-index: 1200 !important;
 }
 
 .fdh-filter-heading {
@@ -1899,16 +1906,18 @@ p {
   left: 0;
   min-width: 340px;
   max-width: min(480px, 92vw);
+  max-height: min(480px, calc(100vh - 160px));
   width: max-content;
   background: var(--surface, #ffffff);
   border: 1px solid var(--border, #cbd5e1);
   border-radius: 14px;
-  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.22);
-  z-index: 1300;
+  box-shadow: 0 20px 45px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(0, 0, 0, 0.08);
+  z-index: 99999 !important;
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  box-sizing: border-box;
 }
 
 .fdh-checklist-header {

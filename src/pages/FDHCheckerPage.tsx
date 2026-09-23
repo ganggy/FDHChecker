@@ -644,7 +644,14 @@ export const FDHCheckerPage: React.FC = () => {
                 </div>
             </details>
 
-            <div className="card fdh-filter-card" style={{ marginBottom: 16 }}>
+            <div
+                className={`card fdh-filter-card${isPttypeDropdownOpen ? ' fdh-filter-card--dropdown-open' : ''}`}
+                style={{
+                    marginBottom: 16,
+                    position: 'relative',
+                    zIndex: isPttypeDropdownOpen ? 1200 : 2,
+                }}
+            >
                 <div className="fdh-filter-heading">
                     <div>
                         <div className="fdh-filter-title">ตั้งค่าชุดส่งออกและตัวกรอง</div>
@@ -721,7 +728,13 @@ export const FDHCheckerPage: React.FC = () => {
                         </div>
                     </section>
 
-                    <section className="fdh-filter-section">
+                    <section
+                        className="fdh-filter-section"
+                        style={{
+                            position: 'relative',
+                            zIndex: isPttypeDropdownOpen ? 1250 : 2,
+                        }}
+                    >
                         <div className="fdh-filter-section-label">
                             <span className="fdh-filter-step">2</span>
                             <span>กรองรายการในตาราง</span>
@@ -949,7 +962,13 @@ export const FDHCheckerPage: React.FC = () => {
                         </div>
                     </section>
 
-                    <section className="fdh-filter-section fdh-filter-section--last">
+                    <section
+                        className="fdh-filter-section fdh-filter-section--last"
+                        style={{
+                            position: 'relative',
+                            zIndex: 1,
+                        }}
+                    >
                         <div className="fdh-filter-section-label">
                             <span className="fdh-filter-step">3</span>
                             <span>เลือกช่วงบริการและดึงข้อมูล</span>

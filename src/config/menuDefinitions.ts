@@ -48,6 +48,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกันสุขภาพ' },
   { page: 'accountingRevenueBudget', icon: '🧮', label: 'รายงานบัญชี / ประมาณการรายได้' },
   { page: 'ucOutsideCup', icon: '🏥', label: 'UC นอก CUP (WALKIN)' },
+  { page: 'dentalAudit', icon: '🦷', label: 'ตรวจสอบงานห้องฟัน' },
   { page: 'repDeny', icon: '⚠️', label: 'รายการติด C / ปฏิเสธจ่าย' },
   { page: 'admin', icon: '📊', label: 'Dashboard ภาพรวม' },
   { page: 'memberAdmin', icon: '👥', label: 'สมาชิกและสิทธิ์เมนู' },
@@ -68,7 +69,7 @@ export const toolNavItems: NavItem[] = [
 export const toolNavGroups: NavGroup[] = [
   { label: 'นำเข้า/ตรวจสิทธิ', icon: '📥', pages: ['authenSync', 'fdhImport', 'fdhClaimDetail', 'preValidator', 'repstm'] },
   { label: 'ติดตามผลเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
-  { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
+  { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['dentalAudit', 'fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
   { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'receivableSettlement', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
   { label: 'รายงาน/สถิติ', icon: '📊', pages: ['aiReports', 'hospitalReports', 'admin'] },

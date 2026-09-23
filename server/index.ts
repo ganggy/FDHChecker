@@ -148,6 +148,11 @@ import {
   getUcOutsideCupWalkinAudit,
   insertMissingUcOutsideCupWalkin,
 } from './ucOutsideCupWalkin.js';
+import {
+  batchFixDentalClinicalVisits,
+  fixDentalClinicalVisit,
+  getDentalClinicalAudit,
+} from './dentalAudit.js';
 import { completeKneeOpppVisit, getKneeOpppProviders, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
 import {
   completeAncDentalVisit,
@@ -863,6 +868,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/nhso\/close(\/|$)/, pages: ['nhsoClose'] },
   { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
   { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
+  { pattern: /^\/dental-audit(\/|$)/, pages: ['dentalAudit'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
   { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'repstmManage', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
@@ -3714,6 +3720,59 @@ app.post('/api/uc-outside-cup/walkin-clinical-fix-batch', requireAdmin, async (r
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'แก้ไขข้อมูลทางคลินิกแบบกลุ่มไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.get('/api/dental-audit/visits', async (req, res) => {
+  try {
+    const data = await getDentalClinicalAudit({
+      startDate: req.query.startDate ? String(req.query.startDate) : undefined,
+      endDate: req.query.endDate ? String(req.query.endDate) : undefined,
+      scheme: (req.query.scheme as any) || 'ALL',
+      category: (req.query.category as any) || 'ALL',
+      auditStatus: (req.query.auditStatus as any) || 'ALL',
+      search: req.query.search ? String(req.query.search) : undefined,
+      page: req.query.page ? Number(req.query.page) : 1,
+      pageSize: req.query.pageSize ? Number(req.query.pageSize) : 50,
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ตรวจสอบเวชระเบียนทันตกรรมไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/dental-audit/fix-single', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.authUser;
+    const vn = String(req.body?.vn || '').trim();
+    if (!vn) return res.status(400).json({ success: false, error: 'ระบุ VN ไม่ถูกต้อง' });
+    const result = await fixDentalClinicalVisit({
+      vn,
+      actorUserId: Number(user?.id || 0) || null,
+      actorName: String(user?.display_name || user?.username || 'admin'),
+    });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'แก้ไขข้อมูลทันตกรรมไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/dental-audit/fix-batch', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.authUser;
+    const vns = Array.isArray(req.body?.vns) ? req.body.vns : [];
+    if (!vns.length) return res.status(400).json({ success: false, error: 'ไม่พบรายการ VN ที่ต้องการแก้ไข' });
+    const result = await batchFixDentalClinicalVisits({
+      vns,
+      actorUserId: Number(user?.id || 0) || null,
+      actorName: String(user?.display_name || user?.username || 'admin'),
+    });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'แก้ไขข้อมูลทันตกรรมแบบกลุ่มไม่สำเร็จ';
     return res.status(500).json({ success: false, error: message });
   }
 });

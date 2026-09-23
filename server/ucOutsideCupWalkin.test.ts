@@ -321,5 +321,48 @@ test('Dental Audit: dental visit with K05.1 and Z01.2 but no procedures flags C-
   assert.equal(result.can_auto_fix, true);
   assert.ok(result.auto_fix_actions.includes('ADD_DENTAL_EXAM'));
 });
+test('Dental Audit: standard oral examination (2330010) on male patient does NOT trigger C-808-ANC-PROC-MIXED', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '690923000159',
+    hn: '000005492',
+    sex: '1', // Male (e.g. นายก้อน)
+    service_date: '2026-09-23',
+    diagnoses: [{ code: 'Z01.2', diagtype: '1' }],
+    procedures: [{ code: '2330010', name: 'ตรวจสุขภาพช่องปาก', type: 'Dental' }],
+    chargeItems: [{ icode: '3000047', sum_price: 100, income: '66' }],
+    has_walkin: true,
+  });
 
+  assert.equal(result.is_dental, true);
+  const ancIssue = result.issues.find((i) => i.code === 'C-808-ANC-PROC-MIXED');
+  assert.equal(ancIssue, undefined, '2330010 must not be flagged as ANC procedure');
+  assert.equal(result.audit_status, 'valid');
+});
 
+test('Dental Audit: dental visit with procedures but no diagnosis flags C-MISSING-PDX and C-800-NO-DENTAL-DX with ADD_DENTAL_PDX', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '690923000159',
+    hn: '000005492',
+    sex: '1',
+    service_date: '2026-09-23',
+    diagnoses: [], // completely missing diagnosis
+    procedures: [{ code: '2330010', name: 'ตรวจสุขภาพช่องปาก', type: 'Dental' }],
+    chargeItems: [{ icode: '3000047', sum_price: 100, income: '66' }],
+    has_walkin: true,
+  });
+
+  assert.equal(result.is_dental, true);
+  assert.equal(result.audit_status, 'critical');
+  const missingPdx = result.issues.find((i) => i.code === 'C-MISSING-PDX');
+  assert.ok(missingPdx, 'Should flag C-MISSING-PDX');
+  assert.equal(missingPdx.autoFixable, true);
+  assert.equal(missingPdx.fixAction, 'ADD_DENTAL_PDX');
+
+  const noDentalDx = result.issues.find((i) => i.code === 'C-800-NO-DENTAL-DX');
+  assert.ok(noDentalDx, 'Should flag C-800-NO-DENTAL-DX');
+  assert.equal(noDentalDx.autoFixable, true);
+  assert.equal(noDentalDx.fixAction, 'ADD_DENTAL_PDX');
+
+  assert.equal(result.can_auto_fix, true);
+  assert.ok(result.auto_fix_actions.includes('ADD_DENTAL_PDX'));
+});

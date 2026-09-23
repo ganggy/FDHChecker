@@ -241,7 +241,8 @@ export type WalkinAutoFixAction =
   | 'REMOVE_ANC_PROC'
   | 'SYNC_DENTAL_PROC'
   | 'REMOVE_NUMERIC_DX'
-  | 'ADD_DENTAL_EXAM';
+  | 'ADD_DENTAL_EXAM'
+  | 'ADD_DENTAL_PDX';
 
 export type WalkinAuditIssue = {
   code: string;
@@ -536,13 +537,15 @@ export const evaluateWalkinVisitAudit = (visit: {
         level: 'critical',
         title: 'มีหัตถการทันตกรรมแต่ไม่พบรหัสวินิจฉัยหมวดฟัน (K00-K14)',
         detail: 'มีการทำหัตถการทันตกรรม แต่รหัสโรคในเวชระเบียนไม่มีหมวดช่องปากและฟันเลย เสี่ยงติด C Error 800',
-        recommendation: 'เพิ่มรหัสการวินิจฉัยโรคฟัน (K00-K14) ในระบบทันตกรรม HOSxP',
+        recommendation: 'เพิ่มรหัสการวินิจฉัยโรคฟันที่สอดคล้องกับหัตถการ (เช่น Z01.2 สำหรับตรวจฟัน, K05.1 สำหรับขูดหินปูน) ให้อัตโนมัติ',
         category: 'dental',
+        autoFixable: true,
+        fixAction: 'ADD_DENTAL_PDX',
       });
     }
 
     // Rule D9: หัตถการส่งเสริมป้องกัน ANC ปะปนในบริการทันตกรรมปกติ (C-808-ANC-PROC-MIXED)
-    const ancProcCodes = new Set(['2330011', '2330010', '2387010', '2277310', '2287310']);
+    const ancProcCodes = new Set(['2330011', '2387010']);
     const hasAncProc = procedures.some((p) => {
       const c = clean(p.code);
       const tm = clean(p.tmcode);
@@ -602,14 +605,27 @@ export const evaluateWalkinVisitAudit = (visit: {
 
   // Rule G1: ขาดรหัสการวินิจฉัยโรคหลัก (PDX)
   if (!pdx) {
-    issues.push({
-      code: 'C-MISSING-PDX',
-      level: 'critical',
-      title: 'ขาดรหัสการวินิจฉัยโรคหลัก (PDX)',
-      detail: 'ไม่พบรหัสโรคหลัก (diagtype=1) ในเวชระเบียน ทำให้ไม่สามารถส่งเบิก e-Claim ได้',
-      recommendation: 'กำหนดรหัสโรคหลัก (diagtype=1) ในหน้าเวชระเบียน OPD HOSxP',
-      category: 'clinical',
-    });
+    if (is_dental) {
+      issues.push({
+        code: 'C-MISSING-PDX',
+        level: 'critical',
+        title: 'ขาดรหัสการวินิจฉัยโรคหลัก (PDX)',
+        detail: 'ไม่พบรหัสโรคหลัก (diagtype=1) ในเวชระเบียน ทำให้ไม่สามารถส่งเบิก e-Claim ได้',
+        recommendation: 'กำหนดรหัสโรคหลักที่สอดคล้องกับหัตถการทันตกรรม (เช่น Z01.2 สำหรับตรวจฟัน, K05.1 สำหรับขูดหินปูน) ให้อัตโนมัติ',
+        category: 'clinical',
+        autoFixable: true,
+        fixAction: 'ADD_DENTAL_PDX',
+      });
+    } else {
+      issues.push({
+        code: 'C-MISSING-PDX',
+        level: 'critical',
+        title: 'ขาดรหัสการวินิจฉัยโรคหลัก (PDX)',
+        detail: 'ไม่พบรหัสโรคหลัก (diagtype=1) ในเวชระเบียน ทำให้ไม่สามารถส่งเบิก e-Claim ได้',
+        recommendation: 'กำหนดรหัสโรคหลัก (diagtype=1) ในหน้าเวชระเบียน OPD HOSxP',
+        category: 'clinical',
+      });
+    }
   }
 
   // Rule G2: ใช้รหัสสาเหตุภายนอก (V-Y) เป็นโรคหลัก (PDX)
@@ -1350,9 +1366,9 @@ export const fixWalkinClinicalVisit = async (
          LEFT JOIN dttm tm ON tm.code = dm.tmcode
          WHERE dm.vn = ?
            AND (
-             COALESCE(tm.icd10tm_operation_code, '') IN ('2330011', '2330010', '2387010', '2277310', '2287310')
-             OR dm.tmcode IN ('2330011', '2330010', '2387010', '2277310', '2287310')
-             OR COALESCE(dm.icd9, '') IN ('2330011', '2330010', '2387010', '2277310', '2287310')
+             COALESCE(tm.icd10tm_operation_code, '') IN ('2330011', '2387010')
+             OR dm.tmcode IN ('2330011', '2387010')
+             OR COALESCE(dm.icd9, '') IN ('2330011', '2387010')
              OR COALESCE(tm.name, '') LIKE '%หญิงมีครรภ์%'
              OR COALESCE(tm.name, '') LIKE '%หญิงตั้งครรภ์%'
              OR COALESCE(tm.name, '') LIKE '%ANC%'
@@ -1367,9 +1383,9 @@ export const fixWalkinClinicalVisit = async (
          LEFT JOIN dttm tm ON tm.code = dm.tmcode
          WHERE dm.vn = ?
            AND (
-             COALESCE(tm.icd10tm_operation_code, '') IN ('2330011', '2330010', '2387010', '2277310', '2287310')
-             OR dm.tmcode IN ('2330011', '2330010', '2387010', '2277310', '2287310')
-             OR COALESCE(dm.icd9, '') IN ('2330011', '2330010', '2387010', '2277310', '2287310')
+             COALESCE(tm.icd10tm_operation_code, '') IN ('2330011', '2387010')
+             OR dm.tmcode IN ('2330011', '2387010')
+             OR COALESCE(dm.icd9, '') IN ('2330011', '2387010')
              OR COALESCE(tm.name, '') LIKE '%หญิงมีครรภ์%'
              OR COALESCE(tm.name, '') LIKE '%หญิงตั้งครรภ์%'
              OR COALESCE(tm.name, '') LIKE '%ANC%'
@@ -1381,7 +1397,7 @@ export const fixWalkinClinicalVisit = async (
       const [delDopRes] = await connection.query(
         `DELETE FROM doctor_operation
          WHERE vn = ?
-           AND icd9 IN ('2330011', '2330010', '2387010', '2277310', '2287310')`,
+           AND icd9 IN ('2330011', '2387010')`,
         [vn]
       );
       const deletedDop = Number((delDopRes as { affectedRows?: number }).affectedRows || 0);
@@ -1566,7 +1582,94 @@ export const fixWalkinClinicalVisit = async (
         );
 
         executedActions.push(`บันทึกหัตถการตรวจสุขภาพช่องปาก (Oral examination: รหัส ${tmcode} / ${icd9}) ลงใน dtmain เรียบร้อย`);
+
+        // If visit has no diagnosis in ovstdiag, also add Z01.2 as PDX
+        if (diags.length === 0) {
+          const [maxDiagRows] = await connection.query(
+            `SELECT COALESCE(MAX(ovst_diag_id), 0) AS max_id FROM ovstdiag`
+          );
+          const nextDiagId = Number((maxDiagRows as Array<{ max_id: number }>)[0]?.max_id || 0) + 1;
+          await connection.query(
+            `INSERT INTO ovstdiag (
+              ovst_diag_id, vn, icd10, hn, vstdate, vsttime, diagtype, doctor, episode
+            ) VALUES (?, ?, 'Z012', ?, ?, ?, '1', ?, 1)`,
+            [nextDiagId, vn, ovstHn, vstdate, vsttime, ovstDoctor]
+          );
+          await connection.query(`UPDATE vn_stat SET pdx = 'Z012' WHERE vn = ?`, [vn]);
+          executedActions.push('เพิ่มรหัสโรคหลัก Z01.2 (Dental examination) ใน ovstdiag และ vn_stat');
+        }
       }
+    } else if (action === 'ADD_DENTAL_PDX') {
+      const [ovstData] = await connection.query(
+        `SELECT hn, vstdate, vsttime, doctor FROM ovst WHERE vn = ? LIMIT 1`,
+        [vn]
+      );
+      const ovst = (Array.isArray(ovstData) ? ovstData[0] : null) as Record<string, unknown> | null;
+      const vstdate = ovst?.vstdate;
+      const vsttime = ovst?.vsttime;
+      const ovstDoctor = String(ovst?.doctor || '900');
+      const ovstHn = String(ovst?.hn || hn);
+
+      const clean = (val: unknown) => String(val || '').trim().toUpperCase().replace(/[.\s-]/g, '');
+      let dentalPdx = 'Z012';
+      let dentalPdxDesc = 'Z01.2 (Dental examination)';
+
+      const hasScaling = procs.some((p) => {
+        const c = clean(p.code);
+        return c === '9654' || c === '9651' || String(p.name || '').includes('ขูดหินปูน');
+      });
+      const hasFilling = procs.some((p) => {
+        const c = clean(p.code);
+        return c.startsWith('232') || c.startsWith('234') || String(p.name || '').includes('อุดฟัน');
+      });
+      const hasExtraction = procs.some((p) => {
+        const c = clean(p.code);
+        return c.startsWith('230') || c.startsWith('231') || String(p.name || '').includes('ถอนฟัน');
+      });
+      const hasImpacted = procs.some((p) => {
+        const c = clean(p.code);
+        return c === '2319' || String(p.name || '').includes('ผ่าฟันคุด');
+      });
+
+      if (hasImpacted) {
+        dentalPdx = 'K011';
+        dentalPdxDesc = 'K01.1 (Impacted teeth)';
+      } else if (hasScaling) {
+        dentalPdx = 'K051';
+        dentalPdxDesc = 'K05.1 (Chronic gingivitis)';
+      } else if (hasFilling || hasExtraction) {
+        dentalPdx = 'K021';
+        dentalPdxDesc = 'K02.1 (Caries of dentine)';
+      }
+
+      const [existingDiagRows] = await connection.query(
+        `SELECT ovst_diag_id, diagtype FROM ovstdiag WHERE vn = ? AND icd10 = ? LIMIT 1`,
+        [vn, dentalPdx]
+      );
+      const existingDiag = (Array.isArray(existingDiagRows) ? existingDiagRows[0] : null) as Record<string, unknown> | null;
+
+      if (existingDiag) {
+        await connection.query(
+          `UPDATE ovstdiag SET diagtype = '1' WHERE vn = ? AND ovst_diag_id = ?`,
+          [vn, existingDiag.ovst_diag_id]
+        );
+      } else {
+        const [maxDiagRows] = await connection.query(
+          `SELECT COALESCE(MAX(ovst_diag_id), 0) AS max_id FROM ovstdiag`
+        );
+        const nextDiagId = Number((maxDiagRows as Array<{ max_id: number }>)[0]?.max_id || 0) + 1;
+        await connection.query(
+          `INSERT INTO ovstdiag (
+            ovst_diag_id, vn, icd10, hn, vstdate, vsttime, diagtype, doctor, episode
+          ) VALUES (?, ?, ?, ?, ?, ?, '1', ?, 1)`,
+          [nextDiagId, vn, dentalPdx, ovstHn, vstdate, vsttime, ovstDoctor]
+        );
+      }
+
+      await connection.query(`UPDATE vn_stat SET pdx = ? WHERE vn = ?`, [dentalPdx, vn]);
+      await connection.query(`UPDATE dtmain SET icd = ? WHERE vn = ? AND (icd IS NULL OR icd = '')`, [dentalPdx, vn]);
+
+      executedActions.push(`กำหนดรหัสโรคหลัก (PDX) เป็น ${dentalPdxDesc} ใน ovstdiag และ vn_stat เรียบร้อย`);
     }
   }
 

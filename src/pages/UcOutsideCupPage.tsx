@@ -1043,7 +1043,12 @@ export const UcOutsideCupPage = () => {
                         <strong style={{ color: '#0284c7' }}>บันทึกหัตถการตรวจสุขภาพช่องปาก (Oral examination: 2330010 / 89.31)</strong> ลงในระบบทันตกรรม (dtmain) เพื่อให้มีหัตถการสอดคล้องกับค่าบริการและป้องกัน C Error 804
                       </span>
                     )}
-                    {!['ADD_K051', 'ADD_K021', 'ADD_K011', 'ADD_K083', 'SWAP_Z012', 'REMOVE_DUP_DX', 'INSERT_WALKIN', 'REMOVE_ANC_PROC', 'SYNC_DENTAL_PROC', 'REMOVE_NUMERIC_DX', 'ADD_DENTAL_EXAM'].includes(action) && (
+                    {action === 'ADD_DENTAL_PDX' && (
+                      <span>
+                        <strong style={{ color: '#16a34a' }}>กำหนดรหัสโรคหลัก (PDX) ทางทันตกรรม</strong> (เช่น Z01.2 ตรวจฟัน, K05.1 ขูดหินปูน, K02.1 อุด/ถอนฟัน) ลงใน ovstdiag และ vn_stat เพื่อแก้ไขปัญหาขาดโรคหลัก
+                      </span>
+                    )}
+                    {!['ADD_K051', 'ADD_K021', 'ADD_K011', 'ADD_K083', 'SWAP_Z012', 'REMOVE_DUP_DX', 'INSERT_WALKIN', 'REMOVE_ANC_PROC', 'SYNC_DENTAL_PROC', 'REMOVE_NUMERIC_DX', 'ADD_DENTAL_EXAM', 'ADD_DENTAL_PDX'].includes(action) && (
                       <strong>{action}</strong>
                     )}
                   </li>
@@ -1143,6 +1148,10 @@ export const UcOutsideCupPage = () => {
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                   <span>🦷</span>
                   <span><strong>บันทึกตรวจสุขภาพช่องปาก (2330010/89.31)</strong>: เพิ่มหัตถการ Oral examination ลง dtmain สำหรับเคสที่มีบริการทันตกรรมแต่ไม่มีการลงหัตถการ</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🩺</span>
+                  <span><strong>กำหนดรหัสโรคหลักทันตกรรม (PDX)</strong>: กำหนดรหัสโรคหลัก (เช่น Z01.2, K05.1) ใน ovstdiag สำหรับเคสทันตกรรมที่ยังไม่มีการลงรหัสโรค</span>
                 </div>
               </div>
             </div>

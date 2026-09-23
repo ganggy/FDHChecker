@@ -35,6 +35,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'sssExport', icon: '📦', label: 'ส่งออก SSOP (ประกันสังคม)' },
   { page: 'sssRepStm', icon: '📥', label: 'REP/STM ประกันสังคม' },
   { page: 'authenSync', icon: '🪪', label: 'ตรวจสอบ Authen สปสช.' },
+  { page: 'ktbApproveCode', icon: '🏦', label: 'นำเข้า Approve Code KTB (EDC)' },
   { page: 'preValidator', icon: '✅', label: 'ตรวจความพร้อม 16 แฟ้ม' },
   { page: 'workQueue', icon: '📋', label: 'คิวงานส่งตรวจ' },
   { page: 'rejectTracking', icon: '🔴', label: 'ติดตามเคส Reject' },
@@ -67,9 +68,9 @@ export const toolNavItems: NavItem[] = [
 ];
 
 export const toolNavGroups: NavGroup[] = [
-  { label: 'นำเข้า/ตรวจสิทธิ', icon: '📥', pages: ['authenSync', 'fdhImport', 'fdhClaimDetail', 'preValidator', 'repstm'] },
+  { label: 'นำเข้า/ตรวจสิทธิ', icon: '📥', pages: ['authenSync', 'ktbApproveCode', 'fdhImport', 'fdhClaimDetail', 'preValidator', 'repstm'] },
   { label: 'ติดตามผลเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
-  { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['dentalAudit', 'fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
+  { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['dentalAudit', 'fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'ktbApproveCode', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
   { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'receivableSettlement', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
   { label: 'รายงาน/สถิติ', icon: '📊', pages: ['aiReports', 'hospitalReports', 'admin'] },

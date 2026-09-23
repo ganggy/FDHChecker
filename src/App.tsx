@@ -38,6 +38,7 @@ const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewP
 const AccountingRevenueBudgetPage = lazyNamed(() => import('./pages/AccountingRevenueBudgetPage'), 'AccountingRevenueBudgetPage');
 const UcOutsideCupPage = lazyNamed(() => import('./pages/UcOutsideCupPage'), 'UcOutsideCupPage');
 const DentalAuditPage = lazyNamed(() => import('./pages/DentalAuditPage'), 'DentalAuditPage');
+const KtbApproveCodeImportPage = lazyNamed(() => import('./pages/KtbApproveCodeImportPage'), 'KtbApproveCodeImportPage');
 const VisitReconciliationPage = lazy(() => import('./pages/VisitReconciliationPage'));
 const RepDailySummaryPage = lazy(() => import('./pages/RepDailySummaryPage'));
 const PpfsBenchmarkPage = lazy(() => import('./pages/PpfsBenchmarkPage'));
@@ -515,6 +516,7 @@ function App() {
         {currentPage === 'accountingRevenueBudget' && <AccountingRevenueBudgetPage />}
         {currentPage === 'ucOutsideCup' && <UcOutsideCupPage />}
         {currentPage === 'dentalAudit' && <DentalAuditPage />}
+        {currentPage === 'ktbApproveCode' && <KtbApproveCodeImportPage />}
         {currentPage === 'reconciliation' && <VisitReconciliationPage />}
         {currentPage === 'repDailySummary' && <RepDailySummaryPage />}
         {currentPage === 'ppfsBenchmark' && <PpfsBenchmarkPage />}

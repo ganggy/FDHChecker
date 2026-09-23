@@ -154,6 +154,11 @@ import {
   fixDentalClinicalVisit,
   getDentalClinicalAudit,
 } from './dentalAudit.js';
+import {
+  parseKtbFile,
+  matchKtbRowsWithHosxp,
+  applyKtbApproveCodes,
+} from './ktbApproveCode.js';
 import { completeKneeOpppVisit, getKneeOpppProviders, previewKneeOpppCompletion } from './kneeOpppCompletion.js';
 import {
   completeAncDentalVisit,
@@ -870,6 +875,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
   { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
   { pattern: /^\/dental-audit(\/|$)/, pages: ['dentalAudit'] },
+  { pattern: /^\/ktb-approve(\/|$)/, pages: ['ktbApproveCode'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
   { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'repstmManage', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
@@ -3791,6 +3797,68 @@ app.post('/api/dental-audit/fix-batch', requireAdmin, async (req: AuthenticatedR
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'แก้ไขข้อมูลทันตกรรมแบบกลุ่มไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+// ============================================================================
+// KTB EDC Approve Code Import & Matching Routes
+// ============================================================================
+
+app.post('/api/ktb-approve/upload-and-match', async (req, res) => {
+  try {
+    const { filename, fileBase64, fileContent } = req.body as {
+      filename?: string;
+      fileBase64?: string;
+      fileContent?: string;
+    };
+
+    let buffer: Buffer;
+    if (fileBase64) {
+      const base64Clean = fileBase64.replace(/^data:.*?;base64,/, '');
+      buffer = Buffer.from(base64Clean, 'base64');
+    } else if (fileContent) {
+      buffer = Buffer.from(fileContent, 'utf8');
+    } else {
+      return res.status(400).json({ success: false, error: 'กรุณาอัปโหลดไฟล์ ZIP หรือ TXT ของ KTB' });
+    }
+
+    const rows = parseKtbFile(buffer, filename || '');
+    if (rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'ไม่พบรายการข้อมูลในไฟล์ที่อัปโหลด' });
+    }
+
+    const connection = await getUTFConnection();
+    try {
+      const matchResult = await matchKtbRowsWithHosxp(rows, connection);
+      return res.json({ success: true, data: matchResult });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการประมวลผลไฟล์ KTB';
+    console.error('Error in /api/ktb-approve/upload-and-match:', error);
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/ktb-approve/apply', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    if (entries.length === 0) {
+      return res.status(400).json({ success: false, error: 'ไม่พบรายการที่ต้องการบันทึก' });
+    }
+
+    const connection = await getUTFConnection();
+    try {
+      const result = await applyKtbApproveCodes(entries, connection);
+      return res.json({ success: true, data: result });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการบันทึกข้อมูล Approve Code';
+    console.error('Error in /api/ktb-approve/apply:', error);
     return res.status(500).json({ success: false, error: message });
   }
 });

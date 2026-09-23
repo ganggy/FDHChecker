@@ -2152,7 +2152,7 @@ export const getSpecificFundData = async (
               AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U59%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7810')
           ) as oper_codes,
           (
-            SELECT GROUP_CONCAT(DISTINCT ki.item_name ORDER BY ki.item_name SEPARATOR ' | ')
+            SELECT GROUP_CONCAT(DISTINCT ki.health_med_operation_item_name ORDER BY ki.health_med_operation_item_name SEPARATOR ' | ')
             FROM health_med_service ks
             JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
             JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
@@ -2226,7 +2226,7 @@ export const getSpecificFundData = async (
             WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U60%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^87[1-4]7820')
           ) as oper_codes,
           (
-            SELECT GROUP_CONCAT(DISTINCT ki.item_name ORDER BY ki.item_name SEPARATOR ' | ')
+            SELECT GROUP_CONCAT(DISTINCT ki.health_med_operation_item_name ORDER BY ki.health_med_operation_item_name SEPARATOR ' | ')
             FROM health_med_service ks
             JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
             JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
@@ -2278,7 +2278,7 @@ export const getSpecificFundData = async (
             WHERE ks.vn = o.vn AND (REPLACE(ki.icd10tm, '-', '') LIKE 'U61%' OR REPLACE(ki.icd10tm, '-', '') REGEXP '^8707830')
           ) as oper_codes,
           (
-            SELECT GROUP_CONCAT(DISTINCT ki.item_name ORDER BY ki.item_name SEPARATOR ' | ')
+            SELECT GROUP_CONCAT(DISTINCT ki.health_med_operation_item_name ORDER BY ki.health_med_operation_item_name SEPARATOR ' | ')
             FROM health_med_service ks
             JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
             JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
@@ -2329,7 +2329,7 @@ export const getSpecificFundData = async (
             WHERE ks.vn = o.vn AND REPLACE(ki.icd10tm, '-', '') LIKE 'U62%'
           ) as oper_codes,
           (
-            SELECT GROUP_CONCAT(DISTINCT ki.item_name ORDER BY ki.item_name SEPARATOR ' | ')
+            SELECT GROUP_CONCAT(DISTINCT ki.health_med_operation_item_name ORDER BY ki.health_med_operation_item_name SEPARATOR ' | ')
             FROM health_med_service ks
             JOIN health_med_service_operation kop ON kop.health_med_service_id = ks.health_med_service_id
             JOIN health_med_operation_item ki ON ki.health_med_operation_item_id = kop.health_med_operation_item_id
@@ -2466,10 +2466,10 @@ export const getSpecificFundData = async (
           COALESCE(v.sex, pt.sex) as sex,
           v.age_y as age,
           CASE WHEN v.age_y >= 35 THEN 'Y' ELSE 'N' END as age_eligible,
-          o.bps, o.bpd,
-          o.bw as weight, o.height, o.bmi,
-          CASE WHEN o.bps > 0 AND o.bpd > 0 THEN 'Y' ELSE 'N' END as has_bp,
-          CASE WHEN o.bmi > 0 OR (o.bw > 0 AND o.height > 0) THEN 'Y' ELSE 'N' END as has_bmi,
+          os.bps, os.bpd,
+          os.bw as weight, os.height, os.bmi,
+          CASE WHEN os.bps > 0 AND os.bpd > 0 THEN 'Y' ELSE 'N' END as has_bp,
+          CASE WHEN os.bmi > 0 OR (os.bw > 0 AND os.height > 0) THEN 'Y' ELSE 'N' END as has_bmi,
           (
             SELECT lo.lab_order_result
             FROM lab_head lh
@@ -2487,10 +2487,22 @@ export const getSpecificFundData = async (
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN opdscreen os ON os.vn = o.vn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
-          AND (v.age_y >= 35 OR o.bps > 0)
+          AND v.age_y >= 35
+          AND (
+            EXISTS (
+              SELECT 1 FROM lab_head lh
+              JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
+              JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+              WHERE lh.vn = o.vn AND UPPER(li.lab_items_name) REGEXP 'GLUCOSE|FBS|FPG|DTX'
+            )
+            OR EXISTS (
+              SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND dx.icd10 = 'Z131'
+            )
+          )
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
@@ -2585,16 +2597,31 @@ export const getSpecificFundData = async (
           CASE WHEN EXISTS (
             SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^E1[0-4]'
           ) OR (v.pdx REGEXP '^E1[0-4]') THEN 'Y' ELSE 'N' END as has_dm_diag,
-          (
-            SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ' | ')
-            FROM opitemrece oo
-            JOIN nondrugitems d ON d.icode = oo.icode
-            WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0120' OR UPPER(d.name) REGEXP 'RETINOPATHY|FUNDUS|จอตา|จอประสาทตา')
+          COALESCE(
+            (
+              SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ' | ')
+              FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0120' OR UPPER(d.name) REGEXP 'RETINOPATHY|FUNDUS|จอตา|จอประสาทตา')
+            ),
+            (
+              SELECT GROUP_CONCAT(DISTINCT pst.pp_special_type_name SEPARATOR ' | ')
+              FROM pp_special ps
+              JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) = '1B0120' OR pst.pp_special_type_name REGEXP 'จอตา|Fundus')
+            )
           ) as retinopathy_service_names,
-          CASE WHEN EXISTS (
-            SELECT 1 FROM opitemrece oo
-            JOIN nondrugitems d ON d.icode = oo.icode
-            WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0120' OR UPPER(d.name) REGEXP 'RETINOPATHY|FUNDUS|จอตา|จอประสาทตา')
+          CASE WHEN (
+            EXISTS (
+              SELECT 1 FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0120' OR UPPER(d.name) REGEXP 'RETINOPATHY|FUNDUS|จอตา|จอประสาทตา')
+            )
+            OR EXISTS (
+              SELECT 1 FROM pp_special ps
+              LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) = '1B0120' OR pst.pp_special_type_name REGEXP 'จอตา|Fundus')
+            )
           ) THEN 'Y' ELSE 'N' END as has_retinopathy_exam,
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
         FROM ovst o
@@ -2603,12 +2630,15 @@ export const getSpecificFundData = async (
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
           AND (
-            EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^E1[0-4]')
-            OR (v.pdx REGEXP '^E1[0-4]')
-            OR EXISTS (
+            EXISTS (
               SELECT 1 FROM opitemrece oo
               JOIN nondrugitems d ON d.icode = oo.icode
               WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0120' OR UPPER(d.name) REGEXP 'RETINOPATHY|FUNDUS|จอตา|จอประสาทตา')
+            )
+            OR EXISTS (
+              SELECT 1 FROM pp_special ps
+              LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) = '1B0120' OR pst.pp_special_type_name REGEXP 'จอตา|Fundus')
             )
           )
         GROUP BY o.vn
@@ -2632,16 +2662,31 @@ export const getSpecificFundData = async (
           CASE WHEN EXISTS (
             SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^E1[0-4]'
           ) OR (v.pdx REGEXP '^E1[0-4]') THEN 'Y' ELSE 'N' END as has_dm_diag,
-          (
-            SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ' | ')
-            FROM opitemrece oo
-            JOIN nondrugitems d ON d.icode = oo.icode
-            WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0110' OR UPPER(d.name) REGEXP 'FOOT|เท้าเบาหวาน|ตรวจเท้า')
+          COALESCE(
+            (
+              SELECT GROUP_CONCAT(DISTINCT d.name SEPARATOR ' | ')
+              FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0110' OR UPPER(d.name) REGEXP 'FOOT|เท้าเบาหวาน|ตรวจเท้า')
+            ),
+            (
+              SELECT GROUP_CONCAT(DISTINCT pst.pp_special_type_name SEPARATOR ' | ')
+              FROM pp_special ps
+              JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) = '1B0110' OR pst.pp_special_type_name REGEXP 'เท้า')
+            )
           ) as foot_service_names,
-          CASE WHEN EXISTS (
-            SELECT 1 FROM opitemrece oo
-            JOIN nondrugitems d ON d.icode = oo.icode
-            WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0110' OR UPPER(d.name) REGEXP 'FOOT|เท้าเบาหวาน|ตรวจเท้า')
+          CASE WHEN (
+            EXISTS (
+              SELECT 1 FROM opitemrece oo
+              JOIN nondrugitems d ON d.icode = oo.icode
+              WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0110' OR UPPER(d.name) REGEXP 'FOOT|เท้าเบาหวาน|ตรวจเท้า')
+            )
+            OR EXISTS (
+              SELECT 1 FROM pp_special ps
+              LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) = '1B0110' OR pst.pp_special_type_name REGEXP 'เท้า')
+            )
           ) THEN 'Y' ELSE 'N' END as has_foot_exam,
           (SELECT claim_code FROM authenhos WHERE vn = o.vn LIMIT 1) as authencode
         FROM ovst o
@@ -2650,12 +2695,15 @@ export const getSpecificFundData = async (
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
           AND (
-            EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') REGEXP '^E1[0-4]')
-            OR (v.pdx REGEXP '^E1[0-4]')
-            OR EXISTS (
+            EXISTS (
               SELECT 1 FROM opitemrece oo
               JOIN nondrugitems d ON d.icode = oo.icode
               WHERE oo.vn = o.vn AND (d.nhso_adp_code = '1B0110' OR UPPER(d.name) REGEXP 'FOOT|เท้าเบาหวาน|ตรวจเท้า')
+            )
+            OR EXISTS (
+              SELECT 1 FROM pp_special ps
+              LEFT JOIN pp_special_type pst ON pst.pp_special_type_id = ps.pp_special_type_id
+              WHERE ps.vn = o.vn AND (COALESCE(ps.pp_special_code, pst.pp_special_code) = '1B0110' OR pst.pp_special_type_name REGEXP 'เท้า')
             )
           )
         GROUP BY o.vn

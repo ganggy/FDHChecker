@@ -325,11 +325,11 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
       break;
     case 'retinopathy_screening':
       requireValue(missing, flag(row.has_dm_diag) || hasPrefix(row, 'E10') || hasPrefix(row, 'E11') || hasPrefix(row, 'E14'), 'Diagnosis เบาหวาน E10-E14');
-      requireValue(missing, flag(row.has_retinopathy_exam) || present(row.retinopathy_date), 'การตรวจจอประสาทตา (1B0120)');
+      requireValue(missing, flag(row.has_retinopathy_exam) || present(row.retinopathy_date) || present(row.retinopathy_service_names), 'การตรวจจอประสาทตา (1B0120)');
       break;
     case 'foot_screening':
       requireValue(missing, flag(row.has_dm_diag) || hasPrefix(row, 'E10') || hasPrefix(row, 'E11') || hasPrefix(row, 'E14'), 'Diagnosis เบาหวาน E10-E14');
-      requireValue(missing, flag(row.has_foot_exam) || present(row.foot_exam_date), 'การตรวจสุขภาพเท้า (1B0110)');
+      requireValue(missing, flag(row.has_foot_exam) || present(row.foot_exam_date) || present(row.foot_service_names), 'การตรวจสุขภาพเท้า (1B0110)');
       break;
   }
   return missing;

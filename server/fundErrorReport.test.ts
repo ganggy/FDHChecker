@@ -224,6 +224,26 @@ test('near-match funds do not alert until the web considers the visit actionable
       row: { sex: '2', has_post_supp_diag: 'Y', has_post_iron_med: 'N', has_post_supp: 'N' },
       expected: [],
     },
+    {
+      fund: 'retinopathy_screening',
+      row: { has_dm_diag: 'Y', has_retinopathy_exam: 'Y' },
+      expected: [],
+    },
+    {
+      fund: 'retinopathy_screening',
+      row: { has_dm_diag: 'N', has_retinopathy_exam: 'Y' },
+      expected: ['Diagnosis เบาหวาน E10-E14'],
+    },
+    {
+      fund: 'foot_screening',
+      row: { has_dm_diag: 'Y', has_foot_exam: 'Y' },
+      expected: [],
+    },
+    {
+      fund: 'foot_screening',
+      row: { has_dm_diag: 'N', has_foot_exam: 'Y' },
+      expected: ['Diagnosis เบาหวาน E10-E14'],
+    },
   ];
 
   for (const item of cases) {

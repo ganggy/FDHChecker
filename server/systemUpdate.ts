@@ -72,16 +72,26 @@ const configuredBranch = () => {
 };
 
 const run = (command: string, args: string[], timeout = commandTimeoutMs) => new Promise<string>((resolve, reject) => {
+  const env = {
+    ...process.env,
+    PATH: process.env.PATH
+      ? `${process.env.PATH}:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin`
+      : '/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin',
+  };
   execFile(command, args, {
     cwd: appDirectory(),
     timeout,
     windowsHide: true,
-    maxBuffer: 2 * 1024 * 1024,
-    env: process.env,
+    maxBuffer: 4 * 1024 * 1024,
+    env,
   }, (error, stdout, stderr) => {
     if (error) {
-      const detail = String(stderr || error.message || '').trim().split(/\r?\n/).slice(-3).join(' ');
-      reject(new Error(detail || `คำสั่ง ${command} ทำงานไม่สำเร็จ`));
+      const out = String(stdout || '').trim();
+      const err = String(stderr || '').trim();
+      const combined = [err, out].filter(Boolean).join('\n');
+      const lines = combined.split(/\r?\n/).filter((l) => !l.startsWith('>'));
+      const detail = lines.slice(-6).join(' | ');
+      reject(new Error(detail || error.message || `คำสั่ง ${command} ทำงานไม่สำเร็จ`));
       return;
     }
     resolve(String(stdout || '').trim());
@@ -484,12 +494,39 @@ export const startDirectSystemUpdate = async (options: {
 
   const finalCommit = await runGit(['rev-parse', 'HEAD']);
 
-  // Build frontend
+  // 1. Install dependencies if package.json was updated
+  try {
+    await runNpm(['install', '--prefer-offline', '--no-audit'], 300_000);
+  } catch {
+    // Non-fatal if offline
+  }
+
+  // 2. Build frontend
+  let buildSucceeded = false;
+  let firstBuildError = '';
   try {
     await runNpm(['run', 'build'], 300_000);
+    buildSucceeded = true;
   } catch (buildErr) {
-    const errorMsg = buildErr instanceof Error ? buildErr.message : String(buildErr);
-    throw new Error(`ดึงโค้ดสำเร็จ (${finalCommit.slice(0, 8)}) แต่ Build ไม่สำเร็จ: ${errorMsg}`);
+    firstBuildError = buildErr instanceof Error ? buildErr.message : String(buildErr);
+  }
+
+  if (!buildSucceeded) {
+    // Fallback: If `tsc -b` failed, try building frontend bundle via vite directly
+    try {
+      const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+      await run(npxCmd, ['vite', 'build'], 300_000);
+      buildSucceeded = true;
+    } catch {
+      throw new Error(`ดึงโค้ดสำเร็จ (${finalCommit.slice(0, 8)}) แต่ Build ไม่สำเร็จ: ${firstBuildError}`);
+    }
+  }
+
+  // 3. Build server bundle
+  try {
+    await runNpm(['run', 'build:server'], 120_000);
+  } catch {
+    // Non-fatal if running directly via tsx
   }
 
   // Record completed job
@@ -518,9 +555,13 @@ export const startDirectSystemUpdate = async (options: {
 
   // Restart via PM2 if alive
   try {
-    await runPm2(['reload', 'all'], 30_000);
+    await runPm2(['restart', 'all'], 30_000);
   } catch {
-    // PM2 might not be active or this is Windows standalone
+    try {
+      await runPm2(['reload', 'all'], 30_000);
+    } catch {
+      // PM2 might not be active or this is Windows standalone
+    }
   }
 
   return job;

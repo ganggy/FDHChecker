@@ -541,8 +541,8 @@ export const resetSystemUpdateLock = async (actor: string = 'admin') => {
         updatedAt: new Date().toISOString(),
         completedAt: new Date().toISOString(),
       };
-      await fs.writeFile(currentJobPath(), `${JSON.stringify(updatedJob, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
       await fs.writeFile(path.join(stateDirectory(), `history-${current.id}.json`), `${JSON.stringify(updatedJob, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      await fs.unlink(currentJobPath()).catch(() => undefined);
     } else {
       await fs.unlink(currentJobPath()).catch(() => undefined);
     }

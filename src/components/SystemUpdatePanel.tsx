@@ -282,7 +282,27 @@ export const SystemUpdatePanel = () => {
                     : (job.action === 'rollback' ? 'กำลังย้อนเวอร์ชัน' : 'กำลังอัปเดตระบบ')}</strong>
               <span>{job.message}</span>
             </div>
-            <b>{progress}%</b>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <b>{progress}%</b>
+              {job.status === 'failed' && (
+                <button
+                  type="button"
+                  title="ปิดการแจ้งเตือนนี้"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    color: '#dc2626',
+                    borderRadius: '4px',
+                    padding: '2px 8px',
+                    fontSize: '11px',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setInfo((prev) => prev ? { ...prev, job: null } : prev)}
+                >
+                  ✕ ปิดการแจ้งเตือน
+                </button>
+              )}
+            </div>
           </div>
           <div className="system-update-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
             <div style={{ width: `${progress}%` }} />

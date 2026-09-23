@@ -22,8 +22,26 @@ test('KTB Approve Code: parseKtbFile parses pipe-delimited text correctly', () =
   assert.equal(rows[0].cid, '1234567890123');
   assert.equal(rows[0].patientName, 'สมศรี มีสุข');
   assert.equal(rows[0].amount, 527.75);
-  assert.equal(rows[0].approveCode, '034843');
+  assert.equal(rows[0].approveCode, '360892287'); // เลขหลัง Payment|
+  assert.equal(rows[0].traceNo, '034843');
   assert.equal(rows[0].transactionType, 'Payment');
+});
+
+test('KTB Approve Code: parseKtbFile extracts number after Payment| (e.g. Payment|360904420)', () => {
+  const line = [
+    'EA0011101', 'HCG11101', 'รพ', '004', 'รพ', 'B', '0040001499',
+    '19/09/2026', '10:09:15', '19/09/2026', '10:09:25',
+    '3470100498184', 'ก', 'ข', '3470100498184',
+    '', '', '', '4', '2', '15/10/1947', '15/09/2026',
+    '240.00', '5315', '034844', 'Payment', '360904420', '297975810',
+    'EDC', 'M1', '', '', '', '', '', 'TMS', '', '', '', '', '', '', ''
+  ].join('|');
+
+  const rows = parseKtbFile(Buffer.from(line, 'utf8'), 'test.txt');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].approveCode, '360904420');
+  assert.equal(rows[0].traceNo, '034844');
+  assert.equal(rows[0].amount, 240);
 });
 
 test('KTB Approve Code: parseKtbFile ignores empty lines and comments', () => {

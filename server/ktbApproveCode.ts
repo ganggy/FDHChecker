@@ -15,6 +15,7 @@ export type KtbParsedRow = {
   patientName: string;
   amount: number;
   approveCode: string;
+  traceNo?: string;
   transactionType: string;
   invoiceNo: string;
   channel: string;
@@ -150,8 +151,20 @@ export function parseKtbFile(buffer: Buffer, originalFilename = ''): KtbParsedRo
     const patientName = `${firstName} ${lastName}`.trim();
 
     const amount = parseFloat((cols[22] || '0').replace(/,/g, '')) || 0;
-    const approveCode = (cols[24] || '').trim();
-    const transactionType = (cols[25] || '').trim();
+
+    // หาเลข Approve Code: ตามมาตรฐาน KTB EDC สำหรับเบิก e-Claim/FDH จะเป็นเลขหลัง Payment| (เช่น Payment|360904420)
+    let approveCode = '';
+    const paymentColIdx = cols.findIndex((c) => c.trim().toLowerCase() === 'payment');
+    if (paymentColIdx !== -1 && cols[paymentColIdx + 1] && cols[paymentColIdx + 1].trim()) {
+      approveCode = cols[paymentColIdx + 1].trim();
+    } else if (cols[26] && cols[26].trim()) {
+      approveCode = cols[26].trim();
+    } else {
+      approveCode = (cols[24] || '').trim();
+    }
+
+    const traceNo = (cols[24] || '').trim();
+    const transactionType = paymentColIdx !== -1 ? cols[paymentColIdx].trim() : (cols[25] || '').trim();
     const invoiceNo = (cols[26] || '').trim();
     const channel = (cols[28] || '').trim();
 
@@ -168,6 +181,7 @@ export function parseKtbFile(buffer: Buffer, originalFilename = ''): KtbParsedRo
       patientName,
       amount,
       approveCode,
+      traceNo,
       transactionType,
       invoiceNo,
       channel,

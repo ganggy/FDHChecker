@@ -14,6 +14,7 @@ export type KtbParsedRow = {
   patientName: string;
   amount: number;
   approveCode: string;
+  traceNo?: string;
   transactionType: string;
   invoiceNo: string;
   channel: string;
@@ -736,7 +737,8 @@ export function KtbApproveCodeImportPage() {
                       </td>
                       <td style={{ padding: '10px 12px', fontSize: '11px', color: '#64748b' }}>
                         <div>เครื่อง: {item.ktb.terminalId || '-'}</div>
-                        <div>Inv: {item.ktb.invoiceNo || '-'}</div>
+                        {item.ktb.traceNo && <div>Trace: {item.ktb.traceNo}</div>}
+                        {item.ktb.invoiceNo && item.ktb.invoiceNo !== item.ktb.approveCode && <div>Inv: {item.ktb.invoiceNo}</div>}
                       </td>
                     </tr>
                   );

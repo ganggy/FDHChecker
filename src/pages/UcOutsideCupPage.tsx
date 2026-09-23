@@ -1038,7 +1038,12 @@ export const UcOutsideCupPage = () => {
                         <strong style={{ color: '#dc2626' }}>ลบรหัสหัตถการตกค้างในช่องวินิจฉัย</strong> ออกจาก ovstdiag เนื่องจากมีหัตถการในระบบทันตกรรมอยู่แล้ว
                       </span>
                     )}
-                    {!['ADD_K051', 'ADD_K021', 'ADD_K011', 'ADD_K083', 'SWAP_Z012', 'REMOVE_DUP_DX', 'INSERT_WALKIN', 'REMOVE_ANC_PROC', 'SYNC_DENTAL_PROC', 'REMOVE_NUMERIC_DX'].includes(action) && (
+                    {action === 'ADD_DENTAL_EXAM' && (
+                      <span>
+                        <strong style={{ color: '#0284c7' }}>บันทึกหัตถการตรวจสุขภาพช่องปาก (Oral examination: 2330010 / 89.31)</strong> ลงในระบบทันตกรรม (dtmain) เพื่อให้มีหัตถการสอดคล้องกับค่าบริการและป้องกัน C Error 804
+                      </span>
+                    )}
+                    {!['ADD_K051', 'ADD_K021', 'ADD_K011', 'ADD_K083', 'SWAP_Z012', 'REMOVE_DUP_DX', 'INSERT_WALKIN', 'REMOVE_ANC_PROC', 'SYNC_DENTAL_PROC', 'REMOVE_NUMERIC_DX', 'ADD_DENTAL_EXAM'].includes(action) && (
                       <strong>{action}</strong>
                     )}
                   </li>
@@ -1134,6 +1139,10 @@ export const UcOutsideCupPage = () => {
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                   <span>🦷</span>
                   <span><strong>ย้ายรหัสหัตถการตกค้าง (89.31/99.97)</strong>: ย้ายรหัสหัตถการตัวเลขจากช่องวินิจฉัยเข้าสู่ระบบทันตกรรม (dtmain) และลบรหัสตกค้างออกจาก ovstdiag</span>
+                </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🦷</span>
+                  <span><strong>บันทึกตรวจสุขภาพช่องปาก (2330010/89.31)</strong>: เพิ่มหัตถการ Oral examination ลง dtmain สำหรับเคสที่มีบริการทันตกรรมแต่ไม่มีการลงหัตถการ</span>
                 </div>
               </div>
             </div>

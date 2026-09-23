@@ -240,7 +240,8 @@ export type WalkinAutoFixAction =
   | 'INSERT_WALKIN'
   | 'REMOVE_ANC_PROC'
   | 'SYNC_DENTAL_PROC'
-  | 'REMOVE_NUMERIC_DX';
+  | 'REMOVE_NUMERIC_DX'
+  | 'ADD_DENTAL_EXAM';
 
 export type WalkinAuditIssue = {
   code: string;
@@ -471,6 +472,7 @@ export const evaluateWalkinVisitAudit = (visit: {
     // Rule D6: ตรวจฟันแต่ทำหัตถการรักษาอื่น (Z01.2 as PDX with therapeutic procedures)
     const hasTherapeuticDentalProc = procedures.some((p) => {
       const c = clean(p.code);
+      if (c === '2330010' || c === '2330011' || c === '8931') return false;
       return c.startsWith('23') || c === '9654' || c === '9651';
     });
     if (pdx.startsWith('Z012') && hasTherapeuticDentalProc) {
@@ -507,8 +509,10 @@ export const evaluateWalkinVisitAudit = (visit: {
           level: 'critical',
           title: 'มีบริการทันตกรรมแต่ไม่พบรหัสหัตถการ (ICD-9)',
           detail: 'มีการคิดค่าบริการทันตกรรม แต่ไม่มีการลงรหัสหัตถการ ICD-9 ใน dtmain หรือ doctor_operation ทำให้แฟ้มหัตถการว่าง เสี่ยงติด C Error 804',
-          recommendation: 'ลงบันทึกหัตถการพร้อมรหัส ICD-9 (เช่น 23.09, 23.2, 96.54) ในระบบทันตกรรม HOSxP',
+          recommendation: 'บันทึกหัตถการตรวจสุขภาพช่องปาก (Oral examination: 2330010 / 89.31) ลงใน dtmain ให้อัตโนมัติ',
           category: 'dental',
+          autoFixable: true,
+          fixAction: 'ADD_DENTAL_EXAM',
         });
       }
     } else if (numericDxList.length > 0) {
@@ -1502,6 +1506,66 @@ export const fixWalkinClinicalVisit = async (
       const delCount = Number((delRes as { affectedRows?: number }).affectedRows || 0);
       if (delCount > 0) {
         executedActions.push(`ลบรหัสหัตถการตัวเลขตกค้าง (${delCount} รายการ) ออกจาก ovstdiag เรียบร้อย`);
+      }
+    } else if (action === 'ADD_DENTAL_EXAM') {
+      const [existingDm] = await connection.query(
+        `SELECT COUNT(*) AS cnt FROM dtmain WHERE vn = ?`,
+        [vn]
+      );
+      const dmCount = Number((existingDm as Array<{ cnt: number }>)[0]?.cnt || 0);
+
+      if (dmCount === 0) {
+        const [ovstData] = await connection.query(
+          `SELECT hn, vstdate, vsttime, doctor FROM ovst WHERE vn = ? LIMIT 1`,
+          [vn]
+        );
+        const ovst = (Array.isArray(ovstData) ? ovstData[0] : null) as Record<string, unknown> | null;
+        const vstdate = ovst?.vstdate;
+        const vsttime = ovst?.vsttime;
+        const ovstDoctor = String(ovst?.doctor || '900');
+        const ovstHn = String(ovst?.hn || hn);
+
+        const [maxTmRows] = await connection.query(
+          `SELECT COALESCE(MAX(tm_no), 0) AS max_no FROM dtmain WHERE vn = ?`,
+          [vn]
+        );
+        const nextTmNo = Number((maxTmRows as Array<{ max_no: number }>)[0]?.max_no || 0) + 1;
+
+        const [maxIdRows] = await connection.query(
+          `SELECT COALESCE(MAX(dtmain_id), 0) AS max_id FROM dtmain`
+        );
+        const nextDtmainId = Number((maxIdRows as Array<{ max_id: number }>)[0]?.max_id || 0) + 1;
+
+        const [dttmMatches] = await connection.query(
+          `SELECT code, icd9cm, icd10tm_operation_code FROM dttm WHERE code = '3002' LIMIT 1`
+        );
+        const dttmRow = (Array.isArray(dttmMatches) ? dttmMatches[0] : null) as Record<string, unknown> | null;
+        const tmcode = dttmRow ? String(dttmRow.code) : '3002';
+        const icd9 = dttmRow ? String(dttmRow.icd10tm_operation_code || dttmRow.icd9cm || '2330010') : '2330010';
+
+        const clean = (val: unknown) => String(val || '').trim().toUpperCase().replace(/[.\s-]/g, '');
+        const hasZ012 = diags.some((d) => clean(d.code).startsWith('Z012'));
+        const primaryIcd = hasZ012 ? 'Z012' : (diags.find((d) => d.diagtype === '1')?.code || 'Z012');
+
+        await connection.query(
+          `INSERT INTO dtmain (
+            dtmain_id, vn, hn, vstdate, vsttime, doctor, tmcode, icd9, icd, tm_no, fee, scount, tcount
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0)`,
+          [
+            nextDtmainId,
+            vn,
+            ovstHn,
+            vstdate,
+            vsttime,
+            ovstDoctor,
+            tmcode,
+            icd9,
+            primaryIcd,
+            nextTmNo,
+          ]
+        );
+
+        executedActions.push(`บันทึกหัตถการตรวจสุขภาพช่องปาก (Oral examination: รหัส ${tmcode} / ${icd9}) ลงใน dtmain เรียบร้อย`);
       }
     }
   }

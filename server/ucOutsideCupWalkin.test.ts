@@ -297,4 +297,29 @@ test('Dental Audit: numeric procedure code in ovstdiag when procedures already e
   assert.ok(result.auto_fix_actions.includes('REMOVE_NUMERIC_DX'));
 });
 
+test('Dental Audit: dental visit with K05.1 and Z01.2 but no procedures flags C-804-MISSING-PROC with ADD_DENTAL_EXAM', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '670101016',
+    hn: '000016',
+    service_date: '2024-10-15',
+    diagnoses: [
+      { code: 'K05.1', diagtype: '1' },
+      { code: 'Z01.2', diagtype: '2' },
+    ],
+    procedures: [],
+    chargeItems: [{ icode: '3000047', sum_price: 100, income: '66' }],
+    department: 'ทันตกรรม',
+    has_walkin: true,
+  });
+
+  assert.equal(result.is_dental, true);
+  assert.equal(result.audit_status, 'critical');
+  const issue = result.issues.find((i) => i.code === 'C-804-MISSING-PROC');
+  assert.ok(issue, 'Should find C-804-MISSING-PROC');
+  assert.equal(issue.autoFixable, true);
+  assert.equal(issue.fixAction, 'ADD_DENTAL_EXAM');
+  assert.equal(result.can_auto_fix, true);
+  assert.ok(result.auto_fix_actions.includes('ADD_DENTAL_EXAM'));
+});
+
 

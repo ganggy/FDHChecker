@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { execFile } from 'child_process';
-import { promises as fs } from 'fs';
+import { promises as fs, existsSync } from 'fs';
 import path from 'path';
 
 export type SystemUpdateJobStatus = 'queued' | 'running' | 'completed' | 'failed';
@@ -71,12 +71,18 @@ const configuredBranch = () => {
   return branch;
 };
 
-const run = (command: string, args: string[], timeout = commandTimeoutMs) => new Promise<string>((resolve, reject) => {
+const run = (command: string, args: string[], timeout = commandTimeoutMs, extraEnv: NodeJS.ProcessEnv = {}) => new Promise<string>((resolve, reject) => {
+  const nodeBin = path.join(appDirectory(), 'node_modules', '.bin');
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const existingPath = process.env.PATH || '';
+  const extendedPath = process.platform === 'win32'
+    ? `${nodeBin}${pathSep}${existingPath}`
+    : `${nodeBin}:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin${existingPath ? `:${existingPath}` : ''}`;
+
   const env = {
     ...process.env,
-    PATH: process.env.PATH
-      ? `${process.env.PATH}:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin`
-      : '/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin',
+    PATH: extendedPath,
+    ...extraEnv,
   };
   execFile(command, args, {
     cwd: appDirectory(),
@@ -100,9 +106,9 @@ const run = (command: string, args: string[], timeout = commandTimeoutMs) => new
 
 const runGit = (args: string[], timeout?: number) => run('git', args, timeout);
 
-const runNpm = (args: string[], timeout = 300_000) => {
+const runNpm = (args: string[], timeout = 300_000, extraEnv: NodeJS.ProcessEnv = {}) => {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  return run(npmCmd, args, timeout);
+  return run(npmCmd, args, timeout, extraEnv);
 };
 
 const runPm2 = (args: string[], timeout = 30_000) => {
@@ -494,9 +500,13 @@ export const startDirectSystemUpdate = async (options: {
 
   const finalCommit = await runGit(['rev-parse', 'HEAD']);
 
-  // 1. Install dependencies if package.json was updated
+  // 1. Install dependencies
   try {
-    await runNpm(['install', '--prefer-offline', '--no-audit'], 300_000);
+    await runNpm(['install', '--include=dev', '--no-audit'], 300_000, {
+      NODE_ENV: 'development',
+      npm_config_omit: '',
+      npm_config_production: 'false',
+    });
   } catch {
     // Non-fatal if offline
   }
@@ -505,7 +515,9 @@ export const startDirectSystemUpdate = async (options: {
   let buildSucceeded = false;
   let firstBuildError = '';
   try {
-    await runNpm(['run', 'build'], 300_000);
+    await runNpm(['run', 'build'], 300_000, {
+      NODE_ENV: 'production',
+    });
     buildSucceeded = true;
   } catch (buildErr) {
     firstBuildError = buildErr instanceof Error ? buildErr.message : String(buildErr);
@@ -514,11 +526,17 @@ export const startDirectSystemUpdate = async (options: {
   if (!buildSucceeded) {
     // Fallback: If `tsc -b` failed, try building frontend bundle via vite directly
     try {
-      const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-      await run(npxCmd, ['vite', 'build'], 300_000);
+      const viteBin = path.join(appDirectory(), 'node_modules', '.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite');
+      if (existsSync(viteBin)) {
+        await run(viteBin, ['build'], 300_000);
+      } else {
+        const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+        await run(npxCmd, ['--yes', 'vite', 'build'], 300_000);
+      }
       buildSucceeded = true;
-    } catch {
-      throw new Error(`ดึงโค้ดสำเร็จ (${finalCommit.slice(0, 8)}) แต่ Build ไม่สำเร็จ: ${firstBuildError}`);
+    } catch (viteErr) {
+      const viteErrMsg = viteErr instanceof Error ? viteErr.message : String(viteErr);
+      throw new Error(`ดึงโค้ดสำเร็จ (${finalCommit.slice(0, 8)}) แต่ Build ไม่สำเร็จ: ${firstBuildError} | Vite fallback: ${viteErrMsg}`);
     }
   }
 

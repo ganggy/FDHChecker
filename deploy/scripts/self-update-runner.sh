@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-export PATH="${PATH:+${PATH}:}/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
-
 APP_DIR="${FDH_APP_DIR:-/opt/FDHChecker}"
+export PATH="$APP_DIR/node_modules/.bin:${PATH:+${PATH}:}/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
 STATE_DIR="${FDH_UPDATE_STATE_DIR:-$APP_DIR/.update-state}"
 JOB_ID="${FDH_UPDATE_JOB_ID:?missing FDH_UPDATE_JOB_ID}"
 STARTED_AT="${FDH_UPDATE_STARTED_AT:?missing FDH_UPDATE_STARTED_AT}"
@@ -163,7 +162,7 @@ CURRENT_STAGE="dependencies"
 write_state "running" "$CURRENT_STAGE" 42 "กำลังติดตั้ง dependency"
 # The PM2 daemon may pass NODE_ENV=production/npm_config_omit=dev to this
 # worker. Tests and both builds still require TypeScript, Vite and test tools.
-run_step 900 "dependencies" npm ci --include=dev
+run_step 900 "dependencies" npm ci --include=dev || run_step 900 "dependencies install" npm install --include=dev --no-audit
 
 CURRENT_STAGE="testing"
 write_state "running" "$CURRENT_STAGE" 58 "กำลังทดสอบความถูกต้องของระบบ"

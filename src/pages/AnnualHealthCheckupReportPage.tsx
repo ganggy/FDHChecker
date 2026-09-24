@@ -387,7 +387,7 @@ export function AnnualHealthCheckupReportPage() {
     }
     const headers = [
       'ลำดับ', 'HN', 'ชื่อ-สกุล', 'อายุ(ปี)',
-      ...CHECKUP_MATRIX_COLUMNS.map((c) => `${c.name} (${c.rate})`),
+      ...CHECKUP_MATRIX_COLUMNS.map((c) => c.name),
       ...(hasOtherItems ? ['อื่นๆ'] : []),
       'รวม'
     ];
@@ -631,19 +631,7 @@ export function AnnualHealthCheckupReportPage() {
           <div className="report-table-wrapper">
             <table className="matrix-report-table">
               <thead>
-                {/* 1. Rates Row matching Image 2 top row */}
-                <tr className="matrix-rate-row">
-                  <th className="rate-empty"></th>
-                  <th className="rate-empty"></th>
-                  <th className="rate-empty"></th>
-                  {CHECKUP_MATRIX_COLUMNS.map((c) => (
-                    <th key={c.id} className="rate-num-cell">{c.rate}</th>
-                  ))}
-                  {hasOtherItems && <th className="rate-num-cell">-</th>}
-                  <th className="rate-empty"></th>
-                </tr>
-
-                {/* 2. Super Header Row */}
+                {/* 1. Super Header Row */}
                 <tr className="matrix-super-header-row">
                   <th rowSpan={2} style={{ width: '32px' }}>ลำดับ</th>
                   <th rowSpan={2} style={{ width: '150px' }}>ชื่อ-สกุล</th>

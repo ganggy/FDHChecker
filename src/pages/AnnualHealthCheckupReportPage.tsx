@@ -171,11 +171,9 @@ export function getVisitMatrixValues(v: CheckupVisit) {
 
   // ตรวจสอบแพ็กเกจ Lipid profile
   let hasLipidProfile = false;
-  let lipidProfilePrice = 0;
   allItems.forEach((it, idx) => {
     if (/lipid profile/i.test(it.name)) {
       hasLipidProfile = true;
-      lipidProfilePrice = it.price;
       matchedItemIndices.add(idx);
     }
   });
@@ -198,32 +196,14 @@ export function getVisitMatrixValues(v: CheckupVisit) {
     colValues[col.id] = hasMatch ? col.rate : 0;
   }
 
-  // รายการอื่นๆ นอกเหนือจาก 15 รายการมาตรฐาน (เฉพาะรายการแลปหรือการตรวจพิเศษจริง เช่น EKG, HBsAg)
-  let otherSum = 0;
-  const otherNames: string[] = [];
-  allItems.forEach((it, idx) => {
-    if (!matchedItemIndices.has(idx)) {
-      // ตัดค่าบริการทางการพยาบาล/ค่าบริการทั่วไป OPD/ทำแผล/ตัดไหม ที่ไม่ใช่การตรวจสุขภาพออก
-      if (/ค่าบริการ|dressing|ทำแผล|ตัดไหม|บริการทางการแพทย์/i.test(it.name)) {
-        return;
-      }
-      otherSum += it.price;
-      otherNames.push(`${it.name} (${it.price})`);
-    }
-  });
+  // คำนวณผลรวมเฉพาะ 15 รายการที่แสดงในตารางเท่านั้น ตามคำสั่งผู้ใช้
+  const total = Object.values(colValues).reduce((a, b) => a + b, 0);
 
-  if (hasLipidProfile && lipidProfilePrice > 120) {
-    const diff = lipidProfilePrice - 120;
-    otherSum += diff;
-    otherNames.push(`HDL/LDL (${diff})`);
-  }
-
-  const computedTotal = Object.values(colValues).reduce((a, b) => a + b, 0) + otherSum;
   return {
     colValues,
-    otherSum,
-    otherNames: otherNames.join(', '),
-    total: computedTotal
+    otherSum: 0,
+    otherNames: '',
+    total
   };
 }
 
@@ -349,14 +329,6 @@ export function AnnualHealthCheckupReportPage() {
     return visits.filter((v) => selectedVns.has(v.vn));
   }, [visits, selectedVns]);
 
-  // Check if any selected visit has unmapped other test items
-  const hasOtherItems = useMemo(() => {
-    return selectedVisits.some((v) => {
-      const { otherSum } = getVisitMatrixValues(v);
-      return otherSum > 0;
-    });
-  }, [selectedVisits]);
-
   // Total summary calculations (ตรงกับผลรวมแต่ละแถวของตาราง 100%)
   const totalAmount = useMemo(() => {
     return selectedVisits.reduce((sum, v) => {
@@ -385,7 +357,7 @@ export function AnnualHealthCheckupReportPage() {
     }
   };
 
-  // Export CSV
+  // Export CSV (เฉพาะ 15 รายการมาตรฐานตามตาราง)
   const handleExportCSV = () => {
     if (selectedVisits.length === 0) {
       alert('กรุณาเลือกอย่างน้อย 1 รายการ');
@@ -394,19 +366,17 @@ export function AnnualHealthCheckupReportPage() {
     const headers = [
       'ลำดับ', 'HN', 'ชื่อ-สกุล', 'อายุ(ปี)',
       ...CHECKUP_MATRIX_COLUMNS.map((c) => c.name),
-      ...(hasOtherItems ? ['อื่นๆ'] : []),
       'รวม'
     ];
 
     const rows = selectedVisits.map((v, i) => {
-      const { colValues, otherSum, total } = getVisitMatrixValues(v);
+      const { colValues, total } = getVisitMatrixValues(v);
       return [
         i + 1,
         v.hn,
         v.fullname,
         v.age_y,
         ...CHECKUP_MATRIX_COLUMNS.map((c) => colValues[c.id] || 0),
-        ...(hasOtherItems ? [otherSum] : []),
         total
       ];
     });
@@ -624,24 +594,23 @@ export function AnnualHealthCheckupReportPage() {
                   <th rowSpan={2} style={{ width: '32px' }}>ลำดับ</th>
                   <th rowSpan={2} style={{ width: '150px' }}>ชื่อ-สกุล</th>
                   <th rowSpan={2} style={{ width: '45px' }}>อายุ<br />( ปี )</th>
-                  <th colSpan={hasOtherItems ? 16 : 15} className="matrix-group-title">รายการตรวจ</th>
+                  <th colSpan={15} className="matrix-group-title">รายการตรวจ</th>
                   <th rowSpan={2} style={{ width: '65px' }}>รวม</th>
                 </tr>
 
-                {/* 3. Sub Header: Test Names matching Image 2 */}
+                {/* 2. Sub Header: Test Names matching Image 2 */}
                 <tr className="matrix-test-names-row">
                   {CHECKUP_MATRIX_COLUMNS.map((c) => (
                     <th key={c.id} className="test-name-th">
                       {c.name}
                     </th>
                   ))}
-                  {hasOtherItems && <th className="test-name-th">อื่นๆ</th>}
                 </tr>
               </thead>
               <tbody>
                 {selectedVisits.length === 0 ? (
                   <tr>
-                    <td colSpan={hasOtherItems ? 20 : 19} className="text-center" style={{ padding: '2.5rem', color: '#94a3b8' }}>
+                    <td colSpan={19} className="text-center" style={{ padding: '2.5rem', color: '#94a3b8' }}>
                       {visits.length === 0
                         ? (loading ? 'กำลังดึงข้อมูล...' : 'ไม่พบข้อมูลการตรวจสุขภาพในช่วงเวลาและสิทธิที่เลือก')
                         : '⚠️ ยังไม่ได้เลือกรายชื่อผู้รับการตรวจ (กรุณากดเลือกผู้ตรวจสุขภาพจากกล่องด้านบน)'}
@@ -649,7 +618,7 @@ export function AnnualHealthCheckupReportPage() {
                   </tr>
                 ) : (
                   selectedVisits.map((v, index) => {
-                    const { colValues, otherSum, total } = getVisitMatrixValues(v);
+                    const { colValues, total } = getVisitMatrixValues(v);
                     return (
                       <tr key={v.vn} className="matrix-row">
                         <td className="text-center">{index + 1}</td>
@@ -663,11 +632,6 @@ export function AnnualHealthCheckupReportPage() {
                             </td>
                           );
                         })}
-                        {hasOtherItems && (
-                          <td className={`td-val ${otherSum === 0 ? 'td-zero' : 'td-positive'}`}>
-                            {otherSum}
-                          </td>
-                        )}
                         <td className="td-total">
                           {total.toLocaleString()}
                         </td>
@@ -679,7 +643,7 @@ export function AnnualHealthCheckupReportPage() {
               <tfoot>
                 <tr className="matrix-tfoot-row">
                   <td colSpan={3} className="text-center font-bold">รวมทั้งสิ้น</td>
-                  <td colSpan={hasOtherItems ? 16 : 15} className="text-center font-bold" style={{ fontSize: '9pt' }}>
+                  <td colSpan={15} className="text-center font-bold" style={{ fontSize: '9.5pt' }}>
                     ({totalAmountText})
                   </td>
                   <td className="td-total font-bold" style={{ fontSize: '9.5pt' }}>

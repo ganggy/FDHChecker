@@ -357,9 +357,12 @@ export function AnnualHealthCheckupReportPage() {
     });
   }, [selectedVisits]);
 
-  // Total summary calculations
+  // Total summary calculations (ตรงกับผลรวมแต่ละแถวของตาราง 100%)
   const totalAmount = useMemo(() => {
-    return selectedVisits.reduce((sum, v) => sum + (v.total_price || 0), 0);
+    return selectedVisits.reduce((sum, v) => {
+      const { total } = getVisitMatrixValues(v);
+      return sum + total;
+    }, 0);
   }, [selectedVisits]);
 
   const totalAmountText = useMemo(() => {
@@ -564,7 +567,7 @@ export function AnnualHealthCheckupReportPage() {
                     <span className="p-num">{i + 1}.</span>
                     <span className="p-name">{v.fullname}</span>
                     <span className="p-age">({v.age_y}ปี)</span>
-                    <span className="p-price">{v.total_price.toLocaleString()}.-</span>
+                    <span className="p-price">{getVisitMatrixValues(v).total.toLocaleString()}.-</span>
                   </label>
                 );
               })}

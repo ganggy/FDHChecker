@@ -272,11 +272,11 @@ export const getSystemUpdateInfo = async (refreshRemote = false): Promise<System
     const [currentBranch, currentCommit, worktree] = await Promise.all([
       runGit(['branch', '--show-current']),
       runGit(['rev-parse', 'HEAD']),
-      runGit(['status', '--porcelain']),
+      runGit(['status', '--porcelain', '-uno']),
     ]);
     base.currentBranch = currentBranch;
     base.currentCommit = currentCommit;
-    base.dirty = Boolean(worktree);
+    base.dirty = Boolean(worktree && worktree.trim());
 
     if (refreshRemote) {
       await runGit(['fetch', '--prune', 'origin', branch], 120_000);
@@ -471,7 +471,7 @@ export const startDirectSystemUpdate = async (options: {
   }
 
   // Check dirty working tree
-  const worktreeStatus = await runGit(['status', '--porcelain']);
+  const worktreeStatus = await runGit(['status', '--porcelain', '-uno']);
   const isDirty = Boolean(worktreeStatus.trim());
 
   if (isDirty) {

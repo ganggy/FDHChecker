@@ -43,6 +43,185 @@ export type PttypeOption = {
   hipdata_code: string;
 };
 
+export type MatrixColumnDef = {
+  id: string;
+  name: string;
+  shortName: string;
+  rate: number;
+  match: (item: CheckupItem) => boolean;
+};
+
+export const CHECKUP_MATRIX_COLUMNS: MatrixColumnDef[] = [
+  {
+    id: 'film_chest',
+    name: 'Film Chest',
+    shortName: 'Film Chest',
+    rate: 170,
+    match: (item) => item.category === 'xray' || /chest|cxr|film|x-ray|เอกซเรย์/i.test(item.name)
+  },
+  {
+    id: 'urine',
+    name: 'urine Examination',
+    shortName: 'urine Exam.',
+    rate: 50,
+    match: (item) => /urine\s*analysis|ua\b|urine\s*exam|ปัสสาวะ/i.test(item.name) && !/culture|protein.*24/i.test(item.name)
+  },
+  {
+    id: 'stool',
+    name: 'Stool Exam.',
+    shortName: 'Stool Exam.',
+    rate: 70,
+    match: (item) => /stool|occult|อุจจาระ/i.test(item.name)
+  },
+  {
+    id: 'cbc',
+    name: 'CBC',
+    shortName: 'CBC',
+    rate: 90,
+    match: (item) => /cbc|complete blood/i.test(item.name)
+  },
+  {
+    id: 'fpg',
+    name: 'Glucose FPG',
+    shortName: 'Glucose FPG',
+    rate: 40,
+    match: (item) => /glucose|fbs|fpg|dtx|น้ำตาล/i.test(item.name)
+  },
+  {
+    id: 'chol',
+    name: 'Cholesterol',
+    shortName: 'Cholesterol',
+    rate: 60,
+    match: (item) => /cholesterol/i.test(item.name) && !/hdl|ldl/i.test(item.name)
+  },
+  {
+    id: 'tg',
+    name: 'TG',
+    shortName: 'TG',
+    rate: 60,
+    match: (item) => /triglyceride|^tg\b/i.test(item.name)
+  },
+  {
+    id: 'bun',
+    name: 'BUN',
+    shortName: 'BUN',
+    rate: 50,
+    match: (item) => /^bun\b|blood urea/i.test(item.name)
+  },
+  {
+    id: 'cr',
+    name: 'Cr',
+    shortName: 'Cr',
+    rate: 50,
+    match: (item) => /^cr\b|creatinine/i.test(item.name)
+  },
+  {
+    id: 'sgot',
+    name: 'SGOT',
+    shortName: 'SGOT',
+    rate: 50,
+    match: (item) => /sgot|ast\b/i.test(item.name)
+  },
+  {
+    id: 'sgpt',
+    name: 'SGPT',
+    shortName: 'SGPT',
+    rate: 50,
+    match: (item) => /sgpt|alt\b/i.test(item.name)
+  },
+  {
+    id: 'alk',
+    name: 'Alk Phosphatase',
+    shortName: 'Alk Phos',
+    rate: 50,
+    match: (item) => /alk|alkaline/i.test(item.name)
+  },
+  {
+    id: 'uric',
+    name: 'Uric acid',
+    shortName: 'Uric acid',
+    rate: 60,
+    match: (item) => /uric/i.test(item.name)
+  },
+  {
+    id: 'pelvic',
+    name: 'ตรวจภายใน',
+    shortName: 'ตรวจภายใน',
+    rate: 100,
+    match: (item) => /ตรวจภายใน|pelvic/i.test(item.name)
+  },
+  {
+    id: 'pap',
+    name: 'PAP Smear',
+    shortName: 'PAP Smear',
+    rate: 50,
+    match: (item) => /pap|smear|cervical/i.test(item.name)
+  },
+];
+
+export function getVisitMatrixValues(v: CheckupVisit) {
+  const allItems: CheckupItem[] = [
+    ...(v.xray_items || []),
+    ...(v.lab_items || []),
+    ...(v.other_items || [])
+  ];
+
+  const matchedItemIndices = new Set<number>();
+  const colValues: Record<string, number> = {};
+
+  // ตรวจสอบแพ็กเกจ Lipid profile
+  let hasLipidProfile = false;
+  let lipidProfilePrice = 0;
+  allItems.forEach((it, idx) => {
+    if (/lipid profile/i.test(it.name)) {
+      hasLipidProfile = true;
+      lipidProfilePrice = it.price;
+      matchedItemIndices.add(idx);
+    }
+  });
+
+  // จับคู่รายการเข้าคอลัมน์มาตรฐาน 15 รายการ
+  for (const col of CHECKUP_MATRIX_COLUMNS) {
+    let sum = 0;
+    allItems.forEach((it, idx) => {
+      if (!matchedItemIndices.has(idx) && col.match(it)) {
+        sum += it.price;
+        matchedItemIndices.add(idx);
+      }
+    });
+
+    if (hasLipidProfile) {
+      if (col.id === 'chol' && sum === 0) sum = 60;
+      if (col.id === 'tg' && sum === 0) sum = 60;
+    }
+    colValues[col.id] = sum;
+  }
+
+  // รายการอื่นๆ นอกเหนือจาก 15 รายการมาตรฐาน (เช่น Electrolyte, EKG)
+  let otherSum = 0;
+  const otherNames: string[] = [];
+  allItems.forEach((it, idx) => {
+    if (!matchedItemIndices.has(idx)) {
+      otherSum += it.price;
+      otherNames.push(`${it.name} (${it.price})`);
+    }
+  });
+
+  if (hasLipidProfile && lipidProfilePrice > 120) {
+    const diff = lipidProfilePrice - 120;
+    otherSum += diff;
+    otherNames.push(`HDL/LDL (${diff})`);
+  }
+
+  const computedTotal = Object.values(colValues).reduce((a, b) => a + b, 0) + otherSum;
+  return {
+    colValues,
+    otherSum,
+    otherNames: otherNames.join(', '),
+    total: v.total_price || computedTotal
+  };
+}
+
 const STORAGE_KEYS = {
   GOV_ORG: 'checkup_gov_org',
   DISTRICT: 'checkup_district',
@@ -51,6 +230,9 @@ const STORAGE_KEYS = {
   NURSE_POS: 'checkup_nurse_pos',
   HEAD_NAME: 'checkup_head_name',
   HEAD_POS: 'checkup_head_pos',
+  YEAR: 'checkup_year',
+  PTTYPE_LABEL: 'checkup_pttype_label',
+  WORK_PLACE: 'checkup_work_place',
 };
 
 export function AnnualHealthCheckupReportPage() {
@@ -74,13 +256,15 @@ export function AnnualHealthCheckupReportPage() {
   const [singlePrintVn, setSinglePrintVn] = useState<string | null>(null);
 
   // Form Inputs for Report Header & Signers (persisted in localStorage)
-  const [govOrg, setGovOrg] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.GOV_ORG) || 'โรงพยาบาลโคกศรีสุพรรณ');
+  const [govOrg, setGovOrg] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.GOV_ORG) || 'สำนักงานสาธารณสุขอำเภอโคกศรีสุพรรณ');
   const [district, setDistrict] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.DISTRICT) || 'โคกศรีสุพรรณ');
   const [province, setProvince] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.PROVINCE) || 'สกลนคร');
-  const [nurseName, setNurseName] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.NURSE_NAME) || '');
-  const [nursePos, setNursePos] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.NURSE_POS) || 'พยาบาลวิชาชีพชำนาญการ');
-  const [headName, setHeadName] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.HEAD_NAME) || '');
-  const [headPos, setHeadPos] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.HEAD_POS) || 'หัวหน้ากลุ่มงานการพยาบาล');
+  const [nurseName, setNurseName] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.NURSE_NAME) || 'นางสาววราภรณ์ บุญศิริ');
+  const [nursePos, setNursePos] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.NURSE_POS) || 'พยาบาลวิชาชีพชำนาญการพิเศษ');
+  const [headPos, setHeadPos] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.HEAD_POS) || 'หัวหน้าพยาบาล');
+  const [checkupYear, setCheckupYear] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.YEAR) || '2569');
+  const [pttypeLabel, setPttypeLabel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.PTTYPE_LABEL) || 'NON UC');
+  const [workPlace, setWorkPlace] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.WORK_PLACE) || '');
 
   // Save header settings
   const handleSaveSettings = () => {
@@ -89,8 +273,10 @@ export function AnnualHealthCheckupReportPage() {
     localStorage.setItem(STORAGE_KEYS.PROVINCE, province);
     localStorage.setItem(STORAGE_KEYS.NURSE_NAME, nurseName);
     localStorage.setItem(STORAGE_KEYS.NURSE_POS, nursePos);
-    localStorage.setItem(STORAGE_KEYS.HEAD_NAME, headName);
     localStorage.setItem(STORAGE_KEYS.HEAD_POS, headPos);
+    localStorage.setItem(STORAGE_KEYS.YEAR, checkupYear);
+    localStorage.setItem(STORAGE_KEYS.PTTYPE_LABEL, pttypeLabel);
+    localStorage.setItem(STORAGE_KEYS.WORK_PLACE, workPlace);
   };
 
   // Load Pttypes
@@ -160,6 +346,14 @@ export function AnnualHealthCheckupReportPage() {
     return visits.filter((v) => selectedVns.has(v.vn));
   }, [visits, selectedVns]);
 
+  // Check if any selected visit has unmapped other test items
+  const hasOtherItems = useMemo(() => {
+    return selectedVisits.some((v) => {
+      const { otherSum } = getVisitMatrixValues(v);
+      return otherSum > 0;
+    });
+  }, [selectedVisits]);
+
   // Total summary calculations
   const totalAmount = useMemo(() => {
     return selectedVisits.reduce((sum, v) => sum + (v.total_price || 0), 0);
@@ -192,28 +386,26 @@ export function AnnualHealthCheckupReportPage() {
       return;
     }
     const headers = [
-      'ลำดับ', 'วันที่รับบริการ', 'HN', 'VN', 'ชื่อ-นามสกุล', 'อายุ(ปี)', 'สิทธิการรักษา',
-      'รายการ X-Ray', 'ค่าตรวจ X-Ray', 'รายการตรวจ Lab', 'ค่าตรวจ Lab', 'รายการอื่นๆ', 'ค่าตรวจอื่นๆ', 'รวมเงิน(บาท)'
+      'ลำดับ', 'HN', 'ชื่อ-สกุล', 'อายุ(ปี)',
+      ...CHECKUP_MATRIX_COLUMNS.map((c) => `${c.name} (${c.rate})`),
+      ...(hasOtherItems ? ['อื่นๆ'] : []),
+      'รวม'
     ];
 
-    const rows = selectedVisits.map((v, i) => [
-      i + 1,
-      v.vstdate,
-      v.hn,
-      v.vn,
-      v.fullname,
-      v.age_y,
-      v.pttype_name,
-      v.xray_items.map((x) => `${x.name} (${x.price}บ.)`).join('; '),
-      v.xray_total,
-      v.lab_items.map((l) => `${l.name} (${l.price}บ.)`).join('; '),
-      v.lab_total,
-      v.other_items.map((o) => `${o.name} (${o.price}บ.)`).join('; '),
-      v.other_total,
-      v.total_price
-    ]);
+    const rows = selectedVisits.map((v, i) => {
+      const { colValues, otherSum, total } = getVisitMatrixValues(v);
+      return [
+        i + 1,
+        v.hn,
+        v.fullname,
+        v.age_y,
+        ...CHECKUP_MATRIX_COLUMNS.map((c) => colValues[c.id] || 0),
+        ...(hasOtherItems ? [otherSum] : []),
+        total
+      ];
+    });
 
-    const csvContent = '\uFEFF' + [headers, ...rows].map((e) => e.map((x) => `"${String(x || '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const csvContent = '\uFEFF' + [headers, ...rows].map((e) => e.map((x) => `"${String(x ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -300,13 +492,21 @@ export function AnnualHealthCheckupReportPage() {
           </div>
         </div>
 
-        {/* Report Configuration (User editable header & signers) */}
+        {/* Report Configuration (User editable header & signers matching Image 2) */}
         <div className="checkup-info-banner">
-          ⚙️ <strong>ข้อมูลสำหรับพิมพ์ออกหัวกระดาษและส่วนท้าย:</strong> สามารถพิมพ์แก้ไขได้ ระบบจะบันทึกจำไว้ใช้อัตโนมัติ
+          ⚙️ <strong>ข้อมูลสำหรับพิมพ์ออกหัวกระดาษและส่วนท้าย (บันทึกจำอัตโนมัติ):</strong>
         </div>
         <div className="checkup-filter-grid">
           <div className="checkup-form-group">
-            <label>ส่วนราชการ / โรงพยาบาล</label>
+            <label>ปี พ.ศ. ของรายงาน</label>
+            <input type="text" value={checkupYear} onChange={(e) => setCheckupYear(e.target.value)} onBlur={handleSaveSettings} />
+          </div>
+          <div className="checkup-form-group">
+            <label>ข้อความสิทธิ (ในวงเล็บหัวกระดาษ)</label>
+            <input type="text" value={pttypeLabel} onChange={(e) => setPttypeLabel(e.target.value)} onBlur={handleSaveSettings} />
+          </div>
+          <div className="checkup-form-group">
+            <label>ส่วนราชการ</label>
             <input type="text" value={govOrg} onChange={(e) => setGovOrg(e.target.value)} onBlur={handleSaveSettings} />
           </div>
           <div className="checkup-form-group">
@@ -318,21 +518,59 @@ export function AnnualHealthCheckupReportPage() {
             <input type="text" value={province} onChange={(e) => setProvince(e.target.value)} onBlur={handleSaveSettings} />
           </div>
           <div className="checkup-form-group">
-            <label>ผู้ตรวจสอบ (พยาบาลวิชาชีพ)</label>
+            <label>สถานที่ปฏิบัติงาน (บรรทัดบนหัวกระดาษ)</label>
+            <input type="text" placeholder="ระบุหรือไม่ระบุก็ได้" value={workPlace} onChange={(e) => setWorkPlace(e.target.value)} onBlur={handleSaveSettings} />
+          </div>
+          <div className="checkup-form-group">
+            <label>ผู้ลงนาม (พยาบาลวิชาชีพ)</label>
             <input type="text" placeholder="ชื่อ-สกุล" value={nurseName} onChange={(e) => setNurseName(e.target.value)} onBlur={handleSaveSettings} />
           </div>
           <div className="checkup-form-group">
-            <label>ตำแหน่งผู้ตรวจสอบ</label>
+            <label>ตำแหน่งวิชาชีพ</label>
             <input type="text" value={nursePos} onChange={(e) => setNursePos(e.target.value)} onBlur={handleSaveSettings} />
           </div>
           <div className="checkup-form-group">
-            <label>หัวหน้าพยาบาล / ผู้มีอำนาจลงนาม</label>
-            <input type="text" placeholder="ชื่อ-สกุล" value={headName} onChange={(e) => setHeadName(e.target.value)} onBlur={handleSaveSettings} />
-          </div>
-          <div className="checkup-form-group">
-            <label>ตำแหน่งหัวหน้าพยาบาล</label>
+            <label>ตำแหน่งบริหาร / หน้าที่</label>
             <input type="text" value={headPos} onChange={(e) => setHeadPos(e.target.value)} onBlur={handleSaveSettings} />
           </div>
+        </div>
+
+        {/* Patient Selection Strip (Explicit multi-selection) */}
+        <div className="checkup-selector-section">
+          <div className="selector-title-bar">
+            <div>
+              <strong>👥 เลือกผู้ตรวจสุขภาพที่จะพิมพ์ออกรายงาน:</strong>{' '}
+              <span className="selection-badge">เลือกแล้ว <strong>{selectedVisits.length}</strong> จาก <strong>{visits.length}</strong> คน</span>
+            </div>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <button type="button" className="checkup-btn btn-secondary btn-sm" onClick={() => handleToggleSelectAll(true)}>
+                ✅ เลือกทั้งหมด ({visits.length})
+              </button>
+              <button type="button" className="checkup-btn btn-secondary btn-sm" onClick={() => handleToggleSelectAll(false)}>
+                ❌ ยกเลิกทั้งหมด
+              </button>
+            </div>
+          </div>
+          {visits.length > 0 && (
+            <div className="patient-selector-scroll">
+              {visits.map((v, i) => {
+                const isChecked = selectedVns.has(v.vn);
+                return (
+                  <label key={v.vn} className={`patient-select-item ${isChecked ? 'is-selected' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => handleToggleVn(v.vn)}
+                    />
+                    <span className="p-num">{i + 1}.</span>
+                    <span className="p-name">{v.fullname}</span>
+                    <span className="p-age">({v.age_y}ปี)</span>
+                    <span className="p-price">{v.total_price.toLocaleString()}.-</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -342,7 +580,7 @@ export function AnnualHealthCheckupReportPage() {
               {loading ? '⏳ กำลังค้นหา...' : '🔍 ค้นหาข้อมูล'}
             </button>
             <span style={{ fontSize: '0.9rem', color: '#64748b' }}>
-              พบทั้งหมด <strong>{visits.length}</strong> รายการ (เลือกแล้ว <strong>{selectedVisits.length}</strong> คน)
+              ในรายงานจะแสดงและพิมพ์เฉพาะ <strong>{selectedVisits.length}</strong> คนที่เลือกไว้
             </span>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -361,124 +599,101 @@ export function AnnualHealthCheckupReportPage() {
         {error && <div style={{ color: '#ef4444', marginTop: '0.75rem', fontWeight: 600 }}>❌ {error}</div>}
       </div>
 
-      {/* VIEW 1: TAB SUMMARY TABLE */}
+      {/* VIEW 1: TAB SUMMARY TABLE (MATCHING IMAGE 2 EXACTLY) */}
       {activeTab === 'summary' && (
-        <div className="checkup-paper-card">
-          <div className="report-paper-header">
-            <h3>หลักฐานการเบิกจ่ายเงินค่าตรวจสุขภาพประจำปี</h3>
+        <div className="checkup-paper-card matrix-paper-card">
+          {/* Top Line Meta matching Image 2 */}
+          <div className="matrix-top-meta">
+            <div className="matrix-meta-left">
+              <span>ชื่อ - สกุล ................................................................</span>
+            </div>
+            <div className="matrix-meta-right">
+              <span>สถานที่ปฏิบัติงาน {workPlace ? <strong>{workPlace}</strong> : '................................................................'}</span>
+            </div>
+          </div>
+          <div className="matrix-top-meta" style={{ marginTop: '0.35rem' }}>
+            <div className="matrix-meta-left">
+              <span>
+                วัน/เดือน/ปี ที่ตรวจ <strong>{formatThaiDate(dateStart)}</strong> {dateStart !== dateEnd && <>ถึง <strong>{formatThaiDate(dateEnd)}</strong></>}
+              </span>
+            </div>
+          </div>
+
+          {/* Report Main Title matching Image 2 */}
+          <div className="matrix-report-header">
+            <h3>หลักฐานการเบิกจ่ายเงินค่าตรวจสุขภาพประจำปี {checkupYear || '2569'} ( {pttypeLabel || 'NON UC'} )</h3>
             <p>
-              ส่วนราชการ <strong>{govOrg || '...........................................'}</strong> อำเภอ <strong>{district || '........................'}</strong> จังหวัด <strong>{province || '........................'}</strong>
-            </p>
-            <p>
-              ประจำวันที่ <strong>{formatThaiDate(dateStart)}</strong> {dateStart !== dateEnd && <>ถึง <strong>{formatThaiDate(dateEnd)}</strong></>}
+              ส่วนราชการ <strong>{govOrg}</strong> อ. <strong>{district}</strong> จ. <strong>{province}</strong>
             </p>
           </div>
 
+          {/* Matrix Table matching Image 2 */}
           <div className="report-table-wrapper">
-            <table className="report-table">
+            <table className="matrix-report-table">
               <thead>
-                <tr>
-                  <th style={{ width: '35px' }} className="no-print">
-                    <input
-                      type="checkbox"
-                      checked={visits.length > 0 && selectedVns.size === visits.length}
-                      onChange={(e) => handleToggleSelectAll(e.target.checked)}
-                      title="เลือกทั้งหมด"
-                    />
-                  </th>
-                  <th style={{ width: '40px' }}>ลำดับ</th>
-                  <th style={{ width: '80px' }}>วันที่ตรวจ</th>
-                  <th style={{ width: '70px' }}>HN</th>
-                  <th style={{ width: '150px' }}>ชื่อ - นามสกุล</th>
-                  <th style={{ width: '45px' }}>อายุ</th>
-                  <th style={{ width: '85px' }}>สิทธิการรักษา</th>
-                  {/* รายละเอียดอยู่ด้านขวา */}
-                  <th style={{ width: '110px' }}>รายการ X-Ray (ราคา)</th>
-                  <th>กลุ่มรายการตรวจ Lab (ราคา)</th>
-                  <th style={{ width: '90px' }}>รวมเงิน (บาท)</th>
-                  <th style={{ width: '110px' }}>ลายมือชื่อผู้ตรวจ</th>
-                  <th style={{ width: '60px' }} className="no-print">ใบรายคน</th>
+                {/* 1. Rates Row matching Image 2 top row */}
+                <tr className="matrix-rate-row">
+                  <th className="rate-empty"></th>
+                  <th className="rate-empty"></th>
+                  <th className="rate-empty"></th>
+                  {CHECKUP_MATRIX_COLUMNS.map((c) => (
+                    <th key={c.id} className="rate-num-cell">{c.rate}</th>
+                  ))}
+                  {hasOtherItems && <th className="rate-num-cell">-</th>}
+                  <th className="rate-empty"></th>
+                </tr>
+
+                {/* 2. Super Header Row */}
+                <tr className="matrix-super-header-row">
+                  <th rowSpan={2} style={{ width: '32px' }}>ลำดับ</th>
+                  <th rowSpan={2} style={{ width: '150px' }}>ชื่อ-สกุล</th>
+                  <th rowSpan={2} style={{ width: '45px' }}>อายุ<br />( ปี )</th>
+                  <th colSpan={hasOtherItems ? 16 : 15} className="matrix-group-title">รายการตรวจ</th>
+                  <th rowSpan={2} style={{ width: '65px' }}>รวม</th>
+                </tr>
+
+                {/* 3. Sub Header: Test Names matching Image 2 */}
+                <tr className="matrix-test-names-row">
+                  {CHECKUP_MATRIX_COLUMNS.map((c) => (
+                    <th key={c.id} className="test-name-th">
+                      {c.name}
+                    </th>
+                  ))}
+                  {hasOtherItems && <th className="test-name-th">อื่นๆ</th>}
                 </tr>
               </thead>
               <tbody>
-                {visits.length === 0 ? (
+                {selectedVisits.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="text-center" style={{ padding: '2rem', color: '#94a3b8' }}>
-                      {loading ? 'กำลังดึงข้อมูล...' : 'ไม่พบข้อมูลการตรวจสุขภาพในช่วงเวลาและสิทธิที่เลือก'}
+                    <td colSpan={hasOtherItems ? 20 : 19} className="text-center" style={{ padding: '2.5rem', color: '#94a3b8' }}>
+                      {visits.length === 0
+                        ? (loading ? 'กำลังดึงข้อมูล...' : 'ไม่พบข้อมูลการตรวจสุขภาพในช่วงเวลาและสิทธิที่เลือก')
+                        : '⚠️ ยังไม่ได้เลือกรายชื่อผู้รับการตรวจ (กรุณากดเลือกผู้ตรวจสุขภาพจากกล่องด้านบน)'}
                     </td>
                   </tr>
                 ) : (
-                  visits.map((v, index) => {
-                    const isChecked = selectedVns.has(v.vn);
+                  selectedVisits.map((v, index) => {
+                    const { colValues, otherSum, total } = getVisitMatrixValues(v);
                     return (
-                      <tr key={v.vn} className="report-row-single" style={{ opacity: isChecked ? 1 : 0.45 }}>
-                        <td className="text-center no-print">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => handleToggleVn(v.vn)}
-                          />
-                        </td>
+                      <tr key={v.vn} className="matrix-row">
                         <td className="text-center">{index + 1}</td>
-                        <td className="text-center">{v.vstdate}</td>
-                        <td className="text-center font-bold">{v.hn}</td>
-                        <td className="text-left font-bold" style={{ whiteSpace: 'nowrap' }}>{v.fullname}</td>
-                        <td className="text-center">{v.age_y} ปี</td>
-                        <td className="text-left" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{v.pttype_name}</td>
-
-                        {/* รายละเอียดด้านขวา: X-Ray */}
-                        <td className="text-left">
-                          {v.xray_items.length === 0 ? (
-                            <span style={{ color: '#94a3b8' }}>-</span>
-                          ) : (
-                            v.xray_items.map((x, xi) => (
-                              <div key={xi} className="xray-inline-item">
-                                <span>{x.name}</span>{' '}
-                                <span className="lab-item-price">({x.price.toLocaleString()}.-)</span>
-                              </div>
-                            ))
-                          )}
-                        </td>
-
-                        {/* รายละเอียดด้านขวา: Lab Groups (กลุ่มตรวจแลปพร้อมราคา) */}
-                        <td className="text-left">
-                          {v.lab_items.length === 0 ? (
-                            <span style={{ color: '#94a3b8' }}>-</span>
-                          ) : (
-                            <div className="lab-inline-wrapper">
-                              {v.lab_items.map((l, li) => (
-                                <span key={li} className="lab-inline-item">
-                                  <span className="lab-item-name">{l.name}</span>{' '}
-                                  <span className="lab-item-price">({l.price.toLocaleString()}.-)</span>
-                                  {li < v.lab_items.length - 1 && <span className="lab-sep">, </span>}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* รายละเอียดด้านขวา: รวมเงิน */}
-                        <td className="text-right font-bold" style={{ fontSize: '0.9rem', color: '#0f172a', whiteSpace: 'nowrap' }}>
-                          {v.total_price.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-
-                        {/* ลายมือชื่อผู้รับการตรวจ */}
-                        <td className="text-center">
-                          <div className="table-sig-box">
-                            <span className="table-sig-line">................................</span>
-                          </div>
-                        </td>
-
-                        {/* Action Column */}
-                        <td className="text-center no-print">
-                          <button
-                            className="checkup-btn btn-secondary"
-                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-                            onClick={() => handlePrint('individual', v.vn)}
-                            title="ดูใบรายบุคคล"
-                          >
-                            👁️ ดูใบ
-                          </button>
+                        <td className="td-name">{v.fullname}</td>
+                        <td className="text-center">{v.age_y}</td>
+                        {CHECKUP_MATRIX_COLUMNS.map((c) => {
+                          const val = colValues[c.id] || 0;
+                          return (
+                            <td key={c.id} className={`td-val ${val === 0 ? 'td-zero' : 'td-positive'}`}>
+                              {val}
+                            </td>
+                          );
+                        })}
+                        {hasOtherItems && (
+                          <td className={`td-val ${otherSum === 0 ? 'td-zero' : 'td-positive'}`}>
+                            {otherSum}
+                          </td>
+                        )}
+                        <td className="td-total">
+                          {total.toLocaleString()}
                         </td>
                       </tr>
                     );
@@ -486,36 +701,26 @@ export function AnnualHealthCheckupReportPage() {
                 )}
               </tbody>
               <tfoot>
-                <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
-                  <td className="no-print"></td>
-                  <td colSpan={7} className="text-right" style={{ fontSize: '0.9rem' }}>
-                    รวมทั้งสิ้น ({selectedVisits.length} คน)
-                    <span style={{ fontSize: '0.85rem', color: '#0369a1', marginLeft: '0.5rem', fontWeight: 600 }}>
-                      ({totalAmountText})
-                    </span>
+                <tr className="matrix-tfoot-row">
+                  <td colSpan={3} className="text-center font-bold">รวมทั้งสิ้น</td>
+                  <td colSpan={hasOtherItems ? 16 : 15} className="text-center font-bold" style={{ fontSize: '9pt' }}>
+                    ({totalAmountText})
                   </td>
-                  <td className="text-right font-bold" style={{ fontSize: '0.95rem', color: '#0369a1', whiteSpace: 'nowrap' }}>
-                    {totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <td className="td-total font-bold" style={{ fontSize: '9.5pt' }}>
+                    {totalAmount.toLocaleString()}
                   </td>
-                  <td></td>
-                  <td className="no-print"></td>
                 </tr>
               </tfoot>
             </table>
           </div>
 
-          {/* Signatures for Summary Report */}
-          <div className="report-signatures">
-            <div className="sig-col">
-              <div>ลงชื่อ ................................................................ ผู้ตรวจสอบ</div>
-              <div className="sig-dots">({nurseName || '................................................................'})</div>
-              <div>ตำแหน่ง {nursePos || 'พยาบาลวิชาชีพชำนาญการ'}</div>
-            </div>
-
-            <div className="sig-col">
-              <div>ลงชื่อ ................................................................ ผู้มีอำนาจลงนาม</div>
-              <div className="sig-dots">({headName || '................................................................'})</div>
-              <div>ตำแหน่ง {headPos || 'หัวหน้ากลุ่มงานการพยาบาล'}</div>
+          {/* Single Signature Block at Bottom Right (Matching Image 2) */}
+          <div className="matrix-signature-container">
+            <div className="matrix-sig-box">
+              <div className="sig-line">(ลงชื่อ) ................................................................</div>
+              <div className="sig-name">( {nurseName || '................................................................'} )</div>
+              <div className="sig-pos">{nursePos}</div>
+              <div className="sig-head">{headPos}</div>
             </div>
           </div>
         </div>

@@ -138,7 +138,7 @@ log "$ACTION requested by=$ACTOR branch=$DEPLOY_BRANCH from=$FROM_COMMIT to=$TO_
 run_step 120 "git fetch" git fetch --prune origin "$DEPLOY_BRANCH"
 
 [[ "$(git branch --show-current)" == "$DEPLOY_BRANCH" ]] || { log "branch mismatch"; false; }
-[[ -z "$(git status --porcelain)" ]] || { log "working tree is dirty"; false; }
+[[ -z "$(git status --porcelain -uno)" ]] || { log "working tree is dirty"; false; }
 [[ "$(git rev-parse HEAD)" == "$FROM_COMMIT" ]] || { log "current commit changed"; false; }
 git update-ref "refs/fdh-restore-points/$JOB_ID" "$FROM_COMMIT"
 

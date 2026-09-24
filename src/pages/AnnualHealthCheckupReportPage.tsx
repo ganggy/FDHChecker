@@ -180,28 +180,33 @@ export function getVisitMatrixValues(v: CheckupVisit) {
     }
   });
 
-  // จับคู่รายการเข้าคอลัมน์มาตรฐาน 15 รายการ
+  // จับคู่รายการเข้าคอลัมน์มาตรฐาน 15 รายการ (ใช้อัตราเบิกจ่ายตามระเบียบทางราชการ col.rate)
   for (const col of CHECKUP_MATRIX_COLUMNS) {
-    let sum = 0;
+    let hasMatch = false;
     allItems.forEach((it, idx) => {
       if (!matchedItemIndices.has(idx) && col.match(it)) {
-        sum += it.price;
+        hasMatch = true;
         matchedItemIndices.add(idx);
       }
     });
 
     if (hasLipidProfile) {
-      if (col.id === 'chol' && sum === 0) sum = 60;
-      if (col.id === 'tg' && sum === 0) sum = 60;
+      if (col.id === 'chol' || col.id === 'tg') {
+        hasMatch = true;
+      }
     }
-    colValues[col.id] = sum;
+    colValues[col.id] = hasMatch ? col.rate : 0;
   }
 
-  // รายการอื่นๆ นอกเหนือจาก 15 รายการมาตรฐาน (เช่น Electrolyte, EKG)
+  // รายการอื่นๆ นอกเหนือจาก 15 รายการมาตรฐาน (เฉพาะรายการแลปหรือการตรวจพิเศษจริง เช่น EKG, HBsAg)
   let otherSum = 0;
   const otherNames: string[] = [];
   allItems.forEach((it, idx) => {
     if (!matchedItemIndices.has(idx)) {
+      // ตัดค่าบริการทางการพยาบาล/ค่าบริการทั่วไป OPD/ทำแผล/ตัดไหม ที่ไม่ใช่การตรวจสุขภาพออก
+      if (/ค่าบริการ|dressing|ทำแผล|ตัดไหม|บริการทางการแพทย์/i.test(it.name)) {
+        return;
+      }
       otherSum += it.price;
       otherNames.push(`${it.name} (${it.price})`);
     }
@@ -218,7 +223,7 @@ export function getVisitMatrixValues(v: CheckupVisit) {
     colValues,
     otherSum,
     otherNames: otherNames.join(', '),
-    total: v.total_price || computedTotal
+    total: computedTotal
   };
 }
 
@@ -264,7 +269,6 @@ export function AnnualHealthCheckupReportPage() {
   const [headPos, setHeadPos] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.HEAD_POS) || 'หัวหน้าพยาบาล');
   const [checkupYear, setCheckupYear] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.YEAR) || '2569');
   const [pttypeLabel, setPttypeLabel] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.PTTYPE_LABEL) || 'NON UC');
-  const [workPlace, setWorkPlace] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.WORK_PLACE) || '');
 
   // Save header settings
   const handleSaveSettings = () => {
@@ -276,7 +280,6 @@ export function AnnualHealthCheckupReportPage() {
     localStorage.setItem(STORAGE_KEYS.HEAD_POS, headPos);
     localStorage.setItem(STORAGE_KEYS.YEAR, checkupYear);
     localStorage.setItem(STORAGE_KEYS.PTTYPE_LABEL, pttypeLabel);
-    localStorage.setItem(STORAGE_KEYS.WORK_PLACE, workPlace);
   };
 
   // Load Pttypes
@@ -518,10 +521,6 @@ export function AnnualHealthCheckupReportPage() {
             <input type="text" value={province} onChange={(e) => setProvince(e.target.value)} onBlur={handleSaveSettings} />
           </div>
           <div className="checkup-form-group">
-            <label>สถานที่ปฏิบัติงาน (บรรทัดบนหัวกระดาษ)</label>
-            <input type="text" placeholder="ระบุหรือไม่ระบุก็ได้" value={workPlace} onChange={(e) => setWorkPlace(e.target.value)} onBlur={handleSaveSettings} />
-          </div>
-          <div className="checkup-form-group">
             <label>ผู้ลงนาม (พยาบาลวิชาชีพ)</label>
             <input type="text" placeholder="ชื่อ-สกุล" value={nurseName} onChange={(e) => setNurseName(e.target.value)} onBlur={handleSaveSettings} />
           </div>
@@ -602,28 +601,14 @@ export function AnnualHealthCheckupReportPage() {
       {/* VIEW 1: TAB SUMMARY TABLE (MATCHING IMAGE 2 EXACTLY) */}
       {activeTab === 'summary' && (
         <div className="checkup-paper-card matrix-paper-card">
-          {/* Top Line Meta matching Image 2 */}
-          <div className="matrix-top-meta">
-            <div className="matrix-meta-left">
-              <span>ชื่อ - สกุล ................................................................</span>
-            </div>
-            <div className="matrix-meta-right">
-              <span>สถานที่ปฏิบัติงาน {workPlace ? <strong>{workPlace}</strong> : '................................................................'}</span>
-            </div>
-          </div>
-          <div className="matrix-top-meta" style={{ marginTop: '0.35rem' }}>
-            <div className="matrix-meta-left">
-              <span>
-                วัน/เดือน/ปี ที่ตรวจ <strong>{formatThaiDate(dateStart)}</strong> {dateStart !== dateEnd && <>ถึง <strong>{formatThaiDate(dateEnd)}</strong></>}
-              </span>
-            </div>
-          </div>
-
           {/* Report Main Title matching Image 2 */}
           <div className="matrix-report-header">
             <h3>หลักฐานการเบิกจ่ายเงินค่าตรวจสุขภาพประจำปี {checkupYear || '2569'} ( {pttypeLabel || 'NON UC'} )</h3>
-            <p>
+            <p className="matrix-gov-org">
               ส่วนราชการ <strong>{govOrg}</strong> อ. <strong>{district}</strong> จ. <strong>{province}</strong>
+            </p>
+            <p className="matrix-date-line">
+              วัน/เดือน/ปี ที่ตรวจ: <strong>{formatThaiDate(dateStart)}</strong> {dateStart !== dateEnd && <>ถึง <strong>{formatThaiDate(dateEnd)}</strong></>}
             </p>
           </div>
 

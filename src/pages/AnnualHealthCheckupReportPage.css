@@ -471,18 +471,25 @@
 
 .matrix-report-header {
   text-align: center;
-  margin: 0.5rem 0 0.85rem 0;
+  margin: 0.25rem 0 1rem 0;
 }
 
 .matrix-report-header h3 {
-  font-size: 11pt;
+  font-size: 13pt;
   font-weight: 700;
-  margin: 0 0 0.2rem 0;
+  margin: 0 0 0.35rem 0;
+  color: #000;
+  letter-spacing: 0.3px;
+}
+
+.matrix-report-header .matrix-gov-org {
+  font-size: 10.5pt;
+  margin: 0 0 0.25rem 0;
   color: #000;
 }
 
-.matrix-report-header p {
-  font-size: 9.5pt;
+.matrix-report-header .matrix-date-line {
+  font-size: 10pt;
   margin: 0;
   color: #000;
 }
@@ -491,36 +498,16 @@
 .matrix-report-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 8pt;
+  font-size: 8.5pt;
   color: #000;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
 .matrix-report-table th,
 .matrix-report-table td {
   border: 1px solid #000;
-  padding: 2.5px 1.5px;
+  padding: 3.5px 2px;
   vertical-align: middle;
-}
-
-.matrix-rate-row th {
-  font-weight: normal;
-  font-size: 7.5pt;
-  text-align: center;
-  padding: 1.5px 1px;
-}
-
-.rate-empty {
-  border-top: none !important;
-  border-left: none !important;
-  border-right: none !important;
-  border-bottom: 1px solid #000 !important;
-  background: transparent !important;
-}
-
-.rate-num-cell {
-  background: #f8fafc;
-  font-family: inherit;
 }
 
 .matrix-super-header-row th {

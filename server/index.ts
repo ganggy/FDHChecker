@@ -166,6 +166,7 @@ import {
   previewAncDentalCompletion,
 } from './ancDentalCompletion.js';
 import { completeHerbalDiagnoses, previewHerbalDiagnosisCompletion } from './herbalDiagnosisCompletion.js';
+import { annualHealthCheckupRouter } from './annualHealthCheckup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -900,6 +901,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
   { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
   { pattern: /^\/dental-audit(\/|$)/, pages: ['dentalAudit'] },
+  { pattern: /^\/(annual-checkup|reports\/checkup)(\/|$)/, pages: ['annualCheckupReport', 'hospitalReports'] },
   { pattern: /^\/ktb-approve(\/|$)/, pages: ['ktbApproveCode'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
@@ -6004,6 +6006,8 @@ app.use('/api', createHealthRouter(async () => {
 
 app.use('/api', claimTrackingRouter);
 app.use('/api', collaborationRouter);
+app.use('/api/reports/checkup', annualHealthCheckupRouter);
+app.use('/api/annual-checkup', annualHealthCheckupRouter);
 
 app.use('/api', apiNotFoundHandler);
 app.use(apiErrorHandler);

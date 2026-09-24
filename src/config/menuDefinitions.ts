@@ -28,6 +28,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'collaboration', icon: '💬', label: 'ศูนย์ตรวจสอบ (LINE)' },
   { page: 'aiReports', icon: '✨', label: 'FDH AI Analytics' },
   { page: 'hospitalReports', icon: '📑', label: 'ศูนย์รายงานโรงพยาบาล' },
+  { page: 'annualCheckupReport', icon: '🩺', label: 'หลักฐานเบิกตรวจสุขภาพ' },
   { page: 'fdhImport', icon: '📥', label: 'ดึงสถานะเคลม FDH' },
   { page: 'fdhClaimDetail', icon: '📄', label: 'รายละเอียดเคลม FDH' },
   { page: 'repstm', icon: '🧾', label: 'นำเข้า REP/STM' },
@@ -73,7 +74,7 @@ export const toolNavGroups: NavGroup[] = [
   { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['dentalAudit', 'fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'ktbApproveCode', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
   { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'receivableSettlement', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
-  { label: 'รายงาน/สถิติ', icon: '📊', pages: ['aiReports', 'hospitalReports', 'admin'] },
+  { label: 'รายงาน/สถิติ', icon: '📊', pages: ['aiReports', 'hospitalReports', 'annualCheckupReport', 'admin'] },
   { label: 'บริหารระบบ', icon: '⚙️', pages: ['memberAdmin', 'repstmManage'] },
 ];
 

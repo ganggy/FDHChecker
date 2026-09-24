@@ -1,0 +1,376 @@
+/* Annual Health Checkup Report Styling */
+.checkup-page {
+  padding: 1.5rem;
+  max-width: 1440px;
+  margin: 0 auto;
+  font-family: 'Sarabun', 'Prompt', system-ui, -apple-system, sans-serif;
+  color: #1e293b;
+}
+
+.checkup-header-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.5rem;
+  border: 1px solid #e2e8f0;
+}
+
+.checkup-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.checkup-title-row h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkup-tabs {
+  display: flex;
+  gap: 0.5rem;
+  background: #f1f5f9;
+  padding: 0.25rem;
+  border-radius: 8px;
+}
+
+.checkup-tab-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.checkup-tab-btn.active {
+  background: white;
+  color: #0284c7;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.checkup-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.checkup-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.checkup-form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.checkup-form-group input,
+.checkup-form-group select {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.checkup-form-group input:focus,
+.checkup-form-group select:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
+
+.checkup-info-banner {
+  background: #eff6ff;
+  border-left: 4px solid #3b82f6;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #1e40af;
+  margin-bottom: 1.25rem;
+}
+
+.checkup-action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+.checkup-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: #0284c7;
+  color: white;
+}
+.btn-primary:hover {
+  background: #0369a1;
+}
+
+.btn-success {
+  background: #10b981;
+  color: white;
+}
+.btn-success:hover {
+  background: #059669;
+}
+
+.btn-secondary {
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+.btn-secondary:hover {
+  background: #e2e8f0;
+}
+
+.btn-outline {
+  background: white;
+  color: #0284c7;
+  border: 1px solid #0284c7;
+}
+.btn-outline:hover {
+  background: #f0f9ff;
+}
+
+/* Paper / Report View Container */
+.checkup-paper-card {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e2e8f0;
+  margin-bottom: 2rem;
+}
+
+/* Print specific styles */
+@media print {
+  body {
+    background: white !important;
+    font-size: 13px !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .checkup-page {
+    padding: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+  .checkup-paper-card {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .page-break {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+}
+
+/* Report Header Styles */
+.report-paper-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.report-paper-header h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem 0;
+  color: black;
+}
+
+.report-paper-header p {
+  margin: 0.2rem 0;
+  font-size: 0.95rem;
+  color: #334155;
+}
+
+/* Summary Table Styles */
+.report-table-wrapper {
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.report-table th,
+.report-table td {
+  border: 1px solid #94a3b8;
+  padding: 0.45rem 0.6rem;
+  vertical-align: top;
+}
+
+.report-table th {
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 700;
+  text-align: center;
+}
+
+.report-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.text-left { text-align: left; }
+.font-bold { font-weight: bold; }
+
+/* Item List in Cells */
+.item-tag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item-tag {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  border-bottom: 1px dashed #e2e8f0;
+  padding-bottom: 0.15rem;
+}
+
+.item-tag:last-child {
+  border-bottom: none;
+}
+
+.item-price {
+  font-weight: 600;
+  color: #0369a1;
+  white-space: nowrap;
+}
+
+/* Signatures block */
+.report-signatures {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 2.5rem;
+  page-break-inside: avoid;
+}
+
+.sig-col {
+  text-align: center;
+  min-width: 240px;
+}
+
+.sig-dots {
+  margin: 1.5rem 0 0.5rem 0;
+  letter-spacing: 2px;
+}
+
+/* Individual Slip Styles */
+.individual-slip {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  background: white;
+}
+
+@media print {
+  .individual-slip {
+    border: none !important;
+    padding: 0.5cm !important;
+    margin-bottom: 0 !important;
+    page-break-after: always !important;
+  }
+}
+
+.slip-header {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.slip-header h4 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0 0 0.3rem 0;
+}
+
+.slip-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+}
+
+.slip-meta-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.slip-meta-label {
+  font-weight: 600;
+  color: #475569;
+  min-width: 120px;
+}
+
+.slip-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.25rem;
+}
+
+.slip-table th,
+.slip-table td {
+  border: 1px solid #000;
+  padding: 0.5rem 0.75rem;
+}
+
+.slip-table th {
+  background: #f1f5f9;
+  text-align: center;
+  font-weight: 700;
+}
+
+.slip-footer {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: space-between;
+  page-break-inside: avoid;
+}

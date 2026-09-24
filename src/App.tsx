@@ -58,6 +58,7 @@ const GuidePage = lazyNamed(() => import('./pages/GuidePage'), 'GuidePage');
 const Icd9LookupPage = lazyNamed(() => import('./pages/Icd9LookupPage'), 'Icd9LookupPage');
 const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage');
 const MemberAdminPage = lazyNamed(() => import('./pages/MemberAdminPage'), 'MemberAdminPage');
+const AnnualHealthCheckupReportPage = lazyNamed(() => import('./pages/AnnualHealthCheckupReportPage'), 'AnnualHealthCheckupReportPage');
 
 function App() {
   const [requestedPage, setCurrentPage] = useState<AppPage>('staff');
@@ -501,6 +502,7 @@ function App() {
         {currentPage === 'collaboration' && <CollaborationHubPage currentUser={authSession.user} />}
         {currentPage === 'aiReports' && <AiReportWorkspacePage />}
         {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
+        {currentPage === 'annualCheckupReport' && <AnnualHealthCheckupReportPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
         {currentPage === 'fdhClaimDetail' && <FdhClaimDetailImportPage />}

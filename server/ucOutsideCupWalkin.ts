@@ -1,6 +1,6 @@
 import { parseSiteWalkinSettings, readHospitalIdentity } from './siteProfile.js';
 import { getRepstmConnection, getUTFConnection, getAppSetting } from './db.js';
-import type { HospitalConnection } from './hospitalDatabase.js';
+import { type HospitalConnection, getNextHospitalSerial } from './hospitalDatabase.js';
 
 export const UC_WALKIN_NAME = 'WALKIN:ผู้ป่วยนอกเหตุสมควร ทั่วประเทศ';
 export const UC_WALKIN_START_DATE = '2024-10-01';
@@ -1443,11 +1443,6 @@ export const fixWalkinClinicalVisit = async (
         );
         let nextTmNo = Number((maxTmRows as Array<{ max_no: number }>)[0]?.max_no || 0);
 
-        const [maxIdRows] = await connection.query(
-          `SELECT COALESCE(MAX(dtmain_id), 0) AS max_id FROM dtmain`
-        );
-        let nextDtmainId = Number((maxIdRows as Array<{ max_id: number }>)[0]?.max_id || 0);
-
         const primaryIcd = diags.find((d) => d.diagtype === '1')?.code || 'Z012';
         const syncedDesc: string[] = [];
 
@@ -1482,7 +1477,7 @@ export const fixWalkinClinicalVisit = async (
           }
 
           nextTmNo++;
-          nextDtmainId++;
+          const nextDtmainId = await getNextHospitalSerial(connection, 'dtmain_id', 'dtmain', 'dtmain_id');
 
           await connection.query(
             `INSERT INTO dtmain (
@@ -1547,10 +1542,7 @@ export const fixWalkinClinicalVisit = async (
         );
         const nextTmNo = Number((maxTmRows as Array<{ max_no: number }>)[0]?.max_no || 0) + 1;
 
-        const [maxIdRows] = await connection.query(
-          `SELECT COALESCE(MAX(dtmain_id), 0) AS max_id FROM dtmain`
-        );
-        const nextDtmainId = Number((maxIdRows as Array<{ max_id: number }>)[0]?.max_id || 0) + 1;
+        const nextDtmainId = await getNextHospitalSerial(connection, 'dtmain_id', 'dtmain', 'dtmain_id');
 
         const [dttmMatches] = await connection.query(
           `SELECT code, icd9cm, icd10tm_operation_code FROM dttm WHERE code = '3002' LIMIT 1`
@@ -1585,10 +1577,7 @@ export const fixWalkinClinicalVisit = async (
 
         // If visit has no diagnosis in ovstdiag, also add Z01.2 as PDX
         if (diags.length === 0) {
-          const [maxDiagRows] = await connection.query(
-            `SELECT COALESCE(MAX(ovst_diag_id), 0) AS max_id FROM ovstdiag`
-          );
-          const nextDiagId = Number((maxDiagRows as Array<{ max_id: number }>)[0]?.max_id || 0) + 1;
+          const nextDiagId = await getNextHospitalSerial(connection, 'ovst_diag_id', 'ovstdiag', 'ovst_diag_id');
           await connection.query(
             `INSERT INTO ovstdiag (
               ovst_diag_id, vn, icd10, hn, vstdate, vsttime, diagtype, doctor, episode
@@ -1654,10 +1643,7 @@ export const fixWalkinClinicalVisit = async (
           [vn, existingDiag.ovst_diag_id]
         );
       } else {
-        const [maxDiagRows] = await connection.query(
-          `SELECT COALESCE(MAX(ovst_diag_id), 0) AS max_id FROM ovstdiag`
-        );
-        const nextDiagId = Number((maxDiagRows as Array<{ max_id: number }>)[0]?.max_id || 0) + 1;
+        const nextDiagId = await getNextHospitalSerial(connection, 'ovst_diag_id', 'ovstdiag', 'ovst_diag_id');
         await connection.query(
           `INSERT INTO ovstdiag (
             ovst_diag_id, vn, icd10, hn, vstdate, vsttime, diagtype, doctor, episode

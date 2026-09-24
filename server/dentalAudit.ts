@@ -1,4 +1,5 @@
 import { getUTFConnection } from './db.js';
+import { getNextHospitalSerial } from './hospitalDatabase.js';
 
 export type DentalCategory =
   | 'ALL'
@@ -1089,14 +1090,7 @@ export const fixDentalClinicalVisit = async (input: {
     const ovstDoctor = String(ovstRow?.doctor || '900');
     const ovstStaff = String(ovstRow?.staff || input.actorName || 'dental');
 
-    const [maxDiagRows] = await connection.query(
-      `SELECT COALESCE(MAX(ovst_diag_id), 0) AS max_id FROM ovstdiag`
-    );
-    let nextDiagId = Number((maxDiagRows as Array<{ max_id: number }>)[0]?.max_id || 0);
-    const getNextDiagId = () => {
-      nextDiagId += 1;
-      return nextDiagId;
-    };
+    const getNextDiagId = () => getNextHospitalSerial(connection, 'ovst_diag_id', 'ovstdiag', 'ovst_diag_id');
 
     for (const action of evaluated.auto_fix_actions) {
       if (action === 'ADD_K051') {
@@ -1105,7 +1099,7 @@ export const fixDentalClinicalVisit = async (input: {
           [vn]
         );
         if (!Array.isArray(existsK051) || existsK051.length === 0) {
-          const diagId = getNextDiagId();
+          const diagId = await getNextDiagId();
           await connection.query(
             `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
              VALUES (?, ?, ?, ?, ?, 'K051', '2', ?, ?, 1)`,
@@ -1119,7 +1113,7 @@ export const fixDentalClinicalVisit = async (input: {
           [vn]
         );
         if (!Array.isArray(existsK021) || existsK021.length === 0) {
-          const diagId = getNextDiagId();
+          const diagId = await getNextDiagId();
           await connection.query(
             `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
              VALUES (?, ?, ?, ?, ?, 'K021', '2', ?, ?, 1)`,
@@ -1133,7 +1127,7 @@ export const fixDentalClinicalVisit = async (input: {
           [vn]
         );
         if (!Array.isArray(existsK011) || existsK011.length === 0) {
-          const diagId = getNextDiagId();
+          const diagId = await getNextDiagId();
           await connection.query(
             `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
              VALUES (?, ?, ?, ?, ?, 'K011', '2', ?, ?, 1)`,
@@ -1165,7 +1159,7 @@ export const fixDentalClinicalVisit = async (input: {
             [vn, (existingNewPdx[0] as Record<string, unknown>).ovst_diag_id]
           );
         } else {
-          const diagId = getNextDiagId();
+          const diagId = await getNextDiagId();
           await connection.query(
             `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
              VALUES (?, ?, ?, ?, ?, ?, '1', ?, ?, 1)`,
@@ -1198,7 +1192,7 @@ export const fixDentalClinicalVisit = async (input: {
             [dentalPdx, vn, curPdxRow.ovst_diag_id]
           );
         } else {
-          const diagId = getNextDiagId();
+          const diagId = await getNextDiagId();
           await connection.query(
             `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
              VALUES (?, ?, ?, ?, ?, ?, '1', ?, ?, 1)`,
@@ -1221,9 +1215,6 @@ export const fixDentalClinicalVisit = async (input: {
             [vn]
           );
           let nextTmNo = Number((maxTmRows as Array<{ max_no: number }>)[0]?.max_no || 0);
-
-          const [maxIdRows] = await connection.query(`SELECT COALESCE(MAX(dtmain_id), 0) AS max_id FROM dtmain`);
-          let nextDtmainId = Number((maxIdRows as Array<{ max_id: number }>)[0]?.max_id || 0);
 
           const primaryIcd = diags.find((d) => d.diagtype === '1')?.code || 'Z012';
           const syncedDesc: string[] = [];
@@ -1256,7 +1247,7 @@ export const fixDentalClinicalVisit = async (input: {
             }
 
             nextTmNo++;
-            nextDtmainId++;
+            const nextDtmainId = await getNextHospitalSerial(connection, 'dtmain_id', 'dtmain', 'dtmain_id');
 
             await connection.query(
               `INSERT INTO dtmain (
@@ -1306,8 +1297,7 @@ export const fixDentalClinicalVisit = async (input: {
           );
           const nextTmNo = Number((maxTmRows as Array<{ max_no: number }>)[0]?.max_no || 0) + 1;
 
-          const [maxIdRows] = await connection.query(`SELECT COALESCE(MAX(dtmain_id), 0) AS max_id FROM dtmain`);
-          const nextDtmainId = Number((maxIdRows as Array<{ max_id: number }>)[0]?.max_id || 0) + 1;
+          const nextDtmainId = await getNextHospitalSerial(connection, 'dtmain_id', 'dtmain', 'dtmain_id');
 
           const [dttmMatches] = await connection.query(
             `SELECT code, icd9cm, icd10tm_operation_code FROM dttm WHERE code = '3002' LIMIT 1`
@@ -1338,7 +1328,7 @@ export const fixDentalClinicalVisit = async (input: {
           );
 
           if (diags.length === 0) {
-            const diagId = getNextDiagId();
+            const diagId = await getNextDiagId();
             await connection.query(
               `INSERT INTO ovstdiag (ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode)
                VALUES (?, ?, ?, ?, ?, 'Z012', '1', ?, ?, 1)`,

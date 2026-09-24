@@ -132,3 +132,75 @@ export async function testHospitalDatabase(config: HospitalDatabaseConfig) {
     } finally { connection.release(); }
   } finally { await pool.end(); }
 }
+
+/**
+ * ดึง serial number ถัดไปสำหรับตารางใน HOSxP และอัปเดตตาราง serial
+ * เพื่อป้องกันปัญหา Duplicate Entry เมื่อเจ้าหน้าที่บันทึกข้อมูลผ่านโปรแกรม HOSxP
+ */
+export async function getNextHospitalSerial(
+  connection: HospitalConnection,
+  serialName: string,
+  tableName?: string,
+  idColumn?: string
+): Promise<number> {
+  // 1. ตรวจสอบและปรับปรุง serial_no ในตาราง serial ให้ไม่ต่ำกว่า MAX(id) ในตารางจริงเสมอ
+  if (tableName && idColumn) {
+    try {
+      await connection.query(
+        `UPDATE serial s
+         JOIN (SELECT COALESCE(MAX(${idColumn}), 0) AS max_id FROM ${tableName}) m
+         SET s.serial_no = m.max_id
+         WHERE s.name = ? AND s.serial_no < m.max_id`,
+        [serialName]
+      );
+    } catch {
+      // ignore
+    }
+  }
+
+  // 2. เรียกใช้ Function มาตรฐาน Get_SerialNumber ของ HOSxP
+  try {
+    const [rows] = await connection.query(
+      `SELECT Get_SerialNumber(?) AS new_id`,
+      [serialName]
+    );
+    const newId = Number((rows as Array<{ new_id: number }>)[0]?.new_id);
+    if (newId && Number.isFinite(newId)) {
+      return newId;
+    }
+  } catch {
+    // Fallback ถ้า Function Get_SerialNumber ไม่มีในฐานข้อมูล
+  }
+
+  // 3. Fallback: อัปเดตตาราง serial โดยตรงตามตรรกะ Get_SerialNumber ของ HOSxP
+  try {
+    await connection.query(
+      `INSERT INTO serial (name, serial_no)
+       VALUES (?, 0)
+       ON DUPLICATE KEY UPDATE name = name`,
+      [serialName]
+    );
+
+    await connection.query(
+      `UPDATE serial SET serial_no = LAST_INSERT_ID(serial_no + 1) WHERE name = ?`,
+      [serialName]
+    );
+    const [lastIdRows] = await connection.query(`SELECT LAST_INSERT_ID() AS new_id`);
+    const fallbackId = Number((lastIdRows as Array<{ new_id: number }>)[0]?.new_id);
+    if (fallbackId && Number.isFinite(fallbackId)) {
+      return fallbackId;
+    }
+  } catch {
+    // ignore
+  }
+
+  // 4. กรณีฉุกเฉิน (ไม่มีตาราง serial): ใช้ MAX + 1 จากตารางจริง
+  if (tableName && idColumn) {
+    const [maxRows] = await connection.query(
+      `SELECT COALESCE(MAX(${idColumn}), 0) + 1 AS new_id FROM ${tableName}`
+    );
+    return Number((maxRows as Array<{ new_id: number }>)[0]?.new_id || 1);
+  }
+
+  return Date.now();
+}

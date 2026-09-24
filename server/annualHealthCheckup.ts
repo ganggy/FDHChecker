@@ -38,6 +38,57 @@ export type CheckupVisit = {
 };
 
 /**
+ * จัดกลุ่มและปรับแต่งชื่อรายการ Lab ให้อ่านง่ายเป็น Lab Group มาตรฐาน
+ */
+export function formatLabGroupName(rawName: string): string {
+  if (!rawName) return 'ตรวจทางห้องปฏิบัติการ';
+  let name = rawName.trim().replace(/\s+/g, ' ');
+
+  // Standard Lab Checkup Groups
+  if (/^CBC\b/i.test(name) || /complete blood count/i.test(name)) return 'CBC';
+  if (/^Urine Analysis\b/i.test(name) || /^UA\b/i.test(name) || /urinalysis/i.test(name)) return 'Urine Analysis (UA)';
+  if (/^BUN\b/i.test(name) || /blood urea nitrogen/i.test(name)) return 'BUN';
+  if (/^Creatinine\b/i.test(name) || /^Cr\b/i.test(name)) return 'Creatinine';
+  if (/^Electrolyte\b/i.test(name)) return 'Electrolyte';
+  if (/^Lipid profile\b/i.test(name) || /cholesterol.*triglyceride/i.test(name)) return 'Lipid profile';
+  if (/^Liver Function\b/i.test(name) || /^LFT\b/i.test(name)) return 'Liver Function Test (LFT)';
+  if (/^FBS\b/i.test(name) || /^FPG\b/i.test(name) || /fasting blood sugar/i.test(name)) return 'FBS (น้ำตาลในเลือด)';
+  if (/^HbA1c\b/i.test(name)) return 'HbA1c';
+  if (/^Uric\b/i.test(name)) return 'Uric acid';
+  if (/^Stool Exam\b/i.test(name) || /stool.*examination/i.test(name)) return 'Stool Exam';
+  if (/^Occult Blood\b/i.test(name) || /stool occult/i.test(name)) return 'Stool Occult Blood';
+  if (/^Cholesterol\b/i.test(name)) return 'Cholesterol';
+  if (/^Triglyceride\b/i.test(name)) return 'Triglyceride';
+  if (/^HDL\b/i.test(name)) return 'HDL-C';
+  if (/^LDL\b/i.test(name)) return 'LDL-C';
+  if (/^SGOT\b/i.test(name) || /^AST\b/i.test(name)) return 'SGOT (AST)';
+  if (/^SGPT\b/i.test(name) || /^ALT\b/i.test(name)) return 'SGPT (ALT)';
+  if (/^Alk\b/i.test(name) || /alkaline phosphatase/i.test(name)) return 'Alkaline Phosphatase';
+  if (/^UPT\b/i.test(name) || /urine preg/i.test(name)) return 'Pregnancy Test (UPT)';
+  if (/^HBsAg\b/i.test(name)) return 'HBsAg';
+  if (/^Anti[- ]?HBs\b/i.test(name)) return 'Anti-HBs';
+  if (/^Anti[- ]?HCV\b/i.test(name)) return 'Anti-HCV';
+  if (/^VDRL\b/i.test(name) || /^RPR\b/i.test(name)) return 'VDRL / RPR';
+
+  // ตัดรหัสตัวเลขกรมบัญชีกลางท้ายชื่อ เช่น "(31001)", "(32203)", " 32201"
+  name = name.replace(/\s*\(\s*\d{4,6}\s*\)\s*$/g, '');
+  name = name.replace(/\s+\d{4,6}$/g, '');
+  return name.trim();
+}
+
+/**
+ * ปรับแต่งชื่อรายการ X-Ray ให้อ่านง่าย
+ */
+export function formatXrayName(rawName: string): string {
+  if (!rawName) return 'Chest PA (X-Ray ปอด)';
+  let name = rawName.trim().replace(/\s+/g, ' ');
+  if (/chest/i.test(name) || /cxr/i.test(name)) return 'Chest PA (X-Ray ปอด)';
+  name = name.replace(/\s*\(\s*\d{4,6}\s*\)\s*$/g, '');
+  name = name.replace(/\s+\d{4,6}$/g, '');
+  return name.trim();
+}
+
+/**
  * GET /api/reports/checkup/pttypes
  * ดึงรายการสิทธิการรักษาทั้งหมดในระบบเพื่อนำมาทำตัวกรอง
  */
@@ -153,13 +204,17 @@ annualHealthCheckupRouter.get('/visits', async (req: Request, res: Response) => 
     // 3. ดึงรายการ Lab จาก lab_head + lab_order + lab_items
     const [labOrderRows] = await connection.query(`
       SELECT 
-        lh.vn, lo.lab_order_number, lo.lab_items_code,
+        lh.vn, lh.form_name, lo.lab_order_number, lo.lab_items_code,
         COALESCE(NULLIF(li.lab_items_display_name, ''), li.lab_items_name) AS lab_name,
         COALESCE(li.service_price, 0) AS service_price,
-        li.icode
+        li.icode,
+        nd.name AS nondrug_name,
+        lg.lab_items_group_name AS group_name
       FROM lab_head lh
       JOIN lab_order lo ON lo.lab_order_number = lh.lab_order_number
       JOIN lab_items li ON li.lab_items_code = lo.lab_items_code
+      LEFT JOIN nondrugitems nd ON nd.icode = li.icode
+      LEFT JOIN lab_items_group lg ON lg.lab_items_group_code = li.lab_items_group
       WHERE lh.vn IN (${vns.map(() => '?').join(', ')})
       ORDER BY lo.lab_order_number, li.display_order, li.lab_items_code
     `, vns);
@@ -187,17 +242,26 @@ annualHealthCheckupRouter.get('/visits', async (req: Request, res: Response) => 
     const labMap = new Map<string, CheckupItem[]>();
     const otherMap = new Map<string, CheckupItem[]>();
 
-    // ประมวลผล X-ray
+    // ประมวลผล X-ray (รวมรายการซ้ำและจัดรูปแบบชื่อ)
     for (const row of (Array.isArray(xrayOpiRows) ? xrayOpiRows : []) as any[]) {
       const vn = String(row.vn);
       const list = xrayMap.get(vn) || [];
-      list.push({
-        name: String(row.item_name || 'ตรวจเอกซเรย์').trim(),
-        price: Number(row.sum_price || row.unitprice || 0),
-        qty: Number(row.qty || 1),
-        category: 'xray',
-        code: String(row.icode || '')
-      });
+      const cleanName = formatXrayName(String(row.item_name || ''));
+      const price = Number(row.sum_price || row.unitprice || 0);
+      const qty = Number(row.qty || 1);
+      const existing = list.find((x) => x.name === cleanName);
+      if (existing) {
+        existing.price += price;
+        existing.qty = (existing.qty || 1) + qty;
+      } else {
+        list.push({
+          name: cleanName,
+          price,
+          qty,
+          category: 'xray',
+          code: String(row.icode || '')
+        });
+      }
       xrayMap.set(vn, list);
     }
     // ถ้าใน opitemrece ไม่มี แต่มีใน xray_head ให้ดึงชื่อจาก xray_list
@@ -205,15 +269,14 @@ annualHealthCheckupRouter.get('/visits', async (req: Request, res: Response) => 
       const vn = String(row.vn);
       if (!xrayMap.has(vn) || xrayMap.get(vn)?.length === 0) {
         const list = xrayMap.get(vn) || [];
-        const name = String(row.xray_list || 'Chest PA').trim();
+        const cleanName = formatXrayName(String(row.xray_list || ''));
         const price = Number(row.total_price || row.xray_price || 0);
-        list.push({ name, price, qty: 1, category: 'xray' });
+        list.push({ name: cleanName, price, qty: 1, category: 'xray' });
         xrayMap.set(vn, list);
       }
     }
 
-    // ประมวลผล Lab
-    // ดึงราคาจาก opitemrece ถ้ามี mapping
+    // ประมวลผล Lab จัดกลุ่มเป็น Lab Group (เช่น CBC, UA, Lipid profile, BUN, Cr) พร้อมราคา
     const opiLabByVn = new Map<string, any[]>();
     for (const row of (Array.isArray(labOpiRows) ? labOpiRows : []) as any[]) {
       const vn = String(row.vn);
@@ -231,46 +294,60 @@ annualHealthCheckupRouter.get('/visits', async (req: Request, res: Response) => 
     }
 
     for (const vn of vns) {
-      const orderItems = labOrdersByVn.get(vn) || [];
       const opiItems = opiLabByVn.get(vn) || [];
+      const orderItems = labOrdersByVn.get(vn) || [];
       const list: CheckupItem[] = [];
 
-      if (orderItems.length > 0) {
-        const seenNames = new Set<string>();
-        for (const item of orderItems) {
-          const rawName = String(item.lab_name || '').trim();
-          if (!rawName || seenNames.has(rawName)) continue;
-          seenNames.add(rawName);
-
-          // หาราคาจาก opitemrece ที่ตรงกับ icode หรือใช้ service_price
-          let price = Number(item.service_price || 0);
-          if (item.icode) {
-            const matchedOpi = opiItems.find((o) => String(o.icode) === String(item.icode));
-            if (matchedOpi) {
-              price = Number(matchedOpi.unitprice || matchedOpi.sum_price || price);
-            }
-          }
-
-          list.push({
-            name: rawName,
-            price: price,
-            qty: 1,
-            category: 'lab',
-            code: String(item.lab_items_code || '')
-          });
-        }
-      } else if (opiItems.length > 0) {
-        // Fallback ใช้รายการจาก opitemrece
+      if (opiItems.length > 0) {
+        // กรณีมีใน opitemrece (income = '05'): เป็นรายการกลุ่มแลปที่คิดเงินจริงตามใบเสร็จ/ใบเคลม
+        const opiGroupMap = new Map<string, CheckupItem>();
         for (const item of opiItems) {
-          list.push({
-            name: String(item.item_name || 'ตรวจชันสูตรทางห้องปฏิบัติการ').trim(),
-            price: Number(item.sum_price || item.unitprice || 0),
-            qty: Number(item.qty || 1),
-            category: 'lab',
-            code: String(item.icode || '')
-          });
+          const rawName = String(item.item_name || 'ตรวจทางห้องปฏิบัติการ');
+          const groupName = formatLabGroupName(rawName);
+          const price = Number(item.sum_price || item.unitprice || 0);
+          const qty = Number(item.qty || 1);
+          const key = groupName;
+
+          if (opiGroupMap.has(key)) {
+            const existing = opiGroupMap.get(key)!;
+            existing.price += price;
+            existing.qty = (existing.qty || 1) + qty;
+          } else {
+            opiGroupMap.set(key, {
+              name: groupName,
+              price,
+              qty,
+              category: 'lab',
+              code: String(item.icode || '')
+            });
+          }
         }
+        list.push(...Array.from(opiGroupMap.values()));
+      } else if (orderItems.length > 0) {
+        // กรณีไม่มีใน opitemrece: จัดกลุ่ม Lab ตามชื่อกลุ่ม เพื่อไม่ให้แสดงรายการย่อย 30-50 รายการ
+        const orderGroupMap = new Map<string, CheckupItem>();
+        for (const item of orderItems) {
+          const rawName = item.nondrug_name || item.group_name || item.form_name || item.lab_name;
+          const groupName = formatLabGroupName(String(rawName || ''));
+          const price = Number(item.service_price || 0);
+          const key = groupName;
+
+          if (orderGroupMap.has(key)) {
+            const existing = orderGroupMap.get(key)!;
+            existing.price += price;
+          } else {
+            orderGroupMap.set(key, {
+              name: groupName,
+              price,
+              qty: 1,
+              category: 'lab',
+              code: String(item.icode || item.lab_items_code || '')
+            });
+          }
+        }
+        list.push(...Array.from(orderGroupMap.values()));
       }
+
       labMap.set(vn, list);
     }
 

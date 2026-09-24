@@ -235,7 +235,17 @@ export function AnnualHealthCheckupReportPage() {
   };
 
   return (
-    <div className="checkup-page">
+    <div className={`checkup-page ${activeTab === 'summary' ? 'page-landscape' : 'page-portrait'}`}>
+      {/* Dynamic page orientation style for printing */}
+      <style>{`
+        @media print {
+          @page {
+            size: ${activeTab === 'summary' ? 'A4 landscape' : 'A4 portrait'};
+            margin: ${activeTab === 'summary' ? '6mm 8mm' : '10mm 12mm'};
+          }
+        }
+      `}</style>
+
       {/* Control Card (Hidden during print) */}
       <div className="checkup-header-card no-print">
         <div className="checkup-title-row">
@@ -368,7 +378,7 @@ export function AnnualHealthCheckupReportPage() {
             <table className="report-table">
               <thead>
                 <tr>
-                  <th style={{ width: '40px' }} className="no-print">
+                  <th style={{ width: '35px' }} className="no-print">
                     <input
                       type="checkbox"
                       checked={visits.length > 0 && selectedVns.size === visits.length}
@@ -376,22 +386,24 @@ export function AnnualHealthCheckupReportPage() {
                       title="เลือกทั้งหมด"
                     />
                   </th>
-                  <th style={{ width: '45px' }}>ลำดับ</th>
-                  <th style={{ width: '90px' }}>วันที่ตรวจ</th>
-                  <th style={{ width: '80px' }}>HN / VN</th>
-                  <th style={{ width: '160px' }}>ชื่อ - สกุล</th>
-                  <th style={{ width: '55px' }}>อายุ</th>
-                  <th style={{ width: '130px' }}>สิทธิการรักษา</th>
-                  <th style={{ width: '220px' }}>รายการ X-Ray (ราคา)</th>
-                  <th>รายการตรวจ Lab แบบละเอียด (ราคา)</th>
-                  <th style={{ width: '100px' }}>รวมเงิน (บาท)</th>
-                  <th style={{ width: '70px' }} className="no-print">ใบรายคน</th>
+                  <th style={{ width: '40px' }}>ลำดับ</th>
+                  <th style={{ width: '80px' }}>วันที่ตรวจ</th>
+                  <th style={{ width: '70px' }}>HN</th>
+                  <th style={{ width: '150px' }}>ชื่อ - นามสกุล</th>
+                  <th style={{ width: '45px' }}>อายุ</th>
+                  <th style={{ width: '85px' }}>สิทธิการรักษา</th>
+                  {/* รายละเอียดอยู่ด้านขวา */}
+                  <th style={{ width: '110px' }}>รายการ X-Ray (ราคา)</th>
+                  <th>กลุ่มรายการตรวจ Lab (ราคา)</th>
+                  <th style={{ width: '90px' }}>รวมเงิน (บาท)</th>
+                  <th style={{ width: '110px' }}>ลายมือชื่อผู้ตรวจ</th>
+                  <th style={{ width: '60px' }} className="no-print">ใบรายคน</th>
                 </tr>
               </thead>
               <tbody>
                 {visits.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="text-center" style={{ padding: '2rem', color: '#94a3b8' }}>
+                    <td colSpan={12} className="text-center" style={{ padding: '2rem', color: '#94a3b8' }}>
                       {loading ? 'กำลังดึงข้อมูล...' : 'ไม่พบข้อมูลการตรวจสุขภาพในช่วงเวลาและสิทธิที่เลือก'}
                     </td>
                   </tr>
@@ -399,7 +411,7 @@ export function AnnualHealthCheckupReportPage() {
                   visits.map((v, index) => {
                     const isChecked = selectedVns.has(v.vn);
                     return (
-                      <tr key={v.vn} style={{ opacity: isChecked ? 1 : 0.45 }}>
+                      <tr key={v.vn} className="report-row-single" style={{ opacity: isChecked ? 1 : 0.45 }}>
                         <td className="text-center no-print">
                           <input
                             type="checkbox"
@@ -409,51 +421,52 @@ export function AnnualHealthCheckupReportPage() {
                         </td>
                         <td className="text-center">{index + 1}</td>
                         <td className="text-center">{v.vstdate}</td>
-                        <td className="text-center">
-                          <div style={{ fontWeight: 600 }}>{v.hn}</div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{v.vn}</div>
-                        </td>
-                        <td>
-                          <strong>{v.fullname}</strong>
-                        </td>
+                        <td className="text-center font-bold">{v.hn}</td>
+                        <td className="text-left font-bold" style={{ whiteSpace: 'nowrap' }}>{v.fullname}</td>
                         <td className="text-center">{v.age_y} ปี</td>
-                        <td style={{ fontSize: '0.8rem' }}>{v.pttype_name}</td>
+                        <td className="text-left" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{v.pttype_name}</td>
 
-                        {/* X-Ray Column */}
-                        <td>
+                        {/* รายละเอียดด้านขวา: X-Ray */}
+                        <td className="text-left">
                           {v.xray_items.length === 0 ? (
                             <span style={{ color: '#94a3b8' }}>-</span>
                           ) : (
-                            <ul className="item-tag-list">
-                              {v.xray_items.map((x, xi) => (
-                                <li key={xi} className="item-tag">
-                                  <span>• {x.name}</span>
-                                  <span className="item-price">{x.price.toLocaleString()} ฿</span>
-                                </li>
-                              ))}
-                            </ul>
+                            v.xray_items.map((x, xi) => (
+                              <div key={xi} className="xray-inline-item">
+                                <span>{x.name}</span>{' '}
+                                <span className="lab-item-price">({x.price.toLocaleString()}.-)</span>
+                              </div>
+                            ))
                           )}
                         </td>
 
-                        {/* Lab Column (Detailed list without results, with prices) */}
-                        <td>
+                        {/* รายละเอียดด้านขวา: Lab Groups (กลุ่มตรวจแลปพร้อมราคา) */}
+                        <td className="text-left">
                           {v.lab_items.length === 0 ? (
                             <span style={{ color: '#94a3b8' }}>-</span>
                           ) : (
-                            <ul className="item-tag-list" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.35rem 0.75rem' }}>
+                            <div className="lab-inline-wrapper">
                               {v.lab_items.map((l, li) => (
-                                <li key={li} className="item-tag">
-                                  <span>• {l.name}</span>
-                                  <span className="item-price">{l.price.toLocaleString()} ฿</span>
-                                </li>
+                                <span key={li} className="lab-inline-item">
+                                  <span className="lab-item-name">{l.name}</span>{' '}
+                                  <span className="lab-item-price">({l.price.toLocaleString()}.-)</span>
+                                  {li < v.lab_items.length - 1 && <span className="lab-sep">, </span>}
+                                </span>
                               ))}
-                            </ul>
+                            </div>
                           )}
                         </td>
 
-                        {/* Total Amount per Visit */}
-                        <td className="text-right font-bold" style={{ fontSize: '0.95rem', color: '#0f172a' }}>
+                        {/* รายละเอียดด้านขวา: รวมเงิน */}
+                        <td className="text-right font-bold" style={{ fontSize: '0.9rem', color: '#0f172a', whiteSpace: 'nowrap' }}>
                           {v.total_price.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+
+                        {/* ลายมือชื่อผู้รับการตรวจ */}
+                        <td className="text-center">
+                          <div className="table-sig-box">
+                            <span className="table-sig-line">................................</span>
+                          </div>
                         </td>
 
                         {/* Action Column */}
@@ -474,16 +487,17 @@ export function AnnualHealthCheckupReportPage() {
               </tbody>
               <tfoot>
                 <tr style={{ background: '#f8fafc', fontWeight: 'bold' }}>
-                  <td colSpan={2} className="no-print"></td>
-                  <td colSpan={7} className="text-right" style={{ fontSize: '0.95rem' }}>
+                  <td className="no-print"></td>
+                  <td colSpan={7} className="text-right" style={{ fontSize: '0.9rem' }}>
                     รวมทั้งสิ้น ({selectedVisits.length} คน)
-                    <div style={{ fontSize: '0.85rem', color: '#0369a1', fontWeight: 600 }}>
+                    <span style={{ fontSize: '0.85rem', color: '#0369a1', marginLeft: '0.5rem', fontWeight: 600 }}>
                       ({totalAmountText})
-                    </div>
+                    </span>
                   </td>
-                  <td className="text-right font-bold" style={{ fontSize: '1.1rem', color: '#0369a1' }}>
-                    {totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท
+                  <td className="text-right font-bold" style={{ fontSize: '0.95rem', color: '#0369a1', whiteSpace: 'nowrap' }}>
+                    {totalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
+                  <td></td>
                   <td className="no-print"></td>
                 </tr>
               </tfoot>

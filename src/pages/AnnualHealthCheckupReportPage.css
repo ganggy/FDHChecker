@@ -163,6 +163,10 @@
   background: #f0f9ff;
 }
 
+.checkup-page.page-landscape {
+  max-width: 1600px;
+}
+
 /* Paper / Report View Container */
 .checkup-paper-card {
   background: white;
@@ -177,8 +181,10 @@
 @media print {
   body {
     background: white !important;
-    font-size: 13px !important;
+    font-size: 11px !important;
     color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   .no-print {
     display: none !important;
@@ -197,6 +203,32 @@
   .page-break {
     page-break-after: always !important;
     break-after: page !important;
+  }
+  .report-table {
+    width: 100% !important;
+    font-size: 8.5pt !important;
+    line-height: 1.2 !important;
+  }
+  .report-table th,
+  .report-table td {
+    border: 0.5pt solid black !important;
+    padding: 2.5px 4px !important;
+  }
+  .report-table th {
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .lab-item-price {
+    color: black !important;
+    font-weight: 600 !important;
+  }
+  .table-sig-box {
+    color: black !important;
+  }
+  .report-signatures {
+    margin-top: 1.5rem !important;
+    page-break-inside: avoid !important;
   }
 }
 
@@ -228,14 +260,15 @@
 .report-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+  line-height: 1.25;
 }
 
 .report-table th,
 .report-table td {
   border: 1px solid #94a3b8;
-  padding: 0.45rem 0.6rem;
-  vertical-align: top;
+  padding: 4px 6px;
+  vertical-align: middle;
 }
 
 .report-table th {
@@ -243,10 +276,16 @@
   color: #0f172a;
   font-weight: 700;
   text-align: center;
+  white-space: nowrap;
 }
 
 .report-table tr:hover td {
   background-color: #f8fafc;
+}
+
+/* 1 row per person */
+.report-row-single {
+  height: 32px;
 }
 
 .text-center { text-align: center; }
@@ -254,34 +293,49 @@
 .text-left { text-align: left; }
 .font-bold { font-weight: bold; }
 
-/* Item List in Cells */
-.item-tag-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.item-tag {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem;
+/* Inline Lab Group & X-Ray Styles */
+.lab-inline-wrapper {
+  display: block;
   font-size: 0.8rem;
-  border-bottom: 1px dashed #e2e8f0;
-  padding-bottom: 0.15rem;
+  line-height: 1.35;
+  color: #1e293b;
 }
 
-.item-tag:last-child {
-  border-bottom: none;
+.lab-inline-item {
+  display: inline;
 }
 
-.item-price {
+.lab-item-name {
+  font-weight: 500;
+}
+
+.lab-item-price {
   font-weight: 600;
-  color: #0369a1;
+  color: #0284c7;
+  font-size: 0.78rem;
   white-space: nowrap;
+}
+
+.lab-sep {
+  color: #64748b;
+  margin-right: 2px;
+}
+
+.xray-inline-item {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.table-sig-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.table-sig-line {
+  letter-spacing: 1px;
 }
 
 /* Signatures block */

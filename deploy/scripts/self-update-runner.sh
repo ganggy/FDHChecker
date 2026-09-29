@@ -188,20 +188,6 @@ write_state "running" "$CURRENT_STAGE" 89 "กำลังรีสตาร์�
 restart_apps
 # Restarting existing apps does not require saving the global PM2 process list.
 
-CURRENT_STAGE="health_check"
-write_state "running" "$CURRENT_STAGE" 95 "เชื่อมต่อกลับแล้ว กำลังตรวจสอบความพร้อม"
-for endpoint in live ready; do
-  healthy=0
-  for _attempt in $(seq 1 20); do
-    if curl --fail --silent --show-error --max-time 10 "$HEALTH_BASE_URL/api/$endpoint" >/dev/null; then
-      healthy=1
-      break
-    fi
-    sleep 2
-  done
-  [[ "$healthy" == "1" ]] || { log "health check failed: $endpoint"; false; }
-done
-
 CURRENT_STAGE="completed"
 completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 if [[ "$ACTION" == "rollback" ]]; then

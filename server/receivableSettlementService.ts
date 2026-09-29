@@ -1,7 +1,8 @@
-import { getRepstmConnection } from './db/connection.js';
+import { getRepstmConnection, getUTFConnection } from './db/connection.js';
 import { ensureRepstmTables } from './db/schema.js';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
 import businessRules from './config/business_rules.json';
+import { readHospitalIdentity } from './siteProfile.js';
 
 export interface SettlementStatementSummary {
   statement_no: string;
@@ -106,6 +107,7 @@ const findRightMapping = (hipdataCode?: string | null, pttype?: string | null): 
 
 export const getAvailableStatements = async (payerType?: string): Promise<SettlementStatementSummary[]> => {
   const connection = await getRepstmConnection();
+  try {
   await ensureRepstmTables();
 
   let whereClause = "WHERE statement_no IS NOT NULL AND statement_no != ''";
@@ -155,12 +157,16 @@ export const getAvailableStatements = async (payerType?: string): Promise<Settle
     filename: String(r.filename || ''),
     imported_at: String(r.imported_at || ''),
   }));
+  } finally {
+    connection.release();
+  }
 };
 
 export const getStatementSettlementCandidates = async (
   statementNo: string
 ): Promise<SettlementCandidateResult> => {
   const connection = await getRepstmConnection();
+  try {
   await ensureRepstmTables();
 
   const [rawRows] = await connection.query(
@@ -324,10 +330,14 @@ export const getStatementSettlementCandidates = async (
     journal_entries: journalEntries,
     is_balanced: isBalanced,
   };
+  } finally {
+    connection.release();
+  }
 };
 
 export const executeSettlement = async (payload: ExecuteSettlementPayload) => {
   const connection = await getRepstmConnection();
+  try {
   await ensureRepstmTables();
 
   const transferDate = String(payload.transfer_date || '').slice(0, 10);
@@ -456,10 +466,14 @@ export const executeSettlement = async (payload: ExecuteSettlementPayload) => {
     total_received: totalReceived,
     total_diff: totalDiff,
   };
+  } finally {
+    connection.release();
+  }
 };
 
 export const getSettlementHistory = async (limit = 50) => {
   const connection = await getRepstmConnection();
+  try {
   await ensureRepstmTables();
 
   const [rows] = await connection.query(
@@ -486,10 +500,14 @@ export const getSettlementHistory = async (limit = 50) => {
   );
 
   return rows as any[];
+  } finally {
+    connection.release();
+  }
 };
 
 export const getSettlementVoucher = async (batchId: number) => {
   const connection = await getRepstmConnection();
+  try {
   await ensureRepstmTables();
 
   const [batchRows] = await connection.query(
@@ -547,10 +565,17 @@ export const getSettlementVoucher = async (batchId: number) => {
     [batchId]
   );
 
-  const hospital = {
-    hospital_code: businessRules.site_settings.hospital_code || '10698',
-    hospital_name: businessRules.site_settings.hospital_name || 'โรงพยาบาลโคกศรีสุพรรณ',
-  };
+  const hospitalConnection = await getUTFConnection();
+  let hospital;
+  try {
+    const identity = await readHospitalIdentity(hospitalConnection);
+    hospital = {
+      hospital_code: identity.hospital_code || businessRules.site_settings.hospital_code,
+      hospital_name: identity.hospital_name || businessRules.site_settings.hospital_name,
+    };
+  } finally {
+    hospitalConnection.release();
+  }
 
   let journalEntries: SettlementJournalEntry[] = [];
   try {
@@ -571,4 +596,7 @@ export const getSettlementVoucher = async (batchId: number) => {
     items: itemRows as any[],
     hospital,
   };
+  } finally {
+    connection.release();
+  }
 };

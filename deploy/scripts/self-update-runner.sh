@@ -74,17 +74,17 @@ run_step() {
 
 restart_apps() {
   local app_name found_apps=()
-  # ตรวจก่อนว่า app ชื่อนี้มีใน PM2 จริง ถ้าไม่มีให้ข้ามแทนที่จะ fail
   for app_name in $PM2_APPS; do
     if run_step 30 "pm2 describe $app_name" pm2 describe "$app_name" 2>/dev/null; then
       found_apps+=("$app_name")
     else
-      log "WARN: pm2 app '$app_name' not found, skipping"
+      log "PM2 app '$app_name' not found"
+      return 1
     fi
   done
   if [[ ${#found_apps[@]} -eq 0 ]]; then
-    log "WARN: no PM2 apps found matching FDH_PM2_APPS='$PM2_APPS', skipping pm2 restart"
-    return 0
+    log "no PM2 apps configured"
+    return 1
   fi
   for app_name in "${found_apps[@]}"; do
     run_step "$PM2_TIMEOUT" "pm2 restart $app_name" pm2 restart "$app_name" || return $?
@@ -171,7 +171,11 @@ CURRENT_STAGE="dependencies"
 write_state "running" "$CURRENT_STAGE" 42 "กำลังติดตั้ง dependency"
 # The PM2 daemon may pass NODE_ENV=production/npm_config_omit=dev to this
 # worker. Tests and both builds still require TypeScript, Vite and test tools.
-run_step 900 "dependencies" npm ci --include=dev || run_step 900 "dependencies install" npm install --include=dev --no-audit
+run_step 900 "dependencies" npm ci --include=dev
+
+CURRENT_STAGE="testing"
+write_state "running" "$CURRENT_STAGE" 53 "กำลังตรวจสอบโค้ดและทดสอบระบบ"
+run_step 1800 "checks" npm run check
 
 CURRENT_STAGE="building"
 write_state "running" "$CURRENT_STAGE" 60 "กำลังสร้าง Frontend และ Backend"
@@ -187,6 +191,20 @@ CURRENT_STAGE="restarting"
 write_state "running" "$CURRENT_STAGE" 89 "กำลังรีสตาร์ตบริการ ระบบอาจตัดการเชื่อมต่อชั่วคราว"
 restart_apps
 # Restarting existing apps does not require saving the global PM2 process list.
+
+CURRENT_STAGE="health_check"
+write_state "running" "$CURRENT_STAGE" 95 "กำลังตรวจสอบความพร้อมของระบบหลังรีสตาร์ต"
+for endpoint in live ready; do
+  healthy=0
+  for _attempt in $(seq 1 20); do
+    if curl --fail --silent --show-error --max-time 10 "$HEALTH_BASE_URL/api/$endpoint" >> "$LOG_FILE" 2>&1; then
+      healthy=1
+      break
+    fi
+    sleep 2
+  done
+  [[ "$healthy" == "1" ]] || { log "health check failed: $endpoint"; false; }
+done
 
 CURRENT_STAGE="completed"
 completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"

@@ -34,8 +34,13 @@ export const getUTFConnection = async (): Promise<HospitalConnection> => {
  */
 export const getRepstmConnection = async () => {
   const connection = await repstmPool.getConnection();
-  await connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
-  return connection;
+  try {
+    await connection.query('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+    return connection;
+  } catch (error) {
+    connection.release();
+    throw error;
+  }
 };
 
 /**

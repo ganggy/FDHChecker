@@ -20,7 +20,8 @@ export const parseFlexibleDateTime = (value: string): string | null => {
     const [, dayRaw, monthRaw, yearRaw, hourRaw = '00', minute = '00', second = '00'] = dmyMatch;
     const day = dayRaw.padStart(2, '0');
     const month = monthRaw.padStart(2, '0');
-    const year = yearRaw.padStart(4, '0');
+    const yearNumber = Number(yearRaw);
+    const year = String(yearNumber > 2400 ? yearNumber - 543 : yearNumber).padStart(4, '0');
     const hour = hourRaw.padStart(2, '0');
     return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
   }

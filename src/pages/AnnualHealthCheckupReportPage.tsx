@@ -51,7 +51,7 @@ export type MatrixColumnDef = {
   match: (item: CheckupItem) => boolean;
 };
 
-export const CHECKUP_MATRIX_COLUMNS: MatrixColumnDef[] = [
+const CHECKUP_MATRIX_COLUMNS: MatrixColumnDef[] = [
   {
     id: 'film_chest',
     name: 'Film Chest',
@@ -159,7 +159,7 @@ export const CHECKUP_MATRIX_COLUMNS: MatrixColumnDef[] = [
   },
 ];
 
-export function getVisitMatrixValues(v: CheckupVisit) {
+function getVisitMatrixValues(v: CheckupVisit) {
   const allItems: CheckupItem[] = [
     ...(v.xray_items || []),
     ...(v.lab_items || []),
@@ -241,10 +241,10 @@ export function AnnualHealthCheckupReportPage() {
   const [singlePrintVn, setSinglePrintVn] = useState<string | null>(null);
 
   // Form Inputs for Report Header & Signers (persisted in localStorage)
-  const [govOrg, setGovOrg] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.GOV_ORG) || 'สำนักงานสาธารณสุขอำเภอโคกศรีสุพรรณ');
-  const [district, setDistrict] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.DISTRICT) || 'โคกศรีสุพรรณ');
-  const [province, setProvince] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.PROVINCE) || 'สกลนคร');
-  const [nurseName, setNurseName] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.NURSE_NAME) || 'นางสาววราภรณ์ บุญศิริ');
+  const [govOrg, setGovOrg] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.GOV_ORG) || '');
+  const [district, setDistrict] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.DISTRICT) || '');
+  const [province, setProvince] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.PROVINCE) || '');
+  const [nurseName, setNurseName] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.NURSE_NAME) || '');
   const [nursePos, setNursePos] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.NURSE_POS) || 'พยาบาลวิชาชีพชำนาญการพิเศษ');
   const [headPos, setHeadPos] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.HEAD_POS) || 'หัวหน้าพยาบาล');
   const [checkupYear, setCheckupYear] = useState<string>(() => localStorage.getItem(STORAGE_KEYS.YEAR) || '2569');

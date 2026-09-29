@@ -24,6 +24,7 @@ import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from '../recei
 import { resolveStatementVisitKeys } from '../repstmVisitKeys.js';
 import { mergeFdhClaimDetails } from '../fdhClaimDetailMerge.js';
 import { activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection } from '../hospitalDatabase.js';
+import { isKidneyStmFileName } from '../../src/utils/repstmImportClassification.js';
 
 
 const normalizeCitizenId = (value: string): string => {
@@ -162,7 +163,8 @@ const buildLogicalRowIdentity = (
   const an = normalizeLogicalToken(pickRowValueAdvanced(row, ['AN']));
   const cid = normalizeCitizenId(pickRowValueAdvanced(row, ['PID', 'CID', 'เลขบัตรประชาชน']));
   const serviceDate = normalizeLogicalDateToken(pickRowValueAdvanced(row, [
-    'วันเข้ารักษา', 'admdate', 'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่'
+    'วันเข้ารักษา', 'วันที่เข้ารับบริการ', 'วันที่ฟอกเลือดด้วยเครื่องไตเทียม',
+    'admdate', 'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่'
   ]));
   const amount = normalizeLogicalAmount(pickRowValueAdvanced(row, [
     'ชดเชยสุทธิ', 'compensated', 'ชดเชยสุทธิรวม',
@@ -170,6 +172,9 @@ const buildLogicalRowIdentity = (
   ]));
 
   if (tranId) return `${dataType}:tran:${tranId}`;
+  if (dataType === 'STM' && pickRowValueAdvanced(row, ['วันที่ฟอกเลือดด้วยเครื่องไตเทียม'])) {
+    return [dataType, 'dialysis', statementNo, seqNo, hcode, cid, serviceDate, amount].join('|');
+  }
   if (dataType === 'REP' && (repNo || seqNo || hn || an || cid)) {
     return [dataType, repNo, seqNo, hcode, hn, an, cid, serviceDate, amount].join('|');
   }
@@ -997,7 +1002,7 @@ const importRepDataRows = async (
   }
 };
 
-const importStatementDataRows = async (
+export const importStatementDataRows = async (
   repConnection: HospitalConnection,
   hosConnection: HospitalConnection,
   batchId: number,
@@ -1010,6 +1015,7 @@ const importStatementDataRows = async (
   await repConnection.query(REPSTM_STATEMENT_DATA_TABLE_SQL);
 
   const visitCodeCache = new Map<string, string>();
+  const kidneyReport = payload.dataType === 'STM' && isKidneyStmFileName(payload.sourceFilename);
 
   for (let index = 0; index < payload.rows.length; index += 1) {
     const row = payload.rows[index];
@@ -1017,7 +1023,8 @@ const importStatementDataRows = async (
       'STM No.', 'STM No', 'STM',
       'INV No.', 'INV No', 'INV',
       'REP No.', 'REP No', 'REP',
-      'invoice_no', 'เลขที่เอกสาร', 'เลขที่ใบแจ้งหนี้', 'document_no', 'docno'
+      'invoice_no', 'เลขที่เอกสาร', 'เลขที่ใบแจ้งหนี้', 'document_no', 'docno',
+      ...(kidneyReport ? ['งวด'] : [])
     ]);
     const tranId = pickRowValueAdvanced(row, ['TRAN_ID', 'transaction_uid', 'tranid']);
     const fallbackSiteSettings = (businessRules as Record<string, unknown>)?.site_settings as Record<string, unknown> | undefined;
@@ -1025,25 +1032,29 @@ const importStatementDataRows = async (
     const hn = pickRowValueAdvanced(row, ['HN']);
     const rawVn = pickRowValueAdvanced(row, ['VN', 'SEQ', 'SEQ NO', 'SEQ_NO', 'SEQNO', 'visit_no']);
     const rawAn = pickRowValueAdvanced(row, ['AN']);
-    const pid = pickRowValueAdvanced(row, ['PID', 'CID']);
-    const patientName = pickRowValueAdvanced(row, ['ชื่อ-สกุล', 'ชื่อ - สกุล', 'ชื่อสกุล']);
+    const pid = pickRowValueAdvanced(row, ['PID', 'CID', 'เลขบัตรประชาชน']);
+    const patientName = pickRowValueAdvanced(row, ['ชื่อ-สกุล', 'ชื่อ - สกุล', 'ชื่อสกุล', 'ชื่อ-นามสกุล']);
     const patientType = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย']);
     const serviceDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, [
       'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่',
-      'วันเข้ารักษา', 'วันจำหน่าย', 'admdate', 'dchdate'
+      'วันเข้ารักษา', 'วันที่เข้ารับบริการ', 'วันที่ฟอกเลือดด้วยเครื่องไตเทียม',
+      'วันจำหน่าย', 'admdate', 'dchdate'
     ]));
     const senddate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['senddate', 'วันส่งข้อมูล']));
-    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก', 'กองทุนหลัก', 'fund', 'fund_code']);
+    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก', 'กองทุนหลัก', 'fund', 'fund_code', 'สิทธิ์การรักษาพยาบาล'])
+      || (kidneyReport && /^LGO-HD/i.test(payload.sourceFilename) ? 'LGO' : '');
     const subinscl = pickRowValueAdvanced(row, ['subinscl', 'สิทธิย่อย']);
     const errorcode = pickRowValueAdvanced(row, ['errorcode', 'error code']);
     const verifycode = pickRowValueAdvanced(row, ['verifycode', 'verify code']);
     const parsedAmount = toAmountValue(pickRowValueAdvanced(row, [
+      ...(kidneyReport ? ['จำนวนเงินที่ขอเบิก'] : []),
       'amount', 'total', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount', 'พึงรับ', 'พึงรับทั้งหมด',
-      'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ', 'จ่ายชดเชย', 'ยอดชดเชยหลังหักเงินเดือน'
+      'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ', 'จ่ายชดเชย', 'จ่ายชดเชยสุทธิ',
+      'จำนวนเงินที่ขอเบิก', 'ยอดชดเชยหลังหักเงินเดือน'
     ]));
     const parsedPaidAmount = toAmountValue(pickRowValueAdvanced(row, [
       'paid', 'paid_amount', 'ยอดชำระ', 'ยอดรับสุทธิ', 'ยอดเงินสุทธิ', 'net_paid', 'net_amount',
-      'พึงรับ', 'พึงรับทั้งหมด', 'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ'
+      'พึงรับ', 'พึงรับทั้งหมด', 'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ', 'จ่ายชดเชยสุทธิ'
     ]));
     const invoiceAmount = toAmountValue(pickRowValueAdvanced(row, [
       'invoice_amount', 'inv_amount', 'ยอดเรียกเก็บ', 'เรียกเก็บ', 'เรียกเก็บ (1)', 'เบิกได้'
@@ -1052,7 +1063,7 @@ const importStatementDataRows = async (
     const paidAmount = payload.dataType === 'INV'
       ? (parsedPaidAmount ?? parsedAmount ?? invoiceAmount)
       : parsedPaidAmount;
-    const amount = payload.dataType === 'INV' ? paidAmount : parsedAmount;
+    const amount = payload.dataType === 'INV' ? paidAmount : kidneyReport ? parsedAmount ?? parsedPaidAmount : parsedAmount;
 
     const department = resolveDepartment(patientType, rawAn);
     const visitLookupKey = [department, hn.trim(), serviceDateTime || '', normalizeCitizenId(pid), rawAn.trim(), rawVn.trim()].join('|');
@@ -1063,7 +1074,9 @@ const importStatementDataRows = async (
     }
     const vn = department === 'OP' ? (matchedVisitCode || rawVn.trim()) : rawVn.trim();
     const an = department === 'IP' ? (matchedVisitCode || rawAn.trim()) : '';
-    const recordUid = resolveStatementRecordUid(payload.dataType, tranId, statementNo, department, vn, an, hn, index);
+    const recordUid = kidneyReport
+      ? `STM:kidney:${hashText(buildLogicalRowIdentity('STM', row, index))}`
+      : resolveStatementRecordUid(payload.dataType, tranId, statementNo, department, vn, an, hn, index);
     const matchedStatus = matchedVisitCode ? 'matched' : 'unmatched';
 
     await repConnection.query(

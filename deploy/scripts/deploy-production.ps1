@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$Server = '192.168.2.202',
-    [string]$SshUser = 'war12oc',
+    [Parameter(Mandatory = $true)][string]$Server,
+    [Parameter(Mandatory = $true)][string]$SshUser,
     [string]$ProjectPath = '/opt/FDHChecker',
     [string]$Branch = 'main',
     [ValidateSet('backend', 'frontend', 'all')]

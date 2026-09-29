@@ -36,6 +36,9 @@ SH
 cat > "$ROOT/bin/pm2" <<'SH'
 #!/usr/bin/env bash
 echo "pm2 $*" >> "$TRACE"
+if [[ "$1" == describe && "$2" == fdh-frontend && "${SCENARIO:-}" == missing-app ]]; then
+  exit 1
+fi
 if [[ "$1" == restart && "$2" == fdh-backend ]]; then
   case "${SCENARIO:-success}" in
     timeout) sleep 15 ;;
@@ -49,7 +52,7 @@ echo "curl $*" >> "$TRACE"
 SH
 chmod +x "$ROOT/bin/"*
 
-for SCENARIO in success rollback test-failure failure timeout; do
+for SCENARIO in success rollback test-failure failure timeout missing-app; do
   export SCENARIO
   export FDH_UPDATE_JOB_ID="fixture-$SCENARIO"
   export FDH_UPDATE_RUNNER_NAME="fdh-update-$FDH_UPDATE_JOB_ID"
@@ -81,6 +84,12 @@ for SCENARIO in success rollback test-failure failure timeout; do
     [[ "$(grep -c 'npm ci --include=dev' "$TRACE")" == 2 ]]
     grep -q 'git reset --hard' "$TRACE"
     grep -q 'pm2 restart fdh-frontend' "$TRACE"
+  elif [[ "$SCENARIO" == missing-app ]]; then
+    [[ "$result" != 0 ]]
+    grep -q '"status": "failed"' "$state"
+    grep -q '"stage": "restarting"' "$state"
+    ! grep -q 'pm2 restart fdh-backend' "$TRACE"
+    ! grep -q 'git reset' "$TRACE"
   else
     [[ "$result" != 0 ]]
     grep -q '"status": "failed"' "$state"

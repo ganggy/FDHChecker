@@ -40,6 +40,7 @@ const UcOutsideCupPage = lazyNamed(() => import('./pages/UcOutsideCupPage'), 'Uc
 const DentalAuditPage = lazyNamed(() => import('./pages/DentalAuditPage'), 'DentalAuditPage');
 const KtbApproveCodeImportPage = lazyNamed(() => import('./pages/KtbApproveCodeImportPage'), 'KtbApproveCodeImportPage');
 const VisitReconciliationPage = lazy(() => import('./pages/VisitReconciliationPage'));
+const StmZeroAuditPage = lazy(() => import('./pages/StmZeroAuditPage'));
 const RepDailySummaryPage = lazy(() => import('./pages/RepDailySummaryPage'));
 const PpfsBenchmarkPage = lazy(() => import('./pages/PpfsBenchmarkPage'));
 const PpfsVisitMatchPage = lazy(() => import('./pages/PpfsVisitMatchPage'));
@@ -110,9 +111,14 @@ function App() {
   const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
   const regionLabel = siteSettings.nhso_region ? `เขต ${siteSettings.nhso_region}` : '';
   const isAdmin = Boolean(authSession?.user.is_admin);
-  const allowedPageSet = useMemo(() => new Set<AppPage>(isAdmin
+  const allowedPageSet = useMemo(() => {
+    const pages = new Set<AppPage>(isAdmin
     ? [...primaryNavItems, ...toolNavItems].map((item) => item.page).concat(adminOnlyPages)
-    : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page))), [authSession, isAdmin]);
+    : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page)));
+    // Same read workspace as the former reconciliation tab.
+    if (pages.has('reconciliation')) pages.add('stmZeroAudit');
+    return pages;
+  }, [authSession, isAdmin]);
   const hasAnyAllowedPage = allowedPageSet.size > 0;
   const visiblePrimaryNavItems = primaryNavItems.filter((item) => allowedPageSet.has(item.page));
   const visibleToolNavGroups = toolNavGroups
@@ -520,6 +526,7 @@ function App() {
         {currentPage === 'dentalAudit' && <DentalAuditPage />}
         {currentPage === 'ktbApproveCode' && <KtbApproveCodeImportPage />}
         {currentPage === 'reconciliation' && <VisitReconciliationPage />}
+        {currentPage === 'stmZeroAudit' && <StmZeroAuditPage />}
         {currentPage === 'repDailySummary' && <RepDailySummaryPage />}
         {currentPage === 'ppfsBenchmark' && <PpfsBenchmarkPage />}
         {currentPage === 'ppfsVisitMatch' && <PpfsVisitMatchPage />}

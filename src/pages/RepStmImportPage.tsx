@@ -1152,6 +1152,9 @@ export const RepStmImportPage: React.FC = () => {
             >
               เปิดหน้ากระทบยอด visit
             </button>
+            <button className="btn btn-secondary" onClick={() => navigateFromDashboard('stmZeroAudit', {})} disabled={importing}>
+              🔎 ตรวจ STM 0 / Sheet 0
+            </button>
           </div>
         </div>
       </div>

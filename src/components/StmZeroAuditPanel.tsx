@@ -29,9 +29,9 @@ export function StmZeroAuditPanel() {
   const detailRequest = useRef(0);
   const [reviewed, setReviewed] = useState(false); const [note, setNote] = useState('');
   const [channel, setChannel] = useState('eclaim');
-  const load = async (nextPage = 1) => {
+  const load = async (nextPage = 1, overrides: Partial<typeof loaded> = {}) => {
     setLoading(true); setError(''); setResult(null); setSelected({}); setReviewed(false);
-    const filters = nextPage === 1 ? { start, end, action, match, search } : loaded;
+    const filters = { ...(nextPage === 1 ? { start, end, action, match, search } : loaded), ...overrides };
     try {
       const query = new URLSearchParams({ startDate: filters.start, endDate: filters.end, action: filters.action,
         match: filters.match, search: filters.search, page: String(nextPage) });
@@ -97,34 +97,43 @@ export function StmZeroAuditPanel() {
     } catch { setError('ตรวจสถานะล่าสุดไม่สำเร็จ กรุณาลองใหม่ก่อนเปิดส่งออก'); }
     finally { setLoading(false); }
   };
-  return <section className="stm-zero-audit">
-    <header><div><h2>ตรวจ STM 0 บาท / Sheet 0</h2><p>ไล่จากเหตุผล → แถวไฟล์ต้นทาง → วินิจฉัยและค่าใช้จ่าย HIS → เตรียมแก้ไข</p></div>
-      <button className="rec-btn rec-btn-success" disabled={!result || loading} onClick={exportExecutive}>ดาวน์โหลดสรุปผู้บริหาร</button></header>
-    <div className="zero-notice">0 บาทไม่ได้แปลว่าส่งใหม่ได้ทุกรายการ: ตรวจรอบจ่ายกองทุน การอนุมัติ SMCS หรือสิทธิแก้ไขผ่าน OSR ก่อน รวมเฉพาะ STM และชีตชื่อ Sheet 0 / Data sheet 0 / 0 ที่นำเข้าไว้ ยอดว่างแสดงเป็น “ไม่ทราบค่า”</div>
-    <div className="zero-filters">
+  return <section className="stm-zero-audit" aria-label="ตรวจ STM 0">
+    <header className="zero-hero"><div className="zero-hero-title"><span className="zero-eyebrow">ติดตามผลชดเชย · ตรวจสอบหลักฐาน</span><h1>ตรวจ STM 0 <span>/ Sheet 0</span></h1><p>ค้นรายการจ่าย 0 บาท เทียบข้อมูลต้นทาง และติดตามการแก้ไขในที่เดียว</p></div>
+      <button className="zero-report-button" disabled={!result || loading} onClick={exportExecutive}>↗ ดาวน์โหลดสรุปผู้บริหาร</button></header>
+    <ol className="zero-workflow"><li><b>1</b><span>ค้นรายการ<span>ตามวันที่นำเข้าไฟล์</span></span></li><li><b>2</b><span>ตรวจหลักฐาน<span>เทียบแถว STM กับ HIS</span></span></li><li><b>3</b><span>เตรียมแก้ไข<span>ยืนยันสิทธิส่งใหม่ก่อนส่ง</span></span></li></ol>
+    <div className="zero-notice"><strong>ตรวจเหตุผลก่อนส่งซ้ำ</strong><span>บางรายการต้องรอรอบจ่าย อนุมัติ SMCS หรือเปิดแก้ไขผ่าน OSR ยอดว่างจะแยกจากยอด 0 เสมอ</span></div>
+    <section className="zero-filter-card" aria-label="ตัวกรอง STM 0"><div className="zero-section-heading"><h2>ค้นหารายการที่ต้องตรวจ</h2><span>ใช้วันที่นำเข้าไฟล์ ไม่ใช่วันที่บริการ</span></div><div className="zero-filters">
       <label>นำเข้าตั้งแต่<input type="date" value={start} onChange={e => setStart(e.target.value)} /></label>
       <label>นำเข้าถึง<input type="date" value={end} onChange={e => setEnd(e.target.value)} /></label>
       <label>ขั้นตอนติดตาม<select value={action} onChange={e => setAction(e.target.value)}><option value="">ทุกขั้นตอน</option>{Object.entries(ZERO_ACTION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <label>การจับคู่<select value={match} onChange={e => setMatch(e.target.value)}><option value="">ทั้งหมด</option><option value="unmatched">ยังจับคู่ไม่ได้</option></select></label>
       <label>ค้น HN / VN / AN / รหัส / ไฟล์<input value={search} onChange={e => setSearch(e.target.value)} /></label>
-      <button className="rec-btn rec-btn-primary" disabled={loading} onClick={() => void load()}>{loading ? 'กำลังตรวจ...' : 'ตรวจข้อมูล'}</button>
-    </div>
+      <button className="rec-btn rec-btn-primary" disabled={loading} onClick={() => void load()}>{loading ? 'กำลังตรวจ...' : 'ค้นหา STM 0'}</button>
+    </div></section>
     {error && <p role="alert" className="zero-error">{error}</p>}
+    {loading && <div className="zero-empty" role="status"><span className="zero-empty-icon">⌕</span><h2>กำลังเทียบ STM กับข้อมูล HIS</h2><p>ตรวจสถานะจับคู่และยอดจ่ายที่นำเข้าแล้ว</p></div>}
+    {!result && !loading && !error && <div className="zero-empty"><span className="zero-empty-icon">⌕</span><h2>เริ่มตรวจรายการชดเชย 0 บาท</h2><p>เลือกช่วงวันที่นำเข้าไฟล์ แล้วกด “ค้นหา STM 0”<br />หากยังไม่มีข้อมูล ให้นำเข้า STM และ Sheet 0 ผ่านเมนูนำเข้า REP/STM ก่อน</p><div className="zero-empty-tags"><span>ดูแถวต้นฉบับ</span><span>เทียบวินิจฉัย / ยา / หัตถการ</span><span>สรุปผู้บริหาร</span></div></div>}
     {result && <>
-      <p>ข้อมูลนำเข้า {loaded.start}–{loaded.end} · ประมวลผล {new Date(result.snapshot).toLocaleString('th-TH')} · สรุปทุกแถวตามตัวกรอง</p>
-      <div className="zero-metrics">{[['ยืนยันจ่าย 0', result.summary.confirmedZero], ['จับคู่ไม่ได้', result.summary.unmatched], ['ยอดจ่ายไม่ทราบค่า', result.summary.unknownPayment], ['พบเงินใน Visit เดียวกัน', result.summary.paidElsewhere]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-      <div className="zero-groups">{result.summary.groups.filter(g => g.count).map(g => <span key={g.action}>{g.label}: <b>{g.count}</b></span>)}</div>
+      <p className="zero-snapshot">ข้อมูลนำเข้า {loaded.start}–{loaded.end} · ประมวลผล {new Date(result.snapshot).toLocaleString('th-TH')} · สรุปทุกแถวตามตัวกรอง</p>
+      <div className="zero-metrics">{[
+        { label: 'ยืนยันจ่าย 0 บาท', value: result.summary.confirmedZero, tone: 'blue', sub: 'มีการระบุยอดจ่ายชัดเจน' },
+        { label: 'ยังจับคู่ HIS ไม่ได้', value: result.summary.unmatched, tone: 'amber', sub: 'ต้องตรวจ VN / AN และ HN' },
+        { label: 'ยอดจ่ายไม่ทราบค่า', value: result.summary.unknownPayment, tone: 'slate', sub: 'ไม่ถือเป็นรายการจ่ายศูนย์' },
+        { label: 'พบยอดจ่ายใน Visit', value: result.summary.paidElsewhere, tone: 'teal', sub: 'ตรวจระดับรายการก่อนส่งซ้ำ' },
+      ].map(m => <div className={`zero-metric ${m.tone}`} key={m.label}><span>{m.label}</span><strong>{m.value.toLocaleString('th-TH')} <small>แถว</small></strong><small>{m.sub}</small></div>)}</div>
+      <div className="zero-groups" aria-label="กรองขั้นตอนอย่างรวดเร็ว"><button disabled={loading} aria-pressed={loaded.action === ''} onClick={() => { setAction(''); void load(1, { action: '' }); }}>ทุกขั้นตอน</button>{result.summary.groups.filter(g => g.count).map(g => <button disabled={loading} aria-pressed={loaded.action === g.action} key={g.action} onClick={() => { setAction(g.action); void load(1, { action: g.action }); }}>{g.label} <b>{g.count}</b></button>)}</div>
       <p className="zero-caption">นับแถว ไม่ใช่จำนวน Visit; แถว 0 อาจเป็นเพียงบางรายการใน Visit ที่ได้รับเงินแล้ว จึงไม่รวมยอดเงินเป็นความเสียหาย</p>
-      <div className="zero-table-scroll"><table><thead><tr><th>เลือก</th><th>Visit / วันที่</th><th>ต้นทาง</th><th>ยอดจ่าย</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>หลักฐาน</th></tr></thead><tbody>
+      <div className="zero-section-heading"><h2>รายการตรวจสอบ <span className="zero-count">{result.total.toLocaleString('th-TH')} แถว</span></h2><span>เลือกได้เฉพาะแถวที่ผ่านเงื่อนไขเตรียมตรวจส่งใหม่</span></div>
+      <div className="zero-table-scroll" tabIndex={0} aria-label="ตารางรายการ STM 0 เลื่อนแนวนอนเพื่อดูหลักฐาน"><table><thead><tr><th>เลือก</th><th>Visit / วันที่</th><th>ต้นทาง</th><th>ยอดจ่าย</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>หลักฐาน</th></tr></thead><tbody>
         {result.data.map(r => <tr key={r.id}><td><input aria-label={`เลือก ${r.id}`} type="checkbox" disabled={!canPrepareZeroResend(r)} checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>
           <td><b>{r.an ? `AN ${r.an}` : `VN ${r.vn || 'ไม่พบ'}`}</b><small>HN {r.hn || 'ไม่พบ'} · {r.service_date || 'ไม่ระบุวันที่'}</small></td>
-          <td>{r.source_filename}<small>{r.sheet_name || 'STM'} · {r.statement_no || r.tran_id || r.id}</small></td>
-          <td>{money(r.paid_amount)}</td><td><b>{r.errorcode} {r.verifycode}</b><small>{ZERO_ACTION_LABELS[r.action]}</small></td>
-          <td>{r.matched ? 'ยืนยัน VN/AN + HN' : 'ยังยืนยันไม่ได้'}{r.payment_uncertain && <small>Visit มียอดจ่ายไม่ทราบค่า</small>}</td><td><button onClick={() => void openDetail(r)}>ดูต้นทาง / HIS</button></td></tr>)}
+          <td className="zero-file">{r.source_filename}<small>{r.sheet_name || 'STM'} · {r.statement_no || r.tran_id || r.id}</small></td>
+          <td className="zero-paid">{money(r.paid_amount)}</td><td><b>{r.errorcode} {r.verifycode}</b><small className="zero-action-badge" data-action={r.action}>{ZERO_ACTION_LABELS[r.action]}</small></td>
+          <td><span className={`zero-match-badge ${r.matched ? 'matched' : ''}`}>{r.matched ? '✓ จับคู่ HIS แล้ว' : 'รอจับคู่'}</span>{r.payment_uncertain && <small>Visit มียอดจ่ายไม่ทราบค่า</small>}</td><td><button className="zero-detail-button" onClick={() => void openDetail(r)}>ดูต้นทาง / HIS ↗</button></td></tr>)}
         {!result.data.length && <tr><td colSpan={7}>ไม่พบรายการตามเงื่อนไข — ตรวจว่ามีการนำเข้า Sheet 0 ครบแล้วหรือไม่</td></tr>}
       </tbody></table></div>
       <div className="zero-pagination"><button disabled={loading || page <= 1} onClick={() => void load(page - 1)}>ก่อนหน้า</button><span>หน้า {page} / {Math.max(1, Math.ceil(result.total / 50))} · {result.total} แถว</span><button disabled={loading || page * 50 >= result.total} onClick={() => void load(page + 1)}>ถัดไป</button></div>
-      <section className="zero-prepare"><h3>เตรียมรายการแก้ไข / ส่งใหม่ ({chosen.length} แถวในหน้านี้)</h3>
+      {chosen.length > 0 ? <section className="zero-prepare"><h3>เตรียมรายการแก้ไข / ส่งใหม่ ({chosen.length} แถวในหน้านี้)</h3>
         <p>รายการรออนุมัติ รอรอบจ่าย ยังจับคู่ไม่ได้ หรือพบยอดจ่ายแล้วจะเลือกไม่ได้ ตรวจแถว 0 ที่ไม่ทราบเหตุผลให้ครบก่อนเลือก</p>
         <label>ช่องทางเดิม<select value={channel} onChange={e => { setChannel(e.target.value); setReviewed(false); }}><option value="eclaim">eClaim / OSR — ดาวน์โหลดรายการไปดำเนินการ</option><option value="fdh">FDH — ยืนยันว่ารายการเดิมส่งทาง FDH</option></select></label>
         <label>ผลการตรวจ / สิ่งที่แก้ไข<textarea value={note} onChange={e => { setNote(e.target.value); setReviewed(false); }} placeholder="ระบุเหตุผล หลักฐานที่ตรวจ และสิทธิแก้ไขจากระบบปลายทาง" /></label>
@@ -132,7 +141,7 @@ export function StmZeroAuditPanel() {
         <div className="zero-actions"><button disabled={!chosen.length || !reviewed || !note.trim()} onClick={exportQueue}>ดาวน์โหลดรายการที่ตรวจแล้ว</button>
           {channel === 'fdh' && <><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => !r.an && r.vn)} onClick={() => void handoff(false)}>เปิดส่งออก OPD เฉพาะที่เลือก</button><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => r.an)} onClick={() => void handoff(true)}>เปิดส่งออก IPD เฉพาะที่เลือก</button></>}
         </div><small>การเปิดส่งออกยังต้องผ่านการตรวจความพร้อมและยืนยันส่งซ้ำ ระบบนี้ไม่ได้ส่งเคลมโดยอัตโนมัติ การเปลี่ยนหน้า/โหลดใหม่ล้างรายการที่เลือกและการยืนยัน</small>
-      </section>
+      </section> : <div className="zero-selection-hint">เลือกแถวในตารางเพื่อเตรียมรายการแก้ไข / ส่งใหม่ · แถวที่ยังไม่ผ่านเงื่อนไขสามารถเปิดดูหลักฐานได้</div>}
     </>}
     <details className="zero-guide"><summary>อ่านเพิ่มเติม: Sheet 0 และแนวทางตรวจ</summary><p>เอกสารชี้แจง สปสช. แสดง Sheet 0 เป็นรายการจ่าย 0 พร้อมเหตุผล กองทุน HERB_GB อาจอยู่ระหว่างรอประมวลผล ส่วน W305 ต้องตรวจการอนุมัติ และ D011 ต้องตรวจการเปิดแก้ไขใน eClaim/OSR คำแนะนำนี้ไม่ใช่การรับรองสิทธิส่งใหม่หรือกำหนดเวลาทักท้วงปัจจุบัน</p>
       <a href="https://www.kpnhospital.com/wp-content/uploads/2025/09/ระบบโปรแกรม_e-Claim_ยาสมุนไพร_HERBFS_25680523.pdf" target="_blank" rel="noreferrer">เอกสารชี้แจง eClaim ยาสมุนไพร (เผยแพร่ผ่านโรงพยาบาล)</a><br />

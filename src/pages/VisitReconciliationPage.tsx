@@ -8,8 +8,7 @@ import {
   type ReconciliationSummary,
   type ReceivableFilterOptions,
 } from '../services/hosxpService';
-import { consumeDashboardNavigation } from '../utils/navigationState';
-import { StmZeroAuditPanel } from '../components/StmZeroAuditPanel';
+import { consumeDashboardNavigation, navigateFromDashboard } from '../utils/navigationState';
 import { formatLocalDateInput } from '../utils/dateUtils';
 
 const todayIso = () => formatLocalDateInput();
@@ -83,7 +82,6 @@ const SummaryCard = ({
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
 
 export const VisitReconciliationPage = () => {
-  const [auditTab, setAuditTab] = useState<'visits' | 'zero'>('visits');
   const [dashboardNavigation] = useState(() => consumeDashboardNavigation('reconciliation'));
   const [startDate, setStartDate] = useState(dashboardNavigation?.startDate || firstOfMonth());
   const [endDate, setEndDate] = useState(dashboardNavigation?.endDate || todayIso());
@@ -258,15 +256,15 @@ export const VisitReconciliationPage = () => {
           </p>
         </div>
         <div className="reconciliation-hero-info">
-          {auditTab === 'visits' && <div className="reconciliation-hero-info-row">
+          <div className="reconciliation-hero-info-row">
             <span className="reconciliation-hero-info-label">ช่วงวันที่ตรวจสอบ</span>
             <span className="reconciliation-hero-info-val">{startDate} ถึง {endDate}</span>
-          </div>}
+          </div>
           <div className="reconciliation-hero-info-row">
             <span className="reconciliation-hero-info-label">ประเภทผู้ป่วย</span>
-            <span className="reconciliation-hero-info-val">{auditTab === 'zero' || patientType === 'ALL' ? 'ทั้งหมด (OPD + IPD)' : patientType}</span>
+            <span className="reconciliation-hero-info-val">{patientType === 'ALL' ? 'ทั้งหมด (OPD + IPD)' : patientType}</span>
           </div>
-          {summary && auditTab === 'visits' && (
+          {summary && (
             <div className="reconciliation-hero-info-row">
               <span className="reconciliation-hero-info-label">อัตราตรงกัน/เสร็จสิ้น</span>
               <span className="reconciliation-hero-info-val" style={{ color: '#059669' }}>
@@ -279,11 +277,7 @@ export const VisitReconciliationPage = () => {
         </div>
       </section>
 
-      <nav className="audit-tabs" aria-label="หน้าตรวจสอบ">
-        <button className="rec-btn rec-btn-primary" aria-pressed={auditTab === 'visits'} onClick={() => setAuditTab('visits')}>Audit ยอดเคลม / ลูกหนี้</button>
-        <button className="rec-btn rec-btn-primary" aria-pressed={auditTab === 'zero'} onClick={() => setAuditTab('zero')}>STM 0 / Sheet 0 / สรุปผู้บริหาร</button>
-      </nav>
-      {auditTab === 'zero' ? <StmZeroAuditPanel /> : <>
+      <div style={{ marginBottom: 18 }}><button className="rec-btn rec-btn-primary" onClick={() => navigateFromDashboard('stmZeroAudit', {})}>🔎 เปิดหน้าตรวจ STM 0 / Sheet 0</button></div>
       {/* Filter Card */}
       <section className="reconciliation-filter-card">
         <div className="reconciliation-filter-grid">
@@ -589,7 +583,6 @@ export const VisitReconciliationPage = () => {
           </button>
         </div>
       )}
-      </>}
     </div>
   );
 };

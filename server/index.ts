@@ -906,6 +906,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/dental-audit(\/|$)/, pages: ['dentalAudit'] },
   { pattern: /^\/(annual-checkup|reports\/checkup)(\/|$)/, pages: ['annualCheckupReport', 'hospitalReports'] },
   { pattern: /^\/ktb-approve(\/|$)/, pages: ['ktbApproveCode'] },
+  { pattern: /^\/reconciliation\/stm-zero$/, pages: ['stmZeroAudit', 'reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/receivables\/(reconciliation|filter-options)(\/|$)/, pages: ['reconciliation', 'receivable', 'ucOutsideCup'] },
   { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },

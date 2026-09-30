@@ -6,6 +6,7 @@ import { FDHPreviewModal } from '../components/FDHPreviewModal';
 import { formatLocalDateInput, formatLocalDateStamp } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
 import { isFailedFdhSubmission, isMissingFdhStatus } from '../utils/fdhClaimProgress';
+import { hasApproveCode, isWaitingOfcApprove } from '../utils/ofcApproveCode';
 
 interface EligibleVisit {
     vn: string;
@@ -22,6 +23,7 @@ interface EligibleVisit {
     has_close?: number;
     palliative_authen_ready?: number;
     authen_code?: string;
+    approve_code?: string;
     close_code?: string;
     main_diag: string | null;
     total_price: number;
@@ -97,6 +99,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'pending'>('all');
+    const [waitingApproveOnly, setWaitingApproveOnly] = useState(false);
     const [fdhStatusFilter, setFdhStatusFilter] = useState<FdhStatusFilter>('all');
     const [selectedPttypes, setSelectedPttypes] = useState<string[]>([]);
     const [isPttypeDropdownOpen, setIsPttypeDropdownOpen] = useState(false);
@@ -274,7 +277,7 @@ export const FDHCheckerPage: React.FC = () => {
     const matchesExportFund = (item: EligibleVisit) => exportFund === ALL_SPECIAL_FUNDS
         || evaluateBillingLogic(item).detectedSpecialFundNotes.includes(exportFund);
 
-    const isReadyForExportFund = (item: EligibleVisit) => item.status === 'ready'
+    const isReadyForExportFund = (item: EligibleVisit) => item.status === 'ready' && !isWaitingOfcApprove(item)
         && (exportFund === ALL_SPECIAL_FUNDS
             || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund));
 
@@ -291,6 +294,12 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const scopedData = fundFilteredData.filter(matchesPttype);
+    const downloadWaitingApprove = () => {
+        const sheet = XLSX.utils.json_to_sheet(waitingApproveRows.map((item) => ({ VN: item.vn, HN: item.hn, ชื่อผู้ป่วย: item.patientName, วันที่รับบริการ: item.serviceDate, สิทธิ์: item.fund, สถานะ: 'รอ Approve code', จุดที่ต้องแก้ไข: item.missing.join(', ') })));
+        const book = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(book, sheet, 'Waiting Approve');
+        XLSX.writeFile(book, `OFC_LGO_waiting_approve_${formatLocalDateStamp()}.xlsx`);
+    };
 
     const pttypeOptions = Array.from(fundFilteredData.reduce((options, item) => {
         const pttypeName = String(item.fund || 'ไม่ระบุสิทธิ์').trim();
@@ -350,6 +359,7 @@ export const FDHCheckerPage: React.FC = () => {
     const isSelectableForExport = (item: EligibleVisit) => isReadyForExportFund(item)
         && matchesPttype(item)
         && (isFailedFdhSubmission(item) || confirmResend || !hasFdhSubmission(item));
+    const waitingApproveRows = scopedData.filter((item) => !item.an && isWaitingOfcApprove(item) && (!hasFdhSubmission(item) || isFailedFdhSubmission(item)));
 
     const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLowerCase();
 
@@ -383,11 +393,12 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const filtered = data.filter(item => {
+        if (waitingApproveOnly && !waitingApproveRows.some((row) => row.vn === item.vn)) return false;
         if (incomingTargetVns.length > 0 && !incomingTargetVns.includes(item.vn)) return false;
         if (!matchesExportFund(item)) return false;
         if (!matchesPttype(item)) return false;
-        if (statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
-        if (statusFilter === 'pending' && isReadyForExportFund(item)) return false;
+        if (!waitingApproveOnly && statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
+        if (!waitingApproveOnly && statusFilter === 'pending' && isReadyForExportFund(item)) return false;
         if (fdhStatusFilter === 'not-submitted' && hasFdhSubmission(item)) return false;
         if (fdhStatusFilter === 'failed' && !isFailedFdhSubmission(item)) return false;
         if (fdhStatusFilter === 'submitted' && !hasFdhSubmission(item)) return false;
@@ -598,6 +609,7 @@ export const FDHCheckerPage: React.FC = () => {
     const submittedFdhCount = scopedData.length - notSubmittedFdhCount;
 
     const clearListFilters = () => {
+        setWaitingApproveOnly(false);
         setExportFund(ALL_SPECIAL_FUNDS);
         setSelectedPttypes([]);
         setStatusFilter('all');
@@ -644,6 +656,17 @@ export const FDHCheckerPage: React.FC = () => {
                 </div>
             </details>
 
+            {(waitingApproveRows.length > 0 || waitingApproveOnly) && (
+                <div className="alert alert-warning" role="status" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                    <div style={{ flex: 1, minWidth: 260 }}>
+                        <strong>OFC/LGO รอ Approve code {waitingApproveRows.length} รายการ</strong>
+                        <div>รายการที่ยังไม่ส่งหรือส่งไม่ผ่านยังอยู่ในคิวของช่วงวันที่และสิทธิ์ที่เลือก ระบบส่งออกเฉพาะรายการพร้อมส่งที่มีรหัสแล้ว</div>
+                    </div>
+                    <button className="btn btn-secondary" type="button" onClick={() => { setWaitingApproveOnly(!waitingApproveOnly); setFdhStatusFilter('all'); setSearchTerm(''); setSelectedVns([]); }}>{waitingApproveOnly ? 'กลับดูรายการทั้งหมด' : 'ดูรายการรอ Approve'}</button>
+                    <button className="btn btn-secondary" type="button" onClick={downloadWaitingApprove}>ดาวน์โหลดรายการรอ</button>
+                    <button className="btn btn-primary" type="button" onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'ktbApproveCode' } }))}>นำเข้า Approve code</button>
+                </div>
+            )}
             <div
                 className={`card fdh-filter-card${isPttypeDropdownOpen ? ' fdh-filter-card--dropdown-open' : ''}`}
                 style={{
@@ -661,7 +684,7 @@ export const FDHCheckerPage: React.FC = () => {
                         type="button"
                         className="btn btn-secondary fdh-filter-clear"
                         onClick={clearListFilters}
-                        disabled={exportFund === ALL_SPECIAL_FUNDS && selectedPttypes.length === 0 && statusFilter === 'all' && fdhStatusFilter === 'all' && !searchTerm}
+                        disabled={!waitingApproveOnly && exportFund === ALL_SPECIAL_FUNDS && selectedPttypes.length === 0 && statusFilter === 'all' && fdhStatusFilter === 'all' && !searchTerm}
                     >
                         ล้างตัวกรอง
                     </button>
@@ -745,7 +768,7 @@ export const FDHCheckerPage: React.FC = () => {
                             <select
                                 className="form-control fdh-filter-select"
                                 value={statusFilter}
-                                onChange={(e) => setStatusFilter(e.target.value as any)}
+                                onChange={(e) => { setWaitingApproveOnly(false); setStatusFilter(e.target.value as any); }}
                             >
                                 <option value="all">ทั้งหมด ({scopedData.length})</option>
                                 <option value="ready">🟢 ข้อมูลพร้อมส่ง ({readyCount})</option>
@@ -1201,7 +1224,9 @@ export const FDHCheckerPage: React.FC = () => {
                                                     )}
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
-                                                    {item.authen_code ? (
+                                                    {isOfcOrLgo ? (
+                                                        hasApproveCode(item.approve_code ?? item.authen_code) ? <div><span className="badge badge-success">มี Approve code</span><div style={{ marginTop: 4, fontWeight: 700 }}>{item.approve_code ?? item.authen_code}</div></div> : <span className="badge badge-warning">รอ Approve code</span>
+                                                    ) : item.authen_code ? (
                                                         <div>
                                                             <span className="badge badge-success">พบแล้ว</span>
                                                             <div style={{ marginTop: 4, fontSize: 11, fontWeight: 800, color: '#0e7490' }}>{item.authen_code}</div>
@@ -1256,7 +1281,9 @@ export const FDHCheckerPage: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    {exportFund !== ALL_SPECIAL_FUNDS && !readyForSelectedFund ? (
+                                                    {isWaitingOfcApprove(item) ? (
+                                                        <span className="badge badge-warning">รอ Approve code OFC/LGO</span>
+                                                    ) : exportFund !== ALL_SPECIAL_FUNDS && !readyForSelectedFund ? (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                                             <span className="badge badge-warning">🟡 รอแก้เงื่อนไขกองทุน</span>
                                                             <div style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 600 }}>{exportFund}</div>
@@ -1296,6 +1323,7 @@ export const FDHCheckerPage: React.FC = () => {
                 >
                     <strong style={{ marginRight: 'auto' }}>
                         เลือกส่ง {exportVisitCount} VN {selectedVisibleCount === 0 && exportVisitCount > 0 ? '(รายการพร้อมส่งที่มองเห็นทั้งหมด)' : ''}
+                        {waitingApproveRows.length > 0 && <small style={{ display: 'block', color: 'var(--warning)', marginTop: 4 }}>คงคิวรอ Approve code {waitingApproveRows.length} รายการ</small>}
                     </strong>
                     <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13, cursor: 'pointer' }} title="เปิดเพื่อเลือกรายการที่เคยส่งสำเร็จหรือมีสถานะ FDH แล้ว">
                         <input

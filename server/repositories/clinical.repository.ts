@@ -3557,6 +3557,11 @@ export const getEligibleIPD = async (
           ''
         ) as authen_code,
         COALESCE(
+          (SELECT vp.auth_code FROM visit_pttype vp WHERE vp.vn = ipt.vn AND TRIM(COALESCE(vp.auth_code, '')) <> '' AND TRIM(vp.auth_code) NOT REGEXP '^(PP|EP)' LIMIT 1),
+          (SELECT ah.claim_code FROM authenhos ah WHERE ah.vn = ipt.vn AND TRIM(COALESCE(ah.claim_code, '')) <> '' AND TRIM(ah.claim_code) NOT REGEXP '^(PP|EP)' LIMIT 1),
+          ''
+        ) AS approve_code,
+        COALESCE(
           (SELECT DATE_FORMAT(TIMESTAMP(ah.created_date, ah.created_time), '%Y-%m-%d %H:%i:%s') FROM authenhos ah WHERE ah.vn = ipt.vn AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
           (SELECT DATE_FORMAT(TIMESTAMP(ah.created_date, ah.created_time), '%Y-%m-%d %H:%i:%s') FROM authenhos ah WHERE ah.vn = ipt.an AND COALESCE(ah.claim_code, '') <> '' ORDER BY ah.created_date DESC, ah.created_time DESC LIMIT 1),
           (SELECT DATE_FORMAT(vp.Auth_DateTime, '%Y-%m-%d %H:%i:%s') FROM visit_pttype vp WHERE vp.vn = ipt.vn AND COALESCE(vp.auth_code, '') <> '' LIMIT 1),

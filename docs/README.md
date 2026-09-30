@@ -34,6 +34,7 @@ as the current project state.
 | Hospital setup and claim checks | [ตั้งค่ารายโรงพยาบาล](HOSPITAL_SETUP.md) |
 | Remaining work | [Backlog](../BACKLOG.md) |
 | Current program audit | [Audit 29 Sep 2026](PROGRAM_AUDIT_2026-09-29.md) |
+| Audit / STM 0 / Sheet 0 and resend review | [คู่มือตรวจ STM 0](STM_ZERO_AUDIT.md) |
 | Production deployment | [Deployment guide](../deploy/README.md) |
 | Local AI and Ollama | [Local AI setup](../LOCAL_AI_SETUP_TH.md) |
 | User workflows | [Manual by role](USER_MANUAL_BY_ROLE.md) |

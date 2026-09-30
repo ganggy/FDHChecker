@@ -9,8 +9,10 @@ import {
   type ReceivableFilterOptions,
 } from '../services/hosxpService';
 import { consumeDashboardNavigation } from '../utils/navigationState';
+import { StmZeroAuditPanel } from '../components/StmZeroAuditPanel';
+import { formatLocalDateInput } from '../utils/dateUtils';
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => formatLocalDateInput();
 
 const firstOfMonth = () => {
   const d = new Date();
@@ -81,6 +83,7 @@ const SummaryCard = ({
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
 
 export const VisitReconciliationPage = () => {
+  const [auditTab, setAuditTab] = useState<'visits' | 'zero'>('visits');
   const [dashboardNavigation] = useState(() => consumeDashboardNavigation('reconciliation'));
   const [startDate, setStartDate] = useState(dashboardNavigation?.startDate || firstOfMonth());
   const [endDate, setEndDate] = useState(dashboardNavigation?.endDate || todayIso());
@@ -96,6 +99,7 @@ export const VisitReconciliationPage = () => {
   const [summary, setSummary] = useState<ReconciliationSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [auditScope, setAuditScope] = useState({ startDate: '', endDate: '', patientType: '', hosxpRight: '', compareStatus: '', snapshot: '' });
 
   // Sort state
   const [sortCol, setSortCol] = useState<keyof ReconciliationRow>('service_date');
@@ -110,6 +114,7 @@ export const VisitReconciliationPage = () => {
   const handleLoad = async (newPage = 1) => {
     setLoading(true);
     setError('');
+    setRows([]); setSummary(null);
     try {
       const result = await fetchReceivableReconciliation({
         startDate,
@@ -124,6 +129,7 @@ export const VisitReconciliationPage = () => {
       setTotal(result.total || 0);
       setSummary(result.summary || null);
       setPage(newPage);
+      setAuditScope({ startDate, endDate, patientType, hosxpRight, compareStatus, snapshot: new Date().toISOString() });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
     } finally {
@@ -148,7 +154,7 @@ export const VisitReconciliationPage = () => {
     if (bv == null) return -1;
     const aStr = String(av);
     const bStr = String(bv);
-    const cmp = aStr.localeCompare(bStr, 'th');
+    const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : aStr.localeCompare(bStr, 'th');
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
@@ -190,7 +196,24 @@ export const VisitReconciliationPage = () => {
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Reconciliation');
-    XLSX.writeFile(wb, `reconciliation_${startDate}_${endDate}.xlsx`);
+    XLSX.writeFile(wb, `reconciliation_page${page}_${auditScope.startDate}_${auditScope.endDate}.xlsx`);
+  };
+
+  const exportAuditSummary = () => {
+    if (!summary) return;
+    const wb = XLSX.utils.book_new();
+    const entries = [
+      ['ช่วงวันที่บริการ', `${auditScope.startDate} ถึง ${auditScope.endDate}`], ['ประมวลผลเมื่อ', auditScope.snapshot],
+      ['ขอบเขต', `${auditScope.patientType} / สิทธิ ${auditScope.hosxpRight} / ${auditScope.compareStatus || 'ทุกสถานะ'}`],
+      ['Visit ทั้งหมดตามตัวกรอง', summary.total_visits], ['เสร็จสิ้น INV', summary.completed_inv], ['ยอดตรงกัน', summary.matched],
+      ['ยอดต่าง', summary.mismatched], ['รอ REP', summary.pending_rep], ['รอ STM/INV', summary.pending_stm],
+      ['ไม่มีข้อมูลตอบกลับ', summary.no_data], ['REP มีประเด็น', summary.rep_issue], ['Visit ยอดจ่าย STM รวมเป็น 0', summary.stm_zero],
+      ['Visit มี STM แต่ยอดจ่ายไม่ครบ/ไม่ระบุ', summary.stm_unknown || 0],
+      ['ลูกหนี้ตามข้อมูล HIS', summary.total_claimable], ['ยอด REP', summary.total_rep], ['ยอด STM จ่ายที่ระบุครบ', summary.total_stm_paid], ['ยอดรับ INV', summary.total_inv],
+      ['หมายเหตุ', 'รวมทุก Visit ตามตัวกรอง ไม่ใช่เฉพาะหน้าตาราง; STM และ INV อาจอ้างเงินเดียวกัน ห้ามบวกรวมเป็นรายรับ; ข้อมูลตอบกลับเฉพาะที่นำเข้า'],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(entries.map(([หัวข้อ, ค่า]) => ({ หัวข้อ, ค่า }))), 'Audit ผู้บริหาร');
+    XLSX.writeFile(wb, `audit_visits_${auditScope.startDate}_${auditScope.endDate}.xlsx`);
   };
 
   const SortIcon = ({ col }: { col: keyof ReconciliationRow }) => {
@@ -235,15 +258,15 @@ export const VisitReconciliationPage = () => {
           </p>
         </div>
         <div className="reconciliation-hero-info">
-          <div className="reconciliation-hero-info-row">
+          {auditTab === 'visits' && <div className="reconciliation-hero-info-row">
             <span className="reconciliation-hero-info-label">ช่วงวันที่ตรวจสอบ</span>
             <span className="reconciliation-hero-info-val">{startDate} ถึง {endDate}</span>
-          </div>
+          </div>}
           <div className="reconciliation-hero-info-row">
             <span className="reconciliation-hero-info-label">ประเภทผู้ป่วย</span>
-            <span className="reconciliation-hero-info-val">{patientType === 'ALL' ? 'ทั้งหมด (OPD + IPD)' : patientType}</span>
+            <span className="reconciliation-hero-info-val">{auditTab === 'zero' || patientType === 'ALL' ? 'ทั้งหมด (OPD + IPD)' : patientType}</span>
           </div>
-          {summary && (
+          {summary && auditTab === 'visits' && (
             <div className="reconciliation-hero-info-row">
               <span className="reconciliation-hero-info-label">อัตราตรงกัน/เสร็จสิ้น</span>
               <span className="reconciliation-hero-info-val" style={{ color: '#059669' }}>
@@ -256,6 +279,11 @@ export const VisitReconciliationPage = () => {
         </div>
       </section>
 
+      <nav className="audit-tabs" aria-label="หน้าตรวจสอบ">
+        <button className="rec-btn rec-btn-primary" aria-pressed={auditTab === 'visits'} onClick={() => setAuditTab('visits')}>Audit ยอดเคลม / ลูกหนี้</button>
+        <button className="rec-btn rec-btn-primary" aria-pressed={auditTab === 'zero'} onClick={() => setAuditTab('zero')}>STM 0 / Sheet 0 / สรุปผู้บริหาร</button>
+      </nav>
+      {auditTab === 'zero' ? <StmZeroAuditPanel /> : <>
       {/* Filter Card */}
       <section className="reconciliation-filter-card">
         <div className="reconciliation-filter-grid">
@@ -340,6 +368,7 @@ export const VisitReconciliationPage = () => {
                 📥 ส่งออก Excel ({rows.length.toLocaleString('th-TH')})
               </button>
             )}
+            {summary && <button className="rec-btn rec-btn-success" onClick={exportAuditSummary}>สรุป Audit ผู้บริหาร (ทุก Visit)</button>}
           </div>
         </div>
       </section>
@@ -354,6 +383,7 @@ export const VisitReconciliationPage = () => {
       {/* Summary Dashboard */}
       {summary && (
         <section className="reconciliation-summary-dashboard">
+          <p>ข้อมูลวันที่บริการ {auditScope.startDate}–{auditScope.endDate} · ประมวลผล {new Date(auditScope.snapshot).toLocaleString('th-TH')} · รวมทุก Visit ตามตัวกรองที่โหลด</p>
           <div>
             <div className="summary-group-title">
               <span>👥 สรุปสถานะการจับคู่ Visit</span>
@@ -377,7 +407,7 @@ export const VisitReconciliationPage = () => {
               <SummaryCard label="ยอดตั้งลูกหนี้รวม" value={`฿${formatMoney(summary.total_claimable)}`} sub="ยอดเรียกเก็บตามสิทธิ์" accent="blue" />
               <SummaryCard label="ยอด REP รวม" value={`฿${formatMoney(summary.total_rep)}`} sub="ตอบรับจากกองทุน" accent="teal" />
               <SummaryCard label="ยอด STM รวม" value={`฿${formatMoney(summary.total_stm)}`} sub="ยอดแจ้งโอน" accent="purple" />
-              <SummaryCard label="ยอดรับจริง (STM Paid)" value={`฿${formatMoney(summary.total_stm_paid)}`} sub="เงินโอนเข้าบัญชีจริง" accent="emerald" />
+              <SummaryCard label="ยอดชดเชย STM ที่ระบุครบ" value={`฿${formatMoney(summary.total_stm_paid)}`} sub="ผลชดเชยนำเข้า ต้องเทียบหลักฐานโอน" accent="emerald" />
               <SummaryCard label="ยอดรับสุทธิ INV" value={`฿${formatMoney(summary.total_inv)}`} sub="เงินตามใบเสร็จ INV" accent="teal" />
             </div>
           </div>
@@ -389,6 +419,7 @@ export const VisitReconciliationPage = () => {
             <div className="summary-cards-row">
               <SummaryCard label="REP C / Deny" value={summary.rep_issue.toLocaleString('th-TH')} sub="ติดปัญหา C หรือปฏิเสธ" accent="rose" />
               <SummaryCard label="STM = 0 บาท" value={summary.stm_zero.toLocaleString('th-TH')} sub="ชดเชย 0 บาท" accent="rose" />
+              <SummaryCard label="STM ยอดจ่ายไม่ครบ/ไม่ระบุ" value={(summary.stm_unknown || 0).toLocaleString('th-TH')} sub="แยกจากยอดศูนย์ ไม่รวมในยอดจ่าย" accent="amber" />
               <SummaryCard label="รับขาด / รับเกิน" value={`${summary.underpaid.toLocaleString('th-TH')} / ${summary.overpaid.toLocaleString('th-TH')}`} sub="รายการขาด / เกิน" accent="amber" />
             </div>
           </div>
@@ -558,6 +589,7 @@ export const VisitReconciliationPage = () => {
           </button>
         </div>
       )}
+      </>}
     </div>
   );
 };

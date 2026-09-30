@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FDHPreviewModal } from '../components/FDHPreviewModal';
 import { formatLocalDateInput, formatLocalDateStamp } from '../utils/dateUtils';
 import { isFailedFdhSubmission, isMissingFdhStatus } from '../utils/fdhClaimProgress';
+import { isWaitingOfcApprove } from '../utils/ofcApproveCode';
+import { consumeDashboardNavigation } from '../utils/navigationState';
 
 type AuditStatus = 'clear' | 'review' | 'risk';
 type FdhStatusFilter = 'all' | 'not-submitted' | 'failed' | 'submitted';
-type ReadinessFilter = 'all' | 'ready' | 'pending';
+type ReadinessFilter = 'all' | 'ready' | 'pending' | 'waiting-approve';
 
 type IpdExportRow = {
   an: string;
@@ -19,6 +21,7 @@ type IpdExportRow = {
   pttype?: string;
   hipdata_code?: string;
   authen_code?: string;
+  approve_code?: string;
   authen_datetime?: string;
   authen_source?: string;
   pdx?: string;
@@ -89,11 +92,13 @@ const readJsonError = async (response: Response) => {
 };
 
 export const IpdFdhExportPage: React.FC = () => {
+  const [incoming] = useState(() => consumeDashboardNavigation('ipdExport'));
+  const [targetAns, setTargetAns] = useState(incoming?.ipdExport?.targetAns || []);
   const [rows, setRows] = useState<IpdExportRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [startDate, setStartDate] = useState(firstDayOfCurrentMonth());
-  const [endDate, setEndDate] = useState(formatLocalDateInput());
+  const [startDate, setStartDate] = useState(incoming?.startDate || firstDayOfCurrentMonth());
+  const [endDate, setEndDate] = useState(incoming?.endDate || formatLocalDateInput());
   const [search, setSearch] = useState('');
   const [readinessFilter, setReadinessFilter] = useState<ReadinessFilter>('all');
   const [auditFilter, setAuditFilter] = useState<AuditStatus | 'all'>('all');
@@ -137,7 +142,7 @@ export const IpdFdhExportPage: React.FC = () => {
     setSelectedAns([]);
     try {
       const syncKey = `${startDate}:${endDate}`;
-      if (forceAuthen || lastAutoAuthenSyncKey.current !== syncKey) {
+      if (forceAuthen || (!targetAns.length && lastAutoAuthenSyncKey.current !== syncKey)) {
         lastAutoAuthenSyncKey.current = syncKey;
         await syncAuthen(forceAuthen);
       }
@@ -159,10 +164,12 @@ export const IpdFdhExportPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isSelectable = (row: IpdExportRow) => Boolean(row.export_ready)
+  const isSelectable = (row: IpdExportRow) => Boolean(row.export_ready) && !isWaitingOfcApprove(row)
     && (isFailedFdhSubmission(row) || confirmResend || !hasFdhSubmission(row));
 
   const filteredRows = useMemo(() => rows.filter((row) => {
+    if (targetAns.length && !targetAns.includes(row.an)) return false;
+    if (readinessFilter === 'waiting-approve' && (!isWaitingOfcApprove(row) || (hasFdhSubmission(row) && !isFailedFdhSubmission(row)))) return false;
     if (readinessFilter === 'ready' && !row.export_ready) return false;
     if (readinessFilter === 'pending' && row.export_ready) return false;
     if (auditFilter !== 'all' && (row.pre_audit?.status || 'clear') !== auditFilter) return false;
@@ -174,7 +181,7 @@ export const IpdFdhExportPage: React.FC = () => {
     if (!query) return true;
     return [row.an, row.hn, row.patientName, row.ward, row.pttype, row.hipdata_code, row.authen_code, row.pdx, row.drg, fdhLabel(row)]
       .some((value) => String(value || '').toLowerCase().includes(query));
-  }), [rows, readinessFilter, auditFilter, fdhStatusFilter, search]);
+  }), [rows, readinessFilter, auditFilter, fdhStatusFilter, search, targetAns]);
 
   const selectableRows = filteredRows.filter(isSelectable);
   const selectedRows = rows.filter((row) => selectedAns.includes(row.an) && isSelectable(row));
@@ -275,6 +282,7 @@ export const IpdFdhExportPage: React.FC = () => {
   const notSubmittedCount = rows.filter((row) => !hasFdhSubmission(row)).length;
   const failedCount = rows.filter(isFailedFdhSubmission).length;
   const submittedCount = rows.length - notSubmittedCount;
+  const waitingApproveRows = rows.filter((row) => isWaitingOfcApprove(row) && (!hasFdhSubmission(row) || isFailedFdhSubmission(row)));
   const authenRequiredRows = rows.filter((row) => ['UCS', 'LGO', 'WEL'].includes(String(row.hipdata_code || '').trim().toUpperCase()));
   const authenFoundCount = authenRequiredRows.filter((row) => String(row.authen_code || '').trim()).length;
   const authenMissingCount = authenRequiredRows.length - authenFoundCount;
@@ -285,13 +293,17 @@ export const IpdFdhExportPage: React.FC = () => {
         <h1 className="page-title">📤 ส่งออกผู้ป่วยใน (IPD 16 แฟ้ม)</h1>
         <p className="page-subtitle">คัดเลือกด้วย AN ตรวจ Pre-audit/Preflight และส่ง FDH แยกจากรายการ OPD</p>
       </div>
+      {targetAns.length > 0 && <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+        <strong>คัดเฉพาะ {targetAns.length} AN จาก STM 0</strong><p>{incoming?.contextLabel}</p>
+        <button className="btn btn-secondary" onClick={() => { setTargetAns([]); setSelectedAns([]); setConfirmResend(false); }}>ยกเลิกขอบเขตและดูทั้งหมด</button>
+      </div>}
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, alignItems: 'end' }}>
           <div className="form-group"><label className="form-label">ค้นหา AN / HN / ชื่อ</label><input className="form-control" value={search} onChange={(event) => setSearch(event.target.value)} /></div>
           <div className="form-group"><label className="form-label">วันที่เริ่ม</label><input type="date" className="form-control" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
           <div className="form-group"><label className="form-label">วันที่สิ้นสุด</label><input type="date" className="form-control" value={endDate} onChange={(event) => setEndDate(event.target.value)} /></div>
-          <div className="form-group"><label className="form-label">ความพร้อม</label><select className="form-control" value={readinessFilter} onChange={(event) => setReadinessFilter(event.target.value as ReadinessFilter)}><option value="all">ทั้งหมด</option><option value="ready">พร้อมส่ง</option><option value="pending">รอแก้ไข</option></select></div>
+          <div className="form-group"><label className="form-label">ความพร้อม</label><select className="form-control" value={readinessFilter} onChange={(event) => setReadinessFilter(event.target.value as ReadinessFilter)}><option value="all">ทั้งหมด</option><option value="ready">พร้อมส่ง</option><option value="pending">รอแก้ไข</option><option value="waiting-approve">รอ Approve code OFC/LGO</option></select></div>
           <div className="form-group"><label className="form-label">IPD Pre-audit</label><select className="form-control" value={auditFilter} onChange={(event) => setAuditFilter(event.target.value as AuditStatus | 'all')}><option value="all">ทุกผลตรวจ</option><option value="risk">พบความเสี่ยง</option><option value="review">ต้องทบทวน</option><option value="clear">ผ่านอัตโนมัติ</option></select></div>
           <div className="form-group"><label className="form-label">สถานะ FDH</label><select className="form-control" value={fdhStatusFilter} onChange={(event) => setFdhStatusFilter(event.target.value as FdhStatusFilter)}><option value="all">ทั้งหมด</option><option value="not-submitted">ยังไม่ส่ง</option><option value="failed">ส่งไม่ผ่าน</option><option value="submitted">เคยส่งแล้ว</option></select></div>
           <button className="btn btn-primary" type="button" onClick={() => void loadRows()} disabled={loading}>{loading ? 'กำลังประมวลผล...' : '🔄 ดึงข้อมูลใหม่'}</button>
@@ -300,6 +312,12 @@ export const IpdFdhExportPage: React.FC = () => {
       </div>
 
       {(authenSyncing || authenNotice) && <div className={`alert ${authenNotice?.type === 'warning' ? 'alert-warning' : 'alert-info'}`} style={{ marginBottom: 16 }}><span>{authenSyncing ? '⏳ กำลังตรวจสอบและนำเข้า Authen Code ของผู้ป่วยในจาก NHSO API...' : authenNotice?.text}</span></div>}
+      {waitingApproveRows.length > 0 && <div className="alert alert-warning" role="status" style={{ marginBottom: 16 }}>
+        <strong>OFC/LGO รอ Approve code {waitingApproveRows.length} AN ในช่วงวันที่เลือก</strong>
+        <p>ยังคงอยู่ในคิวและไม่ถูกส่งออกจนกว่าจะนำเข้าและบันทึกรหัส</p>
+        <button className="btn btn-warning" type="button" onClick={() => { setReadinessFilter('waiting-approve'); setFdhStatusFilter('all'); setAuditFilter('all'); setSearch(''); setSelectedAns([]); }}>ดูรายการรอ Approve</button>
+        <button className="btn btn-secondary" type="button" onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'ktbApproveCode' } }))}>นำเข้า Approve code</button>
+      </div>}
       {error && <div className="alert alert-danger" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>

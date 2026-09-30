@@ -17,6 +17,7 @@ export interface DashboardNavigationPayload {
     search?: string;
     targetVns?: string[];
   };
+  ipdExport?: { targetAns?: string[] };
   specific?: {
     activeFund?: string;
     showIncompleteOnly?: boolean;

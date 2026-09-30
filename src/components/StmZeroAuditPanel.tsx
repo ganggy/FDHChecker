@@ -1,0 +1,153 @@
+import { useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { formatLocalDateInput } from '../utils/dateUtils';
+import { navigateFromDashboard } from '../utils/navigationState';
+import { canPrepareZeroResend, ZERO_ACTION_LABELS, type StmZeroRow } from '../utils/stmZeroAudit';
+import './StmZeroAuditPanel.css';
+
+type Summary = { total: number; confirmedZero: number; unknownPayment: number; matched: number; unmatched: number;
+  paidElsewhere: number; prepareCandidates: number; requestedAmount: number; groups: Array<{ action: string; label: string; count: number }> };
+type Snapshot = { data: StmZeroRow[]; total: number; summary: Summary; snapshot: string };
+const money = (n: number | null) => n == null ? 'ไม่ระบุ' : n.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+const writeWorkbook = (name: string, sheets: Array<[string, Record<string, unknown>[]]>) => {
+  const wb = XLSX.utils.book_new();
+  for (const [label, rows] of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), label);
+  XLSX.writeFile(wb, `${name}.xlsx`);
+};
+
+export function StmZeroAuditPanel() {
+  const [start, setStart] = useState(() => `${formatLocalDateInput().slice(0, 7)}-01`);
+  const [end, setEnd] = useState(formatLocalDateInput);
+  const [action, setAction] = useState(''); const [match, setMatch] = useState(''); const [search, setSearch] = useState('');
+  const [result, setResult] = useState<Snapshot | null>(null); const [page, setPage] = useState(1);
+  const [loaded, setLoaded] = useState({ start: '', end: '', action: '', match: '', search: '' });
+  const [loading, setLoading] = useState(false); const [error, setError] = useState('');
+  const [selected, setSelected] = useState<Record<string, StmZeroRow>>({});
+  const [detail, setDetail] = useState<StmZeroRow | null>(null);
+  const [source, setSource] = useState<{ diagnoses: Record<string, unknown>[]; procedures: Record<string, unknown>[]; items: Record<string, unknown>[]; warnings: string[]; warning: string } | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false); const [sourceError, setSourceError] = useState('');
+  const detailRequest = useRef(0);
+  const [reviewed, setReviewed] = useState(false); const [note, setNote] = useState('');
+  const [channel, setChannel] = useState('eclaim');
+  const load = async (nextPage = 1) => {
+    setLoading(true); setError(''); setResult(null); setSelected({}); setReviewed(false);
+    const filters = nextPage === 1 ? { start, end, action, match, search } : loaded;
+    try {
+      const query = new URLSearchParams({ startDate: filters.start, endDate: filters.end, action: filters.action,
+        match: filters.match, search: filters.search, page: String(nextPage) });
+      const response = await fetch(`/api/reconciliation/stm-zero?${query}`);
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'โหลด audit ไม่สำเร็จ');
+      setResult(payload); setPage(nextPage); setLoaded(filters);
+    } catch (err) { setError(err instanceof Error ? err.message : 'โหลด audit ไม่สำเร็จ'); }
+    finally { setLoading(false); }
+  };
+  const openDetail = async (row: StmZeroRow) => {
+    const requestId = ++detailRequest.current;
+    setDetail(row); setSource(null); setSourceError(''); setSourceLoading(true);
+    try {
+      const query = new URLSearchParams({ startDate: loaded.start, endDate: loaded.end, sourceId: row.id });
+      const response = await fetch(`/api/reconciliation/stm-zero?${query}`);
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || 'อ่านข้อมูล HIS ไม่สำเร็จ');
+      if (detailRequest.current === requestId) setSource(payload.data);
+    } catch (err) { if (detailRequest.current === requestId) setSourceError(err instanceof Error ? err.message : 'อ่านข้อมูล HIS ไม่สำเร็จ'); }
+    finally { if (detailRequest.current === requestId) setSourceLoading(false); }
+  };
+  const exportExecutive = () => {
+    if (!result) return;
+    const s = result.summary;
+    writeWorkbook(`audit_STM0_${loaded.start}_${loaded.end}`, [['สรุปผู้บริหาร', [
+      { หัวข้อ: 'ช่วงวันที่นำเข้า', ค่า: `${loaded.start} ถึง ${loaded.end}` },
+      { หัวข้อ: 'เวลาประมวลผล', ค่า: result.snapshot },
+      { หัวข้อ: 'ตัวกรอง', ค่า: `${ZERO_ACTION_LABELS[loaded.action as keyof typeof ZERO_ACTION_LABELS] || 'ทุกเหตุผล'} / ${loaded.match || 'ทุกสถานะจับคู่'} / ${loaded.search || 'ไม่มีคำค้น'}` },
+      { หัวข้อ: 'แถวทั้งหมดตามตัวกรอง', ค่า: s.total }, { หัวข้อ: 'ยืนยันยอดจ่าย 0 บาท', ค่า: s.confirmedZero },
+      { หัวข้อ: 'ยอดจ่ายไม่ทราบค่า', ค่า: s.unknownPayment }, { หัวข้อ: 'จับคู่ HIS ได้', ค่า: s.matched },
+      { หัวข้อ: 'ยังจับคู่ HIS ไม่ได้', ค่า: s.unmatched }, { หัวข้อ: 'พบยอดจ่ายใน Visit เดียวกัน', ค่า: s.paidElsewhere },
+      { หัวข้อ: 'แถวที่เลือกเตรียมตรวจส่งใหม่ได้ (ยังไม่อนุมัติส่ง)', ค่า: s.prepareCandidates },
+      { หัวข้อ: 'หมายเหตุ', ค่า: 'นับแถว STM/Sheet 0 ไม่ใช่จำนวนผู้ป่วยหรือ Visit; ข้อมูลเฉพาะไฟล์ที่นำเข้า ยังไม่ใช่รายได้ที่เรียกคืนได้' },
+    ]], ['ประเด็นที่ต้องติดตาม', s.groups.map(g => ({ ประเด็น: g.label, จำนวนแถว: g.count }))]]);
+  };
+  const chosen = Object.values(selected);
+  const exportQueue = () => writeWorkbook(`STM0_เตรียมแก้ไข_${loaded.start}_${loaded.end}`, [['รายการตรวจส่งใหม่', chosen.map(r => ({
+    รหัสแถว: r.id, Batch: r.batch_id, ไฟล์: r.source_filename, ชีต: r.sheet_name, แถวข้อมูลนำเข้า: r.row_no ?? '',
+    HN: r.hn, VN: r.vn, AN: r.an, TRAN_ID: r.tran_id, วันที่บริการ: r.service_date,
+    ยอดจ่าย: r.paid_amount, รหัสเหตุผล: `${r.errorcode} ${r.verifycode}`, ขั้นตอน: ZERO_ACTION_LABELS[r.action],
+    ช่องทาง: channel === 'fdh' ? 'FDH (ผู้ใช้ยืนยันช่องทางเดิม)' : 'eClaim / OSR', บันทึกตรวจสอบ: note, เวลาข้อมูลAudit: result?.snapshot || '',
+    ยืนยันตรวจข้อมูล: reviewed ? 'ตรวจแล้ว; ต้องยืนยันสิทธิแก้ไขกับระบบปลายทางอีกครั้ง' : 'ยังไม่ยืนยัน',
+  }))]]);
+  const handoff = async (ipd: boolean) => {
+    const rows = chosen.filter(r => ipd ? Boolean(r.an) : !r.an && r.vn);
+    if (!rows.length || !reviewed || !note.trim()) return;
+    setLoading(true); setError('');
+    try {
+      const query = new URLSearchParams({ startDate: loaded.start, endDate: loaded.end, checkIds: rows.map(r => r.id).join(',') });
+      const response = await fetch(`/api/reconciliation/stm-zero?${query}`);
+      const payload = await response.json();
+      const refreshed: StmZeroRow[] = payload.data || [];
+      if (!response.ok || !payload.success || rows.some(r => !refreshed.some(current => current.id === r.id && current.vn === r.vn && current.an === r.an && current.hn === r.hn && current.service_date === r.service_date))) {
+        setError('ข้อมูลเปลี่ยนหรือยังยืนยันส่งใหม่ไม่ได้ กรุณาโหลด audit และตรวจรายการอีกครั้ง'); setReviewed(false); return;
+      }
+    const dates = rows.map(r => r.service_date.slice(0, 10)).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    if (dates.length !== rows.length) { setError('บางรายการไม่มีวันที่บริการ กรุณาตรวจต้นทางก่อนส่งต่อ'); return; }
+    navigateFromDashboard(ipd ? 'ipdExport' : 'fdh', { contextLabel: `STM 0: ${note.trim()} — ตรวจสิทธิแก้ไขและยืนยันส่งซ้ำก่อนส่งจริง`,
+      startDate: dates[0], endDate: dates[dates.length - 1],
+      ...(ipd ? { ipdExport: { targetAns: [...new Set(rows.map(r => r.an))] } } : { fdh: { statusFilter: 'all', targetVns: [...new Set(rows.map(r => r.vn))] } }),
+    });
+    } catch { setError('ตรวจสถานะล่าสุดไม่สำเร็จ กรุณาลองใหม่ก่อนเปิดส่งออก'); }
+    finally { setLoading(false); }
+  };
+  return <section className="stm-zero-audit">
+    <header><div><h2>ตรวจ STM 0 บาท / Sheet 0</h2><p>ไล่จากเหตุผล → แถวไฟล์ต้นทาง → วินิจฉัยและค่าใช้จ่าย HIS → เตรียมแก้ไข</p></div>
+      <button className="rec-btn rec-btn-success" disabled={!result || loading} onClick={exportExecutive}>ดาวน์โหลดสรุปผู้บริหาร</button></header>
+    <div className="zero-notice">0 บาทไม่ได้แปลว่าส่งใหม่ได้ทุกรายการ: ตรวจรอบจ่ายกองทุน การอนุมัติ SMCS หรือสิทธิแก้ไขผ่าน OSR ก่อน รวมเฉพาะ STM และชีตชื่อ Sheet 0 / Data sheet 0 / 0 ที่นำเข้าไว้ ยอดว่างแสดงเป็น “ไม่ทราบค่า”</div>
+    <div className="zero-filters">
+      <label>นำเข้าตั้งแต่<input type="date" value={start} onChange={e => setStart(e.target.value)} /></label>
+      <label>นำเข้าถึง<input type="date" value={end} onChange={e => setEnd(e.target.value)} /></label>
+      <label>ขั้นตอนติดตาม<select value={action} onChange={e => setAction(e.target.value)}><option value="">ทุกขั้นตอน</option>{Object.entries(ZERO_ACTION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+      <label>การจับคู่<select value={match} onChange={e => setMatch(e.target.value)}><option value="">ทั้งหมด</option><option value="unmatched">ยังจับคู่ไม่ได้</option></select></label>
+      <label>ค้น HN / VN / AN / รหัส / ไฟล์<input value={search} onChange={e => setSearch(e.target.value)} /></label>
+      <button className="rec-btn rec-btn-primary" disabled={loading} onClick={() => void load()}>{loading ? 'กำลังตรวจ...' : 'ตรวจข้อมูล'}</button>
+    </div>
+    {error && <p role="alert" className="zero-error">{error}</p>}
+    {result && <>
+      <p>ข้อมูลนำเข้า {loaded.start}–{loaded.end} · ประมวลผล {new Date(result.snapshot).toLocaleString('th-TH')} · สรุปทุกแถวตามตัวกรอง</p>
+      <div className="zero-metrics">{[['ยืนยันจ่าย 0', result.summary.confirmedZero], ['จับคู่ไม่ได้', result.summary.unmatched], ['ยอดจ่ายไม่ทราบค่า', result.summary.unknownPayment], ['พบเงินใน Visit เดียวกัน', result.summary.paidElsewhere]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+      <div className="zero-groups">{result.summary.groups.filter(g => g.count).map(g => <span key={g.action}>{g.label}: <b>{g.count}</b></span>)}</div>
+      <p className="zero-caption">นับแถว ไม่ใช่จำนวน Visit; แถว 0 อาจเป็นเพียงบางรายการใน Visit ที่ได้รับเงินแล้ว จึงไม่รวมยอดเงินเป็นความเสียหาย</p>
+      <div className="zero-table-scroll"><table><thead><tr><th>เลือก</th><th>Visit / วันที่</th><th>ต้นทาง</th><th>ยอดจ่าย</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>หลักฐาน</th></tr></thead><tbody>
+        {result.data.map(r => <tr key={r.id}><td><input aria-label={`เลือก ${r.id}`} type="checkbox" disabled={!canPrepareZeroResend(r)} checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>
+          <td><b>{r.an ? `AN ${r.an}` : `VN ${r.vn || 'ไม่พบ'}`}</b><small>HN {r.hn || 'ไม่พบ'} · {r.service_date || 'ไม่ระบุวันที่'}</small></td>
+          <td>{r.source_filename}<small>{r.sheet_name || 'STM'} · {r.statement_no || r.tran_id || r.id}</small></td>
+          <td>{money(r.paid_amount)}</td><td><b>{r.errorcode} {r.verifycode}</b><small>{ZERO_ACTION_LABELS[r.action]}</small></td>
+          <td>{r.matched ? 'ยืนยัน VN/AN + HN' : 'ยังยืนยันไม่ได้'}{r.payment_uncertain && <small>Visit มียอดจ่ายไม่ทราบค่า</small>}</td><td><button onClick={() => void openDetail(r)}>ดูต้นทาง / HIS</button></td></tr>)}
+        {!result.data.length && <tr><td colSpan={7}>ไม่พบรายการตามเงื่อนไข — ตรวจว่ามีการนำเข้า Sheet 0 ครบแล้วหรือไม่</td></tr>}
+      </tbody></table></div>
+      <div className="zero-pagination"><button disabled={loading || page <= 1} onClick={() => void load(page - 1)}>ก่อนหน้า</button><span>หน้า {page} / {Math.max(1, Math.ceil(result.total / 50))} · {result.total} แถว</span><button disabled={loading || page * 50 >= result.total} onClick={() => void load(page + 1)}>ถัดไป</button></div>
+      <section className="zero-prepare"><h3>เตรียมรายการแก้ไข / ส่งใหม่ ({chosen.length} แถวในหน้านี้)</h3>
+        <p>รายการรออนุมัติ รอรอบจ่าย ยังจับคู่ไม่ได้ หรือพบยอดจ่ายแล้วจะเลือกไม่ได้ ตรวจแถว 0 ที่ไม่ทราบเหตุผลให้ครบก่อนเลือก</p>
+        <label>ช่องทางเดิม<select value={channel} onChange={e => { setChannel(e.target.value); setReviewed(false); }}><option value="eclaim">eClaim / OSR — ดาวน์โหลดรายการไปดำเนินการ</option><option value="fdh">FDH — ยืนยันว่ารายการเดิมส่งทาง FDH</option></select></label>
+        <label>ผลการตรวจ / สิ่งที่แก้ไข<textarea value={note} onChange={e => { setNote(e.target.value); setReviewed(false); }} placeholder="ระบุเหตุผล หลักฐานที่ตรวจ และสิทธิแก้ไขจากระบบปลายทาง" /></label>
+        <label><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} /> ตรวจข้อมูลต้นทาง แก้ไขในระบบงาน และยืนยันสิทธิแก้ไขส่งใหม่ตามกองทุนแล้ว</label>
+        <div className="zero-actions"><button disabled={!chosen.length || !reviewed || !note.trim()} onClick={exportQueue}>ดาวน์โหลดรายการที่ตรวจแล้ว</button>
+          {channel === 'fdh' && <><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => !r.an && r.vn)} onClick={() => void handoff(false)}>เปิดส่งออก OPD เฉพาะที่เลือก</button><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => r.an)} onClick={() => void handoff(true)}>เปิดส่งออก IPD เฉพาะที่เลือก</button></>}
+        </div><small>การเปิดส่งออกยังต้องผ่านการตรวจความพร้อมและยืนยันส่งซ้ำ ระบบนี้ไม่ได้ส่งเคลมโดยอัตโนมัติ การเปลี่ยนหน้า/โหลดใหม่ล้างรายการที่เลือกและการยืนยัน</small>
+      </section>
+    </>}
+    <details className="zero-guide"><summary>อ่านเพิ่มเติม: Sheet 0 และแนวทางตรวจ</summary><p>เอกสารชี้แจง สปสช. แสดง Sheet 0 เป็นรายการจ่าย 0 พร้อมเหตุผล กองทุน HERB_GB อาจอยู่ระหว่างรอประมวลผล ส่วน W305 ต้องตรวจการอนุมัติ และ D011 ต้องตรวจการเปิดแก้ไขใน eClaim/OSR คำแนะนำนี้ไม่ใช่การรับรองสิทธิส่งใหม่หรือกำหนดเวลาทักท้วงปัจจุบัน</p>
+      <a href="https://www.kpnhospital.com/wp-content/uploads/2025/09/ระบบโปรแกรม_e-Claim_ยาสมุนไพร_HERBFS_25680523.pdf" target="_blank" rel="noreferrer">เอกสารชี้แจง eClaim ยาสมุนไพร (เผยแพร่ผ่านโรงพยาบาล)</a><br />
+      <a href="https://fliphtml5.com/cxuqh/kzfq/9_Provider_Center_Claim_30_ตค_68/" target="_blank" rel="noreferrer">เอกสารชี้แจง Provider Center Claim (สำเนาเผยแพร่)</a>
+    </details>
+    {detail && <div className="zero-modal-backdrop"><section role="dialog" aria-modal="true" aria-label="หลักฐาน STM และข้อมูล HIS" className="zero-modal"><button className="zero-close" onClick={() => setDetail(null)}>ปิด</button>
+      <h2>หลักฐาน {detail.id}</h2><p>{detail.source_filename} · {detail.sheet_name} · Batch {detail.batch_id}{detail.row_no != null ? ` · แถวข้อมูลนำเข้า ${detail.row_no}` : ''}</p>
+      <p>{detail.reason} · {ZERO_ACTION_LABELS[detail.action]}</p>
+      <h3>แถวต้นฉบับจากไฟล์นำเข้า</h3><dl>{Object.entries(detail.raw_data).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{typeof v === 'object' ? JSON.stringify(v) : String(v ?? '')}</dd></div>)}</dl>
+      <h3>ข้อมูล HIS ปัจจุบัน</h3>{sourceLoading && <p>กำลังอ่าน...</p>}{sourceError && <p role="alert">{sourceError}</p>}{source && <><p>{source.warning} {source.warnings.join(' / ')}</p>
+        <h4>วินิจฉัย</h4><table><thead><tr><th>ICD10</th><th>ชื่อ</th><th>ประเภท</th></tr></thead><tbody>{source.diagnoses.map((r, i) => <tr key={i}><td>{String(r.code || '')}</td><td>{String(r.name || '')}</td><td>{String(r.type || '')}</td></tr>)}</tbody></table>
+        <h4>หัตถการ</h4><table><thead><tr><th>รหัส</th><th>ชื่อ</th><th>แหล่งบันทึก</th></tr></thead><tbody>{source.procedures.map((r, i) => <tr key={i}><td>{String(r.code || '')}</td><td>{String(r.name || '')}</td><td>{String(r.type || '')}</td></tr>)}</tbody></table>
+        <h4>ยา / ค่าใช้จ่าย</h4><table><thead><tr><th>รหัส</th><th>รายการ</th><th>จำนวน</th><th>ยอด</th><th>ADP</th></tr></thead><tbody>{source.items.map((r, i) => <tr key={i}><td>{String(r.icode || '')}</td><td>{String(r.item_name || '')}</td><td>{String(r.qty ?? '')}</td><td>{money(Number(r.price || 0))}</td><td>{String(r.nhso_adp_code || '')}</td></tr>)}</tbody></table>
+        {!source.diagnoses.length && !source.items.length && <p>ไม่มีข้อมูลที่อ่านได้ใน HIS — ไม่ถือว่าผ่านการตรวจ</p>}
+      </>}
+    </section></div>}
+  </section>;
+}

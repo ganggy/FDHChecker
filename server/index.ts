@@ -1,4 +1,7 @@
 import { readHospitalIdentity, parseSiteWalkinSettings, parseVillageScope } from './siteProfile.js';
+import { isWaitingOfcApprove } from '../src/utils/ofcApproveCode.js';
+import { readStmZeroRows, readStmZeroSource } from './repositories/stmZero.repository.js';
+import { canPrepareZeroResend, ZERO_ACTION_LABELS } from '../src/utils/stmZeroAudit.js';
 // Backend API Server สำหรับเชื่อมต่อ HOSxP
 // ใช้ Node.js + Express
 
@@ -904,6 +907,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(annual-checkup|reports\/checkup)(\/|$)/, pages: ['annualCheckupReport', 'hospitalReports'] },
   { pattern: /^\/ktb-approve(\/|$)/, pages: ['ktbApproveCode'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/receivables\/(reconciliation|filter-options)(\/|$)/, pages: ['reconciliation', 'receivable', 'ucOutsideCup'] },
   { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
   { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'repstmManage', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
   { pattern: /^\/rep-(daily|deny)(\/|$)/, pages: ['repDailySummary', 'repDeny'] },
@@ -1763,6 +1767,7 @@ app.get('/api/hosxp/ipd-list', async (req, res) => {
         includeDocumentAudit: true,
       });
       const exportIssues: string[] = [];
+      if (isWaitingOfcApprove(row)) exportIssues.push('รอ Approve code OFC/LGO — นำเข้าและบันทึกรหัสก่อนส่งออก');
       if (!row.dchdate) exportIssues.push('ยังไม่จำหน่าย');
       if (!String(row.pdx || '').trim()) exportIssues.push('ไม่พบ Principal diagnosis');
       if (Number(row.totalPrice || 0) <= 0) exportIssues.push('ไม่พบยอดค่าใช้จ่าย');
@@ -2279,7 +2284,11 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       const isBillable = !item.an && (isOFC_CSCD_LGO || (isUCS && isSpecialFund));
       const palliativeAuthenReady = !item.an && hasPalliativeAuthenReady(item);
 
-      // สิทธิ OFC, CSCD, LGO ไม่จำเป็นต้องปิดสิทธิ EP ส่งออกได้ทันที
+      if (!item.an && isWaitingOfcApprove(item)) {
+        issues.push('ER-OFC-APPROVE: รอ Approve code OFC/LGO (นำเข้าและบันทึกรหัสก่อนส่งออก)');
+        if (status === 'ready') status = 'pending';
+      }
+      // OFC/LGO requires approval, but does not require NHSO EP close-right.
       // เฉพาะบัตรทอง (UCS) ที่เข้ากองทุนพิเศษเท่านั้นที่ต้องปิดสิทธิ EP
       const requiresCloseEp = !item.an && isUCS && isSpecialFund && !palliativeAuthenReady;
       if (requiresCloseEp && !hasCloseEp) {
@@ -2364,7 +2373,7 @@ const prepareFdhExport = async (body: Record<string, unknown>) => {
   const rawData = await getExportData(request.vns, request);
   if (!rawData) throw new Error('ไม่สามารถดึงข้อมูล 16 แฟ้มจากฐานข้อมูลได้');
   const data = scopeFdhData(projectFdhData(rawData, request.profile), request.patientType);
-  const validation = validateFdhData(data, request.profile, hcode);
+  const validation = validateFdhData(scopeFdhData(rawData, request.patientType), request.profile, hcode);
   const exportMeta = (rawData as typeof rawData & {
     _meta?: { oopDuplicateGroups?: number; oopMergedRows?: number };
   })._meta;
@@ -3642,6 +3651,46 @@ app.get('/api/fdh/claim-detail/rows', async (req, res) => {
   }
 });
 
+app.get('/api/reconciliation/stm-zero', async (req, res) => {
+  const startDate = String(req.query.startDate || '');
+  const endDate = String(req.query.endDate || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
+    return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่นำเข้าให้ถูกต้อง' });
+  }
+  try {
+    const rows = await readStmZeroRows(startDate, endDate);
+    if (req.query.checkIds) {
+      const ids = String(req.query.checkIds).split(',').filter(Boolean);
+      if (ids.length > 200) return res.status(400).json({ success: false, error: 'ตรวจได้ครั้งละไม่เกิน 200 แถว' });
+      return res.json({ success: true, data: rows.filter(r => ids.includes(r.id) && canPrepareZeroResend(r)) });
+    }
+    if (req.query.sourceId) {
+      const row = rows.find(r => r.id === String(req.query.sourceId));
+      if (!row) return res.status(404).json({ success: false, error: 'ไม่พบแถวในช่วงวันที่นำเข้า' });
+      return res.json({ success: true, data: await readStmZeroSource(row) });
+    }
+    const search = String(req.query.search || '').trim().toLowerCase();
+    const filtered = rows.filter(r => (!req.query.action || r.action === req.query.action)
+      && (!search || [r.hn, r.vn, r.an, r.tran_id, r.errorcode, r.verifycode, r.source_filename, r.statement_no].some(v => v.toLowerCase().includes(search)))
+      && (req.query.match !== 'unmatched' || !r.matched));
+    const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
+    const pageSize = Math.min(200, Math.max(10, Math.floor(Number(req.query.pageSize) || 50)));
+    const groups = Object.entries(ZERO_ACTION_LABELS).map(([action, label]) => ({ action, label, count: filtered.filter(r => r.action === action).length }));
+    res.json({ success: true, data: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length,
+      summary: { total: filtered.length, confirmedZero: filtered.filter(r => r.paid_amount === 0).length,
+        unknownPayment: filtered.filter(r => r.paid_amount == null).length,
+        matched: filtered.filter(r => r.matched).length, unmatched: filtered.filter(r => !r.matched).length,
+        paidElsewhere: filtered.filter(r => r.has_payment).length,
+        prepareCandidates: filtered.filter(canPrepareZeroResend).length,
+        requestedAmount: filtered.reduce((sum, r) => sum + (r.amount || 0), 0), groups },
+      snapshot: new Date().toISOString(), page, pageSize });
+  } catch (error) {
+    // Do not log imported rows or patient identifiers.
+    res.status(500).json({ success: false, error: error instanceof Error && error.message.startsWith('เกิน 20,000')
+      ? error.message : 'อ่านข้อมูล audit ไม่สำเร็จ กรุณาตรวจฐาน STM และ HIS' });
+  }
+});
+
 app.get('/api/receivables/reconciliation', async (req, res) => {
   try {
     const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
@@ -3659,8 +3708,8 @@ app.get('/api/receivables/reconciliation', async (req, res) => {
       pageSize,
     });
     res.json({ success: true, ...result, page, pageSize });
-  } catch (error) {
-    console.error('Error fetching reconciliation data:', error);
+  } catch {
+    console.error('Reconciliation database read failed');
     res.status(500).json({ success: false, error: 'เกิดข้อผิดพลาดในการโหลดข้อมูลกระทบยอด REP/STM' });
   }
 });

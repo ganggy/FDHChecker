@@ -1,4 +1,5 @@
 import iconv from 'iconv-lite';
+import { hasApproveCode, isOfcLgoRight } from '../src/utils/ofcApproveCode.js';
 
 export const FDH_FILE_CODES = [
   'INS', 'PAT', 'OPD', 'ORF', 'ODX', 'OOP', 'IPD', 'IRF',
@@ -301,6 +302,10 @@ export const validateFdhData = (
   data.INS.forEach((row, index) => {
     const hn = value(row, 'HN');
     const inscl = value(row, 'INSCL').toUpperCase();
+    const original = input.INS?.[index];
+    if ((original?._requiresApproveCode === true || (profile === 'standard' && isOfcLgoRight({ hipdata_code: inscl }))) && !hasApproveCode(row.PERMITNO)) {
+      add({ code: 'OFC_APPROVE_REQUIRED', file: 'INS', row: index + 1, field: 'PERMITNO', key: keyOf(row, ['HN', 'SEQ']), message: `INS แถว ${index + 1}: OFC/LGO รอ Approve code กรุณานำเข้าและบันทึกรหัสก่อนส่งออก` });
+    }
     if (profile === 'standard' && ['UCS', 'WEL'].includes(inscl) && !value(row, 'PERMITNO')) {
       add({
         code: 'PERMITNO_REQUIRED',

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { isOfcLgoRight } from '../../src/utils/ofcApproveCode.js';
 import mysql from 'mysql2/promise';
 import { pool, getUTFConnection, getRepstmConnection, repstmDatabaseName } from '../db/connection.js';
 import {
@@ -2502,6 +2503,11 @@ export const getCheckData = async (
           (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^PP' LIMIT 1),
           ''
         ) as authen_code,
+        COALESCE(
+          (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND pttype = ovst.pttype AND TRIM(IFNULL(auth_code, '')) <> '' AND TRIM(auth_code) NOT REGEXP '^(PP|EP)' LIMIT 1),
+          (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND TRIM(IFNULL(claim_code, '')) <> '' AND TRIM(claim_code) NOT REGEXP '^(PP|EP)' LIMIT 1),
+          ''
+        ) AS approve_code,
         CASE
           WHEN COALESCE(
             (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ovst.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
@@ -2920,6 +2926,11 @@ export const getEligibleVisits = async (
           (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND auth_code REGEXP '^PP' LIMIT 1),
           ''
         ) as authen_code,
+        COALESCE(
+          (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND pttype = ovst.pttype AND TRIM(IFNULL(auth_code, '')) <> '' AND TRIM(auth_code) NOT REGEXP '^(PP|EP)' LIMIT 1),
+          (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND TRIM(IFNULL(claim_code, '')) <> '' AND TRIM(claim_code) NOT REGEXP '^(PP|EP)' LIMIT 1),
+          ''
+        ) AS approve_code,
         CASE
           WHEN COALESCE(
             (SELECT nhso_authen_code FROM nhso_confirm_privilege WHERE vn = ovst.vn AND nhso_status = 'Y' AND nhso_authen_code REGEXP '^EP' LIMIT 1),
@@ -3050,6 +3061,12 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       SELECT 
         ovst.hn AS HN,
         COALESCE(pttype.hipdata_code, '') AS INSCL,
+        pttype.name AS _pttypeName,
+        COALESCE(
+          (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND pttype = ovst.pttype AND TRIM(IFNULL(auth_code, '')) <> '' AND TRIM(auth_code) NOT REGEXP '^(PP|EP)' LIMIT 1),
+          (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND TRIM(IFNULL(claim_code, '')) <> '' AND TRIM(claim_code) NOT REGEXP '^(PP|EP)' LIMIT 1),
+          ''
+        ) AS _approveCode,
         COALESCE(pttype.pttype, '') AS SUBTYPE,
         COALESCE(pt.cid, '') AS CID,
         ? AS HCODE,
@@ -3083,6 +3100,13 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       ) ncp ON ovst.vn = ncp.vn
       WHERE ovst.vn IN (?)
     `, [hcode, hcode, hcode, vns]);
+
+    for (const row of ins as Record<string, unknown>[]) {
+      if (isOfcLgoRight({ hipdata_code: row.INSCL, fund: row._pttypeName })) {
+        row.PERMITNO = row._approveCode;
+        row._requiresApproveCode = true;
+      }
+    }
 
     // 2. PAT (Patient)
     const pat = await runQuery('PAT', `

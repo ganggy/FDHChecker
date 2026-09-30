@@ -1,0 +1,37 @@
+.stm-zero-audit { padding: 24px; background: #fff; border: 1px solid #dbe4ef; border-radius: 16px; color: #172f49; }
+.stm-zero-audit header, .zero-pagination, .zero-actions { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.stm-zero-audit h2 { margin: 0 0 8px; }
+.zero-notice { background: #fff7df; padding: 14px; border-left: 4px solid #da9f22; margin: 18px 0; line-height: 1.7; }
+.zero-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.zero-filters label, .zero-prepare > label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.zero-filters input, .zero-filters select, .zero-prepare select, .zero-prepare textarea { padding: 9px; border: 1px solid #b6c5d6; border-radius: 7px; background: white; color: #172f49; }
+.zero-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.zero-metrics > div { background: #eff5fc; padding: 18px; border-radius: 10px; }
+.zero-metrics strong { display: block; font-size: 28px; margin-top: 8px; }
+.zero-groups { display: flex; flex-wrap: wrap; gap: 12px; margin: 18px 0; }
+.zero-groups span { border: 1px solid #cad8e6; padding: 7px 12px; border-radius: 20px; }
+.zero-caption, .stm-zero-audit small { color: #536b84; font-size: 12px; line-height: 1.7; }
+.zero-table-scroll { overflow: auto; }
+.zero-table-scroll table { min-width: 950px; }
+.stm-zero-audit table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.stm-zero-audit th { text-align: left; background: #e9f1fa; white-space: nowrap; }
+.stm-zero-audit th, .stm-zero-audit td { padding: 12px; border-bottom: 1px solid #e0e8f0; }
+.stm-zero-audit td small { display: block; }
+.stm-zero-audit button:not(.rec-btn) { border: 1px solid #b8c9dc; border-radius: 7px; padding: 8px 12px; background: #f5f9ff; cursor: pointer; color: #1b4c80; }
+.stm-zero-audit button:disabled { opacity: .5; cursor: default; }
+.zero-pagination { margin-top: 16px; }
+.zero-prepare { background: #f4f8fc; border: 1px solid #c8d7e7; padding: 18px; border-radius: 12px; margin: 24px 0; }
+.zero-prepare > label { margin: 12px 0; }
+.zero-prepare > label:has(input[type=checkbox]) { flex-direction: row; align-items: start; }
+.zero-prepare textarea { min-height: 64px; }
+.zero-actions { justify-content: start; margin: 14px 0; }
+.zero-error { color: #aa2230; }
+.zero-guide { margin-top: 20px; line-height: 1.8; }
+.zero-modal-backdrop { position: fixed; inset: 0; z-index: 1500; background: #172f4999; display: grid; place-items: center; padding: 24px; }
+.zero-modal { background: white; width: min(1100px, 100%); max-height: 90vh; overflow: auto; padding: 24px; border-radius: 14px; }
+.zero-close { float: right; }
+.zero-modal dl > div { display: grid; grid-template-columns: 1fr 2fr; padding: 7px; border-bottom: 1px solid #e0e8f0; }
+.zero-modal dd { margin: 0; overflow-wrap: anywhere; }
+.zero-modal pre { overflow: auto; background: #f3f7fb; padding: 12px; max-height: 320px; }
+.audit-tabs { display: flex; gap: 12px; margin: 16px 0; }
+@media (max-width: 700px) { .zero-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stm-zero-audit { padding: 14px; } }

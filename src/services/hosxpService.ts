@@ -1019,6 +1019,7 @@ export interface ReconciliationSummary {
   total_inv: number;
   rep_issue: number;
   stm_zero: number;
+  stm_unknown?: number;
   overpaid: number;
   underpaid: number;
 }

@@ -2538,12 +2538,12 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     total_inv: number;
     rep_issue: number;
     stm_zero: number;
+    stm_unknown: number;
     overpaid: number;
     underpaid: number;
   };
 }> => {
   await ensureRepstmTables();
-  await repairLegacyStatementAmounts();
   const today = new Date().toISOString().slice(0, 10);
   const startDate = String(params.startDate || today).slice(0, 10);
   const endDate = String(params.endDate || startDate).slice(0, 10);
@@ -2569,7 +2569,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     const emptySummary = {
       total_visits: 0, matched: 0, completed_inv: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
       no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_stm_paid: 0, total_inv: 0,
-      rep_issue: 0, stm_zero: 0, overpaid: 0, underpaid: 0,
+      rep_issue: 0, stm_zero: 0, stm_unknown: 0, overpaid: 0, underpaid: 0,
     };
     return { data: [], total: 0, summary: emptySummary, group_summary: [] };
   }
@@ -2588,13 +2588,13 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     const emptySummary = {
       total_visits: 0, matched: 0, completed_inv: 0, mismatched: 0, pending_rep: 0, pending_stm: 0,
       no_data: 0, total_claimable: 0, total_rep: 0, total_stm: 0, total_stm_paid: 0, total_inv: 0,
-      rep_issue: 0, stm_zero: 0, overpaid: 0, underpaid: 0,
+      rep_issue: 0, stm_zero: 0, stm_unknown: 0, overpaid: 0, underpaid: 0,
     };
     return { data: [], total: 0, summary: emptySummary, group_summary: [] };
   }
 
   const toNum = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-  const toNumNull = (v: unknown): number | null => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+  const toNumNull = (v: unknown): number | null => { if (v == null || v === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
 
   const vns = Array.from(new Set(baseRows.map(r => String(r.vn || '').trim()).filter(Boolean)));
   const ans = Array.from(new Set(baseRows.map(r => String(r.an || '').trim()).filter(Boolean)));
@@ -2743,7 +2743,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
            COALESCE(s.tran_id, '') AS tran_id,
            s.data_type,
            SUM(COALESCE(s.amount, 0)) AS total_amount,
-           SUM(COALESCE(s.paid_amount, 0)) AS total_paid_amount,
+           CASE WHEN COUNT(*) = COUNT(s.paid_amount) THEN SUM(s.paid_amount) ELSE NULL END AS total_paid_amount,
            SUM(CASE WHEN s.data_type = 'INV' THEN COALESCE(s.paid_amount, s.amount, s.invoice_amount, 0) ELSE 0 END) AS total_net_received,
            SUM(COALESCE(s.invoice_amount, 0)) AS total_invoice_amount,
            GROUP_CONCAT(DISTINCT NULLIF(TRIM(COALESCE(s.statement_no, '')), '') ORDER BY s.statement_no SEPARATOR ', ') AS statement_no,
@@ -2753,6 +2753,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
          FROM repstm_statement_data s
          LEFT JOIN repstm_import_batch b ON b.id = s.batch_id
          WHERE s.data_type IN ('STM', 'INV')
+           AND NOT EXISTS (SELECT 1 FROM repstm_import_batch replacement WHERE replacement.replaces_batch_id = b.id)
            AND (${stmClauses.join(' OR ')})
          GROUP BY COALESCE(NULLIF(TRIM(s.matched_visit_code), ''), NULLIF(TRIM(s.vn), ''), NULLIF(TRIM(s.an), ''), ''), COALESCE(s.tran_id, ''), s.data_type`,
         stmParams
@@ -2776,7 +2777,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
           if (existing) {
             stmMap.set(vc, {
               stm_amount: (existing.stm_amount ?? 0) + (next.stm_amount ?? 0),
-              stm_paid_amount: (existing.stm_paid_amount ?? 0) + (next.stm_paid_amount ?? 0),
+              stm_paid_amount: existing.stm_paid_amount == null || next.stm_paid_amount == null ? null : existing.stm_paid_amount + next.stm_paid_amount,
               statement_no: [existing.statement_no, next.statement_no].filter(Boolean).join(', '),
               imported_at: latestTrackingDateTime(existing.imported_at, next.imported_at),
               errorcode: [existing.errorcode, next.errorcode].filter(Boolean).join(', '),
@@ -2806,8 +2807,6 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
         }
       });
     }
-  } catch (err) {
-    console.error('Error fetching REP/STM/INV for reconciliation:', err);
   } finally {
     repConnection.release();
   }
@@ -2955,6 +2954,7 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     total_inv: Math.round(filtered.reduce((s, r) => s + (r.inv_amount ?? 0), 0) * 100) / 100,
     rep_issue: filtered.filter(r => Boolean(r.rep_errorcode || r.rep_verifycode)).length,
     stm_zero: filtered.filter(r => r.stm_paid_amount != null && Math.abs(r.stm_paid_amount) < 0.01).length,
+    stm_unknown: filtered.filter(r => r.has_stm && r.stm_paid_amount == null).length,
     overpaid: filtered.filter(r => r.diff_stm_paid != null && r.diff_stm_paid > 0.01).length,
     underpaid: filtered.filter(r => r.diff_stm_paid != null && r.diff_stm_paid < -0.01).length,
   };

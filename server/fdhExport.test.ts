@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { isWaitingOfcApprove } from '../src/utils/ofcApproveCode.js';
 import {
   getFdhLayouts,
   projectFdhData,
@@ -52,6 +53,22 @@ const validIpdData = (): FdhExportData => ({
   IDX: [{ AN: 'AN001', DIAG: 'J189', DXTYPE: '1', DRDX: 'DOC1' }],
   CHT: [{ HN: '0002', AN: 'AN001', DATE: '20260803', TOTAL: 1000, PAID: 0, PTTYPE: '37', PERSON_ID: '1234567890123', SEQ: 'VN2', INVOICE_NO: 'IPD-INV1' }],
   CHA: [{ HN: '0002', AN: 'AN001', DATE: '20260803', CHRGITEM: '01', AMOUNT: 1000, PERSON_ID: '1234567890123', SEQ: 'VN2' }],
+});
+
+test('OFC export queue uses approval codes rather than a generic ready flag', () => {
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'OFC', approve_code: '' }), true);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'LGO', approve_code: '034843' }), false);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'A1', authen_code: 'EP123' }), true);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'LOCAL', fund: 'เบิกจ่ายตรงข้าราชการ', approve_code: '' }), true);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'UCS', authen_code: 'PP123' }), false);
+});
+
+test('raw OFC right metadata prevents FWF profile from bypassing approval and is never serialized', () => {
+  const data = validFwfData();
+  data.INS[0]._requiresApproveCode = true;
+  data.INS[0].PERMITNO = '';
+  assert.equal(validateFdhData(data, 'fwf-migrants', '11101').errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true);
+  assert.equal('_requiresApproveCode' in projectFdhData(data, 'fwf-migrants').INS[0], false);
 });
 
 test('FWF Migrants INS layout uses HCODE and current ADP/DRU fields', () => {
@@ -126,16 +143,32 @@ test('PERMITNO is conditional by fund and remains required for UCS', () => {
   assert.equal(result.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), true);
 });
 
-test('PERMITNO is not required for OFC and LGO rights', () => {
+test('OFC and LGO require an approval code separately from NHSO PERMITNO checks', () => {
   const dataOfc = validFwfData();
   dataOfc.INS[0] = { ...dataOfc.INS[0], INSCL: 'OFC', DATEIN: '20260720', PERMITNO: '' };
   const resultOfc = validateFdhData(projectFdhData(dataOfc, 'standard'), 'standard', '11101');
   assert.equal(resultOfc.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
+  assert.equal(resultOfc.errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true);
 
   const dataLgo = validFwfData();
   dataLgo.INS[0] = { ...dataLgo.INS[0], INSCL: 'LGO', DATEIN: '20260720', PERMITNO: '' };
   const resultLgo = validateFdhData(projectFdhData(dataLgo, 'standard'), 'standard', '11101');
   assert.equal(resultLgo.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
+  assert.equal(resultLgo.errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true);
+});
+
+test('OFC approval gate rejects NHSO and placeholder codes and preserves leading zeroes', () => {
+  for (const permit of ['', ' ', 'EP123', 'PP123', '000000', '-']) {
+    const data = validIpdData();
+    data.INS[0].INSCL = 'LGO';
+    data.INS[0].PERMITNO = permit;
+    assert.equal(validateFdhData(data, 'standard', '11101').errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true, permit);
+  }
+  const approved = validIpdData();
+  approved.INS[0].INSCL = 'OFC';
+  approved.INS[0].PERMITNO = '034843';
+  assert.equal(validateFdhData(approved, 'standard', '11101').valid, true);
+  assert.equal(projectFdhData(approved, 'standard').INS[0].PERMITNO, '034843');
 });
 
 test('preflight rejects an AER row that is not refer, accident or emergency', () => {

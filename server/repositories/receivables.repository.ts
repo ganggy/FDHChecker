@@ -25,6 +25,7 @@ import { resolveStatementVisitKeys } from '../repstmVisitKeys.js';
 import { mergeFdhClaimDetails } from '../fdhClaimDetailMerge.js';
 import { activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection } from '../hospitalDatabase.js';
 import { isKidneyStmFileName } from '../../src/utils/repstmImportClassification.js';
+import { pickImportColumn } from '../utils/importColumnLookup.js';
 
 
 const normalizeCitizenId = (value: string): string => {
@@ -79,25 +80,7 @@ const normalizeLookupKey = (value: string) =>
     .replace(/[._\-\\/()[\]{}:%]/g, '');
 
 const pickRowValueAdvanced = (row: Record<string, unknown>, candidates: string[]) => {
-  const entries = Object.entries(row).map(([key, value]) => ({
-    key,
-    normalizedKey: normalizeLookupKey(key),
-    value: normalizeImportCellValue(value),
-  }));
-
-  for (const candidate of candidates) {
-    const normalizedCandidate = normalizeLookupKey(candidate);
-    const exact = entries.find((entry) => entry.normalizedKey === normalizedCandidate);
-    if (exact?.value) return exact.value;
-  }
-
-  for (const candidate of candidates) {
-    const normalizedCandidate = normalizeLookupKey(candidate);
-    const fuzzy = entries.find((entry) => entry.normalizedKey.includes(normalizedCandidate));
-    if (fuzzy?.value) return fuzzy.value;
-  }
-
-  return '';
+  return pickImportColumn(row, candidates);
 };
 
 type RepstmDataType = 'REP' | 'STM' | 'INV';

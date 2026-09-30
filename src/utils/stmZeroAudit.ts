@@ -3,6 +3,7 @@ export interface StmZeroRow {
   id: string; batch_id: number; source_filename: string; sheet_name: string;
   row_no: number | null; statement_no: string; tran_id: string;
   hn: string; vn: string; an: string; patient_name: string; service_date: string;
+  encounter_type?: 'OP' | 'IP' | 'UNKNOWN';
   maininscl: string; errorcode: string; verifycode: string;
   amount: number | null; paid_amount: number | null; raw_data: Record<string, unknown>;
   matched: boolean; has_payment: boolean; payment_uncertain?: boolean; action: ZeroAction; reason: string;
@@ -33,7 +34,7 @@ export const originalPaidAmount = (raw: Record<string, unknown>): number | null 
 export const resolveUniqueRepVisit = (hn: string, tranId: string, records: Array<Record<string, unknown>>): { vn: string; an: string } | null => {
   if (!hn || !tranId) return null;
   const keys = [...new Set(records.filter(p => String(p.tran_id ?? '') === tranId && String(p.hn ?? '').trim() === hn)
-    .map(p => String(p.an ?? '').trim() ? `an:${String(p.an).trim()}` : String(p.vn ?? '').trim() ? `vn:${String(p.vn).trim()}` : '').filter(Boolean))];
+    .map(p => String(p.an ?? '').trim() && String(p.an).trim() !== tranId ? `an:${String(p.an).trim()}` : String(p.vn ?? '').trim() && String(p.vn).trim() !== tranId ? `vn:${String(p.vn).trim()}` : '').filter(Boolean))];
   if (keys.length !== 1) return null;
   return keys[0].startsWith('an:') ? { an: keys[0].slice(3), vn: '' } : { vn: keys[0].slice(3), an: '' };
 };

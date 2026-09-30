@@ -6,6 +6,29 @@ import { hospitalPool } from './hospitalDatabase.js';
 import { getEligibleVisits, getSpecificFundData } from './db.js';
 import { REPORT_FUNDS, getFundMissingConditions } from './fundErrorReport.js';
 import { mergeFdhClaimDetails } from './fdhClaimDetailMerge.js';
+import { findStatementEncounter, statementEncounterIdentity } from './stmEncounterIdentity.js';
+
+test('STM OP encounter recovery executes against HIS dates and times without guessing admissions', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE ovst (vn text PRIMARY KEY, hn text, vstdate date, vsttime time);
+      CREATE TABLE ipt (an text PRIMARY KEY, hn text, regdate date, dchdate date);
+      INSERT INTO ovst VALUES ('DEMO-V', 'DEMO-H', '2026-08-07', '10:15:30'),
+        ('OTHER-V', 'DEMO-H', '2026-08-07', '12:00:00');
+      INSERT INTO ipt VALUES ('DEMO-A', 'DEMO-H', '2026-08-07', '2026-08-07');`);
+    const connection = { async query(sql: string, values: string[]) {
+      const query = compilePostgresQuery(sql, values);
+      return [(await db.query(query.text, query.values)).rows];
+    } };
+    const identity = statementEncounterIdentity({ source_filename: 'STM_DEMO_OPUCS202608.xls', an: 'DEMO-T',
+      raw_data: { TRAN_ID: 'DEMO-T', HN: 'DEMO-H', วันเข้ารักษา: '07/08/2026 10:15:00' } });
+    assert.deepEqual(await findStatementEncounter(connection, identity), { kind: 'OP', visit_code: 'DEMO-V', hn: 'DEMO-H' });
+    assert.equal(await findStatementEncounter(connection, { ...identity, serviceDatetime: '2026-08-07 00:00:00' }), null);
+    assert.deepEqual(await findStatementEncounter(connection, { ...identity, kind: 'IP' }), { kind: 'IP', visit_code: 'DEMO-A', hn: 'DEMO-H' });
+    await db.exec("INSERT INTO ovst VALUES ('DUP-V', 'DEMO-H', '2026-08-07', '10:15:45')");
+    assert.equal(await findStatementEncounter(connection, identity), null);
+  } finally { await db.close(); }
+});
 
 test('HOSxP read expressions execute against PostgreSQL and preserve codes and aliases', async () => {
   const db = new PGlite();

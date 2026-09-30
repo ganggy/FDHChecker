@@ -58,6 +58,26 @@ test('dialysis payment files are detected as STM and retain every visit row', ()
   assert.equal(parseFlexibleDateTime('02/09/2569'), '2026-09-02 00:00:00');
 });
 
+test('outpatient STM TRAN_ID is not imported as AN or classified as IP', async () => {
+  const inserted: unknown[][] = [];
+  const repConnection = { query: async (sql: string, values?: unknown[]) => {
+    if (sql.includes('INSERT INTO repstm_statement_data')) inserted.push(values || []);
+    return [[]];
+  } } as unknown as HospitalConnection;
+  const hosConnection = { query: async (sql: string) => {
+    assert.ok(!sql.includes('FROM ipt'));
+    return [sql.includes('FROM ovst') ? [{ vn: 'DEMO-V' }] : []];
+  } } as unknown as HospitalConnection;
+  await importStatementDataRows(repConnection, hosConnection, 1, { dataType: 'STM',
+    sourceFilename: 'STM_DEMO_OPUCS202608_02.xls', rows: [{ TRAN_ID: 'DEMO-T', HN: 'DEMO-H',
+      วันเข้ารักษา: '07/08/2026 10:15:00', MAININSCL: 'UCS', PROJCODE: 'WALKIN', เรียกเก็บ: '400', พึงรับ: '0' }] });
+  assert.equal(inserted.length, 1);
+  assert.equal(inserted[0][4], 'DEMO-T');
+  assert.equal(inserted[0][7], 'DEMO-V');
+  assert.equal(inserted[0][8], null);
+  assert.equal(inserted[0][12], 'OP');
+});
+
 test('dialysis STM import maps claimed and paid amounts and keeps separate sessions', async () => {
   const inserted: unknown[][] = [];
   const repConnection = {

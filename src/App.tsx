@@ -41,6 +41,7 @@ const DentalAuditPage = lazyNamed(() => import('./pages/DentalAuditPage'), 'Dent
 const KtbApproveCodeImportPage = lazyNamed(() => import('./pages/KtbApproveCodeImportPage'), 'KtbApproveCodeImportPage');
 const VisitReconciliationPage = lazy(() => import('./pages/VisitReconciliationPage'));
 const StmZeroAuditPage = lazy(() => import('./pages/StmZeroAuditPage'));
+const RepSheetZeroAuditPage = lazy(() => import('./pages/RepSheetZeroAuditPage'));
 const RepDailySummaryPage = lazy(() => import('./pages/RepDailySummaryPage'));
 const PpfsBenchmarkPage = lazy(() => import('./pages/PpfsBenchmarkPage'));
 const PpfsVisitMatchPage = lazy(() => import('./pages/PpfsVisitMatchPage'));
@@ -116,7 +117,7 @@ function App() {
     ? [...primaryNavItems, ...toolNavItems].map((item) => item.page).concat(adminOnlyPages)
     : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page)));
     // Same read workspace as the former reconciliation tab.
-    if (pages.has('reconciliation')) pages.add('stmZeroAudit');
+    if (pages.has('reconciliation')) { pages.add('stmZeroAudit'); pages.add('repSheetZeroAudit'); }
     return pages;
   }, [authSession, isAdmin]);
   const hasAnyAllowedPage = allowedPageSet.size > 0;
@@ -527,6 +528,7 @@ function App() {
         {currentPage === 'ktbApproveCode' && <KtbApproveCodeImportPage />}
         {currentPage === 'reconciliation' && <VisitReconciliationPage />}
         {currentPage === 'stmZeroAudit' && <StmZeroAuditPage />}
+        {currentPage === 'repSheetZeroAudit' && <RepSheetZeroAuditPage />}
         {currentPage === 'repDailySummary' && <RepDailySummaryPage />}
         {currentPage === 'ppfsBenchmark' && <PpfsBenchmarkPage />}
         {currentPage === 'ppfsVisitMatch' && <PpfsVisitMatchPage />}

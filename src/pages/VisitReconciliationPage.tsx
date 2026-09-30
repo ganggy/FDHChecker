@@ -277,7 +277,7 @@ export const VisitReconciliationPage = () => {
         </div>
       </section>
 
-      <div style={{ marginBottom: 18 }}><button className="rec-btn rec-btn-primary" onClick={() => navigateFromDashboard('stmZeroAudit', {})}>🔎 เปิดหน้าตรวจ STM 0 / Sheet 0</button></div>
+      <div style={{ marginBottom: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}><button className="rec-btn rec-btn-primary" onClick={() => navigateFromDashboard('stmZeroAudit', {})}>🔎 เปิดหน้าตรวจ STM 0</button><button className="rec-btn" onClick={() => navigateFromDashboard('repSheetZeroAudit', {})}>📄 ตรวจ REP Data Sheet 0</button></div>
       {/* Filter Card */}
       <section className="reconciliation-filter-card">
         <div className="reconciliation-filter-grid">

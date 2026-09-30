@@ -59,7 +59,7 @@ export const DEFAULT_MENU_PAGES = [
   'sssExport', 'sssRepStm',
   'receivable', 'insuranceOverview', 'accountingRevenueBudget', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
-  'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'revenueOpportunity', 'reconciliation', 'stmZeroAudit',
+  'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'revenueOpportunity', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit',
   'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking', 'ucOutsideCup'
 ];
 

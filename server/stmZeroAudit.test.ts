@@ -2,8 +2,53 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pickImportColumn } from './utils/importColumnLookup.js';
 import { statementEncounterIdentity, findStatementEncounter, uniqueHisEncounter } from './stmEncounterIdentity.js';
+import { repSheetZeroReasons } from '../src/utils/repSheetZeroAudit.js';
+import { isDataSheetZero, includeAuditSupplement, detectTypeFromSheetName } from '../src/utils/repstmImportClassification.js';
+import { readZeroAuditSourceRows } from './repositories/stmZero.repository.js';
+import { PGlite } from '@electric-sql/pglite';
+import { compilePostgresQuery } from './postgresSql.js';
+import type { PoolConnection } from 'mysql2/promise';
 import { isExplicitZero, originalPaidAmount, classifyZeroAction, canPrepareZeroResend, resolveUniqueRepVisit, type StmZeroRow } from '../src/utils/stmZeroAudit.js';
 const row = { matched: true, has_payment: false, paid_amount: 0, action: 'review', errorcode: '', verifycode: '', maininscl: '', raw_data: {} } as StmZeroRow;
+test('REP Data Sheet 0 is always archived as a supplement without including unrelated sheets', () => {
+  for (const name of ['Data Sheet 0', 'data_sheet_0', ' Data sheet 0 ', 'Sheet0']) {
+    assert.equal(isDataSheetZero(name), true);
+    assert.equal(detectTypeFromSheetName(name), 'REP');
+    assert.equal(includeAuditSupplement(name, 'REP', false), true);
+  }
+  assert.equal(includeAuditSupplement('Data Drug', 'REP', false), false);
+  assert.equal(includeAuditSupplement('Data Sheet 0', 'STM', false), false);
+  assert.equal(isDataSheetZero('Data Sheet 01'), false);
+});
+test('REP reasons preserve original text and distinguish known and unknown codes', () => {
+  const result = repSheetZeroReasons({ ...row, errorcode: 'C101, D999', raw_data: { เหตุผลที่ไม่ชดเชย: 'ข้อความจากไฟล์ตัวอย่าง', patient_name: 'ห้ามใช้เป็นเหตุผล' } }, { '101': { type: 'Corrective', description: 'คำอธิบายตัวอย่าง', guide: 'แนวทางตัวอย่าง' } });
+  assert.deepEqual(result.original, [{ label: 'เหตุผลที่ไม่ชดเชย', text: 'ข้อความจากไฟล์ตัวอย่าง' }]);
+  assert.equal(result.explanations[0].description, 'คำอธิบายตัวอย่าง');
+  assert.equal(result.explanations[1].known, false);
+  assert.equal(repSheetZeroReasons({ ...row, raw_data: {} }, {}).original.length, 0);
+});
+test('REP Sheet 0 query reads only active REP sheets, including absent and positive amounts', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`CREATE TABLE repstm_import_batch (id int PRIMARY KEY, data_type text, source_filename text, sheet_name text, created_at timestamp, replaces_batch_id int);
+      CREATE TABLE repstm_import_row (id int PRIMARY KEY, batch_id int, data_type text, paid_amount numeric);
+      INSERT INTO repstm_import_batch VALUES
+        (1, 'REP', 'rep-demo.xls', 'Data Sheet 0', '2026-09-20', NULL),
+        (2, 'STM', 'stm-demo.xls', 'Data Sheet 0', '2026-09-20', NULL),
+        (3, 'REP', 'rep-demo.xls', 'Data Drug', '2026-09-20', NULL),
+        (4, 'REP', 'rep-old.xls', 'Data Sheet 0', '2026-09-20', NULL),
+        (5, 'REP', 'rep-new.xls', 'Data Sheet 0', '2026-09-20', 4),
+        (6, 'REP', 'rep-outside.xls', 'Data Sheet 0', '2026-08-20', NULL);
+      INSERT INTO repstm_import_row VALUES (1,1,'REP',NULL), (2,1,'REP',10), (3,2,'STM',0), (4,3,'REP',NULL), (5,4,'REP',NULL), (6,5,'REP',0), (7,6,'REP',0);`);
+    const connection = { async query(sql: string, values: unknown[]) {
+      const query = compilePostgresQuery(sql, values);
+      return [(await db.query(query.text, query.values)).rows];
+    } } as unknown as Pick<PoolConnection, 'query'>;
+    const rows = await readZeroAuditSourceRows(connection, '2026-09-01', '2026-09-30', 'rep-sheet-zero');
+    assert.deepEqual(rows.map(r => r.id), [6, 2, 1]);
+    assert.ok(rows.every(r => r.audit_id.startsWith('raw-')));
+  } finally { await db.close(); }
+});
 test('blank and missing payments are not zero', () => {
   for (const value of [null, undefined, '', ' ', 'invalid', 0.01]) assert.equal(isExplicitZero(value), false);
   assert.equal(isExplicitZero('0.00'), true);

@@ -35,6 +35,7 @@ as the current project state.
 | Remaining work | [Backlog](../BACKLOG.md) |
 | Current program audit | [Audit 29 Sep 2026](PROGRAM_AUDIT_2026-09-29.md) |
 | Audit / STM 0 / Sheet 0 and resend review | [คู่มือตรวจ STM 0](STM_ZERO_AUDIT.md) |
+| REP Data Sheet 0 and HIS matching | [คู่มือตรวจ REP Data Sheet 0](REP_DATA_SHEET_ZERO.md) |
 | Production deployment | [Deployment guide](../deploy/README.md) |
 | Local AI and Ollama | [Local AI setup](../LOCAL_AI_SETUP_TH.md) |
 | User workflows | [Manual by role](USER_MANUAL_BY_ROLE.md) |

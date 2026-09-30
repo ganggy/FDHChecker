@@ -1,29 +1,35 @@
-import type { RowDataPacket } from 'mysql2/promise';
+import type { RowDataPacket, PoolConnection } from 'mysql2/promise';
 import { getRepstmConnection, getUTFConnection } from '../db/connection.js';
 import { readVisitItems, readVisitClinical } from '../visitDetails.js';
 import { statementEncounterIdentity, findStatementEncounter, type HisEncounter } from '../stmEncounterIdentity.js';
+import { pickImportColumn } from '../utils/importColumnLookup.js';
 import { classifyZeroAction, isExplicitZero, originalPaidAmount, parseOriginalRow, resolveUniqueRepVisit, type StmZeroRow } from '../../src/utils/stmZeroAudit.js';
 
 const active = `NOT EXISTS (SELECT 1 FROM repstm_import_batch replacement WHERE replacement.replaces_batch_id = b.id)`;
-const sheetZero = `LOWER(REPLACE(REPLACE(COALESCE(b.sheet_name, ''), ' ', ''), '_', '')) IN ('sheet0', 'datasheet0', '0')`;
+const sheetZero = `LOWER(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(b.sheet_name, ''), ' ', ''), '_', ''), '-', ''), '.', '')) IN ('sheet0', 'datasheet0', '0')`;
 const text = (v: unknown) => v == null ? '' : String(v);
 const amount = (v: unknown) => v == null || v === '' ? null : Number(v);
-export async function readStmZeroRows(startDate: string, endDate: string): Promise<StmZeroRow[]> {
-  const connection = await getRepstmConnection();
-  try {
+export type ZeroAuditSource = 'stm' | 'rep-sheet-zero';
+const repSheetZeroPredicate = `r.data_type = 'REP' AND b.data_type = 'REP' AND ${sheetZero}`;
+export async function readZeroAuditSourceRows(connection: Pick<PoolConnection, 'query'>, startDate: string, endDate: string, source: ZeroAuditSource) {
     // Imported period deliberately includes rows without service dates and visits not found in HIS.
-    const [normalized] = await connection.query<RowDataPacket[]>(`SELECT s.*, b.source_filename, b.sheet_name,
+    const [normalized] = source === 'rep-sheet-zero' ? [[] as RowDataPacket[]] : await connection.query<RowDataPacket[]>(`SELECT s.*, b.source_filename, b.sheet_name,
       DATE_FORMAT(s.service_datetime, '%Y-%m-%d') AS service_date
       FROM repstm_statement_data s JOIN repstm_import_batch b ON b.id = s.batch_id
       WHERE s.data_type = 'STM' AND (s.paid_amount = 0 OR s.paid_amount IS NULL) AND ${active}
-      AND b.created_at >= ? AND b.created_at < DATE_ADD(?, INTERVAL 1 DAY) ORDER BY s.id DESC LIMIT 20001`, [startDate, endDate]);
+      AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY) ORDER BY s.id DESC LIMIT 20001`, [startDate, endDate]);
     const [archive] = await connection.query<RowDataPacket[]>(`SELECT r.*, b.source_filename, b.sheet_name
       FROM repstm_import_row r JOIN repstm_import_batch b ON b.id = r.batch_id
-      WHERE ${sheetZero} AND ${active} AND b.created_at >= ? AND b.created_at < DATE_ADD(?, INTERVAL 1 DAY)
-      AND NOT EXISTS (SELECT 1 FROM repstm_statement_data s WHERE s.batch_id = b.id)
+      WHERE ${source === 'rep-sheet-zero' ? repSheetZeroPredicate : sheetZero} AND ${active} AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY)
+      ${source === 'rep-sheet-zero' ? '' : 'AND NOT EXISTS (SELECT 1 FROM repstm_statement_data s WHERE s.batch_id = b.id)'}
       ORDER BY r.id DESC LIMIT 20001`, [startDate, endDate]);
     if (normalized.length + archive.length > 20000) throw new Error('เกิน 20,000 แถว กรุณาลดช่วงวันที่นำเข้า');
-    const sourceRows: Array<Record<string, unknown> & { audit_id: string }> = [...normalized.map(r => ({ ...r, audit_id: `stm-${r.id}` })), ...archive.map(r => ({ ...r, audit_id: `raw-${r.id}` }))];
+    return [...normalized.map(r => ({ ...r, audit_id: `stm-${r.id}` })), ...archive.map(r => ({ ...r, audit_id: `raw-${r.id}` }))] as Array<Record<string, unknown> & { audit_id: string }>;
+}
+export async function readStmZeroRows(startDate: string, endDate: string, source: ZeroAuditSource = 'stm'): Promise<StmZeroRow[]> {
+  const connection = await getRepstmConnection();
+  try {
+    const sourceRows = await readZeroAuditSourceRows(connection, startDate, endDate, source);
     const identities = new Map(sourceRows.map(r => [r.audit_id, statementEncounterIdentity(r)]));
     const rows = sourceRows
       .map(r => {
@@ -33,15 +39,15 @@ export async function readStmZeroRows(startDate: string, endDate: string): Promi
         const pick = (...keys: string[]) => text(Object.entries(raw).find(([key]) => keys.includes(key.trim().toLowerCase()))?.[1]);
         return {
           id: r.audit_id, batch_id: Number(r.batch_id), source_filename: text(r.source_filename), sheet_name: text(r.sheet_name),
-          row_no: r.row_no == null ? null : Number(r.row_no), statement_no: text(r.statement_no) || pick('stm', 'stm no.', 'statement_no'),
+          row_no: r.row_no == null ? null : Number(r.row_no), statement_no: text(r.statement_no) || pickImportColumn(raw, ['REP', 'REP No.', 'REP_NO', 'stm', 'stm no.', 'statement_no'], true),
           tran_id: identity.tranId, hn: identity.hn, vn: identity.vn, an: identity.an, encounter_type: identity.kind,
           patient_name: text(r.patient_name) || pick('ชื่อ-สกุล', 'ชื่อ - สกุล'), service_date: identity.serviceDatetime?.slice(0, 10) || text(r.service_date),
           maininscl: text(r.maininscl) || pick('maininscl', 'fund', 'fund_code'),
-          errorcode: text(r.errorcode) || pick('errorcode', 'error code'), verifycode: text(r.verifycode) || pick('verifycode', 'verify code'),
-          amount: amount(r.amount), paid_amount: paid, raw_data: raw, matched: false, has_payment: false, payment_uncertain: false,
+          errorcode: text(r.errorcode) || pickImportColumn(raw, ['errorcode', 'error code', 'error_code', 'รหัสข้อผิดพลาด', 'รหัสไม่ผ่าน', 'รหัสปฏิเสธ'], true), verifycode: text(r.verifycode) || pickImportColumn(raw, ['verifycode', 'verify code', 'verify_code'], true),
+          amount: amount(r.amount) ?? amount(pickImportColumn(raw, ['amount', 'เรียกเก็บ', 'ยอดเรียกเก็บ', 'จำนวนเงินที่ขอเบิก'], true) || null), paid_amount: paid, raw_data: raw, matched: false, has_payment: false, payment_uncertain: false,
           action: 'review' as const, reason: '',
         };
-      }).filter(r => r.paid_amount == null || isExplicitZero(r.paid_amount));
+      }).filter(r => source === 'rep-sheet-zero' || r.paid_amount == null || isExplicitZero(r.paid_amount));
     const hospital = await getUTFConnection();
     try {
       const recoveryCache = new Map<string, HisEncounter | null>();

@@ -1,5 +1,11 @@
 export type RepstmImportType = 'REP' | 'STM' | 'INV';
 
+export const isDataSheetZero = (sheetName: string) =>
+  ['datasheet0', 'sheet0', '0'].includes(sheetName.normalize('NFKC').toLowerCase().replace(/[\s_.-]/g, ''));
+
+export const includeAuditSupplement = (sheetName: string, type: RepstmImportType | null, includeSubfiles: boolean) =>
+  includeSubfiles || (type === 'REP' && isDataSheetZero(sheetName));
+
 export const isKidneyStmFileName = (fileName: string) =>
   /^(?:dckd\d*|lgo-hd\d*)[_-]/i.test(fileName.trim().split(' [')[0]);
 
@@ -12,6 +18,7 @@ const SHEET_TYPE_MAP: Record<string, RepstmImportType> = {
 };
 
 export const detectTypeFromSheetName = (sheetName: string): RepstmImportType | null => {
+  if (isDataSheetZero(sheetName)) return 'REP';
   const normalized = sheetName.toLowerCase().replace(/[^a-z]/g, '');
   for (const [key, type] of Object.entries(SHEET_TYPE_MAP)) {
     if (normalized === key || normalized.startsWith(key)) return type;

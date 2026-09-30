@@ -13,6 +13,8 @@ import {
   detectRepstmImportType,
   detectTypeFromFileName,
   detectTypeFromSheetName,
+  isDataSheetZero,
+  includeAuditSupplement,
   type RepstmImportType,
 } from '../utils/repstmImportClassification';
 import { RepStmImportDetail } from '../components/RepStmImportDetail';
@@ -194,6 +196,7 @@ const readWorkbook = async (
   }
 
   const isSupplementarySheet = (sheetName: string, hintType: ImportType | null) => {
+    if (isDataSheetZero(sheetName)) return true;
     const compact = sheetName.toLowerCase().replace(/\s+/g, ' ').trim();
     if (/^data\b/.test(compact)) return true;
     if (hintType === 'STM' && (compact.includes('อุทธรณ์') || compact.includes('ผู้พิการ d1'))) return true;
@@ -212,9 +215,7 @@ const readWorkbook = async (
     return false;
   });
   if (primaryResults.length > 0) {
-    return includeSubfiles
-      ? [...primaryResults, ...classifiedResults.filter((item) => item.isSubfile)]
-      : primaryResults;
+    return [...primaryResults, ...classifiedResults.filter(item => item.isSubfile && includeAuditSupplement(item.sheetName, item.hintType, includeSubfiles))];
   }
 
   // Fallback: try first sheet without a hint if nothing matched
@@ -226,7 +227,7 @@ const readWorkbook = async (
     }
   }
 
-  return results;
+  return classifiedResults.length ? classifiedResults : results;
 };
 
 const readImportSource = async (
@@ -743,7 +744,8 @@ export const RepStmImportPage: React.FC = () => {
       const preflight = preflightByName.get(queueItem.file.name.toLowerCase());
       const expectedType = detectTypeFromFileName(queueItem.file.name);
       const preflightTypeMatches = !expectedType || !preflight?.dataType || preflight.dataType === expectedType;
-      if (preflight && preflightTypeMatches && ['exact', 'name_match', 'content_match'].includes(preflight.status)) {
+      // Read REP workbooks even when the primary sheet exists: an older import may lack Data Sheet 0.
+      if (expectedType !== 'REP' && preflight && preflightTypeMatches && ['exact', 'name_match', 'content_match'].includes(preflight.status)) {
         const reason = preflight.status === 'name_match'
           ? 'พบชื่อไฟล์นี้ในประวัติเดิม'
           : preflight.status === 'content_match'
@@ -1110,7 +1112,7 @@ export const RepStmImportPage: React.FC = () => {
               />
               <span>
                 <strong>รวม Sub file / ชีตข้อมูลประกอบ</strong>
-                <small>เช่น Data Drug, Data Instrument, Data sheet 0, ข้อมูลอุทธรณ์ และผู้พิการ D1 — เก็บเพื่อตรวจสอบ แต่ไม่นำยอดไปบวกซ้ำกับไฟล์หลัก</small>
+                <small>เช่น Data Drug, Data Instrument, ข้อมูลอุทธรณ์ และผู้พิการ D1 — Data Sheet 0 ใน REP จะเก็บอัตโนมัติ แม้ไม่เลือกช่องนี้ และไม่บวกยอดซ้ำกับไฟล์หลัก</small>
               </span>
             </label>
           </div>
@@ -1153,8 +1155,9 @@ export const RepStmImportPage: React.FC = () => {
               เปิดหน้ากระทบยอด visit
             </button>
             <button className="btn btn-secondary" onClick={() => navigateFromDashboard('stmZeroAudit', {})} disabled={importing}>
-              🔎 ตรวจ STM 0 / Sheet 0
+              🔎 ตรวจ STM 0
             </button>
+            <button className="btn btn-secondary" onClick={() => navigateFromDashboard('repSheetZeroAudit', {})} disabled={importing}>📄 ตรวจ REP Data Sheet 0</button>
           </div>
         </div>
       </div>

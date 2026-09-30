@@ -907,6 +907,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(annual-checkup|reports\/checkup)(\/|$)/, pages: ['annualCheckupReport', 'hospitalReports'] },
   { pattern: /^\/ktb-approve(\/|$)/, pages: ['ktbApproveCode'] },
   { pattern: /^\/reconciliation\/stm-zero$/, pages: ['stmZeroAudit', 'reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/reconciliation\/rep-sheet-zero$/, pages: ['repSheetZeroAudit', 'reconciliation'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/receivables\/(reconciliation|filter-options)(\/|$)/, pages: ['reconciliation', 'receivable', 'ucOutsideCup'] },
   { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
@@ -3652,15 +3653,17 @@ app.get('/api/fdh/claim-detail/rows', async (req, res) => {
   }
 });
 
-app.get('/api/reconciliation/stm-zero', async (req, res) => {
+app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], async (req, res) => {
+  const repSheetZero = req.path.endsWith('/rep-sheet-zero');
   const startDate = String(req.query.startDate || '');
   const endDate = String(req.query.endDate || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate) || startDate > endDate) {
     return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่นำเข้าให้ถูกต้อง' });
   }
   try {
-    const rows = await readStmZeroRows(startDate, endDate);
+    const rows = await readStmZeroRows(startDate, endDate, repSheetZero ? 'rep-sheet-zero' : 'stm');
     if (req.query.checkIds) {
+      if (repSheetZero) return res.status(400).json({ success: false, error: 'Data Sheet 0 เป็นข้อมูล REP สำหรับตรวจสอบ ไม่ใช่การอนุมัติส่งซ้ำ' });
       const ids = String(req.query.checkIds).split(',').filter(Boolean);
       if (ids.length > 200) return res.status(400).json({ success: false, error: 'ตรวจได้ครั้งละไม่เกิน 200 แถว' });
       return res.json({ success: true, data: rows.filter(r => ids.includes(r.id) && canPrepareZeroResend(r)) });
@@ -3672,8 +3675,8 @@ app.get('/api/reconciliation/stm-zero', async (req, res) => {
     }
     const search = String(req.query.search || '').trim().toLowerCase();
     const filtered = rows.filter(r => (!req.query.action || r.action === req.query.action)
-      && (!search || [r.hn, r.vn, r.an, r.tran_id, r.errorcode, r.verifycode, r.source_filename, r.statement_no].some(v => v.toLowerCase().includes(search)))
-      && (req.query.match !== 'unmatched' || !r.matched));
+      && (!search || [r.hn, r.vn, r.an, r.tran_id, r.errorcode, r.verifycode, r.source_filename, r.statement_no, ...Object.values(r.raw_data).filter(v => typeof v === 'string') as string[]].some(v => v.toLowerCase().includes(search)))
+      && (req.query.match !== 'unmatched' || !r.matched) && (req.query.match !== 'matched' || r.matched));
     const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
     const pageSize = Math.min(200, Math.max(10, Math.floor(Number(req.query.pageSize) || 50)));
     const groups = Object.entries(ZERO_ACTION_LABELS).map(([action, label]) => ({ action, label, count: filtered.filter(r => r.action === action).length }));
@@ -3682,7 +3685,7 @@ app.get('/api/reconciliation/stm-zero', async (req, res) => {
         unknownPayment: filtered.filter(r => r.paid_amount == null).length,
         matched: filtered.filter(r => r.matched).length, unmatched: filtered.filter(r => !r.matched).length,
         paidElsewhere: filtered.filter(r => r.has_payment).length,
-        prepareCandidates: filtered.filter(canPrepareZeroResend).length,
+        prepareCandidates: repSheetZero ? 0 : filtered.filter(canPrepareZeroResend).length,
         requestedAmount: filtered.reduce((sum, r) => sum + (r.amount || 0), 0), groups },
       snapshot: new Date().toISOString(), page, pageSize });
   } catch (error) {

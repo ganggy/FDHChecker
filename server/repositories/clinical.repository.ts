@@ -935,7 +935,23 @@ export const getSpecificFundData = async (
             SELECT 1 FROM opitemrece oo
             JOIN drugitems di ON di.icode=oo.icode
             WHERE oo.vn=o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
-          ) THEN 1 ELSE 0 END as has_morphine
+          ) THEN 1 ELSE 0 END as has_morphine,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM ovstdiag prev_dx
+            JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
+            WHERE prev_o.hn = o.hn
+              AND prev_o.vn <> o.vn
+              AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
+          ) OR EXISTS (
+            SELECT 1 FROM z_fdh_palliative_item_delete_audit del WHERE del.vn = o.vn OR del.hn = o.hn
+          ) THEN 1 ELSE 0 END as has_prior_palliative,
+          (SELECT MAX(DATE_FORMAT(prev_o.vstdate, '%Y-%m-%d'))
+           FROM ovstdiag prev_dx
+           JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
+           WHERE prev_o.hn = o.hn
+             AND prev_o.vn <> o.vn
+             AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
+          ) as prior_palliative_date
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
@@ -947,7 +963,19 @@ export const getSpecificFundData = async (
           AND (
             REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
             OR EXISTS (SELECT 1 FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')}))
-            OR EXISTS (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%'))
+            OR (
+              EXISTS (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%'))
+              AND (
+                EXISTS (
+                  SELECT 1 FROM ovstdiag prev_dx
+                  JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
+                  WHERE prev_o.hn = o.hn AND prev_o.vn <> o.vn AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
+                )
+                OR EXISTS (
+                  SELECT 1 FROM z_fdh_palliative_item_delete_audit del WHERE del.vn = o.vn OR del.hn = o.hn
+                )
+              )
+            )
           )
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
@@ -3913,6 +3941,13 @@ export const getPalliativeMorphineRestorableVisits = async (
         v.pdx,
         o.doctor,
         GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ') as morphine_names,
+        (SELECT MAX(DATE_FORMAT(prev_o.vstdate, '%Y-%m-%d'))
+         FROM ovstdiag prev_dx
+         JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
+         WHERE prev_o.hn = o.hn
+           AND prev_o.vn <> o.vn
+           AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN ('Z515', 'Z718')
+        ) as prior_palliative_date,
         ${hasAuditTable ? 'del.id as delete_audit_id, del.deleted_diagnoses, del.created_at as deleted_at, del.deleted_by_username' : 'NULL as delete_audit_id, NULL as deleted_diagnoses, NULL as deleted_at, NULL as deleted_by_username'}
       FROM ovst o
       JOIN patient pt ON o.hn = pt.hn
@@ -3934,6 +3969,14 @@ export const getPalliativeMorphineRestorableVisits = async (
         ${dateFilter}
         AND NOT EXISTS (
           SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z515', 'Z718')
+        )
+        AND (
+          EXISTS (
+            SELECT 1 FROM ovstdiag prev_dx
+            JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
+            WHERE prev_o.hn = o.hn AND prev_o.vn <> o.vn AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN ('Z515', 'Z718')
+          )
+          ${hasAuditTable ? 'OR del.id IS NOT NULL' : ''}
         )
       GROUP BY o.vn
       ORDER BY o.vstdate DESC
@@ -3961,6 +4004,8 @@ export const getPalliativeMorphineRestorableVisits = async (
         pdx: String(r.pdx || ''),
         doctor: String(r.doctor || ''),
         morphine_names: String(r.morphine_names || ''),
+        prior_palliative_date: r.prior_palliative_date ? String(r.prior_palliative_date) : null,
+        has_prior_palliative: Boolean(r.prior_palliative_date || parsedDeletedDiags.length > 0),
         has_audit_backup: parsedDeletedDiags.length > 0,
         deleted_diagnoses: parsedDeletedDiags,
         deleted_at: r.deleted_at ? new Date(r.deleted_at).toISOString() : null,

@@ -3009,7 +3009,23 @@ export const getEligibleVisits = async (
         ) THEN 1 ELSE 0 END as has_morphine,
         CASE WHEN EXISTS (
           SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z515', 'Z718') LIMIT 1
-        ) THEN 1 ELSE 0 END as has_pal_diag
+        ) THEN 1 ELSE 0 END as has_pal_diag,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovstdiag prev_dx
+          JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
+          WHERE prev_o.hn = ovst.hn
+            AND prev_o.vn <> ovst.vn
+            AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN ('Z515', 'Z718')
+        ) OR EXISTS (
+          SELECT 1 FROM z_fdh_palliative_item_delete_audit del WHERE del.vn = ovst.vn OR del.hn = ovst.hn
+        ) THEN 1 ELSE 0 END as has_prior_palliative,
+        (SELECT MAX(DATE_FORMAT(prev_o.vstdate, '%Y-%m-%d'))
+         FROM ovstdiag prev_dx
+         JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
+         WHERE prev_o.hn = ovst.hn
+           AND prev_o.vn <> ovst.vn
+           AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN ('Z515', 'Z718')
+        ) as prior_palliative_date
 
       FROM ovst
       LEFT JOIN patient pt ON ovst.hn = pt.hn

@@ -566,15 +566,17 @@ export const evaluateBillingLogic = (item: any) => {
         }
 
         const hasMorphine = toBool(item?.has_morphine) || hasValue(item?.morphine_names);
+        const hasPriorPalliative = toBool(item?.has_prior_palliative) || hasValue(item?.prior_palliative_date);
         if (palliativeMatch || (hasMorphine && palliativeDiag)) {
             fundNotes.push({
                 label: hasMorphine ? '🕊️💊 Palliative (จ่ายยามอร์ฟีน)' : '🕊️ Palliative Care',
                 kind: 'matched',
                 group: 'palliative',
             });
-        } else if (hasMorphine && !palliativeDiag) {
-            addWarningFundNote(fundNotes, 'Palliative (มียามอร์ฟีน)', [' ขาด Diagnosis Z515/Z718'], 'palliative');
-        } else {
+        } else if (hasMorphine && !palliativeDiag && hasPriorPalliative) {
+            // เฉพาะเคสที่เคยมีประวัติ Palliative มาก่อน แต่คราวนี้ลืมลง Diag
+            addWarningFundNote(fundNotes, 'Palliative (มียามอร์ฟีน)', [' ลืมลง Diag Z515 (มีประวัติเดิม)'], 'palliative');
+        } else if (palliativeAdp || palliativeDiag) {
             const palliativeNearMissing = getNearFundMissingParts(palliativeAdp, ' ADP 30001/Cons01/Eva001', [
                 { met: palliativeDiag, label: ' Diagnosis Z515/Z718' },
             ], palliativeDiag);

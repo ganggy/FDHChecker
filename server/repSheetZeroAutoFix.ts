@@ -208,7 +208,7 @@ export async function detectRepSheetZeroFix(params: {
       }
     }
 
-    // 6. ตรวจสอบเคสจ่ายยากลุ่มมอร์ฟีนแต่ขาดรหัสวินิจฉัย Z51.5 (ADD_PALLIATIVE_MORPHINE_DX)
+    // 6. ตรวจสอบเคสจ่ายยากลุ่มมอร์ฟีนสำหรับผู้ป่วย Palliative แต่ขาดรหัสวินิจฉัย Z51.5 (ADD_PALLIATIVE_MORPHINE_DX)
     if (vn && has('opitemrece', 'vn', 'icode') && has('drugitems', 'icode', 'name')) {
       const [morphRows] = await connection.query<RowDataPacket[]>(
         `SELECT DISTINCT di.name
@@ -226,12 +226,34 @@ export async function detectRepSheetZeroFix(params: {
           [vn]
         );
         if (!Array.isArray(dxRows) || dxRows.length === 0) {
-          opportunities.push({
-            fixType: 'ADD_PALLIATIVE_MORPHINE_DX',
-            title: 'เพิ่มรหัสวินิจฉัย Z51.5 (เคสจ่ายยากลุ่มมอร์ฟีน)',
-            detail: `สั่งจ่ายยากลุ่มมอร์ฟีน (${morphNames.join(', ')}) แต่ขาดรหัส Z51.5 พร้อมเติมรหัส Z515 อัตโนมัติ`,
-            autoFixable: true,
-          });
+          // ตรวจสอบว่าผู้ป่วย (HN) เคยมีประวัติ Palliative Care ในอดีตหรือไม่ (หรือเคยถูกลบไปจากระบบ)
+          const [histRows] = await connection.query<RowDataPacket[]>(
+            `SELECT MAX(DATE_FORMAT(prev_o.vstdate, '%Y-%m-%d')) as prior_date
+             FROM ovstdiag prev_dx
+             JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
+             JOIN ovst curr_o ON curr_o.hn = prev_o.hn
+             WHERE curr_o.vn = ?
+               AND prev_o.vn <> curr_o.vn
+               AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN ('Z515', 'Z718')`,
+            [vn]
+          );
+          const [delAuditRows] = await connection.query<RowDataPacket[]>(
+            `SELECT id FROM z_fdh_palliative_item_delete_audit WHERE vn = ? LIMIT 1`,
+            [vn]
+          ).catch(() => [[]]);
+
+          const priorDate = histRows?.[0]?.prior_date;
+          const hasPriorPalliative = Boolean(priorDate) || (Array.isArray(delAuditRows) && delAuditRows.length > 0);
+
+          if (hasPriorPalliative) {
+            const dateDesc = priorDate ? ` เมื่อ ${priorDate}` : '';
+            opportunities.push({
+              fixType: 'ADD_PALLIATIVE_MORPHINE_DX',
+              title: 'เพิ่มรหัสวินิจฉัย Z51.5 (ผู้ป่วย Palliative ได้รับมอร์ฟีน)',
+              detail: `ผู้ป่วยมีประวัติ Palliative Care${dateDesc} และได้รับยากลุ่มมอร์ฟีน (${morphNames.join(', ')}) แต่ลืมลงรหัสวินิจฉัย Z51.5`,
+              autoFixable: true,
+            });
+          }
         }
       }
     }

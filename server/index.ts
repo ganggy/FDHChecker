@@ -2325,9 +2325,10 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         if (status === 'ready') status = 'pending';
       }
 
-      if (isTruthyFlag(item.has_morphine) && !isTruthyFlag(item.has_pal_diag)) {
+      if (isTruthyFlag(item.has_morphine) && !isTruthyFlag(item.has_pal_diag) && isTruthyFlag(item.has_prior_palliative)) {
         const morphDesc = item.morphine_names ? ` (${item.morphine_names})` : '';
-        issues.push(`ER-PALLIATIVE-MORPHINE-MISSING-DX: มีการสั่งจ่ายยากลุ่มมอร์ฟีน${morphDesc} แต่ขาดรหัสวินิจฉัย Z51.5 / Z71.8 (กดแก้ไข Auto ได้)`);
+        const priorDateDesc = item.prior_palliative_date ? ` (ประวัติเดิมเมื่อ ${item.prior_palliative_date})` : '';
+        issues.push(`ER-PALLIATIVE-MORPHINE-MISSING-DX: ผู้ป่วยมีประวัติ Palliative Care${priorDateDesc} และได้รับยากลุ่มมอร์ฟีน${morphDesc} แต่ลืมลงรหัสวินิจฉัย Z51.5 / Z71.8 (กดแก้ไข Auto ได้)`);
         autoFixableActions.push('ADD_PALLIATIVE_MORPHINE_DX');
         if (status === 'ready') status = 'pending';
       }

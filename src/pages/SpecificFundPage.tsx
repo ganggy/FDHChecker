@@ -955,6 +955,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         drugCount: item?.drug_count,
         hasMorphine: item?.has_morphine,
         morphineNames: item?.morphine_names,
+        hasPriorPalliative: item?.has_prior_palliative,
+        priorPalliativeDate: item?.prior_palliative_date,
     });
 
     const getFundRuleStatus = (item: any, fundId: string = activeFund) => {
@@ -974,7 +976,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (fundId === 'palliative') {
             if (!isUcsLike) return buildStatusResult([], [], undefined, false);
             const review = getPalliativeReview(item);
-            if (hasPalliativeDiag || hasPalliativeAdp || review.hasMorphine) {
+            if (hasPalliativeDiag || hasPalliativeAdp || (review.hasMorphine && (review.hasPalliativeDiagnosis || review.hasPriorPalliative))) {
                 subfunds.push(review.hasMorphine ? '🕊️💊 Palliative (มอร์ฟีน)' : '🕊️ Palliative Care');
             }
             if (review.hasMorphine) {
@@ -3344,7 +3346,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                     : null}
                                                                             </div>
                                                                         )}
-                                                                        {review.hasMorphine && !review.qualifiesForService && (
+                                                                        {review.hasMorphine && !review.qualifiesForService && review.hasPriorPalliative && (
                                                                             <button
                                                                                 type="button"
                                                                                 className="btn"
@@ -3354,9 +3356,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                     event.stopPropagation();
                                                                                     void handleRestoreMorphineVisit(String(item.vn));
                                                                                 }}
-                                                                                title="เติมรหัสวินิจฉัย Z51.5 ให้กับเคสจ่ายยากลุ่มมอร์ฟีน"
+                                                                                title="ผู้ป่วยมีประวัติ Palliative Care ในอดีต: เติมรหัสวินิจฉัย Z51.5 ให้กับ Visit นี้"
                                                                             >
-                                                                                {restoringPalliativeVn === String(item.vn) ? 'กำลังเติม...' : '➕ เติม/กู้คืน Z51.5 (มอร์ฟีน)'}
+                                                                                {restoringPalliativeVn === String(item.vn) ? 'กำลังเติม...' : '➕ เติม Z51.5 (ลืมลง Diag)'}
                                                                             </button>
                                                                         )}
                                                                         {review.canMarkAsHomeVisit && (
@@ -4353,6 +4355,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             ⚠️ เคยถูกลบ Diag ({item.deleted_diagnoses.map((d: any) => d.icd10).join(', ')})
                                                             {item.deleted_by_username ? ` โดย ${item.deleted_by_username}` : ''}
                                                         </span>
+                                                    ) : item.prior_palliative_date ? (
+                                                        <span style={{ color: '#4338ca', fontWeight: 600 }}>
+                                                            🕊️ มีประวัติเดิมเมื่อ {item.prior_palliative_date} (ลืมลง Diag)
+                                                        </span>
                                                     ) : (
                                                         <span style={{ color: '#ea580c' }}>
                                                             ยังไม่ได้ลงรหัส Z51.5
@@ -4367,7 +4373,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         disabled={restoringPalliativeVn === item.vn || isRestoringPalliative}
                                                         onClick={() => void handleRestoreMorphineVisit(item.vn)}
                                                     >
-                                                        {restoringPalliativeVn === item.vn ? 'กำลังกู้คืน...' : '⚡ กู้คืน Z51.5'}
+                                                        {restoringPalliativeVn === item.vn ? 'กำลังกู้คืน...' : (item.has_audit_backup ? '⚡ กู้คืน Z51.5' : '➕ เติม Z51.5')}
                                                     </button>
                                                 </td>
                                             </tr>

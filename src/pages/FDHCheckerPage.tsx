@@ -63,6 +63,8 @@ interface EligibleVisit {
     fdh_error_code?: string | null;
     fdh_updated_at?: string | null;
     fdh_has_submission?: boolean;
+    can_auto_fix?: boolean;
+    auto_fix_actions?: string[];
 }
 
 type FdhExportProfile = 'standard' | 'fwf-migrants';
@@ -122,6 +124,9 @@ export const FDHCheckerPage: React.FC = () => {
     const [confirmResend, setConfirmResend] = useState(false);
     const [ipdAuthenSyncing, setIpdAuthenSyncing] = useState(false);
     const [ipdAuthenNotice, setIpdAuthenNotice] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
+    const [fixingVn, setFixingVn] = useState<string | null>(null);
+    const [batchFixing, setBatchFixing] = useState(false);
+    const [fixAlert, setFixAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     const lastIpdAuthenSyncKey = useRef('');
     const visitTableScrollRef = useRef<HTMLDivElement>(null);
 
@@ -194,6 +199,48 @@ export const FDHCheckerPage: React.FC = () => {
             setError('Error connecting to server');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSingleAutoFix = async (vn: string) => {
+        setFixingVn(vn);
+        setFixAlert(null);
+        try {
+            const res = await fetch('/api/hosxp/auto-fix-visit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vn, fixType: 'ALL' }),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขอัตโนมัติไม่สำเร็จ');
+            setFixAlert({ type: 'success', message: `แก้ไขข้อมูล HOSxP สำหรับ VN ${vn} สำเร็จ: ${json.data.message}` });
+            await fetchEligibleData();
+        } catch (err) {
+            setFixAlert({ type: 'error', message: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไข' });
+        } finally {
+            setFixingVn(null);
+        }
+    };
+
+    const handleBatchAutoFix = async () => {
+        const vnsToFix = data.filter((d) => Boolean(d.can_auto_fix)).map((d) => d.vn);
+        if (!vnsToFix.length) return;
+        setBatchFixing(true);
+        setFixAlert(null);
+        try {
+            const res = await fetch('/api/hosxp/batch-auto-fix-visits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vns: vnsToFix }),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขแบบกลุ่มไม่สำเร็จ');
+            setFixAlert({ type: 'success', message: `แก้ไขอัตโนมัติเรียบร้อย: สำเร็จ ${json.data.fixedCount} จาก ${json.data.total} รายการ` });
+            await fetchEligibleData();
+        } catch (err) {
+            setFixAlert({ type: 'error', message: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไขแบบกลุ่ม' });
+        } finally {
+            setBatchFixing(false);
         }
     };
 
@@ -599,6 +646,7 @@ export const FDHCheckerPage: React.FC = () => {
 
     const readyCount = scopedData.filter(isReadyForExportFund).length;
     const pendingCount = scopedData.length - readyCount;
+    const autoFixableCount = scopedData.filter((item) => Boolean(item.can_auto_fix)).length;
     const exportVisitCount = getReadyVns().length;
     const selectedVisibleCount = selectedVns.filter((vn) => filtered.some((item) => item.vn === vn && isSelectableForExport(item))).length;
     const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
@@ -1066,6 +1114,35 @@ export const FDHCheckerPage: React.FC = () => {
                 </div>
             )}
 
+            {fixAlert && (
+                <div className={`alert ${fixAlert.type === 'success' ? 'alert-success' : 'alert-danger'}`} style={{ marginBottom: 16 }}>
+                    <span>{fixAlert.type === 'success' ? '✅' : '⚠️'}</span>
+                    <span>{fixAlert.message}</span>
+                </div>
+            )}
+
+            {!loading && !error && autoFixableCount > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, #eef2ff, #f5f3ff)', border: '1px solid #c7d2fe', borderRadius: '10px', padding: '12px 18px', marginBottom: 16, color: '#3730a3', flexWrap: 'wrap', gap: 12 }}>
+                    <div>
+                        <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            ⚡ มี {autoFixableCount} รายการที่สามารถแก้ไขข้อมูล HOSxP อัตโนมัติได้ทันที
+                        </strong>
+                        <div style={{ fontSize: '12px', color: '#4338ca', marginTop: 3 }}>
+                            (แก้รหัส Authen ที่ค้นพบแต่ยังไม่ได้ผูก, เคลียร์รหัสหัตถการตัวเลขในช่องโรค, เพิ่มบันทึกตรวจทันตกรรม dtmain, ตั้งค่ารหัสโรคหลัก)
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={handleBatchAutoFix}
+                        disabled={batchFixing || fixingVn !== null}
+                        style={{ whiteSpace: 'nowrap' }}
+                    >
+                        {batchFixing ? '⏳ กำลังประมวลผลแก้ไข...' : `⚡ แก้ไขอัตโนมัติทั้งหมด (${autoFixableCount} รายการ)`}
+                    </button>
+                </div>
+            )}
+
             {loading && (
                 <div className="loading-container">
                     <div className="spinner" />
@@ -1291,9 +1368,21 @@ export const FDHCheckerPage: React.FC = () => {
                                                     ) : item.status === 'ready' ? (
                                                         <span className="badge badge-success">🟢 พร้อมส่ง</span>
                                                     ) : item.status === 'pending' ? (
-                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                                             <span className="badge badge-warning">{isOfcOrLgo ? '🟡 รอแก้ไข' : '🟡 รอแก้ไข / รอปิดสิทธิ'}</span>
                                                             <div style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 600 }}>ต้องแก้: {item.missing.join(', ')}</div>
+                                                            {item.can_auto_fix && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-primary"
+                                                                    style={{ padding: '2px 8px', fontSize: 11, width: 'fit-content', marginTop: 2, whiteSpace: 'nowrap' }}
+                                                                    onClick={() => handleSingleAutoFix(item.vn)}
+                                                                    disabled={fixingVn === item.vn || batchFixing}
+                                                                    title="แก้ไขข้อมูล HOSxP อัตโนมัติ"
+                                                                >
+                                                                    {fixingVn === item.vn ? '⏳ แก้...' : '⚡ แก้ไข Auto'}
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     ) : (
                                                         <span className="badge badge-danger">🔴 UUC2 ไม่ประสงค์เบิก</span>

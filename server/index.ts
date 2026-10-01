@@ -2231,6 +2231,34 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         if (status === 'ready') status = 'pending';
       }
 
+      const autoFixableActions: string[] = [];
+
+      // Pre-submit audits based on REP Data Sheet 0 reject conditions:
+      const hasCurrentAuth = Boolean(item.current_auth_code || item.authen_code || item.approve_code);
+      if (!item.an && !hasCurrentAuth && isTruthyFlag(item.has_candidate_authen)) {
+        issues.push('ER-AUTHEN-UNLINKED: พบรหัส Authen ในระบบแต่ยังไม่ได้ผูกเข้ากับ Visit (กดแก้ไข Auto ได้)');
+        autoFixableActions.push('LINK_AUTHEN');
+        if (status === 'ready') status = 'pending';
+      }
+
+      if (isTruthyFlag(item.has_numeric_diag)) {
+        issues.push('ER-NUMERIC-DX: พบรหัสหัตถการตัวเลขตกค้างในตารางวินิจฉัยโรค (กดแก้ไข Auto ได้)');
+        autoFixableActions.push('REMOVE_NUMERIC_DX');
+        if (status === 'ready') status = 'pending';
+      }
+
+      if (isTruthyFlag(item.has_dental_diag) && !isTruthyFlag(item.has_dtmain)) {
+        issues.push('ER-DENTAL-MISSING-DTMAIN: มีรหัสโรคทันตกรรมแต่ขาดข้อมูลหัตถการใน dtmain (กดแก้ไข Auto ได้)');
+        autoFixableActions.push('ADD_DENTAL_EXAM');
+        if (status === 'ready') status = 'pending';
+      }
+
+      if (Number(item.diag_count || 0) > 0 && !item.main_diag) {
+        issues.push('ER-MISSING-PDX: มีการลงรหัสโรคแต่ขาดรหัสโรคหลัก diagtype=1 (กดแก้ไข Auto ได้)');
+        autoFixableActions.push('SET_PRIMARY_DX');
+        if (status === 'ready') status = 'pending';
+      }
+
       return {
         ...item,
         has_authen: item.has_authen ? 1 : 0,
@@ -2239,6 +2267,8 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         serviceType,
         missing: issues.map(iss => iss.split(': ')[1] || iss), // Extract display label
         issues, // Combined error codes
+        can_auto_fix: autoFixableActions.length > 0,
+        auto_fix_actions: autoFixableActions,
         status,
         isPotentialClaim: isSpecialFund,
         isBillable,
@@ -2270,6 +2300,32 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
   } catch (error) {
     console.error('Error fetching eligible visits:', error);
     res.status(500).json({ success: false, error: 'Internal Server Error' });
+  }
+});
+
+// Pre-submit Auto-Fix API endpoints
+app.post('/api/hosxp/auto-fix-visit', async (req, res) => {
+  try {
+    const { vn, an, fixType } = req.body || {};
+    const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
+    const result = await applyRepSheetZeroFix({ vn, an, fixType: fixType || 'ALL', actorName });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'แก้ไขอัตโนมัติไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/hosxp/batch-auto-fix-visits', async (req, res) => {
+  try {
+    const { vns } = req.body || {};
+    const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
+    const items = (Array.isArray(vns) ? vns : []).map((vn: string) => ({ vn }));
+    const result = await batchApplyRepSheetZeroFix({ items, actorName });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'แก้ไขแบบกลุ่มไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
   }
 });
 

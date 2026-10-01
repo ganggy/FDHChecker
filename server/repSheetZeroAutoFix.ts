@@ -2,9 +2,10 @@ import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { getUTFConnection } from './db/connection.js';
 import { readHospitalSchema } from './hospitalSchema.js';
 import { getNextHospitalSerial } from './hospitalDatabase.js';
+import { evaluateHerbalMedicationMatch } from '../src/utils/herbalMedicationRules.js';
 
 export interface RepSheetZeroFixOpportunity {
-  fixType: 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX';
+  fixType: 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX' | 'ADD_HERBAL_DIAG';
   title: string;
   detail: string;
   autoFixable: boolean;
@@ -46,7 +47,7 @@ export async function detectRepSheetZeroFix(params: {
   const connection = await getUTFConnection();
   try {
     const has = await readHospitalSchema(connection, [
-      'ovst', 'ovstdiag', 'vn_stat', 'authenhos', 'nhso_authen', 'dtmain', 'visit_pttype'
+      'ovst', 'ovstdiag', 'vn_stat', 'authenhos', 'nhso_authen', 'dtmain', 'visit_pttype', 'opitemrece', 'drugitems'
     ]);
 
     const opportunities: RepSheetZeroFixOpportunity[] = [];
@@ -166,6 +167,47 @@ export async function detectRepSheetZeroFix(params: {
       }
     }
 
+    // 5. ตรวจสอบยาสมุนไพรขาดรหัสวินิจฉัย (ADD_HERBAL_DIAG)
+    if (vn && has('opitemrece', 'vn', 'icode') && has('drugitems', 'icode', 'name')) {
+      const [herbRows] = await connection.query<RowDataPacket[]>(
+        `SELECT DISTINCT di.name
+         FROM opitemrece oo
+         JOIN drugitems di ON di.icode = oo.icode
+         WHERE oo.vn = ?
+           AND COALESCE(oo.qty, 0) > 0
+           ${has('drugitems', 'ttmt_code') ? 'AND di.ttmt_code IS NOT NULL' : ''}
+           ${has('drugitems', 'sks_product_category_id') ? 'AND di.sks_product_category_id IN (3, 4)' : ''}`,
+        [vn]
+      );
+      if (Array.isArray(herbRows) && herbRows.length > 0) {
+        const herbNames = herbRows.map((r) => String(r.name || '')).filter(Boolean);
+        const [dxRows] = await connection.query<RowDataPacket[]>(
+          `SELECT icd10 FROM ovstdiag WHERE vn = ?`,
+          [vn]
+        );
+        const currentDiags = (Array.isArray(dxRows) ? dxRows : []).map((r) => String(r.icd10 || ''));
+        const assessment = evaluateHerbalMedicationMatch(currentDiags, herbNames.join(', '));
+        if (assessment.status !== 'valid' && assessment.medicineRecommendations.length > 0) {
+          const recCodes: string[] = [];
+          for (const rec of assessment.medicineRecommendations) {
+            for (const ind of rec.indications) {
+              for (const c of ind.diagnosisCodes) {
+                if (c && c !== 'U57' && !recCodes.includes(c)) recCodes.push(c);
+              }
+            }
+          }
+          if (recCodes.length > 0) {
+            opportunities.push({
+              fixType: 'ADD_HERBAL_DIAG',
+              title: 'เพิ่มรหัสวินิจฉัยยาสมุนไพร',
+              detail: `สั่งยาสมุนไพร (${herbNames.join(', ')}) แต่ขาดรหัสโรคตามข้อบ่งใช้ พร้อมเติมรหัส ${recCodes[0]} อัตโนมัติ`,
+              autoFixable: true,
+            });
+          }
+        }
+      }
+    }
+
     return {
       vn,
       an,
@@ -184,7 +226,7 @@ export async function detectRepSheetZeroFix(params: {
 export async function applyRepSheetZeroFix(params: {
   vn: string;
   an?: string;
-  fixType?: 'ALL' | 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX';
+  fixType?: 'ALL' | 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX' | 'ADD_HERBAL_DIAG';
   actorName?: string;
 }): Promise<RepSheetZeroFixExecutionResult> {
   const { vn, an, fixType = 'ALL', actorName = 'admin' } = params;
@@ -195,18 +237,20 @@ export async function applyRepSheetZeroFix(params: {
   const connection = await getUTFConnection();
   try {
     const has = await readHospitalSchema(connection, [
-      'ovst', 'ovstdiag', 'vn_stat', 'authenhos', 'dtmain', 'visit_pttype'
+      'ovst', 'ovstdiag', 'vn_stat', 'authenhos', 'dtmain', 'visit_pttype', 'opitemrece', 'drugitems'
     ]);
 
     const actionsApplied: string[] = [];
 
-    // ดึง HN, vstdate และ CID
+    // ดึง HN, vstdate, vsttime, doctor และ CID
     let currentHn = '';
     let currentVstdate = '';
+    let currentVsttime = '09:00:00';
+    let currentDoctor = '900';
     let currentCid = '';
     if (vn && has('ovst', 'vn')) {
       const [ovstRows] = await connection.query<RowDataPacket[]>(
-        `SELECT o.hn, o.vstdate, pt.cid 
+        `SELECT o.hn, o.vstdate, o.vsttime, o.doctor, pt.cid 
          FROM ovst o 
          LEFT JOIN patient pt ON o.hn = pt.hn 
          WHERE o.vn = ? LIMIT 1`,
@@ -214,6 +258,8 @@ export async function applyRepSheetZeroFix(params: {
       );
       currentHn = String(ovstRows[0]?.hn || '');
       currentVstdate = String(ovstRows[0]?.vstdate || '');
+      currentVsttime = String(ovstRows[0]?.vsttime || '09:00:00');
+      currentDoctor = String(ovstRows[0]?.doctor || '900');
       currentCid = String(ovstRows[0]?.cid || '');
     }
 
@@ -339,6 +385,61 @@ export async function applyRepSheetZeroFix(params: {
             ]
           );
           actionsApplied.push(`บันทึกหัตถการตรวจสุขภาพช่องปาก (Oral examination: รหัส ${tmcode} / ${icd9}) ลงใน dtmain เรียบร้อย`);
+        }
+      }
+    }
+
+    // 5. ADD_HERBAL_DIAG
+    if ((fixType === 'ALL' || fixType === 'ADD_HERBAL_DIAG') && vn && has('opitemrece', 'vn', 'icode') && has('drugitems', 'icode', 'name')) {
+      const [herbRows] = await connection.query<RowDataPacket[]>(
+        `SELECT DISTINCT di.name
+         FROM opitemrece oo
+         JOIN drugitems di ON di.icode = oo.icode
+         WHERE oo.vn = ?
+           AND COALESCE(oo.qty, 0) > 0
+           ${has('drugitems', 'ttmt_code') ? 'AND di.ttmt_code IS NOT NULL' : ''}
+           ${has('drugitems', 'sks_product_category_id') ? 'AND di.sks_product_category_id IN (3, 4)' : ''}`,
+        [vn]
+      );
+      if (Array.isArray(herbRows) && herbRows.length > 0) {
+        const herbNames = herbRows.map((r) => String(r.name || '')).filter(Boolean);
+        const [dxRows] = await connection.query<RowDataPacket[]>(
+          `SELECT icd10 FROM ovstdiag WHERE vn = ?`,
+          [vn]
+        );
+        const currentDiags = (Array.isArray(dxRows) ? dxRows : []).map((r) => String(r.icd10 || ''));
+        const assessment = evaluateHerbalMedicationMatch(currentDiags, herbNames.join(', '));
+        if (assessment.status !== 'valid' && assessment.medicineRecommendations.length > 0) {
+          const codesToAdd = new Set<string>();
+          for (const rec of assessment.medicineRecommendations) {
+            for (const ind of rec.indications) {
+              const specific = ind.diagnosisCodes.find((c) => c && c !== 'U57' && !currentDiags.some((cd) => cd.replace(/[^A-Z0-9]/g, '').startsWith(c)));
+              if (specific) {
+                codesToAdd.add(specific);
+                break;
+              }
+            }
+          }
+
+          for (const code of codesToAdd) {
+            const nextDiagId = await getNextHospitalSerial(connection, 'ovst_diag_id', 'ovstdiag', 'ovst_diag_id');
+            await connection.query(
+              `INSERT INTO ovstdiag (
+                ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode
+              ) VALUES (?, ?, ?, ?, ?, ?, '2', ?, ?, 1)`,
+              [
+                nextDiagId,
+                vn,
+                currentHn,
+                currentVstdate,
+                currentVsttime,
+                code,
+                currentDoctor,
+                actorName || 'admin',
+              ]
+            );
+            actionsApplied.push(`เพิ่มรหัสวินิจฉัยยาสมุนไพร (${code}) ใน ovstdiag เรียบร้อย`);
+          }
         }
       }
     }

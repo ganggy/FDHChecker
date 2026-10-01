@@ -2259,6 +2259,13 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         if (status === 'ready') status = 'pending';
       }
 
+      if (isTruthyFlag(item.has_herb) && !isTruthyFlag(item.has_herb_diag)) {
+        const herbDesc = item.herb_names ? ` (${item.herb_names})` : '';
+        issues.push(`ER-HERB-MISSING-DX: มีการสั่งยาสมุนไพร${herbDesc} แต่ขาดรหัสวินิจฉัยตามข้อบ่งใช้ (กดแก้ไข Auto ได้)`);
+        autoFixableActions.push('ADD_HERBAL_DIAG');
+        if (status === 'ready') status = 'pending';
+      }
+
       return {
         ...item,
         has_authen: item.has_authen ? 1 : 0,

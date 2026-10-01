@@ -2990,7 +2990,19 @@ export const getEligibleVisits = async (
         CASE WHEN EXISTS (
           SELECT 1 FROM ovstdiag WHERE vn = ovst.vn AND (icd10 LIKE 'K0%' OR icd10 LIKE 'Z012%') LIMIT 1
         ) THEN 1 ELSE 0 END as has_dental_diag,
-        (SELECT COUNT(*) FROM ovstdiag WHERE vn = ovst.vn) as diag_count
+        (SELECT COUNT(*) FROM ovstdiag WHERE vn = ovst.vn) as diag_count,
+        (SELECT GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ') FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND di.sks_product_category_id IN (3,4) AND di.ttmt_code IS NOT NULL) as herb_names,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovstdiag dx 
+          WHERE dx.vn = ovst.vn 
+            AND (
+              dx.icd10 LIKE 'U5%' 
+              OR dx.icd10 LIKE 'U6%' 
+              OR dx.icd10 LIKE 'U7%'
+              OR dx.icd10 IN ('J00', 'J069', 'M549', 'M179', 'R101', 'K590', 'R42', 'F510', 'G470', 'A099')
+            )
+          LIMIT 1
+        ) THEN 1 ELSE 0 END as has_herb_diag
 
       FROM ovst
       LEFT JOIN patient pt ON ovst.hn = pt.hn

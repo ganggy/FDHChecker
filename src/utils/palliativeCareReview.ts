@@ -51,10 +51,10 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
     const reasons: string[] = [];
 
     // กลุ่มที่ 1: เคสจ่ายยากลุ่มมอร์ฟีน (Palliative Morphine Dispensing)
-    // เงื่อนไข: หากมีรหัสโรคหลัก/ร่วม Z51.5 หรือ Z71.8 ร่วมกับยากลุ่มมอร์ฟีน
-    // ถือว่าเป็นการจ่ายยาให้ผู้ป่วยแบบประคับประคองสมบูรณ์ โดยไม่ต้องมี Cons01 หรือ Eva01
+    // เงื่อนไข: ต้องมีรหัสวินิจฉัย Z51.5 และ Z71.8 ร่วมกับยากลุ่มมอร์ฟีน
+    // ถือว่าเป็นการจ่ายยาและวางแผนการดูแลให้ผู้ป่วยแบบประคับประคองสมบูรณ์ โดยไม่ต้องมี Cons01 หรือ Eva01
     if (hasMorphine) {
-        if (hasPalliativeDiagnosis) {
+        if (hasZ515 && hasZ718) {
             return {
                 hasPalliativeDiagnosis: true,
                 hasMorphine: true,
@@ -67,22 +67,22 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
                 canRemoveDiagnosis: false, // ห้ามลบ Diagnosis ของผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีน
                 canMarkAsHomeVisit: !isHomeVisit,
                 visitKind: 'palliative-morphine',
-                visitKindLabel: 'จ่ายยากลุ่มมอร์ฟีน (สมบูรณ์ - ไม่ต้องใช้ Cons01/Eva01)',
+                visitKindLabel: 'จ่ายยากลุ่มมอร์ฟีน (สมบูรณ์ - มี Z51.5 & Z71.8)',
                 reasons: [],
             };
         }
 
-        // กรณีได้รับยากลุ่มมอร์ฟีนแต่ไม่มี Z51.5 / Z71.8 ใน visit นี้:
-        // ให้ตรวจสอบประวัติย้อนหลัง:
-        // - หากเคยมีประวัติ Palliative Care มาก่อน (hasPriorPalliative) แสดงว่าเข้าเงื่อนไขกลุ่ม Palliative
-        //   แต่ใน visit นี้แพทย์ลืมลงรหัส Diag Palliative -> แนะนำให้เติมรหัส Z51.5
-        // - หากไม่เคยมีประวัติ Palliative มาก่อน ถือเป็นการจ่ายยามอร์ฟีนทั่วไป (เฉยๆ) สำหรับโรคอื่น
-        //   -> ไม่ต้องแก้หรือเติม Z51.5/Z71.8 และไม่ต้องแจ้งเตือน
-        if (hasPriorPalliative || hasValue(priorPalliativeDate)) {
+        // กรณีเป็นผู้ป่วย Palliative (มีประวัติเดิม หรือมี Z51.5/Z71.8 อยู่แล้วแต่ยังไม่ครบทั้งสองตัว)
+        if (hasPriorPalliative || hasValue(priorPalliativeDate) || hasZ515 || hasZ718) {
             const dateMsg = priorPalliativeDate ? ` (พบประวัติเดิมเมื่อ ${priorPalliativeDate})` : '';
-            reasons.push(`ผู้ป่วยมีประวัติ Palliative Care${dateMsg} และได้รับยากลุ่มมอร์ฟีน แต่ลืมลงรหัสวินิจฉัย Z51.5 ใน Visit นี้`);
+            const missingCodes: string[] = [];
+            if (!hasZ515) missingCodes.push('Z51.5');
+            if (!hasZ718) missingCodes.push('Z71.8');
+
+            const missingDesc = missingCodes.join(' และ ');
+            reasons.push(`ผู้ป่วย Palliative ได้รับยากลุ่มมอร์ฟีน แต่ยังขาดรหัสวินิจฉัย ${missingDesc}${dateMsg}`);
             return {
-                hasPalliativeDiagnosis: false,
+                hasPalliativeDiagnosis: hasZ515 || hasZ718,
                 hasMorphine: true,
                 morphineNames,
                 hasPriorPalliative: true,
@@ -93,7 +93,7 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
                 canRemoveDiagnosis: false,
                 canMarkAsHomeVisit: !isHomeVisit,
                 visitKind: 'palliative-morphine',
-                visitKindLabel: 'ผู้ป่วย Palliative ได้รับมอร์ฟีน (ขาด Z51.5 - ลืมลง Diag)',
+                visitKindLabel: `ผู้ป่วย Palliative ได้รับมอร์ฟีน (ขาด ${missingCodes.join(' & ')})`,
                 reasons,
             };
         }

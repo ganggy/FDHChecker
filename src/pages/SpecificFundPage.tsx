@@ -585,7 +585,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const handleBatchRestoreMorphineVisits = useCallback(async () => {
         if (palliativeRestorableVisits.length === 0 || isRestoringPalliative) return;
         const confirmed = window.confirm(
-            `ยืนยันกู้คืนรหัสวินิจฉัย Palliative Z51.5 ให้กับผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีนทั้งหมด ${palliativeRestorableVisits.length} รายการ?`
+            `ยืนยันกู้คืน/เติมรหัสวินิจฉัย Palliative (Z51.5 / Z71.8) ให้กับผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีนทั้งหมด ${palliativeRestorableVisits.length} รายการ?`
         );
         if (!confirmed) return;
         setIsRestoringPalliative(true);
@@ -2959,7 +2959,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <span style={{ fontSize: '20px' }}>💊</span>
                                     <div>
-                                        <strong>พบผู้ป่วยได้รับยากลุ่มมอร์ฟีนที่ขาดรหัสวินิจฉัย Z51.5 หรือเคยถูกลบ {palliativeRestorableVisits.length} รายการ</strong>
+                                        <strong>พบผู้ป่วยได้รับยากลุ่มมอร์ฟีนที่ยังขาดรหัสวินิจฉัย Z51.5 / Z71.8 หรือเคยถูกลบ {palliativeRestorableVisits.length} รายการ</strong>
                                         <div style={{ fontSize: '12px', color: '#3b82f6', marginTop: '2px' }}>
                                             กลุ่มที่จ่ายยากลุ่มมอร์ฟีนถือว่าสมบูรณ์โดยไม่ต้องมี Cons01/Eva01 สามารถกู้คืนรหัสโรคกลับมาเพื่อส่งเบิกได้ทันที
                                         </div>
@@ -3346,7 +3346,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                     : null}
                                                                             </div>
                                                                         )}
-                                                                        {review.hasMorphine && !review.qualifiesForService && review.hasPriorPalliative && (
+                                                                        {review.hasMorphine && !review.qualifiesForService && (review.hasPriorPalliative || item.z515_code || item.z718_code) && (
                                                                             <button
                                                                                 type="button"
                                                                                 className="btn"
@@ -3356,9 +3356,15 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                     event.stopPropagation();
                                                                                     void handleRestoreMorphineVisit(String(item.vn));
                                                                                 }}
-                                                                                title="ผู้ป่วยมีประวัติ Palliative Care ในอดีต: เติมรหัสวินิจฉัย Z51.5 ให้กับ Visit นี้"
+                                                                                title="เติมรหัสวินิจฉัย Palliative Care (Z51.5 / Z71.8) ให้กับ Visit นี้"
                                                                             >
-                                                                                {restoringPalliativeVn === String(item.vn) ? 'กำลังเติม...' : '➕ เติม Z51.5 (ลืมลง Diag)'}
+                                                                                {restoringPalliativeVn === String(item.vn)
+                                                                                    ? 'กำลังเติม...'
+                                                                                    : (!item.z515_code && !item.z718_code)
+                                                                                        ? '➕ เติม Z51.5 & Z71.8'
+                                                                                        : !item.z718_code
+                                                                                            ? '➕ เติม Z71.8 (ACP)'
+                                                                                            : '➕ เติม Z51.5'}
                                                                             </button>
                                                                         )}
                                                                         {review.canMarkAsHomeVisit && (
@@ -4357,11 +4363,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         </span>
                                                     ) : item.prior_palliative_date ? (
                                                         <span style={{ color: '#4338ca', fontWeight: 600 }}>
-                                                            🕊️ มีประวัติเดิมเมื่อ {item.prior_palliative_date} (ลืมลง Diag)
+                                                            🕊️ มีประวัติเดิมเมื่อ {item.prior_palliative_date}
+                                                            {(!item.has_z515 && !item.has_z718) ? ' (ลืมลง Diag Z51.5 & Z71.8)' : !item.has_z718 ? ' (ขาด Diag Z71.8)' : ' (ขาด Diag Z51.5)'}
                                                         </span>
                                                     ) : (
                                                         <span style={{ color: '#ea580c' }}>
-                                                            ยังไม่ได้ลงรหัส Z51.5
+                                                            {(!item.has_z515 && !item.has_z718) ? 'ยังไม่ได้ลงรหัส Z51.5 & Z71.8' : !item.has_z718 ? 'ขาดรหัส Z71.8' : 'ขาดรหัส Z51.5'}
                                                         </span>
                                                     )}
                                                 </td>
@@ -4373,7 +4380,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         disabled={restoringPalliativeVn === item.vn || isRestoringPalliative}
                                                         onClick={() => void handleRestoreMorphineVisit(item.vn)}
                                                     >
-                                                        {restoringPalliativeVn === item.vn ? 'กำลังกู้คืน...' : (item.has_audit_backup ? '⚡ กู้คืน Z51.5' : '➕ เติม Z51.5')}
+                                                        {restoringPalliativeVn === item.vn ? 'กำลังกู้คืน...' : (item.has_audit_backup ? '⚡ กู้คืน Diag' : (!item.has_z515 && !item.has_z718) ? '➕ เติม Z51.5 & Z71.8' : !item.has_z718 ? '➕ เติม Z71.8' : '➕ เติม Z51.5')}
                                                     </button>
                                                 </td>
                                             </tr>

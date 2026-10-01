@@ -567,15 +567,30 @@ export const evaluateBillingLogic = (item: any) => {
 
         const hasMorphine = toBool(item?.has_morphine) || hasValue(item?.morphine_names);
         const hasPriorPalliative = toBool(item?.has_prior_palliative) || hasValue(item?.prior_palliative_date);
-        if (palliativeMatch || (hasMorphine && palliativeDiag)) {
+        const hasZ515 = Boolean(item?.z515_code) || hasDiagCode(item, ['Z515']);
+        const hasZ718 = Boolean(item?.z718_code) || hasDiagCode(item, ['Z718']);
+        const hasBothPalliativeDiags = hasZ515 && hasZ718;
+
+        if (hasMorphine) {
+            if (hasBothPalliativeDiags) {
+                fundNotes.push({
+                    label: '🕊️💊 Palliative (จ่ายยามอร์ฟีน + Z51.5 & Z71.8)',
+                    kind: 'matched',
+                    group: 'palliative',
+                });
+            } else if (hasPriorPalliative || hasZ515 || hasZ718) {
+                const missingParts: string[] = [];
+                if (!hasZ515 && !hasZ718) missingParts.push('ลืมลง Diag Z51.5 & Z71.8');
+                else if (!hasZ718) missingParts.push('ขาด Diag Z71.8 (ACP)');
+                else if (!hasZ515) missingParts.push('ขาด Diag Z51.5');
+                addWarningFundNote(fundNotes, 'Palliative (มียามอร์ฟีน)', missingParts, 'palliative');
+            }
+        } else if (palliativeMatch) {
             fundNotes.push({
-                label: hasMorphine ? '🕊️💊 Palliative (จ่ายยามอร์ฟีน)' : '🕊️ Palliative Care',
+                label: '🕊️ Palliative Care',
                 kind: 'matched',
                 group: 'palliative',
             });
-        } else if (hasMorphine && !palliativeDiag && hasPriorPalliative) {
-            // เฉพาะเคสที่เคยมีประวัติ Palliative มาก่อน แต่คราวนี้ลืมลง Diag
-            addWarningFundNote(fundNotes, 'Palliative (มียามอร์ฟีน)', [' ลืมลง Diag Z515 (มีประวัติเดิม)'], 'palliative');
         } else if (palliativeAdp || palliativeDiag) {
             const palliativeNearMissing = getNearFundMissingParts(palliativeAdp, ' ADP 30001/Cons01/Eva001', [
                 { met: palliativeDiag, label: ' Diagnosis Z515/Z718' },

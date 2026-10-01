@@ -2479,6 +2479,8 @@ export const getCheckData = async (
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z124|^Z014' LIMIT 1) as has_cx_diag,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code REGEXP '1B004|1B005' LIMIT 1) as has_cx_adp,
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 IN ('Z515', 'Z718') LIMIT 1) as has_pal_diag,
+        (SELECT dx.icd10 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z515' LIMIT 1) as z515_code,
+        (SELECT dx.icd10 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z718' LIMIT 1) as z718_code,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code IN ('30001', 'Cons01', 'Eva001') LIMIT 1) as has_pal_adp,
         
         (SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND dx.icd10 REGEXP '^Z511|^Z512' LIMIT 1) as has_chemo_diag,
@@ -3010,6 +3012,8 @@ export const getEligibleVisits = async (
         CASE WHEN EXISTS (
           SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z515', 'Z718') LIMIT 1
         ) THEN 1 ELSE 0 END as has_pal_diag,
+        (SELECT dx.icd10 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z515' LIMIT 1) as z515_code,
+        (SELECT dx.icd10 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z718' LIMIT 1) as z718_code,
         CASE WHEN EXISTS (
           SELECT 1 FROM ovstdiag prev_dx
           JOIN ovst prev_o ON prev_o.vn = prev_dx.vn

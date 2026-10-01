@@ -3946,8 +3946,10 @@ export const getPalliativeMorphineRestorableVisits = async (
          JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
          WHERE prev_o.hn = o.hn
            AND prev_o.vn <> o.vn
-           AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN ('Z515', 'Z718')
+            AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN ('Z515', 'Z718')
         ) as prior_palliative_date,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z515' LIMIT 1) as has_z515,
+        (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z718' LIMIT 1) as has_z718,
         ${hasAuditTable ? 'del.id as delete_audit_id, del.deleted_diagnoses, del.created_at as deleted_at, del.deleted_by_username' : 'NULL as delete_audit_id, NULL as deleted_diagnoses, NULL as deleted_at, NULL as deleted_by_username'}
       FROM ovst o
       JOIN patient pt ON o.hn = pt.hn
@@ -3967,14 +3969,19 @@ export const getPalliativeMorphineRestorableVisits = async (
       WHERE (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
         AND COALESCE(oo.qty, 0) > 0
         ${dateFilter}
-        AND NOT EXISTS (
-          SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z515', 'Z718')
+        AND NOT (
+          EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z515')
+          AND EXISTS (SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') = 'Z718')
         )
         AND (
           EXISTS (
             SELECT 1 FROM ovstdiag prev_dx
             JOIN ovst prev_o ON prev_o.vn = prev_dx.vn
             WHERE prev_o.hn = o.hn AND prev_o.vn <> o.vn AND REPLACE(UPPER(prev_dx.icd10), '.', '') IN ('Z515', 'Z718')
+          )
+          OR EXISTS (
+            SELECT 1 FROM ovstdiag curr_dx
+            WHERE curr_dx.vn = o.vn AND REPLACE(UPPER(curr_dx.icd10), '.', '') IN ('Z515', 'Z718')
           )
           ${hasAuditTable ? 'OR del.id IS NOT NULL' : ''}
         )
@@ -4005,8 +4012,10 @@ export const getPalliativeMorphineRestorableVisits = async (
         doctor: String(r.doctor || ''),
         morphine_names: String(r.morphine_names || ''),
         prior_palliative_date: r.prior_palliative_date ? String(r.prior_palliative_date) : null,
-        has_prior_palliative: Boolean(r.prior_palliative_date || parsedDeletedDiags.length > 0),
+        has_prior_palliative: Boolean(r.prior_palliative_date || parsedDeletedDiags.length > 0 || r.has_z515 || r.has_z718),
         has_audit_backup: parsedDeletedDiags.length > 0,
+        has_z515: Boolean(r.has_z515),
+        has_z718: Boolean(r.has_z718),
         deleted_diagnoses: parsedDeletedDiags,
         deleted_at: r.deleted_at ? new Date(r.deleted_at).toISOString() : null,
         deleted_by_username: r.deleted_by_username ? String(r.deleted_by_username) : null,
@@ -4048,13 +4057,15 @@ export const restorePalliativeMorphineVisit = async (
     const [existingDx] = await connection.query<any[]>(`
       SELECT ovst_diag_id, icd10 FROM ovstdiag WHERE vn = ? AND REPLACE(UPPER(icd10), '.', '') IN ('Z515', 'Z718')
     `, [normalizedVn]);
-    if (existingDx.length > 0) {
+    const existingCodeSet = new Set(existingDx.map((d) => String(d.icd10 || '').replace(/\./g, '').toUpperCase()));
+
+    if (existingCodeSet.has('Z515') && existingCodeSet.has('Z718')) {
       await connection.commit();
       return {
         vn: normalizedVn,
         alreadyRestored: true,
-        message: 'Visit นี้มีรหัส Z51.5 / Z71.8 อยู่แล้ว',
-        restoredDiagnoses: existingDx.map((d) => d.icd10),
+        message: 'Visit นี้มีรหัส Z51.5 และ Z71.8 ครบถ้วนแล้ว',
+        restoredDiagnoses: Array.from(existingCodeSet),
       };
     }
 
@@ -4063,7 +4074,7 @@ export const restorePalliativeMorphineVisit = async (
     `, [normalizedVn]).catch(() => [[]]);
 
     let diagsToRestore: Array<{ icd10: string; diagtype: string; doctor?: string }> = [];
-    let restoreSource = 'AUTO_CREATE_Z515';
+    let restoreSource = 'AUTO_CREATE_Z515_Z718';
 
     if (auditRows.length > 0 && auditRows[0].deleted_diagnoses) {
       try {
@@ -4075,7 +4086,7 @@ export const restorePalliativeMorphineVisit = async (
             icd10: String(d.icd10 || '').replace(/\./g, '').toUpperCase(),
             diagtype: String(d.diagtype || '2'),
             doctor: String(d.doctor || visit.doctor || '900'),
-          })).filter((d) => d.icd10 === 'Z515' || d.icd10 === 'Z718');
+          })).filter((d) => (d.icd10 === 'Z515' || d.icd10 === 'Z718') && !existingCodeSet.has(d.icd10));
           if (diagsToRestore.length > 0) {
             restoreSource = `AUDIT_SNAPSHOT_${auditRows[0].id}`;
           }
@@ -4083,9 +4094,17 @@ export const restorePalliativeMorphineVisit = async (
       } catch {}
     }
 
-    if (diagsToRestore.length === 0) {
+    // หากไม่มี snapshot หรือ snapshot ขาดรหัส Z515 / Z718 ให้เติมรหัสที่ยังขาดอยู่
+    if (!existingCodeSet.has('Z515') && !diagsToRestore.some((d) => d.icd10 === 'Z515')) {
       diagsToRestore.push({
         icd10: 'Z515',
+        diagtype: '2',
+        doctor: String(visit.doctor || '900'),
+      });
+    }
+    if (!existingCodeSet.has('Z718') && !diagsToRestore.some((d) => d.icd10 === 'Z718')) {
+      diagsToRestore.push({
+        icd10: 'Z718',
         diagtype: '2',
         doctor: String(visit.doctor || '900'),
       });
@@ -4136,7 +4155,7 @@ export const restorePalliativeMorphineVisit = async (
       restoredDiagnoses: restoredResults,
       morphineNames: visit.morphine_names,
       restoreSource,
-      message: `กู้คืนรหัสวินิจฉัย ${restoredResults.join(', ')} เรียบร้อยแล้ว`,
+      message: `กู้คืน/เพิ่มรหัสวินิจฉัย ${restoredResults.join(', ')} เรียบร้อยแล้ว`,
     };
   } catch (error) {
     await connection.rollback().catch(() => {});

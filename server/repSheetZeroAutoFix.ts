@@ -225,8 +225,14 @@ export async function detectRepSheetZeroFix(params: {
           `SELECT icd10 FROM ovstdiag WHERE vn = ? AND REPLACE(UPPER(icd10), '.', '') IN ('Z515', 'Z718')`,
           [vn]
         );
-        if (!Array.isArray(dxRows) || dxRows.length === 0) {
-          // ตรวจสอบว่าผู้ป่วย (HN) เคยมีประวัติ Palliative Care ในอดีตหรือไม่ (หรือเคยถูกลบไปจากระบบ)
+        const existingCodes = new Set((dxRows || []).map((r: any) => String(r.icd10 || '').replace(/\./g, '').toUpperCase()));
+        const missingCodes: string[] = [];
+        if (!existingCodes.has('Z515')) missingCodes.push('Z51.5');
+        if (!existingCodes.has('Z718')) missingCodes.push('Z71.8');
+
+        if (missingCodes.length > 0) {
+          // ตรวจสอบว่าผู้ป่วย (HN) เคยมีประวัติ Palliative Care ในอดีตหรือไม่ (หรือเคยถูกลบไปจากระบบ หรือมีรหัสตัวใดตัวหนึ่งอยู่แล้ว)
+          const hasOneCodeAlready = existingCodes.size > 0;
           const [histRows] = await connection.query<RowDataPacket[]>(
             `SELECT MAX(DATE_FORMAT(prev_o.vstdate, '%Y-%m-%d')) as prior_date
              FROM ovstdiag prev_dx
@@ -243,14 +249,14 @@ export async function detectRepSheetZeroFix(params: {
           ).catch(() => [[]]);
 
           const priorDate = histRows?.[0]?.prior_date;
-          const hasPriorPalliative = Boolean(priorDate) || (Array.isArray(delAuditRows) && delAuditRows.length > 0);
+          const hasPriorPalliative = hasOneCodeAlready || Boolean(priorDate) || (Array.isArray(delAuditRows) && delAuditRows.length > 0);
 
           if (hasPriorPalliative) {
             const dateDesc = priorDate ? ` เมื่อ ${priorDate}` : '';
             opportunities.push({
               fixType: 'ADD_PALLIATIVE_MORPHINE_DX',
-              title: 'เพิ่มรหัสวินิจฉัย Z51.5 (ผู้ป่วย Palliative ได้รับมอร์ฟีน)',
-              detail: `ผู้ป่วยมีประวัติ Palliative Care${dateDesc} และได้รับยากลุ่มมอร์ฟีน (${morphNames.join(', ')}) แต่ลืมลงรหัสวินิจฉัย Z51.5`,
+              title: `เพิ่มรหัสวินิจฉัย ${missingCodes.join(' & ')} (ผู้ป่วย Palliative ได้รับมอร์ฟีน)`,
+              detail: `ผู้ป่วยมีประวัติ Palliative Care${dateDesc} และได้รับยากลุ่มมอร์ฟีน (${morphNames.join(', ')}) แต่ยังขาดรหัสวินิจฉัย ${missingCodes.join(', ')}`,
               autoFixable: true,
             });
           }
@@ -510,23 +516,31 @@ export async function applyRepSheetZeroFix(params: {
           `SELECT icd10 FROM ovstdiag WHERE vn = ? AND REPLACE(UPPER(icd10), '.', '') IN ('Z515', 'Z718')`,
           [vn]
         );
-        if (!Array.isArray(dxRows) || dxRows.length === 0) {
+        const existingCodes = new Set((dxRows || []).map((r: any) => String(r.icd10 || '').replace(/\./g, '').toUpperCase()));
+        const diagsToAdd: string[] = [];
+        if (!existingCodes.has('Z515')) diagsToAdd.push('Z515');
+        if (!existingCodes.has('Z718')) diagsToAdd.push('Z718');
+
+        for (const code of diagsToAdd) {
           const nextDiagId = await getNextHospitalSerial(connection, 'ovst_diag_id', 'ovstdiag', 'ovst_diag_id');
           await connection.query(
             `INSERT INTO ovstdiag (
               ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode
-            ) VALUES (?, ?, ?, ?, ?, 'Z515', '2', ?, ?, 1)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, '2', ?, ?, 1)`,
             [
               nextDiagId,
               vn,
               currentHn,
               currentVstdate,
               currentVsttime,
+              code,
               currentDoctor,
               actorName || 'admin',
             ]
           );
-          actionsApplied.push('เพิ่มรหัสวินิจฉัย Palliative Z515 สำหรับเคสจ่ายยากลุ่มมอร์ฟีนเรียบร้อย');
+        }
+        if (diagsToAdd.length > 0) {
+          actionsApplied.push(`เพิ่มรหัสวินิจฉัย Palliative (${diagsToAdd.join(', ')}) สำหรับเคสจ่ายยากลุ่มมอร์ฟีนเรียบร้อย`);
         }
       }
     }

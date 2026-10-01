@@ -3998,7 +3998,9 @@ export const getPalliativeMorphineRestorableVisits = async (
         } else if (Array.isArray(r.deleted_diagnoses)) {
           parsedDeletedDiags = r.deleted_diagnoses;
         }
-      } catch {}
+      } catch (_e) {
+        // ignore JSON parse error
+      }
       return {
         vn: String(r.vn),
         hn: String(r.hn),
@@ -4091,7 +4093,9 @@ export const restorePalliativeMorphineVisit = async (
             restoreSource = `AUDIT_SNAPSHOT_${auditRows[0].id}`;
           }
         }
-      } catch {}
+      } catch (_e) {
+        // ignore JSON parse error
+      }
     }
 
     // หากไม่มี snapshot หรือ snapshot ขาดรหัส Z515 / Z718 ให้เติมรหัสที่ยังขาดอยู่

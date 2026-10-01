@@ -2309,6 +2309,9 @@ app.post('/api/hosxp/auto-fix-visit', async (req, res) => {
     const { vn, an, fixType } = req.body || {};
     const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
     const result = await applyRepSheetZeroFix({ vn, an, fixType: fixType || 'ALL', actorName });
+    if (result.success) {
+      clearCache();
+    }
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'แก้ไขอัตโนมัติไม่สำเร็จ';
@@ -2322,6 +2325,9 @@ app.post('/api/hosxp/batch-auto-fix-visits', async (req, res) => {
     const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
     const items = (Array.isArray(vns) ? vns : []).map((vn: string) => ({ vn }));
     const result = await batchApplyRepSheetZeroFix({ items, actorName });
+    if (result.fixedCount > 0) {
+      clearCache();
+    }
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'แก้ไขแบบกลุ่มไม่สำเร็จ';

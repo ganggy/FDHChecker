@@ -1,7 +1,7 @@
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { getUTFConnection } from './db/connection.js';
 import { readHospitalSchema } from './hospitalSchema.js';
-import { fixDentalClinicalVisit } from './dentalAudit.js';
+import { getNextHospitalSerial } from './hospitalDatabase.js';
 
 export interface RepSheetZeroFixOpportunity {
   fixType: 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX';
@@ -289,13 +289,57 @@ export async function applyRepSheetZeroFix(params: {
 
     // 4. ADD_DENTAL_EXAM
     if ((fixType === 'ALL' || fixType === 'ADD_DENTAL_EXAM') && vn && has('dtmain', 'vn')) {
-      try {
-        const dentalRes = await fixDentalClinicalVisit({ vn, actorName });
-        if (dentalRes?.actionsApplied && dentalRes.actionsApplied.length > 0) {
-          actionsApplied.push(...dentalRes.actionsApplied);
+      const [diagDental] = await connection.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM ovstdiag WHERE vn = ? AND (icd10 LIKE 'K0%' OR icd10 LIKE 'Z012%')`,
+        [vn]
+      );
+      const isDental = Number(diagDental[0]?.cnt || 0) > 0;
+      if (isDental) {
+        const [existingDm] = await connection.query<RowDataPacket[]>(
+          `SELECT COUNT(*) AS cnt FROM dtmain WHERE vn = ?`,
+          [vn]
+        );
+        const dmCount = Number(existingDm[0]?.cnt || 0);
+        if (dmCount === 0) {
+          const [maxTmRows] = await connection.query<RowDataPacket[]>(
+            `SELECT COALESCE(MAX(tm_no), 0) AS max_no FROM dtmain WHERE vn = ?`,
+            [vn]
+          );
+          const nextTmNo = Number(maxTmRows[0]?.max_no || 0) + 1;
+          const nextDtmainId = await getNextHospitalSerial(connection, 'dtmain_id', 'dtmain', 'dtmain_id');
+
+          const [dttmMatches] = await connection.query<RowDataPacket[]>(
+            `SELECT code, icd9cm, icd10tm_operation_code FROM dttm WHERE code = '3002' LIMIT 1`
+          );
+          const dttmRow = dttmMatches[0];
+          const tmcode = dttmRow ? String(dttmRow.code) : '3002';
+          const icd9 = dttmRow ? String(dttmRow.icd10tm_operation_code || dttmRow.icd9cm || '2330010') : '2330010';
+
+          const [pdxRows] = await connection.query<RowDataPacket[]>(
+            `SELECT icd10 FROM ovstdiag WHERE vn = ? AND diagtype = '1' LIMIT 1`,
+            [vn]
+          );
+          const primaryIcd = pdxRows[0]?.icd10 || 'Z012';
+
+          await connection.query(
+            `INSERT INTO dtmain (
+              dtmain_id, vn, hn, vstdate, vsttime, doctor, tmcode, icd9, icd, tm_no, fee, scount, tcount
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0)`,
+            [
+              nextDtmainId,
+              vn,
+              currentHn,
+              currentVstdate,
+              '09:00:00',
+              '900',
+              tmcode,
+              icd9,
+              primaryIcd,
+              nextTmNo,
+            ]
+          );
+          actionsApplied.push(`บันทึกหัตถการตรวจสุขภาพช่องปาก (Oral examination: รหัส ${tmcode} / ${icd9}) ลงใน dtmain เรียบร้อย`);
         }
-      } catch {
-        // Non-fatal if dental fix has no eligible items
       }
     }
 

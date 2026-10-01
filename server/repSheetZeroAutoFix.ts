@@ -52,22 +52,43 @@ export async function detectRepSheetZeroFix(params: {
     const opportunities: RepSheetZeroFixOpportunity[] = [];
 
     // 1. ตรวจสอบการผูก Claim Code / Authen Code
-    if (vn && has('ovst', 'vn', 'claim_code') && has('authenhos', 'claim_code')) {
-      const [ovstRows] = await connection.query<RowDataPacket[]>(
-        `SELECT claim_code, hn, vstdate FROM ovst WHERE vn = ? LIMIT 1`,
-        [vn]
-      );
-      const ovst = ovstRows[0];
-      const currentClaimCode = String(ovst?.claim_code || '').trim();
+    if (vn && (has('ovst', 'vn', 'claim_code') || has('visit_pttype', 'vn', 'auth_code')) && has('authenhos', 'claim_code')) {
+      let currentClaimCode = '';
+      let currentVstdate = '';
+      let currentCid = '';
+
+      if (has('ovst', 'vn')) {
+        const [ovstRows] = await connection.query<RowDataPacket[]>(
+          `SELECT o.hn, o.vstdate, pt.cid ${has('ovst', 'claim_code') ? ', o.claim_code' : ''}
+           FROM ovst o 
+           LEFT JOIN patient pt ON o.hn = pt.hn
+           WHERE o.vn = ? LIMIT 1`,
+          [vn]
+        );
+        const ovst = ovstRows[0];
+        currentVstdate = String(ovst?.vstdate || '');
+        currentCid = String(ovst?.cid || '');
+        if (has('ovst', 'claim_code')) {
+          currentClaimCode = String(ovst?.claim_code || '').trim();
+        }
+      }
+
+      if (!currentClaimCode && has('visit_pttype', 'vn', 'auth_code')) {
+        const [vpRows] = await connection.query<RowDataPacket[]>(
+          `SELECT auth_code FROM visit_pttype WHERE vn = ? AND TRIM(IFNULL(auth_code, '')) <> '' LIMIT 1`,
+          [vn]
+        );
+        currentClaimCode = String(vpRows[0]?.auth_code || '').trim();
+      }
 
       if (!currentClaimCode) {
-        // ค้นหา Claim Code ใน authenhos โดย vn หรือ hn + vstdate
+        // ค้นหา Claim Code ใน authenhos โดย vn หรือ pid(cid) + created_date
         const [authRows] = await connection.query<RowDataPacket[]>(
           `SELECT claim_code FROM authenhos 
-           WHERE (vn = ? OR (hn = ? AND created_date = ?)) 
+           WHERE (vn = ? OR (? <> '' AND pid = ? AND created_date = ?)) 
              AND TRIM(IFNULL(claim_code, '')) <> ''
            ORDER BY created_date DESC, created_time DESC LIMIT 1`,
-          [vn, ovst?.hn || params.hn, ovst?.vstdate]
+          [vn, currentCid, currentCid, currentVstdate]
         );
         const candidate = authRows[0]?.claim_code;
         if (candidate) {
@@ -179,35 +200,42 @@ export async function applyRepSheetZeroFix(params: {
 
     const actionsApplied: string[] = [];
 
-    // ดึง HN
+    // ดึง HN, vstdate และ CID
     let currentHn = '';
     let currentVstdate = '';
-    if (vn && has('ovst', 'vn', 'hn')) {
+    let currentCid = '';
+    if (vn && has('ovst', 'vn')) {
       const [ovstRows] = await connection.query<RowDataPacket[]>(
-        `SELECT hn, vstdate FROM ovst WHERE vn = ? LIMIT 1`,
+        `SELECT o.hn, o.vstdate, pt.cid 
+         FROM ovst o 
+         LEFT JOIN patient pt ON o.hn = pt.hn 
+         WHERE o.vn = ? LIMIT 1`,
         [vn]
       );
       currentHn = String(ovstRows[0]?.hn || '');
       currentVstdate = String(ovstRows[0]?.vstdate || '');
+      currentCid = String(ovstRows[0]?.cid || '');
     }
 
     await connection.beginTransaction();
 
     // 1. LINK_AUTHEN
-    if ((fixType === 'ALL' || fixType === 'LINK_AUTHEN') && vn && has('ovst', 'vn', 'claim_code') && has('authenhos', 'claim_code')) {
+    if ((fixType === 'ALL' || fixType === 'LINK_AUTHEN') && vn && (has('ovst', 'vn', 'claim_code') || has('visit_pttype', 'vn', 'auth_code')) && has('authenhos', 'claim_code')) {
       const [authRows] = await connection.query<RowDataPacket[]>(
         `SELECT claim_code FROM authenhos 
-         WHERE (vn = ? OR (hn = ? AND created_date = ?)) 
+         WHERE (vn = ? OR (? <> '' AND pid = ? AND created_date = ?)) 
            AND TRIM(IFNULL(claim_code, '')) <> ''
          ORDER BY created_date DESC, created_time DESC LIMIT 1`,
-        [vn, currentHn, currentVstdate]
+        [vn, currentCid, currentCid, currentVstdate]
       );
       const candidate = authRows[0]?.claim_code;
       if (candidate) {
-        await connection.query(
-          `UPDATE ovst SET claim_code = ? WHERE vn = ? AND (claim_code IS NULL OR TRIM(claim_code) = '')`,
-          [candidate, vn]
-        );
+        if (has('ovst', 'vn', 'claim_code')) {
+          await connection.query(
+            `UPDATE ovst SET claim_code = ? WHERE vn = ? AND (claim_code IS NULL OR TRIM(claim_code) = '')`,
+            [candidate, vn]
+          );
+        }
         if (has('visit_pttype', 'vn', 'auth_code')) {
           await connection.query(
             `UPDATE visit_pttype SET auth_code = ? WHERE vn = ? AND (auth_code IS NULL OR TRIM(auth_code) = '')`,

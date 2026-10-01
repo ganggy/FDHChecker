@@ -2966,13 +2966,19 @@ export const getEligibleVisits = async (
         -- ตรวจสอบโอกาสแก้ไขอัตโนมัติ (Pre-submit Auto-Fix Audit)
         COALESCE(
           (SELECT auth_code FROM visit_pttype WHERE vn = ovst.vn AND pttype = ovst.pttype AND TRIM(IFNULL(auth_code, '')) <> '' LIMIT 1),
-          (SELECT claim_code FROM authenhos WHERE vn = ovst.vn AND TRIM(IFNULL(claim_code, '')) <> '' LIMIT 1),
           ''
         ) as current_auth_code,
         CASE WHEN EXISTS (
           SELECT 1 FROM authenhos ah 
-          WHERE (ah.vn = ovst.vn OR (ah.hn = ovst.hn AND ah.created_date = ovst.vstdate)) 
-            AND TRIM(IFNULL(ah.claim_code, '')) <> ''
+          WHERE (
+            ah.vn = ovst.vn 
+            OR (
+              TRIM(IFNULL(pt.cid, '')) <> '' 
+              AND ah.pid = pt.cid 
+              AND ah.created_date = ovst.vstdate
+            )
+          ) 
+          AND TRIM(IFNULL(ah.claim_code, '')) <> ''
           LIMIT 1
         ) THEN 1 ELSE 0 END as has_candidate_authen,
         CASE WHEN EXISTS (

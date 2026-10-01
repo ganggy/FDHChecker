@@ -18,6 +18,8 @@ chapters = {
     "fdhImport": 12, "fdhClaimDetail": 12, "repstm": 14, "repstmManage": 25,
     "sssExport": 20, "sssRepStm": 20, "authenSync": 13, "preValidator": 11,
     "workQueue": 11, "rejectTracking": 15, "uuc1Tracking": 15, "receivable": 21,
+    "stmZeroAudit": 33, "repSheetZeroAudit": 33, "receivableSettlement": 21,
+    "annualCheckupReport": 24, "dentalAudit": 16, "ktbApproveCode": 14,
     "reconciliation": 22, "repDailySummary": 22, "ppfsBenchmark": 22,
     "ppfsVisitMatch": 22, "insuranceOverview": 23, "accountingRevenueBudget": 23,
     "ucOutsideCup": 17, "repDeny": 15, "admin": 23, "memberAdmin": 25,
@@ -53,8 +55,8 @@ def heading(match):
     toc.append((number, title))
     return f'<h2 id="chapter-{number}">{number}. {title}</h2>'
 body = re.sub(r"<h2>(\d+)\. (.*?)</h2>", heading, body)
-if len(toc) != 32:
-    raise SystemExit(f"Expected 32 chapters, got {len(toc)}")
+if len(toc) != 33:
+    raise SystemExit(f"Expected 33 chapters, got {len(toc)}")
 for chapter in chapters.values():
     assert f'id="chapter-{chapter}"' in body
 toc_html = '<nav class="toc"><h2>สารบัญ</h2><ol>' + ''.join(
@@ -73,7 +75,7 @@ code{font-family:Consolas,monospace;font-size:.88em;overflow-wrap:anywhere;backg
 @media(max-width:720px){main{margin:0;padding:24px}.toc ol{columns:1}h1{font-size:29px}table{font-size:12px}}
 @media print{body{background:white;font-size:10pt;line-height:1.65;color:#172b45}main{max-width:none;margin:0;padding:0;box-shadow:none}.toolbar{display:none}.cover{break-after:page;border:0;padding-top:30mm}.cover p{font-size:11pt}.brand{font-size:11pt}h1{font-size:30pt}h2{break-before:page;break-after:avoid;font-size:18pt;margin:0 0 14pt;padding-top:12pt}h3{break-after:avoid;font-size:12pt;margin-top:15pt}p{orphans:3;widows:3}table{font-size:8.8pt;line-height:1.6;margin:12pt 0}td,th{padding:6pt}tr{break-inside:avoid}thead{display:table-header-group}pre{font-size:8pt;break-inside:avoid}a{color:inherit;text-decoration:none}.toc{break-after:page}.toc h2{break-before:auto}.toc ol{columns:2;font-size:10pt}.toc li{margin:7pt 0}.cover h1{break-before:auto}}
 """
-document = '<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>คู่มือ FDH Checker ทั้งระบบ</title><style>' + css + '</style></head><body><div class="toolbar"><span>คู่มือ FDH Checker ทั้งระบบ</span><a href="#chapter-1">เริ่มอ่าน</a><button onclick="window.print()">พิมพ์ / บันทึก PDF</button></div><main>' + body + '<p class="footer-note">ตรวจเทียบโค้ด 22 กันยายน 2569 • ใช้ร่วมกับทะเบียนค่ารายโรงพยาบาลและประกาศที่หน่วยงานรับผิดชอบ</p></main></body></html>'
+document = '<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>คู่มือ FDH Checker ทั้งระบบ</title><style>' + css + '</style></head><body><div class="toolbar"><span>คู่มือ FDH Checker ทั้งระบบ</span><a href="#chapter-1">เริ่มอ่าน</a><button onclick="window.print()">พิมพ์ / บันทึก PDF</button></div><main>' + body + '<p class="footer-note">ปรับคู่มือ 30 กันยายน 2569 • ใช้ร่วมกับทะเบียนค่ารายโรงพยาบาลและประกาศที่หน่วยงานรับผิดชอบ</p></main></body></html>'
 (DOCS / "manual_system_overview.html").write_text(document, encoding="utf-8")
 # Public files are served from the site root; documentation links must not fall
 # through to the application's SPA router.
@@ -82,7 +84,7 @@ def public_link(match):
     if target.startswith(("http:", "https:", "#")):
         return match.group(0)
     relative = (DOCS / target).resolve().relative_to(ROOT).as_posix()
-    return 'href="https://github.com/ganggy/FDHChecker/blob/abdfa5f/' + quote(relative) + '"'
+    return 'href="https://github.com/ganggy/FDHChecker/blob/main/' + quote(relative) + '"'
 (ROOT / "public/manual_system_overview.html").write_text(
     re.sub(r'href="([^"]+)"', public_link, document), encoding="utf-8")
 print(f"HTML complete: {len(toc)} chapters; {len(menus)} menus covered; {len(funds)} fund entries; local links valid")

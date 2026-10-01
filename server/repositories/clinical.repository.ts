@@ -3530,6 +3530,13 @@ export const getEligibleIPD = async (
     await ensureRepstmTables();
     const [auditTableRows] = await connection.query("SHOW TABLES LIKE 'z_fdh_audit_log'");
     const hasAuditTable = Array.isArray(auditTableRows) && auditTableRows.length > 0;
+    const [historyTableRows] = await connection.query("SHOW TABLES LIKE 'z_fdh_audit_history'");
+    const hasHistoryTable = Array.isArray(historyTableRows) && historyTableRows.length > 0;
+    const auditField = (field: string) => {
+      const legacy = hasAuditTable ? `za.${field}` : 'NULL';
+      const current = hasHistoryTable ? `zah.${field === 'updated_at' ? 'created_at' : field}` : 'NULL';
+      return `COALESCE(${current}, ${legacy})`;
+    };
 
     let query = `
       SELECT 
@@ -3631,9 +3638,9 @@ export const getEligibleIPD = async (
           WHEN ipt.dchdate IS NOT NULL THEN 'รอแพทย์สรุปชาร์ต'
           ELSE 'รอดำเนินการ'
         END as chartStatus,
-        ${hasAuditTable ? 'za.status' : 'NULL'} as audit_status,
-        ${hasAuditTable ? 'za.updated_by' : 'NULL'} as audit_by,
-        ${hasAuditTable ? 'za.updated_at' : 'NULL'} as audit_date,
+        ${auditField('status')} as audit_status,
+        ${auditField('updated_by')} as audit_by,
+        ${auditField('updated_at')} as audit_date,
         COALESCE(NULL, fdh.transaction_uid) as fdh_transaction_uid,
         COALESCE(
           NULL,
@@ -3670,6 +3677,10 @@ export const getEligibleIPD = async (
       LEFT JOIN ward w ON ipt.ward = w.ward
       LEFT JOIN pttype ON ipt.pttype = pttype.pttype
       ${hasAuditTable ? 'LEFT JOIN z_fdh_audit_log za ON ipt.an = za.an' : ''}
+      ${hasHistoryTable ? `LEFT JOIN (
+        SELECT h.* FROM z_fdh_audit_history h
+        JOIN (SELECT an, MAX(id) AS id FROM z_fdh_audit_history GROUP BY an) latest ON latest.id = h.id
+      ) zah ON zah.an = ipt.an` : ''}
       LEFT JOIN (
         SELECT s.*
         FROM fdh_claim_status s

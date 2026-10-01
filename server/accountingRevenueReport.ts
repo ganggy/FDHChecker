@@ -20,14 +20,14 @@ const CATEGORY_DEFINITIONS: Array<{ key: RevenueCategoryKey; opd: string; ipd: s
   { key: 'other', opd: '41070', ipd: '42070', label: 'รายได้ค่ารักษาและบริการอื่น ๆ' },
 ];
 
-const mappingByPttype = new Map(RECEIVABLE_RIGHT_MAPPINGS.map((row) => [String(row.hosxp_code), row]));
+
 const clean = (value: unknown) => String(value || '').normalize('NFKC').trim();
 const upper = (value: unknown) => clean(value).toUpperCase();
 const numeric = (value: unknown) => { const parsed = Number(value || 0); return Number.isFinite(parsed) ? parsed : 0; };
 
 export const classifyRevenueRight = (row: Pick<RevenueSourceRow, 'pttype' | 'pttype_name' | 'hipdata_code'>) => {
   const pttype = clean(row.pttype);
-  const mapping = mappingByPttype.get(pttype);
+  const mapping = RECEIVABLE_RIGHT_MAPPINGS.find(item => item.hosxp_code === pttype);
   const finance = clean(mapping?.finance_name);
   const hipdata = upper(mapping?.hipdata_code || row.hipdata_code);
   const name = clean(mapping?.hosxp_name || row.pttype_name);

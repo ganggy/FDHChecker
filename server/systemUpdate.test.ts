@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildUpdateRunnerConfig, parsePm2ProcessList, reconcileUpdateJob, resetSystemUpdateLock, validateUpdateBranch, type SystemUpdateJob } from './systemUpdate.js';
+import { buildUpdateRunnerConfig, parsePm2ProcessList, reconcileUpdateJob, resetSystemUpdateLock, validateUpdateBranch, validateUpdateRuntime, type SystemUpdateJob } from './systemUpdate.js';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 const now = Date.parse('2026-09-14T08:00:00Z');
+test('update preflight rejects absent, offline and wrong-directory PM2 services', () => {
+  const entry = { name: 'fdh-backend', pid: 1, pm2_env: { status: 'online', pm_cwd: '/app' } };
+  assert.doesNotThrow(() => validateUpdateRuntime([entry], '/app', ['fdh-backend']));
+  assert.throws(() => validateUpdateRuntime([], '/app', ['fdh-backend']), /systemd/);
+  assert.throws(() => validateUpdateRuntime([{ ...entry, pm2_env: { ...entry.pm2_env, status: 'stopped' } }], '/app', ['fdh-backend']));
+  assert.throws(() => validateUpdateRuntime([entry], '/other', ['fdh-backend']), /ecosystem/);
+});
 const job: SystemUpdateJob = {
   id: 'fixture-job', status: 'running', stage: 'restarting', progress: 89,
   message: '', action: 'update', actor: 'test', changeSummary: 'fixture',

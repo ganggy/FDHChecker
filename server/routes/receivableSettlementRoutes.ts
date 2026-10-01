@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import {
   getAvailableStatements,
   getStatementSettlementCandidates,
@@ -45,10 +45,11 @@ receivableSettlementRouter.get('/candidates', async (req, res) => {
 // POST /api/receivables/settlement/execute
 receivableSettlementRouter.post('/execute', async (req, res) => {
   try {
-    const result = await executeSettlement(req.body || {});
+    const actor = (req as Request & { authUser?: { id: number; username: string } }).authUser;
+    if (!actor) return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ' });
+    const result = await executeSettlement(req.body || {}, actor.username);
     return res.json({ success: true, data: result });
   } catch (error) {
-    console.error('Error executing settlement:', error);
     return res.status(400).json({
       success: false,
       error: error instanceof Error ? error.message : 'บันทึกตัดลูกหนี้ไม่สำเร็จ',

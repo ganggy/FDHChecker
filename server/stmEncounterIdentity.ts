@@ -21,7 +21,7 @@ export function statementEncounterIdentity(row: Record<string, unknown>) {
   else if (clean(rawAn)) kind = 'IP';
   else if (clean(rawVn)) kind = 'OP';
   const serviceDatetime = parseFlexibleDateTime(pick(['service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันเข้ารักษา', 'วันที่ฟอกเลือดด้วยเครื่องไตเทียม', 'วันจำหน่าย']) || String(row.service_datetime ?? row.service_date ?? ''));
-  return { kind, hn: pick(['HN']) || String(row.hn ?? '').trim(), tranId,
+  return { kind, hn: pick(['HN']) || String(row.hn ?? '').trim(), cid: pick(['CID', 'PID', 'เลขบัตรประชาชน', 'เลขบัตรประชาชน (PID)']) || String(row.pid ?? row.cid ?? '').trim(), tranId,
     vn: kind === 'IP' ? '' : clean(rawVn || row.vn),
     an: kind === 'OP' ? '' : clean(rawAn || row.an),
     serviceDatetime,
@@ -36,21 +36,51 @@ export function uniqueHisEncounter(hn: string, kind: EncounterKind, encounters: 
 }
 
 type EncounterReader = { query(sql: string, values: string[]): Promise<unknown> };
-// Only one confirmed encounter is safe; an import timestamp may omit seconds.
-export async function findStatementEncounter(connection: EncounterReader, identity: ReturnType<typeof statementEncounterIdentity>): Promise<HisEncounter | null> {
-  if (!identity.hn || !identity.serviceDatetime) return null;
-  const date = identity.serviceDatetime.slice(0, 10);
-  const minute = identity.serviceDatetime.slice(11, 16);
+type EncounterIdentity = { kind: EncounterKind; hn: string; cid?: string; vn?: string; an?: string; serviceDatetime: string | null };
+export function matchesHospitalIdentity(identity: EncounterIdentity, kind: 'OP' | 'IP', record: Record<string, unknown>): boolean {
+  if (identity.kind !== 'UNKNOWN' && identity.kind !== kind) return false;
+  if (identity.hn && String(record.hn ?? '') !== identity.hn) return false;
+  const cid = String(identity.cid || '').replace(/[^0-9]/g, '');
+  if (cid.length === 13 && String(record.cid ?? '') !== cid) return false;
+  if (!identity.hn && cid.length !== 13) return false;
+  const date = identity.serviceDatetime?.slice(0, 10);
+  if (date && !(kind === 'OP' ? String(record.service_date) === date : [String(record.regdate), String(record.dchdate)].includes(date))) return false;
+  const minute = identity.serviceDatetime?.slice(11, 16);
+  if (kind === 'OP' && minute && minute !== '00:00' && String(record.service_time || '').slice(0, 5) !== minute) return false;
+  return true;
+}
+// Explicit keys must also agree with the patient and supplied service date/time.
+export async function resolveHospitalEncounter(connection: EncounterReader, identity: EncounterIdentity, useKeys = true): Promise<HisEncounter | null> {
+  const hn = identity.hn.trim();
+  const cid = String(identity.cid || '').replace(/[^0-9]/g, '');
+  if (!hn && cid.length !== 13) return null;
+  const date = identity.serviceDatetime?.slice(0, 10);
+  const minute = identity.serviceDatetime?.slice(11, 16);
   const encounters: HisEncounter[] = [];
-  if (identity.kind !== 'IP') {
-    const timeClause = minute && minute !== '00:00' ? ' AND vsttime >= ? AND vsttime <= ?' : '';
-    const params = timeClause ? [identity.hn, date, `${minute}:00`, `${minute}:59`] : [identity.hn, date];
-    const [rows] = await connection.query(`SELECT vn AS visit_code, hn FROM ovst WHERE hn = ? AND vstdate = ?${timeClause} LIMIT 2`, params) as [Array<{ visit_code: string; hn: string }>];
-    encounters.push(...rows.map(r => ({ kind: 'OP' as const, hn: String(r.hn), visit_code: String(r.visit_code) })));
+  for (const kind of ['OP', 'IP'] as const) {
+    if (identity.kind !== 'UNKNOWN' && identity.kind !== kind) continue;
+    const key = useKeys ? (kind === 'OP' ? identity.vn : identity.an)?.trim() : '';
+    if (!date && !key) continue;
+    const column = kind === 'OP' ? 'vn' : 'an';
+    const clauses: string[] = []; const values: string[] = [];
+    if (hn) { clauses.push('v.hn = ?'); values.push(hn); }
+    if (cid.length === 13) { clauses.push('pt.cid = ?'); values.push(cid); }
+    if (date) {
+      clauses.push(kind === 'OP' ? 'v.vstdate = ?' : '(v.regdate = ? OR v.dchdate = ?)');
+      values.push(date); if (kind === 'IP') values.push(date);
+    }
+    if (kind === 'OP' && minute && minute !== '00:00') {
+      clauses.push('v.vsttime >= ? AND v.vsttime <= ?'); values.push(`${minute}:00`, `${minute}:59`);
+    }
+    if (key) { clauses.push(`v.${column} = ?`); values.push(key); }
+    const [rows] = await connection.query(`SELECT v.${column} AS visit_code, v.hn FROM ${kind === 'OP' ? 'ovst' : 'ipt'} v${cid.length === 13 ? ' JOIN patient pt ON pt.hn = v.hn' : ''} WHERE ${clauses.join(' AND ')} LIMIT 2`, values) as [Array<{ visit_code: string; hn: string }>];
+    encounters.push(...rows.map(r => ({ kind, hn: String(r.hn), visit_code: String(r.visit_code) })));
   }
-  if (identity.kind !== 'OP') {
-    const [rows] = await connection.query('SELECT an AS visit_code, hn FROM ipt WHERE hn = ? AND (regdate = ? OR dchdate = ?) LIMIT 2', [identity.hn, date, date]) as [Array<{ visit_code: string; hn: string }>];
-    encounters.push(...rows.map(r => ({ kind: 'IP' as const, hn: String(r.hn), visit_code: String(r.visit_code) })));
-  }
-  return uniqueHisEncounter(identity.hn, identity.kind, encounters);
+  const unique = new Map(encounters.map(e => [`${e.kind}:${e.visit_code}`, e]));
+  if (unique.size === 1) return [...unique.values()][0];
+  if (unique.size === 0 && useKeys && date && (identity.vn || identity.an)) return resolveHospitalEncounter(connection, identity, false);
+  return null;
+}
+export async function findStatementEncounter(connection: EncounterReader, identity: EncounterIdentity): Promise<HisEncounter | null> {
+  return resolveHospitalEncounter(connection, identity, false);
 }

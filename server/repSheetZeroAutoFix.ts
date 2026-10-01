@@ -1,0 +1,335 @@
+import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
+import { getUTFConnection } from './db/connection.js';
+import { readHospitalSchema } from './hospitalSchema.js';
+import { fixDentalClinicalVisit } from './dentalAudit.js';
+
+export interface RepSheetZeroFixOpportunity {
+  fixType: 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX';
+  title: string;
+  detail: string;
+  autoFixable: boolean;
+}
+
+export interface RepSheetZeroFixDetectionResult {
+  vn: string;
+  an?: string;
+  hn: string;
+  opportunities: RepSheetZeroFixOpportunity[];
+  canAutoFix: boolean;
+}
+
+export interface RepSheetZeroFixExecutionResult {
+  vn: string;
+  an?: string;
+  hn: string;
+  success: boolean;
+  actionsApplied: string[];
+  message: string;
+}
+
+/**
+ * ตรวจสอบโอกาสในการแก้ไขข้อมูลอัตโนมัติ (Auto-Fix) สำหรับ Visit ใน REP Data Sheet 0
+ */
+export async function detectRepSheetZeroFix(params: {
+  vn: string;
+  an?: string;
+  hn?: string;
+  errorcode?: string;
+  verifycode?: string;
+  reason?: string;
+}): Promise<RepSheetZeroFixDetectionResult> {
+  const { vn, an } = params;
+  if (!vn && !an) {
+    return { vn: '', an: '', hn: params.hn || '', opportunities: [], canAutoFix: false };
+  }
+
+  const connection = await getUTFConnection();
+  try {
+    const has = await readHospitalSchema(connection, [
+      'ovst', 'ovstdiag', 'vn_stat', 'authenhos', 'nhso_authen', 'dtmain', 'visit_pttype'
+    ]);
+
+    const opportunities: RepSheetZeroFixOpportunity[] = [];
+
+    // 1. ตรวจสอบการผูก Claim Code / Authen Code
+    if (vn && has('ovst', 'vn', 'claim_code') && has('authenhos', 'claim_code')) {
+      const [ovstRows] = await connection.query<RowDataPacket[]>(
+        `SELECT claim_code, hn, vstdate FROM ovst WHERE vn = ? LIMIT 1`,
+        [vn]
+      );
+      const ovst = ovstRows[0];
+      const currentClaimCode = String(ovst?.claim_code || '').trim();
+
+      if (!currentClaimCode) {
+        // ค้นหา Claim Code ใน authenhos โดย vn หรือ hn + vstdate
+        const [authRows] = await connection.query<RowDataPacket[]>(
+          `SELECT claim_code FROM authenhos 
+           WHERE (vn = ? OR (hn = ? AND created_date = ?)) 
+             AND TRIM(IFNULL(claim_code, '')) <> ''
+           ORDER BY created_date DESC, created_time DESC LIMIT 1`,
+          [vn, ovst?.hn || params.hn, ovst?.vstdate]
+        );
+        const candidate = authRows[0]?.claim_code;
+        if (candidate) {
+          opportunities.push({
+            fixType: 'LINK_AUTHEN',
+            title: 'ผูกรหัส Claim / Authen Code',
+            detail: `พบรหัส ${candidate} ในประวัติ Authen พร้อมผูกเข้า Visit อัตโนมัติ`,
+            autoFixable: true,
+          });
+        }
+      }
+    }
+
+    // 2. ตรวจสอบรหัสหัตถการตัวเลขตกค้างในตารางวินิจฉัย (ovstdiag)
+    if (vn && has('ovstdiag', 'vn', 'icd10')) {
+      const [numRows] = await connection.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM ovstdiag WHERE vn = ? AND icd10 REGEXP '^[0-9]'`,
+        [vn]
+      );
+      const numCount = Number(numRows[0]?.cnt || 0);
+      if (numCount > 0) {
+        opportunities.push({
+          fixType: 'REMOVE_NUMERIC_DX',
+          title: 'ลบรหัสหัตถการตัวเลขตกค้างในตารางโรค',
+          detail: `พบรหัสตัวเลข ${numCount} รายการใน ovstdiag ซึ่งอาจทำให้ติด C/Deny`,
+          autoFixable: true,
+        });
+      }
+    }
+
+    // 3. ตรวจสอบกรณีทันตกรรมขาด dtmain
+    if (vn && has('dtmain', 'vn') && has('ovstdiag', 'vn', 'icd10')) {
+      const [dtRows] = await connection.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM dtmain WHERE vn = ?`,
+        [vn]
+      );
+      const hasDt = Number(dtRows[0]?.cnt || 0) > 0;
+      if (!hasDt) {
+        const [diagDental] = await connection.query<RowDataPacket[]>(
+          `SELECT COUNT(*) AS cnt FROM ovstdiag WHERE vn = ? AND (icd10 LIKE 'K0%' OR icd10 LIKE 'Z012%')`,
+          [vn]
+        );
+        const isDental = Number(diagDental[0]?.cnt || 0) > 0;
+        if (isDental) {
+          opportunities.push({
+            fixType: 'ADD_DENTAL_EXAM',
+            title: 'สร้างบันทึกทันตกรรม (dtmain)',
+            detail: 'มีรหัสโรคฟันแต่ยังไม่มีข้อมูล dtmain พร้อมสร้างให้อัตโนมัติ',
+            autoFixable: true,
+          });
+        }
+      }
+    }
+
+    // 4. ตรวจสอบกรณีขาดรหัสโรคหลัก (Primary Diagnosis / PDX)
+    if (vn && has('ovstdiag', 'vn', 'diagtype')) {
+      const [pdxRows] = await connection.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM ovstdiag WHERE vn = ? AND diagtype = '1'`,
+        [vn]
+      );
+      const pdxCount = Number(pdxRows[0]?.cnt || 0);
+      if (pdxCount === 0) {
+        const [anyDx] = await connection.query<RowDataPacket[]>(
+          `SELECT ovst_diag_id, icd10 FROM ovstdiag WHERE vn = ? ORDER BY ovst_diag_id ASC LIMIT 1`,
+          [vn]
+        );
+        if (anyDx.length > 0) {
+          opportunities.push({
+            fixType: 'SET_PRIMARY_DX',
+            title: 'กำหนดรหัสโรคหลัก (PDX)',
+            detail: `ยังไม่มีรหัสโรคหลัก (diagtype=1) สามารถตั้งค่ารหัส ${anyDx[0].icd10} เป็นโรคหลักได้`,
+            autoFixable: true,
+          });
+        }
+      }
+    }
+
+    return {
+      vn,
+      an,
+      hn: params.hn || '',
+      opportunities,
+      canAutoFix: opportunities.length > 0,
+    };
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * ทำการแก้ไขข้อมูลอัตโนมัติ (Apply Auto-Fix) ให้กับ Visit ใน REP Data Sheet 0
+ */
+export async function applyRepSheetZeroFix(params: {
+  vn: string;
+  an?: string;
+  fixType?: 'ALL' | 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX';
+  actorName?: string;
+}): Promise<RepSheetZeroFixExecutionResult> {
+  const { vn, an, fixType = 'ALL', actorName = 'admin' } = params;
+  if (!vn && !an) {
+    return { vn: '', an: '', hn: '', success: false, actionsApplied: [], message: 'ไม่ระบุ VN หรือ AN' };
+  }
+
+  const connection = await getUTFConnection();
+  try {
+    const has = await readHospitalSchema(connection, [
+      'ovst', 'ovstdiag', 'vn_stat', 'authenhos', 'dtmain', 'visit_pttype'
+    ]);
+
+    const actionsApplied: string[] = [];
+
+    // ดึง HN
+    let currentHn = '';
+    let currentVstdate = '';
+    if (vn && has('ovst', 'vn', 'hn')) {
+      const [ovstRows] = await connection.query<RowDataPacket[]>(
+        `SELECT hn, vstdate FROM ovst WHERE vn = ? LIMIT 1`,
+        [vn]
+      );
+      currentHn = String(ovstRows[0]?.hn || '');
+      currentVstdate = String(ovstRows[0]?.vstdate || '');
+    }
+
+    await connection.beginTransaction();
+
+    // 1. LINK_AUTHEN
+    if ((fixType === 'ALL' || fixType === 'LINK_AUTHEN') && vn && has('ovst', 'vn', 'claim_code') && has('authenhos', 'claim_code')) {
+      const [authRows] = await connection.query<RowDataPacket[]>(
+        `SELECT claim_code FROM authenhos 
+         WHERE (vn = ? OR (hn = ? AND created_date = ?)) 
+           AND TRIM(IFNULL(claim_code, '')) <> ''
+         ORDER BY created_date DESC, created_time DESC LIMIT 1`,
+        [vn, currentHn, currentVstdate]
+      );
+      const candidate = authRows[0]?.claim_code;
+      if (candidate) {
+        await connection.query(
+          `UPDATE ovst SET claim_code = ? WHERE vn = ? AND (claim_code IS NULL OR TRIM(claim_code) = '')`,
+          [candidate, vn]
+        );
+        if (has('visit_pttype', 'vn', 'auth_code')) {
+          await connection.query(
+            `UPDATE visit_pttype SET auth_code = ? WHERE vn = ? AND (auth_code IS NULL OR TRIM(auth_code) = '')`,
+            [candidate, vn]
+          );
+        }
+        actionsApplied.push(`ผูกรหัส Claim/Authen Code (${candidate}) เข้าสู่ Visit ใน ovst/visit_pttype เรียบร้อย`);
+      }
+    }
+
+    // 2. REMOVE_NUMERIC_DX
+    if ((fixType === 'ALL' || fixType === 'REMOVE_NUMERIC_DX') && vn && has('ovstdiag', 'vn', 'icd10')) {
+      const [delRes] = await connection.query(
+        `DELETE FROM ovstdiag WHERE vn = ? AND icd10 REGEXP '^[0-9]'`,
+        [vn]
+      );
+      const delCount = Number((delRes as { affectedRows?: number })?.affectedRows || 0);
+      if (delCount > 0) {
+        actionsApplied.push(`ลบรหัสหัตถการตัวเลขตกค้างออกจาก ovstdiag (${delCount} รายการ) เรียบร้อย`);
+      }
+    }
+
+    // 3. SET_PRIMARY_DX
+    if ((fixType === 'ALL' || fixType === 'SET_PRIMARY_DX') && vn && has('ovstdiag', 'vn', 'diagtype')) {
+      const [pdxRows] = await connection.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM ovstdiag WHERE vn = ? AND diagtype = '1'`,
+        [vn]
+      );
+      if (Number(pdxRows[0]?.cnt || 0) === 0) {
+        const [anyDx] = await connection.query<RowDataPacket[]>(
+          `SELECT ovst_diag_id, icd10 FROM ovstdiag WHERE vn = ? ORDER BY ovst_diag_id ASC LIMIT 1`,
+          [vn]
+        );
+        if (anyDx.length > 0) {
+          const firstId = anyDx[0].ovst_diag_id;
+          const firstIcd = anyDx[0].icd10;
+          await connection.query(
+            `UPDATE ovstdiag SET diagtype = '1' WHERE ovst_diag_id = ?`,
+            [firstId]
+          );
+          if (has('vn_stat', 'vn', 'pdx')) {
+            await connection.query(
+              `UPDATE vn_stat SET pdx = ? WHERE vn = ? AND (pdx IS NULL OR TRIM(pdx) = '')`,
+              [firstIcd, vn]
+            );
+          }
+          actionsApplied.push(`กำหนดรหัส ${firstIcd} เป็นโรคหลัก (diagtype=1) ใน ovstdiag และ vn_stat เรียบร้อย`);
+        }
+      }
+    }
+
+    // 4. ADD_DENTAL_EXAM
+    if ((fixType === 'ALL' || fixType === 'ADD_DENTAL_EXAM') && vn && has('dtmain', 'vn')) {
+      try {
+        const dentalRes = await fixDentalClinicalVisit({ vn, actorName });
+        if (dentalRes?.actionsApplied && dentalRes.actionsApplied.length > 0) {
+          actionsApplied.push(...dentalRes.actionsApplied);
+        }
+      } catch {
+        // Non-fatal if dental fix has no eligible items
+      }
+    }
+
+    await connection.commit();
+
+    return {
+      vn,
+      an,
+      hn: currentHn,
+      success: actionsApplied.length > 0,
+      actionsApplied,
+      message: actionsApplied.length > 0
+        ? `แก้ไขอัตโนมัติสำเร็จ (${actionsApplied.length} การดำเนินการ)`
+        : 'ตรวจไม่พบรายการที่เข้าเงื่อนไขแก้ไขอัตโนมัติในฐานข้อมูล',
+    };
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+    return {
+      vn,
+      an,
+      hn: '',
+      success: false,
+      actionsApplied: [],
+      message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการแก้ไขอัตโนมัติ',
+    };
+  } finally {
+    connection.release();
+  }
+}
+
+/**
+ * แก้ไขอัตโนมัติแบบกลุ่ม (Batch Auto-Fix)
+ */
+export async function batchApplyRepSheetZeroFix(params: {
+  items: Array<{ vn: string; an?: string }>;
+  actorName?: string;
+}): Promise<{
+  total: number;
+  fixedCount: number;
+  results: RepSheetZeroFixExecutionResult[];
+}> {
+  const items = params.items || [];
+  const results: RepSheetZeroFixExecutionResult[] = [];
+  let fixedCount = 0;
+
+  for (const item of items) {
+    if (!item.vn && !item.an) continue;
+    const res = await applyRepSheetZeroFix({
+      vn: item.vn,
+      an: item.an,
+      fixType: 'ALL',
+      actorName: params.actorName,
+    });
+    results.push(res);
+    if (res.success) {
+      fixedCount++;
+    }
+  }
+
+  return {
+    total: items.length,
+    fixedCount,
+    results,
+  };
+}

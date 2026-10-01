@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useEffectEvent, useMemo } from 'react';
 import { thaiBahtText } from '../utils/thaiBahtText';
 import './AnnualHealthCheckupReportPage.css';
 
@@ -301,8 +301,9 @@ export function AnnualHealthCheckupReportPage() {
     }
   };
 
+  const fetchInitialVisits = useEffectEvent(() => { void fetchVisits(); });
   useEffect(() => {
-    fetchVisits();
+    fetchInitialVisits();
   }, []);
 
   // Toggle selection

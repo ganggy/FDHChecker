@@ -1,3 +1,4 @@
+import { ReceivableMappingSettings } from '../components/ReceivableMappingSettings';
 import { HospitalScopeSettings } from '../components/HospitalScopeSettings';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import '../styles/Settings.css';
@@ -458,7 +459,8 @@ export const SettingsPage: React.FC = () => {
                     >
                         {saving ? 'กำลังบันทึก...' : '💾 บันทึกการเปลี่ยนแปลง'}
                     </button>
-                    {activeTab === 'advanced' && (
+                    {activeTab === 'advanced' && <ReceivableMappingSettings />}
+                {activeTab === 'advanced' && (
                         <div className="settings-transfer-actions">
                         <button className="tab-btn" onClick={exportAppSettings}>⬇️ Export JSON</button>
                         <button className="tab-btn" onClick={() => appImportRef.current?.click()}>⬆️ Import JSON</button>
@@ -512,7 +514,7 @@ export const SettingsPage: React.FC = () => {
                     <div className="settings-tab-cluster-buttons">
                         <button type="button" className={`tab-btn ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>💰 ต้นทุนและกฎ Lab</button>
                         <button type="button" className={`tab-btn ${activeTab === 'ipdLos' ? 'active' : ''}`} onClick={() => setActiveTab('ipdLos')}>🛏️ ICD-10 / LOS</button>
-                        <button type="button" className={`tab-btn ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>🛠️ จัดการข้อมูล (JSON)</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>🛠️ บัญชีและข้อมูลขั้นสูง</button>
                     </div>
                 </div>
             </div>

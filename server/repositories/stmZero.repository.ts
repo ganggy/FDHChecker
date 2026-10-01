@@ -1,7 +1,7 @@
 import type { RowDataPacket, PoolConnection } from 'mysql2/promise';
 import { getRepstmConnection, getUTFConnection } from '../db/connection.js';
 import { readVisitItems, readVisitClinical } from '../visitDetails.js';
-import { statementEncounterIdentity, findStatementEncounter, type HisEncounter } from '../stmEncounterIdentity.js';
+import { statementEncounterIdentity, findStatementEncounter, matchesHospitalIdentity, type HisEncounter } from '../stmEncounterIdentity.js';
 import { pickImportColumn } from '../utils/importColumnLookup.js';
 import { classifyZeroAction, isExplicitZero, originalPaidAmount, parseOriginalRow, resolveUniqueRepVisit, type StmZeroRow } from '../../src/utils/stmZeroAudit.js';
 
@@ -11,25 +11,33 @@ const text = (v: unknown) => v == null ? '' : String(v);
 const amount = (v: unknown) => v == null || v === '' ? null : Number(v);
 export type ZeroAuditSource = 'stm' | 'rep-sheet-zero';
 const repSheetZeroPredicate = `r.data_type = 'REP' AND b.data_type = 'REP' AND ${sheetZero}`;
-export async function readZeroAuditSourceRows(connection: Pick<PoolConnection, 'query'>, startDate: string, endDate: string, source: ZeroAuditSource) {
+export async function readZeroAuditSourceRows(connection: Pick<PoolConnection, 'query'>, startDate: string, endDate: string, source: ZeroAuditSource, selectedIds?: string[]) {
+    const selection = (prefix: string, alias: string) => {
+      if (selectedIds === undefined) return { sql: '', args: [] as string[] };
+      const ids = selectedIds.filter(id => id.startsWith(prefix + '-')).map(id => id.slice(prefix.length + 1));
+      return ids.length ? { sql: ` AND ${alias}.id IN (${ids.map(() => '?').join(',')})`, args: ids }
+        : { sql: ' AND 1=0', args: [] as string[] };
+    };
+    const normalSelection = selection('stm', 's');
+    const archiveSelection = selection('raw', 'r');
     // Imported period deliberately includes rows without service dates and visits not found in HIS.
     const [normalized] = source === 'rep-sheet-zero' ? [[] as RowDataPacket[]] : await connection.query<RowDataPacket[]>(`SELECT s.*, b.source_filename, b.sheet_name,
       DATE_FORMAT(s.service_datetime, '%Y-%m-%d') AS service_date
       FROM repstm_statement_data s JOIN repstm_import_batch b ON b.id = s.batch_id
       WHERE s.data_type = 'STM' AND (s.paid_amount = 0 OR s.paid_amount IS NULL) AND ${active}
-      AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY) ORDER BY s.id DESC LIMIT 20001`, [startDate, endDate]);
+      AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY) ${normalSelection.sql} ORDER BY s.id DESC LIMIT 20001`, [startDate, endDate, ...normalSelection.args]);
     const [archive] = await connection.query<RowDataPacket[]>(`SELECT r.*, b.source_filename, b.sheet_name
       FROM repstm_import_row r JOIN repstm_import_batch b ON b.id = r.batch_id
       WHERE ${source === 'rep-sheet-zero' ? repSheetZeroPredicate : sheetZero} AND ${active} AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY)
       ${source === 'rep-sheet-zero' ? '' : 'AND NOT EXISTS (SELECT 1 FROM repstm_statement_data s WHERE s.batch_id = b.id)'}
-      ORDER BY r.id DESC LIMIT 20001`, [startDate, endDate]);
+      ${archiveSelection.sql} ORDER BY r.id DESC LIMIT 20001`, [startDate, endDate, ...archiveSelection.args]);
     if (normalized.length + archive.length > 20000) throw new Error('เกิน 20,000 แถว กรุณาลดช่วงวันที่นำเข้า');
     return [...normalized.map(r => ({ ...r, audit_id: `stm-${r.id}` })), ...archive.map(r => ({ ...r, audit_id: `raw-${r.id}` }))] as Array<Record<string, unknown> & { audit_id: string }>;
 }
-export async function readStmZeroRows(startDate: string, endDate: string, source: ZeroAuditSource = 'stm'): Promise<StmZeroRow[]> {
+export async function readStmZeroRows(startDate: string, endDate: string, source: ZeroAuditSource = 'stm', selectedIds?: string[]): Promise<StmZeroRow[]> {
   const connection = await getRepstmConnection();
   try {
-    const sourceRows = await readZeroAuditSourceRows(connection, startDate, endDate, source);
+    const sourceRows = await readZeroAuditSourceRows(connection, startDate, endDate, source, selectedIds);
     const identities = new Map(sourceRows.map(r => [r.audit_id, statementEncounterIdentity(r)]));
     const rows = sourceRows
       .map(r => {
@@ -64,25 +72,27 @@ export async function readStmZeroRows(startDate: string, endDate: string, source
         }
         let vns = [...new Set(chunk.filter(r => !r.an && r.vn).map(r => r.vn))];
         let ans = [...new Set(chunk.filter(r => r.an).map(r => r.an))];
-        const visits = new Map<string, string>();
+        const visits = new Map<string, Record<string, unknown>>();
         for (const [keys, table, column] of [[vns, 'ovst', 'vn'], [ans, 'ipt', 'an']] as const) {
           if (!keys.length) continue;
-          const [found] = await hospital.query(`SELECT ${column} AS visit_code, hn FROM ${table} WHERE ${column} IN (${keys.map(() => '?').join(',')})`, keys);
-          for (const item of found as Array<{ visit_code: string; hn: string }>) visits.set(`${column}:${item.visit_code}`, text(item.hn));
+          const dates = column === 'vn' ? "DATE_FORMAT(v.vstdate, '%Y-%m-%d') AS service_date, CAST(v.vsttime AS CHAR) AS service_time" : "DATE_FORMAT(v.regdate, '%Y-%m-%d') AS regdate, DATE_FORMAT(v.dchdate, '%Y-%m-%d') AS dchdate";
+          const [found] = await hospital.query(`SELECT v.${column} AS visit_code, v.hn, pt.cid, ${dates} FROM ${table} v LEFT JOIN patient pt ON pt.hn = v.hn WHERE v.${column} IN (${keys.map(() => '?').join(',')})`, keys);
+          for (const item of found as Array<Record<string, unknown>>) visits.set(`${column}:${item.visit_code}`, item);
         }
         for (const r of chunk) {
-          r.matched = Boolean(r.hn && visits.get(r.an ? `an:${r.an}` : `vn:${r.vn}`) === r.hn);
+          const identity = identities.get(r.id)!;
+          const found = visits.get(r.an ? `an:${r.an}` : `vn:${r.vn}`);
+          r.matched = Boolean(found && matchesHospitalIdentity(identity, r.an ? 'IP' : 'OP', found));
           if (!r.matched) {
             // Repair legacy TRAN_ID-as-AN mappings on read, without changing imported rows.
             r.vn = ''; r.an = '';
-            const identity = identities.get(r.id)!;
-            const cacheKey = JSON.stringify([identity.kind, identity.hn, identity.serviceDatetime]);
+            const cacheKey = JSON.stringify([identity.kind, identity.hn, identity.cid, identity.serviceDatetime]);
             if (!recoveryCache.has(cacheKey)) recoveryCache.set(cacheKey, await findStatementEncounter(hospital, identity));
             const recovered = recoveryCache.get(cacheKey);
             if (recovered) {
               r.vn = recovered.kind === 'OP' ? recovered.visit_code : '';
               r.an = recovered.kind === 'IP' ? recovered.visit_code : '';
-              r.matched = true; r.encounter_type = recovered.kind;
+              r.hn = recovered.hn; r.matched = true; r.encounter_type = recovered.kind;
             }
           } else r.encounter_type = r.an ? 'IP' : 'OP';
         }

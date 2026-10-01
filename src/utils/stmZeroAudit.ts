@@ -50,3 +50,6 @@ export const classifyZeroAction = (row: Pick<StmZeroRow, 'has_payment' | 'errorc
 };
 export const canPrepareZeroResend = (row: StmZeroRow): boolean => row.matched && !row.has_payment && !row.payment_uncertain
   && isExplicitZero(row.paid_amount) && (row.action === 'review' || row.action === 'correction');
+
+export const canPrepareRepSheetZeroResend = (row: StmZeroRow): boolean =>
+  row.matched && Boolean(row.vn || row.an);

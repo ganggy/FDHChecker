@@ -1,7 +1,10 @@
+import { canAccessApiPage } from './apiPagePermissions.js';
+import { RECEIVABLE_RIGHT_MAPPINGS, RECEIVABLE_MAPPING_SETTING_KEY, validateReceivableMappings, applyReceivableMappings } from './receivableMapping.js';
 import { readHospitalIdentity, parseSiteWalkinSettings, parseVillageScope } from './siteProfile.js';
 import { isWaitingOfcApprove } from '../src/utils/ofcApproveCode.js';
 import { readStmZeroRows, readStmZeroSource } from './repositories/stmZero.repository.js';
 import { canPrepareZeroResend, ZERO_ACTION_LABELS } from '../src/utils/stmZeroAudit.js';
+import { detectRepSheetZeroFix, applyRepSheetZeroFix, batchApplyRepSheetZeroFix } from './repSheetZeroAutoFix.js';
 // Backend API Server สำหรับเชื่อมต่อ HOSxP
 // ใช้ Node.js + Express
 
@@ -886,59 +889,14 @@ app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
   return void requireAdmin(req, res, next);
 });
 
-type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean };
 app.use('/api/config/hospital-database', requireAdmin, createHospitalDatabaseRouter());
-const apiPageRules: ApiPageRule[] = [
-  { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
-  { pattern: /^\/hospital-reports(\/|$)/, pages: ['hospitalReports'] },
-  { pattern: /^\/settings\/fdh-api\/test-connection$/, pages: ['settings'] },
-  { pattern: /^\/config\/system-settings(\/|$)/, pages: ['settings'] },
-  { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },
-  { pattern: /^\/config\/fdh-api-settings(\/|$)/, pages: ['settings', 'fdhImport'] },
-  { pattern: /^\/config\/nhso-authen-settings(\/|$)/, pages: ['settings', 'authenSync'] },
-  { pattern: /^\/config\/nhso-close-settings(\/|$)/, pages: ['settings', 'nhsoClose'] },
-  { pattern: /^\/config\/nhso-eclaim-settings(\/|$)/, pages: ['settings', 'repstm'] },
-  { pattern: /^\/config\/ipd-los-settings(\/|$)/, pages: ['settings', 'ipd'] },
-  { pattern: /^\/nhso\/authen(\/|$)/, pages: ['authenSync'] },
-  { pattern: /^\/nhso\/close(\/|$)/, pages: ['nhsoClose'] },
-  { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
-  { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
-  { pattern: /^\/dental-audit(\/|$)/, pages: ['dentalAudit'] },
-  { pattern: /^\/(annual-checkup|reports\/checkup)(\/|$)/, pages: ['annualCheckupReport', 'hospitalReports'] },
-  { pattern: /^\/ktb-approve(\/|$)/, pages: ['ktbApproveCode'] },
-  { pattern: /^\/reconciliation\/stm-zero$/, pages: ['stmZeroAudit', 'reconciliation', 'ucOutsideCup'] },
-  { pattern: /^\/reconciliation\/rep-sheet-zero$/, pages: ['repSheetZeroAudit', 'reconciliation'] },
-  { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
-  { pattern: /^\/receivables\/(reconciliation|filter-options)(\/|$)/, pages: ['reconciliation', 'receivable', 'ucOutsideCup'] },
-  { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
-  { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'repstmManage', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
-  { pattern: /^\/rep-(daily|deny)(\/|$)/, pages: ['repDailySummary', 'repDeny'] },
-  { pattern: /^\/uuc1(\/|$)/, pages: ['uuc1Tracking'] },
-  { pattern: /^\/ppfs(\/|$)/, pages: ['ppfsBenchmark', 'ppfsVisitMatch'] },
-  { pattern: /^\/work-queue(\/|$)/, pages: ['workQueue'] },
-  { pattern: /^\/reject-tracking(\/|$)/, pages: ['rejectTracking'] },
-  { pattern: /^\/moph\/dmht(\/|$)/, pages: ['mophDmht'] },
-  { pattern: /^\/moph\/vaccine(\/|$)/, pages: ['mophVaccine'] },
-  { pattern: /^\/accounting(\/|$)/, pages: ['accountingRevenueBudget'] },
-  { pattern: /^\/insurance(\/|$)/, pages: ['insuranceOverview', 'receivable'] },
-  { pattern: /^\/fdh\/claim-detail(\/|$)/, pages: ['fdhClaimDetail', 'reconciliation', 'ucOutsideCup'] },
-  { pattern: /^\/fdh\/import-status(\/|$)/, pages: ['fdhImport', 'fdh', 'reconciliation', 'ucOutsideCup'] },
-  { pattern: /^\/fdh(\/|$)/, pages: ['fdh', 'fundFdh', 'fdhImport', 'staff', 'ipd'] },
-  { pattern: /^\/hosxp\/ipd(\/|$)/, pages: ['ipd', 'ipdClaimMonitor'] },
-  { pattern: /^\/hosxp(\/|$)/, pages: ['staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup'] },
-  { pattern: /^\/icd9(\/|$)/, pages: ['staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup', 'settings', 'hospitalReports'] },
-];
+
 
 app.use('/api', (req: AuthenticatedRequest, res, next) => {
   if (publicHealthPaths.has(req.path)) return next();
   const user = req.authUser;
   if (!user) return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ' });
-  if (user.is_admin || user.group_is_admin) return next();
-  const rule = apiPageRules.find((item) => item.pattern.test(req.path));
-  if (!rule) return next();
-  if (rule.adminOnly) return res.status(403).json({ success: false, error: 'ต้องเป็นผู้ดูแลระบบ' });
-  const permissions = new Set(Array.isArray(user.menu_permissions) ? user.menu_permissions.map(String) : []);
-  if (rule.pages?.some((page) => permissions.has(page))) return next();
+  if (canAccessApiPage(req.path, req.method, user)) return next();
   return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์ใช้งานส่วนนี้' });
 });
 
@@ -2106,40 +2064,15 @@ app.get('/api/hosxp/ipd-chart', async (req, res) => {
   }
 });
 
-// API สำหรับบันทึกสถานะการตรวจสอบชาร์ต (Audit)
+// Audit events are append-only; identity comes from the authenticated session.
 app.post('/api/hosxp/audit', express.json(), async (req, res) => {
-  try {
-    const { an, status, updated_by, notes } = req.body;
-    if (!an || !status) return res.status(400).json({ success: false, error: 'Missing required fields' });
-
-    console.log(`✅ Saving Audit Status for AN: ${an} -> ${status}`);
-    const { getUTFConnection } = await import('./db.js');
-    const connection = await getUTFConnection();
-    try {
-      await connection.query(`
-        CREATE TABLE IF NOT EXISTS z_fdh_audit_log (
-          an varchar(20) NOT NULL,
-          status varchar(30) DEFAULT NULL,
-          updated_by varchar(100) DEFAULT NULL,
-          notes text,
-          created_at datetime DEFAULT CURRENT_TIMESTAMP,
-          updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          PRIMARY KEY (an)
-        ) ENGINE=MyISAM DEFAULT CHARSET=tis620;
-      `);
-      await connection.query(`
-        INSERT INTO z_fdh_audit_log (an, status, updated_by, notes) 
-        VALUES (?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE status = VALUES(status), updated_by = VALUES(updated_by), notes = VALUES(notes), updated_at = NOW();
-      `, [an, status, updated_by || 'ระบบ', notes || '']);
-      res.json({ success: true });
-    } finally {
-      connection.release();
-    }
-  } catch (error) {
-    console.error('Error saving IPD Audit status:', error);
-    res.status(500).json({ success: false, error: 'Internal Server Error' });
-  }
+  const actor = (req as AuthenticatedRequest).authUser?.username;
+  if (!actor) return res.status(401).json({ success: false, error: 'กรุณาเข้าสู่ระบบ' });
+  const { appendIpdAudit, validateIpdAudit } = await import('./ipdAuditService.js');
+  try { validateIpdAudit(req.body || {}, actor); }
+  catch { return res.status(400).json({ success: false, error: 'ข้อมูลการตรวจสอบไม่ถูกต้อง' }); }
+  try { res.json(await appendIpdAudit(req.body, actor)); }
+  catch { res.status(500).json({ success: false, error: 'บันทึกประวัติการตรวจสอบไม่สำเร็จ' }); }
 });
 
 // API สำหรับดึงข้อมูล Visit ที่เข้าข่ายเบิก FDH
@@ -3220,6 +3153,21 @@ app.get('/api/debug/kidney-monitor', async (req, res) => {
 // --- Configuration API ---
 
 // GET: ดึงข้อมูลการตั้งค่าธุรกิจ (Backend)
+app.get('/api/config/receivable-mappings', async (_req, res) => {
+  res.json({ success: true, data: RECEIVABLE_RIGHT_MAPPINGS });
+});
+app.post('/api/config/receivable-mappings', async (req, res) => {
+  let rows;
+  try { rows = validateReceivableMappings(req.body?.data); }
+  catch (error) { return res.status(400).json({ success: false, error: error instanceof Error ? error.message : 'Mapping ไม่ถูกต้อง' }); }
+  try {
+    await setAppSetting(RECEIVABLE_MAPPING_SETTING_KEY, rows);
+    applyReceivableMappings(rows);
+    clearCache();
+    res.json({ success: true });
+  } catch { res.status(500).json({ success: false, error: 'บันทึก mapping ไม่สำเร็จ' }); }
+});
+
 app.get('/api/config/business-rules/backend', async (req, res) => {
   try {
     const configPath = path.join(__dirname, 'config', 'business_rules.json');
@@ -3661,12 +3609,19 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
     return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่นำเข้าให้ถูกต้อง' });
   }
   try {
-    const rows = await readStmZeroRows(startDate, endDate, repSheetZero ? 'rep-sheet-zero' : 'stm');
+    const selectedIds = req.query.sourceId ? [String(req.query.sourceId)]
+      : req.query.checkIds ? String(req.query.checkIds).split(',').filter(Boolean) : undefined;
+    if (selectedIds && (selectedIds.length > 200 || selectedIds.some(id => !/^(stm|raw)-[1-9]\d*$/.test(id)))) {
+      return res.status(400).json({ success: false, error: 'ระบุรหัสแถวให้ถูกต้อง ครั้งละไม่เกิน 200 แถว' });
+    }
+    const rows = await readStmZeroRows(startDate, endDate, repSheetZero ? 'rep-sheet-zero' : 'stm', selectedIds);
     if (req.query.checkIds) {
-      if (repSheetZero) return res.status(400).json({ success: false, error: 'Data Sheet 0 เป็นข้อมูล REP สำหรับตรวจสอบ ไม่ใช่การอนุมัติส่งซ้ำ' });
       const ids = String(req.query.checkIds).split(',').filter(Boolean);
       if (ids.length > 200) return res.status(400).json({ success: false, error: 'ตรวจได้ครั้งละไม่เกิน 200 แถว' });
-      return res.json({ success: true, data: rows.filter(r => ids.includes(r.id) && canPrepareZeroResend(r)) });
+      const eligible = repSheetZero
+        ? rows.filter(r => ids.includes(r.id) && r.matched && Boolean(r.vn || r.an))
+        : rows.filter(r => ids.includes(r.id) && canPrepareZeroResend(r));
+      return res.json({ success: true, data: eligible });
     }
     if (req.query.sourceId) {
       const row = rows.find(r => r.id === String(req.query.sourceId));
@@ -3685,13 +3640,49 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
         unknownPayment: filtered.filter(r => r.paid_amount == null).length,
         matched: filtered.filter(r => r.matched).length, unmatched: filtered.filter(r => !r.matched).length,
         paidElsewhere: filtered.filter(r => r.has_payment).length,
-        prepareCandidates: repSheetZero ? 0 : filtered.filter(canPrepareZeroResend).length,
+        prepareCandidates: repSheetZero ? filtered.filter(r => r.matched && Boolean(r.vn || r.an)).length : filtered.filter(canPrepareZeroResend).length,
         requestedAmount: filtered.reduce((sum, r) => sum + (r.amount || 0), 0), groups },
       snapshot: new Date().toISOString(), page, pageSize });
   } catch (error) {
     // Do not log imported rows or patient identifiers.
     res.status(500).json({ success: false, error: error instanceof Error && error.message.startsWith('เกิน 20,000')
       ? error.message : 'อ่านข้อมูล audit ไม่สำเร็จ กรุณาตรวจฐาน STM และ HIS' });
+  }
+});
+
+// Auto-Fix endpoints for REP Data Sheet 0
+app.post('/api/reconciliation/rep-sheet-zero/detect-fix', async (req, res) => {
+  try {
+    const { vn, an, hn, errorcode, verifycode, reason } = req.body || {};
+    const result = await detectRepSheetZeroFix({ vn, an, hn, errorcode, verifycode, reason });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ตรวจหาข้อผิดพลาดไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/reconciliation/rep-sheet-zero/apply-fix', async (req, res) => {
+  try {
+    const { vn, an, fixType } = req.body || {};
+    const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
+    const result = await applyRepSheetZeroFix({ vn, an, fixType, actorName });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'แก้ไขอัตโนมัติไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/reconciliation/rep-sheet-zero/batch-fix', async (req, res) => {
+  try {
+    const { items } = req.body || {};
+    const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
+    const result = await batchApplyRepSheetZeroFix({ items, actorName });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'แก้ไขแบบกลุ่มไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
   }
 });
 
@@ -6066,6 +6057,14 @@ app.use('/api', apiNotFoundHandler);
 app.use(apiErrorHandler);
 
 const PORT = Number(process.env.PORT) || 3506;
+const startServer = async () => {
+const savedReceivableMappings = await getAppSetting(RECEIVABLE_MAPPING_SETTING_KEY).catch(() => {
+  applyReceivableMappings([]);
+  console.error('Cannot load site accounting mappings; settlement disabled until settings are restored');
+  return null;
+});
+if (savedReceivableMappings !== null) applyReceivableMappings(savedReceivableMappings);
+
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ FDH Checker Server running on port ${PORT}`);
   console.log(`📡 Listening on all interfaces (0.0.0.0)`);
@@ -6102,3 +6101,6 @@ const shutdown = async (signal: string) => {
 
 process.once('SIGTERM', () => void shutdown('SIGTERM'));
 process.once('SIGINT', () => void shutdown('SIGINT'));
+
+};
+void startServer().catch(() => { console.error('Server startup failed: verify application settings'); process.exit(1); });

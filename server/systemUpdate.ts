@@ -163,7 +163,7 @@ export const reconcileUpdateJob = (
 
 const runnerChecks = new Map<string, { checkedAt: number; alive: boolean | null }>();
 export const parsePm2ProcessList = (output: string): Array<{
-  name?: string; pid?: number; pm2_env?: { status?: string };
+  name?: string; pid?: number; pm2_env?: { status?: string; pm_cwd?: string };
 }> => {
   // Some PM2 versions print a daemon/CLI version warning even with --silent.
   for (let offset = output.indexOf('['); offset !== -1; offset = output.indexOf('[', offset + 1)) {
@@ -173,6 +173,28 @@ export const parsePm2ProcessList = (output: string): Array<{
     } catch { /* Try the next array start after the diagnostic prefix. */ }
   }
   throw new Error('PM2 did not return a process list');
+};
+export function validateUpdateRuntime(list: ReturnType<typeof parsePm2ProcessList>, directory: string, apps: string[]) {
+  if (!apps.length || apps.some(name => !/^[A-Za-z0-9_-]+$/.test(name))) throw new Error('ชื่อบริการ FDH_PM2_APPS ไม่ถูกต้อง');
+  for (const name of apps) {
+    const entry = list.find(item => item.name === name);
+    if (!entry?.pid || entry.pm2_env?.status !== 'online') {
+      throw new Error(`ไม่พบ PM2 ${name} ที่ online ภายใต้ผู้ใช้ของ API หากติดตั้งด้วย systemd ให้ใช้ขั้นตอนอัปเดต systemd ในคู่มือติดตั้ง`);
+    }
+    if (!entry.pm2_env.pm_cwd || path.resolve(entry.pm2_env.pm_cwd) !== path.resolve(directory)) {
+      throw new Error(`PM2 ${name} ใช้โฟลเดอร์ต่างจากระบบนี้ กรุณาตรวจ ecosystem.config.cjs`);
+    }
+  }
+}
+const preflightUpdateRuntime = async () => {
+  if (process.platform === 'win32') return;
+  let list: ReturnType<typeof parsePm2ProcessList>;
+  try { list = parsePm2ProcessList(await runPm2(['jlist', '--silent'], 5_000)); }
+  catch { throw new Error('ไม่สามารถเรียก PM2 จากผู้ใช้ของ API ได้ กรุณาตรวจ PATH และบัญชีที่รันบริการก่อนอัปเดต'); }
+  validateUpdateRuntime(list, appDirectory(), (process.env.FDH_PM2_APPS || 'fdh-backend fdh-frontend').trim().split(/\s+/));
+  await fs.access(path.join(appDirectory(), 'deploy/scripts/self-update-runner.sh'));
+  await fs.mkdir(stateDirectory(), { recursive: true });
+  await fs.access(stateDirectory(), fs.constants.W_OK);
 };
 const runnerIsAlive = async (name: string): Promise<boolean | null> => {
   const cached = runnerChecks.get(name);
@@ -325,11 +347,13 @@ export const buildUpdateRunnerConfig = (job: SystemUpdateJob, directory: string,
       FDH_UPDATE_ACTOR: job.actor.slice(0, 80), FDH_UPDATE_ACTION: job.action,
       FDH_UPDATE_CHANGE_SUMMARY: job.changeSummary, FDH_DEPLOY_BRANCH: job.branch,
       FDH_UPDATE_RUNNER_NAME: `fdh-update-${job.id}`,
+      FDH_PM2_APPS: process.env.FDH_PM2_APPS || 'fdh-backend fdh-frontend',
     },
   }],
 });
 
 const launchUpdateRunner = async (job: SystemUpdateJob) => {
+  await preflightUpdateRuntime();
   await cleanupStoppedRunners();
   job.runnerName = `fdh-update-${job.id}`;
   await writeInitialJob(job);

@@ -12,7 +12,7 @@ code{font-family:Consolas,monospace;font-size:.88em;overflow-wrap:anywhere;backg
 <p>ฉบับผู้ใช้งาน ผู้ดูแลระบบ และผู้ติดตั้ง • ตรวจเทียบโค้ดวันที่ 22 กันยายน 2569</p>
 <p>เอกสารนี้อธิบายระบบตามโค้ด branch <code>main</code> commit <code>abdfa5f</code> เวอร์ชันแพ็กเกจ <code>1.0.1</code> ที่ตรวจในวันจัดทำ ครอบคลุมเมนูที่ประกาศใน <code>src/config/menuDefinitions.ts</code> และหน้าตั้งค่าระบบ หากเครื่องโรงพยาบาลใช้คนละ commit ให้ตรวจชื่อเมนูและการตั้งค่าจริงประกอบ ไม่ใช้ IP ของโรงพยาบาลต้นแบบเป็นค่าติดตั้งของทุกแห่ง</p>
 <p>คู่มือนี้เป็นวิธีใช้โปรแกรมและตรวจข้อมูล ไม่ใช่ประกาศหลักเกณฑ์จ่ายเงินฉบับใหม่ ผล “ผ่าน” หมายถึงผ่านการตรวจที่โปรแกรมรองรับ ไม่ใช่คำยืนยันว่าจะได้รับเงิน เงื่อนไขคัดกรองและ ANC ที่อธิบายเป็นพฤติกรรมของโค้ดที่ตรวจ ไม่ใช่การรับรองหลักเกณฑ์ผู้จ่ายปัจจุบัน</p>
-</section><nav class="toc"><h2>สารบัญ</h2><ol><li><a href="#chapter-1">ภาพรวมและลำดับงานทั้งระบบ</a></li><li><a href="#chapter-2">เข้าใช้งาน บัญชี และสิทธิ์</a></li><li><a href="#chapter-3">เตรียมติดตั้งที่โรงพยาบาลใหม่</a></li><li><a href="#chapter-4">ตั้งค่า environment และฐานข้อมูล</a></li><li><a href="#chapter-5">ตั้งค่ารายโรงพยาบาลและกฎระบบ</a></li><li><a href="#chapter-6">วิธีอ่านตารางและทำงานประจำวัน</a></li><li><a href="#chapter-7">รายการ OPD และรายละเอียดรายครั้ง</a></li><li><a href="#chapter-8">ส่งออก OPD 16 แฟ้ม</a></li><li><a href="#chapter-9">รายการ IPD และ Pre-audit</a></li><li><a href="#chapter-10">ส่งออก IPD และมอนิเตอร์เคลม IPD</a></li><li><a href="#chapter-11">ตรวจความพร้อม 16 แฟ้มและคิวงานส่งตรวจ</a></li><li><a href="#chapter-12">ดึงสถานะเคลม FDH และนำเข้า ClaimDetail</a></li><li><a href="#chapter-13">Authen สปสช. และปิดสิทธิ</a></li><li><a href="#chapter-14">นำเข้า REP / STM / INV</a></li><li><a href="#chapter-15">ติดตาม Reject, C/Deny และ UUC1</a></li><li><a href="#chapter-16">กองทุนเฉพาะและช่องทางเบิก</a></li><li><a href="#chapter-17">UC นอก CUP (WALKIN)</a></li><li><a href="#chapter-18">มอนิเตอร์กองทุนพิเศษ Fee Schedule และโอกาสสร้างรายได้</a></li><li><a href="#chapter-19">MOPH DMHT และ MOPH Vaccine</a></li><li><a href="#chapter-20">ประกันสังคม: SSOP / AIPN และ REP/STM</a></li><li><a href="#chapter-21">บัญชีลูกหนี้สิทธิ</a></li><li><a href="#chapter-22">กระทบยอด สรุปรายวัน และ PPFS</a></li><li><a href="#chapter-23">ภาพรวมประกัน บัญชีประมาณการ และ Dashboard</a></li><li><a href="#chapter-24">ศูนย์รายงานโรงพยาบาล AI และศูนย์ตรวจสอบ LINE</a></li><li><a href="#chapter-25">สมาชิก การจัดการ batch คู่มือกองทุน และ ICD-9</a></li><li><a href="#chapter-26">อัปเดตระบบจาก GitHub และย้อนเวอร์ชัน</a></li><li><a href="#chapter-27">สำรองข้อมูล กู้คืน และบำรุงรักษา</a></li><li><a href="#chapter-28">แก้ปัญหาตามอาการ</a></li><li><a href="#chapter-29">ตรวจรับและอบรมก่อนใช้งานจริง</a></li><li><a href="#chapter-30">มือถือ แหล่งอ้างอิงโค้ด และขอบเขตเอกสาร</a></li><li><a href="#chapter-31">ดัชนีเมนูทั้งระบบ</a></li><li><a href="#chapter-32">ดัชนีกองทุนและช่องทางที่โปรแกรมแสดง</a></li></ol></nav><h2 id="chapter-1">1. ภาพรวมและลำดับงานทั้งระบบ</h2>
+</section><nav class="toc"><h2>สารบัญ</h2><ol><li><a href="#chapter-1">ภาพรวมและลำดับงานทั้งระบบ</a></li><li><a href="#chapter-2">เข้าใช้งาน บัญชี และสิทธิ์</a></li><li><a href="#chapter-3">เตรียมติดตั้งที่โรงพยาบาลใหม่</a></li><li><a href="#chapter-4">ตั้งค่า environment และฐานข้อมูล</a></li><li><a href="#chapter-5">ตั้งค่ารายโรงพยาบาลและกฎระบบ</a></li><li><a href="#chapter-6">วิธีอ่านตารางและทำงานประจำวัน</a></li><li><a href="#chapter-7">รายการ OPD และรายละเอียดรายครั้ง</a></li><li><a href="#chapter-8">ส่งออก OPD 16 แฟ้ม</a></li><li><a href="#chapter-9">รายการ IPD และ Pre-audit</a></li><li><a href="#chapter-10">ส่งออก IPD และมอนิเตอร์เคลม IPD</a></li><li><a href="#chapter-11">ตรวจความพร้อม 16 แฟ้มและคิวงานส่งตรวจ</a></li><li><a href="#chapter-12">ดึงสถานะเคลม FDH และนำเข้า ClaimDetail</a></li><li><a href="#chapter-13">Authen สปสช. และปิดสิทธิ</a></li><li><a href="#chapter-14">นำเข้า REP / STM / INV</a></li><li><a href="#chapter-15">ติดตาม Reject, C/Deny และ UUC1</a></li><li><a href="#chapter-16">กองทุนเฉพาะและช่องทางเบิก</a></li><li><a href="#chapter-17">UC นอก CUP (WALKIN)</a></li><li><a href="#chapter-18">มอนิเตอร์กองทุนพิเศษ Fee Schedule และโอกาสสร้างรายได้</a></li><li><a href="#chapter-19">MOPH DMHT และ MOPH Vaccine</a></li><li><a href="#chapter-20">ประกันสังคม: SSOP / AIPN และ REP/STM</a></li><li><a href="#chapter-21">บัญชีลูกหนี้สิทธิ</a></li><li><a href="#chapter-22">กระทบยอด สรุปรายวัน และ PPFS</a></li><li><a href="#chapter-23">ภาพรวมประกัน บัญชีประมาณการ และ Dashboard</a></li><li><a href="#chapter-24">ศูนย์รายงานโรงพยาบาล AI และศูนย์ตรวจสอบ LINE</a></li><li><a href="#chapter-25">สมาชิก การจัดการ batch คู่มือกองทุน และ ICD-9</a></li><li><a href="#chapter-26">อัปเดตระบบจาก GitHub และย้อนเวอร์ชัน</a></li><li><a href="#chapter-27">สำรองข้อมูล กู้คืน และบำรุงรักษา</a></li><li><a href="#chapter-28">แก้ปัญหาตามอาการ</a></li><li><a href="#chapter-29">ตรวจรับและอบรมก่อนใช้งานจริง</a></li><li><a href="#chapter-30">มือถือ แหล่งอ้างอิงโค้ด และขอบเขตเอกสาร</a></li><li><a href="#chapter-33">ตรวจ STM 0 และ REP Data Sheet 0</a></li><li><a href="#chapter-31">ดัชนีเมนูทั้งระบบ</a></li><li><a href="#chapter-32">ดัชนีกองทุนและช่องทางที่โปรแกรมแสดง</a></li></ol></nav><h2 id="chapter-1">1. ภาพรวมและลำดับงานทั้งระบบ</h2>
 <p>FDH Checker อ่านข้อมูลการรับบริการจาก HOSxP เพื่อช่วยตรวจความครบถ้วน เตรียมส่งเคลม ติดตามผลตอบกลับ และกระทบยอดลูกหนี้ ฐานข้อมูลแอปเก็บบัญชีผู้ใช้ การตั้งค่า ผลนำเข้า และประวัติงานแยกจากข้อมูลบริการต้นทาง</p>
 <p>ลำดับงานที่แนะนำ:</p>
 <ol>
@@ -1112,6 +1112,45 @@ FDH_PROJECT_DIR=/opt/FDHChecker bash deploy/scripts/backup-databases.sh
 <h3>หลักฐานที่ใช้จัดทำ</h3>
 <p>เมนูและสิทธิ์: <code>src/config/menuDefinitions.ts</code>, <code>src/App.tsx</code> • ขั้นตอนหน้าจอ: <code>src/pages/</code> และส่วนตั้งค่าใน <code>src/components/</code> • กองทุน: <code>src/config/fundDefinitions.ts</code>, <code>fundRuleCatalog.ts</code> และ <code>docs/HOSPITAL_SETUP.md</code> • ตัวแปรฐาน: <code>server/hospitalDatabaseConfig.ts</code> • CORS: <code>server/index.ts</code> • bootstrap: <code>server/repositories/system.repository.ts</code> • ติดตั้ง/backup/updater: <code>deploy/</code>, <code>package.json</code></p>
 <p>คู่มือนี้ตรวจความสอดคล้องกับโค้ด ไม่ได้ส่งเคลม ทดลองเขียนข้อมูลผู้ป่วย หรือยืนยันการเชื่อมทุกฐานโรงพยาบาลจริงระหว่างจัดทำ รายการทดสอบรับระบบในบท 29 ต้องทำเพิ่มที่แต่ละไซต์ ความพร้อมของรายงานเป็นสถานะที่โปรแกรมประกาศและขึ้นกับข้อมูลที่เชื่อมได้</p>
+<h2 id="chapter-33">33. ตรวจ STM 0 และ REP Data Sheet 0</h2>
+<p>ทั้งสองหน้าอยู่ในเมนูการเงิน/ลูกหนี้ ผู้ดูแลระบบต้องกำหนดสิทธิ์เมนูให้กลุ่มผู้ใช้ก่อนใช้งาน</p>
+<table>
+<thead>
+<tr>
+<th>หน้า</th>
+<th>ข้อมูลที่แสดง</th>
+<th>ใช้ทำอะไร</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ตรวจ STM 0 (<code>stmZeroAudit</code>)</td>
+<td>STM ที่ยอดจ่ายเป็นศูนย์หรือยังอ่านยอดไม่ได้</td>
+<td>ตรวจผลชดเชย ยืนยันข้อมูลต้นทาง และจัดรายการเตรียมแก้ไข</td>
+</tr>
+<tr>
+<td>REP Data Sheet 0 (<code>repSheetZeroAudit</code>)</td>
+<td>แถวจากแถบ Data Sheet 0 ในไฟล์ REP</td>
+<td>อ่านเหตุผลไม่ชดเชยจาก REP และเทียบข้อมูล HIS</td>
+</tr>
+</tbody>
+</table>
+<ol>
+<li>นำเข้าไฟล์ REP/STM ที่เมนูนำเข้าผล โปรแกรมเก็บแถบ Data Sheet 0 ของ REP เป็นข้อมูลประกอบ ไม่รวมยอดซ้ำกับแถบหลัก</li>
+<li>เปิดหน้าที่ต้องการ เลือกช่วง <strong>วันที่นำเข้า</strong> ซึ่งอาจต่างจากวันที่รักษา แล้วค้นหา HN/รหัสรายการ/เหตุผล หรือกรองจับคู่ได้และยังจับคู่ไม่ได้</li>
+<li>เปิดแถวต้นฉบับ อ่านรหัสและข้อความปฏิเสธ เมื่อไม่พบคำอธิบายในบัญชีรหัสต้องตรวจประกาศและหน่วยงานผู้จ่ายเพิ่มเติม ระบบไม่เดาเหตุผล</li>
+<li>เปิดข้อมูล HIS เพื่อเทียบวันเวลา วินิจฉัย หัตถการ และรายการยา การจับคู่ต้องยืนยันผู้ป่วยและวันเวลารับบริการ หากพบหลาย Visit จะไม่เลือกครั้งล่าสุดเอง <code>TRAN_ID</code> ไม่ใช่ VN/AN โดยอัตโนมัติ</li>
+<li>ข้อมูลยังจับคู่ไม่ได้หรือไม่ทราบยอดจ่ายต้องตรวจเพิ่มก่อนแก้ไข อย่าใช้ยอดว่างแทนศูนย์ และตรวจว่ามีการจ่ายในไฟล์อื่นแล้วหรือไม่</li>
+<li>หน้า STM 0 เลือกได้เฉพาะรายการที่ยืนยันศูนย์ จับคู่ได้ และไม่พบการจ่ายหรือยอดไม่แน่นอน เพื่อเตรียมตรวจแก้ก่อนส่งใหม่ รายการรออนุมัติ อุทธรณ์ และรอจ่ายตามรอบต้องดำเนินการตามช่องทางนั้น การเลือกแถวไม่ใช่การส่งเคลมอัตโนมัติ</li>
+<li>หน้า REP Data Sheet 0 เป็นหน้าตรวจสอบ ไม่อนุมัติการส่งซ้ำ ต้องตรวจผล STM และสถานะล่าสุดประกอบ</li>
+</ol>
+<p>อ่านรายละเอียดใน <a href="STM_ZERO_AUDIT.md">คู่มือตรวจ STM 0</a> และ <a href="REP_DATA_SHEET_ZERO.md">คู่มือ REP Data Sheet 0</a></p>
+<h3>ตั้งค่าสิทธิ์และบัญชีของแต่ละโรงพยาบาล</h3>
+<p>ไป <strong>ตั้งค่า → ข้อมูลขั้นสูง → สิทธิ์และบัญชีลูกหนี้ของโรงพยาบาล</strong> ตรวจรหัส HIS, HIPDATA, กลุ่มการเงิน และบัญชี OPD/IPD กับฝ่ายการเงินก่อนบันทึก ค่าเดิมเป็นชุดอ้างอิง ต้องตรวจให้ตรงกับไซต์ เมื่อบันทึกแล้วรายงานใช้ค่าจากฐานตั้งค่าของโรงพยาบาลและโหลดกลับเมื่อเริ่มโปรแกรม</p>
+<p>เมื่อสิทธิ์เดียวชี้ได้หลายบัญชี ระบบตัดลูกหนี้จะไม่เลือกบัญชีแรกเอง ต้องยืนยัน mapping ก่อน ยอดตัดลูกหนี้อ่านจากรายการต้นทางบนเซิร์ฟเวอร์ และชื่อผู้บันทึกมาจากบัญชีที่เข้าสู่ระบบ การกดซ้ำชุดเดิมจะคืนผลเดิม ไม่สร้างใบตัดซ้ำ</p>
+<h3>ประวัติ Audit และข้อจำกัดการติดตั้ง</h3>
+<p>การตรวจชาร์ต IPD เก็บเหตุการณ์แต่ละครั้งใน <code>z_fdh_audit_history</code> โดยไม่ทับตารางสถานะเดิม หน้า IPD ใช้สถานะล่าสุดและชื่อผู้ใช้จริง ตารางประวัติจะสร้างเมื่อบันทึกครั้งแรก ต้องให้สิทธิ์ฐานข้อมูลตามคู่มือติดตั้ง การอ่านอย่างเดียวไม่สร้างประวัติ</p>
+<p>อัปเดตบนเว็บใช้ PM2 ภายใต้บัญชีเดียวกับ API และตรวจว่าชื่อบริการกับโฟลเดอร์ตรงกันก่อนเริ่ม เครื่องที่ติดตั้งด้วย systemd ต้องใช้ขั้นตอนใน <a href="../deploy/README.md">คู่มือติดตั้ง</a> อย่ารัน PM2 และ systemd ซ้อนกันเพื่อแก้ข้อความผิดพลาด ตรวจ DNS/GitHub/npm และสิทธิ์เขียนโฟลเดอร์ก่อนอัปเดต และตรวจ <code>/api/live</code>, <code>/api/ready</code> กับ log หลังอัปเดต</p>
 <h2 id="chapter-31">31. ดัชนีเมนูทั้งระบบ</h2>
 <p>ตารางนี้สร้างจาก menuDefinitions ของโค้ด และตรวจว่าทุกเมนูมีบทอธิบาย</p>
 <table>
@@ -1169,6 +1208,11 @@ FDH_PROJECT_DIR=/opt/FDHChecker bash deploy/scripts/backup-databases.sh
 <td><code>hospitalReports</code></td>
 </tr>
 <tr>
+<td>หลักฐานเบิกตรวจสุขภาพ</td>
+<td><a href="#chapter-24">บท 24</a></td>
+<td><code>annualCheckupReport</code></td>
+</tr>
+<tr>
 <td>ดึงสถานะเคลม FDH</td>
 <td><a href="#chapter-12">บท 12</a></td>
 <td><code>fdhImport</code></td>
@@ -1204,6 +1248,11 @@ FDH_PROJECT_DIR=/opt/FDHChecker bash deploy/scripts/backup-databases.sh
 <td><code>authenSync</code></td>
 </tr>
 <tr>
+<td>นำเข้า Approve Code KTB (EDC)</td>
+<td><a href="#chapter-14">บท 14</a></td>
+<td><code>ktbApproveCode</code></td>
+</tr>
+<tr>
 <td>ตรวจความพร้อม 16 แฟ้ม</td>
 <td><a href="#chapter-11">บท 11</a></td>
 <td><code>preValidator</code></td>
@@ -1229,9 +1278,24 @@ FDH_PROJECT_DIR=/opt/FDHChecker bash deploy/scripts/backup-databases.sh
 <td><code>receivable</code></td>
 </tr>
 <tr>
+<td>ตัดรับรู้ลูกหนี้</td>
+<td><a href="#chapter-21">บท 21</a></td>
+<td><code>receivableSettlement</code></td>
+</tr>
+<tr>
 <td>กระทบยอด REP/STM</td>
 <td><a href="#chapter-22">บท 22</a></td>
 <td><code>reconciliation</code></td>
+</tr>
+<tr>
+<td>ตรวจ STM 0</td>
+<td><a href="#chapter-33">บท 33</a></td>
+<td><code>stmZeroAudit</code></td>
+</tr>
+<tr>
+<td>ตรวจ REP Data Sheet 0</td>
+<td><a href="#chapter-33">บท 33</a></td>
+<td><code>repSheetZeroAudit</code></td>
 </tr>
 <tr>
 <td>สรุป REP รายวัน</td>
@@ -1262,6 +1326,11 @@ FDH_PROJECT_DIR=/opt/FDHChecker bash deploy/scripts/backup-databases.sh
 <td>UC นอก CUP (WALKIN)</td>
 <td><a href="#chapter-17">บท 17</a></td>
 <td><code>ucOutsideCup</code></td>
+</tr>
+<tr>
+<td>ตรวจสอบงานห้องฟัน</td>
+<td><a href="#chapter-16">บท 16</a></td>
+<td><code>dentalAudit</code></td>
 </tr>
 <tr>
 <td>รายการติด C / ปฏิเสธจ่าย</td>
@@ -1617,4 +1686,4 @@ FDH_PROJECT_DIR=/opt/FDHChecker bash deploy/scripts/backup-databases.sh
 <td>FDH/e-Claim</td>
 </tr>
 </tbody>
-</table><p class="footer-note">ตรวจเทียบโค้ด 22 กันยายน 2569 • ใช้ร่วมกับทะเบียนค่ารายโรงพยาบาลและประกาศที่หน่วยงานรับผิดชอบ</p></main></body></html>
+</table><p class="footer-note">ปรับคู่มือ 30 กันยายน 2569 • ใช้ร่วมกับทะเบียนค่ารายโรงพยาบาลและประกาศที่หน่วยงานรับผิดชอบ</p></main></body></html>

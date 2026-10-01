@@ -1,5 +1,5 @@
 import { getUTFConnection, getAppSetting } from './db.js';
-import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
+import { RECEIVABLE_RIGHT_MAPPINGS } from './receivableMapping.js';
 
 export interface DebtorMetadata {
   debtor_code: string;
@@ -41,13 +41,11 @@ export const DEBTOR_METADATA: Record<string, { name: string; recognition: string
   '1102050102.804': { name: 'ลูกหนี้ค่ารักษา-เบิกจ่ายตรง อปท.พิเศษ IP', recognition: '', register: 'รายตัว' },
 };
 
-const mappingByPttype = new Map<string, ReceivableRightMapping>(
-  RECEIVABLE_RIGHT_MAPPINGS.map((m) => [String(m.hosxp_code).trim(), m])
-);
+
 
 export const resolveDebtorForPttype = (pttype: string, isIpd = false) => {
   const code = String(pttype || '').trim();
-  const mapping = mappingByPttype.get(code);
+  const mapping = RECEIVABLE_RIGHT_MAPPINGS.find(item => item.hosxp_code === code);
   let debtorCode = isIpd ? (mapping?.debtor_ipd || '') : (mapping?.debtor_opd || '');
 
   // Default fallback if not in mapping

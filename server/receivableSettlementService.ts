@@ -3,6 +3,7 @@ import { ensureRepstmTables } from './db/schema.js';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from './receivableMapping.js';
 import businessRules from './config/business_rules.json';
 import { readHospitalIdentity } from './siteProfile.js';
+import type { PoolConnection } from 'mysql2/promise';
 
 export interface SettlementStatementSummary {
   statement_no: string;
@@ -36,6 +37,8 @@ export interface SettlementCandidateItem {
   revenue_code: string;
   claimable_amount: number;
   paid_amount: number;
+  payment_known?: boolean;
+  mapping_known?: boolean;
   diff_amount: number;
   settle_action: 'full' | 'partial' | 'writeoff_diff' | 'hold_appeal';
   notes?: string;
@@ -92,17 +95,11 @@ export interface ExecuteSettlementPayload {
   }>;
 }
 
-const findRightMapping = (hipdataCode?: string | null, pttype?: string | null): ReceivableRightMapping | undefined => {
-  if (pttype) {
-    const match = RECEIVABLE_RIGHT_MAPPINGS.find((m) => m.hosxp_code === pttype);
-    if (match) return match;
-  }
-  if (hipdataCode) {
-    const normalized = hipdataCode.trim().toUpperCase();
-    const match = RECEIVABLE_RIGHT_MAPPINGS.find((m) => m.hipdata_code === normalized);
-    if (match) return match;
-  }
-  return undefined;
+export const findRightMapping = (hipdataCode?: string | null, pttype?: string | null): ReceivableRightMapping | undefined => {
+  if (pttype) return RECEIVABLE_RIGHT_MAPPINGS.find(item => item.hosxp_code === pttype);
+  const matches = RECEIVABLE_RIGHT_MAPPINGS.filter(item => item.hipdata_code === String(hipdataCode || '').trim().toUpperCase());
+  const accounts = new Set(matches.map(item => JSON.stringify([item.debtor_opd, item.debtor_ipd, item.revenue_opd, item.revenue_ipd])));
+  return accounts.size === 1 ? matches[0] : undefined;
 };
 
 export const getAvailableStatements = async (payerType?: string): Promise<SettlementStatementSummary[]> => {
@@ -163,11 +160,11 @@ export const getAvailableStatements = async (payerType?: string): Promise<Settle
 };
 
 export const getStatementSettlementCandidates = async (
-  statementNo: string
+  statementNo: string, existingConnection?: PoolConnection
 ): Promise<SettlementCandidateResult> => {
-  const connection = await getRepstmConnection();
+  const connection = existingConnection || await getRepstmConnection();
   try {
-  await ensureRepstmTables();
+  if (!existingConnection) await ensureRepstmTables();
 
   const [rawRows] = await connection.query(
     `SELECT
@@ -188,11 +185,12 @@ export const getStatementSettlementCandidates = async (
        errorcode,
        verifycode,
        COALESCE(amount, 0) AS amount,
-       COALESCE(paid_amount, 0) AS paid_amount,
+       paid_amount,
        COALESCE(invoice_amount, 0) AS invoice_amount,
        filename
      FROM repstm_statement_data
-     WHERE statement_no = ?
+     WHERE statement_no = ? AND data_type IN ('STM', 'INV')
+       AND NOT EXISTS (SELECT 1 FROM repstm_import_batch replacement WHERE replacement.replaces_batch_id = repstm_statement_data.batch_id)
      ORDER BY id ASC`,
     [statementNo]
   );
@@ -212,11 +210,11 @@ export const getStatementSettlementCandidates = async (
     const mapping = findRightMapping(r.maininscl || r.subinscl, undefined);
 
     const debtorCode = isIpd
-      ? (mapping?.debtor_ipd || '1102050101.202')
-      : (mapping?.debtor_opd || '1102050101.201');
+      ? (mapping?.debtor_ipd || '')
+      : (mapping?.debtor_opd || '');
     const revenueCode = isIpd
-      ? (mapping?.revenue_ipd || '4301020105.202')
-      : (mapping?.revenue_opd || '4301020105.201');
+      ? (mapping?.revenue_ipd || '')
+      : (mapping?.revenue_opd || '');
 
     const invAmount = Number(r.invoice_amount || 0);
     const rawAmount = Number(r.amount || 0);
@@ -262,6 +260,8 @@ export const getStatementSettlementCandidates = async (
       revenue_code: revenueCode,
       claimable_amount: claimableAmount,
       paid_amount: paidAmount,
+      payment_known: r.paid_amount != null,
+      mapping_known: Boolean(debtorCode && revenueCode),
       diff_amount: diffAmount,
       settle_action: settleAction,
     });
@@ -292,12 +292,10 @@ export const getStatementSettlementCandidates = async (
     });
   }
 
-  journalEntries.push({
-    type: 'CREDIT',
-    account_code: '1102050101.201',
-    account_name: 'ลูกหนี้ค่ารักษาพยาบาล สปสช./กองทุน',
-    amount: totalClaimable,
-  });
+  for (const code of new Set(items.map(item => item.debtor_code || ''))) {
+    journalEntries.push({ type: 'CREDIT', account_code: code, account_name: code ? 'ลูกหนี้ตาม mapping สิทธิ์' : 'ยังไม่ยืนยันบัญชีลูกหนี้',
+      amount: Number(items.filter(item => (item.debtor_code || '') === code).reduce((sum, item) => sum + item.claimable_amount, 0).toFixed(2)) });
+  }
 
   if (totalOverpay > 0) {
     journalEntries.push({
@@ -331,33 +329,69 @@ export const getStatementSettlementCandidates = async (
     is_balanced: isBalanced,
   };
   } finally {
-    connection.release();
+    if (!existingConnection) connection.release();
   }
 };
 
-export const executeSettlement = async (payload: ExecuteSettlementPayload) => {
-  const connection = await getRepstmConnection();
-  try {
-  await ensureRepstmTables();
-
+export function validateSettlementPayload(payload: ExecuteSettlementPayload) {
   const transferDate = String(payload.transfer_date || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(transferDate)) {
-    throw new Error('วันที่โอนเงินไม่ถูกต้อง (รูปแบบ YYYY-MM-DD)');
-  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(transferDate) || !Number.isFinite(Date.parse(transferDate)) || new Date(transferDate).toISOString().slice(0, 10) !== transferDate) throw new Error('วันที่โอนเงินไม่ถูกต้อง (รูปแบบ YYYY-MM-DD)');
+  const requests = Array.isArray(payload.items) ? payload.items : [];
+  if (!requests.length) throw new Error('กรุณาเลือกรายการที่ต้องการตัดลูกหนี้อย่างน้อย 1 รายการ');
+  if (requests.length > 2000) throw new Error('บันทึกได้ครั้งละไม่เกิน 2,000 รายการ');
+  const ids = requests.map(item => Number(item.statement_record_id));
+  if (ids.some(id => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) throw new Error('รหัสรายการต้นทางไม่ถูกต้องหรือมีรายการซ้ำ');
+  if (!String(payload.statement_no || '').trim()) throw new Error('กรุณาระบุ Statement ต้นทาง');
+  return { transferDate, requests, ids };
+}
 
-  const items = Array.isArray(payload.items) ? payload.items : [];
-  if (items.length === 0) {
-    throw new Error('กรุณาเลือกรายการที่ต้องการตัดลูกหนี้อย่างน้อย 1 รายการ');
-  }
-
-  // Generate settlement number STL-YYYYMM-XXXX
-  const yymm = transferDate.slice(0, 7).replace('-', '');
-  const [countRows] = await connection.query(
-    'SELECT COUNT(*) AS total FROM receivable_settlement_batch WHERE settlement_no LIKE ?',
-    [`STL-${yymm}-%`]
-  );
-  const seq = (Number((countRows as any[])[0]?.total || 0) + 1).toString().padStart(4, '0');
-  const settlementNo = `STL-${yymm}-${seq}`;
+type SettlementDependencies = {
+  getConnection: typeof getRepstmConnection;
+  ensureTables: typeof ensureRepstmTables;
+  getCandidates: typeof getStatementSettlementCandidates;
+};
+export const executeSettlement = async (payload: ExecuteSettlementPayload, actor = '', dependencies: SettlementDependencies = { getConnection: getRepstmConnection, ensureTables: ensureRepstmTables, getCandidates: getStatementSettlementCandidates }) => {
+  const { transferDate, requests, ids } = validateSettlementPayload(payload);
+  if (!actor.trim() || actor.length > 128) throw new Error('ไม่พบผู้บันทึกจากการเข้าสู่ระบบ');
+  await dependencies.ensureTables();
+  const connection = await dependencies.getConnection();
+  let inTransaction = false; let locked = false;
+  try {
+    const [lockRows] = await connection.query("SELECT GET_LOCK('FDH_SETTLEMENT_WRITE', 15) AS acquired");
+    if (Number((lockRows as Array<{ acquired: number }>)[0]?.acquired) !== 1) throw new Error('มีการบันทึกตัดลูกหนี้อยู่ กรุณาลองใหม่');
+    locked = true;
+    await connection.beginTransaction(); inTransaction = true;
+    await connection.query('SELECT id FROM repstm_statement_data WHERE id IN (' + ids.map(() => '?').join(',') + ') FOR UPDATE', ids);
+    const candidates = await dependencies.getCandidates(payload.statement_no, connection);
+    const items = requests.map(request => {
+      const candidate = candidates.items.find(item => item.id === Number(request.statement_record_id));
+      if (candidate?.mapping_known === false) throw new Error('ยังยืนยันบัญชีลูกหนี้และรายได้ไม่ได้ กรุณาตรวจ mapping สิทธิ์กับฝ่ายการเงิน');
+      if (!candidate || candidate.payment_known === false) throw new Error('รายการต้นทางเปลี่ยนแปลงหรือยังไม่ทราบยอดจ่าย กรุณาโหลดใหม่');
+      for (const key of ['claimable_amount', 'paid_amount', 'diff_amount'] as const) {
+        if (!Number.isFinite(candidate[key]) || (key !== 'diff_amount' && candidate[key] < 0)) throw new Error('ยอดต้นทางไม่ถูกต้อง');
+        if (request[key] != null && (!Number.isFinite(Number(request[key])) || Math.abs(Number(request[key]) - candidate[key]) > 0.005)) throw new Error('ยอดต้นทางเปลี่ยนแปลง กรุณาโหลดใหม่ก่อนบันทึก');
+      }
+      const action = request.settle_action || candidate.settle_action;
+      if (!['full', 'partial', 'writeoff_diff'].includes(action)) throw new Error('รายการรอทักท้วงยังไม่สามารถตัดลูกหนี้ได้');
+      return { ...candidate, statement_record_id: candidate.id, pttype: candidate.maininscl, hipdata_code: candidate.maininscl, error_code: candidate.errorcode, settle_action: action, notes: String(request.notes || '').slice(0,255) };
+    });
+    const [priorRows] = await connection.query(
+      "SELECT b.id AS batch_id, b.settlement_no, DATE_FORMAT(b.transfer_date, '%Y-%m-%d') AS transfer_date, b.payer_type, b.bank_account, b.total_claimable, b.total_received, b.total_diff, i.statement_record_id FROM receivable_settlement_item i JOIN receivable_settlement_batch b ON b.id = i.settlement_batch_id WHERE i.statement_record_id IN (" + ids.map(() => '?').join(',') + ')', ids);
+    const prior = priorRows as Array<Record<string, unknown>>;
+    if (prior.length) {
+      const first = prior[0];
+      const [allItems] = await connection.query('SELECT statement_record_id FROM receivable_settlement_item WHERE settlement_batch_id = ?', [first.batch_id]);
+      const same = prior.length === ids.length && prior.every(row => row.batch_id === first.batch_id)
+        && (allItems as unknown[]).length === ids.length && first.transfer_date === transferDate
+        && String(first.payer_type) === String(payload.payer_type || 'NHSO') && String(first.bank_account || '') === String(payload.bank_account || 'ธนาคารกรุงไทย (บัญชีเงินบำรุงโรงพยาบาล)');
+      if (!same) throw new Error('มีรายการที่ถูกตัดลูกหนี้แล้ว กรุณาโหลดใหม่');
+      await connection.rollback(); inTransaction = false;
+      return { success: true, duplicate: true, batch_id: Number(first.batch_id), settlement_no: String(first.settlement_no), item_count: ids.length, total_claimable: Number(first.total_claimable), total_received: Number(first.total_received), total_diff: Number(first.total_diff) };
+    }
+    const yymm = transferDate.slice(0, 7).replace('-', '');
+    const [lastRows] = await connection.query("SELECT MAX(CAST(SUBSTRING_INDEX(settlement_no, '-', -1) AS UNSIGNED)) AS last_no FROM receivable_settlement_batch WHERE settlement_no LIKE ?", ['STL-' + yymm + '-%']);
+    const seq = (Number((lastRows as Array<{ last_no: number }>)[0]?.last_no || 0) + 1).toString().padStart(4, '0');
+    const settlementNo = 'STL-' + yymm + '-' + seq;
 
   let totalClaimable = 0;
   let totalReceived = 0;
@@ -411,7 +445,7 @@ export const executeSettlement = async (payload: ExecuteSettlementPayload) => {
       totalDisallowance,
       totalOverpay,
       items.length,
-      payload.created_by || 'เจ้าหน้าที่การเงิน',
+      actor,
       payload.notes || null,
       JSON.stringify(journalPayload),
     ]
@@ -433,7 +467,7 @@ export const executeSettlement = async (payload: ExecuteSettlementPayload) => {
       item.patient_name || null,
       item.service_date ? String(item.service_date).slice(0, 10) : null,
       item.pttype || null,
-      item.pttype_name || null,
+      null,
       item.hipdata_code || null,
       item.debtor_code || null,
       item.revenue_code || null,
@@ -457,6 +491,8 @@ export const executeSettlement = async (payload: ExecuteSettlementPayload) => {
     );
   }
 
+  await connection.commit();
+  inTransaction = false;
   return {
     success: true,
     batch_id: batchId,
@@ -466,8 +502,14 @@ export const executeSettlement = async (payload: ExecuteSettlementPayload) => {
     total_received: totalReceived,
     total_diff: totalDiff,
   };
+  } catch (error) {
+    if (inTransaction) await connection.rollback();
+    throw error;
   } finally {
-    connection.release();
+    let reusable = true;
+    try { if (locked) await connection.query("SELECT RELEASE_LOCK('FDH_SETTLEMENT_WRITE')"); }
+    catch { reusable = false; connection.destroy(); }
+    finally { if (reusable) connection.release(); }
   }
 };
 

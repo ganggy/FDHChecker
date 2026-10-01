@@ -47,6 +47,9 @@ test('REP Sheet 0 query reads only active REP sheets, including absent and posit
     const rows = await readZeroAuditSourceRows(connection, '2026-09-01', '2026-09-30', 'rep-sheet-zero');
     assert.deepEqual(rows.map(r => r.id), [6, 2, 1]);
     assert.ok(rows.every(r => r.audit_id.startsWith('raw-')));
+    const detail = await readZeroAuditSourceRows(connection, '2026-09-01', '2026-09-30', 'rep-sheet-zero', ['raw-2']);
+    assert.deepEqual(detail.map(r => r.id), [2]);
+    assert.deepEqual(await readZeroAuditSourceRows(connection, '2026-09-01', '2026-09-30', 'rep-sheet-zero', ['stm-2']), []);
   } finally { await db.close(); }
 });
 test('blank and missing payments are not zero', () => {
@@ -103,7 +106,7 @@ test('OP recovery uses the service minute, permits omitted seconds, and rejects 
   const connection = { async query(sql: string, values: string[]) {
     queries++;
     assert.match(sql, /FROM ovst/);
-    assert.match(sql, /vsttime >= \? AND vsttime <= \?/);
+    assert.match(sql, /v\.vsttime >= \? AND v\.vsttime <= \?/);
     assert.deepEqual(values, ['DEMO-H', '2026-08-07', '10:15:00', '10:15:59']);
     return [[{ visit_code: 'DEMO-V', hn: 'DEMO-H' }]];
   } };

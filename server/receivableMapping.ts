@@ -81,3 +81,24 @@ export const RECEIVABLE_RIGHT_MAPPINGS: ReceivableRightMapping[] = [
   {"hosxp_code":"V1","hosxp_name":"ประกันชีวิต","hipdata_code":"CSH","finance_code":"27","finance_name":"ชำระเงิน","debtor_opd":"1102050102.106","debtor_ipd":"1102050102.107","revenue_opd":"4301020104.106","revenue_ipd":"4301020104.107","payment_type_code":"02","payment_type_name":"ลูกหนี้สิทธิ","grouper":"6305","rounding":"Y"}
 ];
 
+
+export const RECEIVABLE_MAPPING_SETTING_KEY = 'receivable_right_mappings';
+export function validateReceivableMappings(value: unknown): ReceivableRightMapping[] {
+  if (!Array.isArray(value) || value.length > 500) throw new Error('ระบุ mapping ไม่เกิน 500 สิทธิ์');
+  const keys = ['hosxp_code','hosxp_name','hipdata_code','finance_code','finance_name','debtor_opd','debtor_ipd','revenue_opd','revenue_ipd','payment_type_code','payment_type_name','grouper','rounding'] as const;
+  const seen = new Set<string>();
+  return value.map(item => {
+    if (!item || typeof item !== 'object') throw new Error('รูปแบบ mapping ไม่ถูกต้อง');
+    const row = Object.fromEntries(keys.map(key => [key, String(item[key] ?? '').trim()])) as ReceivableRightMapping;
+    if (!/^[A-Za-z0-9_-]{1,20}$/.test(row.hosxp_code) || seen.has(row.hosxp_code.toUpperCase())) throw new Error('รหัสสิทธิ์ไม่ถูกต้องหรือซ้ำ');
+    if (keys.some(key => row[key].length > 200)) throw new Error('ข้อความ mapping ยาวเกินกำหนด');
+    for (const key of ['debtor_opd','debtor_ipd','revenue_opd','revenue_ipd'] as const) {
+      if (row[key] && !/^[0-9]+(?:\.[0-9]+)?$/.test(row[key])) throw new Error('รูปแบบรหัสบัญชีไม่ถูกต้อง');
+    }
+    seen.add(row.hosxp_code.toUpperCase()); return row;
+  });
+}
+export function applyReceivableMappings(value: unknown) {
+  const rows = validateReceivableMappings(value);
+  RECEIVABLE_RIGHT_MAPPINGS.splice(0, RECEIVABLE_RIGHT_MAPPINGS.length, ...rows);
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { navigateFromDashboard } from '../utils/navigationState';
 
@@ -174,9 +174,10 @@ export function DentalAuditPage() {
     }
   };
 
+  const refreshForFilters = useEffectEvent(() => { void fetchVisits(); });
   useEffect(() => {
-    void fetchVisits();
-  }, [startDate, endDate, scheme, selectedCategory, auditStatus, page]);
+    refreshForFilters();
+  }, [startDate, endDate, scheme, selectedCategory, auditStatus, page, pageSize]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();

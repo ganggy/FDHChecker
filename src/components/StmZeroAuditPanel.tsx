@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { navigateFromDashboard } from '../utils/navigationState';
-import { canPrepareZeroResend, ZERO_ACTION_LABELS, type StmZeroRow } from '../utils/stmZeroAudit';
+import { canPrepareZeroResend, canPrepareRepSheetZeroResend, ZERO_ACTION_LABELS, type StmZeroRow } from '../utils/stmZeroAudit';
 import './StmZeroAuditPanel.css';
 import { loadRepErrorCatalog, type RepErrorCatalog } from '../services/repErrorCatalogService';
 import { repSheetZeroReasons } from '../utils/repSheetZeroAudit';
@@ -19,6 +19,7 @@ const writeWorkbook = (name: string, sheets: Array<[string, Record<string, unkno
 
 export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-zero' }) {
   const isRep = mode === 'rep-sheet-zero';
+  const isRowEligible = (r: StmZeroRow) => isRep ? canPrepareRepSheetZeroResend(r) : canPrepareZeroResend(r);
   const title = isRep ? 'REP Data Sheet 0' : 'STM 0';
   const endpoint = `/api/reconciliation/${isRep ? 'rep-sheet-zero' : 'stm-zero'}`;
   const [catalog, setCatalog] = useState<RepErrorCatalog>({});
@@ -45,7 +46,10 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
   const [sourceLoading, setSourceLoading] = useState(false); const [sourceError, setSourceError] = useState('');
   const detailRequest = useRef(0);
   const [reviewed, setReviewed] = useState(false); const [note, setNote] = useState('');
-  const [channel, setChannel] = useState('eclaim');
+  const [channel, setChannel] = useState('fdh');
+  const [fixingVn, setFixingVn] = useState<string | null>(null);
+  const [batchFixing, setBatchFixing] = useState(false);
+  const [fixNotification, setFixNotification] = useState<{ type: 'success' | 'error'; message: string; details?: string[] } | null>(null);
   const load = async (nextPage = 1, overrides: Partial<typeof loaded> = {}) => {
     setLoading(true); setError(''); setResult(null); setSelected({}); setReviewed(false);
     const filters = { ...(nextPage === 1 ? { start, end, action, match, search } : loaded), ...overrides };
@@ -94,21 +98,85 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     ช่องทาง: channel === 'fdh' ? 'FDH (ผู้ใช้ยืนยันช่องทางเดิม)' : 'eClaim / OSR', บันทึกตรวจสอบ: note, เวลาข้อมูลAudit: result?.snapshot || '',
     ยืนยันตรวจข้อมูล: reviewed ? 'ตรวจแล้ว; ต้องยืนยันสิทธิแก้ไขกับระบบปลายทางอีกครั้ง' : 'ยังไม่ยืนยัน',
   }))]]);
+  const handleSingleAutoFix = async (row: StmZeroRow) => {
+    if (!row.vn && !row.an) return;
+    const targetKey = row.vn || row.an;
+    setFixingVn(targetKey);
+    setFixNotification(null);
+    try {
+      const res = await fetch('/api/reconciliation/rep-sheet-zero/apply-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vn: row.vn, an: row.an, fixType: 'ALL' }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขอัตโนมัติไม่สำเร็จ');
+      setFixNotification({
+        type: 'success',
+        message: `${row.vn ? `VN ${row.vn}` : `AN ${row.an}`}: ${json.data.message}`,
+        details: json.data.actionsApplied,
+      });
+      if (detail && detail.id === row.id) {
+        void openDetail(row);
+      }
+    } catch (err) {
+      setFixNotification({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไขอัตโนมัติ',
+      });
+    } finally {
+      setFixingVn(null);
+    }
+  };
+
+  const handleBatchAutoFix = async () => {
+    const eligible = chosen.filter(r => r.vn || r.an);
+    if (!eligible.length) return;
+    setBatchFixing(true);
+    setFixNotification(null);
+    try {
+      const res = await fetch('/api/reconciliation/rep-sheet-zero/batch-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: eligible.map(r => ({ vn: r.vn, an: r.an })) }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขอัตโนมัติแบบกลุ่มไม่สำเร็จ');
+      const { fixedCount, total, results } = json.data;
+      const allActions = results.flatMap((r: any) => r.actionsApplied || []);
+      setFixNotification({
+        type: 'success',
+        message: `ดำเนินการแก้ไขอัตโนมัติสำเร็จ ${fixedCount} จาก ${total} รายการ`,
+        details: allActions.slice(0, 10),
+      });
+    } catch (err) {
+      setFixNotification({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไขอัตโนมัติแบบกลุ่ม',
+      });
+    } finally {
+      setBatchFixing(false);
+    }
+  };
+
   const handoff = async (ipd: boolean) => {
     const rows = chosen.filter(r => ipd ? Boolean(r.an) : !r.an && r.vn);
     if (!rows.length || !reviewed || !note.trim()) return;
     setLoading(true); setError('');
     try {
       const query = new URLSearchParams({ startDate: loaded.start, endDate: loaded.end, checkIds: rows.map(r => r.id).join(',') });
-      const response = await fetch(`/api/reconciliation/stm-zero?${query}`);
+      const response = await fetch(`${endpoint}?${query}`);
       const payload = await response.json();
       const refreshed: StmZeroRow[] = payload.data || [];
-      if (!response.ok || !payload.success || rows.some(r => !refreshed.some(current => current.id === r.id && current.vn === r.vn && current.an === r.an && current.hn === r.hn && current.service_date === r.service_date))) {
+      const matchFn = isRep
+        ? (r: StmZeroRow, current: StmZeroRow) => current.id === r.id && current.vn === r.vn && current.an === r.an && current.hn === r.hn
+        : (r: StmZeroRow, current: StmZeroRow) => current.id === r.id && current.vn === r.vn && current.an === r.an && current.hn === r.hn && current.service_date === r.service_date;
+      if (!response.ok || !payload.success || rows.some(r => !refreshed.some(current => matchFn(r, current)))) {
         setError('ข้อมูลเปลี่ยนหรือยังยืนยันส่งใหม่ไม่ได้ กรุณาโหลด audit และตรวจรายการอีกครั้ง'); setReviewed(false); return;
       }
     const dates = rows.map(r => r.service_date.slice(0, 10)).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
     if (dates.length !== rows.length) { setError('บางรายการไม่มีวันที่บริการ กรุณาตรวจต้นทางก่อนส่งต่อ'); return; }
-    navigateFromDashboard(ipd ? 'ipdExport' : 'fdh', { contextLabel: `STM 0: ${note.trim()} — ตรวจสิทธิแก้ไขและยืนยันส่งซ้ำก่อนส่งจริง`,
+    navigateFromDashboard(ipd ? 'ipdExport' : 'fdh', { contextLabel: `${title}: ${note.trim()} — ตรวจสิทธิแก้ไขและยืนยันส่งซ้ำก่อนส่งจริง`,
       startDate: dates[0], endDate: dates[dates.length - 1],
       ...(ipd ? { ipdExport: { targetAns: [...new Set(rows.map(r => r.an))] } } : { fdh: { statusFilter: 'all', targetVns: [...new Set(rows.map(r => r.vn))] } }),
     });
@@ -116,10 +184,10 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     finally { setLoading(false); }
   };
   return <section className="stm-zero-audit" aria-label={`ตรวจ ${title}`}>
-    <header className={`zero-hero ${isRep ? 'zero-hero-rep' : ''}`}><div className="zero-hero-title"><span className="zero-eyebrow">{isRep ? 'ผลตอบกลับ REP · ตรวจเหตุผลไม่ชดเชย' : 'ติดตามผลชดเชย · ตรวจสอบหลักฐาน'}</span><h1>ตรวจ {title}</h1><p>{isRep ? 'ดูแถบ Data Sheet 0 ใน REP อ่านเหตุผล และเทียบข้อมูลต้นทาง HIS' : 'ค้นรายการจ่าย 0 บาท เทียบข้อมูลต้นทาง และติดตามการแก้ไขในที่เดียว'}</p></div>
+    <header className={`zero-hero ${isRep ? 'zero-hero-rep' : ''}`}><div className="zero-hero-title"><span className="zero-eyebrow">{isRep ? 'ผลตอบกลับ REP · ตรวจเหตุผลและแก้ไขส่งซ้ำ' : 'ติดตามผลชดเชย · ตรวจสอบหลักฐาน'}</span><h1>ตรวจ {title}</h1><p>{isRep ? 'ดูแถบ Data Sheet 0 ใน REP แก้ไขอัตโนมัติใน HOSxP และเตรียมส่งเบิกซ้ำเข้า FDH / e-Claim' : 'ค้นรายการจ่าย 0 บาท เทียบข้อมูลต้นทาง และติดตามการแก้ไขในที่เดียว'}</p></div>
       <button className="zero-report-button" disabled={!result || loading} onClick={exportExecutive}>↗ ดาวน์โหลดสรุปผู้บริหาร</button></header>
-    <ol className="zero-workflow"><li><b>1</b><span>ค้นรายการ<span>ตามวันที่นำเข้าไฟล์</span></span></li><li><b>2</b><span>ตรวจหลักฐาน<span>เทียบแถว {isRep ? 'REP' : 'STM'} กับ HIS</span></span></li><li><b>3</b><span>{isRep ? 'ตรวจเหตุผล' : 'เตรียมแก้ไข'}<span>{isRep ? 'อ่านรหัสและข้อความต้นฉบับ' : 'ยืนยันสิทธิส่งใหม่ก่อนส่ง'}</span></span></li></ol>
-    <div className="zero-notice"><strong>{isRep ? 'Data Sheet 0 จาก REP' : 'ตรวจเหตุผลก่อนส่งซ้ำ'}</strong><span>{isRep ? 'แสดงทุกแถวของชีตนี้ แม้ไม่มียอดจ่าย ใช้เหตุผลจากไฟล์และคำอธิบายรหัสประกอบ ไม่สรุปสาเหตุจากยอด 0 เพียงอย่างเดียว' : 'บางรายการต้องรอรอบจ่าย อนุมัติ SMCS หรือเปิดแก้ไขผ่าน OSR ยอดว่างจะแยกจากยอด 0 เสมอ'}</span></div>
+    <ol className="zero-workflow"><li><b>1</b><span>ค้นรายการ<span>ตามวันที่นำเข้าไฟล์</span></span></li><li><b>2</b><span>ตรวจหลักฐาน<span>เทียบแถว {isRep ? 'REP' : 'STM'} กับ HIS</span></span></li><li><b>3</b><span>{isRep ? 'แก้ไข & ส่งซ้ำ' : 'เตรียมแก้ไข'}<span>{isRep ? 'ปุ่ม Auto-Fix และส่งเบิกซ้ำ' : 'ยืนยันสิทธิส่งใหม่ก่อนส่ง'}</span></span></li></ol>
+    <div className="zero-notice"><strong>{isRep ? 'Data Sheet 0 จาก REP' : 'ตรวจเหตุผลก่อนส่งซ้ำ'}</strong><span>{isRep ? 'แสดงทุกแถวของชีตนี้ พร้อมปุ่ม ⚡ แก้ไข Auto ในแต่ละรายการ และสามารถเลือกแถวส่งเบิกซ้ำเข้า FDH หรือ e-Claim ได้ทันที' : 'บางรายการต้องรอรอบจ่าย อนุมัติ SMCS หรือเปิดแก้ไขผ่าน OSR ยอดว่างจะแยกจากยอด 0 เสมอ'}</span></div>
     {isRep && <div className="zero-actions"><button onClick={() => navigateFromDashboard('repstm', {})}>นำเข้าไฟล์ REP</button><button onClick={() => navigateFromDashboard('stmZeroAudit', {})}>เปิดหน้าตรวจ STM 0</button></div>}
     {catalogError && <p role="alert" className="zero-error">{catalogError}</p>}
     <section className="zero-filter-card" aria-label={`ตัวกรอง ${title}`}><div className="zero-section-heading"><h2>ค้นหารายการที่ต้องตรวจ</h2><span>ใช้วันที่นำเข้าไฟล์ ไม่ใช่วันที่บริการ</span></div><div className="zero-filters">
@@ -131,6 +199,16 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
       <button className="rec-btn rec-btn-primary" disabled={loading} onClick={() => void load()}>{loading ? 'กำลังตรวจ...' : `ค้นหา ${isRep ? 'Data Sheet 0' : 'STM 0'}`}</button>
     </div></section>
     {error && <p role="alert" className="zero-error">{error}</p>}
+    {fixNotification && (
+      <div className={`zero-toast-alert ${fixNotification.type}`}>
+        <strong>{fixNotification.type === 'success' ? '✅' : '❌'} {fixNotification.message}</strong>
+        {fixNotification.details && fixNotification.details.length > 0 && (
+          <ul>
+            {fixNotification.details.map((d, idx) => <li key={idx}>{d}</li>)}
+          </ul>
+        )}
+      </div>
+    )}
     {loading && <div className="zero-empty" role="status"><span className="zero-empty-icon">⌕</span><h2>กำลังเทียบ {isRep ? 'REP' : 'STM'} กับข้อมูล HIS</h2><p>ตรวจสถานะจับคู่และข้อมูลที่นำเข้าแล้ว</p></div>}
     {!result && !loading && !error && <div className="zero-empty"><span className="zero-empty-icon">⌕</span><h2>{isRep ? 'ตรวจเหตุผลใน REP Data Sheet 0' : 'เริ่มตรวจรายการชดเชย 0 บาท'}</h2><p>เลือกช่วงวันที่นำเข้าไฟล์ แล้วกด “ค้นหา {isRep ? 'Data Sheet 0' : 'STM 0'}”<br />{isRep ? 'นำเข้าไฟล์ REP ผ่านเมนูนำเข้า REP/STM ระบบจะเก็บ Data Sheet 0 อัตโนมัติ หากเคยนำเข้าเฉพาะชีตหลัก ให้เลือกไฟล์เดิมนำเข้าอีกครั้งเพื่อเพิ่มชีตนี้' : 'หากยังไม่มีข้อมูล ให้นำเข้า STM ผ่านเมนูนำเข้า REP/STM ก่อน'}</p><div className="zero-empty-tags"><span>ดูแถวต้นฉบับ</span><span>เทียบวินิจฉัย / ยา / หัตถการ</span><span>สรุปผู้บริหาร</span></div></div>}
     {result && <>
@@ -142,26 +220,78 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
         { label: 'พบยอดจ่ายใน Visit', value: result.summary.paidElsewhere, tone: 'teal', sub: 'ตรวจระดับรายการก่อนส่งซ้ำ' },
       ].map(m => <div className={`zero-metric ${m.tone}`} key={m.label}><span>{m.label}</span><strong>{m.value.toLocaleString('th-TH')} <small>แถว</small></strong><small>{m.sub}</small></div>)}</div>
       <div className="zero-groups" aria-label="กรองขั้นตอนอย่างรวดเร็ว"><button disabled={loading} aria-pressed={loaded.action === ''} onClick={() => { setAction(''); void load(1, { action: '' }); }}>ทุกขั้นตอน</button>{result.summary.groups.filter(g => g.count).map(g => <button disabled={loading} aria-pressed={loaded.action === g.action} key={g.action} onClick={() => { setAction(g.action); void load(1, { action: g.action }); }}>{g.label} <b>{g.count}</b></button>)}</div>
-      <p className="zero-caption">{isRep ? 'นับแถว REP ไม่ใช่จำนวน Visit; คำอธิบายรหัสช่วยตรวจสาเหตุ ต้องเทียบหลักฐานจริงก่อนแก้ข้อมูล และ REP ไม่ใช่หลักฐานรับเงิน' : 'นับแถว ไม่ใช่จำนวน Visit; แถว 0 อาจเป็นเพียงบางรายการใน Visit ที่ได้รับเงินแล้ว จึงไม่รวมยอดเงินเป็นความเสียหาย'}</p>
-      <div className="zero-section-heading"><h2>รายการตรวจสอบ <span className="zero-count">{result.total.toLocaleString('th-TH')} แถว</span></h2><span>{isRep ? 'เปิดหลักฐานเพื่อเทียบแถว REP กับ HIS' : 'เลือกได้เฉพาะแถวที่ผ่านเงื่อนไขเตรียมตรวจส่งใหม่'}</span></div>
-      <div className="zero-table-scroll" tabIndex={0} aria-label={`ตารางรายการ ${title} เลื่อนแนวนอนเพื่อดูหลักฐาน`}><table><thead><tr>{!isRep && <th>เลือก</th>}<th>Visit / วันที่</th><th>ต้นทาง</th><th>{isRep ? 'ยอดชดเชยใน REP' : 'ยอดจ่าย'}</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>หลักฐาน</th></tr></thead><tbody>
-        {result.data.map(r => <tr key={r.id}>{!isRep && <td><input aria-label={`เลือก ${r.id}`} type="checkbox" disabled={!canPrepareZeroResend(r)} checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>}
+      <p className="zero-caption">{isRep ? 'นับแถว REP ไม่ใช่จำนวน Visit; รายการที่จับคู่ HIS แล้วสามารถกดปุ่ม ⚡ แก้ไข Auto หรือเลือกแถวเพื่อส่งเบิกซ้ำได้' : 'นับแถว ไม่ใช่จำนวน Visit; แถว 0 อาจเป็นเพียงบางรายการใน Visit ที่ได้รับเงินแล้ว จึงไม่รวมยอดเงินเป็นความเสียหาย'}</p>
+      <div className="zero-section-heading"><h2>รายการตรวจสอบ <span className="zero-count">{result.total.toLocaleString('th-TH')} แถว</span></h2><span>{isRep ? 'เลือกแถวเพื่อกดแก้ไขอัตโนมัติ หรือเตรียมส่งเบิกซ้ำเข้า FDH / e-Claim' : 'เลือกได้เฉพาะแถวที่ผ่านเงื่อนไขเตรียมตรวจส่งใหม่'}</span></div>
+      <div className="zero-table-scroll" tabIndex={0} aria-label={`ตารางรายการ ${title} เลื่อนแนวนอนเพื่อดูหลักฐาน`}><table><thead><tr><th>
+        <input
+          type="checkbox"
+          title="เลือก/ยกเลิกทั้งหมดในหน้านี้"
+          aria-label="เลือกแถวทั้งหมดในหน้านี้"
+          checked={Boolean(result.data.length && result.data.filter(isRowEligible).length && result.data.filter(isRowEligible).every(r => Boolean(selected[r.id])))}
+          onChange={e => {
+            setReviewed(false);
+            if (e.target.checked) {
+              const eligible = result.data.filter(isRowEligible);
+              const next = { ...selected };
+              eligible.forEach(r => { next[r.id] = r; });
+              setSelected(next);
+            } else {
+              const currentIds = new Set(result.data.map(r => r.id));
+              const next = { ...selected };
+              Object.keys(next).forEach(k => { if (currentIds.has(k)) delete next[k]; });
+              setSelected(next);
+            }
+          }}
+        />
+      </th><th>Visit / วันที่</th><th>ต้นทาง</th><th>{isRep ? 'ยอดชดเชยใน REP' : 'ยอดจ่าย'}</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>การดำเนินการ / หลักฐาน</th></tr></thead><tbody>
+        {result.data.map(r => <tr key={r.id}><td><input aria-label={`เลือก ${r.id}`} type="checkbox" disabled={!isRowEligible(r)} checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>
           <td><b>{r.an ? `IPD · AN ${r.an}` : r.vn ? `OPD · VN ${r.vn}` : `${r.encounter_type === 'OP' ? 'OPD' : r.encounter_type === 'IP' ? 'IPD' : 'ไม่ทราบประเภท'} · รอจับคู่ HIS`}</b>{r.tran_id && <small>TRAN_ID {r.tran_id}</small>}<small>HN {r.hn || 'ไม่พบ'} · {r.service_date || 'ไม่ระบุวันที่'}</small></td>
           <td className="zero-file">{r.source_filename}<small>{r.sheet_name || 'STM'} · {r.statement_no || r.tran_id || r.id}</small></td>
           <td className="zero-paid">{money(r.paid_amount)}</td><td>{isRep ? reasons(r) : <b>{r.errorcode} {r.verifycode}</b>}<small className="zero-action-badge" data-action={r.action}>{ZERO_ACTION_LABELS[r.action]}</small></td>
-          <td><span className={`zero-match-badge ${r.matched ? 'matched' : ''}`}>{r.matched ? '✓ จับคู่ HIS แล้ว' : 'รอจับคู่'}</span>{r.payment_uncertain && <small>Visit มียอดจ่ายไม่ทราบค่า</small>}</td><td><button className="zero-detail-button" onClick={() => void openDetail(r)}>ดูต้นทาง / HIS ↗</button></td></tr>)}
-        {!result.data.length && <tr><td colSpan={isRep ? 6 : 7}>ไม่พบรายการตามเงื่อนไข — ตรวจว่ามีการนำเข้า {title} ครบแล้วหรือไม่</td></tr>}
+          <td><span className={`zero-match-badge ${r.matched ? 'matched' : ''}`}>{r.matched ? '✓ จับคู่ HIS แล้ว' : 'รอจับคู่'}</span>{r.payment_uncertain && <small>Visit มียอดจ่ายไม่ทราบค่า</small>}</td>
+          <td>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button className="zero-detail-button" onClick={() => void openDetail(r)}>ดูต้นทาง / HIS ↗</button>
+              {isRep && r.matched && Boolean(r.vn) && (
+                <button
+                  type="button"
+                  className="zero-autofix-button"
+                  disabled={fixingVn === r.vn}
+                  onClick={() => void handleSingleAutoFix(r)}
+                  title="ตรวจและแก้ไขข้อมูลอัตโนมัติใน HOSxP (Authen, ทันตกรรม, ตารางโรค)"
+                >
+                  {fixingVn === r.vn ? '⏳ กำลังแก้...' : '⚡ แก้ไข Auto'}
+                </button>
+              )}
+            </div>
+          </td></tr>)}
+        {!result.data.length && <tr><td colSpan={7}>ไม่พบรายการตามเงื่อนไข — ตรวจว่ามีการนำเข้า {title} ครบแล้วหรือไม่</td></tr>}
       </tbody></table></div>
       <div className="zero-pagination"><button disabled={loading || page <= 1} onClick={() => void load(page - 1)}>ก่อนหน้า</button><span>หน้า {page} / {Math.max(1, Math.ceil(result.total / 50))} · {result.total} แถว</span><button disabled={loading || page * 50 >= result.total} onClick={() => void load(page + 1)}>ถัดไป</button></div>
-      {!isRep && (chosen.length > 0 ? <section className="zero-prepare"><h3>เตรียมรายการแก้ไข / ส่งใหม่ ({chosen.length} แถวในหน้านี้)</h3>
-        <p>รายการรออนุมัติ รอรอบจ่าย ยังจับคู่ไม่ได้ หรือพบยอดจ่ายแล้วจะเลือกไม่ได้ ตรวจแถว 0 ที่ไม่ทราบเหตุผลให้ครบก่อนเลือก</p>
-        <label>ช่องทางเดิม<select value={channel} onChange={e => { setChannel(e.target.value); setReviewed(false); }}><option value="eclaim">eClaim / OSR — ดาวน์โหลดรายการไปดำเนินการ</option><option value="fdh">FDH — ยืนยันว่ารายการเดิมส่งทาง FDH</option></select></label>
-        <label>ผลการตรวจ / สิ่งที่แก้ไข<textarea value={note} onChange={e => { setNote(e.target.value); setReviewed(false); }} placeholder="ระบุเหตุผล หลักฐานที่ตรวจ และสิทธิแก้ไขจากระบบปลายทาง" /></label>
+      {chosen.length > 0 ? <section className="zero-prepare"><h3>เตรียมรายการแก้ไข / ส่งใหม่ ({title}: {chosen.length} แถวในหน้านี้)</h3>
+        <p>{isRep ? 'รายการที่เลือกสามารถกดแก้ไขอัตโนมัติใน HOSxP หรือส่งต่อเข้าสู่หน้าส่งออก FDH (OPD / IPD) และดาวน์โหลดเพื่อนำไปส่ง e-Claim/OSR ได้' : 'รายการรออนุมัติ รอรอบจ่าย ยังจับคู่ไม่ได้ หรือพบยอดจ่ายแล้วจะเลือกไม่ได้ ตรวจแถว 0 ที่ไม่ทราบเหตุผลให้ครบก่อนเลือก'}</p>
+        {isRep && (
+          <div style={{ marginBottom: 16 }}>
+            <button
+              type="button"
+              className="zero-btn-autofix-batch"
+              disabled={batchFixing || !chosen.some(r => r.vn || r.an)}
+              onClick={() => void handleBatchAutoFix()}
+            >
+              {batchFixing ? '⏳ กำลังดำเนินการแก้ไขอัตโนมัติ...' : `⚡ แก้ไขอัตโนมัติทั้งหมดที่เลือก (${chosen.filter(r => r.vn || r.an).length} รายการ)`}
+            </button>
+            <small style={{ display: 'block', marginTop: 6, color: '#4b6584' }}>
+              ระบบจะตรวจและแก้ไขรหัส Claim/Authen Code, ลบรหัสหัตถการตัวเลขตกค้างใน ovstdiag, และสร้าง dtmain ให้ใน HOSxP
+            </small>
+          </div>
+        )}
+        <label>ช่องทางส่งต่อ<select value={channel} onChange={e => { setChannel(e.target.value); setReviewed(false); }}><option value="fdh">FDH — ส่งออกเบิกซ้ำเข้า FDH (OPD / IPD)</option><option value="eclaim">eClaim / OSR — ดาวน์โหลดรายการไปดำเนินการ</option></select></label>
+        <label>ผลการตรวจ / สิ่งที่แก้ไข<textarea value={note} onChange={e => { setNote(e.target.value); setReviewed(false); }} placeholder="ระบุเหตุผล หลักฐานที่ตรวจ และสิ่งที่แก้ไขในระบบ" /></label>
         <label><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} /> ตรวจข้อมูลต้นทาง แก้ไขในระบบงาน และยืนยันสิทธิแก้ไขส่งใหม่ตามกองทุนแล้ว</label>
-        <div className="zero-actions"><button disabled={!chosen.length || !reviewed || !note.trim()} onClick={exportQueue}>ดาวน์โหลดรายการที่ตรวจแล้ว</button>
-          {channel === 'fdh' && <><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => !r.an && r.vn)} onClick={() => void handoff(false)}>เปิดส่งออก OPD เฉพาะที่เลือก</button><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => r.an)} onClick={() => void handoff(true)}>เปิดส่งออก IPD เฉพาะที่เลือก</button></>}
+        <div className="zero-actions"><button disabled={!chosen.length || !reviewed || !note.trim()} onClick={exportQueue}>📥 ดาวน์โหลดรายการที่ตรวจแล้ว (Excel)</button>
+          {channel === 'fdh' && <><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => !r.an && r.vn)} onClick={() => void handoff(false)}>🚀 เปิดส่งออก OPD เฉพาะที่เลือก ({chosen.filter(r => !r.an && r.vn).length})</button><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => r.an)} onClick={() => void handoff(true)}>🚀 เปิดส่งออก IPD เฉพาะที่เลือก ({chosen.filter(r => r.an).length})</button></>}
         </div><small>การเปิดส่งออกยังต้องผ่านการตรวจความพร้อมและยืนยันส่งซ้ำ ระบบนี้ไม่ได้ส่งเคลมโดยอัตโนมัติ การเปลี่ยนหน้า/โหลดใหม่ล้างรายการที่เลือกและการยืนยัน</small>
-      </section> : <div className="zero-selection-hint">เลือกแถวในตารางเพื่อเตรียมรายการแก้ไข / ส่งใหม่ · แถวที่ยังไม่ผ่านเงื่อนไขสามารถเปิดดูหลักฐานได้</div>)}
+      </section> : <div className="zero-selection-hint">เลือกแถวในตารางเพื่อเตรียมรายการแก้ไข / ส่งใหม่ · แถวที่ยังไม่ผ่านเงื่อนไขสามารถเปิดดูหลักฐานได้</div>}
     </>}
     {!isRep && <details className="zero-guide"><summary>อ่านเพิ่มเติม: Sheet 0 และแนวทางตรวจ</summary><p>เอกสารชี้แจง สปสช. แสดง Sheet 0 เป็นรายการจ่าย 0 พร้อมเหตุผล กองทุน HERB_GB อาจอยู่ระหว่างรอประมวลผล ส่วน W305 ต้องตรวจการอนุมัติ และ D011 ต้องตรวจการเปิดแก้ไขใน eClaim/OSR คำแนะนำนี้ไม่ใช่การรับรองสิทธิส่งใหม่หรือกำหนดเวลาทักท้วงปัจจุบัน</p>
       <a href="https://www.kpnhospital.com/wp-content/uploads/2025/09/ระบบโปรแกรม_e-Claim_ยาสมุนไพร_HERBFS_25680523.pdf" target="_blank" rel="noreferrer">เอกสารชี้แจง eClaim ยาสมุนไพร (เผยแพร่ผ่านโรงพยาบาล)</a><br />
@@ -170,6 +300,22 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     {detail && <div className="zero-modal-backdrop"><section role="dialog" aria-modal="true" aria-label={`หลักฐาน ${isRep ? 'REP' : 'STM'} และข้อมูล HIS`} className="zero-modal"><button className="zero-close" onClick={() => setDetail(null)}>ปิด</button>
       <h2>หลักฐาน {detail.id}</h2><p>{detail.source_filename} · {detail.sheet_name} · Batch {detail.batch_id}{detail.row_no != null ? ` · แถวข้อมูลนำเข้า ${detail.row_no}` : ''}</p>
       <p>{detail.reason} · {ZERO_ACTION_LABELS[detail.action]}</p>
+      {isRep && detail.matched && Boolean(detail.vn) && (
+        <div style={{ margin: '14px 0', padding: '12px 16px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <strong style={{ color: '#0369a1' }}>⚡ ฟังก์ชันแก้ไขอัตโนมัติใน HOSxP</strong>
+            <small style={{ display: 'block', color: '#475569' }}>ระบบจะผูกรหัส Claim/Authen Code, ลบรหัสหัตถการตัวเลขตกค้างในตารางโรค หรือสร้าง dtmain ให้</small>
+          </div>
+          <button
+            type="button"
+            className="zero-btn-autofix-batch"
+            disabled={fixingVn === detail.vn}
+            onClick={() => void handleSingleAutoFix(detail)}
+          >
+            {fixingVn === detail.vn ? '⏳ กำลังแก้ไข...' : '⚡ ดำเนินการแก้ไข Auto'}
+          </button>
+        </div>
+      )}
       {isRep && <><h3>เหตุผลจาก REP และคำอธิบายรหัส</h3>{reasons(detail)}<p>ข้อความจากไฟล์เป็นหลักฐานต้นฉบับ คำอธิบายรหัสเป็นแนวทางตรวจ ไม่ใช่ผลยืนยันจากการตรวจ HIS</p></>}
       <h3>แถวต้นฉบับจากไฟล์นำเข้า</h3><dl>{Object.entries(detail.raw_data).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{typeof v === 'object' ? JSON.stringify(v) : String(v ?? '')}</dd></div>)}</dl>
       <h3>ข้อมูล HIS ปัจจุบัน</h3>{sourceLoading && <p>กำลังอ่าน...</p>}{sourceError && <p role="alert">{sourceError}</p>}{source && <><p>{source.warning} {source.warnings.join(' / ')}</p>

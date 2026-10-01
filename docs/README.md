@@ -33,7 +33,7 @@ as the current project state.
 | Local development | [Quick start](../QUICK_START.md), [package scripts](../package.json) |
 | Hospital setup and claim checks | [ตั้งค่ารายโรงพยาบาล](HOSPITAL_SETUP.md) |
 | Remaining work | [Backlog](../BACKLOG.md) |
-| Current program audit | [Audit 29 Sep 2026](PROGRAM_AUDIT_2026-09-29.md) |
+| Current program audit | [Audit 30 Sep 2026](PROGRAM_AUDIT_2026-09-30.md), [Audit 29 Sep 2026](PROGRAM_AUDIT_2026-09-29.md) |
 | Audit / STM 0 / Sheet 0 and resend review | [คู่มือตรวจ STM 0](STM_ZERO_AUDIT.md) |
 | REP Data Sheet 0 and HIS matching | [คู่มือตรวจ REP Data Sheet 0](REP_DATA_SHEET_ZERO.md) |
 | Production deployment | [Deployment guide](../deploy/README.md) |

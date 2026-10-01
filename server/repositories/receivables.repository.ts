@@ -26,6 +26,7 @@ import { mergeFdhClaimDetails } from '../fdhClaimDetailMerge.js';
 import { activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection } from '../hospitalDatabase.js';
 import { isKidneyStmFileName } from '../../src/utils/repstmImportClassification.js';
 import { pickImportColumn } from '../utils/importColumnLookup.js';
+import { resolveHospitalEncounter } from '../stmEncounterIdentity.js';
 
 
 const normalizeCitizenId = (value: string): string => {
@@ -704,79 +705,9 @@ const resolveStatementRecordUid = (
     .join(':');
 };
 
-const resolveVisitDateOnly = (dateTime: string | null) => dateTime?.split(' ')[0] || null;
-
-const resolveRepVisitCode = async (
-  hosConnection: HospitalConnection,
-  department: string,
-  hn: string,
-  admdate: string | null,
-  pid: string,
-  an: string,
-  vn: string
-) => {
-  const normalizedCid = normalizeCitizenId(pid);
-  if (department === 'IP') {
-    if (an.trim()) return an.trim();
-    if (!hn.trim() || !admdate) return '';
-    const visitDate = resolveVisitDateOnly(admdate);
-    if (!visitDate) return '';
-    if (normalizedCid) {
-      const [cidRows] = await hosConnection.query(
-        `SELECT i.an
-         FROM ipt i
-         JOIN patient pt ON pt.hn = i.hn
-         WHERE i.hn = ?
-           AND pt.cid = ?
-           AND (i.regdate = ? OR i.dchdate = ?)
-         ORDER BY i.an DESC
-         LIMIT 1`,
-        [hn.trim(), normalizedCid, visitDate, visitDate]
-      );
-      if (Array.isArray(cidRows) && cidRows.length > 0) {
-        return normalizeImportCellValue((cidRows[0] as Record<string, unknown>).an);
-      }
-    }
-    const [rows] = await hosConnection.query(
-      `SELECT an
-       FROM ipt
-       WHERE hn = ? AND (regdate = ? OR dchdate = ?)
-       ORDER BY an DESC
-       LIMIT 1`,
-      [hn.trim(), visitDate, visitDate]
-    );
-    return Array.isArray(rows) && rows.length > 0 ? normalizeImportCellValue((rows[0] as Record<string, unknown>).an) : '';
-  }
-
-  if (vn.trim()) return vn.trim();
-  if (!hn.trim() || !admdate) return '';
-  const visitDate = resolveVisitDateOnly(admdate);
-  if (!visitDate) return '';
-  if (normalizedCid) {
-    const [cidRows] = await hosConnection.query(
-      `SELECT o.vn
-       FROM ovst o
-       JOIN patient pt ON pt.hn = o.hn
-       WHERE o.hn = ?
-         AND pt.cid = ?
-         AND o.vstdate = ?
-       ORDER BY o.vn DESC
-       LIMIT 1`,
-      [hn.trim(), normalizedCid, visitDate]
-    );
-    if (Array.isArray(cidRows) && cidRows.length > 0) {
-      return normalizeImportCellValue((cidRows[0] as Record<string, unknown>).vn);
-    }
-  }
-  const [rows] = await hosConnection.query(
-    `SELECT vn
-     FROM ovst
-     WHERE hn = ? AND vstdate = ?
-     ORDER BY vn DESC
-     LIMIT 1`,
-    [hn.trim(), visitDate]
-  );
-  return Array.isArray(rows) && rows.length > 0 ? normalizeImportCellValue((rows[0] as Record<string, unknown>).vn) : '';
+const resolveRepVisitCode = async (hosConnection: HospitalConnection, department: string, hn: string, admdate: string | null, pid: string, an: string, vn: string) => {
+  const match = await resolveHospitalEncounter(hosConnection, { kind: department === 'IP' ? 'IP' : 'OP', hn, cid: normalizeCitizenId(pid), serviceDatetime: admdate, an, vn });
+  return match?.visit_code || '';
 };
 
 const resolveRepIncome = async (
@@ -909,8 +840,8 @@ const importRepDataRows = async (
       resolvedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, admdate, pid, fallbackAn, fallbackVn);
       visitCodeCache.set(visitLookupKey, resolvedVisitCode);
     }
-    const vn = department === 'OP' ? (resolvedVisitCode || fallbackVn) : '';
-    const an = department === 'IP' ? (resolvedVisitCode || fallbackAn) : '';
+    const vn = department === 'OP' ? resolvedVisitCode : '';
+    const an = department === 'IP' ? resolvedVisitCode : '';
     const incomeLookupKey = [department, vn, an].join('|');
     let income = incomeCache.get(incomeLookupKey);
     if (income === undefined) {
@@ -1055,8 +986,8 @@ export const importStatementDataRows = async (
       matchedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, serviceDateTime, pid, rawAn, rawVn);
       visitCodeCache.set(visitLookupKey, matchedVisitCode);
     }
-    const vn = department === 'OP' ? (matchedVisitCode || rawVn.trim()) : rawVn.trim();
-    const an = department === 'IP' ? (matchedVisitCode || rawAn.trim()) : '';
+    const vn = department === 'OP' ? matchedVisitCode : '';
+    const an = department === 'IP' ? matchedVisitCode : '';
     const recordUid = kidneyReport
       ? `STM:kidney:${hashText(buildLogicalRowIdentity('STM', row, index))}`
       : resolveStatementRecordUid(payload.dataType, tranId, statementNo, department, vn, an, hn, index);

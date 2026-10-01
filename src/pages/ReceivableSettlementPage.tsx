@@ -66,9 +66,8 @@ export const ReceivableSettlementPage: React.FC = () => {
     fetchSettlementStatements(payerType)
       .then((data) => {
         setStatements(data);
-        if (data.length > 0 && !selectedStatementNo) {
-          setSelectedStatementNo(data[0].statement_no);
-        }
+        setSelectedStatementNo(previous => data.some(row => row.statement_no === previous)
+          ? previous : (data[0]?.statement_no || ''));
       })
       .catch((err) => setErrorMsg(err instanceof Error ? err.message : 'ดึงรายการ Statement ไม่สำเร็จ'))
       .finally(() => setLoadingStatements(false));

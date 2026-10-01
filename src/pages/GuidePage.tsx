@@ -527,7 +527,7 @@ export const GuidePage: React.FC = () => {
                     <p className="page-subtitle">คู่มือการใช้งานระบบ FDH Checker, รหัส Diag, ข้อมูลที่ต้องคีย์ และเงื่อนไขการพิมพ์รายงานบัญชีลูกหนี้สิทธิ์</p>
                     <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                         <a
-                            href="/manual_system_overview.html?v=20260922"
+                            href="/manual_system_overview.html?v=20260930"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn btn-primary btn-sm"
@@ -536,7 +536,7 @@ export const GuidePage: React.FC = () => {
                             📘 เปิดคู่มือทั้งระบบในแท็บใหม่
                         </a>
                         <a
-                            href="/manual_system_overview.pdf?v=20260922"
+                            href="/manual_system_overview.pdf?v=20260930"
                             download="FDH-Checker-คู่มือทั้งระบบ.pdf"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -564,7 +564,7 @@ export const GuidePage: React.FC = () => {
                         </summary>
                         <iframe
                             title="คู่มือ FDH Checker ทั้งระบบ 32 บท"
-                            src="/manual_system_overview.html?v=20260922"
+                            src="/manual_system_overview.html?v=20260930"
                             loading="lazy"
                             style={{ width: '100%', height: '75vh', minHeight: 400, border: 0 }}
                         />

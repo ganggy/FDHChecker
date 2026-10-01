@@ -123,7 +123,7 @@ const ChartDetailModal: React.FC<{ an: string; preAudit?: IpdPreAuditResult | nu
             const response = await fetch('/api/hosxp/audit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ an, status: 'AUDITED', updated_by: 'IPD Coder', notes: 'ตรวจสอบผ่าน Dashboard' })
+                body: JSON.stringify({ an, status: 'AUDITED', notes: 'ตรวจสอบผ่าน Dashboard' })
             });
             const result = await response.json();
             if (result.success) {

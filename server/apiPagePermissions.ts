@@ -1,0 +1,61 @@
+type ApiPageRule = { pattern: RegExp; pages?: string[]; adminOnly?: boolean; authenticated?: boolean; methods?: string[] };
+const apiPageRules: ApiPageRule[] = [
+  { pattern: /^\/admin(\/|$)/, adminOnly: true },
+  { pattern: /^\/ai(\/|$)/, authenticated: true },
+  { pattern: /^\/config\/(hospital-options|app-settings)(\/|$)/, authenticated: true },
+  { pattern: /^\/uuc1-tracking(\/|$)/, pages: ['uuc1Tracking'] },
+  { pattern: /^\/rep-daily-summary(\/|$)/, pages: ['repDailySummary'] },
+  { pattern: /^\/moph-claim\/dmht(\/|$)/, pages: ['mophDmht'] },
+  { pattern: /^\/moph-claim\/vaccine(\/|$)/, pages: ['mophVaccine'] },
+  { pattern: /^\/dashboard\/moph-claim-summary$/, pages: ['mophDmht', 'mophVaccine', 'admin'] },
+  { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
+  { pattern: /^\/hospital-reports(\/|$)/, pages: ['hospitalReports'] },
+  { pattern: /^\/settings\/fdh-api\/test-connection$/, pages: ['settings'] },
+  { pattern: /^\/config\/system-settings(\/|$)/, pages: ['settings'] },
+  { pattern: /^\/config\/receivable-mappings(\/|$)/, pages: ['settings'] },
+  { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },
+  { pattern: /^\/config\/fdh-api-settings(\/|$)/, pages: ['settings', 'fdhImport'] },
+  { pattern: /^\/config\/nhso-authen-settings(\/|$)/, pages: ['settings', 'authenSync'] },
+  { pattern: /^\/config\/nhso-close-settings(\/|$)/, pages: ['settings', 'nhsoClose'] },
+  { pattern: /^\/config\/nhso-eclaim-settings(\/|$)/, pages: ['settings', 'repstm'] },
+  { pattern: /^\/config\/ipd-los-settings(\/|$)/, pages: ['settings', 'ipd'] },
+  { pattern: /^\/nhso\/authen(\/|$)/, pages: ['authenSync'] },
+  { pattern: /^\/nhso\/close(\/|$)/, pages: ['nhsoClose'] },
+  { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
+  { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
+  { pattern: /^\/dental-audit(\/|$)/, pages: ['dentalAudit'] },
+  { pattern: /^\/(annual-checkup|reports\/checkup)(\/|$)/, pages: ['annualCheckupReport', 'hospitalReports'] },
+  { pattern: /^\/ktb-approve(\/|$)/, pages: ['ktbApproveCode'] },
+  { pattern: /^\/reconciliation\/stm-zero$/, pages: ['stmZeroAudit', 'reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/reconciliation\/rep-sheet-zero$/, pages: ['repSheetZeroAudit', 'reconciliation'] },
+  { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/receivables\/(reconciliation|filter-options)(\/|$)/, pages: ['reconciliation', 'receivable', 'ucOutsideCup'] },
+  { pattern: /^\/receivables\/settlement(\/|$)/, pages: ['receivableSettlement'] },
+  { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'ucOutsideCup'] },
+  { pattern: /^\/repstm(\/|$)/, methods: ['POST', 'PUT', 'PATCH'], pages: ['repstm', 'repstmManage'] },
+  { pattern: /^\/repstm(\/|$)/, pages: ['repstm', 'repstmManage', 'reconciliation', 'repDeny', 'ucOutsideCup', 'repDailySummary', 'uuc1Tracking'] },
+  { pattern: /^\/rep-(daily|deny)(\/|$)/, pages: ['repDailySummary', 'repDeny'] },
+  { pattern: /^\/uuc1(\/|$)/, pages: ['uuc1Tracking'] },
+  { pattern: /^\/ppfs(\/|$)/, pages: ['ppfsBenchmark', 'ppfsVisitMatch'] },
+  { pattern: /^\/work-queue(\/|$)/, pages: ['workQueue'] },
+  { pattern: /^\/reject-tracking(\/|$)/, pages: ['rejectTracking'] },
+  { pattern: /^\/moph\/dmht(\/|$)/, pages: ['mophDmht'] },
+  { pattern: /^\/moph\/vaccine(\/|$)/, pages: ['mophVaccine'] },
+  { pattern: /^\/accounting(\/|$)/, pages: ['accountingRevenueBudget'] },
+  { pattern: /^\/insurance(\/|$)/, pages: ['insuranceOverview', 'receivable'] },
+  { pattern: /^\/fdh\/claim-detail(\/|$)/, pages: ['fdhClaimDetail', 'reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/fdh\/import-status(\/|$)/, pages: ['fdhImport', 'fdh', 'reconciliation', 'ucOutsideCup'] },
+  { pattern: /^\/fdh(\/|$)/, pages: ['fdh', 'fundFdh', 'fdhImport', 'staff', 'ipd'] },
+  { pattern: /^\/hosxp\/audit(\/|$)/, pages: ['ipd'] },
+  { pattern: /^\/hosxp\/ipd(\/|$)/, pages: ['ipd', 'ipdClaimMonitor'] },
+  { pattern: /^\/hosxp(\/|$)/, pages: ['staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup'] },
+  { pattern: /^\/icd9(\/|$)/, pages: ['icd9Lookup', 'staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup', 'settings', 'hospitalReports'] },
+];
+export function canAccessApiPage(path: string, method: string, user: { is_admin?: boolean | number; group_is_admin?: boolean | number; menu_permissions?: unknown }) {
+  if (user.is_admin || user.group_is_admin) return true;
+  const rule = apiPageRules.find(item => item.pattern.test(path) && (!item.methods || item.methods.includes(method)));
+  if (!rule || rule.adminOnly) return false;
+  if (rule.authenticated) return true;
+  const permissions = new Set(Array.isArray(user.menu_permissions) ? user.menu_permissions.map(String) : []);
+  return Boolean(rule.pages?.some(page => permissions.has(page)));
+}

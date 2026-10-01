@@ -16,7 +16,7 @@ try {
     path: path.join(root, 'docs/manual_system_overview.pdf'), format: 'A4',
     printBackground: true, displayHeaderFooter: true,
     margin: { top: '16mm', bottom: '18mm', left: '17mm', right: '17mm' },
-    headerTemplate: '<div style="font-size:8px;color:#64748b;width:100%;margin:0 17mm">FDH CHECKER • SYSTEM MANUAL • 2026-09-22</div>',
+    headerTemplate: '<div style="font-size:8px;color:#64748b;width:100%;margin:0 17mm">FDH CHECKER • SYSTEM MANUAL • 2026-09-30</div>',
     footerTemplate: '<div style="font-size:9px;color:#64748b;width:100%;margin:0 17mm;text-align:right"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
   });
   await copyFile(path.join(root, 'docs/manual_system_overview.pdf'), path.join(root, 'public/manual_system_overview.pdf'));

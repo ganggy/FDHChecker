@@ -66,7 +66,7 @@ test('outpatient STM TRAN_ID is not imported as AN or classified as IP', async (
   } } as unknown as HospitalConnection;
   const hosConnection = { query: async (sql: string) => {
     assert.ok(!sql.includes('FROM ipt'));
-    return [sql.includes('FROM ovst') ? [{ vn: 'DEMO-V' }] : []];
+    return [sql.includes('FROM ovst') ? [{ visit_code: 'DEMO-V', hn: 'DEMO-H' }] : []];
   } } as unknown as HospitalConnection;
   await importStatementDataRows(repConnection, hosConnection, 1, { dataType: 'STM',
     sourceFilename: 'STM_DEMO_OPUCS202608_02.xls', rows: [{ TRAN_ID: 'DEMO-T', HN: 'DEMO-H',

@@ -5,7 +5,7 @@ import { getNextHospitalSerial } from './hospitalDatabase.js';
 import { evaluateHerbalMedicationMatch } from '../src/utils/herbalMedicationRules.js';
 
 export interface RepSheetZeroFixOpportunity {
-  fixType: 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX' | 'ADD_HERBAL_DIAG';
+  fixType: 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX' | 'ADD_HERBAL_DIAG' | 'ADD_PALLIATIVE_MORPHINE_DX';
   title: string;
   detail: string;
   autoFixable: boolean;
@@ -208,6 +208,34 @@ export async function detectRepSheetZeroFix(params: {
       }
     }
 
+    // 6. ตรวจสอบเคสจ่ายยากลุ่มมอร์ฟีนแต่ขาดรหัสวินิจฉัย Z51.5 (ADD_PALLIATIVE_MORPHINE_DX)
+    if (vn && has('opitemrece', 'vn', 'icode') && has('drugitems', 'icode', 'name')) {
+      const [morphRows] = await connection.query<RowDataPacket[]>(
+        `SELECT DISTINCT di.name
+         FROM opitemrece oo
+         JOIN drugitems di ON di.icode = oo.icode
+         WHERE oo.vn = ?
+           AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+           AND COALESCE(oo.qty, 0) > 0`,
+        [vn]
+      );
+      if (Array.isArray(morphRows) && morphRows.length > 0) {
+        const morphNames = morphRows.map((r) => String(r.name || '')).filter(Boolean);
+        const [dxRows] = await connection.query<RowDataPacket[]>(
+          `SELECT icd10 FROM ovstdiag WHERE vn = ? AND REPLACE(UPPER(icd10), '.', '') IN ('Z515', 'Z718')`,
+          [vn]
+        );
+        if (!Array.isArray(dxRows) || dxRows.length === 0) {
+          opportunities.push({
+            fixType: 'ADD_PALLIATIVE_MORPHINE_DX',
+            title: 'เพิ่มรหัสวินิจฉัย Z51.5 (เคสจ่ายยากลุ่มมอร์ฟีน)',
+            detail: `สั่งจ่ายยากลุ่มมอร์ฟีน (${morphNames.join(', ')}) แต่ขาดรหัส Z51.5 พร้อมเติมรหัส Z515 อัตโนมัติ`,
+            autoFixable: true,
+          });
+        }
+      }
+    }
+
     return {
       vn,
       an,
@@ -226,7 +254,7 @@ export async function detectRepSheetZeroFix(params: {
 export async function applyRepSheetZeroFix(params: {
   vn: string;
   an?: string;
-  fixType?: 'ALL' | 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX' | 'ADD_HERBAL_DIAG';
+  fixType?: 'ALL' | 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX' | 'ADD_HERBAL_DIAG' | 'ADD_PALLIATIVE_MORPHINE_DX';
   actorName?: string;
 }): Promise<RepSheetZeroFixExecutionResult> {
   const { vn, an, fixType = 'ALL', actorName = 'admin' } = params;
@@ -440,6 +468,43 @@ export async function applyRepSheetZeroFix(params: {
             );
             actionsApplied.push(`เพิ่มรหัสวินิจฉัยยาสมุนไพร (${code}) ใน ovstdiag เรียบร้อย`);
           }
+        }
+      }
+    }
+
+    // 6. ADD_PALLIATIVE_MORPHINE_DX
+    if ((fixType === 'ALL' || fixType === 'ADD_PALLIATIVE_MORPHINE_DX') && vn && has('opitemrece', 'vn', 'icode') && has('drugitems', 'icode', 'name')) {
+      const [morphRows] = await connection.query<RowDataPacket[]>(
+        `SELECT DISTINCT di.name
+         FROM opitemrece oo
+         JOIN drugitems di ON di.icode = oo.icode
+         WHERE oo.vn = ?
+           AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+           AND COALESCE(oo.qty, 0) > 0`,
+        [vn]
+      );
+      if (Array.isArray(morphRows) && morphRows.length > 0) {
+        const [dxRows] = await connection.query<RowDataPacket[]>(
+          `SELECT icd10 FROM ovstdiag WHERE vn = ? AND REPLACE(UPPER(icd10), '.', '') IN ('Z515', 'Z718')`,
+          [vn]
+        );
+        if (!Array.isArray(dxRows) || dxRows.length === 0) {
+          const nextDiagId = await getNextHospitalSerial(connection, 'ovst_diag_id', 'ovstdiag', 'ovst_diag_id');
+          await connection.query(
+            `INSERT INTO ovstdiag (
+              ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode
+            ) VALUES (?, ?, ?, ?, ?, 'Z515', '2', ?, ?, 1)`,
+            [
+              nextDiagId,
+              vn,
+              currentHn,
+              currentVstdate,
+              currentVsttime,
+              currentDoctor,
+              actorName || 'admin',
+            ]
+          );
+          actionsApplied.push('เพิ่มรหัสวินิจฉัย Palliative Z515 สำหรับเคสจ่ายยากลุ่มมอร์ฟีนเรียบร้อย');
         }
       }
     }

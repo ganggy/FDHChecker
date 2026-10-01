@@ -68,3 +68,53 @@ test('offers review and removal for palliative service items without Z51.5 or Z7
   assert.equal(result.canRemoveDiagnosis, false);
   assert.equal(result.canMarkAsHomeVisit, true);
 });
+
+test('qualifies morphine dispensing visit with Z51.5 without requiring Cons01/Eva01 or home visit', () => {
+  const result = reviewPalliativeCareVisit({
+    z515Code: 'Z515',
+    hasMorphine: true,
+    morphineNames: 'MORPHINE',
+    isHomeVisit: 0,
+    hasPalliativeAdp: 0,
+    hasEligibleDiseaseDiagnosis: 0,
+  });
+
+  assert.equal(result.hasMorphine, true);
+  assert.equal(result.qualifiesForService, true);
+  assert.equal(result.shouldReview, false);
+  assert.equal(result.canRemoveDiagnosis, false); // Must never delete diagnosis for morphine patient
+  assert.equal(result.visitKind, 'palliative-morphine');
+  assert.equal(result.isMorphineDispensingOnly, true);
+  assert.equal(result.reasons.length, 0);
+});
+
+test('qualifies morphine dispensing visit with Z71.8', () => {
+  const result = reviewPalliativeCareVisit({
+    z718Code: 'Z718',
+    hasMorphine: true,
+    morphineNames: 'morphine (Prolong release: MST)',
+    isHomeVisit: 0,
+    hasPalliativeAdp: 0,
+  });
+
+  assert.equal(result.hasMorphine, true);
+  assert.equal(result.qualifiesForService, true);
+  assert.equal(result.shouldReview, false);
+  assert.equal(result.canRemoveDiagnosis, false);
+});
+
+test('flags morphine dispensing visit when missing Z51.5 / Z71.8', () => {
+  const result = reviewPalliativeCareVisit({
+    hasMorphine: true,
+    morphineNames: 'Morphine sulfate',
+    isHomeVisit: 0,
+    hasPalliativeAdp: 0,
+  });
+
+  assert.equal(result.hasMorphine, true);
+  assert.equal(result.qualifiesForService, false);
+  assert.equal(result.shouldReview, true);
+  assert.equal(result.canRemoveDiagnosis, false); // Even without dx, don't allow delete
+  assert.ok(result.reasons.some((r) => r.includes('ขาดรหัสวินิจฉัย Z51.5 หรือ Z71.8')));
+});
+

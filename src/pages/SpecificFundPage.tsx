@@ -175,6 +175,10 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [deletingPalliativeVn, setDeletingPalliativeVn] = useState<string | null>(null);
     const [markingPalliativeHomeVn, setMarkingPalliativeHomeVn] = useState<string | null>(null);
     const [palliativeActionMessage, setPalliativeActionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+    const [palliativeRestorableVisits, setPalliativeRestorableVisits] = useState<any[]>([]);
+    const [showPalliativeRestoreModal, setShowPalliativeRestoreModal] = useState(false);
+    const [isRestoringPalliative, setIsRestoringPalliative] = useState(false);
+    const [restoringPalliativeVn, setRestoringPalliativeVn] = useState<string | null>(null);
     const rules = businessRules as any;
     const codes = rules.adp_codes as Record<string, string | string[]>;
     const siteSettings = rules.site_settings as {
@@ -532,6 +536,86 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         }
     }, [fetchFundData, markingPalliativeHomeVn]);
 
+    const fetchPalliativeRestorable = useCallback(async () => {
+        if (activeFund !== 'palliative') return;
+        try {
+            const res = await fetch(`/api/hosxp/palliative-morphine-restorable?startDate=${startDate}&endDate=${endDate}`);
+            const json = await res.json();
+            if (json.success && Array.isArray(json.data)) {
+                setPalliativeRestorableVisits(json.data);
+            }
+        } catch {
+            // silent fail for background fetch
+        }
+    }, [activeFund, startDate, endDate]);
+
+    useEffect(() => {
+        if (activeFund === 'palliative') {
+            void fetchPalliativeRestorable();
+        }
+    }, [activeFund, fetchPalliativeRestorable]);
+
+    const handleRestoreMorphineVisit = useCallback(async (vn: string) => {
+        if (!vn || restoringPalliativeVn) return;
+        setRestoringPalliativeVn(vn);
+        setPalliativeActionMessage(null);
+        try {
+            const res = await fetch(`/api/hosxp/palliative-morphine-restore/${encodeURIComponent(vn)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'กู้คืนไม่สำเร็จ');
+            setPalliativeActionMessage({
+                kind: 'success',
+                text: `VN ${vn}: ${json.result?.message || 'กู้คืนข้อมูลสำเร็จ'}`,
+            });
+            await fetchFundData();
+            await fetchPalliativeRestorable();
+        } catch (err: any) {
+            setPalliativeActionMessage({
+                kind: 'warning',
+                text: err.message || 'กู้คืนไม่สำเร็จ',
+            });
+        } finally {
+            setRestoringPalliativeVn(null);
+        }
+    }, [fetchFundData, fetchPalliativeRestorable, restoringPalliativeVn]);
+
+    const handleBatchRestoreMorphineVisits = useCallback(async () => {
+        if (palliativeRestorableVisits.length === 0 || isRestoringPalliative) return;
+        const confirmed = window.confirm(
+            `ยืนยันกู้คืนรหัสวินิจฉัย Palliative Z51.5 ให้กับผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีนทั้งหมด ${palliativeRestorableVisits.length} รายการ?`
+        );
+        if (!confirmed) return;
+        setIsRestoringPalliative(true);
+        setPalliativeActionMessage(null);
+        try {
+            const vns = palliativeRestorableVisits.map((v) => v.vn);
+            const res = await fetch(`/api/hosxp/palliative-morphine-restore-batch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vns }),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'กู้คืนไม่สำเร็จ');
+            setPalliativeActionMessage({
+                kind: 'success',
+                text: `กู้คืนรหัสวินิจฉัยเคสมอร์ฟีนสำเร็จ ${json.restoredCount} รายการ (จากทั้งหมด ${json.total} รายการ)`,
+            });
+            setShowPalliativeRestoreModal(false);
+            await fetchFundData();
+            await fetchPalliativeRestorable();
+        } catch (err: any) {
+            setPalliativeActionMessage({
+                kind: 'warning',
+                text: err.message || 'กู้คืนกลุ่มไม่สำเร็จ',
+            });
+        } finally {
+            setIsRestoringPalliative(false);
+        }
+    }, [fetchFundData, fetchPalliativeRestorable, isRestoringPalliative, palliativeRestorableVisits]);
+
     useEffect(() => {
         if (activeFund !== 'knee') return;
         let cancelled = false;
@@ -869,6 +953,8 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         hasPalliativeAdp: toFlag(item?.has_pal_adp) || toFlag(item?.has_30001) || toFlag(item?.has_cons01) || toFlag(item?.has_eva001),
         hasEligibleDiseaseDiagnosis: item?.has_eligible_palliative_diag,
         drugCount: item?.drug_count,
+        hasMorphine: item?.has_morphine,
+        morphineNames: item?.morphine_names,
     });
 
     const getFundRuleStatus = (item: any, fundId: string = activeFund) => {
@@ -888,7 +974,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         if (fundId === 'palliative') {
             if (!isUcsLike) return buildStatusResult([], [], undefined, false);
             const review = getPalliativeReview(item);
-            if (hasPalliativeDiag || hasPalliativeAdp) subfunds.push('🕊️ Palliative Care');
+            if (hasPalliativeDiag || hasPalliativeAdp || review.hasMorphine) {
+                subfunds.push(review.hasMorphine ? '🕊️💊 Palliative (มอร์ฟีน)' : '🕊️ Palliative Care');
+            }
+            if (review.hasMorphine) {
+                return buildStatusResult(subfunds, review.reasons, undefined, review.qualifiesForService);
+            }
             if (hasPalliativeDiag) {
                 return buildStatusResult(subfunds, review.reasons, undefined, review.qualifiesForService);
             }
@@ -2733,6 +2824,25 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         {showPalliativeReviewOnly ? `✓ แสดงเฉพาะไม่เข้าเกณฑ์ (${palliativeReviewData.length})` : `⚠️ แสดงเฉพาะไม่เข้าเกณฑ์ (${palliativeReviewData.length})`}
                                     </button>
                                 )}
+                                {activeFund === 'palliative' && palliativeRestorableVisits.length > 0 && (
+                                    <button
+                                        type="button"
+                                        className="btn"
+                                        style={{
+                                            background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                                            color: 'white',
+                                            borderColor: '#4338ca',
+                                            padding: '6px 12px',
+                                            fontSize: '12px',
+                                            fontWeight: 700,
+                                            boxShadow: '0 2px 4px rgba(79, 70, 229, 0.3)',
+                                        }}
+                                        onClick={() => setShowPalliativeRestoreModal(true)}
+                                        title="พบผู้ป่วยได้รับยากลุ่มมอร์ฟีนที่ขาดรหัสวินิจฉัย Z51.5/Z71.8 หรือเคยถูกลบ คลิกเพื่อดูและกู้คืนข้อมูล"
+                                    >
+                                        🔄 กู้คืนเคสมอร์ฟีน ({palliativeRestorableVisits.length})
+                                    </button>
+                                )}
                                 <button
                                     className="btn"
                                     style={{
@@ -2829,6 +2939,49 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                         {activeFund === 'palliative' && palliativeActionMessage && (
                             <div className={`alert ${palliativeActionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
                                 {palliativeActionMessage.text}
+                            </div>
+                        )}
+                        {activeFund === 'palliative' && palliativeRestorableVisits.length > 0 && (
+                            <div className="alert" style={{
+                                background: '#eff6ff',
+                                borderColor: '#bfdbfe',
+                                color: '#1e40af',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '12px',
+                                padding: '12px 16px',
+                                borderRadius: '8px',
+                                marginBottom: '16px'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '20px' }}>💊</span>
+                                    <div>
+                                        <strong>พบผู้ป่วยได้รับยากลุ่มมอร์ฟีนที่ขาดรหัสวินิจฉัย Z51.5 หรือเคยถูกลบ {palliativeRestorableVisits.length} รายการ</strong>
+                                        <div style={{ fontSize: '12px', color: '#3b82f6', marginTop: '2px' }}>
+                                            กลุ่มที่จ่ายยากลุ่มมอร์ฟีนถือว่าสมบูรณ์โดยไม่ต้องมี Cons01/Eva01 สามารถกู้คืนรหัสโรคกลับมาเพื่อส่งเบิกได้ทันที
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary"
+                                        style={{ fontSize: '12px', padding: '6px 12px', fontWeight: 700 }}
+                                        onClick={() => setShowPalliativeRestoreModal(true)}
+                                    >
+                                        🔍 ดูรายการและเลือกกู้คืน
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn btn-success"
+                                        style={{ fontSize: '12px', padding: '6px 12px', fontWeight: 700 }}
+                                        disabled={isRestoringPalliative}
+                                        onClick={() => void handleBatchRestoreMorphineVisits()}
+                                    >
+                                        {isRestoringPalliative ? 'กำลังกู้คืน...' : `⚡ กู้คืนทั้งหมด (${palliativeRestorableVisits.length})`}
+                                    </button>
+                                </div>
                             </div>
                         )}
                         {activeFund === 'knee' && (
@@ -3169,6 +3322,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                 const review = getPalliativeReview(item);
                                                                 return (
                                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'flex-start' }}>
+                                                                        {review.hasMorphine && (
+                                                                            <span className="badge badge-info" style={{ fontSize: 11, background: '#e0e7ff', color: '#3730a3', borderColor: '#c7d2fe' }}>
+                                                                                💊 {review.morphineNames || 'มียากลุ่มมอร์ฟีน'}
+                                                                            </span>
+                                                                        )}
                                                                         <span
                                                                             className={`badge ${review.qualifiesForService ? 'badge-success' : 'badge-danger'}`}
                                                                             style={{ fontSize: 12, padding: '6px 9px' }}
@@ -3186,6 +3344,21 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                     : null}
                                                                             </div>
                                                                         )}
+                                                                        {review.hasMorphine && !review.qualifiesForService && (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="btn"
+                                                                                style={{ padding: '5px 9px', fontSize: 11, background: '#4f46e5', color: 'white', borderColor: '#4338ca', fontWeight: 700 }}
+                                                                                disabled={restoringPalliativeVn === String(item.vn) || isRestoringPalliative}
+                                                                                onClick={(event) => {
+                                                                                    event.stopPropagation();
+                                                                                    void handleRestoreMorphineVisit(String(item.vn));
+                                                                                }}
+                                                                                title="เติมรหัสวินิจฉัย Z51.5 ให้กับเคสจ่ายยากลุ่มมอร์ฟีน"
+                                                                            >
+                                                                                {restoringPalliativeVn === String(item.vn) ? 'กำลังเติม...' : '➕ เติม/กู้คืน Z51.5 (มอร์ฟีน)'}
+                                                                            </button>
+                                                                        )}
                                                                         {review.canMarkAsHomeVisit && (
                                                                             <button
                                                                                 type="button"
@@ -3198,7 +3371,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                 {markingPalliativeHomeVn === String(item.vn) ? 'กำลังปรับ...' : '🏠 ยืนยันเป็น visit เยี่ยมบ้าน'}
                                                                             </button>
                                                                         )}
-                                                                        {review.shouldReview && (
+                                                                        {!review.hasMorphine && review.shouldReview && (
                                                                             <button
                                                                                 type="button"
                                                                                 className="btn"
@@ -4094,6 +4267,149 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     visit={{ vn: repstmVisit.vn, an: repstmVisit.an, hn: repstmVisit.hn, patientName: repstmVisit.patientName }}
                     onClose={() => setRepstmVisit(null)}
                 />
+            )}
+
+            {showPalliativeRestoreModal && (
+                <div className="modal-backdrop" style={{
+                    position: 'fixed',
+                    top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1050,
+                    padding: '20px'
+                }}>
+                    <div className="modal-dialog" style={{
+                        background: 'white',
+                        borderRadius: '12px',
+                        width: '100%',
+                        maxWidth: '900px',
+                        maxHeight: '90vh',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)',
+                        overflow: 'hidden'
+                    }}>
+                        <div style={{
+                            padding: '16px 20px',
+                            borderBottom: '1px solid var(--border)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: '#f8fafc'
+                        }}>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>
+                                    🕊️💊 รายการผู้ป่วยได้รับยากลุ่มมอร์ฟีนที่สามารถกู้คืนรหัส Diag ได้
+                                </h3>
+                                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+                                    ผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีนเพียงมีรหัส Z51.5 / Z71.8 ก็ถือว่าสมบูรณ์สำหรับเบิกยาประคับประคอง (ไม่ต้องมี Cons01/Eva01)
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                className="btn"
+                                style={{ padding: '6px 12px', fontSize: '14px' }}
+                                onClick={() => setShowPalliativeRestoreModal(false)}
+                            >
+                                ✕ ปิด
+                            </button>
+                        </div>
+                        <div style={{ padding: '16px 20px', overflowY: 'auto', flex: 1 }}>
+                            {palliativeRestorableVisits.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
+                                    ไม่พบรายการที่เข้าเงื่อนไขกู้คืน
+                                </div>
+                            ) : (
+                                <table className="table" style={{ width: '100%', fontSize: '12px' }}>
+                                    <thead>
+                                        <tr style={{ background: '#f1f5f9' }}>
+                                            <th style={{ padding: '8px' }}>วันที่</th>
+                                            <th style={{ padding: '8px' }}>VN</th>
+                                            <th style={{ padding: '8px' }}>HN / ผู้ป่วย</th>
+                                            <th style={{ padding: '8px' }}>ยากลุ่มมอร์ฟีนที่ได้รับ</th>
+                                            <th style={{ padding: '8px' }}>สถานะเดิม</th>
+                                            <th style={{ padding: '8px', textAlign: 'center' }}>จัดการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {palliativeRestorableVisits.map((item) => (
+                                            <tr key={item.vn}>
+                                                <td style={{ padding: '8px' }}>{item.serviceDate}</td>
+                                                <td style={{ padding: '8px', fontFamily: 'monospace', fontWeight: 600 }}>{item.vn}</td>
+                                                <td style={{ padding: '8px' }}>
+                                                    <div><strong>{item.patientName}</strong></div>
+                                                    <div style={{ fontSize: '11px', color: '#64748b' }}>HN: {item.hn}</div>
+                                                </td>
+                                                <td style={{ padding: '8px' }}>
+                                                    <span className="badge badge-primary" style={{ whiteSpace: 'normal', textAlign: 'left' }}>
+                                                        {item.morphine_names}
+                                                    </span>
+                                                </td>
+                                                <td style={{ padding: '8px', fontSize: '11px' }}>
+                                                    {item.has_audit_backup ? (
+                                                        <span style={{ color: '#dc2626' }}>
+                                                            ⚠️ เคยถูกลบ Diag ({item.deleted_diagnoses.map((d: any) => d.icd10).join(', ')})
+                                                            {item.deleted_by_username ? ` โดย ${item.deleted_by_username}` : ''}
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{ color: '#ea580c' }}>
+                                                            ยังไม่ได้ลงรหัส Z51.5
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td style={{ padding: '8px', textAlign: 'center' }}>
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-primary"
+                                                        style={{ padding: '4px 10px', fontSize: '11px', fontWeight: 700 }}
+                                                        disabled={restoringPalliativeVn === item.vn || isRestoringPalliative}
+                                                        onClick={() => void handleRestoreMorphineVisit(item.vn)}
+                                                    >
+                                                        {restoringPalliativeVn === item.vn ? 'กำลังกู้คืน...' : '⚡ กู้คืน Z51.5'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                        <div style={{
+                            padding: '12px 20px',
+                            borderTop: '1px solid var(--border)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            background: '#f8fafc'
+                        }}>
+                            <span style={{ fontSize: '13px', color: '#64748b' }}>
+                                ทั้งหมด <strong>{palliativeRestorableVisits.length}</strong> รายการ
+                            </span>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    onClick={() => setShowPalliativeRestoreModal(false)}
+                                >
+                                    ปิด
+                                </button>
+                                {palliativeRestorableVisits.length > 0 && (
+                                    <button
+                                        type="button"
+                                        className="btn btn-success"
+                                        style={{ fontWeight: 700 }}
+                                        disabled={isRestoringPalliative}
+                                        onClick={() => void handleBatchRestoreMorphineVisits()}
+                                    >
+                                        {isRestoringPalliative ? 'กำลังกู้คืน...' : `⚡ กู้คืนทั้งหมด (${palliativeRestorableVisits.length} รายการ)`}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
 
         </div>

@@ -38,6 +38,7 @@ const ISSUE_FILE_MAP: Record<string, string[]> = {
   'ER-DENTAL-MISSING-DTMAIN': ['ODX', 'ADP'],
   'ER-MISSING-PDX': ['ODX'],
   'ER-HERB-MISSING-DX': ['DRU', 'ODX'],
+  'ER-PALLIATIVE-MORPHINE-MISSING-DX': ['DRU', 'ODX'],
 };
 
 const FILE_LABELS: Record<string, string> = {
@@ -88,6 +89,7 @@ const ISSUE_LABELS: Record<string, string> = {
   'ER-DENTAL-MISSING-DTMAIN': 'มีรหัสโรคทันตกรรมแต่ขาดข้อมูลหัตถการใน dtmain (สร้าง Auto ได้)',
   'ER-MISSING-PDX': 'มีการลงรหัสโรคแต่ขาดรหัสโรคหลัก diagtype=1 (ตั้งค่า Auto ได้)',
   'ER-HERB-MISSING-DX': 'มีการสั่งยาสมุนไพรแต่ขาดรหัสวินิจฉัยตามข้อบ่งใช้ (เติม Auto ได้)',
+  'ER-PALLIATIVE-MORPHINE-MISSING-DX': 'มีการสั่งจ่ายยากลุ่มมอร์ฟีนแต่ขาดรหัสวินิจฉัย Z51.5 / Z71.8 (เติม Auto ได้)',
 };
 
 const OPD_BLOCKING_CODES = new Set(['OPD-LAB01', 'OPD-CHG01', 'OPD-CHG03', 'OPD-CHG04', 'OPD-CHG05', 'OPD-DRU01']);

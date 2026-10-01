@@ -5,15 +5,20 @@ export type PalliativeReviewFacts = {
     hasPalliativeAdp?: unknown;
     hasEligibleDiseaseDiagnosis?: unknown;
     drugCount?: unknown;
+    hasMorphine?: unknown;
+    morphineNames?: unknown;
 };
 
 export type PalliativeReviewResult = {
     hasPalliativeDiagnosis: boolean;
+    hasMorphine: boolean;
+    morphineNames: string;
     qualifiesForService: boolean;
+    isMorphineDispensingOnly: boolean;
     shouldReview: boolean;
     canRemoveDiagnosis: boolean;
     canMarkAsHomeVisit: boolean;
-    visitKind: 'home-palliative' | 'possible-medication-pickup' | 'hospital-service';
+    visitKind: 'home-palliative' | 'palliative-morphine' | 'possible-medication-pickup' | 'hospital-service';
     visitKindLabel: string;
     reasons: string[];
 };
@@ -34,9 +39,38 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
     const hasPalliativeAdp = toBoolean(facts.hasPalliativeAdp);
     const hasEligibleDiseaseDiagnosis = toBoolean(facts.hasEligibleDiseaseDiagnosis);
     const hasDrugs = Number(facts.drugCount ?? 0) > 0;
+    const hasMorphine = toBoolean(facts.hasMorphine) || hasValue(facts.morphineNames);
+    const morphineNames = String(facts.morphineNames ?? '').trim();
     const hasPalliativeDiagnosis = hasZ515 || hasZ718;
     const reasons: string[] = [];
 
+    // กลุ่มที่ 1: เคสจ่ายยากลุ่มมอร์ฟีน (Palliative Morphine Dispensing)
+    // สำหรับเคสมอร์ฟีน เงื่อนไขคือมีเพียงรหัสโรคหลัก/ร่วม Z51.5 หรือ Z71.8 ร่วมกับยากลุ่มมอร์ฟีน
+    // ก็ถือว่าเป็นการจ่ายยาให้ผู้ป่วยสมบูรณ์แล้ว โดยไม่ต้องมี Cons01 หรือ Eva01
+    if (hasMorphine) {
+        if (!hasPalliativeDiagnosis) {
+            reasons.push('จ่ายยากลุ่มมอร์ฟีน แต่ยังขาดรหัสวินิจฉัย Z51.5 หรือ Z71.8');
+        }
+
+        const qualifiesForService = hasPalliativeDiagnosis;
+        return {
+            hasPalliativeDiagnosis,
+            hasMorphine: true,
+            morphineNames,
+            qualifiesForService,
+            isMorphineDispensingOnly: true,
+            shouldReview: !qualifiesForService,
+            canRemoveDiagnosis: false, // ห้ามลบ Diagnosis ของผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีน
+            canMarkAsHomeVisit: !isHomeVisit,
+            visitKind: 'palliative-morphine',
+            visitKindLabel: qualifiesForService
+                ? 'จ่ายยากลุ่มมอร์ฟีน (สมบูรณ์ - ไม่ต้องใช้ Cons01/Eva01)'
+                : 'จ่ายยากลุ่มมอร์ฟีน (ขาด Z51.5/Z71.8)',
+            reasons,
+        };
+    }
+
+    // กลุ่มที่ 2: บริการการดูแลประคับประคองทั่วไป / เยี่ยมบ้าน (Palliative Care Service)
     if (!isHomeVisit) reasons.push('ไม่ใช่ visit เยี่ยมบ้าน');
     if (!hasPalliativeAdp) reasons.push('ไม่พบ ADP 30001/Cons01/Eva001 ตามบริการจริง');
     if (!hasEligibleDiseaseDiagnosis) reasons.push('ไม่พบโรคหลักในบัญชี Palliative ที่เข้าเกณฑ์');
@@ -57,7 +91,10 @@ export const reviewPalliativeCareVisit = (facts: PalliativeReviewFacts): Palliat
 
     return {
         hasPalliativeDiagnosis,
+        hasMorphine: false,
+        morphineNames: '',
         qualifiesForService,
+        isMorphineDispensingOnly: false,
         shouldReview: (hasPalliativeDiagnosis || hasPalliativeAdp) && !qualifiesForService,
         canRemoveDiagnosis: hasPalliativeDiagnosis && !isHomeVisit,
         canMarkAsHomeVisit,

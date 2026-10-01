@@ -91,6 +91,9 @@ import {
   deleteNonQualifyingPalliativeDiagnoses,
   deleteNonQualifyingPalliativeItems,
   markPalliativeVisitAsHomeVisit,
+  getPalliativeMorphineRestorableVisits,
+  restorePalliativeMorphineVisit,
+  batchRestorePalliativeMorphineVisits,
   closeDatabasePools,
 } from './db.js';
 import businessRules from './config/business_rules.json';
@@ -1872,6 +1875,62 @@ app.patch('/api/hosxp/palliative-home-visit/:vn', async (req: AuthenticatedReque
   }
 });
 
+// API รายการที่สามารถกู้คืนรหัสวินิจฉัยสำหรับผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีน
+app.get('/api/hosxp/palliative-morphine-restorable', async (req, res) => {
+  try {
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate.trim() : undefined;
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate.trim() : undefined;
+    const data = await getPalliativeMorphineRestorableVisits({ startDate, endDate });
+    return res.json({ success: true, data, count: data.length });
+  } catch (error) {
+    console.error('Unable to get restorable palliative morphine visits:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถอ่านรายการกู้คืนมอร์ฟีนได้',
+    });
+  }
+});
+
+// API กู้คืนรหัสวินิจฉัยสำหรับผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีนราย Visit
+app.post('/api/hosxp/palliative-morphine-restore/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const result = await restorePalliativeMorphineVisit(vn, {
+      userId: req.authUser?.id,
+      username: req.authUser?.username,
+    });
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to restore palliative morphine visit:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'กู้คืนรหัสวินิจฉัยมอร์ฟีนไม่สำเร็จ',
+    });
+  }
+});
+
+// API กู้คืนรหัสวินิจฉัยสำหรับผู้ป่วยที่ได้รับยากลุ่มมอร์ฟีนแบบกลุ่ม (Batch)
+app.post('/api/hosxp/palliative-morphine-restore-batch', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vns = Array.isArray(req.body?.vns) ? req.body.vns : [];
+    if (vns.length === 0) return res.status(400).json({ success: false, error: 'กรุณาระบุรายการ VN ที่ต้องการกู้คืน' });
+    const result = await batchRestorePalliativeMorphineVisits(vns, {
+      userId: req.authUser?.id,
+      username: req.authUser?.username,
+    });
+    clearCache();
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Unable to batch restore palliative morphine visits:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'กู้คืนกลุ่มรหัสวินิจฉัยมอร์ฟีนไม่สำเร็จ',
+    });
+  }
+});
+
 app.get('/api/hosxp/knee-oppp-completion/:vn', async (req, res) => {
   try {
     const vn = String(req.params.vn || '').trim();
@@ -2263,6 +2322,13 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         const herbDesc = item.herb_names ? ` (${item.herb_names})` : '';
         issues.push(`ER-HERB-MISSING-DX: มีการสั่งยาสมุนไพร${herbDesc} แต่ขาดรหัสวินิจฉัยตามข้อบ่งใช้ (กดแก้ไข Auto ได้)`);
         autoFixableActions.push('ADD_HERBAL_DIAG');
+        if (status === 'ready') status = 'pending';
+      }
+
+      if (isTruthyFlag(item.has_morphine) && !isTruthyFlag(item.has_pal_diag)) {
+        const morphDesc = item.morphine_names ? ` (${item.morphine_names})` : '';
+        issues.push(`ER-PALLIATIVE-MORPHINE-MISSING-DX: มีการสั่งจ่ายยากลุ่มมอร์ฟีน${morphDesc} แต่ขาดรหัสวินิจฉัย Z51.5 / Z71.8 (กดแก้ไข Auto ได้)`);
+        autoFixableActions.push('ADD_PALLIATIVE_MORPHINE_DX');
         if (status === 'ready') status = 'pending';
       }
 

@@ -3002,7 +3002,14 @@ export const getEligibleVisits = async (
               OR dx.icd10 IN ('J00', 'J069', 'M549', 'M179', 'R101', 'K590', 'R42', 'F510', 'G470', 'A099')
             )
           LIMIT 1
-        ) THEN 1 ELSE 0 END as has_herb_diag
+        ) THEN 1 ELSE 0 END as has_herb_diag,
+        (SELECT GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ') FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')) as morphine_names,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+        ) THEN 1 ELSE 0 END as has_morphine,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM ovstdiag dx WHERE dx.vn = ovst.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z515', 'Z718') LIMIT 1
+        ) THEN 1 ELSE 0 END as has_pal_diag
 
       FROM ovst
       LEFT JOIN patient pt ON ovst.hn = pt.hn

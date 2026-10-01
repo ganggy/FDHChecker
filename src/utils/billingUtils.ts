@@ -83,6 +83,9 @@ const hasDiagCode = (item: any, codes: string[]) => {
 
 export const hasPalliativeClaimData = (item: any) => {
     const hasPalliativeDiagnosis = toBool(item?.has_pal_diag) || hasDiagCode(item, ['Z515', 'Z718']);
+    const hasMorphine = toBool(item?.has_morphine) || hasValue(item?.morphine_names);
+    if (hasPalliativeDiagnosis && hasMorphine) return true;
+
     const hasPalliativeService = toBool(item?.has_pal_adp)
         || toBool(item?.has_30001)
         || toBool(item?.has_cons01)
@@ -562,8 +565,15 @@ export const evaluateBillingLogic = (item: any) => {
             addWarningFundNote(fundNotes, 'คัดกรองมะเร็งปากมดลูก', cxNearMissing);
         }
 
-        if (palliativeMatch) {
-            fundNotes.push({ label: '🕊️ Palliative Care', kind: 'matched', group: 'palliative' });
+        const hasMorphine = toBool(item?.has_morphine) || hasValue(item?.morphine_names);
+        if (palliativeMatch || (hasMorphine && palliativeDiag)) {
+            fundNotes.push({
+                label: hasMorphine ? '🕊️💊 Palliative (จ่ายยามอร์ฟีน)' : '🕊️ Palliative Care',
+                kind: 'matched',
+                group: 'palliative',
+            });
+        } else if (hasMorphine && !palliativeDiag) {
+            addWarningFundNote(fundNotes, 'Palliative (มียามอร์ฟีน)', [' ขาด Diagnosis Z515/Z718'], 'palliative');
         } else {
             const palliativeNearMissing = getNearFundMissingParts(palliativeAdp, ' ADP 30001/Cons01/Eva001', [
                 { met: palliativeDiag, label: ' Diagnosis Z515/Z718' },

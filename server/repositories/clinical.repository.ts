@@ -1,7 +1,7 @@
 import mysql from 'mysql2/promise';
 import { pool, getUTFConnection, getRepstmConnection } from '../db/connection.js';
 import { ensureRepstmTables, ensureFdhClaimStatusSchema } from '../db/schema.js';
-import { activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection } from '../hospitalDatabase.js';
+import { activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection, getNextHospitalSerial } from '../hospitalDatabase.js';
 import { readHospitalIdentity } from '../siteProfile.js';
 import { attachFundEligibility } from '../fundEligibility.js';
 import { readVisitItems, readVisitClinical } from '../visitDetails.js';
@@ -616,13 +616,24 @@ export const deleteNonQualifyingPalliativeDiagnoses = async (
             AND REPLACE(UPPER(d.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
         ) THEN 1 ELSE 0 END AS has_eligible_palliative_diag,
         (SELECT COUNT(DISTINCT oo.icode) FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
-          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count
+          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count,
+        (SELECT GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ') FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')) AS morphine_names,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+        ) THEN 1 ELSE 0 END AS has_morphine
       FROM ovst o
       LEFT JOIN ovstist osi ON osi.ovstist=o.ovstist
       WHERE o.vn=?
       FOR UPDATE
     `, [normalizedVn]);
     if (visitRows.length === 0) throw new Error('ไม่พบ VN ที่ต้องการแก้ไข');
+
+    const visit = visitRows[0];
+    if (visit.has_morphine) {
+      throw new Error(`ไม่สามารถลบรายการ Palliative ได้ เนื่องจาก visit นี้มีการสั่งจ่ายยากลุ่มมอร์ฟีน (${visit.morphine_names || 'ยากลุ่มมอร์ฟีน'}) ซึ่งเป็นเคสการดูแลประคับประคองที่ถูกต้องตามเกณฑ์`);
+    }
 
     const [diagnosisRows] = await connection.query<any[]>(`
       SELECT ovst_diag_id, icd10, diagtype, doctor, update_datetime
@@ -635,7 +646,6 @@ export const deleteNonQualifyingPalliativeDiagnoses = async (
 
     const z515Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z515')?.icd10;
     const z718Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z718')?.icd10;
-    const visit = visitRows[0];
     const review = reviewPalliativeCareVisit({
       z515Code,
       z718Code,
@@ -643,6 +653,8 @@ export const deleteNonQualifyingPalliativeDiagnoses = async (
       hasPalliativeAdp: visit.has_pal_adp,
       hasEligibleDiseaseDiagnosis: visit.has_eligible_palliative_diag,
       drugCount: visit.drug_count,
+      hasMorphine: visit.has_morphine,
+      morphineNames: visit.morphine_names,
     });
     if (!review.canRemoveDiagnosis) {
       throw new Error('ลบได้เฉพาะ visit ที่ไม่ใช่เยี่ยมบ้าน กรุณาตรวจและแก้ข้อมูลบริการแทนการลบ Diagnosis');
@@ -750,13 +762,24 @@ export const deleteNonQualifyingPalliativeItems = async (
             AND REPLACE(UPPER(d.icd10), '.', '') IN (${PALLIATIVE_ELIGIBLE_DX_CODES_SQL})
         ) THEN 1 ELSE 0 END AS has_eligible_palliative_diag,
         (SELECT COUNT(DISTINCT oo.icode) FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
-          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count
+          WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0) AS drug_count,
+        (SELECT GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ') FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')) AS morphine_names,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode=oo.icode
+          WHERE oo.vn=o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+        ) THEN 1 ELSE 0 END AS has_morphine
       FROM ovst o
       LEFT JOIN ovstist osi ON osi.ovstist=o.ovstist
       WHERE o.vn=?
       FOR UPDATE
     `, [normalizedVn]);
     if (visitRows.length === 0) throw new Error('ไม่พบ VN ที่ต้องการแก้ไข');
+
+    const visit = visitRows[0];
+    if (visit.has_morphine) {
+      throw new Error(`ไม่สามารถลบรายการ Palliative ได้ เนื่องจาก visit นี้มีการสั่งจ่ายยากลุ่มมอร์ฟีน (${visit.morphine_names || 'ยากลุ่มมอร์ฟีน'}) ซึ่งเป็นเคสการดูแลประคับประคองที่ถูกต้องตามเกณฑ์`);
+    }
 
     const [diagnosisRows] = await connection.query<any[]>(`
       SELECT ovst_diag_id, icd10, diagtype, doctor, update_datetime
@@ -781,7 +804,6 @@ export const deleteNonQualifyingPalliativeItems = async (
 
     const z515Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z515')?.icd10;
     const z718Code = diagnosisRows.find((row) => String(row.icd10).replace(/\./g, '').toUpperCase() === 'Z718')?.icd10;
-    const visit = visitRows[0];
     const review = reviewPalliativeCareVisit({
       z515Code,
       z718Code,
@@ -789,6 +811,8 @@ export const deleteNonQualifyingPalliativeItems = async (
       hasPalliativeAdp: visit.has_pal_adp,
       hasEligibleDiseaseDiagnosis: visit.has_eligible_palliative_diag,
       drugCount: visit.drug_count,
+      hasMorphine: visit.has_morphine,
+      morphineNames: visit.morphine_names,
     });
     if (!review.shouldReview) {
       throw new Error('ลบได้เฉพาะ visit ที่ระบบตรวจว่าไม่เข้าเกณฑ์ Palliative');
@@ -901,7 +925,17 @@ export const getSpecificFundData = async (
             FROM opitemrece oo
             JOIN drugitems di ON di.icode=oo.icode
             WHERE oo.vn=o.vn AND COALESCE(oo.qty, 0) > 0
-          ) as drug_count
+          ) as drug_count,
+          (SELECT GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ')
+            FROM opitemrece oo
+            JOIN drugitems di ON di.icode=oo.icode
+            WHERE oo.vn=o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+          ) as morphine_names,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM opitemrece oo
+            JOIN drugitems di ON di.icode=oo.icode
+            WHERE oo.vn=o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+          ) THEN 1 ELSE 0 END as has_morphine
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
@@ -910,7 +944,11 @@ export const getSpecificFundData = async (
         LEFT JOIN kskdepartment dep ON dep.depcode = o.main_dep
         LEFT JOIN ovstdiag dx ON o.vn = dx.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
         WHERE o.vstdate BETWEEN ? AND ?
-          AND (REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')}) OR EXISTS (SELECT 1 FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')})))
+          AND (
+            REPLACE(UPPER(dx.icd10), '.', '') IN (${businessRules.diagnosis_patterns.palliative.map(c => `'${c}'`).join(',')})
+            OR EXISTS (SELECT 1 FROM opitemrece oo LEFT JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = o.vn AND d.nhso_adp_code IN (${businessRules.adp_codes.palliative.map(c => `'${c}'`).join(',')}))
+            OR EXISTS (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%'))
+          )
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
@@ -3833,3 +3871,261 @@ export const getIPDChartDetails = async (an: string) => {
     connections.forEach(c => c.release());
   }
 };
+
+const PALLIATIVE_RESTORE_AUDIT_SQL = `
+  CREATE TABLE IF NOT EXISTS z_fdh_palliative_restore_audit (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    vn VARCHAR(20) NOT NULL,
+    hn VARCHAR(20) NOT NULL,
+    restored_diagnoses JSON NOT NULL,
+    morphine_names TEXT NOT NULL,
+    restore_source VARCHAR(64) NOT NULL,
+    restored_by_user_id BIGINT NULL,
+    restored_by_username VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_pal_restore_vn (vn),
+    KEY idx_pal_restore_created (created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const getPalliativeMorphineRestorableVisits = async (
+  options: { startDate?: string; endDate?: string } = {}
+) => {
+  const connection = await getUTFConnection();
+  try {
+    const [tables] = await connection.query<any[]>(`SHOW TABLES LIKE 'z_fdh_palliative_item_delete_audit'`);
+    const hasAuditTable = tables.length > 0;
+
+    let dateFilter = '';
+    const params: any[] = [];
+    if (options.startDate && options.endDate) {
+      dateFilter = 'AND o.vstdate BETWEEN ? AND ?';
+      params.push(options.startDate, options.endDate);
+    }
+
+    const [rows] = await connection.query<any[]>(`
+      SELECT 
+        o.vn, o.hn, 
+        DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+        DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+        pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+        ptt.name as pttypename, ptt.hipdata_code,
+        v.pdx,
+        o.doctor,
+        GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ') as morphine_names,
+        ${hasAuditTable ? 'del.id as delete_audit_id, del.deleted_diagnoses, del.created_at as deleted_at, del.deleted_by_username' : 'NULL as delete_audit_id, NULL as deleted_diagnoses, NULL as deleted_at, NULL as deleted_by_username'}
+      FROM ovst o
+      JOIN patient pt ON o.hn = pt.hn
+      JOIN opitemrece oo ON oo.vn = o.vn
+      JOIN drugitems di ON di.icode = oo.icode
+      LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
+      LEFT JOIN vn_stat v ON v.vn = o.vn
+      ${hasAuditTable ? `
+        LEFT JOIN (
+          SELECT d1.vn, d1.id, d1.deleted_diagnoses, d1.created_at, d1.deleted_by_username
+          FROM z_fdh_palliative_item_delete_audit d1
+          INNER JOIN (
+            SELECT vn, MAX(id) as max_id FROM z_fdh_palliative_item_delete_audit GROUP BY vn
+          ) d2 ON d1.id = d2.max_id
+        ) del ON del.vn = o.vn
+      ` : ''}
+      WHERE (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+        AND COALESCE(oo.qty, 0) > 0
+        ${dateFilter}
+        AND NOT EXISTS (
+          SELECT 1 FROM ovstdiag dx WHERE dx.vn = o.vn AND REPLACE(UPPER(dx.icd10), '.', '') IN ('Z515', 'Z718')
+        )
+      GROUP BY o.vn
+      ORDER BY o.vstdate DESC
+      LIMIT 200
+    `, params);
+
+    return rows.map((r) => {
+      let parsedDeletedDiags: any[] = [];
+      try {
+        if (typeof r.deleted_diagnoses === 'string') {
+          parsedDeletedDiags = JSON.parse(r.deleted_diagnoses);
+        } else if (Array.isArray(r.deleted_diagnoses)) {
+          parsedDeletedDiags = r.deleted_diagnoses;
+        }
+      } catch {}
+      return {
+        vn: String(r.vn),
+        hn: String(r.hn),
+        serviceDate: String(r.serviceDate || ''),
+        vsttime: String(r.vsttime || ''),
+        cid: String(r.cid || ''),
+        patientName: String(r.patientName || ''),
+        pttypename: String(r.pttypename || ''),
+        hipdata_code: String(r.hipdata_code || ''),
+        pdx: String(r.pdx || ''),
+        doctor: String(r.doctor || ''),
+        morphine_names: String(r.morphine_names || ''),
+        has_audit_backup: parsedDeletedDiags.length > 0,
+        deleted_diagnoses: parsedDeletedDiags,
+        deleted_at: r.deleted_at ? new Date(r.deleted_at).toISOString() : null,
+        deleted_by_username: r.deleted_by_username ? String(r.deleted_by_username) : null,
+      };
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+export const restorePalliativeMorphineVisit = async (
+  vn: string,
+  actor: { userId?: number | null; username?: string | null }
+) => {
+  const normalizedVn = String(vn || '').trim();
+  if (!/^\d{1,13}$/.test(normalizedVn)) throw new Error('รูปแบบ VN ไม่ถูกต้อง');
+  const connection = await getUTFConnection();
+  try {
+    await connection.query(PALLIATIVE_RESTORE_AUDIT_SQL);
+    await connection.beginTransaction();
+
+    const [visitRows] = await connection.query<any[]>(`
+      SELECT o.vn, o.hn, o.vstdate, o.vsttime, o.doctor,
+        (SELECT GROUP_CONCAT(DISTINCT di.name SEPARATOR ', ')
+         FROM opitemrece oo
+         JOIN drugitems di ON di.icode = oo.icode
+         WHERE oo.vn = o.vn AND (di.name LIKE '%morphine%' OR di.generic_name LIKE '%morphine%' OR di.name LIKE '%มอร์ฟีน%' OR di.name LIKE '%mst%' OR di.name LIKE '%kapanol%')
+        ) as morphine_names
+      FROM ovst o
+      WHERE o.vn = ?
+      FOR UPDATE
+    `, [normalizedVn]);
+    if (visitRows.length === 0) throw new Error('ไม่พบข้อมูล Visit ในระบบ');
+    const visit = visitRows[0];
+    if (!visit.morphine_names) {
+      throw new Error('Visit นี้ไม่มีการสั่งจ่ายยากลุ่มมอร์ฟีน ไม่สามารถใช้ฟังก์ชันกู้คืนมอร์ฟีนได้');
+    }
+
+    const [existingDx] = await connection.query<any[]>(`
+      SELECT ovst_diag_id, icd10 FROM ovstdiag WHERE vn = ? AND REPLACE(UPPER(icd10), '.', '') IN ('Z515', 'Z718')
+    `, [normalizedVn]);
+    if (existingDx.length > 0) {
+      await connection.commit();
+      return {
+        vn: normalizedVn,
+        alreadyRestored: true,
+        message: 'Visit นี้มีรหัส Z51.5 / Z71.8 อยู่แล้ว',
+        restoredDiagnoses: existingDx.map((d) => d.icd10),
+      };
+    }
+
+    const [auditRows] = await connection.query<any[]>(`
+      SELECT id, deleted_diagnoses FROM z_fdh_palliative_item_delete_audit WHERE vn = ? ORDER BY id DESC LIMIT 1
+    `, [normalizedVn]).catch(() => [[]]);
+
+    let diagsToRestore: Array<{ icd10: string; diagtype: string; doctor?: string }> = [];
+    let restoreSource = 'AUTO_CREATE_Z515';
+
+    if (auditRows.length > 0 && auditRows[0].deleted_diagnoses) {
+      try {
+        const raw = typeof auditRows[0].deleted_diagnoses === 'string'
+          ? JSON.parse(auditRows[0].deleted_diagnoses)
+          : auditRows[0].deleted_diagnoses;
+        if (Array.isArray(raw) && raw.length > 0) {
+          diagsToRestore = raw.map((d: any) => ({
+            icd10: String(d.icd10 || '').replace(/\./g, '').toUpperCase(),
+            diagtype: String(d.diagtype || '2'),
+            doctor: String(d.doctor || visit.doctor || '900'),
+          })).filter((d) => d.icd10 === 'Z515' || d.icd10 === 'Z718');
+          if (diagsToRestore.length > 0) {
+            restoreSource = `AUDIT_SNAPSHOT_${auditRows[0].id}`;
+          }
+        }
+      } catch {}
+    }
+
+    if (diagsToRestore.length === 0) {
+      diagsToRestore.push({
+        icd10: 'Z515',
+        diagtype: '2',
+        doctor: String(visit.doctor || '900'),
+      });
+    }
+
+    const restoredResults: string[] = [];
+    const vstdateStr = visit.vstdate ? new Date(visit.vstdate).toISOString().slice(0, 10) : '';
+    const vsttimeStr = visit.vsttime ? String(visit.vsttime).slice(0, 8) : '09:00:00';
+
+    for (const d of diagsToRestore) {
+      const nextId = await getNextHospitalSerial(connection, 'ovst_diag_id', 'ovstdiag', 'ovst_diag_id');
+      await connection.query(`
+        INSERT INTO ovstdiag (
+          ovst_diag_id, vn, hn, vstdate, vsttime, icd10, diagtype, doctor, staff, episode
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `, [
+        nextId,
+        normalizedVn,
+        visit.hn,
+        vstdateStr,
+        vsttimeStr,
+        d.icd10,
+        d.diagtype,
+        d.doctor || visit.doctor || '900',
+        actor.username || 'admin',
+      ]);
+      restoredResults.push(d.icd10);
+    }
+
+    await connection.query(`
+      INSERT INTO z_fdh_palliative_restore_audit
+        (vn, hn, restored_diagnoses, morphine_names, restore_source, restored_by_user_id, restored_by_username)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      normalizedVn,
+      visit.hn,
+      JSON.stringify(diagsToRestore),
+      visit.morphine_names,
+      restoreSource,
+      actor.userId || null,
+      String(actor.username || 'admin').slice(0, 64),
+    ]);
+
+    await connection.commit();
+    return {
+      vn: normalizedVn,
+      alreadyRestored: false,
+      restoredDiagnoses: restoredResults,
+      morphineNames: visit.morphine_names,
+      restoreSource,
+      message: `กู้คืนรหัสวินิจฉัย ${restoredResults.join(', ')} เรียบร้อยแล้ว`,
+    };
+  } catch (error) {
+    await connection.rollback().catch(() => {});
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const batchRestorePalliativeMorphineVisits = async (
+  vns: string[],
+  actor: { userId?: number | null; username?: string | null }
+) => {
+  const uniqueVns = Array.from(new Set((vns || []).map((v) => String(v).trim()).filter(Boolean)));
+  let restoredCount = 0;
+  let failedCount = 0;
+  const results: any[] = [];
+
+  for (const vn of uniqueVns) {
+    try {
+      const res = await restorePalliativeMorphineVisit(vn, actor);
+      results.push({ success: true, ...res });
+      if (!res.alreadyRestored) restoredCount++;
+    } catch (err: any) {
+      failedCount++;
+      results.push({ vn, success: false, error: err.message || 'กู้คืนไม่สำเร็จ' });
+    }
+  }
+
+  return {
+    total: uniqueVns.length,
+    restoredCount,
+    failedCount,
+    results,
+  };
+};
+

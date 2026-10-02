@@ -296,8 +296,6 @@ const STANDARD_PAYMENT_TYPES = [
   { code: '03', name: 'ชำระเองเบิกไม่ได้', label: '03 - ชำระเองเบิกไม่ได้' },
 ];
 
-const STANDARD_GROUPERS = ['6305', '5103'];
-
 const STANDARD_ROUNDING = [
   { value: 'N', label: 'N - ไม่ปัดเศษ' },
   { value: 'Y', label: 'Y - ปัดเศษ' },
@@ -854,20 +852,18 @@ export function ReceivableMappingSettings() {
                       </select>
                     </td>
 
-                    {/* Grouper (Dropdown) */}
+                    {/* Grouper (กรอกเลข) */}
                     <td>
-                      <select
-                        className="cell-select"
-                        style={{ textAlign: 'center' }}
-                        value={row.grouper || '6305'}
+                      <input
+                        type="text"
+                        className="cell-input code-input"
+                        value={row.grouper || ''}
+                        placeholder="6305"
+                        maxLength={10}
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => handleUpdateRow(originalIndex, 'grouper', e.target.value)}
-                      >
-                        {STANDARD_GROUPERS.map((g) => (
-                          <option key={g} value={g}>
-                            {g}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </td>
 
                     {/* ปัดเศษ (Dropdown) */}
@@ -1091,17 +1087,16 @@ export function ReceivableMappingSettings() {
                     </div>
 
                     <div className="modal-form-group">
-                      <label>Grouper:</label>
-                      <select
+                      <label>Grouper (กรอกเลขเอง):</label>
+                      <input
+                        type="text"
                         value={formData.grouper}
+                        placeholder="เช่น 6305 หรือ 5103"
+                        maxLength={10}
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => setFormData((prev) => ({ ...prev, grouper: e.target.value }))}
-                      >
-                        {STANDARD_GROUPERS.map((g) => (
-                          <option key={g} value={g}>
-                            {g}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </div>
 
                     <div className="modal-form-group">

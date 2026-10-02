@@ -40,6 +40,7 @@ as the current project state.
 | Local AI and Ollama | [Local AI setup](../LOCAL_AI_SETUP_TH.md) |
 | User workflows | [Manual by role](USER_MANUAL_BY_ROLE.md) |
 | Mobile connectivity | [Mobile connection](MOBILE_CONNECTION.md) |
+| MOPH FDH Manual Ver.3 (Official) | [คู่มือ MOPH FDH Ver.3](../knowlage/vault/MOPH_FDH_MANUAL_V3.md) |
 | Agent development conventions | [AGENTS.md](../AGENTS.md) |
 
 ## Historical reports

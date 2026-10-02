@@ -5,6 +5,12 @@ import { isWaitingOfcApprove } from '../src/utils/ofcApproveCode.js';
 import { readStmZeroRows, readStmZeroSource } from './repositories/stmZero.repository.js';
 import { canPrepareZeroResend, ZERO_ACTION_LABELS } from '../src/utils/stmZeroAudit.js';
 import { detectRepSheetZeroFix, applyRepSheetZeroFix, batchApplyRepSheetZeroFix } from './repSheetZeroAutoFix.js';
+import {
+  startNhsoAutoCloseScheduler,
+  stopNhsoAutoCloseScheduler,
+  getNhsoAutoCloseStatus,
+  runNhsoAutoCloseCycle,
+} from './nhsoAutoCloseService.js';
 // Backend API Server สำหรับเชื่อมต่อ HOSxP
 // ใช้ Node.js + Express
 
@@ -527,6 +533,9 @@ const getDefaultNhsoCloseConfig = () => ({
   claimServiceCode: 'PG0060001',
   recorderPid: '',
   maxDays: 4,
+  autoCloseEnabled: false,
+  autoCloseDelayMinutes: 15,
+  autoCloseIntervalMinutes: 3,
 });
 
 const getDefaultNhsoEclaimConfig = () => ({
@@ -4994,12 +5003,38 @@ app.post('/api/config/nhso-close-settings', async (req, res) => {
       claimServiceCode: String(req.body?.claimServiceCode || current.claimServiceCode || 'PG0060001'),
       recorderPid: preserveSecret(req.body?.recorderPid, current.recorderPid),
       maxDays: Number(req.body?.maxDays || current.maxDays || 4),
+      autoCloseEnabled: typeof req.body?.autoCloseEnabled === 'boolean'
+        ? req.body.autoCloseEnabled
+        : (current.autoCloseEnabled === true),
+      autoCloseDelayMinutes: Math.max(1, Number(req.body?.autoCloseDelayMinutes || current.autoCloseDelayMinutes || 15)),
+      autoCloseIntervalMinutes: Math.max(1, Number(req.body?.autoCloseIntervalMinutes || current.autoCloseIntervalMinutes || 3)),
     };
     await setAppSetting(NHSO_CLOSE_SETTINGS_KEY, payload);
+    void startNhsoAutoCloseScheduler();
     res.json({ success: true, message: 'NHSO close settings updated successfully' });
   } catch (error) {
     console.error('Error saving NHSO close settings:', error);
     res.status(500).json({ success: false, error: 'Cannot save NHSO close settings' });
+  }
+});
+
+app.get('/api/nhso/close/auto-status', async (_req, res) => {
+  try {
+    const status = await getNhsoAutoCloseStatus();
+    res.json({ success: true, data: status });
+  } catch (error) {
+    console.error('Error fetching NHSO auto-close status:', error);
+    res.status(500).json({ success: false, error: 'Cannot fetch auto-close status' });
+  }
+});
+
+app.post('/api/nhso/close/auto-run', async (_req, res) => {
+  try {
+    const result = await runNhsoAutoCloseCycle('manual');
+    res.json(result);
+  } catch (error) {
+    console.error('Error triggering NHSO auto-close cycle:', error);
+    res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Error running auto-close cycle' });
   }
 });
 
@@ -6205,6 +6240,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ FDH Checker Server running on port ${PORT}`);
   console.log(`📡 Listening on all interfaces (0.0.0.0)`);
   console.log(`🌐 API Endpoint: http://localhost:${PORT}/api`);
+  void startNhsoAutoCloseScheduler();
 });
 
 let shuttingDown = false;
@@ -6212,6 +6248,7 @@ const shutdown = async (signal: string) => {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[shutdown] ${signal} received; stopping new requests`);
+  stopNhsoAutoCloseScheduler();
 
   const forceExitTimer = setTimeout(() => {
     console.error('[shutdown] graceful shutdown timed out');

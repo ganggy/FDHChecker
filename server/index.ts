@@ -1093,6 +1093,8 @@ const requestFdhAccessTokenForConnectionTest = async (
   let serviceUnavailable = false;
   let timedOut = false;
 
+  let lastFdhMessage = '';
+
   for (const passwordHash of getPasswordHashCandidates(password)) {
     const query = new URLSearchParams({
       Action: 'get_moph_access_token',
@@ -1117,6 +1119,9 @@ const requestFdhAccessTokenForConnectionTest = async (
 
       const payloadRecord = isPlainRecord(parsedPayload) ? parsedPayload : {};
       const messageCode = Number(payloadRecord.MessageCode ?? payloadRecord.status ?? 0);
+      if (typeof payloadRecord.Message === 'string' && payloadRecord.Message) {
+        lastFdhMessage = payloadRecord.Message;
+      }
       if (messageCode !== 0) rejectedCredentials = true;
       const token = extractTokenFromPayload(parsedPayload)
         || (response.ok && messageCode === 0 && rawText.trim() && !rawText.trim().startsWith('{')
@@ -1136,7 +1141,10 @@ const requestFdhAccessTokenForConnectionTest = async (
     throw new Error('FDH API ไม่ตอบกลับภายในเวลาที่กำหนด กรุณาตรวจสอบเครือข่ายหรือทดลองใหม่');
   }
   if (rejectedCredentials) {
-    throw new Error('FDH ไม่ยอมรับข้อมูลเข้าสู่ระบบ กรุณาตรวจสอบ username/password และ HCODE');
+    if (/Too many failed login attempts/i.test(lastFdhMessage)) {
+      throw new Error('FDH ล็อกบัญชีชั่วคราวเนื่องจากใส่รหัสผิดเกินจำนวนที่กำหนด กรุณารอ 15 นาที แล้วลองใหม่อีกครั้ง');
+    }
+    throw new Error(lastFdhMessage ? `FDH แจ้งเตือน: ${lastFdhMessage}` : 'FDH ไม่ยอมรับข้อมูลเข้าสู่ระบบ กรุณาตรวจสอบ username/password และ HCODE');
   }
   if (serviceUnavailable) {
     throw new Error('บริการ FDH API ขัดข้องชั่วคราว กรุณาทดลองใหม่ภายหลัง');

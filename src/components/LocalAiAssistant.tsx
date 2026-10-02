@@ -236,30 +236,57 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
     }
   };
 
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open]);
+
   return (
-    <div className={`local-ai ${open ? 'local-ai--open' : ''} ${avoidBottomActionBar ? 'local-ai--raised' : ''}`}>
+    <>
       {open && (
-        <section className="local-ai-panel" aria-label="ผู้ช่วย FDH Local AI">
-          <header className="local-ai-header">
-            <div>
-              <strong>FDH Local AI</strong>
-              <span className={`local-ai-status ${status?.ai?.configured && status.auth?.authenticated ? 'is-ready' : ''}`}>
-                {status?.ai?.configured
-                  ? `${status.ai.model} + ${status.ai.embedModel} ${status.auth?.authenticated ? 'พร้อมใช้งาน' : 'รอ Access Key'}`
-                  : status?.ai?.reachable === false
-                    ? 'เชื่อมต่อ Ollama ไม่ได้'
-                    : status?.ai?.chatConfigured === false || status?.ai?.embeddingConfigured === false
-                      ? `โมเดลไม่ครบ: ${status.ai.chatConfigured === false ? status.ai.model : status.ai.embedModel}`
-                      : 'กำลังตรวจสอบ Ollama'}
-              </span>
-            </div>
-            <div className="local-ai-header-actions">
-              {status?.auth?.authenticated && (
-                <button type="button" className="local-ai-logout" onClick={logout}>ออก</button>
-              )}
-              <button type="button" className="local-ai-close" onClick={() => setOpen(false)} aria-label="ปิดผู้ช่วย">×</button>
-            </div>
-          </header>
+        <div
+          className="local-ai-backdrop"
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <div className={`local-ai ${open ? 'local-ai--open' : ''} ${avoidBottomActionBar ? 'local-ai--raised' : ''}`}>
+        {open && (
+          <section className="local-ai-panel" aria-label="ผู้ช่วย FDH Local AI">
+            <header className="local-ai-header">
+              <div className="local-ai-header-info">
+                <strong>FDH Local AI</strong>
+                <span className={`local-ai-status ${status?.ai?.configured && status.auth?.authenticated ? 'is-ready' : ''}`}>
+                  {status?.ai?.configured
+                    ? `${status.ai.model} + ${status.ai.embedModel} ${status.auth?.authenticated ? 'พร้อมใช้งาน' : 'รอ Access Key'}`
+                    : status?.ai?.reachable === false
+                      ? 'เชื่อมต่อ Ollama ไม่ได้'
+                      : status?.ai?.chatConfigured === false || status?.ai?.embeddingConfigured === false
+                        ? `โมเดลไม่ครบ: ${status.ai.chatConfigured === false ? status.ai.model : status.ai.embedModel}`
+                        : 'กำลังตรวจสอบ Ollama'}
+                </span>
+              </div>
+              <div className="local-ai-header-actions">
+                {status?.auth?.authenticated && (
+                  <button type="button" className="local-ai-logout" onClick={logout} title="ออกจากระบบ AI">ออก</button>
+                )}
+                <button
+                  type="button"
+                  className="local-ai-close"
+                  onClick={() => setOpen(false)}
+                  aria-label="ปิดผู้ช่วย"
+                  title="ปิดหน้าต่าง AI (Esc)"
+                >
+                  ✕ ปิด
+                </button>
+              </div>
+            </header>
 
           {status?.auth?.authenticated && (
             <div className="local-ai-context" aria-label="บริบทการสนทนาปัจจุบัน">
@@ -399,7 +426,16 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
             <button type="submit" disabled={!question.trim() || loading}>ส่ง</button>
             <small className="local-ai-input-hint">Enter ส่ง • Shift+Enter ขึ้นบรรทัดใหม่ • ตอบต่อจากคำถาม AI ได้ทันที</small>
           </form>}
-          <footer>AI session สร้างอัตโนมัติ • Feedback ช่วยให้ AI เรียนรู้รูปแบบคำถามที่ถูกต้อง</footer>
+          <footer className="local-ai-footer">
+            <span>AI session สร้างอัตโนมัติ • Feedback ช่วยให้ AI เรียนรู้</span>
+            <button
+              type="button"
+              className="local-ai-footer-close"
+              onClick={() => setOpen(false)}
+            >
+              ✕ ปิดหน้าต่าง AI
+            </button>
+          </footer>
         </section>
       )}
 
@@ -409,9 +445,11 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-label={open ? 'ปิด FDH Local AI' : 'เปิด FDH Local AI'}
+        title={open ? 'ปิดหน้าต่าง AI (Esc)' : 'เปิดผู้ช่วย FDH Local AI'}
       >
         {open ? '×' : 'AI'}
       </button>
     </div>
+    </>
   );
 }

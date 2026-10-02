@@ -449,6 +449,27 @@ export const SettingsPage: React.FC = () => {
                     </div>
                 </div>
                 <div className="settings-header-actions">
+                    {activeTab === 'advanced' && (
+                        <div className="settings-transfer-actions">
+                            <button className="tab-btn" type="button" onClick={exportAppSettings}>⬇️ Export JSON</button>
+                            <button className="tab-btn" type="button" onClick={() => appImportRef.current?.click()}>⬆️ Import JSON</button>
+                            <input
+                                ref={appImportRef}
+                                type="file"
+                                accept="application/json"
+                                style={{ display: 'none' }}
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                        void importAppSettings(file).catch((error) => {
+                                            showToast(`❌ ${error instanceof Error ? error.message : 'ไม่สามารถอ่านไฟล์ได้'}`, 'error');
+                                        });
+                                    }
+                                    e.currentTarget.value = '';
+                                }}
+                            />
+                        </div>
+                    )}
                     <button className="secondary-btn" type="button" onClick={() => void fetchConfigs()} disabled={loading || saving}>
                         ↻ โหลดค่าล่าสุด
                     </button>
@@ -459,28 +480,6 @@ export const SettingsPage: React.FC = () => {
                     >
                         {saving ? 'กำลังบันทึก...' : '💾 บันทึกการเปลี่ยนแปลง'}
                     </button>
-                    {activeTab === 'advanced' && <ReceivableMappingSettings />}
-                {activeTab === 'advanced' && (
-                        <div className="settings-transfer-actions">
-                        <button className="tab-btn" onClick={exportAppSettings}>⬇️ Export JSON</button>
-                        <button className="tab-btn" onClick={() => appImportRef.current?.click()}>⬆️ Import JSON</button>
-                        <input
-                            ref={appImportRef}
-                            type="file"
-                            accept="application/json"
-                            style={{ display: 'none' }}
-                            onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                    void importAppSettings(file).catch((error) => {
-                                        showToast(`❌ ${error instanceof Error ? error.message : 'ไม่สามารถอ่านไฟล์ได้'}`, 'error');
-                                    });
-                                }
-                                e.currentTarget.value = '';
-                            }}
-                        />
-                        </div>
-                    )}
                 </div>
             </div>
 
@@ -857,10 +856,14 @@ export const SettingsPage: React.FC = () => {
 
                 {activeTab === 'advanced' && (
                     <div className="settings-section">
-                        <h3>🛠️ ข้อมูลขั้นสูง</h3>
-                        <p className="settings-section-description">
-                            ใช้สำหรับสำรอง/ย้ายค่า และตรวจสอบกฎระบบเท่านั้น การแก้กฎรหัสยา บริการ หรือวินิจฉัยควรผ่านการทดสอบและออกรุ่นโปรแกรม
-                        </p>
+                        <ReceivableMappingSettings />
+
+                        <div style={{ marginTop: 40, paddingTop: 28, borderTop: '1px solid var(--border-color)' }}>
+                            <h3>🛠️ ข้อมูลขั้นสูง (JSON กฎระบบ)</h3>
+                            <p className="settings-section-description">
+                                ใช้สำหรับสำรอง/ย้ายค่า และตรวจสอบกฎระบบเท่านั้น การแก้กฎรหัสยา บริการ หรือวินิจฉัยควรผ่านการทดสอบและออกรุ่นโปรแกรม
+                            </p>
+                        </div>
                         <div className="settings-advanced-grid">
                             <details>
                                 <summary>💊 รหัสยาและ ADP</summary>

@@ -1,6 +1,8 @@
 .settings-container {
-    padding: 30px;
-    max-width: 1200px;
+    padding: 24px;
+    max-width: 1520px;
+    width: 100%;
+    box-sizing: border-box;
     margin: 0 auto;
     animation: fadeIn 0.4s ease-out;
 }
@@ -149,8 +151,12 @@
     background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 20px;
-    padding: 30px;
+    padding: 24px;
     box-shadow: var(--shadow-lg);
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: clip;
 }
 
 .system-update-panel {

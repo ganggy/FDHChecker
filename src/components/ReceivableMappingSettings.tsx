@@ -752,18 +752,18 @@ export function ReceivableMappingSettings() {
         <table className="receivable-table">
           <thead>
             <tr>
-              <th style={{ width: 85, textAlign: 'center' }}>รหัส HIS</th>
-              <th style={{ width: 200 }}>ชื่อสิทธิ์</th>
-              <th style={{ width: 110 }}>HIPDATA</th>
+              <th style={{ width: 75, textAlign: 'center' }}>รหัส HIS</th>
+              <th style={{ width: 190 }}>ชื่อสิทธิ์</th>
+              <th style={{ width: 105 }}>HIPDATA</th>
               <th style={{ width: 220 }}>กลุ่มการเงิน</th>
-              <th style={{ width: 140 }}>บัญชีลูกหนี้ OPD</th>
-              <th style={{ width: 140 }}>บัญชีลูกหนี้ IPD</th>
-              <th style={{ width: 140 }}>บัญชีรายได้ OPD</th>
-              <th style={{ width: 140 }}>บัญชีรายได้ IPD</th>
-              <th style={{ width: 150 }}>ประเภทชำระ</th>
-              <th style={{ width: 85, textAlign: 'center' }}>Grouper</th>
-              <th style={{ width: 95, textAlign: 'center' }}>ปัดเศษ</th>
-              <th style={{ width: 90, textAlign: 'center' }}>จัดการ</th>
+              <th style={{ width: 135 }}>บัญชีลูกหนี้ OPD</th>
+              <th style={{ width: 135 }}>บัญชีลูกหนี้ IPD</th>
+              <th style={{ width: 135 }}>บัญชีรายได้ OPD</th>
+              <th style={{ width: 135 }}>บัญชีรายได้ IPD</th>
+              <th style={{ width: 155 }}>ประเภทชำระ</th>
+              <th style={{ width: 90, textAlign: 'center' }}>Grouper</th>
+              <th style={{ width: 100, textAlign: 'center' }}>ปัดเศษ</th>
+              <th style={{ width: 80, textAlign: 'center' }}>จัดการ</th>
             </tr>
           </thead>
           <tbody>

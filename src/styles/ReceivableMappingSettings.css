@@ -2,10 +2,13 @@
   background: var(--surface-card, #ffffff);
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: 16px;
-  padding: 24px;
+  padding: 20px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-  margin-top: 16px;
+  margin-top: 10px;
   margin-bottom: 24px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .receivable-mapping-header {
@@ -205,12 +208,17 @@
   overflow-x: auto;
   border: 1px solid var(--border-color, #e2e8f0);
   border-radius: 12px;
-  max-height: 540px;
+  max-height: 580px;
   background: var(--surface, #ffffff);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .receivable-table {
   width: 100%;
+  min-width: 1555px;
+  table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 0.85rem;
@@ -224,19 +232,21 @@
   color: #334155;
   font-weight: 700;
   text-align: left;
-  padding: 10px 12px;
+  padding: 10px 8px;
   border-bottom: 2px solid #cbd5e1;
   white-space: nowrap;
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.025em;
+  box-sizing: border-box;
 }
 
 .receivable-table td {
-  padding: 8px 10px;
+  padding: 6px 6px;
   border-bottom: 1px solid var(--border-color, #e2e8f0);
   vertical-align: middle;
   background: inherit;
+  box-sizing: border-box;
 }
 
 .receivable-table tr:hover td {
@@ -250,12 +260,12 @@
 /* Form Inputs inside Table */
 .cell-input {
   width: 100%;
-  padding: 6px 8px;
+  padding: 6px 6px;
   border-radius: 6px;
   border: 1px solid var(--border-color, #cbd5e1);
   background: var(--surface, #ffffff);
   color: var(--text-main, #0f172a);
-  font-size: 0.85rem;
+  font-size: 0.83rem;
   box-sizing: border-box;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -270,17 +280,18 @@
   font-family: monospace;
   font-weight: 700;
   text-align: center;
-  max-width: 70px;
+  width: 100%;
+  max-width: 100%;
 }
 
 .cell-select {
   width: 100%;
-  padding: 6px 8px;
+  padding: 6px 4px;
   border-radius: 6px;
   border: 1px solid var(--border-color, #cbd5e1);
   background: var(--surface, #ffffff);
   color: var(--text-main, #0f172a);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   cursor: pointer;
   box-sizing: border-box;
   text-overflow: ellipsis;
@@ -296,13 +307,14 @@
 
 .cell-account-input {
   font-family: monospace;
-  font-size: 0.8rem;
-  padding: 6px 8px;
+  font-size: 0.81rem;
+  padding: 6px 4px;
   border-radius: 6px;
   border: 1px solid var(--border-color, #cbd5e1);
   background: var(--surface, #ffffff);
   color: var(--text-main, #0f172a);
-  width: 140px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .cell-actions {

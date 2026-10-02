@@ -397,30 +397,6 @@ export function ReceivableMappingSettings() {
     return Array.from(set).sort();
   }, [rows]);
 
-  const uniqueDebtorOpdList = useMemo(() => {
-    const set = new Set<string>(STANDARD_FINANCE_GROUPS.map((f) => f.defaultDebtorOpd).filter(Boolean));
-    for (const r of rows) if (r.debtor_opd) set.add(r.debtor_opd.trim());
-    return Array.from(set).sort();
-  }, [rows]);
-
-  const uniqueDebtorIpdList = useMemo(() => {
-    const set = new Set<string>(STANDARD_FINANCE_GROUPS.map((f) => f.defaultDebtorIpd).filter(Boolean));
-    for (const r of rows) if (r.debtor_ipd) set.add(r.debtor_ipd.trim());
-    return Array.from(set).sort();
-  }, [rows]);
-
-  const uniqueRevenueOpdList = useMemo(() => {
-    const set = new Set<string>(STANDARD_FINANCE_GROUPS.map((f) => f.defaultRevenueOpd).filter(Boolean));
-    for (const r of rows) if (r.revenue_opd) set.add(r.revenue_opd.trim());
-    return Array.from(set).sort();
-  }, [rows]);
-
-  const uniqueRevenueIpdList = useMemo(() => {
-    const set = new Set<string>(STANDARD_FINANCE_GROUPS.map((f) => f.defaultRevenueIpd).filter(Boolean));
-    for (const r of rows) if (r.revenue_ipd) set.add(r.revenue_ipd.trim());
-    return Array.from(set).sort();
-  }, [rows]);
-
   // Available finance group options
   const financeGroupOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -623,28 +599,6 @@ export function ReceivableMappingSettings() {
 
   return (
     <section className="receivable-mapping-container">
-      {/* HTML5 Datalists for Combobox Accounts */}
-      <datalist id="debtor-opd-options">
-        {uniqueDebtorOpdList.map((acc) => (
-          <option key={acc} value={acc} />
-        ))}
-      </datalist>
-      <datalist id="debtor-ipd-options">
-        {uniqueDebtorIpdList.map((acc) => (
-          <option key={acc} value={acc} />
-        ))}
-      </datalist>
-      <datalist id="revenue-opd-options">
-        {uniqueRevenueOpdList.map((acc) => (
-          <option key={acc} value={acc} />
-        ))}
-      </datalist>
-      <datalist id="revenue-ipd-options">
-        {uniqueRevenueIpdList.map((acc) => (
-          <option key={acc} value={acc} />
-        ))}
-      </datalist>
-
       {/* Header Area */}
       <div className="receivable-mapping-header">
         <div className="receivable-mapping-title-area">
@@ -836,10 +790,12 @@ export function ReceivableMappingSettings() {
                     {/* บัญชีลูกหนี้ OPD */}
                     <td>
                       <input
+                        type="text"
                         className="cell-input cell-account-input"
-                        list="debtor-opd-options"
                         value={row.debtor_opd || ''}
-                        placeholder="1102050101.xxx"
+                        placeholder="กรอกเลขบัญชี"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => handleUpdateRow(originalIndex, 'debtor_opd', e.target.value)}
                       />
                     </td>
@@ -847,10 +803,12 @@ export function ReceivableMappingSettings() {
                     {/* บัญชีลูกหนี้ IPD */}
                     <td>
                       <input
+                        type="text"
                         className="cell-input cell-account-input"
-                        list="debtor-ipd-options"
                         value={row.debtor_ipd || ''}
-                        placeholder="1102050101.xxx"
+                        placeholder="กรอกเลขบัญชี"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => handleUpdateRow(originalIndex, 'debtor_ipd', e.target.value)}
                       />
                     </td>
@@ -858,10 +816,12 @@ export function ReceivableMappingSettings() {
                     {/* บัญชีรายได้ OPD */}
                     <td>
                       <input
+                        type="text"
                         className="cell-input cell-account-input"
-                        list="revenue-opd-options"
                         value={row.revenue_opd || ''}
-                        placeholder="4301020105.xxx"
+                        placeholder="กรอกเลขบัญชี"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => handleUpdateRow(originalIndex, 'revenue_opd', e.target.value)}
                       />
                     </td>
@@ -869,10 +829,12 @@ export function ReceivableMappingSettings() {
                     {/* บัญชีรายได้ IPD */}
                     <td>
                       <input
+                        type="text"
                         className="cell-input cell-account-input"
-                        list="revenue-ipd-options"
                         value={row.revenue_ipd || ''}
-                        placeholder="4301020105.xxx"
+                        placeholder="กรอกเลขบัญชี"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => handleUpdateRow(originalIndex, 'revenue_ipd', e.target.value)}
                       />
                     </td>
@@ -1054,41 +1016,49 @@ export function ReceivableMappingSettings() {
 
                 {/* Section 3: ผังบัญชี */}
                 <div className="modal-section-box">
-                  <div className="modal-section-title">📑 3. ผังบัญชีลูกหนี้และรายได้ (เลือกจากที่เคยใช้หรือระบุใหม่)</div>
+                  <div className="modal-section-title">📑 3. ผังบัญชีลูกหนี้และรายได้ (กรอกเลขบัญชีเอง)</div>
                   <div className="modal-grid-2">
                     <div className="modal-form-group">
-                      <label>บัญชีลูกหนี้ OPD:</label>
+                      <label>บัญชีลูกหนี้ OPD (กรอกเลขเอง):</label>
                       <input
-                        list="debtor-opd-options"
+                        type="text"
                         value={formData.debtor_opd}
-                        placeholder="1102050101.201"
+                        placeholder="เช่น 1102050101.201"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => setFormData((prev) => ({ ...prev, debtor_opd: e.target.value }))}
                       />
                     </div>
                     <div className="modal-form-group">
-                      <label>บัญชีลูกหนี้ IPD:</label>
+                      <label>บัญชีลูกหนี้ IPD (กรอกเลขเอง):</label>
                       <input
-                        list="debtor-ipd-options"
+                        type="text"
                         value={formData.debtor_ipd}
-                        placeholder="1102050101.202"
+                        placeholder="เช่น 1102050101.202"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => setFormData((prev) => ({ ...prev, debtor_ipd: e.target.value }))}
                       />
                     </div>
                     <div className="modal-form-group">
-                      <label>บัญชีรายได้ OPD:</label>
+                      <label>บัญชีรายได้ OPD (กรอกเลขเอง):</label>
                       <input
-                        list="revenue-opd-options"
+                        type="text"
                         value={formData.revenue_opd}
-                        placeholder="4301020105.201"
+                        placeholder="เช่น 4301020105.201"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => setFormData((prev) => ({ ...prev, revenue_opd: e.target.value }))}
                       />
                     </div>
                     <div className="modal-form-group">
-                      <label>บัญชีรายได้ IPD:</label>
+                      <label>บัญชีรายได้ IPD (กรอกเลขเอง):</label>
                       <input
-                        list="revenue-ipd-options"
+                        type="text"
                         value={formData.revenue_ipd}
-                        placeholder="4301020105.202"
+                        placeholder="เช่น 4301020105.202"
+                        autoComplete="off"
+                        spellCheck={false}
                         onChange={(e) => setFormData((prev) => ({ ...prev, revenue_ipd: e.target.value }))}
                       />
                     </div>

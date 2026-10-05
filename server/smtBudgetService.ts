@@ -310,7 +310,7 @@ export async function getSmtBudgetSummary(budgetYear: string): Promise<SmtBudget
       const refNormalized = refDoc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
       // Check if settled
-      let isSettled = settledStatements.has(refDoc.toUpperCase());
+      const isSettled = settledStatements.has(refDoc.toUpperCase());
       // Check if imported STM exists
       let matchedFile: string | null = null;
       if (!isSettled) {

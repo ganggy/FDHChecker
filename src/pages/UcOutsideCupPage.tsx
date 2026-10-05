@@ -281,14 +281,42 @@ export const UcOutsideCupPage = () => {
               : 'ติดตามยอดเรียกเก็บและยอดตามจ่ายตาม HMAIN พร้อมหลักฐาน FDH, REP, STM และ INV ราย visit'}
           </p>
         </div>
-        <div className="uc-cup-year">
-          <label>ปีงบประมาณ</label>
-          <select value={fiscalYear} onChange={(e) => selectFiscalYear(Number(e.target.value))}>
-            {[0, 1, 2, 3, 4].map((offset) => {
-              const year = currentFiscalYear() - offset;
-              return <option key={year} value={year}>พ.ศ. {year}</option>;
-            })}
-          </select>
+        <div className="uc-cup-year" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              margin: 0,
+              fontWeight: 600,
+              color: autoWalkinEnabled ? '#15803d' : '#475569',
+              background: autoWalkinEnabled ? '#dcfce7' : '#f1f5f9',
+              padding: '8px 12px',
+              borderRadius: '8px',
+              border: `1px solid ${autoWalkinEnabled ? '#86efac' : '#cbd5e1'}`,
+              transition: 'all 0.2s ease',
+            }}
+            title="เมื่อเปิดใช้งาน ระบบจะตรวจและเติมรหัส WALKIN เข้าใบสั่งยาให้อัตโนมัติทันทีที่ตรวจพบ"
+          >
+            <input
+              type="checkbox"
+              checked={autoWalkinEnabled}
+              onChange={(e) => handleToggleAutoWalkin(e.target.checked)}
+            />
+            <span>🔄 เติม WALKIN อัตโนมัติ</span>
+          </label>
+
+          <div>
+            <label>ปีงบประมาณ</label>
+            <select value={fiscalYear} onChange={(e) => selectFiscalYear(Number(e.target.value))}>
+              {[0, 1, 2, 3, 4].map((offset) => {
+                const year = currentFiscalYear() - offset;
+                return <option key={year} value={year}>พ.ศ. {year}</option>;
+              })}
+            </select>
+          </div>
         </div>
       </section>
 
@@ -712,15 +740,25 @@ export const UcOutsideCupPage = () => {
           </section>
 
           <section className="card uc-walkin-audit">
-            <header>
+            <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <span>ตรวจใบสั่งยา · สิทธิ {(walkinAudit?.pttypes || []).join('/') || 'ตามการตั้งค่าโรงพยาบาล'}</span>
                 <h2>WALKIN: ผู้ป่วยนอกเหตุสมควร ทั่วประเทศ</h2>
                 <p>ตรวจตั้งแต่ปีงบประมาณ 2568 (1 ต.ค. 2567) ถึงปัจจุบัน เฉพาะ UC นอก CUP ในจังหวัด</p>
               </div>
-              <button className="btn btn-sm" type="button" onClick={() => void loadWalkinAudit()} disabled={walkinLoading}>
-                {walkinLoading ? 'กำลังตรวจ…' : 'ตรวจสอบใหม่'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', margin: 0, fontWeight: 600, color: '#78350f', background: '#fef3c7', padding: '6px 12px', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                  <input
+                    type="checkbox"
+                    checked={autoWalkinEnabled}
+                    onChange={(e) => handleToggleAutoWalkin(e.target.checked)}
+                  />
+                  <span>🔄 เติม WALKIN อัตโนมัติเสมอเมื่อตรวจพบ</span>
+                </label>
+                <button className="btn btn-sm" type="button" onClick={() => void loadWalkinAudit()} disabled={walkinLoading}>
+                  {walkinLoading ? 'กำลังตรวจ…' : 'ตรวจสอบใหม่'}
+                </button>
+              </div>
             </header>
             <div className="uc-walkin-summary">
               <article><span>Visit {(walkinAudit?.pttypes || []).join('/')}</span><strong>{(walkinAudit?.summary.total_visits || 0).toLocaleString('th-TH')}</strong></article>

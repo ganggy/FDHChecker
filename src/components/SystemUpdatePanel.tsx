@@ -283,8 +283,8 @@ export const SystemUpdatePanel = () => {
   };
 
   const fallbackCliCommand = info?.isWindows
-    ? 'git fetch origin main && git stash && git checkout main && git pull origin main && npm run build'
-    : 'git fetch origin main && git stash && git checkout main && git pull origin main && npm run build && pm2 reload all';
+    ? 'git -c http.sslVerify=false fetch origin main && git stash && git checkout main && git -c http.sslVerify=false pull origin main && npm run build'
+    : 'git -c http.sslVerify=false fetch origin main && git stash && git checkout main && git -c http.sslVerify=false pull origin main && npm run build && pm2 reload all';
 
   const handleCopyCliCommand = () => {
     if (navigator?.clipboard) {

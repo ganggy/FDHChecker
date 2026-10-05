@@ -104,7 +104,11 @@ const run = (command: string, args: string[], timeout = commandTimeoutMs, extraE
   });
 });
 
-const runGit = (args: string[], timeout?: number) => run('git', args, timeout);
+const runGit = (args: string[], timeout?: number) => {
+  const sslSkip = process.env.GIT_SSL_NO_VERIFY !== 'false';
+  const prefixArgs = sslSkip ? ['-c', 'http.sslVerify=false'] : [];
+  return run('git', [...prefixArgs, ...args], timeout, sslSkip ? { GIT_SSL_NO_VERIFY: 'true' } : {});
+};
 
 const runNpm = (args: string[], timeout = 300_000, extraEnv: NodeJS.ProcessEnv = {}) => {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';

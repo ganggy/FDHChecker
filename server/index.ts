@@ -4058,12 +4058,14 @@ app.get('/api/uc-outside-cup/walkin-clinical-audit', async (req, res) => {
 app.post('/api/uc-outside-cup/walkin-insert', requireAdmin, async (req: AuthenticatedRequest, res) => {
   try {
     const user = req.authUser;
+    const isAuto = Boolean(req.body?.auto) || req.body?.confirmation === 'AUTO';
     const data = await insertMissingUcOutsideCupWalkin({
       startDate: req.body?.startDate,
       endDate: req.body?.endDate,
-      configurationKey: String(req.body?.configurationKey || ''),
+      configurationKey: req.body?.configurationKey ? String(req.body.configurationKey) : undefined,
       expectedCount: Number(req.body?.expectedCount || 0),
-      confirmation: String(req.body?.confirmation || ''),
+      confirmation: String(req.body?.confirmation || (isAuto ? 'AUTO' : '')),
+      auto: isAuto,
       actorUserId: Number(user?.id || 0) || null,
       actorName: String(user?.display_name || user?.username || 'admin'),
     });

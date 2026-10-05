@@ -133,17 +133,26 @@ export const insertMissingUcOutsideCupWalkin = async (input: {
   startDate?: string;
   endDate?: string;
   configurationKey?: string;
-  expectedCount: number;
-  confirmation: string;
+  expectedCount?: number;
+  confirmation?: string;
+  auto?: boolean;
   actorUserId?: number | null;
   actorName: string;
 }) => {
   const { startDate, endDate } = validateUcWalkinRange(input.startDate, input.endDate);
   const { pttypes, icode } = parseSiteWalkinSettings(await getAppSetting('site_settings'));
-  if (input.configurationKey !== JSON.stringify({ pttypes: [...pttypes].sort(), icode })) throw new Error('การตั้งค่า WALKIN เปลี่ยน กรุณาตรวจสอบและยืนยันใหม่');
+  const configKey = JSON.stringify({ pttypes: [...pttypes].sort(), icode });
+  if (input.configurationKey && input.configurationKey !== configKey) {
+    throw new Error('การตั้งค่า WALKIN เปลี่ยน กรุณาตรวจสอบและยืนยันใหม่');
+  }
+  const isAuto = Boolean(input.auto) || input.confirmation === 'AUTO';
   const expectedCount = Math.max(0, Math.trunc(Number(input.expectedCount || 0)));
-  if (input.confirmation.trim() !== getWalkinConfirmationText(expectedCount)) throw new Error('ข้อความยืนยันไม่ถูกต้อง');
-  if (expectedCount <= 0) throw new Error('ไม่พบรายการที่ต้องเพิ่ม');
+  if (!isAuto) {
+    if (input.confirmation?.trim() !== getWalkinConfirmationText(expectedCount)) {
+      throw new Error('ข้อความยืนยันไม่ถูกต้อง');
+    }
+    if (expectedCount <= 0) throw new Error('ไม่พบรายการที่ต้องเพิ่ม');
+  }
 
   const connection = await getUTFConnection();
   let targets: Array<{ vn: string; hos_guid: string }> = [];
@@ -171,7 +180,11 @@ export const insertMissingUcOutsideCupWalkin = async (input: {
       vn: String((row as Record<string, unknown>).vn || ''),
       hos_guid: String((row as Record<string, unknown>).hos_guid || ''),
     }));
-    if (targets.length !== expectedCount) {
+    if (targets.length === 0) {
+      await connection.rollback();
+      return { insertedCount: 0, startDate, endDate, message: 'ไม่พบรายการที่ต้องเพิ่ม' };
+    }
+    if (!isAuto && targets.length !== expectedCount) {
       throw new Error(`จำนวนรายการเปลี่ยนจาก ${expectedCount.toLocaleString('th-TH')} เป็น ${targets.length.toLocaleString('th-TH')} กรุณาตรวจสอบและยืนยันใหม่`);
     }
     const hospitalCode = (await readHospitalIdentity(connection)).hospital_code;
@@ -199,7 +212,9 @@ export const insertMissingUcOutsideCupWalkin = async (input: {
       [icode, hospitalCode, icode]
     );
     const insertedCount = Number((insertResult as { affectedRows?: number }).affectedRows || 0);
-    if (insertedCount !== expectedCount) throw new Error(`เพิ่มได้ ${insertedCount.toLocaleString('th-TH')} จากที่ยืนยัน ${expectedCount.toLocaleString('th-TH')} รายการ ระบบยกเลิกการบันทึกแล้ว`);
+    if (!isAuto && insertedCount !== expectedCount) {
+      throw new Error(`เพิ่มได้ ${insertedCount.toLocaleString('th-TH')} จากที่ยืนยัน ${expectedCount.toLocaleString('th-TH')} รายการ ระบบยกเลิกการบันทึกแล้ว`);
+    }
     await connection.commit();
 
     try {
@@ -210,7 +225,7 @@ export const insertMissingUcOutsideCupWalkin = async (input: {
           `INSERT INTO uc_walkin_insert_log
              (start_date, end_date, expected_count, inserted_count, actor_user_id, actor_name, target_vns, inserted_guids)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [startDate, endDate, expectedCount, insertedCount, input.actorUserId || null, input.actorName.slice(0, 160),
+          [startDate, endDate, targets.length, insertedCount, input.actorUserId || null, (input.actorName || (isAuto ? 'system:auto' : 'admin')).slice(0, 160),
             JSON.stringify(targets.map((item) => item.vn)), JSON.stringify(targets.map((item) => item.hos_guid))]
         );
       } finally {

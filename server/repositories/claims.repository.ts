@@ -3113,6 +3113,22 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     const uucByVn = options.uucByVn || {};
     console.log(`📦 Generating 16-file export data for ${vns.length} visits (HCODE: ${hcode}, profile: ${profile})...`);
 
+    let walkinPttypes: string[] = [];
+    let walkinIcode = '';
+    try {
+      const siteSettings = await getAppSetting<Record<string, unknown>>('site_settings');
+      if (siteSettings?.uc_walkin_icode) {
+        walkinIcode = String(siteSettings.uc_walkin_icode).trim();
+      }
+      if (Array.isArray(siteSettings?.uc_walkin_pttypes)) {
+        walkinPttypes = (siteSettings.uc_walkin_pttypes as string[])
+          .map(s => String(s).trim())
+          .filter(s => /^[A-Za-z0-9]+$/.test(s));
+      }
+    } catch {
+      // safe fallback
+    }
+
     // Helper to wrap queries for debugging
     const runQuery = async (name: string, query: string, params: any[]) => {
       try {
@@ -3779,7 +3795,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     }
     const ancBySeq = new Map((anc as Record<string, unknown>[]).map((row) => [String(row.SEQ || ''), row]));
     const fwfCodeByIcode = new Map((fwfMappings as Record<string, unknown>[]).map((row) => [String(row.ICODE || ''), String(row.FWF_CODE || '')]));
-    const normalizedAdp = (adp as Record<string, unknown>[]).map((row) => {
+    const normalizedAdp: Record<string, unknown>[] = (adp as Record<string, unknown>[]).map((row) => {
       const ancRow = ancBySeq.get(String(row.SEQ || '')) || {};
       return {
         ...row,
@@ -3793,6 +3809,64 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         SP_ITEM: '',
       };
     });
+
+    // 🚑 Auto-inject WALKIN in ADP for eligible UC Walk-in OPD visits lacking walk-in
+    if (walkinPttypes.length > 0) {
+      const adpWalkinSeqs = new Set<string>();
+      for (const row of normalizedAdp) {
+        const seq = String(row.SEQ || '');
+        const code = String(row.CODE || '').toUpperCase();
+        const icode = String(row._ICODE || '');
+        if (code === 'WALKIN' || code.includes('WALKIN') || (walkinIcode && icode === walkinIcode)) {
+          adpWalkinSeqs.add(seq);
+        }
+      }
+
+      const clinicBySeq = new Map((opd as Record<string, unknown>[]).map(row => [String(row.SEQ || ''), String(row.CLINIC || '')]));
+      const dateBySeq = new Map((opd as Record<string, unknown>[]).map(row => [String(row.SEQ || ''), String(row.DATEOPD || '')]));
+
+      for (const insRow of ins as Record<string, unknown>[]) {
+        const seq = String(insRow.SEQ || '');
+        const an = String(insRow.AN || '').trim();
+        const pttype = String(insRow.SUBTYPE || '').trim();
+        if (!an && walkinPttypes.includes(pttype) && !adpWalkinSeqs.has(seq)) {
+          const hn = String(insRow.HN || '');
+          const dateOpd = dateBySeq.get(seq) || String(insRow.DATEIN || '');
+          const clinic = clinicBySeq.get(seq) || '';
+          normalizedAdp.push({
+            HN: hn,
+            AN: '',
+            DATEOPD: dateOpd,
+            TYPE: '4',
+            CODE: 'WALKIN',
+            QTY: 1,
+            RATE: 0,
+            SEQ: seq,
+            CAGCODE: '',
+            DOSE: '',
+            CA_TYPE: '',
+            SERIALNO: '',
+            TOTCOPAY: 0,
+            USE_STATUS: '',
+            TOTAL: 0,
+            QTYDAY: 0,
+            TMLTCODE: '',
+            STATUS1: '',
+            BI: '',
+            CLINIC: clinic,
+            ITEMSRC: '1',
+            PROVIDER: '',
+            _ICODE: walkinIcode || 'WALKIN',
+            GRAVIDA: '',
+            GA_WEEK: '',
+            'DCIP/E_screen': '',
+            LMP: '',
+            SP_ITEM: '',
+          });
+          adpWalkinSeqs.add(seq);
+        }
+      }
+    }
     const leaveSequence = new Map<string, number>();
     const normalizedLvd = (lvd as Record<string, unknown>[]).map((row) => {
       const an = String(row.AN || '');

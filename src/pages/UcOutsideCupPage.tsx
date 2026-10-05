@@ -73,6 +73,14 @@ export const UcOutsideCupPage = () => {
   const [singleFixConfirmRow, setSingleFixConfirmRow] = useState<UcWalkinClinicalAuditRow | null>(null);
   const [showBatchFixConfirm, setShowBatchFixConfirm] = useState(false);
   const [clinicalFixMessage, setClinicalFixMessage] = useState('');
+  const [autoWalkinEnabled, setAutoWalkinEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('auto_insert_walkin_enabled') === 'true';
+  });
+
+  const handleToggleAutoWalkin = (enabled: boolean) => {
+    setAutoWalkinEnabled(enabled);
+    localStorage.setItem('auto_insert_walkin_enabled', String(enabled));
+  };
 
   const load = useCallback(async (nextPage = 1) => {
     setLoading(true);
@@ -139,7 +147,7 @@ export const UcOutsideCupPage = () => {
     }
   }, [loadClinicalAudit, activeTab]);
 
-  const insertMissingWalkin = async () => {
+  const insertMissingWalkin = async (isAuto = false) => {
     const missing = walkinAudit?.summary.missing_walkin || 0;
     if (!missing || walkinInserting) return;
     setWalkinInserting(true);
@@ -151,7 +159,8 @@ export const UcOutsideCupPage = () => {
         endDate: walkinAudit!.period.endDate,
         configurationKey: walkinAudit!.configurationKey,
         expectedCount: missing,
-        confirmation: walkinConfirmation,
+        confirmation: isAuto ? 'AUTO' : walkinConfirmation,
+        auto: isAuto,
       });
       setWalkinMessage(`เพิ่ม WALKIN สำเร็จ ${resultData.insertedCount.toLocaleString('th-TH')} รายการ พร้อมสำหรับส่งออกใหม่`);
       setWalkinConfirmation('');
@@ -165,6 +174,12 @@ export const UcOutsideCupPage = () => {
       setWalkinInserting(false);
     }
   };
+
+  useEffect(() => {
+    if (autoWalkinEnabled && walkinAudit && (walkinAudit.summary.missing_walkin || 0) > 0 && !walkinInserting) {
+      void insertMissingWalkin(true);
+    }
+  }, [walkinAudit, autoWalkinEnabled, walkinInserting]);
 
   const handleSingleFix = async (row: UcWalkinClinicalAuditRow) => {
     setFixingVn(row.vn);
@@ -726,20 +741,61 @@ export const UcOutsideCupPage = () => {
               </table>
             </div>
             {(walkinAudit?.summary.missing_walkin || 0) > 0 && (
-              <div className="uc-walkin-confirm">
-                <label>
-                  เพื่อป้องกันการกดผิด กรุณาพิมพ์ <b>{`เพิ่ม WALKIN ${walkinAudit?.summary.missing_walkin || 0} รายการ`}</b>
-                  <input value={walkinConfirmation} onChange={(event) => setWalkinConfirmation(event.target.value)} placeholder="พิมพ์ข้อความยืนยันให้ตรงทุกตัว" />
-                </label>
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  onClick={() => void insertMissingWalkin()}
-                  disabled={walkinInserting || walkinConfirmation !== `เพิ่ม WALKIN ${walkinAudit?.summary.missing_walkin || 0} รายการ`}
-                >
-                  {walkinInserting ? 'กำลังเพิ่มและตรวจสอบ…' : 'เพิ่มรายการที่ขาดเพื่อส่งออกใหม่'}
-                </button>
-                <small>การทำงานนี้สงวนสิทธิ์สำหรับผู้ดูแลระบบ และมี audit log ของ VN/GUID ที่เพิ่มทุกครั้ง</small>
+              <div className="uc-walkin-confirm" style={{ display: 'flex', flexDirection: 'column', gap: '14px', padding: '16px', background: 'rgba(254, 243, 199, 0.4)', borderRadius: '12px', border: '1px solid #fde68a' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '1rem', fontWeight: 800, color: '#92400e' }}>
+                      ⚠️ พบรายการที่เข้าเงื่อนไขสิทธิแต่ยังไม่มีรหัส WALKIN: {(walkinAudit?.summary.missing_walkin || 0).toLocaleString('th-TH')} รายการ
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', margin: 0, fontWeight: 600, color: '#78350f' }}>
+                      <input
+                        type="checkbox"
+                        checked={autoWalkinEnabled}
+                        onChange={(e) => handleToggleAutoWalkin(e.target.checked)}
+                      />
+                      <span>🔄 เติม WALKIN อัตโนมัติเสมอเมื่อตรวจพบ</span>
+                    </label>
+
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      onClick={() => void insertMissingWalkin(true)}
+                      disabled={walkinInserting}
+                      style={{ fontWeight: 800, background: '#10b981', borderColor: '#059669', padding: '8px 16px', fontSize: '0.9rem' }}
+                    >
+                      {walkinInserting ? 'กำลังเพิ่มรายการอัตโนมัติ…' : `⚡ เพิ่ม WALKIN อัตโนมัติทันที (${walkinAudit?.summary.missing_walkin || 0})`}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '0.8rem', color: '#78350f', borderTop: '1px dashed #fde68a', paddingTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                  <span>
+                    💡 เช็คตามสิทธิ UC Walk-in (07 / ต่าง CUP) อัตโนมัติ พร้อมมี Audit Log บันทึกทุกครั้ง
+                  </span>
+                  <details style={{ cursor: 'pointer' }}>
+                    <summary style={{ color: '#b45309', fontSize: '0.78rem' }}>พิมพ์ยืนยันด้วยตนเอง (Manual mode)</summary>
+                    <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        value={walkinConfirmation}
+                        onChange={(event) => setWalkinConfirmation(event.target.value)}
+                        placeholder={`พิมพ์ "เพิ่ม WALKIN ${walkinAudit?.summary.missing_walkin || 0} รายการ"`}
+                        style={{ padding: '4px 8px', fontSize: '0.8rem' }}
+                      />
+                      <button
+                        className="btn btn-secondary"
+                        type="button"
+                        onClick={() => void insertMissingWalkin(false)}
+                        disabled={walkinInserting || walkinConfirmation !== `เพิ่ม WALKIN ${walkinAudit?.summary.missing_walkin || 0} รายการ`}
+                        style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+                      >
+                        ยืนยัน
+                      </button>
+                    </div>
+                  </details>
+                </div>
               </div>
             )}
           </section>

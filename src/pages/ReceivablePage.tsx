@@ -12,6 +12,7 @@ import {
   type ReceivableFilterOptions,
 } from '../services/hosxpService';
 import { ReceivableReportModal } from '../components/ReceivableReportModal';
+import { OfficialReceivableFormsModal } from '../components/OfficialReceivableFormsModal';
 import '../styles/receivableReport.css';
 
 type Signer = {
@@ -101,6 +102,7 @@ export const ReceivablePage = () => {
   const [openingBalanceManual, setOpeningBalanceManual] = useState<boolean>(false);
   const [previousBatchInfo, setPreviousBatchInfo] = useState<{ batchNo?: string; endDate?: string } | null>(null);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isOfficialModalOpen, setIsOfficialModalOpen] = useState(false);
 
   const checkLatestBalance = useCallback(async (date: string, type: string) => {
     try {
@@ -589,6 +591,22 @@ export const ReceivablePage = () => {
               <span className="receivable-btn__label">พิมพ์รายงานสิทธิ์ (5 แบบ)</span>
             </button>
             <button
+              type="button"
+              className="btn receivable-btn"
+              onClick={() => setIsOfficialModalOpen(true)}
+              style={{
+                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                color: '#ffffff',
+                fontWeight: 700,
+                border: 'none',
+                boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
+              }}
+              title="แบบฟอร์มทะเบียนคุมและสรุปลูกหนี้คงเหลือแยกตามอายุ 54 ผังบัญชี (มาตรฐาน สธ. 4 แบบ)"
+            >
+              <span className="receivable-btn__icon">📋</span>
+              <span className="receivable-btn__label">ทะเบียนคุม & ลูกหนี้ 54 ผัง (4 แบบ)</span>
+            </button>
+            <button
               className="btn receivable-btn receivable-btn--excel"
               onClick={exportExcel}
               disabled={isStale || selectedRows.length === 0}
@@ -907,6 +925,12 @@ export const ReceivablePage = () => {
           insurance: { name: signers.insurance.name, position: signers.insurance.position },
           finance: { name: signers.finance.name, position: signers.finance.position },
         }}
+      />
+
+      <OfficialReceivableFormsModal
+        isOpen={isOfficialModalOpen}
+        onClose={() => setIsOfficialModalOpen(false)}
+        hospitalName={settings?.hospital_name || ''}
       />
     </div>
   );

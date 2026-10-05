@@ -1207,7 +1207,12 @@ export const fetchUcOutsideCupWalkinAudit = async (params: { startDate: string; 
 };
 
 export const insertUcOutsideCupWalkin = async (payload: {
-  startDate: string; endDate: string; expectedCount: number; confirmation: string; configurationKey: string;
+  startDate: string;
+  endDate: string;
+  expectedCount?: number;
+  confirmation?: string;
+  configurationKey?: string;
+  auto?: boolean;
 }) => {
   const response = await fetch('/api/uc-outside-cup/walkin-insert', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),

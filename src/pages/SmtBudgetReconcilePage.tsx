@@ -40,11 +40,30 @@ interface MophAccount {
   sum_net_total: number;
 }
 
+export interface SmtBatchGroup {
+  batchKey: string;
+  run_date: string;
+  posting_date: string;
+  batch_no: string;
+  bank_name: string;
+  ref_doc_summary: string;
+  funds_summary: string;
+  moph_summary: string;
+  total_amount: number;
+  total_wait: number;
+  total_debt: number;
+  total_vat: number;
+  total_net: number;
+  reconcile_status: 'settled' | 'stm_imported' | 'unimported';
+  items: SmtTransfer[];
+}
+
 interface SmtSummaryData {
   budget_year: string;
   hcode: string;
   hospital_name: string;
   total_records: number;
+  total_batches?: number;
   total_amount: number;
   total_wait: number;
   total_debt: number;
@@ -81,11 +100,15 @@ export const SmtBudgetReconcilePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
-  // Filters
+  // Filters & Views
   const [activeTab, setActiveTab] = useState<'transfers' | 'moph' | 'alerts'>('transfers');
+  const [viewMode, setViewMode] = useState<'batches' | 'items'>('batches');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unimported' | 'stm_imported' | 'settled'>('all');
   const [mophFilter, setMophFilter] = useState<string>('all');
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(100);
+  const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
 
   const availableYears = useMemo(() => {
     const base = Number(currentThaiYear);
@@ -157,11 +180,114 @@ export const SmtBudgetReconcilePage: React.FC = () => {
     });
   }, [data, statusFilter, mophFilter, searchTerm]);
 
+  const batchGroups = useMemo<SmtBatchGroup[]>(() => {
+    if (!filteredTransfers || filteredTransfers.length === 0) return [];
+    const map = new Map<string, SmtBatchGroup>();
+
+    for (const t of filteredTransfers) {
+      const key = `${t.run_date || t.posting_date}_${t.batch_no}`;
+      let group = map.get(key);
+      if (!group) {
+        group = {
+          batchKey: key,
+          run_date: t.run_date,
+          posting_date: t.posting_date,
+          batch_no: t.batch_no,
+          bank_name: t.bank_name || '',
+          ref_doc_summary: '',
+          funds_summary: '',
+          moph_summary: '',
+          total_amount: 0,
+          total_wait: 0,
+          total_debt: 0,
+          total_vat: 0,
+          total_net: 0,
+          reconcile_status: 'settled',
+          items: [],
+        };
+        map.set(key, group);
+      }
+      group.total_amount += Number(t.amount || 0);
+      group.total_wait += Number(t.wait_amount || 0);
+      group.total_debt += Number(t.debt_amount || 0);
+      group.total_vat += Number(t.vat_amount || 0);
+      group.total_net += Number(t.net_total || 0);
+      group.items.push(t);
+    }
+
+    for (const group of map.values()) {
+      const uniqueDocs = Array.from(new Set(group.items.map(i => i.ref_doc_no).filter(Boolean)));
+      group.ref_doc_summary = uniqueDocs.length === 1 ? uniqueDocs[0] : `${uniqueDocs.slice(0, 2).join(', ')}${uniqueDocs.length > 2 ? ` (+${uniqueDocs.length - 2})` : ''}`;
+
+      const uniqueFunds = Array.from(new Set(group.items.map(i => i.fund_name).filter(Boolean)));
+      group.funds_summary = uniqueFunds.length === 1 ? uniqueFunds[0] : `${uniqueFunds[0]} (+${uniqueFunds.length - 1} กองทุน)`;
+
+      const uniqueMoph = Array.from(new Set(group.items.map(i => i.moph_id).filter(Boolean)));
+      group.moph_summary = uniqueMoph.length === 1 ? uniqueMoph[0] : `${uniqueMoph.length} ผังบัญชี`;
+
+      const hasUnimported = group.items.some(i => i.reconcile_status === 'unimported');
+      const hasImported = group.items.some(i => i.reconcile_status === 'stm_imported');
+      if (hasUnimported) group.reconcile_status = 'unimported';
+      else if (hasImported) group.reconcile_status = 'stm_imported';
+      else group.reconcile_status = 'settled';
+    }
+
+    return Array.from(map.values());
+  }, [filteredTransfers]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [selectedYear, statusFilter, mophFilter, searchTerm, viewMode]);
+
+  const toggleExpandBatch = (key: string) => {
+    setExpandedBatches(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const totalItems = viewMode === 'batches' ? batchGroups.length : filteredTransfers.length;
+  const totalPages = pageSize === 0 ? 1 : Math.ceil(totalItems / pageSize) || 1;
+
+  const paginatedBatchGroups = useMemo(() => {
+    if (pageSize === 0) return batchGroups;
+    const start = (page - 1) * pageSize;
+    return batchGroups.slice(start, start + pageSize);
+  }, [batchGroups, page, pageSize]);
+
+  const paginatedTransfers = useMemo(() => {
+    if (pageSize === 0) return filteredTransfers;
+    const start = (page - 1) * pageSize;
+    return filteredTransfers.slice(start, start + pageSize);
+  }, [filteredTransfers, page, pageSize]);
+
   const exportExcel = () => {
     if (!data) return;
     const wb = XLSX.utils.book_new();
 
-    // Sheet 1: รายการโอนเงิน
+    // Sheet 1: สรุปตามงวดการโอน (ตรงกับหน้าเว็บ SMT e-Budget)
+    const bRows = batchGroups.map((b, idx) => ({
+      ลำดับ: idx + 1,
+      วันที่โอน: b.run_date,
+      'Batch No': b.batch_no,
+      'งวด/เลขที่เบิกจ่าย': b.ref_doc_summary,
+      กองทุน: b.funds_summary,
+      ผังบัญชี_สปสธ: b.moph_summary,
+      จำนวนรายการย่อย: b.items.length,
+      ยอดเงินจัดสรร: b.total_amount,
+      ชะลอการโอน: b.total_wait,
+      หักกลบหนี้: b.total_debt,
+      ภาษี: b.total_vat,
+      เงินโอนเข้าบัญชี: b.total_net,
+      ธนาคาร: b.bank_name,
+      สถานะกระทบยอด: b.reconcile_status === 'settled' ? 'ตัดหนี้ครบ' : b.reconcile_status === 'stm_imported' ? 'พบ STM ครบ' : 'ยังไม่พบ Statement',
+    }));
+    const ws0 = XLSX.utils.json_to_sheet(bRows);
+    XLSX.utils.book_append_sheet(wb, ws0, 'สรุปตามงวดโอน (Batches)');
+
+    // Sheet 2: รายการย่อยตามผังบัญชี
     const tRows = data.transfers.map((t, idx) => ({
       ลำดับ: idx + 1,
       วันที่โอน: t.run_date,
@@ -180,9 +306,9 @@ export const SmtBudgetReconcilePage: React.FC = () => {
       สถานะกระทบยอด: t.reconcile_status === 'settled' ? 'ตัดหนี้แล้ว' : t.reconcile_status === 'stm_imported' ? 'พบ STM รอตัดหนี้' : 'ยังไม่พบ Statement',
     }));
     const ws1 = XLSX.utils.json_to_sheet(tRows);
-    XLSX.utils.book_append_sheet(wb, ws1, 'รายการโอนเงิน SMT');
+    XLSX.utils.book_append_sheet(wb, ws1, 'รายการย่อยผังบัญชี (776 รายการ)');
 
-    // Sheet 2: สรุปผังบัญชี
+    // Sheet 3: สรุปผังบัญชี
     const mRows = data.moph_accounts.map((m) => ({
       รหัสผังบัญชี: m.moph_id,
       ชื่อผังบัญชี: m.moph_desc,
@@ -323,7 +449,9 @@ export const SmtBudgetReconcilePage: React.FC = () => {
                 <span className="status-tag imported">📄 มี STM: {data.imported_count}</span>
                 <span className="status-tag missing">⚠️ รอ STM: {data.unimported_count}</span>
               </div>
-              <span className="smt-kpi-meta">ทั้งหมด {data.total_records} งวดการโอน</span>
+              <span className="smt-kpi-meta">
+                ทั้งหมด {data.total_batches || batchGroups.length} งวดโอน ({data.total_records} รายการย่อยผังบัญชี)
+              </span>
             </div>
           </div>
         </div>
@@ -336,7 +464,7 @@ export const SmtBudgetReconcilePage: React.FC = () => {
           className={`smt-tab-btn ${activeTab === 'transfers' ? 'active' : ''}`}
           onClick={() => setActiveTab('transfers')}
         >
-          📑 รายการโอนเงิน e-Budget ({data?.transfers.length || 0})
+          📑 รายการโอนเงิน e-Budget ({viewMode === 'batches' ? `${batchGroups.length} งวด` : `${filteredTransfers.length} รายการ`})
         </button>
         <button
           type="button"
@@ -358,6 +486,26 @@ export const SmtBudgetReconcilePage: React.FC = () => {
       {activeTab === 'transfers' && (
         <div className="smt-tab-content">
           <div className="smt-filter-toolbar">
+            {/* View Mode Toggle */}
+            <div className="smt-view-toggle">
+              <button
+                type="button"
+                className={`smt-view-btn ${viewMode === 'batches' ? 'active' : ''}`}
+                onClick={() => setViewMode('batches')}
+                title="จัดกลุ่มตามงวดโอน (Batch) ตรงกับจำนวน 312 ลำดับในเว็บ SMT e-Budget"
+              >
+                📦 สรุปตามงวดโอน ({batchGroups.length} งวด - ตามเว็บ SMT)
+              </button>
+              <button
+                type="button"
+                className={`smt-view-btn ${viewMode === 'items' ? 'active' : ''}`}
+                onClick={() => setViewMode('items')}
+                title="แสดงแยกตามรายการย่อยผังบัญชี สป.สธ. ทั้งหมดเพื่อใช้กระทบยอดตัดลูกหนี้"
+              >
+                📑 รายการย่อยตามผังบัญชี ({filteredTransfers.length} รายการ)
+              </button>
+            </div>
+
             <input
               type="text"
               placeholder="🔍 ค้นหางวด/เลขที่เบิกจ่าย, กองทุน, หรือรหัสผังบัญชี..."
@@ -386,15 +534,11 @@ export const SmtBudgetReconcilePage: React.FC = () => {
               <option value="1">หมวด 1 (ลูกหนี้ 1102...)</option>
               <option value="4">หมวด 4 (รายได้ 4301...)</option>
             </select>
-
-            <span className="smt-record-count">
-              แสดง {filteredTransfers.length} จาก {data?.transfers.length || 0} รายการ
-            </span>
           </div>
 
           {loading ? (
             <div className="smt-loading">กำลังโหลดข้อมูล...</div>
-          ) : filteredTransfers.length === 0 ? (
+          ) : totalItems === 0 ? (
             <div className="smt-empty">
               {data?.total_records === 0
                 ? 'ยังไม่มีข้อมูลการโอนเงินในระบบ กรุณากดปุ่ม "⚡ ดึงข้อมูล Auto จาก SMT สปสช."'
@@ -402,73 +546,244 @@ export const SmtBudgetReconcilePage: React.FC = () => {
             </div>
           ) : (
             <div className="smt-table-wrapper">
-              <table className="smt-table">
-                <thead>
-                  <tr>
-                    <th>ลำดับ</th>
-                    <th>วันที่โอน</th>
-                    <th>Batch</th>
-                    <th>งวด/เลขที่เบิกจ่าย</th>
-                    <th>กองทุน</th>
-                    <th>ผังบัญชี สป.สธ.</th>
-                    <th className="text-right">ยอดจัดสรร</th>
-                    <th className="text-right">ชะลอโอน</th>
-                    <th className="text-right">หักกลบ</th>
-                    <th className="text-right">เงินโอนเข้าบัญชี</th>
-                    <th>ธนาคาร</th>
-                    <th>สถานะกระทบยอด</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTransfers.slice(0, 150).map((t, idx) => (
-                    <tr key={t.id || idx}>
-                      <td>{idx + 1}</td>
-                      <td>{t.run_date}</td>
-                      <td><span className="badge-code">{t.batch_no}</span></td>
-                      <td>
-                        <strong className="text-doc">{t.ref_doc_no}</strong>
-                      </td>
-                      <td>
-                        <div>{t.fund_name}</div>
-                        {t.efund_desc && <small className="text-muted">{t.efund_desc}</small>}
-                      </td>
-                      <td>
-                        {t.moph_id ? (
-                          <div className={`moph-pill ${t.moph_id.startsWith('1') ? 'acc-1' : 'acc-4'}`}>
-                            <span className="moph-id">{t.moph_id}</span>
-                            <span className="moph-desc">{t.moph_desc}</span>
-                          </div>
-                        ) : (
-                          <span className="text-muted">-</span>
-                        )}
-                      </td>
-                      <td className="text-right">{formatMoney(t.amount)}</td>
-                      <td className="text-right text-amber">{t.wait_amount > 0 ? formatMoney(t.wait_amount) : '-'}</td>
-                      <td className="text-right text-red">{t.debt_amount > 0 ? formatMoney(t.debt_amount) : '-'}</td>
-                      <td className="text-right font-bold text-green">{formatMoney(t.net_total)}</td>
-                      <td><small>{t.bank_name || '-'}</small></td>
-                      <td>
-                        {t.reconcile_status === 'settled' && (
-                          <span className="status-badge settled">✅ ตัดหนี้แล้ว</span>
-                        )}
-                        {t.reconcile_status === 'stm_imported' && (
-                          <span className="status-badge imported" title={t.matched_statement_file || ''}>
-                            📄 พบ STM แล้ว
-                          </span>
-                        )}
-                        {t.reconcile_status === 'unimported' && (
-                          <span className="status-badge missing">⚠️ รอ Statement</span>
-                        )}
-                      </td>
+              {viewMode === 'batches' ? (
+                /* BATCH VIEW (Matches SMT Website 312 Rows) */
+                <table className="smt-table">
+                  <thead>
+                    <tr>
+                      <th>ลำดับ</th>
+                      <th>วันที่โอน</th>
+                      <th>Batch</th>
+                      <th>งวด/เลขที่เบิกจ่าย</th>
+                      <th>กองทุน</th>
+                      <th>ผังบัญชี สป.สธ.</th>
+                      <th className="text-right">ยอดจัดสรร</th>
+                      <th className="text-right">ชะลอโอน</th>
+                      <th className="text-right">หักกลบ</th>
+                      <th className="text-right">เงินโอนเข้าบัญชี</th>
+                      <th>สถานะกระทบยอด</th>
+                      <th className="text-center">รายการย่อย</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-              {filteredTransfers.length > 150 && (
-                <div className="smt-pagination-note">
-                  แสดง 150 รายการแรกจากทั้งหมด {filteredTransfers.length} รายการ (ส่งออก Excel เพื่อดูทั้งหมด)
-                </div>
+                  </thead>
+                  <tbody>
+                    {paginatedBatchGroups.map((b, idx) => {
+                      const rowNum = pageSize === 0 ? idx + 1 : (page - 1) * pageSize + idx + 1;
+                      const isExpanded = expandedBatches.has(b.batchKey);
+                      return (
+                        <React.Fragment key={b.batchKey}>
+                          <tr>
+                            <td>{rowNum}</td>
+                            <td>{b.run_date}</td>
+                            <td><span className="badge-code">{b.batch_no}</span></td>
+                            <td>
+                              <strong className="text-doc">{b.ref_doc_summary}</strong>
+                            </td>
+                            <td>
+                              <div>{b.funds_summary}</div>
+                              {b.bank_name && <small className="text-muted">{b.bank_name}</small>}
+                            </td>
+                            <td>
+                              <span className="moph-id">{b.moph_summary}</span>
+                            </td>
+                            <td className="text-right">{formatMoney(b.total_amount)}</td>
+                            <td className="text-right text-amber">{b.total_wait > 0 ? formatMoney(b.total_wait) : '-'}</td>
+                            <td className="text-right text-red">{b.total_debt > 0 ? formatMoney(b.total_debt) : '-'}</td>
+                            <td className="text-right font-bold text-green">{formatMoney(b.total_net)}</td>
+                            <td>
+                              {b.reconcile_status === 'settled' && (
+                                <span className="status-badge settled">✅ ตัดหนี้ครบ</span>
+                              )}
+                              {b.reconcile_status === 'stm_imported' && (
+                                <span className="status-badge imported">📄 มี STM ครบ</span>
+                              )}
+                              {b.reconcile_status === 'unimported' && (
+                                <span className="status-badge missing">⚠️ รอ STM</span>
+                              )}
+                            </td>
+                            <td className="text-center">
+                              <button
+                                type="button"
+                                className="smt-expand-btn"
+                                onClick={() => toggleExpandBatch(b.batchKey)}
+                                title="คลิกเพื่อดูรายการย่อยตามกองทุน/ผังบัญชี"
+                              >
+                                {isExpanded ? '▲ ซ่อน' : `▼ ดูย่อย (${b.items.length})`}
+                              </button>
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="smt-expanded-row">
+                              <td colSpan={12} style={{ background: '#f8fafc', padding: '0.75rem 1.25rem' }}>
+                                <table className="smt-subtable">
+                                  <thead>
+                                    <tr>
+                                      <th>#</th>
+                                      <th>งวด/เลขที่เบิกจ่าย</th>
+                                      <th>กองทุน</th>
+                                      <th>กองทุนย่อย</th>
+                                      <th>ผังบัญชี สป.สธ.</th>
+                                      <th className="text-right">ยอดจัดสรร</th>
+                                      <th className="text-right">ชะลอโอน</th>
+                                      <th className="text-right">หักกลบ</th>
+                                      <th className="text-right">เงินโอนเข้าบัญชี</th>
+                                      <th>สถานะ</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {b.items.map((sub, sIdx) => (
+                                      <tr key={sub.id || sIdx}>
+                                        <td>{sIdx + 1}</td>
+                                        <td><strong className="text-doc">{sub.ref_doc_no}</strong></td>
+                                        <td>{sub.fund_name}</td>
+                                        <td>{sub.efund_desc || sub.fund_descr || '-'}</td>
+                                        <td>
+                                          {sub.moph_id ? (
+                                            <span className={`moph-id ${sub.moph_id.startsWith('1') ? 'text-sky-700' : 'text-emerald-700'}`}>
+                                              {sub.moph_id} - {sub.moph_desc}
+                                            </span>
+                                          ) : '-'}
+                                        </td>
+                                        <td className="text-right">{formatMoney(sub.amount)}</td>
+                                        <td className="text-right text-amber">{sub.wait_amount > 0 ? formatMoney(sub.wait_amount) : '-'}</td>
+                                        <td className="text-right text-red">{sub.debt_amount > 0 ? formatMoney(sub.debt_amount) : '-'}</td>
+                                        <td className="text-right font-bold text-green">{formatMoney(sub.net_total)}</td>
+                                        <td>
+                                          {sub.reconcile_status === 'settled' && <span className="status-badge settled">ตัดหนี้แล้ว</span>}
+                                          {sub.reconcile_status === 'stm_imported' && <span className="status-badge imported">มี STM</span>}
+                                          {sub.reconcile_status === 'unimported' && <span className="status-badge missing">รอ STM</span>}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                /* ITEMS VIEW (Shows all 776 detailed accounts) */
+                <table className="smt-table">
+                  <thead>
+                    <tr>
+                      <th>ลำดับ</th>
+                      <th>วันที่โอน</th>
+                      <th>Batch</th>
+                      <th>งวด/เลขที่เบิกจ่าย</th>
+                      <th>กองทุน</th>
+                      <th>ผังบัญชี สป.สธ.</th>
+                      <th className="text-right">ยอดจัดสรร</th>
+                      <th className="text-right">ชะลอโอน</th>
+                      <th className="text-right">หักกลบ</th>
+                      <th className="text-right">เงินโอนเข้าบัญชี</th>
+                      <th>ธนาคาร</th>
+                      <th>สถานะกระทบยอด</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedTransfers.map((t, idx) => {
+                      const rowNum = pageSize === 0 ? idx + 1 : (page - 1) * pageSize + idx + 1;
+                      return (
+                        <tr key={t.id || idx}>
+                          <td>{rowNum}</td>
+                          <td>{t.run_date}</td>
+                          <td><span className="badge-code">{t.batch_no}</span></td>
+                          <td>
+                            <strong className="text-doc">{t.ref_doc_no}</strong>
+                          </td>
+                          <td>
+                            <div>{t.fund_name}</div>
+                            {t.efund_desc && <small className="text-muted">{t.efund_desc}</small>}
+                          </td>
+                          <td>
+                            {t.moph_id ? (
+                              <div className={`moph-pill ${t.moph_id.startsWith('1') ? 'acc-1' : 'acc-4'}`}>
+                                <span className="moph-id">{t.moph_id}</span>
+                                <span className="moph-desc">{t.moph_desc}</span>
+                              </div>
+                            ) : (
+                              <span className="text-muted">-</span>
+                            )}
+                          </td>
+                          <td className="text-right">{formatMoney(t.amount)}</td>
+                          <td className="text-right text-amber">{t.wait_amount > 0 ? formatMoney(t.wait_amount) : '-'}</td>
+                          <td className="text-right text-red">{t.debt_amount > 0 ? formatMoney(t.debt_amount) : '-'}</td>
+                          <td className="text-right font-bold text-green">{formatMoney(t.net_total)}</td>
+                          <td><small>{t.bank_name || '-'}</small></td>
+                          <td>
+                            {t.reconcile_status === 'settled' && (
+                              <span className="status-badge settled">✅ ตัดหนี้แล้ว</span>
+                            )}
+                            {t.reconcile_status === 'stm_imported' && (
+                              <span className="status-badge imported" title={t.matched_statement_file || ''}>
+                                📄 พบ STM แล้ว
+                              </span>
+                            )}
+                            {t.reconcile_status === 'unimported' && (
+                              <span className="status-badge missing">⚠️ รอ Statement</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               )}
+
+              {/* Dynamic Pagination Bar */}
+              <div className="smt-pagination-bar">
+                <div>
+                  แสดง {totalItems === 0 ? 0 : (page - 1) * (pageSize || totalItems) + 1} -{' '}
+                  {pageSize === 0 ? totalItems : Math.min(page * pageSize, totalItems)} จากทั้งหมด{' '}
+                  <strong>{totalItems}</strong> {viewMode === 'batches' ? 'งวดการโอน' : 'รายการ'}
+                </div>
+
+                <div className="smt-page-controls">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span>แสดงหน้าละ:</span>
+                    <select
+                      className="smt-page-size-select"
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setPage(1);
+                      }}
+                    >
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value={200}>200</option>
+                      <option value={0}>ทั้งหมด ({totalItems})</option>
+                    </select>
+                  </label>
+
+                  {pageSize > 0 && totalPages > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        className="smt-page-btn"
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                        disabled={page <= 1}
+                      >
+                        ◀ ก่อนหน้า
+                      </button>
+                      <span>
+                        หน้า <strong>{page}</strong> / {totalPages}
+                      </span>
+                      <button
+                        type="button"
+                        className="smt-page-btn"
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                        disabled={page >= totalPages}
+                      >
+                        ถัดไป ▶
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>

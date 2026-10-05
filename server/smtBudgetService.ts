@@ -24,6 +24,7 @@ export interface SmtTransferRow {
   vat_amount: number;
   net_total: number;
   bank_name?: string;
+  pmnt_stts?: string;
   mou_grp_code?: string;
   efund_cd?: string;
   sfund_cd?: string;
@@ -48,6 +49,7 @@ export interface SmtBudgetSummaryResult {
   hcode: string;
   hospital_name: string;
   total_records: number;
+  total_batches: number;
   total_amount: number;
   total_wait: number;
   total_debt: number;
@@ -208,14 +210,15 @@ export async function syncSmtTransfers(customBudgetYear?: string): Promise<{
       const mouGrpCode = String(item.mouGrpCode || '');
       const efundCd = String(item.efundCd || '');
       const sfundCd = String(item.sfundCd || '');
+      const pmntStts = String(item.pmntStts || '').trim();
 
       await repConn.query(
         `INSERT INTO smt_budget_transfers (
           hcode, budget_year, run_date, posting_date, batch_no, ref_doc_no,
           fund_name, fund_group, fund_descr, efund_desc, budget_source,
           moph_id, moph_desc, amount, wait_amount, debt_amount, bond_amount, vat_amount, net_total,
-          bank_name, mou_grp_code, efund_cd, sfund_cd, raw_payload
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          bank_name, pmnt_stts, mou_grp_code, efund_cd, sfund_cd, raw_payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           fund_name = VALUES(fund_name),
           efund_desc = VALUES(efund_desc),
@@ -227,13 +230,14 @@ export async function syncSmtTransfers(customBudgetYear?: string): Promise<{
           vat_amount = VALUES(vat_amount),
           net_total = VALUES(net_total),
           bank_name = VALUES(bank_name),
+          pmnt_stts = VALUES(pmnt_stts),
           raw_payload = VALUES(raw_payload),
           updated_at = CURRENT_TIMESTAMP`,
         [
           hcode, currentBYear, runDate, postingDate, batchNo, refDocNo,
           fundName, fundGroup, fundDescr, efundDesc, budgetSource,
           mophId, mophDesc, amount, waitAmount, debtAmount, bondAmount, vatAmount, netTotal,
-          bankName, mouGrpCode, efundCd, sfundCd, JSON.stringify(item),
+          bankName, pmntStts, mouGrpCode, efundCd, sfundCd, JSON.stringify(item),
         ]
       );
       affected++;
@@ -304,6 +308,7 @@ export async function getSmtBudgetSummary(budgetYear: string): Promise<SmtBudget
     const mophMap = new Map<string, MophAccountSummary>();
     const unimportedAlerts: SmtBudgetSummaryResult['unimported_alerts'] = [];
     const transfers: SmtTransferRow[] = [];
+    const batchSet = new Set<string>();
 
     for (const r of transferRows) {
       const refDoc = String(r.ref_doc_no || '').trim();
@@ -417,12 +422,15 @@ export async function getSmtBudgetSummary(budgetYear: string): Promise<SmtBudget
         vat_amount: vat,
         net_total: net,
         bank_name: r.bank_name,
+        pmnt_stts: r.pmnt_stts,
         mou_grp_code: r.mou_grp_code,
         efund_cd: r.efund_cd,
         sfund_cd: r.sfund_cd,
         reconcile_status: status,
         matched_statement_file: matchedFile,
       });
+
+      batchSet.add(`${r.posting_date || r.run_date}_${r.batch_no}`);
     }
 
     const mophAccounts = Array.from(mophMap.values()).sort((a, b) => a.moph_id.localeCompare(b.moph_id));
@@ -432,6 +440,7 @@ export async function getSmtBudgetSummary(budgetYear: string): Promise<SmtBudget
       hcode,
       hospital_name: hospitalName,
       total_records: transferRows.length,
+      total_batches: batchSet.size,
       total_amount: Math.round(totalAmount * 100) / 100,
       total_wait: Math.round(totalWait * 100) / 100,
       total_debt: Math.round(totalDebt * 100) / 100,

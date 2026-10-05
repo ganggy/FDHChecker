@@ -7,6 +7,7 @@ import { FUND_DEFINITIONS } from '../config/fundDefinitions';
 import { formatLocalDateStamp } from '../utils/dateUtils';
 import { IpdLosSettings } from '../components/IpdLosSettings';
 import { HospitalDatabaseSettings } from '../components/HospitalDatabaseSettings';
+import { HospitalReadinessPanel } from '../components/HospitalReadinessPanel';
 import { SystemUpdatePanel } from '../components/SystemUpdatePanel';
 
 interface Config {
@@ -156,11 +157,15 @@ const getGuaranteedFundDefinitions = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced' | 'connection' | 'update'>(() => {
+    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced' | 'connection' | 'update' | 'readiness'>(() => {
         const target = window.sessionStorage.getItem('settings_target_tab');
         if (target === 'update') {
             window.sessionStorage.removeItem('settings_target_tab');
             return 'update';
+        }
+        if (target === 'readiness') {
+            window.sessionStorage.removeItem('settings_target_tab');
+            return 'readiness';
         }
         return 'hospital';
     });
@@ -494,6 +499,7 @@ export const SettingsPage: React.FC = () => {
                 <div className="settings-tab-cluster">
                     <span className="settings-tab-cluster-label">🔌 การเชื่อมต่อและระบบ</span>
                     <div className="settings-tab-cluster-buttons">
+                        <button type="button" className={`tab-btn ${activeTab === 'readiness' ? 'active' : ''}`} onClick={() => setActiveTab('readiness')}>🩺 ตรวจความพร้อมระบบ</button>
                         <button type="button" className={`tab-btn ${activeTab === 'connection' ? 'active' : ''}`} onClick={() => setActiveTab('connection')}>🗄️ ฐานข้อมูล HOSxP</button>
                         <button type="button" className={`tab-btn ${activeTab === 'fdh' ? 'active' : ''}`} onClick={() => setActiveTab('fdh')}>🔐 เชื่อมต่อ FDH</button>
                         <button type="button" className={`tab-btn ${activeTab === 'update' ? 'active' : ''}`} onClick={() => setActiveTab('update')}>🔄 อัปเดตระบบ</button>
@@ -519,6 +525,7 @@ export const SettingsPage: React.FC = () => {
             </div>
 
             <div className="settings-card">
+                {activeTab === 'readiness' && <HospitalReadinessPanel onNavigateTab={(tab) => setActiveTab(tab as any)} />}
                 {activeTab === 'connection' && <HospitalDatabaseSettings />}
                 {activeTab === 'ipdLos' && <IpdLosSettings />}
                 {activeTab === 'update' && <SystemUpdatePanel />}

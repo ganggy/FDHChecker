@@ -157,6 +157,8 @@ import { buildOpdPreAuditResult } from './opdPreAuditRules.js';
 import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 import { collaborationRouter } from './routes/collaborationRoutes.js';
+import { inspectHospitalReadiness } from './hospitalDiagnostics.js';
+import { getAiStatus } from './aiService.js';
 import {
   batchFixWalkinClinicalIssues,
   fixWalkinClinicalIssueSingle,
@@ -892,6 +894,45 @@ app.get('/api/system/update-check', async (req: AuthenticatedRequest, res) => {
     return res.json({ success: true, data });
   } catch (error) {
     return res.json({ success: true, data: { available: false, behind: 0, checkedAt: new Date().toISOString() } });
+  }
+});
+
+app.get('/api/system/hospital-readiness', async (req: AuthenticatedRequest, res) => {
+  try {
+    let connection;
+    try {
+      connection = await getUTFConnection();
+    } catch (dbError) {
+      return res.status(503).json({
+        success: false,
+        error: 'ไม่สามารถเชื่อมต่อฐานข้อมูล HOSxP ได้ กรุณาตรวจสอบการตั้งค่าฐานข้อมูล',
+        details: (dbError as Error).message,
+      });
+    }
+
+    const [fdhConfig, siteSettings, aiHealth] = await Promise.all([
+      getAppSetting<Record<string, unknown>>(FDH_API_SETTINGS_KEY),
+      getAppSetting<Record<string, unknown>>(APP_SETTINGS_KEY),
+      getAiStatus().catch(() => ({ configured: false })),
+    ]);
+
+    const fdhApiConfigured = Boolean(
+      (fdhConfig?.username && fdhConfig?.password) ||
+      (process.env.FDH_API_USERNAME && process.env.FDH_API_PASSWORD)
+    );
+
+    const report = await inspectHospitalReadiness(connection, {
+      fdhApiConfigured,
+      localAiAvailable: Boolean(aiHealth.configured),
+      siteSettings: siteSettings || {},
+    });
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, data: report });
+  } catch (error) {
+    console.error('Error running hospital readiness diagnostics:', error);
+    const message = error instanceof Error ? error.message : 'ไม่สามารถตรวจสอบความพร้อมของระบบได้';
+    return res.status(500).json({ success: false, error: message });
   }
 });
 

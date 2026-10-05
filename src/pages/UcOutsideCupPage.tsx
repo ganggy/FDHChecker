@@ -23,9 +23,17 @@ const currentFiscalYear = () => {
   const today = new Date();
   return today.getFullYear() + 543 + (today.getMonth() >= 9 ? 1 : 0);
 };
-const fiscalDates = (year: number) => ({ startDate: `${year - 544}-10-01`, endDate: `${year - 543}-09-30` });
-const WALKIN_AUDIT_START = '2024-10-01';
 const todayIso = () => new Date().toISOString().slice(0, 10);
+const fiscalDates = (year: number) => {
+  const startDate = `${year - 544}-10-01`;
+  const fyEnd = `${year - 543}-09-30`;
+  const today = todayIso();
+  return {
+    startDate,
+    endDate: fyEnd > today ? today : fyEnd,
+  };
+};
+const WALKIN_AUDIT_START = '2024-10-01';
 const statusClass = (status: string) => status.includes('เสร็จ') || status === 'ตรงกัน' ? 'is-ok' : status.includes('รอ') ? 'is-wait' : status === 'ยอดต่าง' ? 'is-error' : '';
 
 const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) => (
@@ -59,7 +67,8 @@ export const UcOutsideCupPage = () => {
   const [walkinInserting, setWalkinInserting] = useState(false);
   const [walkinConfirmation, setWalkinConfirmation] = useState('');
   const [walkinMessage, setWalkinMessage] = useState('');
-  const loadedInitially = useRef(false);
+  const loadedReconciliation = useRef(false);
+  const loadedWalkinAudit = useRef(false);
 
   // Clinical & Dental audit state
   const [auditCategory, setAuditCategory] = useState<'ALL' | 'DENTAL' | 'GENERAL'>('ALL');
@@ -101,10 +110,11 @@ export const UcOutsideCupPage = () => {
   }, [startDate, endDate, patientType, compareStatus, hmain, search]);
 
   useEffect(() => {
-    if (loadedInitially.current) return;
-    loadedInitially.current = true;
-    void load(1);
-  }, [load]);
+    if (activeTab === 'reconciliation' && !loadedReconciliation.current) {
+      loadedReconciliation.current = true;
+      void load(1);
+    }
+  }, [activeTab, load]);
 
   const loadWalkinAudit = useCallback(async () => {
     setWalkinLoading(true);
@@ -117,7 +127,12 @@ export const UcOutsideCupPage = () => {
     }
   }, []);
 
-  useEffect(() => { void loadWalkinAudit(); }, [loadWalkinAudit]);
+  useEffect(() => {
+    if (activeTab === 'reconciliation' && !loadedWalkinAudit.current) {
+      loadedWalkinAudit.current = true;
+      void loadWalkinAudit();
+    }
+  }, [activeTab, loadWalkinAudit]);
 
   const loadClinicalAudit = useCallback(async (nextPage = 1) => {
     setAuditLoading(true);
@@ -225,6 +240,7 @@ export const UcOutsideCupPage = () => {
     setDates(fiscalDates(year));
     setPage(1);
     setAuditPage(1);
+    loadedReconciliation.current = false;
   };
 
   const openPrescription = async (row: { vn?: string; an?: string; [key: string]: any }) => {

@@ -2460,7 +2460,8 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   await ensureRepstmTables();
   const today = new Date().toISOString().slice(0, 10);
   const startDate = String(params.startDate || today).slice(0, 10);
-  const endDate = String(params.endDate || startDate).slice(0, 10);
+  const rawEndDate = String(params.endDate || startDate).slice(0, 10);
+  const endDate = rawEndDate > today ? today : rawEndDate;
   const page = Math.max(1, Number(params.page || 1));
   const pageSize = Math.min(500, Math.max(10, Number(params.pageSize || 100)));
   const compareStatusFilter = String(params.compareStatus || '').trim();
@@ -2613,24 +2614,37 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
     }
 
     if (vns.length > 0) {
-      const [apiRows] = await repConnection.query(
-        `SELECT s.vn, s.fdh_reservation_status, s.fdh_claim_status_message,
-                s.transaction_uid, s.fdh_reservation_datetime, s.updated_at
-         FROM fdh_claim_status s
-         JOIN (SELECT vn, MAX(id) AS latest_id FROM fdh_claim_status
-               WHERE vn IN (${vns.map(() => '?').join(',')}) GROUP BY vn) latest ON latest.latest_id = s.id`,
-        vns
-      );
-      (Array.isArray(apiRows) ? apiRows : []).forEach((row) => {
-        const rec = row as Record<string, unknown>;
-        const vn = String(rec.vn || '').trim();
-        if (!vn || fdhMap.has(`VN:${vn}`)) return;
-        fdhMap.set(`VN:${vn}`, {
-          status: String(rec.fdh_reservation_status || rec.fdh_claim_status_message || '').trim() || null,
-          claim_code: String(rec.transaction_uid || '').trim() || null,
-          sent_at: formatTrackingDateTime(rec.fdh_reservation_datetime || rec.updated_at),
-        });
-      });
+      try {
+        const hosConnection = await getUTFConnection();
+        try {
+          const chunkSize = 500;
+          for (let i = 0; i < vns.length; i += chunkSize) {
+            const chunk = vns.slice(i, i + chunkSize);
+            const [apiRows] = await hosConnection.query(
+              `SELECT s.vn, s.fdh_reservation_status, s.fdh_claim_status_message,
+                      s.transaction_uid, s.fdh_reservation_datetime, s.updated_at
+               FROM fdh_claim_status s
+               JOIN (SELECT vn, MAX(id) AS latest_id FROM fdh_claim_status
+                     WHERE vn IN (${chunk.map(() => '?').join(',')}) GROUP BY vn) latest ON latest.latest_id = s.id`,
+              chunk
+            );
+            (Array.isArray(apiRows) ? apiRows : []).forEach((row) => {
+              const rec = row as Record<string, unknown>;
+              const vn = String(rec.vn || '').trim();
+              if (!vn || fdhMap.has(`VN:${vn}`)) return;
+              fdhMap.set(`VN:${vn}`, {
+                status: String(rec.fdh_reservation_status || rec.fdh_claim_status_message || '').trim() || null,
+                claim_code: String(rec.transaction_uid || '').trim() || null,
+                sent_at: formatTrackingDateTime(rec.fdh_reservation_datetime || rec.updated_at),
+              });
+            });
+          }
+        } finally {
+          hosConnection.release();
+        }
+      } catch (error) {
+        console.warn('Unable to load fdh_claim_status from hospital database:', error);
+      }
     }
 
     // --- Step 3: Attach STM data ---

@@ -31,10 +31,12 @@ export const getWalkinConfirmationText = (count: number) => `เพิ่ม WAL
 
 export const validateUcWalkinRange = (startValue: unknown, endValue: unknown) => {
   const startDate = isoDate(startValue || UC_WALKIN_START_DATE);
-  const endDate = isoDate(endValue || new Date().toISOString().slice(0, 10));
+  let endDate = isoDate(endValue || new Date().toISOString().slice(0, 10));
   const today = new Date().toISOString().slice(0, 10);
   if (startDate < UC_WALKIN_START_DATE) throw new Error('รองรับข้อมูลตั้งแต่ปีงบประมาณ 2568 (1 ต.ค. 2567) เป็นต้นไป');
-  if (endDate > today) throw new Error('วันที่สิ้นสุดต้องไม่เกินวันนี้');
+  if (endDate > today) {
+    endDate = today;
+  }
   if (startDate > endDate) throw new Error('วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด');
   return { startDate, endDate };
 };

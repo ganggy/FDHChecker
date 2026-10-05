@@ -7,6 +7,13 @@ test('UC WALKIN range starts from fiscal year 2568', () => {
   assert.throws(() => validateUcWalkinRange('2024-09-30', '2025-09-30'), /2568/);
 });
 
+test('UC WALKIN range clamps future endDate to today', () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const result = validateUcWalkinRange('2024-10-01', '2099-12-31');
+  assert.equal(result.startDate, '2024-10-01');
+  assert.equal(result.endDate, today);
+});
+
 test('UC WALKIN confirmation includes the exact current count', () => {
   assert.equal(getWalkinConfirmationText(8581), 'เพิ่ม WALKIN 8581 รายการ');
 });

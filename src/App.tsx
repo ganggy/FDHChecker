@@ -62,6 +62,7 @@ const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPa
 const MemberAdminPage = lazyNamed(() => import('./pages/MemberAdminPage'), 'MemberAdminPage');
 const AnnualHealthCheckupReportPage = lazyNamed(() => import('./pages/AnnualHealthCheckupReportPage'), 'AnnualHealthCheckupReportPage');
 const OfficialReceivablePage = lazyNamed(() => import('./pages/OfficialReceivablePage'), 'OfficialReceivablePage');
+const ReceivableStandardReportPage = lazyNamed(() => import('./pages/ReceivableStandardReportPage'), 'ReceivableStandardReportPage');
 
 function App() {
   const [requestedPage, setCurrentPage] = useState<AppPage>('staff');
@@ -512,6 +513,7 @@ function App() {
         {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
         {currentPage === 'annualCheckupReport' && <AnnualHealthCheckupReportPage />}
         {currentPage === 'officialReceivable' && <OfficialReceivablePage />}
+        {currentPage === 'receivableStandardReport' && <ReceivableStandardReportPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
         {currentPage === 'fdhClaimDetail' && <FdhClaimDetailImportPage />}

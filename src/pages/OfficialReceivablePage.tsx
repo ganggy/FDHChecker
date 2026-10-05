@@ -310,6 +310,14 @@ export const OfficialReceivablePage = () => {
           </button>
           <button
             type="button"
+            className="official-rec-btn official-rec-btn--back"
+            onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableStandardReport' } }))}
+            title="ไปที่รายงานลูกหนี้ 5 รูปแบบมาตรฐาน"
+          >
+            📑 รายงานลูกหนี้ 5 รูปแบบ
+          </button>
+          <button
+            type="button"
             className="official-rec-btn official-rec-btn--refresh"
             onClick={loadActiveData}
             disabled={loading}

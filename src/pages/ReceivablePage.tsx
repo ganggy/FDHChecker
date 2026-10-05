@@ -577,7 +577,7 @@ export const ReceivablePage = () => {
             <button
               type="button"
               className="btn btn-primary receivable-btn receivable-btn--report"
-              onClick={() => setIsReportModalOpen(true)}
+              onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableStandardReport' } }))}
               style={{
                 background: 'linear-gradient(135deg, #1d4ed8 0%, #0284c7 100%)',
                 color: '#ffffff',
@@ -585,10 +585,10 @@ export const ReceivablePage = () => {
                 border: 'none',
                 boxShadow: '0 2px 6px rgba(2, 132, 199, 0.25)',
               }}
-              title="พิมพ์รายงานบัญชีลูกหนี้มาตรฐาน 5 แบบ (สรุปรวมสิทธิ OPD, แยกตามสิทธิ OPD/IPD, และแบบแจกแจงรายละเอียด 12/13 หมวด)"
+              title="พิมพ์รายงานบัญชีลูกหนี้มาตรฐาน 5 แบบ (สรุปรวมสิทธิ OPD, แยกตามสิทธิ OPD/IPD, และแบบแจกแจงรายละเอียด 12/13 หมวด - หน้าเต็มจอ)"
             >
               <span className="receivable-btn__icon">📑</span>
-              <span className="receivable-btn__label">พิมพ์รายงานสิทธิ์ (5 แบบ)</span>
+              <span className="receivable-btn__label">รายงานสิทธิ์ 5 แบบ (หน้าเต็ม)</span>
             </button>
             <button
               type="button"

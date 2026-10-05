@@ -30,6 +30,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'hospitalReports', icon: '📑', label: 'ศูนย์รายงานโรงพยาบาล' },
   { page: 'annualCheckupReport', icon: '🩺', label: 'หลักฐานเบิกตรวจสุขภาพ' },
   { page: 'officialReceivable', icon: '🏛️', label: 'แบบลูกหนี้ราชการ 4 แบบ' },
+  { page: 'receivableStandardReport', icon: '📑', label: 'รายงานลูกหนี้ 5 รูปแบบ' },
   { page: 'fdhImport', icon: '📥', label: 'ดึงสถานะเคลม FDH' },
   { page: 'fdhClaimDetail', icon: '📄', label: 'รายละเอียดเคลม FDH' },
   { page: 'repstm', icon: '🧾', label: 'นำเข้า REP/STM' },
@@ -76,8 +77,8 @@ export const toolNavGroups: NavGroup[] = [
   { label: 'ติดตามผลเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
   { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['dentalAudit', 'fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'ktbApproveCode', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
-  { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'officialReceivable', 'receivableSettlement', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
-  { label: 'รายงาน/สถิติ', icon: '📊', pages: ['officialReceivable', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'admin'] },
+  { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'officialReceivable', 'receivableStandardReport', 'receivableSettlement', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
+  { label: 'รายงาน/สถิติ', icon: '📊', pages: ['officialReceivable', 'receivableStandardReport', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'admin'] },
   { label: 'บริหารระบบ', icon: '⚙️', pages: ['memberAdmin', 'repstmManage'] },
 ];
 

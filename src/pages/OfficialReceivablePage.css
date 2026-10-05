@@ -432,14 +432,17 @@
 /* Signatures / Document Footer */
 .official-rec-signatures {
   display: flex;
-  justify-content: space-between;
+  justify-content: space-around;
   margin-top: 2.5rem;
-  padding: 1rem 2rem 0;
+  padding: 1rem 1rem 0;
+  gap: 1.5rem;
+  page-break-inside: avoid;
 }
 
 .official-rec-signature-col {
   text-align: center;
-  width: 280px;
+  flex: 1;
+  max-width: 320px;
 }
 
 .official-rec-signature-line {
@@ -454,7 +457,20 @@
   margin-bottom: 0.2rem;
 }
 
+.official-rec-signature-printed-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin-bottom: 0.2rem;
+}
+
 .official-rec-signature-title {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-bottom: 0.15rem;
+}
+
+.official-rec-signature-date {
   font-size: 0.8rem;
   color: #64748b;
 }
@@ -528,5 +544,12 @@
   .official-rec-signatures {
     page-break-inside: avoid;
     margin-top: 1.5rem !important;
+  }
+
+  .official-rec-signature-name,
+  .official-rec-signature-printed-name,
+  .official-rec-signature-title,
+  .official-rec-signature-date {
+    color: #000000 !important;
   }
 }

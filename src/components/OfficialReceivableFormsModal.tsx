@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { fetchAppSettings } from '../services/hosxpService';
 import '../styles/receivableReport.css';
 
 interface Props {
@@ -52,6 +53,29 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
   const [form2Data, setForm2Data] = useState<any>(null);
   const [form3Data, setForm3Data] = useState<any>(null);
   const [form4Data, setForm4Data] = useState<any>(null);
+  const [settings, setSettings] = useState<any>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    fetchAppSettings()
+      .then((res: any) => setSettings(res?.data || null))
+      .catch(() => setSettings(null));
+  }, [isOpen]);
+
+  const signers = useMemo(() => ({
+    finance: {
+      name: (settings?.receivable_signers?.finance?.name || '').trim(),
+      position: (settings?.receivable_signers?.finance?.position || 'เจ้าหน้าที่การเงิน / งานประกันสุขภาพ (ผู้จัดทำ)').trim(),
+    },
+    insurance: {
+      name: (settings?.receivable_signers?.insurance_head?.name || '').trim(),
+      position: (settings?.receivable_signers?.insurance_head?.position || 'หัวหน้ากลุ่มงานประกันสุขภาพ / ผู้ตรวจสอบ').trim(),
+    },
+    director: {
+      name: (settings?.receivable_signers?.director?.name || '').trim(),
+      position: (settings?.receivable_signers?.director?.position || 'ผู้อำนวยการโรงพยาบาล').trim(),
+    },
+  }), [settings]);
 
   useEffect(() => {
     setPage(1);
@@ -929,6 +953,45 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
               </div>
             </div>
           )}
+
+          {/* Evidence Signatures Section */}
+          <div
+            className="receivable-doc-signatures"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-around',
+              marginTop: '2.5rem',
+              padding: '1rem 1rem 0',
+              pageBreakInside: 'avoid',
+            }}
+          >
+            <div className="receivable-sig-box" style={{ textAlign: 'center', width: '280px' }}>
+              <div className="receivable-sig-label">ลงชื่อ ........................................................... ผู้จัดทำ</div>
+              <div className="receivable-sig-name">
+                ( {signers.finance.name || '...........................................................'} )
+              </div>
+              <div className="receivable-sig-pos">{signers.finance.position}</div>
+              <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}>วันที่ ........./........./............</div>
+            </div>
+
+            <div className="receivable-sig-box" style={{ textAlign: 'center', width: '280px' }}>
+              <div className="receivable-sig-label">ลงชื่อ ........................................................... ผู้ตรวจสอบ</div>
+              <div className="receivable-sig-name">
+                ( {signers.insurance.name || '...........................................................'} )
+              </div>
+              <div className="receivable-sig-pos">{signers.insurance.position}</div>
+              <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}>วันที่ ........./........./............</div>
+            </div>
+
+            <div className="receivable-sig-box" style={{ textAlign: 'center', width: '280px' }}>
+              <div className="receivable-sig-label">ลงชื่อ ........................................................... ผู้เห็นชอบ</div>
+              <div className="receivable-sig-name">
+                ( {signers.director.name || '...........................................................'} )
+              </div>
+              <div className="receivable-sig-pos">{signers.director.position}</div>
+              <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}>วันที่ ........./........./............</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

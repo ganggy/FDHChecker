@@ -1,5 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchAppSettings } from '../services/hosxpService';
 import './OfficialReceivablePage.css';
+
+type Signer = {
+  name?: string;
+  position?: string;
+};
+
+type ReceivableSettings = {
+  hospital_name?: string;
+  hospital_code?: string;
+  receivable_signers?: {
+    director?: Signer;
+    insurance_head?: Signer;
+    finance?: Signer;
+  };
+};
 
 // -------------------------------------------------------------
 // Chart of Accounts 54 Constants
@@ -106,6 +122,28 @@ export const OfficialReceivablePage = () => {
   const [form2Data, setForm2Data] = useState<any>(null);
   const [form3Data, setForm3Data] = useState<any>(null);
   const [form4Data, setForm4Data] = useState<any>(null);
+  const [settings, setSettings] = useState<ReceivableSettings | null>(null);
+
+  useEffect(() => {
+    fetchAppSettings<ReceivableSettings>()
+      .then((result) => setSettings(result.data || null))
+      .catch(() => setSettings(null));
+  }, []);
+
+  const signers = useMemo(() => ({
+    finance: {
+      name: (settings?.receivable_signers?.finance?.name || '').trim(),
+      position: (settings?.receivable_signers?.finance?.position || 'เจ้าหน้าที่การเงิน / งานประกันสุขภาพ (ผู้จัดทำ)').trim(),
+    },
+    insurance: {
+      name: (settings?.receivable_signers?.insurance_head?.name || '').trim(),
+      position: (settings?.receivable_signers?.insurance_head?.position || 'หัวหน้ากลุ่มงานประกันสุขภาพ / ผู้ตรวจสอบ').trim(),
+    },
+    director: {
+      name: (settings?.receivable_signers?.director?.name || '').trim(),
+      position: (settings?.receivable_signers?.director?.position || 'ผู้อำนวยการโรงพยาบาล').trim(),
+    },
+  }), [settings]);
 
   // Load data for specific tab
   const loadActiveData = useCallback(async () => {
@@ -227,6 +265,7 @@ export const OfficialReceivablePage = () => {
     form2Data?.hospitalName ||
     form3Data?.hospitalName ||
     form4Data?.hospitalName ||
+    settings?.hospital_name ||
     'โรงพยาบาล';
 
   const periodName = useMemo(() => {
@@ -903,16 +942,38 @@ export const OfficialReceivablePage = () => {
         <section className="official-rec-signatures">
           <div className="official-rec-signature-col">
             <div className="official-rec-signature-line"></div>
-            <div className="official-rec-signature-name">(ลงชื่อ)...........................................................</div>
-            <div className="official-rec-signature-title">เจ้าหน้าที่การเงิน / งานประกันสุขภาพ (ผู้จัดทำ)</div>
-            <div className="official-rec-signature-title">วันที่ ........./........./............</div>
+            <div className="official-rec-signature-name">
+              (ลงชื่อ)........................................................... ผู้จัดทำ
+            </div>
+            <div className="official-rec-signature-printed-name">
+              ( {signers.finance.name || '...........................................................'} )
+            </div>
+            <div className="official-rec-signature-title">{signers.finance.position}</div>
+            <div className="official-rec-signature-date">วันที่ ........./........./............</div>
           </div>
 
           <div className="official-rec-signature-col">
             <div className="official-rec-signature-line"></div>
-            <div className="official-rec-signature-name">(ลงชื่อ)...........................................................</div>
-            <div className="official-rec-signature-title">หัวหน้ากลุ่มงานประกันสุขภาพ / ผู้ตรวจสอบ</div>
-            <div className="official-rec-signature-title">วันที่ ........./........./............</div>
+            <div className="official-rec-signature-name">
+              (ลงชื่อ)........................................................... ผู้ตรวจสอบ
+            </div>
+            <div className="official-rec-signature-printed-name">
+              ( {signers.insurance.name || '...........................................................'} )
+            </div>
+            <div className="official-rec-signature-title">{signers.insurance.position}</div>
+            <div className="official-rec-signature-date">วันที่ ........./........./............</div>
+          </div>
+
+          <div className="official-rec-signature-col">
+            <div className="official-rec-signature-line"></div>
+            <div className="official-rec-signature-name">
+              (ลงชื่อ)........................................................... ผู้เห็นชอบ
+            </div>
+            <div className="official-rec-signature-printed-name">
+              ( {signers.director.name || '...........................................................'} )
+            </div>
+            <div className="official-rec-signature-title">{signers.director.position}</div>
+            <div className="official-rec-signature-date">วันที่ ........./........./............</div>
           </div>
         </section>
       </main>

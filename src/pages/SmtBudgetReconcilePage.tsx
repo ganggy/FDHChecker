@@ -222,8 +222,8 @@ export const SmtBudgetReconcilePage: React.FC = () => {
       const uniqueFunds = Array.from(new Set(group.items.map(i => i.fund_name).filter(Boolean)));
       group.funds_summary = uniqueFunds.length === 1 ? uniqueFunds[0] : `${uniqueFunds[0]} (+${uniqueFunds.length - 1} กองทุน)`;
 
-      const uniqueMoph = Array.from(new Set(group.items.map(i => i.moph_id).filter(Boolean)));
-      group.moph_summary = uniqueMoph.length === 1 ? uniqueMoph[0] : `${uniqueMoph.length} ผังบัญชี`;
+      const uniqueMoph = Array.from(new Set(group.items.map(i => i.moph_id).filter((id): id is string => Boolean(id))));
+      group.moph_summary = uniqueMoph.length === 1 ? (uniqueMoph[0] || '-') : `${uniqueMoph.length} ผังบัญชี`;
 
       const hasUnimported = group.items.some(i => i.reconcile_status === 'unimported');
       const hasImported = group.items.some(i => i.reconcile_status === 'stm_imported');

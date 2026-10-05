@@ -294,12 +294,26 @@ export const HospitalReadinessPanel: React.FC<HospitalReadinessPanelProps> = ({ 
 
           {/* Master Data Completeness */}
           <div style={{ background: 'var(--card-bg, #fff)', padding: '24px', borderRadius: '12px', border: '1px solid var(--border-color, #e2e8f0)' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main, #0f172a)' }}>
-              📦 ความสมบูรณ์ของชุดข้อมูล Master Data ใน HOSxP
-            </h3>
-            <p style={{ margin: '-10px 0 16px', fontSize: '0.85rem', color: 'var(--text-muted, #64748b)' }}>
-              ความถูกต้องของรหัสมาตรฐานในตารางยา ค่าบริการ และสิทธิ มีผลโดยตรงต่อการผ่านการตรวจสอบ (Audit) ของ FDH และ สปสช.
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main, #0f172a)' }}>
+                  📦 ความสมบูรณ์ของชุดข้อมูล Master Data ใน HOSxP
+                </h3>
+                <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--text-muted, #64748b)' }}>
+                  ความถูกต้องของรหัสมาตรฐานในตารางยา ค่าบริการ และสิทธิ มีผลโดยตรงต่อการผ่านการตรวจสอบ (Audit) ของ FDH และ สปสช.
+                </p>
+              </div>
+              {onNavigateTab && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('masterData')}
+                  className="settings-action-btn"
+                  style={{ background: '#3b82f6', color: '#fff', borderColor: '#2563eb', fontWeight: 700, fontSize: '0.85rem' }}
+                >
+                  ✏️ เติมข้อมูล & แก้ไขรหัสที่ไม่สมบูรณ์ →
+                </button>
+              )}
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
               {report.catalogChecks.map((cat, idx) => (

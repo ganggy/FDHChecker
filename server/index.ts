@@ -158,6 +158,12 @@ import { evaluateIpdPreAudit } from './ipdPreAuditRules.js';
 import { assessIpdLos, DEFAULT_IPD_LOS_RULES, normalizeIpdLosRules, validateIpdLosRules } from './ipdLosRules.js';
 import { collaborationRouter } from './routes/collaborationRoutes.js';
 import { inspectHospitalReadiness } from './hospitalDiagnostics.js';
+import {
+  queryHospitalMasterData,
+  saveMasterDataOverrides,
+  generateHosxpUpdateSql,
+  syncMasterDataToHosxp,
+} from './hospitalMasterData.js';
 import { getAiStatus } from './aiService.js';
 import {
   batchFixWalkinClinicalIssues,
@@ -932,6 +938,97 @@ app.get('/api/system/hospital-readiness', async (req: AuthenticatedRequest, res)
   } catch (error) {
     console.error('Error running hospital readiness diagnostics:', error);
     const message = error instanceof Error ? error.message : 'ไม่สามารถตรวจสอบความพร้อมของระบบได้';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.get('/api/system/hospital-master-data', async (req: AuthenticatedRequest, res) => {
+  try {
+    let connection;
+    try {
+      connection = await getUTFConnection();
+    } catch (dbError) {
+      return res.status(503).json({
+        success: false,
+        error: 'ไม่สามารถเชื่อมต่อฐานข้อมูล HOSxP ได้',
+        details: (dbError as Error).message,
+      });
+    }
+
+    const catalog = (req.query.catalog as any) || 'drugs';
+    const filter = (req.query.filter as any) || 'incomplete';
+    const search = String(req.query.search || '');
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+
+    const result = await queryHospitalMasterData(connection, {
+      catalog,
+      filter,
+      search,
+      limit,
+      offset,
+    });
+
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error querying hospital master data:', error);
+    const message = error instanceof Error ? error.message : 'ไม่สามารถดึงข้อมูล Master Data ได้';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/system/hospital-master-data/override', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { catalog, updates } = req.body || {};
+    if (!catalog || !Array.isArray(updates)) {
+      return res.status(400).json({ success: false, error: 'รูปแบบข้อมูลไม่ถูกต้อง (ต้องการ catalog และ updates)' });
+    }
+
+    const username = req.authUser?.username || 'system';
+    const store = await saveMasterDataOverrides(catalog, updates, username);
+    return res.json({ success: true, message: 'บันทึกข้อมูลเรียบร้อยแล้ว', data: store[catalog] });
+  } catch (error) {
+    console.error('Error saving master data overrides:', error);
+    const message = error instanceof Error ? error.message : 'ไม่สามารถบันทึกข้อมูลได้';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/system/hospital-master-data/export-sql', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { catalog, updates } = req.body || {};
+    if (!catalog || !Array.isArray(updates)) {
+      return res.status(400).json({ success: false, error: 'รูปแบบข้อมูลไม่ถูกต้อง' });
+    }
+
+    const sql = generateHosxpUpdateSql(catalog, updates);
+    return res.json({ success: true, sql });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ไม่สามารถสร้าง SQL Script ได้';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/system/hospital-master-data/sync-hosxp', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { catalog, updates } = req.body || {};
+    if (!catalog || !Array.isArray(updates)) {
+      return res.status(400).json({ success: false, error: 'รูปแบบข้อมูลไม่ถูกต้อง' });
+    }
+
+    let connection;
+    try {
+      connection = await getUTFConnection();
+    } catch (dbError) {
+      return res.status(503).json({ success: false, error: 'ไม่สามารถเชื่อมต่อฐานข้อมูล HOSxP ได้' });
+    }
+
+    const result = await syncMasterDataToHosxp(connection, catalog, updates);
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error syncing master data to HOSxP:', error);
+    const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการซิงค์ข้อมูลกับ HOSxP';
     return res.status(500).json({ success: false, error: message });
   }
 });

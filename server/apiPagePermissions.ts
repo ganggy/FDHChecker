@@ -11,6 +11,8 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(test|debug)(\/|$)/, adminOnly: true },
   { pattern: /^\/hospital-reports(\/|$)/, pages: ['hospitalReports'] },
   { pattern: /^\/settings\/fdh-api\/test-connection$/, pages: ['settings'] },
+  { pattern: /^\/system\/hospital-readiness(\/|$)/, pages: ['settings'] },
+  { pattern: /^\/system\/hospital-master-data(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/system-settings(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/receivable-mappings(\/|$)/, pages: ['settings'] },
   { pattern: /^\/config\/business-rules(\/|$)/, pages: ['settings'] },

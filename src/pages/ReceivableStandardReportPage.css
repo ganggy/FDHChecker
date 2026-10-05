@@ -353,26 +353,28 @@
 
 /* Vertical Headers for 12/13 Subcategories */
 .rec-std-table th.vertical-header {
-  height: 150px;
-  white-space: nowrap;
+  height: 165px;
+  width: 32px;
+  min-width: 30px;
+  max-width: 36px;
   vertical-align: bottom;
-  padding: 0;
-  width: 34px;
-  position: relative;
+  text-align: center;
+  padding: 6px 2px !important;
+  background-color: #f8fafc;
 }
 
 .rec-std-table th.vertical-header > div {
-  transform: rotate(-90deg);
-  transform-origin: bottom left;
-  position: absolute;
-  bottom: 10px;
-  left: 24px;
-  width: 140px;
+  writing-mode: vertical-lr;
+  transform: rotate(180deg);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.15;
   text-align: left;
-  font-size: 0.76rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin: 0 auto;
+  display: inline-block;
+  color: #000000;
+  letter-spacing: -0.01em;
 }
 
 /* Pagination Bar */
@@ -518,8 +520,22 @@
     print-color-adjust: exact;
   }
 
+  .rec-std-table th.vertical-header {
+    height: 140px !important;
+    width: 25px !important;
+    min-width: 25px !important;
+    max-width: 28px !important;
+    padding: 3px 1px !important;
+    vertical-align: bottom !important;
+  }
+
   .rec-std-table th.vertical-header > div {
     font-size: 7.5pt !important;
+    writing-mode: vertical-lr !important;
+    transform: rotate(180deg) !important;
+    white-space: nowrap !important;
+    line-height: 1.1 !important;
+    display: inline-block !important;
   }
 
   .rec-std-signatures {

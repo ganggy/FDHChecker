@@ -619,7 +619,7 @@ export const ReceivableStandardReportPage: React.FC = () => {
                     <th style={{ width: '65px' }}>วันที่</th>
                     <th style={{ width: '38px' }}>รหัสสิทธิ</th>
                     <th style={{ width: '85px' }}>CID<br />ใบเสร็จ</th>
-                    <th>ชื่อ - สกุล<br />HN AN</th>
+                    <th>ชื่อ - สกุล<br />HN VN</th>
                     <th style={{ width: '55px' }}>เพศ/อายุ</th>
                     <th style={{ width: '50px' }}>การวินิจฉัย</th>
                     <th style={{ width: '50px' }}>หัตถการ</th>

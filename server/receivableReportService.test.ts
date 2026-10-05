@@ -24,6 +24,11 @@ test('resolveDebtorForPttype maps known HOSxP pttypes to correct debtors and met
   const pttype30Ipd = resolveDebtorForPttype('30', true);
   assert.equal(pttype30Ipd.debtorCode, '1102050101.402');
   assert.equal(pttype30Ipd.controlRegister, 'รายตัว');
+
+  // Pttype 77 (IPD) -> UC-IP ใน CUP
+  const pttype77Ipd = resolveDebtorForPttype('77', true);
+  assert.equal(pttype77Ipd.debtorCode, '1102050101.202');
+  assert.equal(pttype77Ipd.controlRegister, 'รายสิทธิ');
 });
 
 test('DEBTOR_METADATA contains required standard accounts', () => {

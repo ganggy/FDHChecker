@@ -590,10 +590,10 @@ export const ReceivablePage = () => {
                 type="button"
                 className="receivable-tool-btn receivable-tool-btn--report"
                 onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableStandardReport' } }))}
-                title="เปิดหน้าจอพิมพ์รายงานบัญชีลูกหนี้มาตรฐาน 5 แบบ (สรุปรวมสิทธิ OPD, แยกตามสิทธิ OPD/IPD, และแจกแจงรายละเอียด 12/13 หมวด)"
+                title="เปิดหน้าจอพิมพ์รายงานบัญชีลูกหนี้มาตรฐาน 6 แบบ (สรุปรวมสิทธิ OPD/IPD, แยกตามสิทธิ OPD/IPD, และแจกแจงรายละเอียด 12/13 หมวด)"
               >
                 <span className="receivable-tool-btn__icon">📑</span>
-                <span>รายงานลูกหนี้ 5 แบบ</span>
+                <span>รายงานลูกหนี้ 6 แบบ</span>
               </button>
               <button
                 type="button"

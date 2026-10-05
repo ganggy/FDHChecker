@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import {
   getHospitalInfo,
   getDebtorOpdSummary,
+  getDebtorIpdSummary,
   getPttypeOpdSummary,
   getPttypeIpdSummary,
   getDetailedOpd,
@@ -78,6 +79,49 @@ receivableReportRouter.get('/print-report', async (req, res) => {
     }
 
     if (reportType === '2') {
+      const data = await getDebtorIpdSummary(startDate, endDate);
+      const totals = data.reduce(
+        (acc, item) => {
+          acc.patientCount += item.patientCount;
+          acc.visitCount += item.visitCount;
+          acc.losDays += item.losDays;
+          acc.newCount += item.newCount;
+          acc.oldCount += item.oldCount;
+          acc.inCupCount += item.inCupCount;
+          acc.outCupCount += item.outCupCount;
+          acc.totalAmount += item.totalAmount;
+          acc.paidAmount += item.paidAmount;
+          acc.remainAmount += item.remainAmount;
+          return acc;
+        },
+        {
+          patientCount: 0,
+          visitCount: 0,
+          losDays: 0,
+          newCount: 0,
+          oldCount: 0,
+          inCupCount: 0,
+          outCupCount: 0,
+          totalAmount: 0,
+          paidAmount: 0,
+          remainAmount: 0,
+        }
+      );
+
+      return res.json({
+        success: true,
+        reportType: '2',
+        title: 'รายงานบัญชีลูกหนี้ สรุปรวมสิทธิการรักษา ผู้ป่วยใน',
+        hospital,
+        signers,
+        startDate,
+        endDate,
+        data,
+        totals,
+      });
+    }
+
+    if (reportType === '3') {
       const data = await getPttypeOpdSummary(startDate, endDate);
       const totals = data.reduce(
         (acc, item) => {
@@ -107,7 +151,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
 
       return res.json({
         success: true,
-        reportType: '2',
+        reportType: '3',
         title: 'รายงานบัญชีลูกหนี้ แยกตามสิทธิการรักษา ผู้ป่วยนอก',
         hospital,
         signers,
@@ -118,7 +162,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
       });
     }
 
-    if (reportType === '3') {
+    if (reportType === '4') {
       const data = await getPttypeIpdSummary(startDate, endDate);
       const totals = data.reduce(
         (acc, item) => {
@@ -150,7 +194,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
 
       return res.json({
         success: true,
-        reportType: '3',
+        reportType: '4',
         title: 'รายงานบัญชีลูกหนี้ แยกตามสิทธิการรักษา ผู้ป่วยใน',
         hospital,
         signers,
@@ -161,7 +205,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
       });
     }
 
-    if (reportType === '4') {
+    if (reportType === '5') {
       const data = await getDetailedOpd(startDate, endDate, pttype, debtorCode);
       const totals = data.reduce(
         (acc, item) => {
@@ -203,7 +247,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
 
       return res.json({
         success: true,
-        reportType: '4',
+        reportType: '5',
         title: 'รายงานค่ารักษาพยาบาลลูกหนี้ผู้ป่วยนอก แบบแจกแจงรายละเอียด',
         hospital,
         signers,
@@ -214,7 +258,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
       });
     }
 
-    if (reportType === '5') {
+    if (reportType === '6') {
       const data = await getDetailedIpd(startDate, endDate, pttype, debtorCode);
       const totals = data.reduce(
         (acc, item) => {
@@ -258,7 +302,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
 
       return res.json({
         success: true,
-        reportType: '5',
+        reportType: '6',
         title: 'รายงานค่ารักษาพยาบาลลูกหนี้ผู้ป่วยใน แบบแจกแจงรายละเอียด',
         hospital,
         signers,
@@ -269,7 +313,7 @@ receivableReportRouter.get('/print-report', async (req, res) => {
       });
     }
 
-    return res.status(400).json({ success: false, error: 'ไม่พบประเภทรายงานที่ระบุ (รองรับ 1-5)' });
+    return res.status(400).json({ success: false, error: 'ไม่พบประเภทรายงานที่ระบุ (รองรับ 1-6)' });
   } catch (error) {
     console.error('Error generating receivable print report:', error);
     return res.status(500).json({

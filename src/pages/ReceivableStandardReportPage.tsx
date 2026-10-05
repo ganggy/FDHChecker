@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import './ReceivableStandardReportPage.css';
 
-type ReportType = '1' | '2' | '3' | '4' | '5';
+type ReportType = '1' | '2' | '3' | '4' | '5' | '6';
 
 const THAI_MONTHS = [
   'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
@@ -199,11 +199,11 @@ export const ReceivableStandardReportPage: React.FC = () => {
       <div className="rec-std-hero no-print">
         <div className="rec-std-hero__left">
           <div className="rec-std-hero__badge">
-            <span>📑 Standard Accounts Receivable (5 รูปแบบ)</span>
+            <span>📑 Standard Accounts Receivable (6 รูปแบบ)</span>
           </div>
-          <h1>รายงานบัญชีลูกหนี้สิทธิ์ (5 รูปแบบมาตรฐาน)</h1>
+          <h1>รายงานบัญชีลูกหนี้สิทธิ์ (6 รูปแบบมาตรฐาน)</h1>
           <p>
-            รายงานสรุปรวมสิทธิการรักษา OPD, แยกตามสิทธิ OPD/IPD, และแบบแจกแจงรายละเอียด 12/13 หมวดค่ารักษา
+            รายงานสรุปรวมสิทธิการรักษา OPD/IPD, แยกตามสิทธิ OPD/IPD, และแบบแจกแจงรายละเอียด 12/13 หมวดค่ารักษา
             ตามระเบียบกระทรวงสาธารณสุขและกรมบัญชีกลาง รองรับการพิมพ์ A4 พร้อมกรอบลงนาม 2 ฝ่าย และส่งออก Excel
           </p>
         </div>
@@ -252,7 +252,7 @@ export const ReceivableStandardReportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 5 Report Tabs */}
+      {/* 6 Report Tabs */}
       <div className="rec-std-tabs no-print">
         <button
           type="button"
@@ -266,28 +266,35 @@ export const ReceivableStandardReportPage: React.FC = () => {
           className={`rec-std-tab ${reportType === '2' ? 'is-active' : ''}`}
           onClick={() => setReportType('2')}
         >
-          <span>2. แยกตามสิทธิการรักษา (OPD)</span>
+          <span>2. สรุปรวมสิทธิการรักษา (IPD)</span>
         </button>
         <button
           type="button"
           className={`rec-std-tab ${reportType === '3' ? 'is-active' : ''}`}
           onClick={() => setReportType('3')}
         >
-          <span>3. แยกตามสิทธิการรักษา (IPD)</span>
+          <span>3. แยกตามสิทธิการรักษา (OPD)</span>
         </button>
         <button
           type="button"
           className={`rec-std-tab ${reportType === '4' ? 'is-active' : ''}`}
           onClick={() => setReportType('4')}
         >
-          <span>4. แจกแจงรายละเอียด (OPD)</span>
+          <span>4. แยกตามสิทธิการรักษา (IPD)</span>
         </button>
         <button
           type="button"
           className={`rec-std-tab ${reportType === '5' ? 'is-active' : ''}`}
           onClick={() => setReportType('5')}
         >
-          <span>5. แจกแจงรายละเอียด (IPD)</span>
+          <span>5. แจกแจงรายละเอียด (OPD)</span>
+        </button>
+        <button
+          type="button"
+          className={`rec-std-tab ${reportType === '6' ? 'is-active' : ''}`}
+          onClick={() => setReportType('6')}
+        >
+          <span>6. แจกแจงรายละเอียด (IPD)</span>
         </button>
       </div>
 
@@ -321,7 +328,7 @@ export const ReceivableStandardReportPage: React.FC = () => {
             <button type="button" className="rec-std-preset-btn" onClick={() => applyPreset('fy2569')}>ปีงบ 69</button>
           </div>
 
-          {(reportType === '4' || reportType === '5') && (
+          {(reportType === '5' || reportType === '6') && (
             <div className="rec-std-filter-item">
               <label>รหัสสิทธิ:</label>
               <input
@@ -475,8 +482,75 @@ export const ReceivableStandardReportPage: React.FC = () => {
               </table>
             )}
 
-            {/* REPORT 2: แยกตามสิทธิการรักษา ผู้ป่วยนอก */}
+            {/* REPORT 2: สรุปรวมสิทธิการรักษา ผู้ป่วยใน */}
             {reportType === '2' && (
+              <table className="rec-std-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '40px' }}>ที่</th>
+                    <th style={{ width: '130px' }}>รหัสลูกหนี้</th>
+                    <th>สิทธิลูกหนี้</th>
+                    <th style={{ width: '130px' }}>การรับรู้</th>
+                    <th style={{ width: '90px' }}>ทะเบียนคุม</th>
+                    <th style={{ width: '50px' }}>คน</th>
+                    <th style={{ width: '50px' }}>Visit</th>
+                    <th style={{ width: '55px' }}>วันนอน</th>
+                    <th style={{ width: '50px' }}>ใหม่</th>
+                    <th style={{ width: '50px' }}>เก่า</th>
+                    <th style={{ width: '50px' }}>ในเขต</th>
+                    <th style={{ width: '50px' }}>นอกเขต</th>
+                    <th style={{ width: '105px' }}>จำนวนเงิน</th>
+                    <th style={{ width: '95px' }}>จ่ายแล้ว</th>
+                    <th style={{ width: '105px' }}>คงเหลือ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredData.length === 0 ? (
+                    <tr>
+                      <td colSpan={15} className="rec-std-empty">ไม่พบข้อมูลผู้ป่วยในในช่วงวันที่เลือก</td>
+                    </tr>
+                  ) : (
+                    (pageSize === 0 ? filteredData : paginatedData).map((row: any, i: number) => (
+                      <tr key={row.debtorCode || i}>
+                        <td style={{ textAlign: 'center' }}>{row.no || i + 1}</td>
+                        <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{row.debtorCode}</td>
+                        <td>{row.debtorName}</td>
+                        <td>{row.recognition || ''}</td>
+                        <td style={{ textAlign: 'center' }}>{row.controlRegister || ''}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCount(row.patientCount)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCount(row.visitCount)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCount(row.losDays)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCount(row.newCount)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCount(row.oldCount)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCount(row.inCupCount)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatCount(row.outCupCount)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatNumber(row.totalAmount)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatNumber(row.paidAmount)}</td>
+                        <td style={{ textAlign: 'right' }}>{formatNumber(row.remainAmount)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center' }}>รวม</td>
+                    <td style={{ textAlign: 'right' }}>{formatCount(totals.patientCount)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCount(totals.visitCount)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCount(totals.losDays)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCount(totals.newCount)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCount(totals.oldCount)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCount(totals.inCupCount)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatCount(totals.outCupCount)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatNumber(totals.totalAmount)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatNumber(totals.paidAmount)}</td>
+                    <td style={{ textAlign: 'right' }}>{formatNumber(totals.remainAmount)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+
+            {/* REPORT 3: แยกตามสิทธิการรักษา ผู้ป่วยนอก */}
+            {reportType === '3' && (
               <table className="rec-std-table">
                 <thead>
                   <tr>
@@ -541,8 +615,8 @@ export const ReceivableStandardReportPage: React.FC = () => {
               </table>
             )}
 
-            {/* REPORT 3: แยกตามสิทธิการรักษา ผู้ป่วยใน */}
-            {reportType === '3' && (
+            {/* REPORT 4: แยกตามสิทธิการรักษา ผู้ป่วยใน */}
+            {reportType === '4' && (
               <table className="rec-std-table">
                 <thead>
                   <tr>
@@ -610,8 +684,8 @@ export const ReceivableStandardReportPage: React.FC = () => {
               </table>
             )}
 
-            {/* REPORT 4: แบบแจกแจงรายละเอียด ผู้ป่วยนอก (12 หมวด) */}
-            {reportType === '4' && (
+            {/* REPORT 5: แบบแจกแจงรายละเอียด ผู้ป่วยนอก (12 หมวด) */}
+            {reportType === '5' && (
               <table className="rec-std-table">
                 <thead>
                   <tr>
@@ -704,8 +778,8 @@ export const ReceivableStandardReportPage: React.FC = () => {
               </table>
             )}
 
-            {/* REPORT 5: แบบแจกแจงรายละเอียด ผู้ป่วยใน (13 หมวด) */}
-            {reportType === '5' && (
+            {/* REPORT 6: แบบแจกแจงรายละเอียด ผู้ป่วยใน (13 หมวด) */}
+            {reportType === '6' && (
               <table className="rec-std-table">
                 <thead>
                   <tr>

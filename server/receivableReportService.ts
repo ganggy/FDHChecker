@@ -207,6 +207,113 @@ export const getDebtorOpdSummary = async (startDate: string, endDate: string) =>
 };
 
 // ==========================================
+// รายงาน: สรุปรวมสิทธิการรักษา ผู้ป่วยใน (Debtor IPD Summary)
+// ==========================================
+export interface DebtorIpdSummaryItem {
+  no: number;
+  debtorCode: string;
+  debtorName: string;
+  recognition: string;
+  controlRegister: string;
+  patientCount: number;
+  visitCount: number;
+  losDays: number;
+  newCount: number;
+  oldCount: number;
+  inCupCount: number;
+  outCupCount: number;
+  totalAmount: number;
+  paidAmount: number;
+  remainAmount: number;
+}
+
+export const getDebtorIpdSummary = async (startDate: string, endDate: string) => {
+  const hosp = await getHospitalInfo();
+  const inCupCondition = buildInCupSqlCondition(hosp, 'ov');
+  const connection = await getUTFConnection();
+  try {
+    const [rows] = await connection.query(
+      `SELECT
+         i.pttype,
+         COUNT(DISTINCT i.hn) AS patient_count,
+         COUNT(DISTINCT i.an) AS visit_count,
+         SUM(CASE WHEN i.dchdate = p.firstday OR i.regdate = p.firstday THEN 1 ELSE 0 END) AS new_count,
+         SUM(CASE WHEN ${inCupCondition} THEN 1 ELSE 0 END) AS in_cup_count,
+         SUM(GREATEST(DATEDIFF(COALESCE(i.dchdate, CURDATE()), i.regdate), 1)) AS los_days,
+         SUM(COALESCE(a.income, 0)) AS total_income,
+         SUM(COALESCE(a.rcpt_money, 0)) AS paid_money
+       FROM ipt i
+       JOIN an_stat a ON a.an = i.an
+       LEFT JOIN ovst ov ON ov.vn = i.vn
+       LEFT JOIN patient p ON p.hn = i.hn
+       WHERE COALESCE(i.dchdate, i.regdate) BETWEEN ? AND ?
+         AND COALESCE(a.income, 0) > 0
+       GROUP BY i.pttype
+       ORDER BY i.pttype`,
+      [startDate, endDate]
+    );
+
+    const grouped = new Map<string, DebtorIpdSummaryItem>();
+
+    for (const r of (Array.isArray(rows) ? rows : []) as Record<string, unknown>[]) {
+      const pttype = String(r.pttype || '').trim();
+      const debtor = resolveDebtorForPttype(pttype, true);
+
+      const existing = grouped.get(debtor.debtorCode) || {
+        no: 0,
+        debtorCode: debtor.debtorCode,
+        debtorName: debtor.debtorName,
+        recognition: debtor.recognition,
+        controlRegister: debtor.controlRegister,
+        patientCount: 0,
+        visitCount: 0,
+        losDays: 0,
+        newCount: 0,
+        oldCount: 0,
+        inCupCount: 0,
+        outCupCount: 0,
+        totalAmount: 0,
+        paidAmount: 0,
+        remainAmount: 0,
+      };
+
+      const visitCount = Number(r.visit_count || 0);
+      const patientCount = Number(r.patient_count || 0);
+      const newCount = Number(r.new_count || 0);
+      const inCup = Number(r.in_cup_count || 0);
+      const losDays = Number(r.los_days || visitCount);
+      const totalIncome = Number(r.total_income || 0);
+      const paidMoney = Number(r.paid_money || 0);
+
+      existing.visitCount += visitCount;
+      existing.patientCount += patientCount;
+      existing.newCount += newCount;
+      existing.inCupCount += inCup;
+      existing.losDays += losDays;
+      existing.totalAmount += totalIncome;
+      existing.paidAmount += paidMoney;
+
+      grouped.set(debtor.debtorCode, existing);
+    }
+
+    // Sort by debtorCode ascending
+    const sorted = Array.from(grouped.values()).sort((a, b) => a.debtorCode.localeCompare(b.debtorCode));
+
+    // Assign sequential numbering and compute old & out-cup & remain
+    sorted.forEach((item, index) => {
+      item.no = index + 1;
+      item.oldCount = Math.max(0, item.visitCount - item.newCount);
+      item.outCupCount = Math.max(0, item.visitCount - item.inCupCount);
+      item.remainAmount = Math.max(0, item.totalAmount - item.paidAmount);
+    });
+
+    return sorted;
+  } finally {
+    connection.release();
+  }
+};
+
+// ==========================================
 // รายงานที่ 2: แยกตามสิทธิการรักษา ผู้ป่วยนอก
 // ==========================================
 export interface PttypeOpdSummaryItem {

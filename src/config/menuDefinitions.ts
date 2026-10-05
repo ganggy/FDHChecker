@@ -21,7 +21,6 @@ export const primaryNavItems: NavItem[] = [
   { page: 'ipdExport', icon: '📤', label: 'ส่งออก IPD' },
   { page: 'ipdClaimMonitor', icon: '📡', label: 'มอนิเตอร์เคลม IPD' },
   { page: 'nhsoClose', icon: '🔐', label: 'ปิดสิทธิ สปสช.' },
-  { page: 'collaboration', icon: '💬', label: 'ศูนย์ตรวจสอบ (LINE)' },
 ];
 
 export const toolNavItems: NavItem[] = [
@@ -74,13 +73,27 @@ export const toolNavItems: NavItem[] = [
 ];
 
 export const toolNavGroups: NavGroup[] = [
-  { label: 'นำเข้า/ตรวจสิทธิ', icon: '📥', pages: ['authenSync', 'ktbApproveCode', 'fdhImport', 'fdhClaimDetail', 'preValidator', 'repstm'] },
-  { label: 'ติดตามผลเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
-  { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['dentalAudit', 'fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'ktbApproveCode', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
+  { label: 'นำเข้า/ตรวจสิทธิ', icon: '📥', pages: ['authenSync', 'ktbApproveCode', 'fdhImport', 'fdhClaimDetail', 'preValidator'] },
+  { label: 'ติดตามงาน', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny', 'collaboration'] },
+  { label: 'REP/STM & กระทบยอด', icon: '🧾', pages: ['repstm', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit', 'repDailySummary'] },
+  { label: 'ลูกหนี้ & บัญชี', icon: '💰', pages: ['receivable', 'receivableSettlement', 'smtBudget', 'officialReceivable', 'receivableStandardReport', 'accountingRevenueBudget'] },
+  { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['fundFdh', 'fund43', 'fundKtb', 'dentalAudit', 'mophDmht', 'mophVaccine', 'fsMonitor', 'monitor', 'specific', 'fundOther'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
-  { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'officialReceivable', 'receivableStandardReport', 'receivableSettlement', 'smtBudget', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
-  { label: 'รายงาน/สถิติ', icon: '📊', pages: ['officialReceivable', 'receivableStandardReport', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'admin'] },
-  { label: 'บริหารระบบ', icon: '⚙️', pages: ['memberAdmin', 'repstmManage'] },
+  { label: 'ผู้บริหาร/วิเคราะห์', icon: '📊', pages: ['insuranceOverview', 'admin', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'revenueOpportunity', 'ppfsBenchmark', 'ppfsVisitMatch', 'ucOutsideCup'] },
+  { label: 'ระบบ/อ้างอิง', icon: '⚙️', pages: ['memberAdmin', 'repstmManage', 'icd9Lookup', 'guide'] },
+];
+
+const groupPages = (...labels: string[]): AppPage[] =>
+  toolNavGroups.filter((group) => labels.includes(group.label)).flatMap((group) => group.pages);
+
+const claimPages: AppPage[] = ['staff', 'fdh', 'ipd', 'ipdExport', 'ipdClaimMonitor', 'nhsoClose'];
+
+/** ชุดสิทธิ์สำเร็จรูปสำหรับกลุ่มผู้ใช้ — กดเลือกในหน้าจัดการสมาชิก แล้วปรับรายเมนูต่อได้ */
+export const rolePresets: Array<{ key: string; label: string; pages: AppPage[] }> = [
+  { key: 'claim', label: '🏥 เจ้าหน้าที่เคลม', pages: [...claimPages, ...groupPages('นำเข้า/ตรวจสิทธิ', 'ติดตามงาน'), 'icd9Lookup', 'guide'] },
+  { key: 'insurance', label: '🛡️ ประกันสุขภาพ', pages: [...claimPages, ...groupPages('นำเข้า/ตรวจสิทธิ', 'ติดตามงาน', 'REP/STM & กระทบยอด', 'กองทุนเฉพาะ', 'ประกันสังคม'), 'icd9Lookup', 'guide'] },
+  { key: 'finance', label: '💰 การเงิน/บัญชี', pages: [...groupPages('REP/STM & กระทบยอด', 'ลูกหนี้ & บัญชี'), 'insuranceOverview', 'guide'] },
+  { key: 'executive', label: '📊 ผู้บริหาร', pages: [...groupPages('ผู้บริหาร/วิเคราะห์'), 'receivableStandardReport', 'accountingRevenueBudget', 'guide'] },
 ];
 
 export const allMenuItems: NavItem[] = [

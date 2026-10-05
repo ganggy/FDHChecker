@@ -1,8 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
-import { allMenuItems } from '../config/menuDefinitions';
+import { allMenuItems, primaryNavItems, rolePresets, toolNavGroups } from '../config/menuDefinitions';
 import { FUND_DEFINITIONS } from '../config/fundDefinitions';
 import { createMember, fetchMemberAdminData, saveGroup, updateMember, type MemberAdminData, type MemberGroup } from '../services/authService';
 import type { AppPage } from '../utils/navigationState';
+
+const menuSections = (() => {
+  const byPage = new Map(allMenuItems.map((item) => [item.page, item]));
+  const sections = [
+    { label: 'งานเคลม OPD/IPD', icon: '🏥', items: primaryNavItems },
+    ...toolNavGroups.map((group) => ({
+      label: group.label,
+      icon: group.icon,
+      items: group.pages.map((page) => byPage.get(page)).filter((item): item is NonNullable<typeof item> => Boolean(item)),
+    })),
+  ];
+  const used = new Set(sections.flatMap((section) => section.items.map((item) => item.page)));
+  const rest = allMenuItems.filter((item) => !used.has(item.page));
+  if (rest.length) sections.push({ label: 'อื่นๆ', icon: '📁', items: rest });
+  return sections;
+})();
 
 const emptyGroup = (): { id: number | null; groupName: string; isAdmin: boolean; menuPermissions: AppPage[] } => ({
   id: null,
@@ -373,20 +389,41 @@ export const MemberAdminPage = () => {
                 กลุ่มผู้ดูแลระบบ เห็นทุกเมนู
               </label>
 
-              <div className="member-menu-grid">
-                {allMenuItems.map((item) => (
-                  <label key={item.page} className={`member-menu-check ${editingGroup.isAdmin ? 'disabled' : ''}`}>
-                    <input
-                      type="checkbox"
-                      disabled={editingGroup.isAdmin}
-                      checked={editingGroup.isAdmin || editingGroup.menuPermissions.includes(item.page)}
-                      onChange={() => togglePermission(item.page)}
-                    />
-                    <span>{item.icon}</span>
-                    <span>{item.label}</span>
-                  </label>
-                ))}
-              </div>
+              {!editingGroup.isAdmin && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600 }}>ชุดสิทธิ์สำเร็จรูป:</span>
+                  {rolePresets.map((preset) => (
+                    <button
+                      key={preset.key}
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setEditingGroup((current) => ({ ...current, menuPermissions: Array.from(new Set(preset.pages)) }))}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {menuSections.map((section) => (
+                <fieldset key={section.label} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px' }}>
+                  <legend style={{ fontWeight: 600, padding: '0 6px' }}>{section.icon} {section.label}</legend>
+                  <div className="member-menu-grid">
+                    {section.items.map((item) => (
+                      <label key={item.page} className={`member-menu-check ${editingGroup.isAdmin ? 'disabled' : ''}`}>
+                        <input
+                          type="checkbox"
+                          disabled={editingGroup.isAdmin}
+                          checked={editingGroup.isAdmin || editingGroup.menuPermissions.includes(item.page)}
+                          onChange={() => togglePermission(item.page)}
+                        />
+                        <span>{item.icon}</span>
+                        <span>{item.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ))}
 
               <button className="btn-primary" type="submit" disabled={saving}>{saving ? 'กำลังบันทึก...' : 'บันทึกกลุ่ม'}</button>
             </form>

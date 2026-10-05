@@ -269,7 +269,11 @@ function App() {
 
   const mobilePagePriority: AppPage[] = ['collaboration', 'staff', 'ipd', 'ipdClaimMonitor'];
   const mobilePageRank = new Map(mobilePagePriority.map((page, index) => [page, index]));
-  const mobilePrimaryItems = [...visiblePrimaryNavItems]
+  const mobileCandidates = [
+    ...toolNavItems.filter((item) => item.page === 'collaboration' && allowedPageSet.has(item.page)),
+    ...visiblePrimaryNavItems,
+  ];
+  const mobilePrimaryItems = [...mobileCandidates]
     .sort((left, right) => (mobilePageRank.get(left.page) ?? 99) - (mobilePageRank.get(right.page) ?? 99))
     .slice(0, 4);
   const mobilePrimaryPageSet = new Set(mobilePrimaryItems.map((item) => item.page));

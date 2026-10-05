@@ -53,6 +53,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'ppfsVisitMatch', icon: '🔎', label: 'จับคู่บริการ PPFS' },
   { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกันสุขภาพ' },
   { page: 'accountingRevenueBudget', icon: '🧮', label: 'รายงานบัญชี / ประมาณการรายได้' },
+  { page: 'smtBudget', icon: '🏦', label: 'ตัดลูกหนี้ SMT / e-Budget' },
   { page: 'ucOutsideCup', icon: '🏥', label: 'UC นอก CUP (WALKIN)' },
   { page: 'dentalAudit', icon: '🦷', label: 'ตรวจสอบงานห้องฟัน' },
   { page: 'repDeny', icon: '⚠️', label: 'รายการติด C / ปฏิเสธจ่าย' },
@@ -77,7 +78,7 @@ export const toolNavGroups: NavGroup[] = [
   { label: 'ติดตามผลเคลม', icon: '🔎', pages: ['workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny'] },
   { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['dentalAudit', 'fundFdh', 'monitor', 'fsMonitor', 'fund43', 'mophDmht', 'mophVaccine', 'fundKtb', 'ktbApproveCode', 'fundOther', 'specific', 'icd9Lookup', 'guide'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
-  { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'officialReceivable', 'receivableStandardReport', 'receivableSettlement', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
+  { label: 'การเงิน/ลูกหนี้', icon: '💼', pages: ['receivable', 'officialReceivable', 'receivableStandardReport', 'receivableSettlement', 'smtBudget', 'ucOutsideCup', 'accountingRevenueBudget', 'revenueOpportunity', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit', 'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'insuranceOverview'] },
   { label: 'รายงาน/สถิติ', icon: '📊', pages: ['officialReceivable', 'receivableStandardReport', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'admin'] },
   { label: 'บริหารระบบ', icon: '⚙️', pages: ['memberAdmin', 'repstmManage'] },
 ];

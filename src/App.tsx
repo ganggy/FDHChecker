@@ -36,6 +36,7 @@ const ReceivablePage = lazyNamed(() => import('./pages/ReceivablePage'), 'Receiv
 const ReceivableSettlementPage = lazyNamed(() => import('./pages/ReceivableSettlementPage'), 'ReceivableSettlementPage');
 const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewPage'), 'InsuranceOverviewPage');
 const AccountingRevenueBudgetPage = lazyNamed(() => import('./pages/AccountingRevenueBudgetPage'), 'AccountingRevenueBudgetPage');
+const SmtBudgetReconcilePage = lazyNamed(() => import('./pages/SmtBudgetReconcilePage'), 'SmtBudgetReconcilePage');
 const UcOutsideCupPage = lazyNamed(() => import('./pages/UcOutsideCupPage'), 'UcOutsideCupPage');
 const DentalAuditPage = lazyNamed(() => import('./pages/DentalAuditPage'), 'DentalAuditPage');
 const KtbApproveCodeImportPage = lazyNamed(() => import('./pages/KtbApproveCodeImportPage'), 'KtbApproveCodeImportPage');
@@ -527,6 +528,7 @@ function App() {
         {currentPage === 'receivableSettlement' && <ReceivableSettlementPage />}
         {currentPage === 'insuranceOverview' && <InsuranceOverviewPage />}
         {currentPage === 'accountingRevenueBudget' && <AccountingRevenueBudgetPage />}
+        {currentPage === 'smtBudget' && <SmtBudgetReconcilePage />}
         {currentPage === 'ucOutsideCup' && <UcOutsideCupPage />}
         {currentPage === 'dentalAudit' && <DentalAuditPage />}
         {currentPage === 'ktbApproveCode' && <KtbApproveCodeImportPage />}

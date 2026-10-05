@@ -604,6 +604,15 @@ export const ReceivablePage = () => {
                 <span className="receivable-tool-btn__icon">🏛️</span>
                 <span>แบบลูกหนี้ราชการ 4 แบบ</span>
               </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--smt"
+                onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'smtBudget' } }))}
+                title="เปิดหน้าจอดึงข้อมูลโอนเงินจาก SMT สปสช. (e-Budget) เพื่อตัดรับรู้บัญชีลูกหนี้"
+              >
+                <span className="receivable-tool-btn__icon">🏦</span>
+                <span>ตัดหนี้ SMT / e-Budget</span>
+              </button>
             </div>
           </div>
 

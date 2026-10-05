@@ -527,6 +527,43 @@ export const MOPHCLAIM_SEND_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+export const SMT_BUDGET_TRANSFER_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS smt_budget_transfers (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    hcode VARCHAR(32) NOT NULL,
+    budget_year VARCHAR(10) NOT NULL,
+    run_date DATE NOT NULL,
+    posting_date VARCHAR(20) NULL,
+    batch_no VARCHAR(50) NOT NULL,
+    ref_doc_no VARCHAR(100) NOT NULL,
+    fund_name VARCHAR(255) NULL,
+    fund_group VARCHAR(100) NULL,
+    fund_descr VARCHAR(255) NULL,
+    efund_desc VARCHAR(255) NULL,
+    budget_source VARCHAR(50) NULL,
+    moph_id VARCHAR(50) NULL,
+    moph_desc VARCHAR(255) NULL,
+    amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    wait_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    debt_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    bond_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    vat_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    net_total DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    bank_name VARCHAR(255) NULL,
+    mou_grp_code VARCHAR(50) NULL,
+    efund_cd VARCHAR(20) NULL,
+    sfund_cd VARCHAR(20) NULL,
+    raw_payload JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_smt_transfer (hcode, budget_year, batch_no, ref_doc_no, run_date, mou_grp_code, efund_cd),
+    INDEX idx_hcode_year (hcode, budget_year),
+    INDEX idx_ref_doc_no (ref_doc_no),
+    INDEX idx_moph_id (moph_id),
+    INDEX idx_run_date (run_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 
 export const ensureFdhClaimStatusSchema = async (connection: any): Promise<void> => {
   if (activeHospitalDatabaseConfig.type === 'postgresql') {
@@ -634,6 +671,7 @@ const ensureRepstmTablesUncached = async () => {
     await connection.query(RECEIVABLE_SETTLEMENT_BATCH_TABLE_SQL);
     await connection.query(RECEIVABLE_SETTLEMENT_ITEM_TABLE_SQL);
     await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
+    await connection.query(SMT_BUDGET_TRANSFER_TABLE_SQL);
 
     const repSeqColumnTables = ['rep_data', 'rep_data_verify'];
     for (const tableName of repSeqColumnTables) {

@@ -33,6 +33,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/receivables\/(reconciliation|filter-options)(\/|$)/, pages: ['reconciliation', 'receivable', 'ucOutsideCup'] },
   { pattern: /^\/receivables\/settlement(\/|$)/, pages: ['receivableSettlement'] },
+  { pattern: /^\/smt-budget(\/|$)/, pages: ['smtBudget', 'receivableSettlement', 'accountingRevenueBudget', 'receivable'] },
   { pattern: /^\/official-receivable(\/|$)/, pages: ['officialReceivable', 'receivableStandardReport', 'receivable', 'ucOutsideCup'] },
   { pattern: /^\/receivable(s)?(\/|$)/, pages: ['receivable', 'receivableStandardReport', 'ucOutsideCup'] },
   { pattern: /^\/repstm(\/|$)/, methods: ['POST', 'PUT', 'PATCH'], pages: ['repstm', 'repstmManage'] },

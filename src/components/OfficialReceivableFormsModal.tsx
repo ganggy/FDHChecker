@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import '../styles/receivableReport.css';
 
 interface Props {
@@ -44,12 +44,18 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState<number>(1);
+  const pageSize = 100;
 
   // Report data cache
   const [form1Data, setForm1Data] = useState<any>(null);
   const [form2Data, setForm2Data] = useState<any>(null);
   const [form3Data, setForm3Data] = useState<any>(null);
   const [form4Data, setForm4Data] = useState<any>(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeTab, searchTerm, accountCode, month, yearBE]);
 
   // Load standard 54 accounts list once
   useEffect(() => {
@@ -99,7 +105,86 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
     if (isOpen) {
       loadReportData(activeTab);
     }
-  }, [isOpen, activeTab, month, yearBE, accountCode, loadReportData]);
+  }, [isOpen, activeTab, loadReportData]);
+
+  const filteredForm2Rows = useMemo(() => {
+    if (!form2Data?.rows) return [];
+    if (!searchTerm) return form2Data.rows;
+    const s = searchTerm.toLowerCase();
+    return form2Data.rows.filter((r: any) =>
+      String(r.hn || '').toLowerCase().includes(s) ||
+      String(r.patientName || '').toLowerCase().includes(s) ||
+      String(r.vn || '').toLowerCase().includes(s) ||
+      String(r.an || '').toLowerCase().includes(s) ||
+      String(r.cid || '').toLowerCase().includes(s)
+    );
+  }, [form2Data?.rows, searchTerm]);
+
+  const paginatedForm2Rows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredForm2Rows.slice(start, start + pageSize);
+  }, [filteredForm2Rows, page, pageSize]);
+
+  const filteredForm3Rows = useMemo(() => {
+    if (!form3Data?.rows) return [];
+    if (!searchTerm) return form3Data.rows;
+    const s = searchTerm.toLowerCase();
+    return form3Data.rows.filter((r: any) =>
+      String(r.hn || '').toLowerCase().includes(s) ||
+      String(r.patientName || '').toLowerCase().includes(s) ||
+      String(r.vn || '').toLowerCase().includes(s)
+    );
+  }, [form3Data?.rows, searchTerm]);
+
+  const paginatedForm3Rows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredForm3Rows.slice(start, start + pageSize);
+  }, [filteredForm3Rows, page, pageSize]);
+
+  const filteredForm4Rows = useMemo(() => {
+    if (!form4Data?.rows) return [];
+    if (!searchTerm) return form4Data.rows;
+    const s = searchTerm.toLowerCase();
+    return form4Data.rows.filter((r: any) =>
+      String(r.hn || '').toLowerCase().includes(s) ||
+      String(r.patientName || '').toLowerCase().includes(s) ||
+      String(r.an || '').toLowerCase().includes(s)
+    );
+  }, [form4Data?.rows, searchTerm]);
+
+  const paginatedForm4Rows = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredForm4Rows.slice(start, start + pageSize);
+  }, [filteredForm4Rows, page, pageSize]);
+
+  const renderPagination = (totalItems: number) => {
+    const totalPages = Math.ceil(totalItems / pageSize) || 1;
+    if (totalPages <= 1) return null;
+    return (
+      <div className="no-print" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.4rem 0.75rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', margin: '0.5rem 0', fontSize: '0.85rem' }}>
+        <span>แสดงรายการที่ {((page - 1) * pageSize) + 1} - {Math.min(page * pageSize, totalItems)} จากทั้งหมด {formatCount(totalItems)} รายการ</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            style={{ padding: '0.25rem 0.65rem', border: '1px solid #cbd5e1', borderRadius: '4px', background: page <= 1 ? '#f1f5f9' : '#fff', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}
+          >
+            ◀ ก่อนหน้า
+          </button>
+          <span style={{ fontWeight: 600 }}>หน้า {page} / {totalPages}</span>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            style={{ padding: '0.25rem 0.65rem', border: '1px solid #cbd5e1', borderRadius: '4px', background: page >= totalPages ? '#f1f5f9' : '#fff', cursor: page >= totalPages ? 'not-allowed' : 'pointer' }}
+          >
+            ถัดไป ▶
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   if (!isOpen) return null;
 
@@ -441,6 +526,8 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
                 </h4>
               </div>
 
+              {renderPagination(filteredForm2Rows.length)}
+
               <div style={{ overflowX: 'auto' }}>
                 <table className="receivable-official-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', minWidth: '1300px' }}>
                   <thead>
@@ -476,9 +563,7 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {form2Data.rows
-                      .filter((r: any) => !searchTerm || r.hn.includes(searchTerm) || r.patientName.includes(searchTerm) || r.vn.includes(searchTerm) || r.an.includes(searchTerm))
-                      .map((r: any) => (
+                    {paginatedForm2Rows.map((r: any) => (
                         <tr key={`${r.hn}-${r.vn || r.an}-${r.no}`}>
                           <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'center' }}>{r.no}</td>
                           <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'center', fontFamily: 'monospace' }}>{r.hn}</td>
@@ -557,6 +642,8 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
                 </h4>
               </div>
 
+              {renderPagination(filteredForm3Rows.length)}
+
               <div style={{ overflowX: 'auto' }}>
                 <table className="receivable-official-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem', minWidth: '1500px' }}>
                   <thead>
@@ -603,9 +690,7 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {form3Data.rows
-                      .filter((r: any) => !searchTerm || r.hn.includes(searchTerm) || r.vn.includes(searchTerm) || r.patientName.includes(searchTerm))
-                      .map((r: any, idx: number) => (
+                    {paginatedForm3Rows.map((r: any, idx: number) => (
                         <tr key={`${r.hn}-${r.vn}-${idx}`}>
                           <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'center', fontFamily: 'monospace' }}>{r.hn}</td>
                           <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'center', fontFamily: 'monospace' }}>{r.vn}</td>
@@ -705,6 +790,8 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
                 </h4>
               </div>
 
+              {renderPagination(filteredForm4Rows.length)}
+
               <div style={{ overflowX: 'auto' }}>
                 <table className="receivable-official-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.76rem', minWidth: '1550px' }}>
                   <thead>
@@ -753,9 +840,7 @@ export const OfficialReceivableFormsModal: React.FC<Props> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {form4Data.rows
-                      .filter((r: any) => !searchTerm || r.hn.includes(searchTerm) || r.an.includes(searchTerm) || r.patientName.includes(searchTerm))
-                      .map((r: any, idx: number) => (
+                    {paginatedForm4Rows.map((r: any, idx: number) => (
                         <tr key={`${r.hn}-${r.an}-${idx}`}>
                           <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'center', fontFamily: 'monospace' }}>{r.hn}</td>
                           <td style={{ border: '1px solid #cbd5e1', padding: '4px', textAlign: 'center', fontFamily: 'monospace' }}>{r.an}</td>

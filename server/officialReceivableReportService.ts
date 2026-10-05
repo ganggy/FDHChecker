@@ -297,9 +297,9 @@ export const getOfficialClaimControlLedger = async (
          COALESCE(ptt.name, o.pttype) AS pttype_name,
          o.pttype,
          COALESCE(v.income, 0) AS cost_amount,
-         COALESCE(v.claim_code, '') AS claim_code,
+         '' AS claim_code,
          COALESCE(v.rcpt_money, 0) AS paid_money,
-         COALESCE(DATE_FORMAT(v.rcp_no_date, '%d/%m/%Y'), '') AS paid_date_fmt
+         CASE WHEN COALESCE(v.rcpt_money, 0) > 0 THEN DATE_FORMAT(o.vstdate, '%d/%m/%Y') ELSE '' END AS paid_date_fmt
        FROM ovst o
        JOIN vn_stat v ON v.vn = o.vn
        LEFT JOIN patient pt ON pt.hn = o.hn

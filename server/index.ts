@@ -11,6 +11,13 @@ import {
   getNhsoAutoCloseStatus,
   runNhsoAutoCloseCycle,
 } from './nhsoAutoCloseService.js';
+import {
+  getUcWalkinBatchStatus,
+  saveUcWalkinBatchConfig,
+  runUcWalkinBatchJob,
+  startUcWalkinBatchScheduler,
+  stopUcWalkinBatchScheduler,
+} from './ucWalkinAutoBatchService.js';
 // Backend API Server สำหรับเชื่อมต่อ HOSxP
 // ใช้ Node.js + Express
 
@@ -4114,6 +4121,36 @@ app.post('/api/uc-outside-cup/walkin-clinical-fix-batch', requireAdmin, async (r
   }
 });
 
+app.get('/api/uc-outside-cup/batch-status', async (_req, res) => {
+  try {
+    const status = await getUcWalkinBatchStatus();
+    return res.json({ success: true, data: status });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ไม่สามารถอ่านสถานะ Batch ได้';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/uc-outside-cup/batch-config', requireAdmin, async (req: AuthenticatedRequest, res) => {
+  try {
+    const updated = await saveUcWalkinBatchConfig(req.body || {});
+    return res.json({ success: true, data: updated });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'บันทึกการตั้งค่า Batch ไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/uc-outside-cup/batch-run-now', requireAdmin, async (_req: AuthenticatedRequest, res) => {
+  try {
+    const summary = await runUcWalkinBatchJob('manual');
+    return res.json({ success: true, data: summary });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'รัน Batch ไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
 app.get('/api/dental-audit/visits', async (req, res) => {
   try {
     const data = await getDentalClinicalAudit({
@@ -6391,6 +6428,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`📡 Listening on all interfaces (0.0.0.0)`);
   console.log(`🌐 API Endpoint: http://localhost:${PORT}/api`);
   void startNhsoAutoCloseScheduler();
+  void startUcWalkinBatchScheduler();
 });
 
 let shuttingDown = false;
@@ -6399,6 +6437,7 @@ const shutdown = async (signal: string) => {
   shuttingDown = true;
   console.log(`[shutdown] ${signal} received; stopping new requests`);
   stopNhsoAutoCloseScheduler();
+  stopUcWalkinBatchScheduler();
 
   const forceExitTimer = setTimeout(() => {
     console.error('[shutdown] graceful shutdown timed out');

@@ -5,6 +5,9 @@ import {
   fetchUcOutsideCupClinicalAudit,
   fetchUcOutsideCupDashboard,
   fetchUcOutsideCupWalkinAudit,
+  fetchUcWalkinBatchStatus,
+  saveUcWalkinBatchConfig,
+  triggerUcWalkinBatchRunNow,
   fetchVisitChargeItems,
   fixUcOutsideCupClinicalIssueSingle,
   insertUcOutsideCupWalkin,
@@ -12,6 +15,7 @@ import {
   type UcOutsideCupGroup,
   type UcOutsideCupResponse,
   type UcOutsideCupWalkinAudit,
+  type UcWalkinBatchStatus,
   type UcWalkinClinicalAuditResponse,
   type UcWalkinClinicalAuditRow,
   type VisitClinicalData,
@@ -89,6 +93,82 @@ export const UcOutsideCupPage = () => {
   const handleToggleAutoWalkin = (enabled: boolean) => {
     setAutoWalkinEnabled(enabled);
     localStorage.setItem('auto_insert_walkin_enabled', String(enabled));
+  };
+
+  // Background Batch Worker state
+  const [batchStatus, setBatchStatus] = useState<UcWalkinBatchStatus | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchSaving, setBatchSaving] = useState(false);
+  const [showBatchSettingsModal, setShowBatchSettingsModal] = useState(false);
+  const [batchFormConfig, setBatchFormConfig] = useState({
+    intervalMinutes: 30,
+    scanDays: 30,
+    autoFixClinical: true,
+    autoInsertWalkin: true,
+  });
+
+  const loadBatchStatus = useCallback(async () => {
+    try {
+      const res = await fetchUcWalkinBatchStatus();
+      setBatchStatus(res);
+      setBatchFormConfig({
+        intervalMinutes: res.intervalMinutes,
+        scanDays: res.scanDays,
+        autoFixClinical: res.autoFixClinical,
+        autoInsertWalkin: res.autoInsertWalkin,
+      });
+    } catch {
+      // best effort
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBatchStatus();
+  }, [loadBatchStatus]);
+
+  const handleToggleBatchEnabled = async (enabled: boolean) => {
+    setBatchSaving(true);
+    setError('');
+    try {
+      const updated = await saveUcWalkinBatchConfig({ enabled });
+      setBatchStatus((prev) => (prev ? { ...prev, ...updated, isSchedulerActive: enabled } : null));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'บันทึกการตั้งค่า Batch ไม่สำเร็จ');
+    } finally {
+      setBatchSaving(false);
+    }
+  };
+
+  const handleSaveBatchModalConfig = async () => {
+    setBatchSaving(true);
+    setError('');
+    try {
+      const updated = await saveUcWalkinBatchConfig(batchFormConfig);
+      setBatchStatus((prev) => (prev ? { ...prev, ...updated } : null));
+      setShowBatchSettingsModal(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'บันทึกการตั้งค่า Batch ไม่สำเร็จ');
+    } finally {
+      setBatchSaving(false);
+    }
+  };
+
+  const handleTriggerBatchRunNow = async () => {
+    setBatchRunning(true);
+    setError('');
+    try {
+      const summary = await triggerUcWalkinBatchRunNow();
+      await loadBatchStatus();
+      if (activeTab === 'audit') await loadClinicalAudit(auditPage);
+      if (activeTab === 'reconciliation') await load(page);
+      setClinicalFixMessage(
+        `⚡ รัน Batch สำเร็จ (${Math.round(summary.durationMs / 1000)} วินาที): แก้ไขข้อมูลทางคลินิก ${summary.clinicalFixed.toLocaleString('th-TH')} เคส, เติม WALKIN ${summary.walkinInserted.toLocaleString('th-TH')} รายการ`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'สั่งรัน Batch ไม่สำเร็จ');
+    } finally {
+      setBatchRunning(false);
+    }
   };
 
   const load = useCallback(async (nextPage = 1) => {
@@ -336,6 +416,124 @@ export const UcOutsideCupPage = () => {
         >
           <span>💰</span> กระทบยอดและตามจ่าย HMAIN
         </button>
+      </div>
+
+      {/* Background Batch Worker Panel */}
+      <div
+        className="card"
+        style={{
+          background: batchStatus?.enabled ? 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)' : '#f8fafc',
+          border: `1px solid ${batchStatus?.enabled ? '#86efac' : '#e2e8f0'}`,
+          borderRadius: '12px',
+          padding: '14px 20px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '14px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          <div
+            style={{
+              width: '42px',
+              height: '42px',
+              borderRadius: '10px',
+              background: batchStatus?.enabled ? '#16a34a' : '#64748b',
+              color: '#fff',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '20px',
+              fontWeight: 'bold',
+            }}
+          >
+            🤖
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <strong style={{ fontSize: '1rem', color: '#0f172a' }}>
+                ระบบตรวจและแก้ไขอัตโนมัติในพื้นหลัง (Background Batch Worker)
+              </strong>
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  background: batchStatus?.enabled ? '#15803d' : '#64748b',
+                  color: '#fff',
+                }}
+              >
+                {batchStatus?.enabled ? '🟢 กำลังทำงานอัตโนมัติ' : '⚪ ปิดใช้งานอยู่'}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.85rem', color: '#475569', marginTop: '2px' }}>
+              {batchStatus?.enabled ? (
+                <>
+                  ตรวจข้อมูลย้อนหลัง {batchStatus.scanDays} วัน ทุก ๆ {batchStatus.intervalMinutes} นาที (เติม WALKIN + แก้ไขรหัสทันตกรรม/โรคหลักอัตโนมัติ)
+                  {batchStatus.lastRunAt && (
+                    <span style={{ marginLeft: '8px', color: '#15803d', fontWeight: 600 }}>
+                      · ล่าสุด: {new Date(batchStatus.lastRunAt).toLocaleTimeString('th-TH')}
+                      {batchStatus.lastSummary && ` (แก้ไข ${batchStatus.lastSummary.clinicalFixed} เคส, เติม ${batchStatus.lastSummary.walkinInserted} รายการ)`}
+                    </span>
+                  )}
+                </>
+              ) : (
+                'เปิดให้เซิร์ฟเวอร์รันตรวจและเติมรหัส WALKIN + แก้ไขรหัสทันตกรรมที่ติด C อัตโนมัติในพื้นหลังเป็นรอบเวลาได้โดยไม่ต้องกดทีละครั้ง'
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              margin: 0,
+              fontWeight: 700,
+              color: batchStatus?.enabled ? '#15803d' : '#334155',
+              background: '#fff',
+              padding: '6px 14px',
+              borderRadius: '8px',
+              border: `1px solid ${batchStatus?.enabled ? '#86efac' : '#cbd5e1'}`,
+              boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={Boolean(batchStatus?.enabled)}
+              disabled={batchSaving}
+              onChange={(e) => void handleToggleBatchEnabled(e.target.checked)}
+            />
+            <span>{batchStatus?.enabled ? 'เปิด Batch อัตโนมัติ' : 'คลิกเพื่อเปิด Batch'}</span>
+          </label>
+
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setShowBatchSettingsModal(true)}
+            style={{ background: '#fff', border: '1px solid #cbd5e1' }}
+            title="ตั้งค่ารอบเวลาและความถี่ของ Batch"
+          >
+            ⚙️ ตั้งค่ารอบ
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => void handleTriggerBatchRunNow()}
+            disabled={batchRunning}
+            style={{ fontWeight: 700, background: '#0284c7', borderColor: '#0369a1' }}
+          >
+            {batchRunning ? '⏳ กำลังประมวลผล Batch…' : '⚡ สั่งรัน Batch ทันที'}
+          </button>
+        </div>
       </div>
 
       {error && <div className="alert alert-danger">{error}</div>}
@@ -1296,6 +1494,90 @@ export const UcOutsideCupPage = () => {
                 onClick={() => void handleBatchFix()}
               >
                 {batchFixing ? 'กำลังดำเนินการแก้ไขแบบกลุ่ม…' : '⚡ ยืนยันแก้ไขทุกเคสในหน้านี้'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {showBatchSettingsModal && (
+        <Modal title="⚙️ ตั้งค่าระบบ Background Batch Worker (ตรวจและแก้ไขอัตโนมัติ)" onClose={() => setShowBatchSettingsModal(false)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: '#475569' }}>
+              ระบบ Background Batch Worker จะทำงานบนเซิร์ฟเวอร์ตามรอบเวลาที่กำหนด โดยตรวจหาเคสที่ขาดรหัสค่าบริการ WALKIN และรหัสโรคที่ติด C เพื่อแก้ไขให้โดยอัตโนมัติในฐานข้อมูล HOSxP
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: '6px' }}>ความถี่ในการทำงาน</label>
+                <select
+                  value={batchFormConfig.intervalMinutes}
+                  onChange={(e) => setBatchFormConfig((prev) => ({ ...prev, intervalMinutes: Number(e.target.value) }))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                >
+                  <option value={15}>ทุก 15 นาที</option>
+                  <option value={30}>ทุก 30 นาที (แนะนำ)</option>
+                  <option value={60}>ทุก 1 ชั่วโมง</option>
+                  <option value={120}>ทุก 2 ชั่วโมง</option>
+                  <option value={360}>ทุก 6 ชั่วโมง</option>
+                  <option value={1440}>วันละ 1 ครั้ง (24 ชม.)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, fontSize: '0.85rem', marginBottom: '6px' }}>ช่วงวันย้อนหลังที่ตรวจ</label>
+                <select
+                  value={batchFormConfig.scanDays}
+                  onChange={(e) => setBatchFormConfig((prev) => ({ ...prev, scanDays: Number(e.target.value) }))}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                >
+                  <option value={7}>ย้อนหลัง 7 วัน</option>
+                  <option value={14}>ย้อนหลัง 14 วัน</option>
+                  <option value={30}>ย้อนหลัง 30 วัน (แนะนำ)</option>
+                  <option value={60}>ย้อนหลัง 60 วัน</option>
+                  <option value={90}>ย้อนหลัง 90 วัน</option>
+                  <option value={365}>ย้อนหลัง 1 ปี (365 วัน)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={batchFormConfig.autoInsertWalkin}
+                  onChange={(e) => setBatchFormConfig((prev) => ({ ...prev, autoInsertWalkin: e.target.checked }))}
+                />
+                <span>เติมรหัสค่าบริการ WALKIN (ราคา 0 บาท) เข้าใบสั่งยาอัตโนมัติ</span>
+              </label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={batchFormConfig.autoFixClinical}
+                  onChange={(e) => setBatchFormConfig((prev) => ({ ...prev, autoFixClinical: e.target.checked }))}
+                />
+                <span>แก้ไขรหัสโรค/หัตถการทันตกรรม (ขูดหินปูน K05.1 / อุดฟัน K02.1 / ผ่าฟันคุด K01.1 / สลับ Z01.2) อัตโนมัติ</span>
+              </label>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={batchSaving}
+                onClick={() => setShowBatchSettingsModal(false)}
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={batchSaving}
+                onClick={() => void handleSaveBatchModalConfig()}
+                style={{ fontWeight: 600 }}
+              >
+                {batchSaving ? 'กำลังบันทึก…' : 'บันทึกการตั้งค่า Batch'}
               </button>
             </div>
           </div>

@@ -1339,6 +1339,63 @@ export const batchFixUcOutsideCupClinicalIssues = async (vns: string[]): Promise
   return json.data;
 };
 
+export interface UcWalkinBatchConfig {
+  enabled: boolean;
+  intervalMinutes: number;
+  scanDays: number;
+  autoFixClinical: boolean;
+  autoInsertWalkin: boolean;
+}
+
+export interface UcWalkinBatchSummary {
+  timestamp: string;
+  startDate: string;
+  endDate: string;
+  walkinChecked: number;
+  walkinInserted: number;
+  clinicalChecked: number;
+  clinicalFixed: number;
+  errors: string[];
+  durationMs: number;
+  triggeredBy: 'scheduler' | 'manual' | 'startup';
+}
+
+export interface UcWalkinBatchStatus extends UcWalkinBatchConfig {
+  isRunning: boolean;
+  isSchedulerActive: boolean;
+  lastRunAt: string | null;
+  lastSummary: UcWalkinBatchSummary | null;
+  lastError: string | null;
+}
+
+export const fetchUcWalkinBatchStatus = async (): Promise<UcWalkinBatchStatus> => {
+  const response = await fetch('/api/uc-outside-cup/batch-status');
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'ไม่สามารถอ่านสถานะ Batch ได้');
+  return json.data;
+};
+
+export const saveUcWalkinBatchConfig = async (config: Partial<UcWalkinBatchConfig>): Promise<UcWalkinBatchConfig> => {
+  const response = await fetch('/api/uc-outside-cup/batch-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'บันทึกการตั้งค่า Batch ไม่สำเร็จ');
+  return json.data;
+};
+
+export const triggerUcWalkinBatchRunNow = async (): Promise<UcWalkinBatchSummary> => {
+  const response = await fetch('/api/uc-outside-cup/batch-run-now', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'สั่งรัน Batch ไม่สำเร็จ');
+  return json.data;
+};
+
 export interface Uuc1TrackingSummary {
   total_visits: number;
   rep_received: number;

@@ -30,7 +30,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'hospitalReports', icon: '📑', label: 'ศูนย์รายงานโรงพยาบาล' },
   { page: 'annualCheckupReport', icon: '🩺', label: 'หลักฐานเบิกตรวจสุขภาพ' },
   { page: 'officialReceivable', icon: '🏛️', label: 'แบบลูกหนี้ราชการ 4 แบบ' },
-  { page: 'receivableStandardReport', icon: '📑', label: 'รายงานลูกหนี้ 5 รูปแบบ' },
+  { page: 'receivableStandardReport', icon: '📑', label: 'รายงานลูกหนี้ 6 รูปแบบ' },
   { page: 'fdhImport', icon: '📥', label: 'ดึงสถานะเคลม FDH' },
   { page: 'fdhClaimDetail', icon: '📄', label: 'รายละเอียดเคลม FDH' },
   { page: 'repstm', icon: '🧾', label: 'นำเข้า REP/STM' },

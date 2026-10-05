@@ -165,7 +165,7 @@ export const ReceivableReportModal: React.FC<Props> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '1.5rem' }}>🖨️</span>
               <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>
-                พิมพ์รายงานบัญชีลูกหนี้สิทธิ์ (5 รูปแบบมาตรฐาน)
+                พิมพ์รายงานบัญชีลูกหนี้สิทธิ์ (6 รูปแบบมาตรฐาน)
               </h2>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginLeft: '0.5rem', fontSize: '0.82rem' }}>
                 <a

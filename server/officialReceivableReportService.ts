@@ -69,6 +69,266 @@ export const resolveDebtorCode = (pttype: string, isIpd = false): string => {
 };
 
 // =========================================================================
+// Reconciliation Data Interfaces & Helpers (FDH + REP + STM)
+// =========================================================================
+export interface FdhStatusInfo {
+  txId: string;
+  statusMessage: string;
+  stmPeriod: string;
+  sendDate: string;
+}
+
+export interface RepDataInfo {
+  repNo: string;
+  tranId: string;
+  errorCodes: string;
+  compensated: number;
+}
+
+export interface StmDataInfo {
+  statementNo: string;
+  tranId: string;
+  errorCode: string;
+  paidAmount: number;
+}
+
+export const fetchReconciliationMaps = async (
+  connection: any,
+  repConn: any,
+  vns: string[],
+  ans: string[]
+): Promise<{
+  fdhMap: Map<string, FdhStatusInfo>;
+  repMap: Map<string, RepDataInfo>;
+  stmMap: Map<string, StmDataInfo>;
+}> => {
+  const fdhMap = new Map<string, FdhStatusInfo>();
+  const repMap = new Map<string, RepDataInfo>();
+  const stmMap = new Map<string, StmDataInfo>();
+
+  const cleanVns = [...new Set(vns.map(v => String(v || '').trim()).filter(Boolean))];
+  const cleanAns = [...new Set(ans.map(a => String(a || '').trim()).filter(Boolean))];
+
+  // 1. FDH from HOSxP (connection)
+  if (cleanVns.length > 0) {
+    try {
+      for (let i = 0; i < cleanVns.length; i += 1000) {
+        const chunk = cleanVns.slice(i, i + 1000);
+        const [rows] = await connection.query(
+          `SELECT
+             vn,
+             COALESCE(transaction_uid, '') AS tx_id,
+             COALESCE(fdh_claim_status_message, '') AS status_msg,
+             COALESCE(fdh_stm_period, '') AS stm_period,
+             DATE_FORMAT(fdh_claim_status_datetime, '%d/%m/%Y %H:%i') AS send_date
+           FROM fdh_claim_status
+           WHERE vn IN (?)`,
+          [chunk]
+        );
+        for (const r of (Array.isArray(rows) ? rows : []) as Record<string, unknown>[]) {
+          const vn = String(r.vn || '').trim();
+          if (vn) {
+            fdhMap.set(vn, {
+              txId: String(r.tx_id || ''),
+              statusMessage: String(r.status_msg || ''),
+              stmPeriod: String(r.stm_period || ''),
+              sendDate: String(r.send_date || ''),
+            });
+          }
+        }
+      }
+    } catch {
+      // optional FDH table lookup tolerance
+    }
+  }
+
+  // 2. REP & STM from repstminv (repConn)
+  if (repConn) {
+    // REP for VNs
+    if (cleanVns.length > 0) {
+      try {
+        for (let i = 0; i < cleanVns.length; i += 1000) {
+          const chunk = cleanVns.slice(i, i + 1000);
+          const [rows] = await repConn.query(
+            `SELECT
+               vn,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(rep_no), '') SEPARATOR ', ') AS rep_no,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(tran_id), '') SEPARATOR ', ') AS tran_id,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(errorcode), '') SEPARATOR ', ') AS error_codes,
+               SUM(COALESCE(compensated, 0)) AS rep_compensated
+             FROM rep_data
+             WHERE vn IN (?)
+             GROUP BY vn`,
+            [chunk]
+          );
+          for (const r of (Array.isArray(rows) ? rows : []) as Record<string, unknown>[]) {
+            const vn = String(r.vn || '').trim();
+            if (vn) {
+              repMap.set(vn, {
+                repNo: String(r.rep_no || ''),
+                tranId: String(r.tran_id || ''),
+                errorCodes: String(r.error_codes || ''),
+                compensated: Number(r.rep_compensated || 0),
+              });
+            }
+          }
+        }
+      } catch {
+        // optional REP lookup tolerance
+      }
+    }
+
+    // REP for ANs
+    if (cleanAns.length > 0) {
+      try {
+        for (let i = 0; i < cleanAns.length; i += 1000) {
+          const chunk = cleanAns.slice(i, i + 1000);
+          const [rows] = await repConn.query(
+            `SELECT
+               an,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(rep_no), '') SEPARATOR ', ') AS rep_no,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(tran_id), '') SEPARATOR ', ') AS tran_id,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(errorcode), '') SEPARATOR ', ') AS error_codes,
+               SUM(COALESCE(compensated, 0)) AS rep_compensated
+             FROM rep_data
+             WHERE an IN (?)
+             GROUP BY an`,
+            [chunk]
+          );
+          for (const r of (Array.isArray(rows) ? rows : []) as Record<string, unknown>[]) {
+            const an = String(r.an || '').trim();
+            if (an) {
+              repMap.set(an, {
+                repNo: String(r.rep_no || ''),
+                tranId: String(r.tran_id || ''),
+                errorCodes: String(r.error_codes || ''),
+                compensated: Number(r.rep_compensated || 0),
+              });
+            }
+          }
+        }
+      } catch {
+        // optional REP lookup tolerance
+      }
+    }
+
+    // STM for VNs
+    if (cleanVns.length > 0) {
+      try {
+        for (let i = 0; i < cleanVns.length; i += 1000) {
+          const chunk = cleanVns.slice(i, i + 1000);
+          const [rows] = await repConn.query(
+            `SELECT
+               vn,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(statement_no), '') SEPARATOR ', ') AS statement_no,
+               SUM(COALESCE(paid_amount, amount, 0)) AS total_paid,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(tran_id), '') SEPARATOR ', ') AS tran_id,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(errorcode), '') SEPARATOR ', ') AS error_codes
+             FROM repstm_statement_data
+             WHERE data_type IN ('STM', 'INV') AND vn IN (?)
+             GROUP BY vn`,
+            [chunk]
+          );
+          for (const r of (Array.isArray(rows) ? rows : []) as Record<string, unknown>[]) {
+            const vn = String(r.vn || '').trim();
+            if (vn) {
+              stmMap.set(vn, {
+                statementNo: String(r.statement_no || ''),
+                paidAmount: Number(r.total_paid || 0),
+                errorCode: String(r.error_codes || ''),
+                tranId: String(r.tran_id || ''),
+              });
+            }
+          }
+        }
+      } catch {
+        // optional STM lookup tolerance
+      }
+    }
+
+    // STM for ANs
+    if (cleanAns.length > 0) {
+      try {
+        for (let i = 0; i < cleanAns.length; i += 1000) {
+          const chunk = cleanAns.slice(i, i + 1000);
+          const [rows] = await repConn.query(
+            `SELECT
+               an,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(statement_no), '') SEPARATOR ', ') AS statement_no,
+               SUM(COALESCE(paid_amount, amount, 0)) AS total_paid,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(tran_id), '') SEPARATOR ', ') AS tran_id,
+               GROUP_CONCAT(DISTINCT NULLIF(TRIM(errorcode), '') SEPARATOR ', ') AS error_codes
+             FROM repstm_statement_data
+             WHERE data_type IN ('STM', 'INV') AND an IN (?)
+             GROUP BY an`,
+            [chunk]
+          );
+          for (const r of (Array.isArray(rows) ? rows : []) as Record<string, unknown>[]) {
+            const an = String(r.an || '').trim();
+            if (an) {
+              stmMap.set(an, {
+                statementNo: String(r.statement_no || ''),
+                paidAmount: Number(r.total_paid || 0),
+                errorCode: String(r.error_codes || ''),
+                tranId: String(r.tran_id || ''),
+              });
+            }
+          }
+        }
+      } catch {
+        // optional STM lookup tolerance
+      }
+    }
+  }
+
+  return { fdhMap, repMap, stmMap };
+};
+
+export const formatReconciledRepStm = (
+  fdh?: FdhStatusInfo,
+  rep?: RepDataInfo,
+  stm?: StmDataInfo
+): string => {
+  const parts: string[] = [];
+  if (stm?.statementNo) parts.push(`STM:${stm.statementNo}`);
+  if (rep?.repNo) parts.push(`REP:${rep.repNo}`);
+  if (parts.length === 0) {
+    if (fdh?.stmPeriod) parts.push(`FDH:${fdh.stmPeriod}`);
+    else if (fdh?.txId) parts.push(`FDH:${fdh.txId.slice(0, 8)}`);
+    else if (fdh?.statusMessage) parts.push(`FDH:${fdh.statusMessage}`);
+  }
+  return parts.join(' | ');
+};
+
+export const formatReconciledReason = (
+  fdh?: FdhStatusInfo,
+  rep?: RepDataInfo,
+  stm?: StmDataInfo,
+  remainder = 0,
+  claimed = 0
+): string => {
+  if (stm?.errorCode && stm.errorCode !== '-') {
+    return `STM ข้อผิดพลาด: ${stm.errorCode}`;
+  }
+  if (rep?.errorCodes && rep.errorCodes !== '-') {
+    return `REP ติด C: ${rep.errorCodes}`;
+  }
+  if (fdh?.statusMessage) {
+    return `FDH: ${fdh.statusMessage}`;
+  }
+  if (remainder <= 0 && claimed > 0) {
+    return 'ชำระ/ชดเชยครบถ้วน';
+  }
+  if (stm?.statementNo) {
+    return 'รับชดเชยแล้ว';
+  }
+  if (rep?.repNo) {
+    return 'ผ่าน REP รอ STM';
+  }
+  return claimed > 0 ? 'รอส่งเคลม/รอผล' : 'ยังไม่เรียกเก็บ';
+};
+
+// =========================================================================
 // 1. สรุปลูกหนี้คงเหลือ แยกตามอายุ (54 ผังบัญชี)
 // =========================================================================
 export interface AgingForm1Item {
@@ -101,6 +361,12 @@ export const getOfficialReceivableAgingReport = async (
   const period = calculateFiscalPeriod(monthInput, yearBeInput);
   const hosp = await getHospitalInfo();
   const connection = await getUTFConnection();
+  let repConn: any = null;
+  try {
+    repConn = await getRepstmConnection();
+  } catch {
+    repConn = null;
+  }
 
   try {
     // 1. OPD visits in month
@@ -108,6 +374,7 @@ export const getOfficialReceivableAgingReport = async (
       `SELECT
          o.pttype,
          o.vstdate,
+         o.vn,
          DATEDIFF(?, o.vstdate) AS age_days,
          COALESCE(v.income, 0) AS total_income,
          COALESCE(v.rcpt_money, 0) AS paid_money
@@ -122,6 +389,8 @@ export const getOfficialReceivableAgingReport = async (
     const [ipdRows] = await connection.query(
       `SELECT
          i.pttype,
+         i.an,
+         COALESCE(i.vn, '') AS vn,
          COALESCE(i.dchdate, i.regdate) AS discharge_date,
          DATEDIFF(?, COALESCE(i.dchdate, i.regdate)) AS age_days,
          COALESCE(a.income, 0) AS total_income,
@@ -132,6 +401,13 @@ export const getOfficialReceivableAgingReport = async (
          AND COALESCE(a.income, 0) > 0`,
       [period.cutoffDate, period.startDate, period.endDate]
     );
+
+    const opdList = (Array.isArray(opdRows) ? opdRows : []) as Record<string, unknown>[];
+    const ipdList = (Array.isArray(ipdRows) ? ipdRows : []) as Record<string, unknown>[];
+    const vns = [...opdList.map(r => String(r.vn || '')), ...ipdList.map(r => String(r.vn || ''))].filter(Boolean);
+    const ans = ipdList.map(r => String(r.an || '')).filter(Boolean);
+
+    const { stmMap } = await fetchReconciliationMaps(connection, repConn, vns, ans);
 
     // Grouping by normalized account code
     const statsMap = new Map<string, { count: number; total: number; le30: number; gt30: number }>();
@@ -149,16 +425,23 @@ export const getOfficialReceivableAgingReport = async (
       statsMap.set(accountCode, cur);
     };
 
-    for (const r of (Array.isArray(opdRows) ? opdRows : []) as Record<string, unknown>[]) {
+    for (const r of opdList) {
       const code = resolveDebtorCode(String(r.pttype || ''), false);
-      const remain = Math.max(0, Number(r.total_income || 0) - Number(r.paid_money || 0));
+      const vn = String(r.vn || '');
+      const stm = stmMap.get(vn);
+      const compensated = stm ? Number(stm.paidAmount || 0) : 0;
+      const remain = Math.max(0, Math.round((Number(r.total_income || 0) - Number(r.paid_money || 0) - compensated) * 100) / 100);
       const ageDays = Math.max(0, Number(r.age_days || 0));
       addRecord(code, remain, ageDays);
     }
 
-    for (const r of (Array.isArray(ipdRows) ? ipdRows : []) as Record<string, unknown>[]) {
+    for (const r of ipdList) {
       const code = resolveDebtorCode(String(r.pttype || ''), true);
-      const remain = Math.max(0, Number(r.total_income || 0) - Number(r.paid_money || 0));
+      const an = String(r.an || '');
+      const vn = String(r.vn || '');
+      const stm = stmMap.get(an) || (vn ? stmMap.get(vn) : undefined);
+      const compensated = stm ? Number(stm.paidAmount || 0) : 0;
+      const remain = Math.max(0, Math.round((Number(r.total_income || 0) - Number(r.paid_money || 0) - compensated) * 100) / 100);
       const ageDays = Math.max(0, Number(r.age_days || 0));
       addRecord(code, remain, ageDays);
     }
@@ -201,6 +484,7 @@ export const getOfficialReceivableAgingReport = async (
     };
   } finally {
     connection.release();
+    if (repConn) repConn.release();
   }
 };
 
@@ -313,7 +597,7 @@ export const getOfficialClaimControlLedger = async (
     const [ipdData] = await connection.query(
       `SELECT
          i.hn,
-         '' AS vn,
+         COALESCE(i.vn, '') AS vn,
          i.an,
          COALESCE(pt.cid, '') AS cid,
          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
@@ -336,34 +620,12 @@ export const getOfficialClaimControlLedger = async (
       [period.fyStartDate, period.endDate]
     );
 
-    // Load STM details for these visits if repstm connection is ready
-    const stmMap = new Map<string, { statementNo: string; paidAmount: number; errorCode: string }>();
-    if (repConn) {
-      try {
-        const [stmRows] = await repConn.query(
-          `SELECT
-             COALESCE(NULLIF(TRIM(vn), ''), NULLIF(TRIM(an), ''), '') AS visit_code,
-             GROUP_CONCAT(DISTINCT NULLIF(TRIM(statement_no), '') SEPARATOR ', ') AS statement_no,
-             SUM(COALESCE(paid_amount, amount, 0)) AS total_paid,
-             GROUP_CONCAT(DISTINCT NULLIF(TRIM(errorcode), '') SEPARATOR ', ') AS error_codes
-           FROM repstm_statement_data
-           WHERE data_type IN ('STM', 'INV')
-           GROUP BY COALESCE(NULLIF(TRIM(vn), ''), NULLIF(TRIM(an), ''), '')`
-        );
-        for (const sr of (Array.isArray(stmRows) ? stmRows : []) as Record<string, unknown>[]) {
-          const vc = String(sr.visit_code || '').trim();
-          if (vc) {
-            stmMap.set(vc, {
-              statementNo: String(sr.statement_no || ''),
-              paidAmount: Number(sr.total_paid || 0),
-              errorCode: String(sr.error_codes || ''),
-            });
-          }
-        }
-      } catch {
-        // STM optional enrichment
-      }
-    }
+    const opdList = (Array.isArray(opdData) ? opdData : []) as Record<string, unknown>[];
+    const ipdList = (Array.isArray(ipdData) ? ipdData : []) as Record<string, unknown>[];
+    const allVns = [...opdList.map(r => String(r.vn || '')), ...ipdList.map(r => String(r.vn || ''))].filter(Boolean);
+    const allAns = ipdList.map(r => String(r.an || '')).filter(Boolean);
+
+    const { fdhMap, repMap, stmMap } = await fetchReconciliationMaps(connection, repConn, allVns, allAns);
 
     const cutoffDateObj = new Date(period.cutoffDate);
     const monthStartObj = new Date(period.startDate);
@@ -404,10 +666,14 @@ export const getOfficialClaimControlLedger = async (
 
       const cost = Number(raw.cost_amount || 0);
       const claimed = cost; // Default claimable is hospital cost
-      const vKey = isIpd ? String(raw.an || '') : String(raw.vn || '');
-      const stm = stmMap.get(vKey);
-      const repStm = stm?.statementNo || (raw.claim_code ? `Claim ${raw.claim_code}` : '');
-      const compensated = stm ? stm.paidAmount : 0;
+      const anKey = isIpd ? String(raw.an || '') : '';
+      const vnKey = String(raw.vn || '');
+      const fdh = vnKey ? fdhMap.get(vnKey) : undefined;
+      const rep = isIpd ? (repMap.get(anKey) || (vnKey ? repMap.get(vnKey) : undefined)) : repMap.get(vnKey);
+      const stm = isIpd ? (stmMap.get(anKey) || (vnKey ? stmMap.get(vnKey) : undefined)) : stmMap.get(vnKey);
+
+      const repStm = formatReconciledRepStm(fdh, rep, stm);
+      const compensated = stm ? Number(stm.paidAmount || 0) : 0;
       const variance = Math.round((claimed - compensated) * 100) / 100;
       const balance = Math.max(0, variance);
       const paid = Number(raw.paid_money || 0);
@@ -418,7 +684,7 @@ export const getOfficialClaimControlLedger = async (
       const ageDays = Math.max(0, Math.round((cutoffDateObj.getTime() - sDateRaw.getTime()) / (1000 * 60 * 60 * 24)));
       const le30 = ageDays <= 30 ? remainder : 0;
       const gt30 = ageDays > 30 ? remainder : 0;
-      const reason = stm?.errorCode || (remainder > 0 ? (claimed === 0 ? 'ยังไม่เรียกเก็บ' : 'รอชดเชย/รอผล STM') : 'ครบถ้วน');
+      const reason = formatReconciledReason(fdh, rep, stm, remainder, claimed);
 
       // Accumulate YTD
       ytdTotals.costAmount += cost;
@@ -590,35 +856,10 @@ export const getOfficialOpdControlRegister = async (
       [period.fyStartDate, period.endDate]
     );
 
-    const stmMap = new Map<string, { statementNo: string; paidAmount: number; errorCode: string; tranId: string }>();
-    if (repConn) {
-      try {
-        const [stmRows] = await repConn.query(
-          `SELECT
-             COALESCE(NULLIF(TRIM(vn), ''), '') AS vn,
-             COALESCE(statement_no, '') AS statement_no,
-             SUM(COALESCE(paid_amount, amount, 0)) AS total_paid,
-             COALESCE(errorcode, '') AS error_code,
-             COALESCE(tran_id, '') AS tran_id
-           FROM repstm_statement_data
-           WHERE data_type IN ('STM', 'INV') AND vn IS NOT NULL AND vn <> ''
-           GROUP BY vn, statement_no, errorcode, tran_id`
-        );
-        for (const sr of (Array.isArray(stmRows) ? stmRows : []) as Record<string, unknown>[]) {
-          const vn = String(sr.vn || '').trim();
-          if (vn) {
-            stmMap.set(vn, {
-              statementNo: String(sr.statement_no || ''),
-              paidAmount: Number(sr.total_paid || 0),
-              errorCode: String(sr.error_code || ''),
-              tranId: String(sr.tran_id || ''),
-            });
-          }
-        }
-      } catch {
-        // stm enrichment optional
-      }
-    }
+    const opdList = (Array.isArray(opdData) ? opdData : []) as Record<string, unknown>[];
+    const vns = opdList.map(r => String(r.vn || '')).filter(Boolean);
+
+    const { fdhMap, repMap, stmMap } = await fetchReconciliationMaps(connection, repConn, vns, []);
 
     const monthStartObj = new Date(period.startDate);
     const monthEndObj = new Date(period.endDate);
@@ -632,7 +873,7 @@ export const getOfficialOpdControlRegister = async (
     const monthTotals: Record<string, number> = Object.fromEntries(keys.map(k => [k, 0]));
     const ytdTotals: Record<string, number> = Object.fromEntries(keys.map(k => [k, 0]));
 
-    for (const r of (Array.isArray(opdData) ? opdData : []) as Record<string, unknown>[]) {
+    for (const r of opdList) {
       const pttype = String(r.pttype || '').trim();
       const debtorCode = resolveDebtorCode(pttype, false);
       if (filterCode !== 'ALL' && debtorCode !== filterCode) {
@@ -642,6 +883,8 @@ export const getOfficialOpdControlRegister = async (
       const income = Number(r.monthly_income || 0);
       const paid = Number(r.paid_money || 0);
       const vn = String(r.vn || '');
+      const fdh = fdhMap.get(vn);
+      const rep = repMap.get(vn);
       const stm = stmMap.get(vn);
 
       const broughtForward = 0; // Inside current FY, new encounters start from 0 brought forward
@@ -651,7 +894,7 @@ export const getOfficialOpdControlRegister = async (
       const adjAdd = 0;
       const adjSub = 0;
       const balance2 = balance1 + adjAdd - adjSub;
-      const stmCompensation = stm ? stm.paidAmount : 0;
+      const stmCompensation = stm ? Number(stm.paidAmount || 0) : 0;
       const stmVariance = Math.max(0, Math.round((claimedAmount - stmCompensation) * 100) / 100);
       const stmUnclaimable = 0;
       const balance3 = Math.max(0, Math.round((balance2 - stmCompensation) * 100) / 100);
@@ -676,6 +919,17 @@ export const getOfficialOpdControlRegister = async (
           monthTotals[k] += itemValues[k] || 0;
         }
 
+        const roundParts: string[] = [];
+        if (stm?.statementNo) roundParts.push(`STM:${stm.statementNo}`);
+        if (rep?.repNo) roundParts.push(`REP:${rep.repNo}`);
+        if (roundParts.length === 0) {
+          if (fdh?.stmPeriod) roundParts.push(`FDH:${fdh.stmPeriod}`);
+          else if (fdh?.statusMessage) roundParts.push(`FDH:${fdh.statusMessage}`);
+        }
+        const stmRound = roundParts.join(' | ');
+        const stmReqNo = stm?.tranId || rep?.tranId || (fdh?.txId ? fdh.txId.slice(0, 18) : '');
+        const outstandingReason = formatReconciledReason(fdh, rep, stm, carriedForward, claimedAmount);
+
         rows.push({
           hn: String(r.hn || ''),
           vn,
@@ -694,8 +948,8 @@ export const getOfficialOpdControlRegister = async (
           balance2,
           stmAdjDate: '',
           stmDoc: '',
-          stmRound: stm?.statementNo || '',
-          stmReqNo: stm?.tranId || '',
+          stmRound,
+          stmReqNo,
           stmCompensation,
           stmVariance,
           stmUnclaimable,
@@ -707,7 +961,7 @@ export const getOfficialOpdControlRegister = async (
           settleDebtCut,
           balance4,
           carriedForward,
-          outstandingReason: stm?.errorCode || (carriedForward > 0 ? 'รอชดเชย/ค้างชำระ' : 'ครบถ้วน'),
+          outstandingReason,
         });
       }
     }
@@ -805,6 +1059,7 @@ export const getOfficialIpdControlRegister = async (
       `SELECT
          i.hn,
          i.an,
+         COALESCE(i.vn, '') AS vn,
          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
          DATE_FORMAT(i.regdate, '%d/%m/%Y') AS admit_date_fmt,
          DATE_FORMAT(COALESCE(i.dchdate, i.regdate), '%d/%m/%Y') AS dch_date_fmt,
@@ -824,35 +1079,11 @@ export const getOfficialIpdControlRegister = async (
       [period.fyStartDate, period.endDate]
     );
 
-    const stmMap = new Map<string, { statementNo: string; paidAmount: number; errorCode: string; tranId: string }>();
-    if (repConn) {
-      try {
-        const [stmRows] = await repConn.query(
-          `SELECT
-             COALESCE(NULLIF(TRIM(an), ''), '') AS an,
-             COALESCE(statement_no, '') AS statement_no,
-             SUM(COALESCE(paid_amount, amount, 0)) AS total_paid,
-             COALESCE(errorcode, '') AS error_code,
-             COALESCE(tran_id, '') AS tran_id
-           FROM repstm_statement_data
-           WHERE data_type IN ('STM', 'INV') AND an IS NOT NULL AND an <> ''
-           GROUP BY an, statement_no, errorcode, tran_id`
-        );
-        for (const sr of (Array.isArray(stmRows) ? stmRows : []) as Record<string, unknown>[]) {
-          const an = String(sr.an || '').trim();
-          if (an) {
-            stmMap.set(an, {
-              statementNo: String(sr.statement_no || ''),
-              paidAmount: Number(sr.total_paid || 0),
-              errorCode: String(sr.error_code || ''),
-              tranId: String(sr.tran_id || ''),
-            });
-          }
-        }
-      } catch {
-        // stm optional
-      }
-    }
+    const ipdList = (Array.isArray(ipdData) ? ipdData : []) as Record<string, unknown>[];
+    const ans = ipdList.map(r => String(r.an || '')).filter(Boolean);
+    const vns = ipdList.map(r => String(r.vn || '')).filter(Boolean);
+
+    const { fdhMap, repMap, stmMap } = await fetchReconciliationMaps(connection, repConn, vns, ans);
 
     const monthStartObj = new Date(period.startDate);
     const monthEndObj = new Date(period.endDate);
@@ -866,7 +1097,7 @@ export const getOfficialIpdControlRegister = async (
     const monthTotals: Record<string, number> = Object.fromEntries(keys.map(k => [k, 0]));
     const ytdTotals: Record<string, number> = Object.fromEntries(keys.map(k => [k, 0]));
 
-    for (const r of (Array.isArray(ipdData) ? ipdData : []) as Record<string, unknown>[]) {
+    for (const r of ipdList) {
       const pttype = String(r.pttype || '').trim();
       const debtorCode = resolveDebtorCode(pttype, true);
       if (filterCode !== 'ALL' && debtorCode !== filterCode) {
@@ -876,7 +1107,10 @@ export const getOfficialIpdControlRegister = async (
       const income = Number(r.monthly_income || 0);
       const paid = Number(r.paid_money || 0);
       const an = String(r.an || '');
-      const stm = stmMap.get(an);
+      const vn = String(r.vn || '');
+      const fdh = vn ? fdhMap.get(vn) : undefined;
+      const rep = repMap.get(an) || (vn ? repMap.get(vn) : undefined);
+      const stm = stmMap.get(an) || (vn ? stmMap.get(vn) : undefined);
 
       const broughtForward = 0;
       const monthlyAmount = income;
@@ -885,7 +1119,7 @@ export const getOfficialIpdControlRegister = async (
       const adjAdd = 0;
       const adjSub = 0;
       const balance2 = balance1 + adjAdd - adjSub;
-      const stmCompensation = stm ? stm.paidAmount : 0;
+      const stmCompensation = stm ? Number(stm.paidAmount || 0) : 0;
       const diff = stmCompensation - claimedAmount;
       const varianceHigh = diff > 0 ? diff : 0;
       const varianceLow = diff < 0 ? Math.abs(diff) : 0;
@@ -911,6 +1145,17 @@ export const getOfficialIpdControlRegister = async (
           monthTotals[k] += itemValues[k] || 0;
         }
 
+        const roundParts: string[] = [];
+        if (stm?.statementNo) roundParts.push(`STM:${stm.statementNo}`);
+        if (rep?.repNo) roundParts.push(`REP:${rep.repNo}`);
+        if (roundParts.length === 0) {
+          if (fdh?.stmPeriod) roundParts.push(`FDH:${fdh.stmPeriod}`);
+          else if (fdh?.statusMessage) roundParts.push(`FDH:${fdh.statusMessage}`);
+        }
+        const stmRound = roundParts.join(' | ');
+        const stmReqNo = stm?.tranId || rep?.tranId || (fdh?.txId ? fdh.txId.slice(0, 18) : '');
+        const outstandingReason = formatReconciledReason(fdh, rep, stm, carriedForward, claimedAmount);
+
         rows.push({
           hn: String(r.hn || ''),
           an,
@@ -930,8 +1175,8 @@ export const getOfficialIpdControlRegister = async (
           balance2,
           stmAdjDate: '',
           stmDoc: '',
-          stmRound: stm?.statementNo || '',
-          stmReqNo: stm?.tranId || '',
+          stmRound,
+          stmReqNo,
           stmCompensation,
           varianceHigh,
           varianceLow,
@@ -944,7 +1189,7 @@ export const getOfficialIpdControlRegister = async (
           accruedRevenue,
           balance4,
           carriedForward,
-          outstandingReason: stm?.errorCode || (carriedForward > 0 ? 'รอชดเชย/ค้างชำระ' : 'ครบถ้วน'),
+          outstandingReason,
         });
       }
     }

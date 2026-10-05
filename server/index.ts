@@ -125,6 +125,7 @@ import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
 import { icd9Router } from './routes/icd9Routes.js';
 import { receivableReportRouter } from './routes/receivableReportRoutes.js';
+import { officialReceivableRouter } from './routes/officialReceivableRoutes.js';
 import { receivableSettlementRouter } from './routes/receivableSettlementRoutes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, resetSystemUpdateLock, startDirectSystemUpdate, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
@@ -1057,6 +1058,7 @@ app.use('/api/hospital-reports', hospitalReportRouter);
 app.use('/api/accounting', accountingRevenueRouter);
 app.use('/api/icd9', icd9Router);
 app.use('/api/receivables/reports', receivableReportRouter);
+app.use('/api/official-receivable', officialReceivableRouter);
 app.use('/api/receivables/settlement', receivableSettlementRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.

@@ -383,41 +383,30 @@ export const ReceivablePage = () => {
         <div className="receivable-hero-note">
           <strong>{settings?.hospital_name || 'หน่วยบริการ'}</strong>
           <span>ตั้งลูกหนี้เฉพาะรายการที่เข้าเกณฑ์เบิกได้ เช่น กองทุนพิเศษ ยาสมุนไพร ค่าบริการ OPD อุปกรณ์/ADP ที่เบิกได้</span>
-          <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', fontSize: '0.82rem' }}>
+          <div className="receivable-hero-actions">
             <button
               type="button"
+              className="receivable-hero-btn"
               onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableSettlement' } }))}
-              style={{
-                background: '#0284c7',
-                color: '#ffffff',
-                border: 'none',
-                padding: '4px 10px',
-                borderRadius: '6px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                fontSize: '0.8rem',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-              }}
+              title="เปิดหน้าระบบตัดรับรู้ลูกหนี้เมื่อได้รับเงินโอนจากกองทุนหรือต้นสังกัด"
             >
               💳 ไปที่ระบบตัดรับรู้ลูกหนี้ (เมื่อได้รับเงินโอน)
             </button>
-            <span style={{ color: '#cbd5e1' }}>|</span>
             <a
               href="/manual_accounts_receivable.html"
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: '#2563eb', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+              className="receivable-hero-link"
+              title="เปิดคู่มือการใช้งานระบบบัญชีลูกหนี้ (HTML)"
             >
-              📖 เปิดคู่มือการใช้งาน (HTML)
+              📖 คู่มือการใช้งาน (HTML)
             </a>
-            <span style={{ color: '#cbd5e1' }}>|</span>
             <a
               href="/manual_accounts_receivable.pdf"
               target="_blank"
               rel="noopener noreferrer"
-              style={{ color: '#059669', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}
+              className="receivable-hero-link receivable-hero-link--pdf"
+              title="ดาวน์โหลดคู่มือการใช้งานระบบบัญชีลูกหนี้ (PDF A4)"
             >
               📄 ดาวน์โหลดคู่มือ PDF (A4)
             </a>
@@ -536,95 +525,117 @@ export const ReceivablePage = () => {
           </div>
         </div>
 
-        {/* Section 3: Action Toolbar */}
-        <div className="receivable-actions">
-          <div className="receivable-actions__primary">
-            <button
-              className={`btn btn-primary receivable-btn receivable-btn--load${loading ? ' is-loading' : ''}`}
-              onClick={loadData}
-              disabled={loading}
-            >
-              <span className="receivable-btn__icon">↻</span>
-              <span className="receivable-btn__label">{loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}</span>
-            </button>
-            <button
-              className="btn receivable-btn receivable-btn--soft"
-              onClick={() => toggleVisible(true)}
-              disabled={!visibleRows.some(({ row }) => isCandidateReady(row))}
-            >
-              <span className="receivable-btn__icon">✓</span>
-              <span className="receivable-btn__label">เลือกที่แสดง</span>
-            </button>
-            <button
-              className="btn receivable-btn receivable-btn--soft"
-              onClick={() => toggleVisible(false)}
-              disabled={!visibleRows.length}
-            >
-              <span className="receivable-btn__icon">×</span>
-              <span className="receivable-btn__label">ล้างที่แสดง</span>
-            </button>
+        {/* Section 3: Action Toolbar - เมนูการทำงานจัดกลุ่มเป็นระเบียบชัดเจน */}
+        <div className="receivable-actions-toolbar">
+          <div className="receivable-action-group">
+            <span className="receivable-action-group__title">1. ดึงและคัดเลือก</span>
+            <div className="receivable-action-group__items">
+              <button
+                type="button"
+                className={`receivable-tool-btn receivable-tool-btn--primary${loading ? ' is-loading' : ''}`}
+                onClick={loadData}
+                disabled={loading}
+                title="ดึงข้อมูลลูกหนี้จาก HOSxP ตามเงื่อนไขวันที่และสิทธิ์"
+              >
+                <span className="receivable-tool-btn__icon">↻</span>
+                <span>{loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--soft"
+                onClick={() => toggleVisible(true)}
+                disabled={!visibleRows.some(({ row }) => isCandidateReady(row))}
+                title="เลือกเฉพาะรายการที่พร้อมตั้งลูกหนี้ในมุมมองปัจจุบัน"
+              >
+                <span className="receivable-tool-btn__icon">✓</span>
+                <span>เลือกที่แสดง</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--soft"
+                onClick={() => toggleVisible(false)}
+                disabled={!visibleRows.length}
+                title="ยกเลิกการเลือกรายการทั้งหมดในมุมมองปัจจุบัน"
+              >
+                <span className="receivable-tool-btn__icon">×</span>
+                <span>ล้างที่แสดง</span>
+              </button>
+            </div>
           </div>
 
-          <div className="receivable-actions__secondary">
-            <button
-              className={`btn btn-success receivable-btn receivable-btn--save${saving ? ' is-loading' : ''}`}
-              onClick={saveBatch}
-              disabled={saving || isStale || selectedRows.length === 0 || lastSavedSelection === selectedSignature}
-            >
-              <span className="receivable-btn__icon">💾</span>
-              <span className="receivable-btn__label">{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary receivable-btn receivable-btn--report"
-              onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableStandardReport' } }))}
-              style={{
-                background: 'linear-gradient(135deg, #1d4ed8 0%, #0284c7 100%)',
-                color: '#ffffff',
-                fontWeight: 700,
-                border: 'none',
-                boxShadow: '0 2px 6px rgba(2, 132, 199, 0.25)',
-              }}
-              title="พิมพ์รายงานบัญชีลูกหนี้มาตรฐาน 5 แบบ (สรุปรวมสิทธิ OPD, แยกตามสิทธิ OPD/IPD, และแบบแจกแจงรายละเอียด 12/13 หมวด - หน้าเต็มจอ)"
-            >
-              <span className="receivable-btn__icon">📑</span>
-              <span className="receivable-btn__label">รายงานสิทธิ์ 5 แบบ (หน้าเต็ม)</span>
-            </button>
-            <button
-              type="button"
-              className="btn receivable-btn"
-              onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'officialReceivable' } }))}
-              style={{
-                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                color: '#ffffff',
-                fontWeight: 700,
-                border: 'none',
-                boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
-              }}
-              title="เปิดหน้าจอแบบฟอร์มทะเบียนคุมและพิมพ์เอกสารหลักฐานลูกหนี้ 4 แบบมาตรฐาน (หน้าต่างเต็มจอ)"
-            >
-              <span className="receivable-btn__icon">🏛️</span>
-              <span className="receivable-btn__label">แบบลูกหนี้ราชการ 4 แบบ (หน้าเต็ม)</span>
-            </button>
-            <button
-              className="btn receivable-btn receivable-btn--excel"
-              onClick={exportExcel}
-              disabled={isStale || selectedRows.length === 0}
-            >
-              <span className="receivable-btn__icon">📊</span>
-              <span className="receivable-btn__label">ส่งออก Excel</span>
-            </button>
-            <button
-              className="btn receivable-btn receivable-btn--print"
-              onClick={() => {
-                if (isStale) return setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนพิมพ์');
-                window.print();
-              }}
-              disabled={isStale || selectedRows.length === 0}
-            >
-              <span className="receivable-btn__icon">🖨</span>
-              <span className="receivable-btn__label">พิมพ์หลักฐานงวด</span>
-            </button>
+          <div className="receivable-toolbar-sep" aria-hidden="true" />
+
+          <div className="receivable-action-group">
+            <span className="receivable-action-group__title">2. บันทึกบัญชี</span>
+            <div className="receivable-action-group__items">
+              <button
+                type="button"
+                className={`receivable-tool-btn receivable-tool-btn--save${saving ? ' is-loading' : ''}`}
+                onClick={saveBatch}
+                disabled={saving || isStale || selectedRows.length === 0 || lastSavedSelection === selectedSignature}
+                title="บันทึกรายการที่เลือกเข้าสู่สมุดบัญชีลูกหนี้ของโรงพยาบาล"
+              >
+                <span className="receivable-tool-btn__icon">💾</span>
+                <span>{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="receivable-toolbar-sep" aria-hidden="true" />
+
+          <div className="receivable-action-group">
+            <span className="receivable-action-group__title">3. แบบฟอร์ม & รายงาน</span>
+            <div className="receivable-action-group__items">
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--report"
+                onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableStandardReport' } }))}
+                title="เปิดหน้าจอพิมพ์รายงานบัญชีลูกหนี้มาตรฐาน 5 แบบ (สรุปรวมสิทธิ OPD, แยกตามสิทธิ OPD/IPD, และแจกแจงรายละเอียด 12/13 หมวด)"
+              >
+                <span className="receivable-tool-btn__icon">📑</span>
+                <span>รายงานลูกหนี้ 5 แบบ</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--official"
+                onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'officialReceivable' } }))}
+                title="เปิดหน้าจอแบบฟอร์มทะเบียนคุมและพิมพ์เอกสารหลักฐานลูกหนี้ 4 แบบราชการมาตรฐาน (หน้างบ, ทะเบียนคุม, ส่งเบิก, ใบสรุปหนี้)"
+              >
+                <span className="receivable-tool-btn__icon">🏛️</span>
+                <span>แบบลูกหนี้ราชการ 4 แบบ</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="receivable-toolbar-sep" aria-hidden="true" />
+
+          <div className="receivable-action-group">
+            <span className="receivable-action-group__title">4. ส่งออก & พิมพ์</span>
+            <div className="receivable-action-group__items">
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--excel"
+                onClick={exportExcel}
+                disabled={isStale || selectedRows.length === 0}
+                title="ส่งออกรายการลูกหนี้ที่เลือกเป็นไฟล์ Excel (.xlsx)"
+              >
+                <span className="receivable-tool-btn__icon">📊</span>
+                <span>ส่งออก Excel</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--print"
+                onClick={() => {
+                  if (isStale) return setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนพิมพ์');
+                  window.print();
+                }}
+                disabled={isStale || selectedRows.length === 0}
+                title="พิมพ์เอกสารหลักฐานงวดบัญชีลูกหนี้ปัจจุบัน"
+              >
+                <span className="receivable-tool-btn__icon">🖨</span>
+                <span>พิมพ์หลักฐานงวด</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>

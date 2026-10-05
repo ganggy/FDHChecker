@@ -280,6 +280,8 @@
 .rec-std-doc-logo img {
   height: 80px;
   width: auto;
+  max-width: 80px;
+  object-fit: contain;
 }
 
 .rec-std-doc-titles {

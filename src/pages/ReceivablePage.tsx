@@ -593,7 +593,7 @@ export const ReceivablePage = () => {
             <button
               type="button"
               className="btn receivable-btn"
-              onClick={() => setIsOfficialModalOpen(true)}
+              onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'officialReceivable' } }))}
               style={{
                 background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
                 color: '#ffffff',
@@ -601,10 +601,10 @@ export const ReceivablePage = () => {
                 border: 'none',
                 boxShadow: '0 2px 6px rgba(16, 185, 129, 0.25)',
               }}
-              title="แบบฟอร์มทะเบียนคุมและสรุปลูกหนี้คงเหลือแยกตามอายุ 54 ผังบัญชี (มาตรฐาน สธ. 4 แบบ)"
+              title="เปิดหน้าจอแบบฟอร์มทะเบียนคุมและพิมพ์เอกสารหลักฐานลูกหนี้ 4 แบบมาตรฐาน (หน้าต่างเต็มจอ)"
             >
-              <span className="receivable-btn__icon">📋</span>
-              <span className="receivable-btn__label">ทะเบียนคุม & ลูกหนี้ 54 ผัง (4 แบบ)</span>
+              <span className="receivable-btn__icon">🏛️</span>
+              <span className="receivable-btn__label">แบบลูกหนี้ราชการ 4 แบบ (หน้าเต็ม)</span>
             </button>
             <button
               className="btn receivable-btn receivable-btn--excel"

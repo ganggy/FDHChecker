@@ -1,0 +1,532 @@
+/* =========================================================================
+   Official Receivable Page Styling (สิทธิข้าราชการ/อปท. 4 แบบมาตรฐาน)
+   ========================================================================= */
+
+.official-rec-page {
+  padding: 1.5rem;
+  max-width: 1680px;
+  margin: 0 auto;
+  font-family: 'Sarabun', 'Prompt', system-ui, -apple-system, sans-serif;
+  color: #1e293b;
+  min-height: 100vh;
+}
+
+/* Hero Header Card */
+.official-rec-hero {
+  background: linear-gradient(135deg, #064e3b 0%, #065f46 50%, #047857 100%);
+  color: #ffffff;
+  border-radius: 14px;
+  padding: 1.5rem 2rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 8px 20px rgba(6, 78, 59, 0.15);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+}
+
+.official-rec-hero__left {
+  max-width: 850px;
+}
+
+.official-rec-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(4px);
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+  letter-spacing: 0.02em;
+}
+
+.official-rec-hero h1 {
+  margin: 0 0 0.4rem 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.official-rec-hero p {
+  margin: 0;
+  font-size: 0.92rem;
+  opacity: 0.92;
+  line-height: 1.5;
+}
+
+.official-rec-hero__actions {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.official-rec-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1.15rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  text-decoration: none;
+}
+
+.official-rec-btn--back {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+.official-rec-btn--back:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.official-rec-btn--print {
+  background: #ffffff;
+  color: #065f46;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+.official-rec-btn--print:hover {
+  background: #f0fdf4;
+  transform: translateY(-1px);
+}
+
+.official-rec-btn--excel {
+  background: #10b981;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);
+}
+.official-rec-btn--excel:hover {
+  background: #059669;
+  transform: translateY(-1px);
+}
+
+.official-rec-btn--refresh {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+.official-rec-btn--refresh:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Control & Filter Panel */
+.official-rec-controls-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.official-rec-filter-grid {
+  display: grid;
+  grid-template-columns: 160px 140px 1fr 280px;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+@media (max-width: 1024px) {
+  .official-rec-filter-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .official-rec-filter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.official-rec-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.official-rec-field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.official-rec-field select,
+.official-rec-field input {
+  padding: 0.55rem 0.85rem;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #f8fafc;
+  color: #0f172a;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.official-rec-field select:focus,
+.official-rec-field input:focus {
+  border-color: #059669;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.15);
+}
+
+/* KPI Summary Cards */
+.official-rec-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.official-rec-kpi-card {
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #059669;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.official-rec-kpi-card--primary { border-left-color: #0284c7; }
+.official-rec-kpi-card--success { border-left-color: #059669; }
+.official-rec-kpi-card--warning { border-left-color: #d97706; }
+.official-rec-kpi-card--danger  { border-left-color: #dc2626; }
+.official-rec-kpi-card--neutral { border-left-color: #64748b; }
+
+.official-rec-kpi-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #64748b;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.official-rec-kpi-value {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #0f172a;
+  font-family: 'Prompt', system-ui, sans-serif;
+}
+
+.official-rec-kpi-sub {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+/* Main Tab Navigation */
+.official-rec-tabs {
+  display: flex;
+  gap: 0.5rem;
+  background: #f1f5f9;
+  padding: 0.4rem;
+  border-radius: 10px;
+  margin-bottom: 1.25rem;
+  overflow-x: auto;
+}
+
+.official-rec-tab-btn {
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.official-rec-tab-btn:hover {
+  color: #065f46;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.official-rec-tab-btn.is-active {
+  background: #ffffff;
+  color: #065f46;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.official-rec-tab-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: #e2e8f0;
+  color: #475569;
+  font-weight: 600;
+}
+
+.official-rec-tab-btn.is-active .official-rec-tab-tag {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+/* Content Card & Table Container */
+.official-rec-content-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  padding: 1.5rem;
+}
+
+.official-rec-sheet-header {
+  text-align: center;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1.5px dashed #cbd5e1;
+}
+
+.official-rec-sheet-header h2 {
+  margin: 0 0 0.3rem 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.official-rec-sheet-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+/* Pagination toolbar */
+.official-rec-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.6rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.official-rec-page-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.official-rec-page-btn {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.official-rec-page-btn:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.official-rec-page-btn:hover:not(:disabled) {
+  background: #f0fdf4;
+  border-color: #059669;
+  color: #059669;
+}
+
+/* Data Table Styling */
+.official-rec-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #94a3b8;
+  border-radius: 6px;
+}
+
+.official-rec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.official-rec-table th {
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 700;
+  border: 1px solid #94a3b8;
+  padding: 6px 8px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.official-rec-table td {
+  border: 1px solid #cbd5e1;
+  padding: 5px 8px;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.official-rec-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.official-rec-table tbody tr.is-highlighted {
+  background-color: #f0fdf4;
+}
+
+.official-rec-table .text-center { text-align: center; }
+.official-rec-table .text-right { text-align: right; }
+.official-rec-table .text-left { text-align: left; }
+.official-rec-table .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.official-rec-table .font-bold { font-weight: 700; }
+
+/* Status Badges */
+.badge-stm-rep {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #e0f2fe;
+  color: #0369a1;
+  white-space: nowrap;
+}
+
+.badge-reason {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge-reason--settled { background: #dcfce7; color: #15803d; }
+.badge-reason--waiting { background: #fef3c7; color: #b45309; }
+.badge-reason--error   { background: #fee2e2; color: #b91c1c; }
+
+/* Signatures / Document Footer */
+.official-rec-signatures {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2.5rem;
+  padding: 1rem 2rem 0;
+}
+
+.official-rec-signature-col {
+  text-align: center;
+  width: 280px;
+}
+
+.official-rec-signature-line {
+  border-bottom: 1px dotted #475569;
+  height: 2.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.official-rec-signature-name {
+  font-size: 0.88rem;
+  color: #334155;
+  margin-bottom: 0.2rem;
+}
+
+.official-rec-signature-title {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+/* Loading & Empty states */
+.official-rec-loading,
+.official-rec-empty {
+  text-align: center;
+  padding: 3rem;
+  color: #64748b;
+}
+
+/* =========================================================================
+   PRINT STYLES (@media print)
+   ========================================================================= */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 8pt !important;
+  }
+
+  .no-print,
+  .official-rec-hero,
+  .official-rec-controls-card,
+  .official-rec-tabs,
+  .official-rec-kpi-grid,
+  .official-rec-pagination {
+    display: none !important;
+  }
+
+  .official-rec-page {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+
+  .official-rec-content-card {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+
+  .official-rec-table-wrap {
+    border: none !important;
+    overflow: visible !important;
+  }
+
+  .official-rec-table {
+    font-size: 7.5pt !important;
+    border: 1px solid #000000 !important;
+  }
+
+  .official-rec-table th {
+    background: #f1f5f9 !important;
+    color: #000000 !important;
+    border: 1px solid #000000 !important;
+    padding: 3px 4px !important;
+  }
+
+  .official-rec-table td {
+    border: 1px solid #000000 !important;
+    padding: 2px 4px !important;
+    color: #000000 !important;
+  }
+
+  .official-rec-signatures {
+    page-break-inside: avoid;
+    margin-top: 1.5rem !important;
+  }
+}

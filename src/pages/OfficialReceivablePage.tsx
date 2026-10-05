@@ -4,7 +4,7 @@ import './OfficialReceivablePage.css';
 // -------------------------------------------------------------
 // Chart of Accounts 54 Constants
 // -------------------------------------------------------------
-export const OFFICIAL_CHART_OF_ACCOUNTS_54 = [
+const OFFICIAL_CHART_OF_ACCOUNTS_54 = [
   { code: '1102050101.102', order: 1, name: 'ลูกหนี้ค่าสิ่งส่งตรวจหน่วยงานภาครัฐ' },
   { code: '1102050101.103', order: 2, name: 'ลูกหนี้ค่าตรวจสุขภาพหน่วยงานภาครัฐ' },
   { code: '1102050101.104', order: 3, name: 'ลูกหนี้ค่าวัสดุ/อุปกรณ์/น้ำยา หน่วยงานภาครัฐ' },

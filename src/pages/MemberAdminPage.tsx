@@ -60,6 +60,7 @@ export const MemberAdminPage = () => {
   const [loadingLocks, setLoadingLocks] = useState(false);
   const [manualIp, setManualIp] = useState('');
   const [unlockingTarget, setUnlockingTarget] = useState<string | null>(null);
+  const [lockFilter, setLockFilter] = useState<'all' | 'locked'>('locked');
 
   const loadLocks = async () => {
     try {
@@ -95,6 +96,13 @@ export const MemberAdminPage = () => {
 
   const pendingCount = useMemo(() => data?.users.filter((user) => !user.approved).length || 0, [data]);
   const lockedCount = useMemo(() => loginLocks.filter((item) => item.isLocked).length, [loginLocks]);
+
+  const displayedLocks = useMemo(() => {
+    if (lockFilter === 'locked') {
+      return loginLocks.filter((item) => item.isLocked);
+    }
+    return loginLocks;
+  }, [loginLocks, lockFilter]);
 
   const handleUnlock = async (ip?: string, all?: boolean) => {
     setError('');
@@ -245,9 +253,14 @@ export const MemberAdminPage = () => {
           <div className="workflow-hero__meta">
             <span className="workflow-badge workflow-badge--accent">{pendingCount} รออนุมัติ</span>
             {lockedCount > 0 && (
-              <span className="workflow-badge" style={{ background: '#ef4444', color: '#fff' }}>
-                🔒 {lockedCount} เครื่องถูกล็อก
-              </span>
+              <button
+                type="button"
+                className="workflow-badge"
+                style={{ background: '#ef4444', color: '#fff', cursor: 'pointer', border: 'none' }}
+                onClick={() => document.getElementById('login-locks-section')?.scrollIntoView({ behavior: 'smooth' })}
+              >
+                🔒 {lockedCount} เครื่องถูกล็อก (คลิกดู)
+              </button>
             )}
           </div>
         </div>
@@ -255,6 +268,91 @@ export const MemberAdminPage = () => {
 
       {error && <div className="auth-alert auth-alert--error">{error}</div>}
       {message && <div className="auth-alert auth-alert--success">{message}</div>}
+
+      {lockedCount > 0 && (
+        <div
+          className="auth-alert"
+          style={{
+            background: '#fef2f2',
+            border: '2px solid #ef4444',
+            borderRadius: 8,
+            padding: '1rem',
+            color: '#991b1b',
+            boxShadow: '0 2px 8px rgba(239, 68, 68, 0.15)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.3rem' }}>🚨</span>
+                <span>เครื่องที่กำลังถูก LOCK อยู่ในขณะนี้ ({lockedCount} เครื่อง):</span>
+              </div>
+              <div style={{ fontSize: '0.88rem', color: '#7f1d1d', marginTop: '0.2rem' }}>
+                เครื่องเหล่านี้ใส่รหัสผ่านผิดเกินกำหนด (10 ครั้ง) ทำให้ระบบระงับการเข้าสู่ระบบ 15 นาที
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-primary btn-small"
+              style={{ background: '#dc2626', borderColor: '#b91c1c' }}
+              onClick={() => {
+                setLockFilter('locked');
+                document.getElementById('login-locks-section')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+            >
+              ไปยังรายการจัดการ 👇
+            </button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.75rem', marginTop: '0.85rem' }}>
+            {loginLocks.filter((l) => l.isLocked).map((lock) => (
+              <div
+                key={lock.ip}
+                style={{
+                  background: '#fff',
+                  border: '1px solid #fca5a5',
+                  borderRadius: 6,
+                  padding: '0.75rem 0.9rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.35rem',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 700, color: '#991b1b', fontSize: '0.95rem' }}>
+                    🖥️ {lock.hostname ? lock.hostname : lock.ip}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', background: '#fee2e2', color: '#991b1b', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
+                    ผิด {lock.count}/{lock.max} ครั้ง
+                  </span>
+                </div>
+                {lock.hostname && (
+                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                    IP: <code>{lock.ip}</code>
+                  </div>
+                )}
+                <div style={{ fontSize: '0.85rem', color: '#1e293b' }}>
+                  👤 ผู้ใช้ล่าสุด: <strong>{lock.lastUsername || 'ไม่ระบุ'}</strong>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#475569' }}>
+                  💻 เครื่อง/ระบบ: {lock.deviceInfo || 'ไม่ทราบอุปกรณ์'}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#dc2626', fontWeight: 600 }}>
+                  ⏱️ เหลือเวลาล็อกอีก: {Math.floor(lock.remainingSeconds / 60)} นาที {lock.remainingSeconds % 60} วินาที
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary btn-small"
+                  style={{ marginTop: '0.35rem', background: '#dc2626', borderColor: '#b91c1c' }}
+                  onClick={() => void handleUnlock(lock.ip)}
+                  disabled={unlockingTarget === lock.ip}
+                >
+                  {unlockingTarget === lock.ip ? 'กำลังปลดล็อก...' : '🔓 ปลดล็อกเครื่องนี้ทันที'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="card"><div className="card-body">กำลังโหลดข้อมูลสมาชิก...</div></div>
@@ -480,15 +578,43 @@ export const MemberAdminPage = () => {
             </form>
           </section>
 
-          <section className="card member-admin-panel" style={{ gridColumn: '1 / -1', marginTop: '1.25rem' }}>
+          <section id="login-locks-section" className="card member-admin-panel" style={{ gridColumn: '1 / -1', marginTop: '1.25rem' }}>
             <div className="card-header">
               <div>
                 <h3>🔓 ปลดล็อกเครื่องที่เข้าสู่ระบบไม่ผ่าน (Login Lockout)</h3>
                 <div className="muted">
-                  เครื่องหรือ IP ที่ใส่รหัสผ่านผิดเกิน 10 ครั้งใน 15 นาทีจะถูกระงับชั่วคราว ผู้ดูแลระบบสามารถตรวจสอบและกดปลดล็อกได้ทันที
+                  เครื่องหรือ IP ที่ใส่รหัสผ่านผิดเกิน 10 ครั้งใน 15 นาทีจะถูกระงับชั่วคราว ผู้ดูแลระบบสามารถตรวจสอบชื่อเครื่องและกดปลดล็อกได้ทันที
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 4, background: '#f1f5f9', padding: 2, borderRadius: 6 }}>
+                  <button
+                    type="button"
+                    className={`btn-secondary btn-small ${lockFilter === 'locked' ? 'active' : ''}`}
+                    style={{
+                      background: lockFilter === 'locked' ? '#dc2626' : 'transparent',
+                      color: lockFilter === 'locked' ? '#fff' : '#475569',
+                      borderColor: 'transparent',
+                      fontWeight: 600,
+                    }}
+                    onClick={() => setLockFilter('locked')}
+                  >
+                    🔒 ถูก LOCK อยู่ ({lockedCount})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-secondary btn-small ${lockFilter === 'all' ? 'active' : ''}`}
+                    style={{
+                      background: lockFilter === 'all' ? '#2563eb' : 'transparent',
+                      color: lockFilter === 'all' ? '#fff' : '#475569',
+                      borderColor: 'transparent',
+                      fontWeight: 600,
+                    }}
+                    onClick={() => setLockFilter('all')}
+                  >
+                    📋 ทั้งหมด ({loginLocks.length})
+                  </button>
+                </div>
                 <button
                   type="button"
                   className="btn-secondary btn-small"
@@ -497,7 +623,7 @@ export const MemberAdminPage = () => {
                 >
                   {loadingLocks ? 'กำลังโหลด...' : 'รีเฟรช'}
                 </button>
-                {loginLocks.length > 0 && (
+                {lockedCount > 0 && (
                   <button
                     type="button"
                     className="btn-secondary btn-small"
@@ -544,17 +670,19 @@ export const MemberAdminPage = () => {
               </form>
             </div>
 
-            {loginLocks.length === 0 ? (
-              <div style={{ padding: '1.5rem', textAlign: 'center', color: '#16a34a', fontWeight: 500 }}>
-                ✅ ปัจจุบันไม่มีเครื่องหรือ IP ใดที่ถูกระงับการเข้าสู่ระบบ (ทุกคนสามารถเข้าใช้งานได้ตามปกติ)
+            {displayedLocks.length === 0 ? (
+              <div style={{ padding: '1.75rem', textAlign: 'center', color: '#16a34a', fontWeight: 500 }}>
+                {lockFilter === 'locked'
+                  ? '✅ ไม่มีเครื่องใดที่กำลังถูก LOCK อยู่ในขณะนี้ (ทุกคนสามารถเข้าใช้งานได้ตามปกติ)'
+                  : '✅ ไม่มีประวัติเครื่องที่ถูกระงับหรือสะสมการลองผิดในระบบ'}
               </div>
             ) : (
               <div className="table-container">
                 <table className="data-table member-table">
                   <thead>
                     <tr>
-                      <th>IP / เครื่อง</th>
-                      <th>ชื่อผู้ใช้ล่าสุด</th>
+                      <th>เครื่อง / อุปกรณ์</th>
+                      <th>ผู้ใช้ล่าสุด</th>
                       <th>จำนวนครั้งที่ลอง</th>
                       <th>สถานะ</th>
                       <th>เวลาที่เหลือ</th>
@@ -562,10 +690,23 @@ export const MemberAdminPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {loginLocks.map((lock) => (
+                    {displayedLocks.map((lock) => (
                       <tr key={lock.ip} className={lock.isLocked ? 'row-warning' : ''}>
                         <td>
-                          <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{lock.ip}</code>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            <strong style={{ fontSize: '0.95rem', color: lock.isLocked ? '#b91c1c' : '#1e293b' }}>
+                              🖥️ {lock.hostname ? lock.hostname : lock.ip}
+                            </strong>
+                            <code style={{ background: '#f1f5f9', padding: '1px 6px', borderRadius: 4, fontSize: '0.82rem' }}>
+                              {lock.ip}
+                            </code>
+                          </div>
+                          <div
+                            style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.2rem' }}
+                            title={lock.userAgent || ''}
+                          >
+                            💻 {lock.deviceInfo || 'ไม่ทราบอุปกรณ์'}
+                          </div>
                         </td>
                         <td>
                           {lock.lastUsername ? <strong>{lock.lastUsername}</strong> : <span className="muted">-</span>}
@@ -576,13 +717,17 @@ export const MemberAdminPage = () => {
                           )}
                         </td>
                         <td>
-                          <strong>{lock.count}</strong> / {lock.max} ครั้ง
+                          <strong style={{ color: lock.isLocked ? '#dc2626' : 'inherit' }}>{lock.count}</strong> / {lock.max} ครั้ง
                         </td>
                         <td>
                           {lock.isLocked ? (
-                            <span className="member-pill member-pill--danger">🔒 ถูกระงับ (Locked)</span>
+                            <span className="member-pill member-pill--danger" style={{ fontWeight: 700 }}>
+                              🔒 ถูก LOCK อยู่
+                            </span>
                           ) : (
-                            <span className="member-pill member-pill--wait">⚠️ กำลังสะสม</span>
+                            <span className="member-pill member-pill--wait">
+                              ⚠️ กำลังสะสม
+                            </span>
                           )}
                         </td>
                         <td>
@@ -598,6 +743,7 @@ export const MemberAdminPage = () => {
                           <button
                             type="button"
                             className="btn-primary btn-small"
+                            style={lock.isLocked ? { background: '#dc2626', borderColor: '#b91c1c' } : {}}
                             onClick={() => void handleUnlock(lock.ip)}
                             disabled={unlockingTarget === lock.ip}
                           >

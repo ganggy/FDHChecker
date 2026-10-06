@@ -1,11 +1,14 @@
 import assert from 'node:assert';
 import test from 'node:test';
 import type { Request, Response } from 'express';
-import { createRateLimiter } from './rateLimiter.js';
+import { createRateLimiter, parseUserAgent } from './rateLimiter.js';
 
-const mockReq = (ip: string, username?: string): Request => ({
+const mockReq = (ip: string, username?: string, userAgent?: string): Request => ({
   ip,
   socket: { remoteAddress: ip } as any,
+  headers: {
+    'user-agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+  },
   body: username ? { username } : {},
 } as unknown as Request);
 
@@ -34,7 +37,15 @@ const mockRes = () => {
   } as unknown as Response & { getStatusCode: () => number; getJsonBody: () => any };
 };
 
-test('rateLimiter tracks requests and locks after max exceeded', () => {
+test('parseUserAgent extracts readable OS and browser info', () => {
+  const winChrome = parseUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36');
+  assert.equal(winChrome, 'Windows 10/11 · Chrome');
+
+  const macSafari = parseUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/15.0 Safari/605.1.15');
+  assert.equal(macSafari, 'macOS · Safari');
+});
+
+test('rateLimiter tracks requests, parses device, and locks after max exceeded', () => {
   const limiter = createRateLimiter({
     windowMs: 60 * 1000,
     max: 2,
@@ -61,7 +72,7 @@ test('rateLimiter tracks requests and locks after max exceeded', () => {
   limiter(mockReq(ip, 'user1'), res3, next);
   assert.equal(nextCalls, 2); // next not called
   assert.equal((res3 as any).getStatusCode(), 429);
-  assert.deepEqual((res3 as any).getJsonBody(), { success: false, error: 'Too many requests' });
+  assert.match((res3 as any).getJsonBody().error, /Too many requests.*192\.168\.1\.100/);
 
   // Check getLocked
   const locked = limiter.getLocked();
@@ -70,6 +81,7 @@ test('rateLimiter tracks requests and locks after max exceeded', () => {
   assert.equal(locked[0].count, 3);
   assert.equal(locked[0].isLocked, true);
   assert.equal(locked[0].lastUsername, 'user1');
+  assert.equal(locked[0].deviceInfo, 'Windows 10/11 · Chrome');
 
   // Unlock specific IP
   const unlocked = limiter.unlock(ip);

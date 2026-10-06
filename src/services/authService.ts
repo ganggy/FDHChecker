@@ -163,6 +163,9 @@ export const saveGroup = async (payload: {
 
 export type LoginLockItem = {
   ip: string;
+  hostname?: string;
+  deviceInfo?: string;
+  userAgent?: string;
   count: number;
   max: number;
   isLocked: boolean;

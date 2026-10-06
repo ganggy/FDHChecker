@@ -160,3 +160,32 @@ export const saveGroup = async (payload: {
   );
   return data.data;
 };
+
+export type LoginLockItem = {
+  ip: string;
+  count: number;
+  max: number;
+  isLocked: boolean;
+  resetAt: number;
+  remainingSeconds: number;
+  lastAttemptAt?: string;
+  lastUsername?: string;
+};
+
+export const fetchLoginLocks = async (): Promise<LoginLockItem[]> => {
+  const data = await jsonOrThrow<{ success: true; data: LoginLockItem[] }>(
+    await fetch('/api/admin/login-locks', { headers: authHeaders() })
+  );
+  return data.data || [];
+};
+
+export const unlockLoginLock = async (payload: { ip?: string; all?: boolean }) => {
+  return jsonOrThrow<{ success: true; message: string }>(
+    await fetch('/api/admin/login-locks/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    })
+  );
+};
+

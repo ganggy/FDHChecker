@@ -23,6 +23,7 @@ import {
 
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import { createRateLimiter, getClientIp } from './rateLimiter.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
@@ -372,32 +373,6 @@ const requireAdmin = async (req: AuthenticatedRequest, res: Response, next: Next
   await requireAuth(req, res, verifyAdmin);
 };
 
-type RateLimitEntry = { count: number; resetAt: number };
-const createRateLimiter = (options: { windowMs: number; max: number; message: string }) => {
-  const entries = new Map<string, RateLimitEntry>();
-  return (req: Request, res: Response, next: NextFunction) => {
-    const now = Date.now();
-    const key = String(req.ip || req.socket.remoteAddress || 'unknown');
-    const current = entries.get(key);
-    const entry = !current || current.resetAt <= now
-      ? { count: 0, resetAt: now + options.windowMs }
-      : current;
-    entry.count += 1;
-    entries.set(key, entry);
-    if (entries.size > 5000) {
-      for (const [entryKey, value] of entries) {
-        if (value.resetAt <= now) entries.delete(entryKey);
-      }
-    }
-    res.setHeader('X-RateLimit-Limit', String(options.max));
-    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, options.max - entry.count)));
-    if (entry.count > options.max) {
-      res.setHeader('Retry-After', String(Math.ceil((entry.resetAt - now) / 1000)));
-      return res.status(429).json({ success: false, error: options.message });
-    }
-    next();
-  };
-};
 
 const loginRateLimit = createRateLimiter({
   windowMs: 15 * 60 * 1000,
@@ -680,6 +655,7 @@ app.post('/api/auth/login', loginRateLimit, async (req, res) => {
     if (!result.user || !result.token) {
       return res.status(500).json({ success: false, error: 'Login result is incomplete' });
     }
+    loginRateLimit.unlock(getClientIp(req));
     res.json({ success: true, token: result.token, user: publicUserPayload(result.user) });
   } catch (error) {
     console.error('Login error:', error);
@@ -806,6 +782,38 @@ app.post('/api/admin/groups', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Save group error:', error);
     res.status(500).json({ success: false, error: 'Cannot save group' });
+  }
+});
+
+app.get('/api/admin/login-locks', requireAdmin, async (_req, res) => {
+  try {
+    const list = loginRateLimit.getLocked();
+    res.json({ success: true, data: list });
+  } catch (error) {
+    console.error('Cannot get login locks:', error);
+    res.status(500).json({ success: false, error: 'Cannot read login locks' });
+  }
+});
+
+app.post('/api/admin/login-locks/unlock', requireAdmin, async (req, res) => {
+  try {
+    const { ip, all } = req.body || {};
+    if (all) {
+      const cleared = loginRateLimit.unlockAll();
+      return res.json({ success: true, message: `ปลดล็อกเครื่องทั้งหมดเรียบร้อยแล้ว (${cleared} รายการ)` });
+    }
+    const targetIp = String(ip || '').trim();
+    if (!targetIp) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุ IP ที่ต้องการปลดล็อก' });
+    }
+    const unlocked = loginRateLimit.unlock(targetIp);
+    if (unlocked) {
+      return res.json({ success: true, message: `ปลดล็อกเครื่อง IP ${targetIp} เรียบร้อยแล้ว` });
+    }
+    return res.json({ success: true, message: `ไม่พบประวัติการระงับของ IP ${targetIp} หรือหมดเวลาแล้ว` });
+  } catch (error) {
+    console.error('Cannot unlock client:', error);
+    res.status(500).json({ success: false, error: 'Cannot unlock client' });
   }
 });
 

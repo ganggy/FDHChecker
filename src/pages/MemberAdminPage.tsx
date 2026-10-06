@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { allMenuItems, primaryNavItems, rolePresets, toolNavGroups } from '../config/menuDefinitions';
 import { FUND_DEFINITIONS } from '../config/fundDefinitions';
-import { createMember, fetchMemberAdminData, saveGroup, updateMember, type MemberAdminData, type MemberGroup } from '../services/authService';
+import {
+  createMember,
+  fetchMemberAdminData,
+  fetchLoginLocks,
+  saveGroup,
+  unlockLoginLock,
+  updateMember,
+  type LoginLockItem,
+  type MemberAdminData,
+  type MemberGroup,
+} from '../services/authService';
 import type { AppPage } from '../utils/navigationState';
 
 const menuSections = (() => {
@@ -46,12 +56,32 @@ export const MemberAdminPage = () => {
     fundPermissions: [] as string[],
   });
   const [fundEditor, setFundEditor] = useState<{ userId: number; name: string; allFunds: boolean; fundPermissions: string[] } | null>(null);
+  const [loginLocks, setLoginLocks] = useState<LoginLockItem[]>([]);
+  const [loadingLocks, setLoadingLocks] = useState(false);
+  const [manualIp, setManualIp] = useState('');
+  const [unlockingTarget, setUnlockingTarget] = useState<string | null>(null);
+
+  const loadLocks = async () => {
+    try {
+      setLoadingLocks(true);
+      setLoginLocks(await fetchLoginLocks());
+    } catch (err) {
+      console.error('Cannot load login locks:', err);
+    } finally {
+      setLoadingLocks(false);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
     setError('');
     try {
-      setData(await fetchMemberAdminData());
+      const [memberData, lockData] = await Promise.all([
+        fetchMemberAdminData(),
+        fetchLoginLocks().catch(() => [] as LoginLockItem[]),
+      ]);
+      setData(memberData);
+      setLoginLocks(lockData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'โหลดข้อมูลสมาชิกไม่สำเร็จ');
     } finally {
@@ -64,6 +94,22 @@ export const MemberAdminPage = () => {
   }, []);
 
   const pendingCount = useMemo(() => data?.users.filter((user) => !user.approved).length || 0, [data]);
+  const lockedCount = useMemo(() => loginLocks.filter((item) => item.isLocked).length, [loginLocks]);
+
+  const handleUnlock = async (ip?: string, all?: boolean) => {
+    setError('');
+    setMessage('');
+    setUnlockingTarget(all ? 'ALL' : (ip || ''));
+    try {
+      const res = await unlockLoginLock(all ? { all: true } : { ip });
+      setMessage(res.message);
+      await loadLocks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ปลดล็อกไม่สำเร็จ');
+    } finally {
+      setUnlockingTarget(null);
+    }
+  };
 
   const handleUserUpdate = async (userId: number, payload: Parameters<typeof updateMember>[1]) => {
     setError('');
@@ -198,6 +244,11 @@ export const MemberAdminPage = () => {
           </div>
           <div className="workflow-hero__meta">
             <span className="workflow-badge workflow-badge--accent">{pendingCount} รออนุมัติ</span>
+            {lockedCount > 0 && (
+              <span className="workflow-badge" style={{ background: '#ef4444', color: '#fff' }}>
+                🔒 {lockedCount} เครื่องถูกล็อก
+              </span>
+            )}
           </div>
         </div>
       </section>
@@ -427,6 +478,138 @@ export const MemberAdminPage = () => {
 
               <button className="btn-primary" type="submit" disabled={saving}>{saving ? 'กำลังบันทึก...' : 'บันทึกกลุ่ม'}</button>
             </form>
+          </section>
+
+          <section className="card member-admin-panel" style={{ gridColumn: '1 / -1', marginTop: '1.25rem' }}>
+            <div className="card-header">
+              <div>
+                <h3>🔓 ปลดล็อกเครื่องที่เข้าสู่ระบบไม่ผ่าน (Login Lockout)</h3>
+                <div className="muted">
+                  เครื่องหรือ IP ที่ใส่รหัสผ่านผิดเกิน 10 ครั้งใน 15 นาทีจะถูกระงับชั่วคราว ผู้ดูแลระบบสามารถตรวจสอบและกดปลดล็อกได้ทันที
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn-secondary btn-small"
+                  onClick={() => void loadLocks()}
+                  disabled={loadingLocks}
+                >
+                  {loadingLocks ? 'กำลังโหลด...' : 'รีเฟรช'}
+                </button>
+                {loginLocks.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn-secondary btn-small"
+                    style={{ borderColor: '#ef4444', color: '#ef4444' }}
+                    onClick={() => {
+                      if (window.confirm('ยืนยันปลดล็อกเครื่องและ IP ทั้งหมดหรือไม่?')) {
+                        void handleUnlock(undefined, true);
+                      }
+                    }}
+                    disabled={unlockingTarget === 'ALL'}
+                  >
+                    {unlockingTarget === 'ALL' ? 'กำลังปลดล็อก...' : 'ปลดล็อกทั้งหมด'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div style={{ padding: '0.75rem 1.25rem', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (manualIp.trim()) {
+                    const target = manualIp.trim();
+                    setManualIp('');
+                    void handleUnlock(target);
+                  }
+                }}
+                style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}
+              >
+                <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>ปลดล็อกด้วย IP เจาะจง:</span>
+                <input
+                  placeholder="เช่น 192.168.1.50 หรือ ::1"
+                  value={manualIp}
+                  onChange={(e) => setManualIp(e.target.value)}
+                  style={{ maxWidth: 240, padding: '0.35rem 0.6rem', fontSize: '0.9rem' }}
+                />
+                <button
+                  type="submit"
+                  className="btn-primary btn-small"
+                  disabled={!manualIp.trim() || unlockingTarget !== null}
+                >
+                  ปลดล็อก IP นี้
+                </button>
+              </form>
+            </div>
+
+            {loginLocks.length === 0 ? (
+              <div style={{ padding: '1.5rem', textAlign: 'center', color: '#16a34a', fontWeight: 500 }}>
+                ✅ ปัจจุบันไม่มีเครื่องหรือ IP ใดที่ถูกระงับการเข้าสู่ระบบ (ทุกคนสามารถเข้าใช้งานได้ตามปกติ)
+              </div>
+            ) : (
+              <div className="table-container">
+                <table className="data-table member-table">
+                  <thead>
+                    <tr>
+                      <th>IP / เครื่อง</th>
+                      <th>ชื่อผู้ใช้ล่าสุด</th>
+                      <th>จำนวนครั้งที่ลอง</th>
+                      <th>สถานะ</th>
+                      <th>เวลาที่เหลือ</th>
+                      <th>จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loginLocks.map((lock) => (
+                      <tr key={lock.ip} className={lock.isLocked ? 'row-warning' : ''}>
+                        <td>
+                          <code style={{ background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{lock.ip}</code>
+                        </td>
+                        <td>
+                          {lock.lastUsername ? <strong>{lock.lastUsername}</strong> : <span className="muted">-</span>}
+                          {lock.lastAttemptAt && (
+                            <div className="muted" style={{ fontSize: '0.8rem' }}>
+                              {new Date(lock.lastAttemptAt).toLocaleTimeString('th-TH')}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <strong>{lock.count}</strong> / {lock.max} ครั้ง
+                        </td>
+                        <td>
+                          {lock.isLocked ? (
+                            <span className="member-pill member-pill--danger">🔒 ถูกระงับ (Locked)</span>
+                          ) : (
+                            <span className="member-pill member-pill--wait">⚠️ กำลังสะสม</span>
+                          )}
+                        </td>
+                        <td>
+                          {lock.remainingSeconds > 0 ? (
+                            <span>
+                              {Math.floor(lock.remainingSeconds / 60)} นาที {lock.remainingSeconds % 60} วินาที
+                            </span>
+                          ) : (
+                            <span className="muted">หมดเวลาแล้ว</span>
+                          )}
+                        </td>
+                        <td className="member-actions">
+                          <button
+                            type="button"
+                            className="btn-primary btn-small"
+                            onClick={() => void handleUnlock(lock.ip)}
+                            disabled={unlockingTarget === lock.ip}
+                          >
+                            {unlockingTarget === lock.ip ? 'กำลังปลดล็อก...' : 'ปลดล็อกเครื่องนี้'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
         </div>
       )}

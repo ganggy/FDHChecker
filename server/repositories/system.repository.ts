@@ -560,13 +560,22 @@ export const getMemberAdminData = async () => {
 
 export const updateMemberUser = async (
   userId: number,
-  input: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string; fundPermissions?: string[] | null }
+  input: {
+    approved?: boolean;
+    isActive?: boolean;
+    isAdmin?: boolean;
+    groupId?: number | null;
+    displayName?: string;
+    fundPermissions?: string[] | null;
+    password?: string;
+  }
 ) => {
   await ensureAuthTables();
   const connection = await getRepstmConnection();
   try {
     const updates: string[] = [];
     const values: unknown[] = [];
+    let passwordChanged = false;
     if (typeof input.approved === 'boolean') {
       updates.push('approved = ?');
       values.push(input.approved ? 1 : 0);
@@ -591,10 +600,51 @@ export const updateMemberUser = async (
       updates.push('fund_permissions = ?');
       values.push(input.fundPermissions == null ? null : JSON.stringify(normalizeFundPermissions(input.fundPermissions)));
     }
+    if (typeof input.password === 'string' && input.password.trim()) {
+      const pwd = input.password.trim();
+      if (pwd.length < 8) {
+        throw new Error('รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร');
+      }
+      updates.push('password_hash = ?');
+      values.push(hashPassword(pwd));
+      passwordChanged = true;
+    }
     if (updates.length === 0) return getAppUserById(userId);
     values.push(userId);
     await connection.query(`UPDATE app_user SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, values);
+    if (passwordChanged) {
+      await connection.query('DELETE FROM app_session WHERE user_id = ?', [userId]);
+    }
     return getAppUserById(userId);
+  } finally {
+    connection.release();
+  }
+};
+
+export const adminResetUserPassword = async (userId: number, newPasswordInput: string) => {
+  await ensureAuthTables();
+  const newPassword = String(newPasswordInput || '').trim();
+  if (newPassword.length < 8) {
+    return { success: false, status: 400, error: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' };
+  }
+  const connection = await getRepstmConnection();
+  try {
+    const [rows] = await connection.query('SELECT id FROM app_user WHERE id = ? LIMIT 1', [userId]);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return { success: false, status: 404, error: 'ไม่พบผู้ใช้นี้ในระบบ' };
+    }
+    await connection.beginTransaction();
+    await connection.query(
+      'UPDATE app_user SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [hashPassword(newPassword), userId]
+    );
+    await connection.query('DELETE FROM app_session WHERE user_id = ?', [userId]);
+    await connection.commit();
+    const user = await getAppUserById(userId);
+    return { success: true, user };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
   } finally {
     connection.release();
   }

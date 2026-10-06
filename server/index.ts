@@ -58,6 +58,7 @@ import {
   registerAppUser,
   saveMemberGroup,
   updateMemberUser,
+  adminResetUserPassword,
   saveFdhStatusImportLog,
   saveFdhSubmissionLog,
   getFdhSubmissionLogs,
@@ -758,11 +759,32 @@ app.patch('/api/admin/members/:id', requireAdmin, async (req, res) => {
           ? null
           : Array.isArray(req.body.fundPermissions) ? req.body.fundPermissions.map(String) : []
         : undefined,
+      password: typeof req.body?.password === 'string' ? req.body.password : undefined,
     });
     res.json({ success: true, user: user ? publicUserPayload(user) : null });
   } catch (error) {
     console.error('Update member error:', error);
     res.status(500).json({ success: false, error: 'Cannot update member' });
+  }
+});
+
+app.post('/api/admin/members/:id/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const userId = Number(req.params.id || 0);
+    if (!userId) return res.status(400).json({ success: false, error: 'Invalid user id' });
+    const password = String(req.body?.password || req.body?.newPassword || '');
+    const result = await adminResetUserPassword(userId, password);
+    if (!result.success) {
+      return res.status(result.status || 400).json({ success: false, error: result.error });
+    }
+    res.json({
+      success: true,
+      message: 'เปลี่ยนรหัสผ่านให้ผู้ใช้เรียบร้อยแล้ว',
+      user: result.user ? publicUserPayload(result.user) : null,
+    });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ success: false, error: 'Cannot reset user password' });
   }
 });
 

@@ -5,6 +5,7 @@ import {
   createMember,
   fetchMemberAdminData,
   fetchLoginLocks,
+  resetMemberPassword,
   saveGroup,
   unlockLoginLock,
   updateMember,
@@ -56,6 +57,10 @@ export const MemberAdminPage = () => {
     fundPermissions: [] as string[],
   });
   const [fundEditor, setFundEditor] = useState<{ userId: number; name: string; allFunds: boolean; fundPermissions: string[] } | null>(null);
+  const [passwordEditor, setPasswordEditor] = useState<{ userId: number; username: string; name: string } | null>(null);
+  const [newPasswordValue, setNewPasswordValue] = useState('');
+  const [confirmPasswordValue, setConfirmPasswordValue] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
   const [loginLocks, setLoginLocks] = useState<LoginLockItem[]>([]);
   const [loadingLocks, setLoadingLocks] = useState(false);
   const [manualIp, setManualIp] = useState('');
@@ -204,6 +209,46 @@ export const MemberAdminPage = () => {
       setError(err instanceof Error ? err.message : 'บันทึกสิทธิ์กองทุนไม่สำเร็จ');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openPasswordEditor = (user: NonNullable<MemberAdminData>['users'][number]) => {
+    setError('');
+    setMessage('');
+    setPasswordEditor({
+      userId: user.id,
+      username: user.username,
+      name: user.display_name || user.username,
+    });
+    setNewPasswordValue('');
+    setConfirmPasswordValue('');
+  };
+
+  const handleSavePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!passwordEditor) return;
+    setError('');
+    setMessage('');
+    if (newPasswordValue.length < 8) {
+      setError('รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 8 ตัวอักษร');
+      return;
+    }
+    if (newPasswordValue !== confirmPasswordValue) {
+      setError('ยืนยันรหัสผ่านไม่ตรงกัน');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      const res = await resetMemberPassword(passwordEditor.userId, newPasswordValue);
+      setMessage(res.message || `เปลี่ยนรหัสผ่านของ ${passwordEditor.username} เรียบร้อยแล้ว`);
+      setPasswordEditor(null);
+      setNewPasswordValue('');
+      setConfirmPasswordValue('');
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'เปลี่ยนรหัสผ่านไม่สำเร็จ');
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -477,6 +522,9 @@ export const MemberAdminPage = () => {
                           {user.is_active ? 'ปิดใช้' : 'เปิดใช้'}
                         </button>
                         <button className="btn-secondary btn-small" onClick={() => openFundEditor(user)}>กองทุน</button>
+                        <button className="btn-secondary btn-small" onClick={() => openPasswordEditor(user)} title="แก้ไขรหัสผ่านให้ผู้ใช้นี้">
+                          🔑 รหัสผ่าน
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -509,6 +557,53 @@ export const MemberAdminPage = () => {
                 <button type="button" className="btn-primary" disabled={saving} onClick={() => void saveFundPermissions()}>
                   {saving ? 'กำลังบันทึก...' : 'บันทึกสิทธิ์กองทุน'}
                 </button>
+              </div>
+            )}
+            {passwordEditor && (
+              <div className="member-fund-editor" style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '1rem', marginTop: '1rem' }}>
+                <div className="member-fund-access__header">
+                  <div>
+                    <strong>🔑 กำหนดรหัสผ่านใหม่: {passwordEditor.name} (<code>{passwordEditor.username}</code>)</strong>
+                    <div className="muted" style={{ fontSize: '0.85rem', marginTop: 2 }}>
+                      กำหนดรหัสผ่านใหม่ให้ผู้ใช้โดยตรง (อย่างน้อย 8 ตัวอักษร) เซสชันเดิมของผู้ใช้จะสิ้นสุดเพื่อให้เข้าสู่ระบบด้วยรหัสผ่านใหม่
+                    </div>
+                  </div>
+                  <button type="button" className="btn-secondary btn-small" onClick={() => setPasswordEditor(null)}>ปิด</button>
+                </div>
+                <form onSubmit={handleSavePassword} style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginTop: '0.75rem' }}>
+                  <label>
+                    รหัสผ่านใหม่
+                    <input
+                      type="password"
+                      value={newPasswordValue}
+                      onChange={(e) => setNewPasswordValue(e.target.value)}
+                      minLength={8}
+                      placeholder="รหัสผ่านใหม่อย่างน้อย 8 ตัวอักษร"
+                      autoComplete="new-password"
+                      required
+                    />
+                  </label>
+                  <label>
+                    ยืนยันรหัสผ่านใหม่
+                    <input
+                      type="password"
+                      value={confirmPasswordValue}
+                      onChange={(e) => setConfirmPasswordValue(e.target.value)}
+                      minLength={8}
+                      placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง"
+                      autoComplete="new-password"
+                      required
+                    />
+                  </label>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.25rem' }}>
+                    <button type="submit" className="btn-primary" disabled={savingPassword}>
+                      {savingPassword ? 'กำลังบันทึก...' : 'บันทึกรหัสผ่านใหม่'}
+                    </button>
+                    <button type="button" className="btn-secondary" onClick={() => setPasswordEditor(null)}>
+                      ยกเลิก
+                    </button>
+                  </div>
+                </form>
               </div>
             )}
           </section>

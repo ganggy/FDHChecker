@@ -133,7 +133,15 @@ export const createMember = async (payload: {
 
 export const updateMember = async (
   userId: number,
-  payload: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string; fundPermissions?: string[] | null }
+  payload: {
+    approved?: boolean;
+    isActive?: boolean;
+    isAdmin?: boolean;
+    groupId?: number | null;
+    displayName?: string;
+    fundPermissions?: string[] | null;
+    password?: string;
+  }
 ) => {
   const data = await jsonOrThrow<{ success: true; user: MemberUser | null }>(
     await fetch(`/api/admin/members/${userId}`, {
@@ -143,6 +151,16 @@ export const updateMember = async (
     })
   );
   return data.user;
+};
+
+export const resetMemberPassword = async (userId: number, newPassword: string) => {
+  return jsonOrThrow<{ success: true; message: string; user: MemberUser | null }>(
+    await fetch(`/api/admin/members/${userId}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ password: newPassword }),
+    })
+  );
 };
 
 export const saveGroup = async (payload: {

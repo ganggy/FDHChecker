@@ -48,7 +48,11 @@ export interface SmtBudgetComparison {
   debtAmount: number;
   stmPaidAmount: number;
   claimedAmount: number;
+  claimedCount: number;
+  reimbursedAmount: number;
+  reimbursedCount: number;
   pendingCAmount: number;
+  pendingCCount: number;
   status: 'settled' | 'partial' | 'pending';
   runDate?: string;
   refDocNo?: string;
@@ -111,6 +115,7 @@ export const ExecutiveMonitorPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'matrix' | 'services' | 'smt' | 'top_c'>('matrix');
   const [matrixMetricMode, setMatrixMetricMode] = useState<'claimed' | 'c_code' | 'reimbursed' | 'rate'>('claimed');
+  const [matrixDisplayMode, setMatrixDisplayMode] = useState<'amount' | 'visits' | 'both'>('both');
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -207,19 +212,28 @@ export const ExecutiveMonitorPage: React.FC = () => {
     const wb = XLSX.utils.book_new();
 
     // Sheet 1: Summary KPI
+    const visitRecoveryRate = data.summary.totalClaimedCount > 0
+      ? Math.round((data.summary.totalReimbursedCount / data.summary.totalClaimedCount) * 10000) / 100
+      : 0;
+    const visitCRate = data.summary.totalClaimedCount > 0
+      ? Math.round((data.summary.totalPendingCCount / data.summary.totalClaimedCount) * 10000) / 100
+      : 0;
+
     const summaryRows = [
       { ตัวชี้วัด: 'ปีงบประมาณ e-Budget SMT', ค่า: data.period.budgetYear },
       { ตัวชี้วัด: 'ช่วงวันที่ประมวลผล', ค่า: `${data.period.startDate || 'ทั้งหมด'} ถึง ${data.period.endDate || 'ปัจจุบัน'}` },
-      { ตัวชี้วัด: 'ยอดส่งเบิกทั้งหมด (Claimed Amount)', ค่า: data.summary.totalClaimedAmount },
-      { ตัวชี้วัด: 'จำนวนเคสที่ส่งเบิก (Claimed Cases)', ค่า: data.summary.totalClaimedCount },
-      { ตัวชี้วัด: 'ยอดติด C / Deny (Pending Amount)', ค่า: data.summary.totalPendingCAmount },
-      { ตัวชี้วัด: 'จำนวนเคสที่ติด C (C-Code Cases)', ค่า: data.summary.totalPendingCCount },
-      { ตัวชี้วัด: 'ยอดได้รับการชดเชยแล้ว (Reimbursed STM)', ค่า: data.summary.totalReimbursedAmount },
-      { ตัวชี้วัด: 'จำนวนเคสที่ชดเชยแล้ว (Paid Cases)', ค่า: data.summary.totalReimbursedCount },
-      { ตัวชี้วัด: 'อัตราการชดเชยสำเร็จ (Reimbursement %)', ค่า: `${data.summary.reimbursementRate}%` },
+      { ตัวชี้วัด: 'ยอดเงินส่งเบิกทั้งหมด (Claimed Amount ฿)', ค่า: data.summary.totalClaimedAmount },
+      { ตัวชี้วัด: 'จำนวน Visit ที่ส่งเบิก (Claimed Visits)', ค่า: data.summary.totalClaimedCount },
+      { ตัวชี้วัด: 'ยอดเงินติด C / Deny (Pending C Amount ฿)', ค่า: data.summary.totalPendingCAmount },
+      { ตัวชี้วัด: 'จำนวน Visit ที่ติด C (Pending C Visits)', ค่า: data.summary.totalPendingCCount },
+      { ตัวชี้วัด: 'อัตราการติด C ตามจำนวน Visit (%)', ค่า: `${visitCRate}%` },
+      { ตัวชี้วัด: 'ยอดเงินที่ได้รับการชดเชยแล้ว (Reimbursed STM ฿)', ค่า: data.summary.totalReimbursedAmount },
+      { ตัวชี้วัด: 'จำนวน Visit ที่ได้รับการชดเชยแล้ว (Paid Visits)', ค่า: data.summary.totalReimbursedCount },
+      { ตัวชี้วัด: 'อัตราการชดเชยตามยอดเงิน (Amount Recovery %)', ค่า: `${data.summary.reimbursementRate}%` },
+      { ตัวชี้วัด: 'อัตราการชดเชยตามจำนวน Visit (Visit Recovery %)', ค่า: `${visitRecoveryRate}%` },
       { ตัวชี้วัด: 'ยอดจัดสรรตาม e-Budget SMT', ค่า: data.summary.totalSmtAllocatedAmount },
       { ตัวชี้วัด: 'ยอดเงินโอนสุทธิ SMT', ค่า: data.summary.totalSmtNetTransferred },
-      { ตัวชี้วัด: 'ยอดผลต่าง/คงค้าง (Variance)', ค่า: data.summary.varianceAmount },
+      { ตัวชี้วัด: 'ยอดผลต่าง/คงค้าง (Variance ฿)', ค่า: data.summary.varianceAmount },
     ];
     const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'KPI สรุปภาพรวม');
@@ -227,13 +241,14 @@ export const ExecutiveMonitorPage: React.FC = () => {
     // Sheet 2: By Service Breakdown
     const serviceRows = Object.values(data.byService).map((s) => ({
       หมวดบริการ: s.categoryName,
-      ยอดส่งเบิก: s.claimedAmount,
-      จำนวนส่งเบิก: s.claimedCount,
-      ยอดติด_C: s.pendingCAmount,
-      เคสติด_C: s.pendingCCount,
-      ชดเชยแล้ว_STM: s.reimbursedAmount,
-      เคสชดเชย: s.reimbursedCount,
-      อัตราการชดเชย_เปอร์เซ็นต์: s.reimbursementRate,
+      ยอดส่งเบิก_บาท: s.claimedAmount,
+      จำนวน_Visit_ส่งเบิก: s.claimedCount,
+      ยอดติด_C_บาท: s.pendingCAmount,
+      จำนวน_Visit_ติด_C: s.pendingCCount,
+      ชดเชยแล้ว_STM_บาท: s.reimbursedAmount,
+      จำนวน_Visit_ชดเชย: s.reimbursedCount,
+      อัตราการชดเชย_ยอดเงิน_เปอร์เซ็นต์: s.reimbursementRate,
+      อัตราการชดเชย_Visit_เปอร์เซ็นต์: s.claimedCount > 0 ? Math.round((s.reimbursedCount / s.claimedCount) * 10000) / 100 : 0,
       งบจัดสรร_SMT: s.smtAllocatedAmount,
       โอนสุทธิ_SMT: s.smtNetTransferred,
     }));
@@ -243,13 +258,14 @@ export const ExecutiveMonitorPage: React.FC = () => {
     // Sheet 3: By Right Breakdown
     const rightRows = Object.values(data.byRight).map((r) => ({
       สิทธิการรักษา: r.rightName,
-      ยอดส่งเบิก: r.claimedAmount,
-      จำนวนส่งเบิก: r.claimedCount,
-      ยอดติด_C: r.pendingCAmount,
-      เคสติด_C: r.pendingCCount,
-      ชดเชยแล้ว_STM: r.reimbursedAmount,
-      เคสชดเชย: r.reimbursedCount,
-      อัตราการชดเชย_เปอร์เซ็นต์: r.reimbursementRate,
+      ยอดส่งเบิก_บาท: r.claimedAmount,
+      จำนวน_Visit_ส่งเบิก: r.claimedCount,
+      ยอดติด_C_บาท: r.pendingCAmount,
+      จำนวน_Visit_ติด_C: r.pendingCCount,
+      ชดเชยแล้ว_STM_บาท: r.reimbursedAmount,
+      จำนวน_Visit_ชดเชย: r.reimbursedCount,
+      อัตราการชดเชย_ยอดเงิน_เปอร์เซ็นต์: r.reimbursementRate,
+      อัตราการชดเชย_Visit_เปอร์เซ็นต์: r.claimedCount > 0 ? Math.round((r.reimbursedCount / r.claimedCount) * 10000) / 100 : 0,
     }));
     const wsRight = XLSX.utils.json_to_sheet(rightRows);
     XLSX.utils.book_append_sheet(wb, wsRight, 'แยกตามสิทธิ');
@@ -262,11 +278,14 @@ export const ExecutiveMonitorPage: React.FC = () => {
         หมวดบริการ: t.categoryName,
         รหัสผังบัญชี: t.mophId || '',
         ชื่อบัญชี_สธ: t.mophDesc || '',
-        ยอดจัดสรร: t.allocatedAmount,
-        โอนสุทธิ: t.netTransferred,
-        ยอดส่งเบิก_รพ: t.claimedAmount,
-        ชดเชยแล้ว_STM: t.stmPaidAmount,
-        ยอดติด_C: t.pendingCAmount,
+        ยอดจัดสรร_บาท: t.allocatedAmount,
+        โอนสุทธิ_บาท: t.netTransferred,
+        ยอดส่งเบิก_รพ_บาท: t.claimedAmount,
+        จำนวน_Visit_ส่งเบิก: t.claimedCount || 0,
+        ชดเชยแล้ว_STM_บาท: t.stmPaidAmount,
+        จำนวน_Visit_ชดเชย: t.reimbursedCount || 0,
+        ยอดติด_C_บาท: t.pendingCAmount,
+        จำนวน_Visit_ติด_C: t.pendingCCount || 0,
         สถานะ: t.status,
         วันที่โอน: t.runDate || '',
       }));
@@ -278,8 +297,8 @@ export const ExecutiveMonitorPage: React.FC = () => {
     if (data.topCCodes && data.topCCodes.length > 0) {
       const cRows = data.topCCodes.map((c) => ({
         รหัสข้อผิดพลาด: c.code,
-        จำนวนเคส: c.count,
-        ยอดเงินรวม: c.amount,
+        จำนวน_Visit_ติด_C: c.count,
+        ยอดเงินรวม_บาท: c.amount,
         บริการที่ได้รับผลกระทบ: c.affectedServices.join(', '),
         คำอธิบาย: c.description,
         แนวทางแก้ไข: c.guide,
@@ -302,6 +321,13 @@ export const ExecutiveMonitorPage: React.FC = () => {
     return Object.keys(data.byRight);
   }, [data]);
 
+  // Visit summary percentages
+  const totalClaimedCount = data?.summary.totalClaimedCount || 0;
+  const totalPendingCCount = data?.summary.totalPendingCCount || 0;
+  const totalReimbursedCount = data?.summary.totalReimbursedCount || 0;
+  const visitCRate = totalClaimedCount > 0 ? ((totalPendingCCount / totalClaimedCount) * 100).toFixed(1) : '0.0';
+  const visitReimburseRate = totalClaimedCount > 0 ? ((totalReimbursedCount / totalClaimedCount) * 100).toFixed(1) : '0.0';
+
   return (
     <div className="executive-monitor-page">
       {/* Page Header */}
@@ -311,7 +337,7 @@ export const ExecutiveMonitorPage: React.FC = () => {
             <span>🏛️</span> มอนิเตอร์ผู้บริหาร (Executive Claim & Revenue Matrix)
           </h1>
           <p className="exec-subtitle">
-            บูรณาการ 3 ฐานข้อมูล (REP ตอบรับเรียกเก็บ, STM สเตทเมนต์ชดเชยจริง, e-Budget/SMT งบจัดสรร สปสช.) แยกสิทธิ x แยกบริการ
+            บูรณาการ 3 ฐานข้อมูล (REP ตอบรับเรียกเก็บ, STM สเตทเมนต์ชดเชยจริง, e-Budget/SMT งบจัดสรร สปสช.) พร้อมติดตามยอดเงินและจำนวน Visit ครบถ้วน
           </p>
         </div>
         <div className="exec-actions">
@@ -488,9 +514,9 @@ export const ExecutiveMonitorPage: React.FC = () => {
                 ฿{formatCurrency(data.summary.totalClaimedAmount)}
               </div>
               <div className="kpi-sub-row">
-                <span>จำนวนที่ส่งเบิก:</span>
+                <span>จำนวน Visit ส่งเบิก:</span>
                 <span className="kpi-badge badge-blue">
-                  {formatNumber(data.summary.totalClaimedCount)} เคส
+                  {formatNumber(data.summary.totalClaimedCount)} visits
                 </span>
               </div>
             </div>
@@ -505,9 +531,9 @@ export const ExecutiveMonitorPage: React.FC = () => {
                 ฿{formatCurrency(data.summary.totalPendingCAmount)}
               </div>
               <div className="kpi-sub-row">
-                <span>จำนวนเคสที่ติด C:</span>
+                <span>จำนวน Visit ติด C:</span>
                 <span className="kpi-badge badge-orange">
-                  {formatNumber(data.summary.totalPendingCCount)} เคส
+                  {formatNumber(data.summary.totalPendingCCount)} visits ({visitCRate}%)
                 </span>
               </div>
               <div className="kpi-progress">
@@ -535,10 +561,14 @@ export const ExecutiveMonitorPage: React.FC = () => {
                 ฿{formatCurrency(data.summary.totalReimbursedAmount)}
               </div>
               <div className="kpi-sub-row">
-                <span>อัตราการชดเชยสำเร็จ:</span>
+                <span>จำนวน Visit ชดเชย:</span>
                 <span className="kpi-badge badge-green">
-                  {data.summary.reimbursementRate}%
+                  {formatNumber(data.summary.totalReimbursedCount)} visits ({visitReimburseRate}%)
                 </span>
+              </div>
+              <div className="kpi-sub-row" style={{ borderTop: 'none', paddingTop: 0 }}>
+                <span>อัตราการชดเชยยอดเงิน:</span>
+                <strong style={{ color: '#047857' }}>{data.summary.reimbursementRate}%</strong>
               </div>
               <div className="kpi-progress">
                 <div
@@ -601,31 +631,59 @@ export const ExecutiveMonitorPage: React.FC = () => {
                 <h3 className="matrix-toolbar-title">
                   ตารางสรุปเปรียบเทียบไขว้: สิทธิการรักษา x ประเภทบริการ
                 </h3>
-                <div className="matrix-metric-switch">
-                  <button
-                    className={`metric-switch-btn ${matrixMetricMode === 'claimed' ? 'active' : ''}`}
-                    onClick={() => setMatrixMetricMode('claimed')}
-                  >
-                    ยอดส่งเบิก (฿)
-                  </button>
-                  <button
-                    className={`metric-switch-btn ${matrixMetricMode === 'c_code' ? 'active' : ''}`}
-                    onClick={() => setMatrixMetricMode('c_code')}
-                  >
-                    ติด C / Deny (฿)
-                  </button>
-                  <button
-                    className={`metric-switch-btn ${matrixMetricMode === 'reimbursed' ? 'active' : ''}`}
-                    onClick={() => setMatrixMetricMode('reimbursed')}
-                  >
-                    ชดเชยแล้ว STM (฿)
-                  </button>
-                  <button
-                    className={`metric-switch-btn ${matrixMetricMode === 'rate' ? 'active' : ''}`}
-                    onClick={() => setMatrixMetricMode('rate')}
-                  >
-                    อัตราการชดเชย (%)
-                  </button>
+                <div className="matrix-controls-group">
+                  {/* Metric Switch */}
+                  <div className="matrix-metric-switch">
+                    <button
+                      className={`metric-switch-btn ${matrixMetricMode === 'claimed' ? 'active' : ''}`}
+                      onClick={() => setMatrixMetricMode('claimed')}
+                    >
+                      ส่งเบิก (Claimed)
+                    </button>
+                    <button
+                      className={`metric-switch-btn ${matrixMetricMode === 'c_code' ? 'active' : ''}`}
+                      onClick={() => setMatrixMetricMode('c_code')}
+                    >
+                      ติด C / Deny
+                    </button>
+                    <button
+                      className={`metric-switch-btn ${matrixMetricMode === 'reimbursed' ? 'active' : ''}`}
+                      onClick={() => setMatrixMetricMode('reimbursed')}
+                    >
+                      ชดเชยแล้ว (STM)
+                    </button>
+                    <button
+                      className={`metric-switch-btn ${matrixMetricMode === 'rate' ? 'active' : ''}`}
+                      onClick={() => setMatrixMetricMode('rate')}
+                    >
+                      อัตราชดเชย (%)
+                    </button>
+                  </div>
+
+                  {/* Display Unit Switch */}
+                  <div className="matrix-display-mode-switch">
+                    <button
+                      className={`display-switch-btn ${matrixDisplayMode === 'amount' ? 'active' : ''}`}
+                      onClick={() => setMatrixDisplayMode('amount')}
+                      title="แสดงเฉพาะยอดเงินบาท"
+                    >
+                      💵 ยอดเงิน (฿)
+                    </button>
+                    <button
+                      className={`display-switch-btn ${matrixDisplayMode === 'visits' ? 'active' : ''}`}
+                      onClick={() => setMatrixDisplayMode('visits')}
+                      title="แสดงเฉพาะจำนวน Visit"
+                    >
+                      👥 จำนวน Visit
+                    </button>
+                    <button
+                      className={`display-switch-btn ${matrixDisplayMode === 'both' ? 'active' : ''}`}
+                      onClick={() => setMatrixDisplayMode('both')}
+                      title="แสดงทั้งยอดเงินและจำนวน Visit"
+                    >
+                      📑 แสดงคู่ (฿ + Visit)
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -635,11 +693,11 @@ export const ExecutiveMonitorPage: React.FC = () => {
                     <tr>
                       <th style={{ minWidth: '180px' }}>สิทธิการรักษา</th>
                       {serviceKeys.map((sk) => (
-                        <th key={sk} className="text-right" style={{ minWidth: '130px' }}>
+                        <th key={sk} className="text-right" style={{ minWidth: '135px' }}>
                           {data.byService[sk]?.categoryIcon} {data.byService[sk]?.categoryName}
                         </th>
                       ))}
-                      <th className="text-right" style={{ minWidth: '140px', background: '#f1f5f9' }}>
+                      <th className="text-right" style={{ minWidth: '150px', background: '#f1f5f9' }}>
                         รวมทุกบริการ
                       </th>
                     </tr>
@@ -657,6 +715,33 @@ export const ExecutiveMonitorPage: React.FC = () => {
                             if (!cell) return <td key={sk} className="text-right">-</td>;
 
                             if (matrixMetricMode === 'claimed') {
+                              if (matrixDisplayMode === 'visits') {
+                                return (
+                                  <td key={sk} className="text-right">
+                                    {cell.claimedCount > 0 ? (
+                                      <strong>{formatNumber(cell.claimedCount)} visit</strong>
+                                    ) : (
+                                      <span style={{ color: '#94a3b8' }}>-</span>
+                                    )}
+                                  </td>
+                                );
+                              }
+                              if (matrixDisplayMode === 'both') {
+                                return (
+                                  <td key={sk} className="text-right">
+                                    {cell.claimedAmount > 0 ? (
+                                      <div>
+                                        <div>฿{formatCurrency(cell.claimedAmount)}</div>
+                                        <div className="matrix-cell-sub">
+                                          {formatNumber(cell.claimedCount)} visit
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span style={{ color: '#94a3b8' }}>-</span>
+                                    )}
+                                  </td>
+                                );
+                              }
                               return (
                                 <td key={sk} className="text-right">
                                   {cell.claimedAmount > 0 ? (
@@ -667,6 +752,39 @@ export const ExecutiveMonitorPage: React.FC = () => {
                                 </td>
                               );
                             } else if (matrixMetricMode === 'c_code') {
+                              if (matrixDisplayMode === 'visits') {
+                                return (
+                                  <td
+                                    key={sk}
+                                    className={`text-right ${cell.pendingCCount > 0 ? 'highlight-warn' : ''}`}
+                                  >
+                                    {cell.pendingCCount > 0 ? (
+                                      <strong>{formatNumber(cell.pendingCCount)} visit</strong>
+                                    ) : (
+                                      <span style={{ color: '#94a3b8' }}>-</span>
+                                    )}
+                                  </td>
+                                );
+                              }
+                              if (matrixDisplayMode === 'both') {
+                                return (
+                                  <td
+                                    key={sk}
+                                    className={`text-right ${cell.pendingCAmount > 0 ? 'highlight-warn' : ''}`}
+                                  >
+                                    {cell.pendingCAmount > 0 ? (
+                                      <div>
+                                        <div>฿{formatCurrency(cell.pendingCAmount)}</div>
+                                        <div className="matrix-cell-sub warn">
+                                          {formatNumber(cell.pendingCCount)} visit
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span style={{ color: '#94a3b8' }}>-</span>
+                                    )}
+                                  </td>
+                                );
+                              }
                               return (
                                 <td
                                   key={sk}
@@ -680,6 +798,39 @@ export const ExecutiveMonitorPage: React.FC = () => {
                                 </td>
                               );
                             } else if (matrixMetricMode === 'reimbursed') {
+                              if (matrixDisplayMode === 'visits') {
+                                return (
+                                  <td
+                                    key={sk}
+                                    className={`text-right ${cell.reimbursedCount > 0 ? 'highlight-good' : ''}`}
+                                  >
+                                    {cell.reimbursedCount > 0 ? (
+                                      <strong>{formatNumber(cell.reimbursedCount)} visit</strong>
+                                    ) : (
+                                      <span style={{ color: '#94a3b8' }}>-</span>
+                                    )}
+                                  </td>
+                                );
+                              }
+                              if (matrixDisplayMode === 'both') {
+                                return (
+                                  <td
+                                    key={sk}
+                                    className={`text-right ${cell.reimbursedAmount > 0 ? 'highlight-good' : ''}`}
+                                  >
+                                    {cell.reimbursedAmount > 0 ? (
+                                      <div>
+                                        <div>฿{formatCurrency(cell.reimbursedAmount)}</div>
+                                        <div className="matrix-cell-sub good">
+                                          {formatNumber(cell.reimbursedCount)} visit
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span style={{ color: '#94a3b8' }}>-</span>
+                                    )}
+                                  </td>
+                                );
+                              }
                               return (
                                 <td
                                   key={sk}
@@ -693,20 +844,31 @@ export const ExecutiveMonitorPage: React.FC = () => {
                                 </td>
                               );
                             } else {
+                              // Rate mode
+                              const cellVisitRate = cell.claimedCount > 0
+                                ? Math.round((cell.reimbursedCount / cell.claimedCount) * 10000) / 100
+                                : 0;
                               return (
                                 <td key={sk} className="text-right">
                                   {cell.claimedAmount > 0 ? (
-                                    <span
-                                      className={
-                                        cell.reimbursementRate >= 80
-                                          ? 'highlight-good'
-                                          : cell.reimbursementRate < 50
-                                          ? 'highlight-alert'
-                                          : 'highlight-warn'
-                                      }
-                                    >
-                                      {cell.reimbursementRate}%
-                                    </span>
+                                    <div>
+                                      <span
+                                        className={
+                                          cell.reimbursementRate >= 80
+                                            ? 'highlight-good'
+                                            : cell.reimbursementRate < 50
+                                            ? 'highlight-alert'
+                                            : 'highlight-warn'
+                                        }
+                                      >
+                                        {cell.reimbursementRate}%
+                                      </span>
+                                      {matrixDisplayMode !== 'amount' && (
+                                        <div className="matrix-cell-sub">
+                                          {cellVisitRate}% visit ({cell.reimbursedCount}/{cell.claimedCount})
+                                        </div>
+                                      )}
+                                    </div>
                                   ) : (
                                     <span style={{ color: '#94a3b8' }}>-</span>
                                   )}
@@ -714,20 +876,75 @@ export const ExecutiveMonitorPage: React.FC = () => {
                               );
                             }
                           })}
+
                           {/* Right Row Total */}
                           <td className="text-right" style={{ fontWeight: 700, background: '#f8fafc' }}>
-                            {matrixMetricMode === 'claimed' && `฿${formatCurrency(rightItem?.claimedAmount)}`}
+                            {matrixMetricMode === 'claimed' && (
+                              matrixDisplayMode === 'visits' ? (
+                                `${formatNumber(rightItem?.claimedCount)} visit`
+                              ) : matrixDisplayMode === 'both' ? (
+                                <div>
+                                  <div>฿{formatCurrency(rightItem?.claimedAmount)}</div>
+                                  <div className="matrix-cell-sub">
+                                    {formatNumber(rightItem?.claimedCount)} visit
+                                  </div>
+                                </div>
+                              ) : (
+                                `฿${formatCurrency(rightItem?.claimedAmount)}`
+                              )
+                            )}
                             {matrixMetricMode === 'c_code' && (
-                              <span className={rightItem?.pendingCAmount ? 'highlight-warn' : ''}>
-                                ฿{formatCurrency(rightItem?.pendingCAmount)}
-                              </span>
+                              matrixDisplayMode === 'visits' ? (
+                                <span className={rightItem?.pendingCCount ? 'highlight-warn' : ''}>
+                                  {formatNumber(rightItem?.pendingCCount)} visit
+                                </span>
+                              ) : matrixDisplayMode === 'both' ? (
+                                <div>
+                                  <div className={rightItem?.pendingCAmount ? 'highlight-warn' : ''}>
+                                    ฿{formatCurrency(rightItem?.pendingCAmount)}
+                                  </div>
+                                  <div className="matrix-cell-sub warn">
+                                    {formatNumber(rightItem?.pendingCCount)} visit
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className={rightItem?.pendingCAmount ? 'highlight-warn' : ''}>
+                                  ฿{formatCurrency(rightItem?.pendingCAmount)}
+                                </span>
+                              )
                             )}
                             {matrixMetricMode === 'reimbursed' && (
-                              <span className="highlight-good">
-                                ฿${formatCurrency(rightItem?.reimbursedAmount)}
-                              </span>
+                              matrixDisplayMode === 'visits' ? (
+                                <span className="highlight-good">
+                                  {formatNumber(rightItem?.reimbursedCount)} visit
+                                </span>
+                              ) : matrixDisplayMode === 'both' ? (
+                                <div>
+                                  <div className="highlight-good">
+                                    ฿{formatCurrency(rightItem?.reimbursedAmount)}
+                                  </div>
+                                  <div className="matrix-cell-sub good">
+                                    {formatNumber(rightItem?.reimbursedCount)} visit
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="highlight-good">
+                                  ฿{formatCurrency(rightItem?.reimbursedAmount)}
+                                </span>
+                              )
                             )}
-                            {matrixMetricMode === 'rate' && `${rightItem?.reimbursementRate}%`}
+                            {matrixMetricMode === 'rate' && (
+                              <div>
+                                <span>{rightItem?.reimbursementRate}%</span>
+                                {matrixDisplayMode !== 'amount' && (
+                                  <div className="matrix-cell-sub">
+                                    {rightItem?.claimedCount
+                                      ? `${((rightItem.reimbursedCount / rightItem.claimedCount) * 100).toFixed(1)}% visit`
+                                      : '-'}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );
@@ -740,34 +957,140 @@ export const ExecutiveMonitorPage: React.FC = () => {
                         const sItem = data.byService[sk];
                         return (
                           <td key={sk} className="text-right">
-                            {matrixMetricMode === 'claimed' && `฿${formatCurrency(sItem?.claimedAmount)}`}
+                            {matrixMetricMode === 'claimed' && (
+                              matrixDisplayMode === 'visits' ? (
+                                `${formatNumber(sItem?.claimedCount)} visit`
+                              ) : matrixDisplayMode === 'both' ? (
+                                <div>
+                                  <div>฿{formatCurrency(sItem?.claimedAmount)}</div>
+                                  <div className="matrix-cell-sub">
+                                    {formatNumber(sItem?.claimedCount)} visit
+                                  </div>
+                                </div>
+                              ) : (
+                                `฿${formatCurrency(sItem?.claimedAmount)}`
+                              )
+                            )}
                             {matrixMetricMode === 'c_code' && (
-                              <span className={sItem?.pendingCAmount ? 'highlight-warn' : ''}>
-                                ฿{formatCurrency(sItem?.pendingCAmount)}
-                              </span>
+                              matrixDisplayMode === 'visits' ? (
+                                <span className={sItem?.pendingCCount ? 'highlight-warn' : ''}>
+                                  {formatNumber(sItem?.pendingCCount)} visit
+                                </span>
+                              ) : matrixDisplayMode === 'both' ? (
+                                <div>
+                                  <div className={sItem?.pendingCAmount ? 'highlight-warn' : ''}>
+                                    ฿{formatCurrency(sItem?.pendingCAmount)}
+                                  </div>
+                                  <div className="matrix-cell-sub warn">
+                                    {formatNumber(sItem?.pendingCCount)} visit
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className={sItem?.pendingCAmount ? 'highlight-warn' : ''}>
+                                  ฿{formatCurrency(sItem?.pendingCAmount)}
+                                </span>
+                              )
                             )}
                             {matrixMetricMode === 'reimbursed' && (
-                              <span className="highlight-good">
-                                ฿${formatCurrency(sItem?.reimbursedAmount)}
-                              </span>
+                              matrixDisplayMode === 'visits' ? (
+                                <span className="highlight-good">
+                                  {formatNumber(sItem?.reimbursedCount)} visit
+                                </span>
+                              ) : matrixDisplayMode === 'both' ? (
+                                <div>
+                                  <div className="highlight-good">
+                                    ฿{formatCurrency(sItem?.reimbursedAmount)}
+                                  </div>
+                                  <div className="matrix-cell-sub good">
+                                    {formatNumber(sItem?.reimbursedCount)} visit
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="highlight-good">
+                                  ฿{formatCurrency(sItem?.reimbursedAmount)}
+                                </span>
+                              )
                             )}
-                            {matrixMetricMode === 'rate' && `${sItem?.reimbursementRate}%`}
+                            {matrixMetricMode === 'rate' && (
+                              <div>
+                                <span>{sItem?.reimbursementRate}%</span>
+                                {matrixDisplayMode !== 'amount' && (
+                                  <div className="matrix-cell-sub">
+                                    {sItem?.claimedCount
+                                      ? `${((sItem.reimbursedCount / sItem.claimedCount) * 100).toFixed(1)}% visit`
+                                      : '-'}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </td>
                         );
                       })}
                       <td className="text-right" style={{ background: '#e2e8f0', color: '#0f172a' }}>
-                        {matrixMetricMode === 'claimed' && `฿${formatCurrency(data.summary.totalClaimedAmount)}`}
+                        {matrixMetricMode === 'claimed' && (
+                          matrixDisplayMode === 'visits' ? (
+                            `${formatNumber(data.summary.totalClaimedCount)} visits`
+                          ) : matrixDisplayMode === 'both' ? (
+                            <div>
+                              <div>฿{formatCurrency(data.summary.totalClaimedAmount)}</div>
+                              <div className="matrix-cell-sub">
+                                {formatNumber(data.summary.totalClaimedCount)} visits
+                              </div>
+                            </div>
+                          ) : (
+                            `฿${formatCurrency(data.summary.totalClaimedAmount)}`
+                          )
+                        )}
                         {matrixMetricMode === 'c_code' && (
-                          <span className="highlight-warn">
-                            ฿${formatCurrency(data.summary.totalPendingCAmount)}
-                          </span>
+                          matrixDisplayMode === 'visits' ? (
+                            <span className="highlight-warn">
+                              {formatNumber(data.summary.totalPendingCCount)} visits
+                            </span>
+                          ) : matrixDisplayMode === 'both' ? (
+                            <div>
+                              <div className="highlight-warn">
+                                ฿{formatCurrency(data.summary.totalPendingCAmount)}
+                              </div>
+                              <div className="matrix-cell-sub warn">
+                                {formatNumber(data.summary.totalPendingCCount)} visits
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="highlight-warn">
+                              ฿{formatCurrency(data.summary.totalPendingCAmount)}
+                            </span>
+                          )
                         )}
                         {matrixMetricMode === 'reimbursed' && (
-                          <span className="highlight-good">
-                            ฿${formatCurrency(data.summary.totalReimbursedAmount)}
-                          </span>
+                          matrixDisplayMode === 'visits' ? (
+                            <span className="highlight-good">
+                              {formatNumber(data.summary.totalReimbursedCount)} visits
+                            </span>
+                          ) : matrixDisplayMode === 'both' ? (
+                            <div>
+                              <div className="highlight-good">
+                                ฿{formatCurrency(data.summary.totalReimbursedAmount)}
+                              </div>
+                              <div className="matrix-cell-sub good">
+                                {formatNumber(data.summary.totalReimbursedCount)} visits
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="highlight-good">
+                              ฿{formatCurrency(data.summary.totalReimbursedAmount)}
+                            </span>
+                          )
                         )}
-                        {matrixMetricMode === 'rate' && `${data.summary.reimbursementRate}%`}
+                        {matrixMetricMode === 'rate' && (
+                          <div>
+                            <span>{data.summary.reimbursementRate}%</span>
+                            {matrixDisplayMode !== 'amount' && (
+                              <div className="matrix-cell-sub">
+                                {visitReimburseRate}% visit
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   </tbody>
@@ -781,6 +1104,9 @@ export const ExecutiveMonitorPage: React.FC = () => {
             <div className="services-grid">
               {serviceKeys.map((sk) => {
                 const s = data.byService[sk];
+                const sVisitRate = s.claimedCount > 0
+                  ? ((s.reimbursedCount / s.claimedCount) * 100).toFixed(1)
+                  : '0.0';
                 return (
                   <div key={sk} className="service-card">
                     <div className="service-card-header">
@@ -795,8 +1121,8 @@ export const ExecutiveMonitorPage: React.FC = () => {
                       <div className="s-metric-item">
                         <div className="s-metric-label">ยอดส่งเบิก</div>
                         <div className="s-metric-val">฿{formatCurrency(s.claimedAmount)}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                          {formatNumber(s.claimedCount)} เคส
+                        <div style={{ fontSize: '0.8rem', color: '#1e293b', fontWeight: 600, marginTop: '2px' }}>
+                          👥 {formatNumber(s.claimedCount)} visits
                         </div>
                       </div>
 
@@ -805,8 +1131,8 @@ export const ExecutiveMonitorPage: React.FC = () => {
                         <div className="s-metric-val" style={{ color: '#c2410c' }}>
                           ฿{formatCurrency(s.pendingCAmount)}
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                          {formatNumber(s.pendingCCount)} เคส
+                        <div style={{ fontSize: '0.8rem', color: '#c2410c', fontWeight: 600, marginTop: '2px' }}>
+                          ⚠️ {formatNumber(s.pendingCCount)} visits
                         </div>
                       </div>
 
@@ -815,10 +1141,15 @@ export const ExecutiveMonitorPage: React.FC = () => {
                         <div className="s-metric-val" style={{ color: '#047857' }}>
                           ฿{formatCurrency(s.reimbursedAmount)}
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: '#047857', fontWeight: 600 }}>
-                          {s.reimbursementRate}%
+                        <div style={{ fontSize: '0.8rem', color: '#047857', fontWeight: 600, marginTop: '2px' }}>
+                          ✅ {formatNumber(s.reimbursedCount)} visits
                         </div>
                       </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.825rem', color: '#475569', marginBottom: '0.75rem', padding: '0.35rem 0.5rem', background: '#f8fafc', borderRadius: '6px' }}>
+                      <span>อัตราชดเชยยอดเงิน: <strong>{s.reimbursementRate}%</strong></span>
+                      <span>อัตราชดเชย Visit: <strong style={{ color: '#047857' }}>{sVisitRate}%</strong></span>
                     </div>
 
                     {s.smtAllocatedAmount > 0 && (
@@ -848,7 +1179,7 @@ export const ExecutiveMonitorPage: React.FC = () => {
                               <strong>{item.code}</strong>: {item.description}
                             </span>
                             <span>
-                              {formatNumber(item.count)} เคส (฿{formatCurrency(item.amount)})
+                              {formatNumber(item.count)} visits (฿{formatCurrency(item.amount)})
                             </span>
                           </div>
                         ))}
@@ -866,7 +1197,7 @@ export const ExecutiveMonitorPage: React.FC = () => {
               <div className="info-box-blue">
                 <span>ℹ️</span>
                 <span>
-                  ตารางนี้เปรียบเทียบงบประมาณที่สำนักงานหลักประกันสุขภาพแห่งชาติ (สปสช.) จัดสรรผ่านระบบ e-Budget/SMT กับการเรียกเก็บและ Statement จริงของโรงพยาบาล
+                  ตารางนี้เปรียบเทียบงบประมาณที่สำนักงานหลักประกันสุขภาพแห่งชาติ (สปสช.) จัดสรรผ่านระบบ e-Budget/SMT กับการเรียกเก็บ, Statement จริง, และจำนวน Visit ที่ส่งเบิก/ชดเชย/ติด C
                 </span>
               </div>
 
@@ -879,11 +1210,11 @@ export const ExecutiveMonitorPage: React.FC = () => {
                         <th>กองทุน e-Budget (SMT)</th>
                         <th>หมวดบริการ</th>
                         <th>รหัสบัญชี สธ.</th>
-                        <th className="text-right">งบจัดสรร</th>
-                        <th className="text-right">โอนสุทธิ</th>
-                        <th className="text-right">ยอดส่งเบิก (รพ.)</th>
-                        <th className="text-right">ชดเชยแล้ว (STM)</th>
-                        <th className="text-right">ติด C (฿)</th>
+                        <th className="text-right">งบจัดสรร (฿)</th>
+                        <th className="text-right">โอนสุทธิ (฿)</th>
+                        <th className="text-right">ส่งเบิก รพ. (฿ & Visit)</th>
+                        <th className="text-right">ชดเชย STM (฿ & Visit)</th>
+                        <th className="text-right">ติด C (฿ & Visit)</th>
                         <th className="text-center">สถานะ</th>
                       </tr>
                     </thead>
@@ -910,12 +1241,29 @@ export const ExecutiveMonitorPage: React.FC = () => {
                           <td className="text-right" style={{ fontWeight: 600 }}>
                             ฿{formatCurrency(t.netTransferred)}
                           </td>
-                          <td className="text-right">฿{formatCurrency(t.claimedAmount)}</td>
+                          <td className="text-right">
+                            <div>฿{formatCurrency(t.claimedAmount)}</div>
+                            <div className="matrix-cell-sub">
+                              {formatNumber(t.claimedCount)} visits
+                            </div>
+                          </td>
                           <td className="text-right highlight-good">
-                            ฿{formatCurrency(t.stmPaidAmount)}
+                            <div>฿{formatCurrency(t.stmPaidAmount)}</div>
+                            <div className="matrix-cell-sub good">
+                              {formatNumber(t.reimbursedCount)} visits
+                            </div>
                           </td>
                           <td className="text-right highlight-warn">
-                            {t.pendingCAmount > 0 ? `฿${formatCurrency(t.pendingCAmount)}` : '-'}
+                            {t.pendingCAmount > 0 ? (
+                              <div>
+                                <div>฿{formatCurrency(t.pendingCAmount)}</div>
+                                <div className="matrix-cell-sub warn">
+                                  {formatNumber(t.pendingCCount)} visits
+                                </div>
+                              </div>
+                            ) : (
+                              '-'
+                            )}
                           </td>
                           <td className="text-center">
                             <span className={`status-tag ${t.status}`}>
@@ -947,7 +1295,7 @@ export const ExecutiveMonitorPage: React.FC = () => {
               <div className="info-box-blue">
                 <span>🎯</span>
                 <span>
-                  รหัสติด C และรหัสปฏิเสธจ่ายที่กระทบต่อกระแสเงินสดของโรงพยาบาลสูงสุด 10 อันดับแรก พร้อมแนวทางแก้ไขเพื่อมอบหมายงานให้ทีมเวชระเบียนและพยาบาลตรวจสอบ
+                  รหัสติด C และรหัสปฏิเสธจ่ายที่กระทบต่อกระแสเงินสดของโรงพยาบาลสูงสุด 10 อันดับแรก เรียงตามจำนวน Visit ที่ติดปัญหาและมูลค่าเงิน พร้อมแนวทางแก้ไขเพื่อส่งต่อให้ทีมเวชระเบียนและพยาบาลตรวจสอบ
                 </span>
               </div>
 
@@ -957,8 +1305,8 @@ export const ExecutiveMonitorPage: React.FC = () => {
                     <thead>
                       <tr>
                         <th style={{ width: '100px' }}>รหัส C/Deny</th>
-                        <th className="text-right" style={{ width: '110px' }}>จำนวนเคส</th>
-                        <th className="text-right" style={{ width: '130px' }}>ยอดเงินติดค้าง</th>
+                        <th className="text-right" style={{ width: '130px' }}>จำนวน Visit ที่ติด C</th>
+                        <th className="text-right" style={{ width: '140px' }}>ยอดเงินติดค้าง</th>
                         <th style={{ width: '180px' }}>บริการที่กระทบ</th>
                         <th>คำอธิบายปัญหา</th>
                         <th>คำแนะนำแนวทางแก้ไข (Guide)</th>
@@ -973,7 +1321,7 @@ export const ExecutiveMonitorPage: React.FC = () => {
                             </span>
                           </td>
                           <td className="text-right" style={{ fontWeight: 600 }}>
-                            {formatNumber(c.count)}
+                            {formatNumber(c.count)} visits
                           </td>
                           <td className="text-right highlight-warn" style={{ fontWeight: 700 }}>
                             ฿{formatCurrency(c.amount)}

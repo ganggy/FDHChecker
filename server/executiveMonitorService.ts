@@ -112,7 +112,11 @@ export interface SmtBudgetComparison {
   debtAmount: number;
   stmPaidAmount: number;
   claimedAmount: number;
+  claimedCount: number;
+  reimbursedAmount: number;
+  reimbursedCount: number;
   pendingCAmount: number;
+  pendingCCount: number;
   status: 'settled' | 'partial' | 'pending';
   runDate?: string;
   refDocNo?: string;
@@ -763,7 +767,11 @@ export async function getExecutiveMonitorSummary(params: {
         debtAmount: debt,
         stmPaidAmount: sItem.reimbursedAmount,
         claimedAmount: sItem.claimedAmount,
+        claimedCount: sItem.claimedCount,
+        reimbursedAmount: sItem.reimbursedAmount,
+        reimbursedCount: sItem.reimbursedCount,
         pendingCAmount: sItem.pendingCAmount,
+        pendingCCount: sItem.pendingCCount,
         status,
         runDate: r.run_date ? String(r.run_date) : undefined,
         refDocNo: r.ref_doc_no ? String(r.ref_doc_no) : undefined,

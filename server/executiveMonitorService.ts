@@ -56,14 +56,14 @@ export const SERVICE_CATEGORY_LABELS: Record<ServiceCategoryKey, { name: string;
 };
 
 export const RIGHT_SCHEME_LABELS: Record<RightSchemeKey, { name: string; icon: string; description: string }> = {
-  UCS_INCUP: { name: 'บัตรทองใน CUP', icon: '🏥', description: 'สิทธิหลักประกันสุขภาพถ้วนหน้าในเครือข่าย รพ.' },
-  UCS_OUTCUP: { name: 'บัตรทองนอก CUP / Walk-in', icon: '🚶', description: 'บัตรทองข้ามเขต / ปฐมภูมิไปที่ไหนก็ได้ / Walk-in' },
-  OFC: { name: 'ข้าราชการ (กรมบัญชีกลาง)', icon: '🏛️', description: 'เบิกจ่ายตรงกรมบัญชีกลาง ข้าราชการ/ครอบครัว' },
-  LGO: { name: 'อปท. (ข้าราชการท้องถิ่น)', icon: '🏢', description: 'องค์กรปกครองส่วนท้องถิ่น เทศบาล อบต. อบจ. เมืองพัทยา' },
-  SSS: { name: 'ประกันสังคม', icon: '🔵', description: 'กองทุนประกันสังคม ม.33, ม.39, ม.40' },
+  UCS_INCUP: { name: 'บัตรทองใน CUP', icon: '🏥', description: 'สิทธิหลักประกันสุขภาพถ้วนหน้าในเครือข่าย รพ. (รวมงบเหมาจ่ายและบริการส่งเสริม)' },
+  UCS_OUTCUP: { name: 'บัตรทองนอก CUP / Walk-in', icon: '🚶', description: 'บัตรทองข้ามเขต / ปฐมภูมิไปที่ไหนก็ได้ / Walk-in / ฉุกเฉิน OPAE' },
+  OFC: { name: 'ข้าราชการ (กรมบัญชีกลาง)', icon: '🏛️', description: 'เบิกจ่ายตรงกรมบัญชีกลาง ข้าราชการ/ครอบครัว และระบบไต CHI/CSCD' },
+  LGO: { name: 'อปท. (ข้าราชการท้องถิ่น)', icon: '🏢', description: 'องค์กรปกครองส่วนท้องถิ่น เทศบาล อบต. อบจ. เมืองพัทยา และไตเทียม LGO-HD' },
+  SSS: { name: 'ประกันสังคม', icon: '🔵', description: 'กองทุนประกันสังคม ม.33, ม.39, ม.40 และไตเทียม SOCD/SSS-HD' },
   A9_INS: { name: 'พรบ. / กองทุนทดแทน', icon: '🚗', description: 'พรบ.คุ้มครองผู้ประสบภัยจากรถ และกองทุนเงินทดแทน' },
   FOREIGN_SELF: { name: 'ต่างด้าว / ชำระเอง', icon: '💵', description: 'แรงงานต่างด้าว ประกันสุขภาพต่างด้าว และชำระเงินเอง' },
-  OTHER: { name: 'สิทธิอื่นๆ', icon: '🏷️', description: 'ทหารผ่านศึก ผู้พิการ และกองทุนอื่นๆ' },
+  OTHER: { name: 'สิทธิอื่นๆ (ทหารผ่านศึก/คนพิการ/เฉพาะกิจ)', icon: '🏷️', description: 'สิทธิทหารผ่านศึก, ผู้พิการ, ชนกลุ่มน้อย, และสิทธิเฉพาะกิจที่ยังไม่แยกกองทุน' },
 };
 
 export interface MetricItem {
@@ -74,6 +74,24 @@ export interface MetricItem {
   reimbursedAmount: number;
   reimbursedCount: number;
   reimbursementRate: number;
+}
+
+export interface SubSchemeDetail {
+  name: string;
+  claimedAmount: number;
+  claimedCount: number;
+  reimbursedAmount: number;
+  reimbursedCount: number;
+  pendingCAmount: number;
+  pendingCCount: number;
+}
+
+export interface RightSchemeSummary extends MetricItem {
+  rightKey: RightSchemeKey;
+  rightName: string;
+  rightIcon: string;
+  rightDescription: string;
+  subSchemes: SubSchemeDetail[];
 }
 
 export interface ServiceCategorySummary extends MetricItem {
@@ -283,36 +301,104 @@ export function classifyRightScheme(
 ): RightSchemeKey {
   const main = String(maininscl || '').trim().toUpperCase();
   const sub = String(subinscl || '').trim().toUpperCase();
-  const rawStr = typeof rawData === 'string' ? rawData : JSON.stringify(rawData || '');
-  const combined = `${main} ${sub} ${filename || ''} ${rawStr}`.toUpperCase();
+  const fileStr = String(filename || '').trim().toUpperCase();
+  const rawStr = typeof rawData === 'string' ? rawData : JSON.stringify(rawData || {});
+  const combined = `${main} ${sub} ${fileStr} ${rawStr}`.toUpperCase();
 
-  // OFC (Civil Servant / Comptroller General)
-  if (main === 'OFC' || main === 'CS' || combined.includes('เบิกจ่ายตรง') || combined.includes('ข้าราชการ')) {
+  // 1. OFC (Civil Servant / Comptroller General / ข้าราชการเบิกตรง)
+  // รวมถึงระบบไต CHI / COCD / CSCD / CHIHD ของกรมบัญชีกลาง
+  if (
+    main === 'OFC' ||
+    main === 'CS' ||
+    main === 'CSCD' ||
+    main === 'CHIHD' ||
+    combined.includes('เบิกจ่ายตรง') ||
+    combined.includes('ข้าราชการ') ||
+    combined.includes('CSCD') ||
+    combined.includes('CHIHD') ||
+    combined.includes('COCD') ||
+    fileStr.includes('COCD') ||
+    fileStr.includes('CHIHD') ||
+    fileStr.includes('CHI_') ||
+    fileStr.includes('CSCD')
+  ) {
     return 'OFC';
   }
 
-  // LGO (Local Government Organization)
-  if (main === 'LGO' || main === 'BKK' || main === 'PTY' || combined.includes('อปท') || combined.includes('ท้องถิ่น') || combined.includes('LGO-HD')) {
+  // 2. LGO (Local Government Organization / อปท.)
+  // รวมถึง LGO-HD (ไตเทียม อปท.)
+  if (
+    main === 'LGO' ||
+    main === 'BKK' ||
+    main === 'PTY' ||
+    combined.includes('อปท') ||
+    combined.includes('ท้องถิ่น') ||
+    combined.includes('LGO-HD') ||
+    fileStr.includes('LGO-HD') ||
+    fileStr.includes('LGO_HD')
+  ) {
     return 'LGO';
   }
 
-  // SSS (Social Security Scheme)
-  if (main === 'SSS' || main === 'SS' || combined.includes('ประกันสังคม') || combined.includes('SOCD')) {
+  // 3. SSS (Social Security Scheme / ประกันสังคม)
+  // รวมถึง SOCD / SSS-HD (ไตเทียม ประกันสังคม)
+  if (
+    main === 'SSS' ||
+    main === 'SS' ||
+    main === 'SOCD' ||
+    combined.includes('ประกันสังคม') ||
+    combined.includes('SOCD') ||
+    combined.includes('SSS-HD') ||
+    fileStr.includes('SOCD') ||
+    fileStr.includes('SSS-HD')
+  ) {
     return 'SSS';
   }
 
-  // A9 / INS (Car Accident Protection ACT / Compensation Fund)
-  if (main === 'INS' || main === 'A9' || main === 'ACT' || combined.includes('พรบ') || combined.includes('พ.ร.บ.')) {
+  // 4. A9 / INS (Car Accident Protection ACT / Compensation Fund)
+  if (
+    main === 'INS' ||
+    main === 'A9' ||
+    main === 'ACT' ||
+    combined.includes('พรบ') ||
+    combined.includes('พ.ร.บ.') ||
+    combined.includes('กองทุนเงินทดแทน')
+  ) {
     return 'A9_INS';
   }
 
-  // Foreign / Self Pay
-  if (main === 'NRD' || main === 'A1' || main === 'CSH' || combined.includes('ต่างด้าว') || combined.includes('จ่ายเอง') || combined.includes('SELF')) {
+  // 5. Foreign / Self Pay (ต่างด้าว / ชำระเอง)
+  if (
+    main === 'NRD' ||
+    main === 'A1' ||
+    main === 'CSH' ||
+    combined.includes('ต่างด้าว') ||
+    combined.includes('จ่ายเอง') ||
+    combined.includes('ชำระเอง') ||
+    combined.includes('SELF')
+  ) {
     return 'FOREIGN_SELF';
   }
 
-  // UCS (Universal Coverage Scheme / Gold Card)
-  if (main === 'UCS' || main === 'WEL' || main === 'UC' || combined.includes('บัตรทอง') || combined.includes('หลักประกัน')) {
+  // 6. UCS (Universal Coverage Scheme / บัตรทอง สปสช.)
+  // รวมถึง:
+  // - DCKD (Statement ฟอกไต สปสช. เช่น DCKD6931...)
+  // - กองทุนไตเทียม HD ของ สปสช. (ถ้าไม่ระบุเป็นข้าราชการ/ประกันสังคม/อปท.)
+  // - e-Claim NHSO, WEL, UC, UCS
+  if (
+    main === 'UCS' ||
+    main === 'WEL' ||
+    main === 'UC' ||
+    combined.includes('บัตรทอง') ||
+    combined.includes('หลักประกัน') ||
+    fileStr.startsWith('DCKD') ||
+    fileStr.includes('DCKD') ||
+    combined.includes('DCKD') ||
+    main === 'HD' ||
+    combined.includes('ไตเทียม') ||
+    combined.includes('ฟอกเลือด') ||
+    combined.includes('NHSO')
+  ) {
     if (
       sub.includes('OUT') ||
       sub.includes('AE') ||
@@ -377,6 +463,50 @@ function emptyMetricItem(): MetricItem {
     reimbursementRate: 0,
   };
 }
+
+const SUB_SCHEME_FRIENDLY_NAMES: Record<string, string> = {
+  VET: 'VET (ทหารผ่านศึก)',
+  DIS: 'DIS (คนพิการ)',
+  FRG: 'FRG (แรงงานต่างด้าว)',
+  NRD: 'NRD (บุคคลที่ไม่มีสถานะทางทะเบียน / ชนกลุ่มน้อย)',
+  CSH: 'CSH (ชำระเงินเอง / เงินสด)',
+  UCS: 'UCS (สิทธิหลักประกันสุขภาพ)',
+  WEL: 'WEL (สิทธิสวัสดิการผู้มีรายได้น้อย)',
+  OFC: 'OFC (ข้าราชการ กรมบัญชีกลาง)',
+  LGO: 'LGO (ข้าราชการท้องถิ่น อปท.)',
+  SSS: 'SSS (ประกันสังคม)',
+  ACT: 'ACT (พ.ร.บ. คุ้มครองผู้ประสบภัยจากรถ)',
+  A9: 'A9 (กองทุนเงินทดแทน)',
+};
+
+/**
+ * Extract an informative sub-scheme name from statement/REP row metadata.
+ */
+export function extractSubSchemeName(row: any): string {
+  const sub = String(row.subinscl || '').trim();
+  const main = String(row.maininscl || '').trim();
+  const file = String(row.filename || '').trim();
+
+  let raw = '';
+  if (sub && sub !== '-' && sub !== '0' && sub !== 'NULL') {
+    raw = sub;
+  } else if (main && main !== '-' && main !== '0' && main !== 'NULL') {
+    raw = main;
+  } else if (file) {
+    const base = file.replace(/\.[^.]+$/, '').toUpperCase();
+    if (base.startsWith('DCKD')) return 'DCKD (ฟอกไต สปสช.)';
+    if (base.startsWith('COCD') || base.startsWith('CHIHD')) return 'CHI/COCD (ฟอกไต ข้าราชการ)';
+    if (base.startsWith('LGO-HD') || base.startsWith('LGO_HD')) return 'LGO-HD (ฟอกไต อปท.)';
+    if (base.startsWith('SOCD') || base.startsWith('SSS-HD')) return 'SOCD (ฟอกไต ประกันสังคม)';
+    return base.slice(0, 12);
+  } else {
+    return 'ไม่ระบุรหัสย่อย';
+  }
+
+  const upper = raw.toUpperCase();
+  return SUB_SCHEME_FRIENDLY_NAMES[upper] || raw;
+}
+
 
 /**
  * Main aggregator for Executive Monitor Dashboard.
@@ -515,8 +645,14 @@ export async function getExecutiveMonitorSummary(params: {
         rightName: RIGHT_SCHEME_LABELS[rk].name,
         rightIcon: RIGHT_SCHEME_LABELS[rk].icon,
         rightDescription: RIGHT_SCHEME_LABELS[rk].description,
+        subSchemes: [],
         ...emptyMetricItem(),
       };
+    }
+
+    const subSchemeMaps = new Map<RightSchemeKey, Map<string, SubSchemeDetail>>();
+    for (const rk of RIGHT_SCHEME_ORDER) {
+      subSchemeMaps.set(rk, new Map());
     }
 
     for (const sk of SERVICE_CATEGORY_ORDER) {
@@ -558,6 +694,7 @@ export async function getExecutiveMonitorSummary(params: {
     const visitAggregates = new Map<string, {
       serviceKey: ServiceCategoryKey;
       rightKey: RightSchemeKey;
+      subSchemeName: string;
       claimedAmount: number;
       reimbursedAmount: number;
       hasC: boolean;
@@ -597,6 +734,7 @@ export async function getExecutiveMonitorSummary(params: {
         agg = {
           serviceKey: sKey,
           rightKey: rKey,
+          subSchemeName: extractSubSchemeName(row),
           claimedAmount: claimed,
           reimbursedAmount: paid,
           hasC: cFlag,
@@ -705,6 +843,32 @@ export async function getExecutiveMonitorSummary(params: {
         rItem.reimbursedCount += 1;
       }
 
+      // Sub-schemes roll-up
+      const subMap = subSchemeMaps.get(rk)!;
+      let subDetail = subMap.get(agg.subSchemeName);
+      if (!subDetail) {
+        subDetail = {
+          name: agg.subSchemeName,
+          claimedAmount: 0,
+          claimedCount: 0,
+          reimbursedAmount: 0,
+          reimbursedCount: 0,
+          pendingCAmount: 0,
+          pendingCCount: 0,
+        };
+        subMap.set(agg.subSchemeName, subDetail);
+      }
+      subDetail.claimedAmount += claimed;
+      subDetail.claimedCount += 1;
+      if (agg.hasC) {
+        subDetail.pendingCAmount += cAmount;
+        subDetail.pendingCCount += 1;
+      }
+      if (reimbursed > 0) {
+        subDetail.reimbursedAmount += reimbursed;
+        subDetail.reimbursedCount += 1;
+      }
+
       // Hospital Overall
       totalClaimedAmount += claimed;
       totalClaimedCount += 1;
@@ -716,6 +880,17 @@ export async function getExecutiveMonitorSummary(params: {
         totalReimbursedAmount += reimbursed;
         totalReimbursedCount += 1;
       }
+    }
+
+    for (const rk of RIGHT_SCHEME_ORDER) {
+      byRight[rk].subSchemes = Array.from(subSchemeMaps.get(rk)!.values())
+        .map(s => ({
+          ...s,
+          claimedAmount: Math.round(s.claimedAmount * 100) / 100,
+          reimbursedAmount: Math.round(s.reimbursedAmount * 100) / 100,
+          pendingCAmount: Math.round(s.pendingCAmount * 100) / 100,
+        }))
+        .sort((a, b) => b.claimedAmount - a.claimedAmount);
     }
 
     // 5. Integrate SMT / e-Budget transfers

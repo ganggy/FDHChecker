@@ -9,6 +9,7 @@ import {
   RIGHT_SCHEME_LABELS,
   SERVICE_CATEGORY_ORDER,
   RIGHT_SCHEME_ORDER,
+  extractSubSchemeName,
 } from './executiveMonitorService.js';
 
 test('SERVICE_CATEGORY_LABELS contains all 8 expected hospital service types', () => {
@@ -91,6 +92,17 @@ test('classifyRightScheme accurately identifies coverage schemes', () => {
   assert.equal(classifyRightScheme('UCS', 'OUT', null, null), 'UCS_OUTCUP');
   assert.equal(classifyRightScheme('UCS', 'WALKIN', null, null), 'UCS_OUTCUP');
   assert.equal(classifyRightScheme('UCS', null, null, { note: 'บริการปฐมภูมิไปที่ไหนก็ได้ นอกเขต' }), 'UCS_OUTCUP');
+
+  // Hemodialysis Statements mapped to actual rights
+  assert.equal(classifyRightScheme(null, null, 'DCKD6701.stm', null), 'UCS_INCUP');
+  assert.equal(classifyRightScheme(null, null, 'COCD6701.stm', null), 'OFC');
+  assert.equal(classifyRightScheme(null, null, 'CHIHD6701.stm', null), 'OFC');
+  assert.equal(classifyRightScheme(null, null, 'LGO-HD-6701.stm', null), 'LGO');
+  assert.equal(classifyRightScheme(null, null, 'SOCD6701.stm', null), 'SSS');
+
+  // Other Rights (ทหารผ่านศึก / ผู้พิการ / ชนกลุ่มน้อย)
+  assert.equal(classifyRightScheme('VET', null, null, null), 'OTHER');
+  assert.equal(classifyRightScheme('DIS', null, null, null), 'OTHER');
 });
 
 test('isCCode correctly identifies C-codes, Denials, and Reject codes', () => {
@@ -115,3 +127,13 @@ test('mapSmtFundToServiceCategory maps SMT budget funds to service categories', 
   assert.equal(mapSmtFundToServiceCategory('งบเหมาจ่ายรายหัว OP'), 'OPD');
   assert.equal(mapSmtFundToServiceCategory('กองทุนเฉพาะอื่นๆ'), 'OTHER');
 });
+
+test('extractSubSchemeName extracts descriptive sub-scheme or statement origin', () => {
+  assert.equal(extractSubSchemeName({ subinscl: 'VET' }), 'VET (ทหารผ่านศึก)');
+  assert.equal(extractSubSchemeName({ subinscl: 'DIS' }), 'DIS (คนพิการ)');
+  assert.equal(extractSubSchemeName({ maininscl: 'OFC' }), 'OFC (ข้าราชการ กรมบัญชีกลาง)');
+  assert.equal(extractSubSchemeName({ filename: 'DCKD6701.stm' }), 'DCKD (ฟอกไต สปสช.)');
+  assert.equal(extractSubSchemeName({ filename: 'CHIHD6701.stm' }), 'CHI/COCD (ฟอกไต ข้าราชการ)');
+  assert.equal(extractSubSchemeName({ filename: 'LGO-HD-6701.stm' }), 'LGO-HD (ฟอกไต อปท.)');
+});
+

@@ -27,11 +27,22 @@ export interface ServiceCategorySummary extends MetricItem {
   }>;
 }
 
+export interface SubSchemeDetail {
+  name: string;
+  claimedAmount: number;
+  claimedCount: number;
+  reimbursedAmount: number;
+  reimbursedCount: number;
+  pendingCAmount: number;
+  pendingCCount: number;
+}
+
 export interface RightSchemeSummary extends MetricItem {
   rightKey: string;
   rightName: string;
   rightIcon: string;
   rightDescription: string;
+  subSchemes?: SubSchemeDetail[];
 }
 
 export interface SmtBudgetComparison {
@@ -120,6 +131,7 @@ export const ExecutiveMonitorPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ExecutiveMonitorResult | null>(null);
+  const [selectedSubSchemeRight, setSelectedSubSchemeRight] = useState<RightSchemeSummary | null>(null);
   const [filterOptions, setFilterOptions] = useState<{
     budgetYears: string[];
     serviceCategories: Array<{ key: string; name: string; icon: string }>;
@@ -305,6 +317,46 @@ export const ExecutiveMonitorPage: React.FC = () => {
       }));
       const wsC = XLSX.utils.json_to_sheet(cRows);
       XLSX.utils.book_append_sheet(wb, wsC, 'วิเคราะห์รหัสติด_C');
+    }
+
+    // Sheet 6: Sub-schemes Breakdown
+    const subSchemeRows: Array<{
+      สิทธิหลัก: string;
+      สิทธิย่อย: string;
+      ยอดส่งเบิก_บาท: number;
+      จำนวน_Visit_ส่งเบิก: number;
+      ยอดติด_C_บาท: number;
+      จำนวน_Visit_ติด_C: number;
+      ชดเชยแล้ว_STM_บาท: number;
+      จำนวน_Visit_ชดเชย: number;
+      อัตราการชดเชย_เปอร์เซ็นต์: number;
+    }> = [];
+
+    for (const rk of Object.keys(data.byRight)) {
+      const right = data.byRight[rk];
+      if (right.subSchemes && right.subSchemes.length > 0) {
+        for (const sub of right.subSchemes) {
+          const rate = sub.claimedAmount > 0
+            ? Math.round((sub.reimbursedAmount / sub.claimedAmount) * 10000) / 100
+            : 0;
+          subSchemeRows.push({
+            สิทธิหลัก: right.rightName,
+            สิทธิย่อย: sub.name,
+            ยอดส่งเบิก_บาท: sub.claimedAmount,
+            จำนวน_Visit_ส่งเบิก: sub.claimedCount,
+            ยอดติด_C_บาท: sub.pendingCAmount,
+            จำนวน_Visit_ติด_C: sub.pendingCCount,
+            ชดเชยแล้ว_STM_บาท: sub.reimbursedAmount,
+            จำนวน_Visit_ชดเชย: sub.reimbursedCount,
+            อัตราการชดเชย_เปอร์เซ็นต์: rate,
+          });
+        }
+      }
+    }
+
+    if (subSchemeRows.length > 0) {
+      const wsSub = XLSX.utils.json_to_sheet(subSchemeRows);
+      XLSX.utils.book_append_sheet(wb, wsSub, 'สิทธิย่อยและกองทุน');
     }
 
     XLSX.writeFile(wb, `Executive_Monitor_FY${data.period.budgetYear}_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -708,7 +760,21 @@ export const ExecutiveMonitorPage: React.FC = () => {
                       return (
                         <tr key={rk}>
                           <td style={{ fontWeight: 600 }}>
-                            {rightItem?.rightIcon} {rightItem?.rightName}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                              <span>
+                                {rightItem?.rightIcon} {rightItem?.rightName}
+                              </span>
+                              {rightItem?.subSchemes && rightItem.subSchemes.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="subscheme-btn"
+                                  onClick={() => setSelectedSubSchemeRight(rightItem)}
+                                  title={`คลิกเพื่อดูสิทธิย่อย/กองทุน (${rightItem.subSchemes.length} กลุ่ม)`}
+                                >
+                                  🔍 {rightItem.subSchemes.length} ย่อย
+                                </button>
+                              )}
+                            </div>
                           </td>
                           {serviceKeys.map((sk) => {
                             const cell = data.matrix[rk]?.[sk];
@@ -1349,6 +1415,92 @@ export const ExecutiveMonitorPage: React.FC = () => {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Sub-schemes Modal */}
+          {selectedSubSchemeRight && (
+            <div className="subscheme-modal-backdrop" onClick={() => setSelectedSubSchemeRight(null)}>
+              <div className="subscheme-modal-card" onClick={(e) => e.stopPropagation()}>
+                <div className="subscheme-modal-header">
+                  <div>
+                    <h3>
+                      {selectedSubSchemeRight.rightIcon} รายละเอียดสิทธิย่อย: {selectedSubSchemeRight.rightName}
+                    </h3>
+                    <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                      {selectedSubSchemeRight.rightDescription}
+                    </p>
+                  </div>
+                  <button
+                    className="modal-close-btn"
+                    onClick={() => setSelectedSubSchemeRight(null)}
+                    title="ปิดหน้าต่าง"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="table-responsive" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+                  <table className="exec-table">
+                    <thead>
+                      <tr>
+                        <th>ชื่อสิทธิย่อย / กองทุน</th>
+                        <th className="text-right">ส่งเบิก (฿)</th>
+                        <th className="text-right">จำนวน Visit</th>
+                        <th className="text-right">ติด C (฿)</th>
+                        <th className="text-right">Visit ติด C</th>
+                        <th className="text-right">ชดเชยแล้ว (฿)</th>
+                        <th className="text-right">Visit ชดเชย</th>
+                        <th className="text-right">อัตราชดเชย (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedSubSchemeRight.subSchemes && selectedSubSchemeRight.subSchemes.length > 0 ? (
+                        selectedSubSchemeRight.subSchemes.map((sub, idx) => {
+                          const rate = sub.claimedAmount > 0
+                            ? Math.round((sub.reimbursedAmount / sub.claimedAmount) * 10000) / 100
+                            : 0;
+                          return (
+                            <tr key={idx}>
+                              <td style={{ fontWeight: 600 }}>{sub.name}</td>
+                              <td className="text-right">฿{formatCurrency(sub.claimedAmount)}</td>
+                              <td className="text-right">{formatNumber(sub.claimedCount)}</td>
+                              <td className={`text-right ${sub.pendingCAmount > 0 ? 'highlight-warn' : ''}`}>
+                                ฿{formatCurrency(sub.pendingCAmount)}
+                              </td>
+                              <td className="text-right">{formatNumber(sub.pendingCCount)}</td>
+                              <td className={`text-right ${sub.reimbursedAmount > 0 ? 'highlight-good' : ''}`}>
+                                ฿{formatCurrency(sub.reimbursedAmount)}
+                              </td>
+                              <td className="text-right">{formatNumber(sub.reimbursedCount)}</td>
+                              <td className="text-right">
+                                <span className={rate >= 80 ? 'highlight-good' : rate < 50 ? 'highlight-alert' : ''}>
+                                  {rate}%
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={8} className="text-center" style={{ color: '#64748b', padding: '2rem' }}>
+                            ไม่พบข้อมูลสิทธิย่อย
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                  <button
+                    className="btn-filter reset"
+                    onClick={() => setSelectedSubSchemeRight(null)}
+                  >
+                    ปิดหน้าต่าง
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </>

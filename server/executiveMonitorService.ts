@@ -214,8 +214,55 @@ export function classifyServiceCategory(
   filename?: string | null,
   rawData?: Record<string, unknown> | string | null
 ): ServiceCategoryKey {
-  const rawStr = typeof rawData === 'string' ? rawData : JSON.stringify(rawData || {});
-  const combinedText = `${patientType || ''} ${department || ''} ${filename || ''} ${rawStr}`.toLowerCase();
+  let rawMeta = '';
+  let rawObj: any = null;
+  if (typeof rawData === 'string') {
+    try {
+      rawObj = JSON.parse(rawData);
+    } catch {
+      rawMeta = rawData.slice(0, 200);
+    }
+  } else if (rawData && typeof rawData === 'object') {
+    rawObj = rawData;
+  }
+
+  if (rawObj && typeof rawObj === 'object') {
+    const parts: string[] = [];
+    for (const [k, v] of Object.entries(rawObj)) {
+      if (v === null || v === undefined) continue;
+      const keyUpper = k.toUpperCase().trim();
+      const valStr = String(v).trim();
+
+      // If it's a standard e-Claim column header where '-' or '0' means absent
+      if (['DENT', 'OTHERS', 'AE', 'INST', 'IP', 'DMIS', 'DRUG', 'FS'].includes(keyUpper)) {
+        if (!valStr || valStr === '-' || valStr === '0' || valStr === '0.00') {
+          continue; // Skip this header completely so regex won't match 'dent' or 'others'
+        }
+        if (keyUpper === 'DENT') {
+          parts.push('ทันตกรรม dental');
+        } else if (keyUpper === 'OTHERS') {
+          parts.push('บริการอื่นๆ');
+        } else {
+          parts.push(`${k} ${valStr}`);
+        }
+        continue;
+      }
+
+      // Special check for DMISHD or HD
+      if (['DMISHD', 'HD'].includes(keyUpper)) {
+        if (valStr && valStr !== '-' && valStr !== '0' && valStr !== '0.00') {
+          parts.push('ฟอกไต dialysis');
+        }
+        continue;
+      }
+
+      // For all other fields (clinical columns, Thai headers, Diag, Proc, Projcode, etc.)
+      parts.push(`${k} ${valStr}`);
+    }
+    rawMeta = parts.join(' ');
+  }
+
+  const combinedText = `${patientType || ''} ${department || ''} ${filename || ''} ${rawMeta}`.toLowerCase();
 
   // 1. Dialysis / Hemodialysis
   if (

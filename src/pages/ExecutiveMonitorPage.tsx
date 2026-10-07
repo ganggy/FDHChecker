@@ -142,13 +142,25 @@ const formatNumber = (val: number | undefined | null) =>
 export const ExecutiveMonitorPage: React.FC = () => {
   const currentYearBE = new Date().getFullYear() + 543;
   const defaultBudgetYear = String(new Date().getMonth() >= 9 ? currentYearBE + 1 : currentYearBE);
+  const defByNum = parseInt(defaultBudgetYear, 10);
+  const defaultStartDate = `${defByNum - 543 - 1}-10-01`;
+  const defaultEndDate = `${defByNum - 543}-09-30`;
 
   const [budgetYear, setBudgetYear] = useState<string>(defaultBudgetYear);
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>(defaultStartDate);
+  const [endDate, setEndDate] = useState<string>(defaultEndDate);
   const [selectedService, setSelectedService] = useState<string>('ALL');
   const [selectedRight, setSelectedRight] = useState<string>('ALL');
   const [activePreset, setActivePreset] = useState<string>('fy_current');
+
+  const pastFiscalYears = useMemo(() => {
+    if (isNaN(defByNum)) return ['2569', '2568', '2567'];
+    return [
+      String(defByNum - 1),
+      String(defByNum - 2),
+      String(defByNum - 3),
+    ];
+  }, [defByNum]);
 
   const [activeTab, setActiveTab] = useState<'matrix' | 'services' | 'smt' | 'top_c'>('matrix');
   const [matrixMetricMode, setMatrixMetricMode] = useState<'claimed' | 'c_code' | 'reimbursed' | 'rate'>('claimed');
@@ -175,6 +187,31 @@ export const ExecutiveMonitorPage: React.FC = () => {
       })
       .catch((err) => console.error('Failed to load filter options:', err));
   }, []);
+
+  // Budget Year Change Handler: Syncs dates to exact fiscal year bounds
+  const handleBudgetYearChange = (newYear: string) => {
+    setBudgetYear(newYear);
+    if (newYear.toUpperCase() === 'ALL') {
+      setStartDate('');
+      setEndDate('');
+      setActivePreset('all_time');
+      return;
+    }
+    const byNum = parseInt(newYear, 10);
+    if (!isNaN(byNum) && byNum > 2400) {
+      const startAd = byNum - 543 - 1;
+      const endAd = byNum - 543;
+      setStartDate(`${startAd}-10-01`);
+      setEndDate(`${endAd}-09-30`);
+      if (newYear === defaultBudgetYear) {
+        setActivePreset('fy_current');
+      } else {
+        setActivePreset(`fy_${newYear}`);
+      }
+    } else {
+      setActivePreset('custom');
+    }
+  };
 
   // Fetch summary data
   const fetchData = async () => {
@@ -215,31 +252,28 @@ export const ExecutiveMonitorPage: React.FC = () => {
     const todayStr = `${yyyy}-${mm}-${dd}`;
 
     if (preset === 'this_month') {
+      const m = today.getMonth();
+      const byForMonth = String(yyyy + 543 + (m >= 9 ? 1 : 0));
       setStartDate(`${yyyy}-${mm}-01`);
       setEndDate(todayStr);
+      setBudgetYear(byForMonth);
     } else if (preset === 'this_quarter') {
-      const quarterStartMonth = Math.floor(today.getMonth() / 3) * 3 + 1;
+      const m = today.getMonth();
+      const byForQuarter = String(yyyy + 543 + (m >= 9 ? 1 : 0));
+      const quarterStartMonth = Math.floor(m / 3) * 3 + 1;
       const qMonthStr = String(quarterStartMonth).padStart(2, '0');
       setStartDate(`${yyyy}-${qMonthStr}-01`);
       setEndDate(todayStr);
-    } else if (preset === 'fy_2568') {
-      setStartDate('2024-10-01');
-      setEndDate('2025-09-30');
-      setBudgetYear('2568');
-    } else if (preset === 'fy_2567') {
-      setStartDate('2023-10-01');
-      setEndDate('2024-09-30');
-      setBudgetYear('2567');
+      setBudgetYear(byForQuarter);
     } else if (preset === 'all_time') {
       setStartDate('');
       setEndDate('');
+      setBudgetYear('ALL');
     } else if (preset === 'fy_current') {
-      const isPastOct = today.getMonth() >= 9;
-      const startYear = isPastOct ? yyyy : yyyy - 1;
-      const endYear = isPastOct ? yyyy + 1 : yyyy;
-      setStartDate(`${startYear}-10-01`);
-      setEndDate(`${endYear}-09-30`);
-      setBudgetYear(defaultBudgetYear);
+      handleBudgetYearChange(defaultBudgetYear);
+    } else if (preset.startsWith('fy_')) {
+      const targetYear = preset.replace('fy_', '');
+      handleBudgetYearChange(targetYear);
     }
   };
 
@@ -470,18 +504,15 @@ export const ExecutiveMonitorPage: React.FC = () => {
           >
             ไตรมาสล่าสุด
           </button>
-          <button
-            className={`btn-preset ${activePreset === 'fy_2568' ? 'active' : ''}`}
-            onClick={() => handlePreset('fy_2568')}
-          >
-            ปีงบ 2568
-          </button>
-          <button
-            className={`btn-preset ${activePreset === 'fy_2567' ? 'active' : ''}`}
-            onClick={() => handlePreset('fy_2567')}
-          >
-            ปีงบ 2567
-          </button>
+          {pastFiscalYears.map((fy) => (
+            <button
+              key={fy}
+              className={`btn-preset ${activePreset === `fy_${fy}` ? 'active' : ''}`}
+              onClick={() => handlePreset(`fy_${fy}`)}
+            >
+              ปีงบ {fy}
+            </button>
+          ))}
           <button
             className={`btn-preset ${activePreset === 'all_time' ? 'active' : ''}`}
             onClick={() => handlePreset('all_time')}
@@ -495,10 +526,7 @@ export const ExecutiveMonitorPage: React.FC = () => {
             <label>ปีงบประมาณ e-Budget (SMT)</label>
             <select
               value={budgetYear}
-              onChange={(e) => {
-                setBudgetYear(e.target.value);
-                setActivePreset('custom');
-              }}
+              onChange={(e) => handleBudgetYearChange(e.target.value)}
             >
               {filterOptions?.budgetYears ? (
                 filterOptions.budgetYears.map((y) => (
@@ -522,8 +550,18 @@ export const ExecutiveMonitorPage: React.FC = () => {
               type="date"
               value={startDate}
               onChange={(e) => {
-                setStartDate(e.target.value);
+                const newStart = e.target.value;
+                setStartDate(newStart);
                 setActivePreset('custom');
+                if (newStart) {
+                  const [yStr, mStr] = newStart.split('-');
+                  const yNum = parseInt(yStr, 10);
+                  const mNum = parseInt(mStr, 10);
+                  if (!isNaN(yNum) && !isNaN(mNum)) {
+                    const derivedBy = String(yNum + 543 + (mNum >= 10 ? 1 : 0));
+                    setBudgetYear(derivedBy);
+                  }
+                }
               }}
             />
           </div>

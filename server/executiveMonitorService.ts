@@ -834,6 +834,19 @@ export async function getExecutiveMonitorSummary(params: {
   const currentThaiYear = String(now.getFullYear() + 543 + (now.getMonth() >= 9 ? 1 : 0));
   const budgetYear = params.budgetYear && params.budgetYear.trim() !== '' ? params.budgetYear.trim() : currentThaiYear;
 
+  const isAllYears = budgetYear.toUpperCase() === 'ALL';
+  let effectiveStartDate = params.startDate;
+  let effectiveEndDate = params.endDate;
+  if (!effectiveStartDate || !effectiveEndDate) {
+    if (!isAllYears) {
+      const by = parseInt(budgetYear, 10);
+      if (!isNaN(by) && by > 2500) {
+        effectiveStartDate = `${by - 543 - 1}-10-01`;
+        effectiveEndDate = `${by - 543}-09-30`;
+      }
+    }
+  }
+
   const repConn = await getRepstmConnection();
 
   // Preload HOSxP clinical data: dental registry and total hospital visits
@@ -843,16 +856,16 @@ export async function getExecutiveMonitorSummary(params: {
     const hosConn = await getUTFConnection();
     try {
       const [dtRows] = await hosConn.query(
-        params.startDate && params.endDate
+        effectiveStartDate && effectiveEndDate
           ? `SELECT DISTINCT vn FROM dtmain WHERE vn IS NOT NULL AND vstdate >= ? AND vstdate <= ?`
           : `SELECT DISTINCT vn FROM dtmain WHERE vn IS NOT NULL`,
-        params.startDate && params.endDate ? [params.startDate, params.endDate] : []
+        effectiveStartDate && effectiveEndDate ? [effectiveStartDate, effectiveEndDate] : []
       );
       dentalVnSet = new Set((dtRows as any[]).map(r => String(r.vn)));
 
       hospitalVisits = await getHospitalVisits(hosConn, {
-        startDate: params.startDate,
-        endDate: params.endDate,
+        startDate: effectiveStartDate,
+        endDate: effectiveEndDate,
         budgetYear,
         serviceCategory: params.serviceCategory,
         rightScheme: params.rightScheme,
@@ -866,12 +879,11 @@ export async function getExecutiveMonitorSummary(params: {
 
   try {
     // 1. Fetch SMT transfers for the budget year
-    const [smtRowsRaw] = await repConn.query(
-      `SELECT * FROM smt_budget_transfers
-       WHERE budget_year = ?
-       ORDER BY run_date DESC, id DESC`,
-      [budgetYear]
-    );
+    const smtQuery = isAllYears
+      ? `SELECT * FROM smt_budget_transfers ORDER BY run_date DESC, id DESC`
+      : `SELECT * FROM smt_budget_transfers WHERE budget_year = ? ORDER BY run_date DESC, id DESC`;
+    const smtParams = isAllYears ? [] : [budgetYear];
+    const [smtRowsRaw] = await repConn.query(smtQuery, smtParams);
     const smtRows = (smtRowsRaw as any[]) || [];
 
     // 2. Fetch Statement data (both STM and REP)
@@ -881,14 +893,14 @@ export async function getExecutiveMonitorSummary(params: {
     )`;
     const statementQueryParams: unknown[] = [];
 
-    if (params.startDate && params.endDate) {
+    if (effectiveStartDate && effectiveEndDate) {
       statementWhere += ` AND (
         (service_datetime >= ? AND service_datetime <= ?)
         OR (senddate >= ? AND senddate <= ?)
         OR (created_at >= ? AND created_at <= ?)
       )`;
-      const startDateTime = `${params.startDate} 00:00:00`;
-      const endDateTime = `${params.endDate} 23:59:59`;
+      const startDateTime = `${effectiveStartDate} 00:00:00`;
+      const endDateTime = `${effectiveEndDate} 23:59:59`;
       statementQueryParams.push(startDateTime, endDateTime, startDateTime, endDateTime, startDateTime, endDateTime);
     }
 
@@ -925,14 +937,14 @@ export async function getExecutiveMonitorSummary(params: {
     // Also check rep_data for any REP rows that may exist only in rep_data table
     let repDataWhere = 'WHERE 1=1';
     const repDataQueryParams: unknown[] = [];
-    if (params.startDate && params.endDate) {
+    if (effectiveStartDate && effectiveEndDate) {
       repDataWhere += ` AND (
         (admdate >= ? AND admdate <= ?)
         OR (senddate >= ? AND senddate <= ?)
         OR (created_at >= ? AND created_at <= ?)
       )`;
-      const startDateTime = `${params.startDate} 00:00:00`;
-      const endDateTime = `${params.endDate} 23:59:59`;
+      const startDateTime = `${effectiveStartDate} 00:00:00`;
+      const endDateTime = `${effectiveEndDate} 23:59:59`;
       repDataQueryParams.push(startDateTime, endDateTime, startDateTime, endDateTime, startDateTime, endDateTime);
     }
 
@@ -1446,8 +1458,8 @@ export async function getExecutiveMonitorSummary(params: {
 
     return {
       period: {
-        startDate: params.startDate,
-        endDate: params.endDate,
+        startDate: effectiveStartDate,
+        endDate: effectiveEndDate,
         budgetYear,
       },
       summary: {

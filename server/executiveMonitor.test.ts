@@ -164,3 +164,11 @@ test('ExecutivePipelineMetrics calculates submission, reimbursement, and denial 
   assert.equal(denialAmountRate, 5.0);
 });
 
+test('Fiscal year boundaries are accurately calculated from budget year', () => {
+  const by = 2569;
+  const startAd = by - 543 - 1;
+  const endAd = by - 543;
+  assert.equal(`${startAd}-10-01`, '2025-10-01');
+  assert.equal(`${endAd}-09-30`, '2026-09-30');
+});
+

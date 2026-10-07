@@ -1,6 +1,7 @@
 import { getRepstmConnection, getUTFConnection } from './db/connection.js';
 import { ensureRepstmTables } from './db/schema.js';
 import { loadErrorCatalog } from './aiErrorTools.js';
+import { parseFlexibleDateTime } from './utils/dataNormalization.js';
 
 export type ServiceCategoryKey =
   | 'OPD'
@@ -342,23 +343,38 @@ export function classifyServiceCategory(
     return 'PPFS';
   }
 
-  // 6. IPD: has AN or department IP or patientType IP or filename indicates IP
+  // 6. IPD / OPD Classification based on explicit indicators
   const fileText = String(filename || '').toUpperCase();
-  if (
-    (an && String(an).trim() !== '' && String(an).trim() !== '0') ||
-    department === 'IP' ||
-    department === 'IPD' ||
-    (patientType && (patientType.toUpperCase().includes('IP') || patientType.includes('ใน'))) ||
-    fileText.includes('_IP_') ||
-    fileText.includes(' IP ') ||
-    fileText.includes(' IP_') ||
-    fileText.includes('_IP.') ||
-    fileText.includes('IPUCS') ||
-    fileText.includes('IPBKK') ||
-    fileText.includes('IPLGO') ||
-    fileText.includes('IPCS') ||
-    fileText.includes('FOCD')
-  ) {
+  const rawText = rawMeta.toUpperCase();
+
+  const isExplicitOp = (
+    /(?:^|[_\s.-])OP(?:UCS|LGO|BKK|CS)?(?=[\d_\s.-]|$)/i.test(fileText) ||
+    fileText.includes('OPUCS') || fileText.includes('OPLGO') || fileText.includes('OPBKK') || fileText.includes('OPCS') ||
+    fileText.includes(' 1 OP') || fileText.includes(' 2 OP') || fileText.includes('(ข้อมูลปกติ) OP') ||
+    department === 'OP' || department === 'OPD' ||
+    (patientType && (patientType.toUpperCase().includes('OP') || patientType.includes('นอก'))) ||
+    rawText.includes('พึงรับ OP')
+  );
+
+  const isExplicitIp = (
+    /(?:^|[_\s.-])IP(?:UCS|LGO|BKK|CS)?(?=[\d_\s.-]|$)/i.test(fileText) ||
+    fileText.includes('IPUCS') || fileText.includes('IPLGO') || fileText.includes('IPBKK') || fileText.includes('IPCS') ||
+    fileText.includes('FOCD') || fileText.includes('_IP_') || fileText.includes(' IP ') || fileText.includes(' IP_') || fileText.includes('_IP.') ||
+    department === 'IPD' || (patientType && (patientType.toUpperCase().includes('IP') || patientType.includes('ใน')))
+  );
+
+  // If explicit OP and not explicit IP, it is definitely OPD
+  if (isExplicitOp && !isExplicitIp) {
+    return 'OPD';
+  }
+
+  // Real AN check: AN is typically a 9-digit year-based admission number (e.g. 67xxxxxxx, 68xxxxxxx, 69xxxxxxx)
+  // whereas NHSO TRAN_ID is 57xxxxxxx, 58xxxxxxx, etc.
+  const cleanAn = String(an || '').trim();
+  const isLikelyTranId = /^5\d{8}$/.test(cleanAn);
+  const hasValidAn = cleanAn !== '' && cleanAn !== '0' && !isLikelyTranId;
+
+  if (isExplicitIp || (hasValidAn && !isExplicitOp) || (department === 'IP' && !isExplicitOp)) {
     return 'IPD';
   }
 
@@ -367,12 +383,7 @@ export function classifyServiceCategory(
     department === 'OP' ||
     department === 'OPD' ||
     (patientType && (patientType.toUpperCase().includes('OP') || patientType.includes('นอก'))) ||
-    fileText.includes('_OP_') ||
-    fileText.includes(' OP ') ||
-    fileText.includes('OPUCS') ||
-    fileText.includes('OPBKK') ||
-    fileText.includes('OPLGO') ||
-    fileText.includes('OPCS')
+    isExplicitOp
   ) {
     return 'OPD';
   }
@@ -1073,6 +1084,31 @@ export async function getExecutiveMonitorSummary(params: {
         }
       }
 
+      // Extract or derive real clinical service date
+      let rowDate = row.service_date || '';
+      if (!rowDate && rawObj) {
+        const rawDateStr = rawObj['วันเข้ารักษา'] || rawObj['วันที่รับบริการ'] || rawObj['วันที่'] || rawObj['DATE_SERV'] || rawObj['vstdate'] || rawObj['dateadm'] || '';
+        const parsed = parseFlexibleDateTime(rawDateStr);
+        if (parsed) rowDate = parsed.slice(0, 10);
+      }
+      if (!rowDate && row.send_date) {
+        rowDate = row.send_date;
+      }
+      if (!rowDate && row.filename) {
+        const m = String(row.filename).match(/25(\d{2})(\d{2})/);
+        if (m) {
+          const beYear = parseInt(`25${m[1]}`, 10);
+          const month = m[2];
+          const ceYear = beYear - 543;
+          rowDate = `${ceYear}-${month}-15`;
+        }
+      }
+
+      // If user filtered by a specific date range / fiscal year, ensure the row's service date matches
+      if (effectiveStartDate && effectiveEndDate && rowDate) {
+        if (rowDate < effectiveStartDate || rowDate > effectiveEndDate) return;
+      }
+
       const vn = String(row.vn || rawObj?.['SEQ NO'] || rawObj?.vn || rawObj?.VN || '').trim();
       const isDental = vn !== '' && dentalVnSet.has(vn);
 
@@ -1103,15 +1139,19 @@ export async function getExecutiveMonitorSummary(params: {
 
       // Key by vn/an or tran_id or id with cross-referencing between tables
       const tranId = (row.tran_id && String(row.tran_id).trim() !== '') ? String(row.tran_id).trim() : null;
+      const cleanAn = String(row.an || '').trim();
+      const isLikelyTranId = /^5\d{8}$/.test(cleanAn);
+      const hasRealAn = cleanAn !== '' && cleanAn !== '0' && !isLikelyTranId;
+
       let visitKey = '';
       if (tranId && tranIdToVisitKey.has(tranId)) {
         visitKey = tranIdToVisitKey.get(tranId)!;
-      } else if (row.an && String(row.an).trim() !== '' && String(row.an) !== '0' && (row.patient_type === 'IP' || row.department === 'IP' || !/^\d{9}$/.test(String(row.an)))) {
-        visitKey = 'AN_' + String(row.an).trim();
+      } else if (hasRealAn && (row.patient_type === 'IP' || sKey === 'IPD')) {
+        visitKey = 'AN_' + cleanAn;
       } else if (vn) {
         visitKey = 'VN_' + vn;
-      } else if (tranId) {
-        visitKey = 'TRAN_' + tranId;
+      } else if (tranId || isLikelyTranId) {
+        visitKey = 'TRAN_' + (tranId || cleanAn);
       } else {
         visitKey = 'ID_' + (row.data_type || '') + '_' + row.id;
       }

@@ -58,10 +58,15 @@ test('classifyServiceCategory accurately identifies specialized services', () =>
   assert.equal(classifyServiceCategory('IPD', null, '67000123', null, null), 'IPD');
   assert.equal(classifyServiceCategory('ผู้ป่วยใน', null, null, null, null), 'IPD');
   assert.equal(classifyServiceCategory(null, 'IP', null, null, null), 'IPD');
+  assert.equal(classifyServiceCategory(null, null, null, 'STM_11101_IPUCS256901_02.XLS', null), 'IPD');
 
   // OPD
   assert.equal(classifyServiceCategory('OPD', 'OP', null, null, null), 'OPD');
   assert.equal(classifyServiceCategory('ผู้ป่วยนอก', null, null, null, null), 'OPD');
+  // OPUCS statement files must NEVER be classified as IPD even if AN has a TRAN_ID or department is IP
+  assert.equal(classifyServiceCategory(null, 'IP', '579134327', 'STM_11101_OPUCS256901_02.XLS', { 'พึงรับ OP': '150.00' }), 'OPD');
+  assert.equal(classifyServiceCategory(null, null, '579134327', 'STM_11101_OPLGO256801_02.XLS', null), 'OPD');
+  assert.equal(classifyServiceCategory(null, null, null, 'STM_11101_OPUCS256803_02.XLS [ รายละเอียด(ข้อมูลปกติ) 1 OP]', null), 'OPD');
 });
 
 test('classifyRightScheme accurately identifies coverage schemes', () => {

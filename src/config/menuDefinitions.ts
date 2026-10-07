@@ -50,6 +50,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'repDailySummary', icon: '📊', label: 'สรุป REP รายวัน' },
   { page: 'ppfsBenchmark', icon: '📈', label: 'เทียบยอดจัดสรร PPFS' },
   { page: 'ppfsVisitMatch', icon: '🔎', label: 'จับคู่บริการ PPFS' },
+  { page: 'executiveMonitor', icon: '🏛️', label: 'มอนิเตอร์ผู้บริหาร (สิทธิ x บริการ)' },
   { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกันสุขภาพ' },
   { page: 'accountingRevenueBudget', icon: '🧮', label: 'รายงานบัญชี / ประมาณการรายได้' },
   { page: 'smtBudget', icon: '🏦', label: 'ตัดลูกหนี้ SMT / e-Budget' },
@@ -79,7 +80,7 @@ export const toolNavGroups: NavGroup[] = [
   { label: 'ลูกหนี้ & บัญชี', icon: '💰', pages: ['receivable', 'receivableSettlement', 'smtBudget', 'officialReceivable', 'receivableStandardReport', 'accountingRevenueBudget'] },
   { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['fundFdh', 'fund43', 'fundKtb', 'dentalAudit', 'mophDmht', 'mophVaccine', 'fsMonitor', 'monitor', 'specific', 'fundOther'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
-  { label: 'ผู้บริหาร/วิเคราะห์', icon: '📊', pages: ['insuranceOverview', 'admin', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'revenueOpportunity', 'ppfsBenchmark', 'ppfsVisitMatch', 'ucOutsideCup'] },
+  { label: 'ผู้บริหาร/วิเคราะห์', icon: '📊', pages: ['executiveMonitor', 'insuranceOverview', 'admin', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'revenueOpportunity', 'ppfsBenchmark', 'ppfsVisitMatch', 'ucOutsideCup'] },
   { label: 'ระบบ/อ้างอิง', icon: '⚙️', pages: ['memberAdmin', 'repstmManage', 'icd9Lookup', 'guide'] },
 ];
 
@@ -136,7 +137,7 @@ export const rolePresets: Array<{ key: string; label: string; pages: AppPage[] }
   {
     key: 'finance',
     label: '💰 การเงิน/บัญชีลูกหนี้',
-    pages: [...groupPages('REP/STM & กระทบยอด', 'ลูกหนี้ & บัญชี'), 'insuranceOverview', 'guide'],
+    pages: [...groupPages('REP/STM & กระทบยอด', 'ลูกหนี้ & บัญชี'), 'executiveMonitor', 'insuranceOverview', 'guide'],
   },
   {
     key: 'executive',
@@ -149,6 +150,7 @@ export const rolePresets: Array<{ key: string; label: string; pages: AppPage[] }
     pages: [
       ...claimPages,
       ...groupPages('นำเข้า/ตรวจสิทธิ', 'ติดตามงาน', 'REP/STM & กระทบยอด', 'กองทุนเฉพาะ', 'ประกันสังคม'),
+      'executiveMonitor',
       'icd9Lookup',
       'guide',
     ],

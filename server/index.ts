@@ -137,6 +137,7 @@ import { receivableReportRouter } from './routes/receivableReportRoutes.js';
 import { officialReceivableRouter } from './routes/officialReceivableRoutes.js';
 import { receivableSettlementRouter } from './routes/receivableSettlementRoutes.js';
 import { smtBudgetRouter } from './routes/smtBudgetRoutes.js';
+import { executiveMonitorRouter } from './routes/executiveMonitorRoutes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, resetSystemUpdateLock, startDirectSystemUpdate, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
@@ -1099,6 +1100,7 @@ app.use('/api/receivables/reports', receivableReportRouter);
 app.use('/api/official-receivable', officialReceivableRouter);
 app.use('/api/receivables/settlement', receivableSettlementRouter);
 app.use('/api/smt-budget', smtBudgetRouter);
+app.use('/api/executive-monitor', executiveMonitorRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

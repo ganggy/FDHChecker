@@ -1,0 +1,117 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  classifyServiceCategory,
+  classifyRightScheme,
+  isCCode,
+  mapSmtFundToServiceCategory,
+  SERVICE_CATEGORY_LABELS,
+  RIGHT_SCHEME_LABELS,
+  SERVICE_CATEGORY_ORDER,
+  RIGHT_SCHEME_ORDER,
+} from './executiveMonitorService.js';
+
+test('SERVICE_CATEGORY_LABELS contains all 8 expected hospital service types', () => {
+  assert.equal(SERVICE_CATEGORY_ORDER.length, 8);
+  for (const key of SERVICE_CATEGORY_ORDER) {
+    assert.ok(SERVICE_CATEGORY_LABELS[key], `Missing label for ${key}`);
+    assert.ok(SERVICE_CATEGORY_LABELS[key].name.length > 0);
+    assert.ok(SERVICE_CATEGORY_LABELS[key].icon.length > 0);
+  }
+});
+
+test('RIGHT_SCHEME_LABELS contains all 8 expected healthcare rights/funds', () => {
+  assert.equal(RIGHT_SCHEME_ORDER.length, 8);
+  for (const key of RIGHT_SCHEME_ORDER) {
+    assert.ok(RIGHT_SCHEME_LABELS[key], `Missing label for ${key}`);
+    assert.ok(RIGHT_SCHEME_LABELS[key].name.length > 0);
+    assert.ok(RIGHT_SCHEME_LABELS[key].icon.length > 0);
+  }
+});
+
+test('classifyServiceCategory accurately identifies specialized services', () => {
+  // Dialysis / Hemodialysis
+  assert.equal(classifyServiceCategory('ผู้ป่วยนอก', 'ไตเทียม', null, null, null), 'DIALYSIS');
+  assert.equal(classifyServiceCategory(null, null, null, 'LGO-HD-2025.xlsx', null), 'DIALYSIS');
+  assert.equal(classifyServiceCategory(null, null, null, null, { PROJCODE: 'CA_HD' }), 'DIALYSIS');
+  assert.equal(classifyServiceCategory(null, null, null, null, { 'วันที่ฟอกเลือดด้วยเครื่องไตเทียม': '2025-01-01' }), 'DIALYSIS');
+
+  // Thai Traditional Medicine
+  assert.equal(classifyServiceCategory('ผู้ป่วยนอก', 'แพทย์แผนไทย', null, null, null), 'THAI_MED');
+  assert.equal(classifyServiceCategory(null, null, null, null, { DIAG: 'U5753', PROC: '872-78-11' }), 'THAI_MED');
+  assert.equal(classifyServiceCategory(null, null, null, null, { clinic: 'คลินิกแพทย์แผนไทยและสมุนไพร' }), 'THAI_MED');
+
+  // Physical Therapy
+  assert.equal(classifyServiceCategory('ผู้ป่วยนอก', 'กายภาพบำบัด', null, null, null), 'PHYSICAL_THERAPY');
+  assert.equal(classifyServiceCategory(null, null, null, null, { DIAG: 'Z50', desc: 'เวชกรรมฟื้นฟู' }), 'PHYSICAL_THERAPY');
+
+  // Dental
+  assert.equal(classifyServiceCategory('ผู้ป่วยนอก', 'ทันตกรรม', null, null, null), 'DENTAL');
+  assert.equal(classifyServiceCategory(null, null, null, null, { item: 'ขูดหินปูน' }), 'DENTAL');
+
+  // Health Promotion & Prevention (PPFS)
+  assert.equal(classifyServiceCategory('ผู้ป่วยนอก', 'เวชปฏิบัติครอบครัว', null, null, { fund: 'PPFS', item: 'คัดกรองเบาหวาน' }), 'PPFS');
+  assert.equal(classifyServiceCategory(null, null, null, null, { project: 'ANC ฝากครรภ์' }), 'PPFS');
+
+  // IPD
+  assert.equal(classifyServiceCategory('IPD', null, '67000123', null, null), 'IPD');
+  assert.equal(classifyServiceCategory('ผู้ป่วยใน', null, null, null, null), 'IPD');
+  assert.equal(classifyServiceCategory(null, 'IP', null, null, null), 'IPD');
+
+  // OPD
+  assert.equal(classifyServiceCategory('OPD', 'OP', null, null, null), 'OPD');
+  assert.equal(classifyServiceCategory('ผู้ป่วยนอก', null, null, null, null), 'OPD');
+});
+
+test('classifyRightScheme accurately identifies coverage schemes', () => {
+  // OFC
+  assert.equal(classifyRightScheme('OFC', null, null, null), 'OFC');
+  assert.equal(classifyRightScheme('CS', null, null, null), 'OFC');
+  assert.equal(classifyRightScheme(null, null, null, { pttype_name: 'ข้าราชการเบิกจ่ายตรง' }), 'OFC');
+
+  // LGO
+  assert.equal(classifyRightScheme('LGO', null, null, null), 'LGO');
+  assert.equal(classifyRightScheme(null, null, 'LGO-HD-Report.xlsx', null), 'LGO');
+
+  // SSS
+  assert.equal(classifyRightScheme('SSS', null, null, null), 'SSS');
+  assert.equal(classifyRightScheme(null, null, null, { maininscl: 'ประกันสังคม ม.33' }), 'SSS');
+
+  // INS / A9
+  assert.equal(classifyRightScheme('INS', null, null, null), 'A9_INS');
+  assert.equal(classifyRightScheme('A9', null, null, null), 'A9_INS');
+  assert.equal(classifyRightScheme(null, null, null, { fund: 'พรบ.คุ้มครองผู้ประสบภัยจากรถ' }), 'A9_INS');
+
+  // Foreign / Self Pay
+  assert.equal(classifyRightScheme('NRD', null, null, null), 'FOREIGN_SELF');
+  assert.equal(classifyRightScheme('CSH', null, null, null), 'FOREIGN_SELF');
+
+  // UCS In-CUP vs Out-CUP
+  assert.equal(classifyRightScheme('UCS', 'IN', null, null), 'UCS_INCUP');
+  assert.equal(classifyRightScheme('UCS', 'OUT', null, null), 'UCS_OUTCUP');
+  assert.equal(classifyRightScheme('UCS', 'WALKIN', null, null), 'UCS_OUTCUP');
+  assert.equal(classifyRightScheme('UCS', null, null, { note: 'บริการปฐมภูมิไปที่ไหนก็ได้ นอกเขต' }), 'UCS_OUTCUP');
+});
+
+test('isCCode correctly identifies C-codes, Denials, and Reject codes', () => {
+  assert.equal(isCCode('C01'), true);
+  assert.equal(isCCode('C02, C15'), true);
+  assert.equal(isCCode('399-1'), true);
+  assert.equal(isCCode('DENY'), true);
+  assert.equal(isCCode('DENY_NON_BENEFIT'), true);
+  assert.equal(isCCode('REJECT_INVALID_DX'), true);
+  assert.equal(isCCode(''), false);
+  assert.equal(isCCode(null), false);
+  assert.equal(isCCode(undefined), false);
+});
+
+test('mapSmtFundToServiceCategory maps SMT budget funds to service categories', () => {
+  assert.equal(mapSmtFundToServiceCategory('บริการฟอกเลือดด้วยเครื่องไตเทียม'), 'DIALYSIS');
+  assert.equal(mapSmtFundToServiceCategory('บริการแพทย์แผนไทย'), 'THAI_MED');
+  assert.equal(mapSmtFundToServiceCategory('บริการฟื้นฟูสมรรถภาพด้านการแพทย์'), 'PHYSICAL_THERAPY');
+  assert.equal(mapSmtFundToServiceCategory('บริการทันตกรรม'), 'DENTAL');
+  assert.equal(mapSmtFundToServiceCategory('บริการสร้างเสริมสุขภาพและป้องกันโรค (PP)'), 'PPFS');
+  assert.equal(mapSmtFundToServiceCategory('บริการผู้ป่วยใน'), 'IPD');
+  assert.equal(mapSmtFundToServiceCategory('งบเหมาจ่ายรายหัว OP'), 'OPD');
+  assert.equal(mapSmtFundToServiceCategory('กองทุนเฉพาะอื่นๆ'), 'OTHER');
+});

@@ -35,6 +35,7 @@ const AuthenSyncPage = lazyNamed(() => import('./pages/AuthenSyncPage'), 'Authen
 const ReceivablePage = lazyNamed(() => import('./pages/ReceivablePage'), 'ReceivablePage');
 const ReceivableSettlementPage = lazyNamed(() => import('./pages/ReceivableSettlementPage'), 'ReceivableSettlementPage');
 const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewPage'), 'InsuranceOverviewPage');
+const ExecutiveMonitorPage = lazyNamed(() => import('./pages/ExecutiveMonitorPage'), 'ExecutiveMonitorPage');
 const AccountingRevenueBudgetPage = lazyNamed(() => import('./pages/AccountingRevenueBudgetPage'), 'AccountingRevenueBudgetPage');
 const SmtBudgetReconcilePage = lazyNamed(() => import('./pages/SmtBudgetReconcilePage'), 'SmtBudgetReconcilePage');
 const UcOutsideCupPage = lazyNamed(() => import('./pages/UcOutsideCupPage'), 'UcOutsideCupPage');
@@ -531,6 +532,7 @@ function App() {
         {currentPage === 'receivable' && <ReceivablePage />}
         {currentPage === 'receivableSettlement' && <ReceivableSettlementPage />}
         {currentPage === 'insuranceOverview' && <InsuranceOverviewPage />}
+        {currentPage === 'executiveMonitor' && <ExecutiveMonitorPage />}
         {currentPage === 'accountingRevenueBudget' && <AccountingRevenueBudgetPage />}
         {currentPage === 'smtBudget' && <SmtBudgetReconcilePage />}
         {currentPage === 'ucOutsideCup' && <UcOutsideCupPage />}

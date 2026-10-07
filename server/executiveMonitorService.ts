@@ -302,25 +302,69 @@ export function classifyRightScheme(
   const main = String(maininscl || '').trim().toUpperCase();
   const sub = String(subinscl || '').trim().toUpperCase();
   const fileStr = String(filename || '').trim().toUpperCase();
-  const rawStr = typeof rawData === 'string' ? rawData : JSON.stringify(rawData || {});
-  const combined = `${main} ${sub} ${fileStr} ${rawStr}`.toUpperCase();
+
+  // Extract specific textual metadata fields only (prevent column header false positives like "กองทุน IP พรบ.")
+  let rawMeta = '';
+  if (typeof rawData === 'string') {
+    try {
+      const obj = JSON.parse(rawData);
+      rawMeta = [
+        obj.pttype,
+        obj.pttype_name,
+        obj.maininscl,
+        obj.subinscl,
+        obj.fund,
+        obj.projectcode,
+        obj.note,
+        obj.description,
+        obj['ชดเชยจาก'],
+        obj['สิทธิ'],
+        obj['สิทธิการรักษา'],
+      ].filter(Boolean).join(' ');
+    } catch {
+      rawMeta = rawData.slice(0, 200);
+    }
+  } else if (rawData && typeof rawData === 'object') {
+    const obj = rawData as Record<string, unknown>;
+    rawMeta = [
+      obj.pttype,
+      obj.pttype_name,
+      obj.maininscl,
+      obj.subinscl,
+      obj.fund,
+      obj.projectcode,
+      obj.note,
+      obj.description,
+      obj['ชดเชยจาก'],
+      obj['สิทธิ'],
+      obj['สิทธิการรักษา'],
+    ].filter(Boolean).join(' ');
+  }
+
+  const metaText = `${main} ${sub} ${fileStr} ${rawMeta}`.toUpperCase();
 
   // 1. OFC (Civil Servant / Comptroller General / ข้าราชการเบิกตรง)
-  // รวมถึงระบบไต CHI / COCD / CSCD / CHIHD ของกรมบัญชีกลาง
+  // รวมถึงระบบไต CHI / COCD / FOCD / CSCD / CHIHD / CORTBIL ของกรมบัญชีกลาง
   if (
     main === 'OFC' ||
     main === 'CS' ||
+    main === 'CSMBS' ||
     main === 'CSCD' ||
     main === 'CHIHD' ||
-    combined.includes('เบิกจ่ายตรง') ||
-    combined.includes('ข้าราชการ') ||
-    combined.includes('CSCD') ||
-    combined.includes('CHIHD') ||
-    combined.includes('COCD') ||
+    main === 'CORTBIL' ||
     fileStr.includes('COCD') ||
+    fileStr.includes('FOCD') ||
     fileStr.includes('CHIHD') ||
     fileStr.includes('CHI_') ||
-    fileStr.includes('CSCD')
+    fileStr.includes('CSCD') ||
+    fileStr.includes('CORTBIL') ||
+    fileStr.includes('OPCS') ||
+    fileStr.includes('IPCS') ||
+    fileStr.includes('CSMBS') ||
+    fileStr.includes('OPBKK') ||
+    fileStr.includes('IPBKK') ||
+    metaText.includes('เบิกจ่ายตรง') ||
+    metaText.includes('ข้าราชการ')
   ) {
     return 'OFC';
   }
@@ -331,11 +375,11 @@ export function classifyRightScheme(
     main === 'LGO' ||
     main === 'BKK' ||
     main === 'PTY' ||
-    combined.includes('อปท') ||
-    combined.includes('ท้องถิ่น') ||
-    combined.includes('LGO-HD') ||
-    fileStr.includes('LGO-HD') ||
-    fileStr.includes('LGO_HD')
+    fileStr.includes('LGO') ||
+    fileStr.includes('IPLGO') ||
+    fileStr.includes('OPLGO') ||
+    metaText.includes('อปท') ||
+    metaText.includes('ท้องถิ่น')
   ) {
     return 'LGO';
   }
@@ -346,23 +390,27 @@ export function classifyRightScheme(
     main === 'SSS' ||
     main === 'SS' ||
     main === 'SOCD' ||
-    combined.includes('ประกันสังคม') ||
-    combined.includes('SOCD') ||
-    combined.includes('SSS-HD') ||
     fileStr.includes('SOCD') ||
-    fileStr.includes('SSS-HD')
+    fileStr.includes('SSS') ||
+    metaText.includes('ประกันสังคม')
   ) {
     return 'SSS';
   }
 
   // 4. A9 / INS (Car Accident Protection ACT / Compensation Fund)
+  // ตรวจเฉพาะรหัสสิทธิหรือชื่อไฟล์หรือ metadata ที่เจาะจง พรบ.
+  // ไม่ match ข้อความทั้งบรรทัดเพื่อป้องกันคอลัมน์ "กองทุน IP พรบ."
   if (
     main === 'INS' ||
     main === 'A9' ||
     main === 'ACT' ||
-    combined.includes('พรบ') ||
-    combined.includes('พ.ร.บ.') ||
-    combined.includes('กองทุนเงินทดแทน')
+    fileStr.includes('A9') ||
+    metaText.includes('คุ้มครองผู้ประสบภัย') ||
+    metaText.includes('กองทุนเงินทดแทน') ||
+    metaText.includes('พรบ.') ||
+    metaText.includes('พ.ร.บ.') ||
+    metaText.includes(' พรบ ') ||
+    main.includes('พรบ')
   ) {
     return 'A9_INS';
   }
@@ -372,42 +420,68 @@ export function classifyRightScheme(
     main === 'NRD' ||
     main === 'A1' ||
     main === 'CSH' ||
-    combined.includes('ต่างด้าว') ||
-    combined.includes('จ่ายเอง') ||
-    combined.includes('ชำระเอง') ||
-    combined.includes('SELF')
+    main === 'SELF' ||
+    main === 'FRG' ||
+    metaText.includes('ต่างด้าว') ||
+    metaText.includes('จ่ายเอง') ||
+    metaText.includes('ชำระเอง') ||
+    metaText.includes('เงินสด')
   ) {
     return 'FOREIGN_SELF';
   }
 
   // 6. UCS (Universal Coverage Scheme / บัตรทอง สปสช.)
-  // รวมถึง:
-  // - DCKD (Statement ฟอกไต สปสช. เช่น DCKD6931...)
-  // - กองทุนไตเทียม HD ของ สปสช. (ถ้าไม่ระบุเป็นข้าราชการ/ประกันสังคม/อปท.)
-  // - e-Claim NHSO, WEL, UC, UCS
-  if (
+  // ครอบคลุม:
+  // - รหัสหลัก: UCS, WEL, UC, PUC, UP
+  // - รหัสรายการ Statement UC: HC.., IP.., AE.., DM.., ANC
+  // - ไฟล์ e-Claim: ECLAIM, E-CLAIM, NHSO, STATEMENT UC, OPUCS, IPUCS, DCKD, STM_11101_IP, STM_11101_OP, R08
+  const isUcs =
     main === 'UCS' ||
     main === 'WEL' ||
     main === 'UC' ||
-    combined.includes('บัตรทอง') ||
-    combined.includes('หลักประกัน') ||
-    fileStr.startsWith('DCKD') ||
-    fileStr.includes('DCKD') ||
-    combined.includes('DCKD') ||
+    main === 'PUC' ||
+    main === 'UP' ||
     main === 'HD' ||
-    combined.includes('ไตเทียม') ||
-    combined.includes('ฟอกเลือด') ||
-    combined.includes('NHSO')
-  ) {
+    main.startsWith('HC') ||
+    main.startsWith('IP') ||
+    main.startsWith('AE') ||
+    main.startsWith('DM') ||
+    main === 'ANC' ||
+    fileStr.includes('ECLAIM') ||
+    fileStr.includes('E-CLAIM') ||
+    fileStr.includes('UCS') ||
+    fileStr.includes('UC') ||
+    fileStr.includes('NHSO') ||
+    fileStr.includes('DCKD') ||
+    fileStr.includes('OPUCS') ||
+    fileStr.includes('IPUCS') ||
+    fileStr.includes('STM_11101_IP') ||
+    fileStr.includes('STM_11101_OP') ||
+    fileStr.includes('R08') ||
+    metaText.includes('บัตรทอง') ||
+    metaText.includes('หลักประกัน') ||
+    metaText.includes('สปสช') ||
+    metaText.includes('NHSO');
+
+  if (isUcs) {
     if (
+      sub === '91' ||
+      sub === '92' ||
+      sub === '93' ||
+      sub === '94' ||
+      sub === '95' ||
+      sub === '96' ||
       sub.includes('OUT') ||
       sub.includes('AE') ||
       sub.includes('WALKIN') ||
       sub.includes('ANYWHERE') ||
-      combined.includes('นอกCUP') ||
-      combined.includes('นอกเขต') ||
-      combined.includes('ข้ามเขต') ||
-      combined.includes('ปฐมภูมิไปที่ไหนก็ได้')
+      fileStr.includes('OUTCUP') ||
+      fileStr.includes('OUT_CUP') ||
+      metaText.includes('นอกCUP') ||
+      metaText.includes('นอกเขต') ||
+      metaText.includes('ข้ามเขต') ||
+      metaText.includes('ปฐมภูมิไปที่ไหนก็ได้') ||
+      metaText.includes('WALKIN')
     ) {
       return 'UCS_OUTCUP';
     }
@@ -470,13 +544,40 @@ const SUB_SCHEME_FRIENDLY_NAMES: Record<string, string> = {
   FRG: 'FRG (แรงงานต่างด้าว)',
   NRD: 'NRD (บุคคลที่ไม่มีสถานะทางทะเบียน / ชนกลุ่มน้อย)',
   CSH: 'CSH (ชำระเงินเอง / เงินสด)',
-  UCS: 'UCS (สิทธิหลักประกันสุขภาพ)',
-  WEL: 'WEL (สิทธิสวัสดิการผู้มีรายได้น้อย)',
+  UCS: 'UCS (สิทธิหลักประกันสุขภาพถ้วนหน้า)',
+  WEL: 'WEL (สิทธิสวัสดิการผู้มีรายได้น้อย/ชุมชน)',
+  PUC: 'PUC (สิทธิหลักประกันสุขภาพถ้วนหน้า)',
+  UP: 'UP (สิทธิบัตรทอง)',
   OFC: 'OFC (ข้าราชการ กรมบัญชีกลาง)',
+  CSMBS: 'CSMBS (สิทธิสวัสดิการรักษาพยาบาลข้าราชการ)',
   LGO: 'LGO (ข้าราชการท้องถิ่น อปท.)',
   SSS: 'SSS (ประกันสังคม)',
   ACT: 'ACT (พ.ร.บ. คุ้มครองผู้ประสบภัยจากรถ)',
   A9: 'A9 (กองทุนเงินทดแทน)',
+  '71': '71 (เด็กอายุ 0-12 ปีบริบูรณ์)',
+  '72': '72 (ผู้สูงอายุเกิน 60 ปีบริบูรณ์)',
+  '73': '73 (คนพิการ)',
+  '74': '74 (ผู้มีรายได้น้อย)',
+  '75': '75 (ผู้นำชุมชน/อสม.)',
+  '76': '76 (ทหารผ่านศึก)',
+  '77': '77 (พระภิกษุ/สามเณร/ผู้นำศาสนา)',
+  '82': '82 (นักเรียน/เยาวชน)',
+  '88': '88 (ประชาชนทั่วไปใน CUP)',
+  '89': '89 (บริการปฐมภูมิ/ทั่วไป)',
+  '90': '90 (บุคคลที่มีปัญหาสถานะ/สิทธิ)',
+  '91': '91 (ผู้มีสิทธิสวัสดิการข้ามเขต)',
+  '94': '94 (ผู้ประสบอุบัติเหตุ/ฉุกเฉิน)',
+  '95': '95 (บริการพิเศษ/ส่งต่อ)',
+  O1: 'O1 (ข้าราชการ/ลูกจ้างประจำ)',
+  O2: 'O2 (บุคคลในครอบครัวข้าราชการ)',
+  O3: 'O3 (ข้าราชการบำนาญ)',
+  O4: 'O4 (ครอบครัวข้าราชการบำนาญ)',
+  L1: 'L1 (ข้าราชการ อปท.)',
+  L2: 'L2 (ครอบครัว อปท.)',
+  S1: 'S1 (ผู้ประกันตน ม.33)',
+  S2: 'S2 (ผู้ประกันตน ม.39)',
+  S3: 'S3 (ผู้ประกันตน ม.40)',
+  ANC: 'ANC (ฝากครรภ์และส่งเสริมสุขภาพ)',
 };
 
 /**
@@ -498,13 +599,23 @@ export function extractSubSchemeName(row: any): string {
     if (base.startsWith('COCD') || base.startsWith('CHIHD')) return 'CHI/COCD (ฟอกไต ข้าราชการ)';
     if (base.startsWith('LGO-HD') || base.startsWith('LGO_HD')) return 'LGO-HD (ฟอกไต อปท.)';
     if (base.startsWith('SOCD') || base.startsWith('SSS-HD')) return 'SOCD (ฟอกไต ประกันสังคม)';
-    return base.slice(0, 12);
+    if (base.includes('OPUCS') || base.includes('IPUCS')) return 'e-Claim UCS (สปสช.)';
+    if (base.includes('ECLAIM')) return 'e-Claim (สปสช.)';
+    return base.slice(0, 16);
   } else {
     return 'ไม่ระบุรหัสย่อย';
   }
 
   const upper = raw.toUpperCase();
-  return SUB_SCHEME_FRIENDLY_NAMES[upper] || raw;
+  if (SUB_SCHEME_FRIENDLY_NAMES[upper]) {
+    return SUB_SCHEME_FRIENDLY_NAMES[upper];
+  }
+  if (upper.startsWith('HC')) return `HC (บริการปฐมภูมิ: ${upper})`;
+  if (upper.startsWith('IP')) return `IP (บริการผู้ป่วยใน: ${upper})`;
+  if (upper.startsWith('AE')) return `AE (อุบัติเหตุฉุกเฉิน: ${upper})`;
+  if (upper.startsWith('DM')) return `DMIS (โรคเรื้อรัง: ${upper})`;
+
+  return raw;
 }
 
 

@@ -268,12 +268,22 @@ export function classifyServiceCategory(
     return 'PPFS';
   }
 
-  // 6. IPD: has AN or department IP or patientType IP
+  // 6. IPD: has AN or department IP or patientType IP or filename indicates IP
+  const fileText = String(filename || '').toUpperCase();
   if (
     (an && String(an).trim() !== '' && String(an).trim() !== '0') ||
     department === 'IP' ||
     department === 'IPD' ||
-    (patientType && (patientType.toUpperCase().includes('IP') || patientType.includes('ใน')))
+    (patientType && (patientType.toUpperCase().includes('IP') || patientType.includes('ใน'))) ||
+    fileText.includes('_IP_') ||
+    fileText.includes(' IP ') ||
+    fileText.includes(' IP_') ||
+    fileText.includes('_IP.') ||
+    fileText.includes('IPUCS') ||
+    fileText.includes('IPBKK') ||
+    fileText.includes('IPLGO') ||
+    fileText.includes('IPCS') ||
+    fileText.includes('FOCD')
   ) {
     return 'IPD';
   }
@@ -282,7 +292,13 @@ export function classifyServiceCategory(
   if (
     department === 'OP' ||
     department === 'OPD' ||
-    (patientType && (patientType.toUpperCase().includes('OP') || patientType.includes('นอก')))
+    (patientType && (patientType.toUpperCase().includes('OP') || patientType.includes('นอก'))) ||
+    fileText.includes('_OP_') ||
+    fileText.includes(' OP ') ||
+    fileText.includes('OPUCS') ||
+    fileText.includes('OPBKK') ||
+    fileText.includes('OPLGO') ||
+    fileText.includes('OPCS')
   ) {
     return 'OPD';
   }
@@ -814,6 +830,23 @@ export async function getExecutiveMonitorSummary(params: {
     }>();
 
     const processRow = (row: any) => {
+      // Multi-hospital summary file filter (e.g. R08 regional reports):
+      // Only keep records for this hospital ('11101') if the record has an explicit external hospital code
+      if (row.raw_data) {
+        let rawObj: any = null;
+        if (typeof row.raw_data === 'string' && (row.raw_data.includes('รหัส') || row.raw_data.includes('HCODE'))) {
+          try { rawObj = JSON.parse(row.raw_data); } catch {}
+        } else if (typeof row.raw_data === 'object') {
+          rawObj = row.raw_data;
+        }
+        if (rawObj) {
+          const rowHcode = String(rawObj['รหัส'] || rawObj['HCODE'] || rawObj['hcode'] || rawObj['HOSPCODE'] || '').trim();
+          if (rowHcode && /^\d{5}$/.test(rowHcode) && rowHcode !== '11101') {
+            return; // Skip data belonging to other hospitals in regional multi-hospital files
+          }
+        }
+      }
+
       const isRep = row.data_type === 'REP';
       const isStm = row.data_type === 'STM';
       const isInv = row.data_type === 'INV';

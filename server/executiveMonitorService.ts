@@ -1,4 +1,4 @@
-import { getRepstmConnection } from './db/connection.js';
+import { getRepstmConnection, getUTFConnection } from './db/connection.js';
 import { ensureRepstmTables } from './db/schema.js';
 import { loadErrorCatalog } from './aiErrorTools.js';
 
@@ -239,7 +239,8 @@ export function classifyServiceCategory(
   if (
     combinedText.includes('ทันตกรรม') ||
     combinedText.includes('ทันต') ||
-    combinedText.includes('dent') ||
+    combinedText.includes('dental') ||
+    /\bdent\b/i.test(combinedText) ||
     combinedText.includes('ขูดหินปูน') ||
     combinedText.includes('อุดฟัน') ||
     combinedText.includes('ถอนฟัน') ||
@@ -654,6 +655,25 @@ export async function getExecutiveMonitorSummary(params: {
 
   const repConn = await getRepstmConnection();
 
+  // Preload HOSxP dental VNs from dtmain for exact clinical category classification
+  let dentalVnSet = new Set<string>();
+  try {
+    const hosConn = await getUTFConnection();
+    try {
+      const [dtRows] = await hosConn.query(
+        params.startDate && params.endDate
+          ? `SELECT DISTINCT vn FROM dtmain WHERE vn IS NOT NULL AND vstdate >= ? AND vstdate <= ?`
+          : `SELECT DISTINCT vn FROM dtmain WHERE vn IS NOT NULL`,
+        params.startDate && params.endDate ? [params.startDate, params.endDate] : []
+      );
+      dentalVnSet = new Set((dtRows as any[]).map(r => String(r.vn)));
+    } finally {
+      hosConn.release();
+    }
+  } catch (err) {
+    console.warn('[ExecutiveMonitor] Unable to load HOSxP dtmain VNs (continuing with statement data):', err);
+  }
+
   try {
     // 1. Fetch SMT transfers for the budget year
     const [smtRowsRaw] = await repConn.query(
@@ -829,40 +849,49 @@ export async function getExecutiveMonitorSummary(params: {
       cCodes: string[];
     }>();
 
+    const tranIdToVisitKey = new Map<string, string>();
+
     const processRow = (row: any) => {
-      // Multi-hospital summary file filter (e.g. R08 regional reports):
-      // Only keep records for this hospital ('11101') if the record has an explicit external hospital code
+      // Extract raw_data JSON object if available
+      let rawObj: any = null;
       if (row.raw_data) {
-        let rawObj: any = null;
-        if (typeof row.raw_data === 'string' && (row.raw_data.includes('รหัส') || row.raw_data.includes('HCODE'))) {
+        if (typeof row.raw_data === 'string') {
           try { rawObj = JSON.parse(row.raw_data); } catch {}
         } else if (typeof row.raw_data === 'object') {
           rawObj = row.raw_data;
         }
-        if (rawObj) {
-          const rowHcode = String(rawObj['รหัส'] || rawObj['HCODE'] || rawObj['hcode'] || rawObj['HOSPCODE'] || '').trim();
-          if (rowHcode && /^\d{5}$/.test(rowHcode) && rowHcode !== '11101') {
-            return; // Skip data belonging to other hospitals in regional multi-hospital files
-          }
+      }
+
+      // Multi-hospital summary file filter (e.g. R08 regional reports):
+      // Only keep records for this hospital ('11101') if the record has an explicit external hospital code
+      if (rawObj) {
+        const rowHcode = String(rawObj['รหัส'] || rawObj['HCODE'] || rawObj['hcode'] || rawObj['HOSPCODE'] || '').trim();
+        if (rowHcode && /^\d{5}$/.test(rowHcode) && rowHcode !== '11101') {
+          return; // Skip data belonging to other hospitals in regional multi-hospital files
         }
       }
 
-      const isRep = row.data_type === 'REP';
-      const isStm = row.data_type === 'STM';
-      const isInv = row.data_type === 'INV';
+      const vn = String(row.vn || rawObj?.['SEQ NO'] || rawObj?.vn || rawObj?.VN || '').trim();
+      const isDental = vn !== '' && dentalVnSet.has(vn);
 
-      const sKey = classifyServiceCategory(row.patient_type, row.department, row.an, row.filename, row.raw_data);
+      const sKey = isDental
+        ? 'DENTAL'
+        : classifyServiceCategory(row.patient_type, row.department, row.an, row.filename, row.raw_data);
       const rKey = classifyRightScheme(row.maininscl, row.subinscl, row.filename, row.raw_data);
 
       if (params.serviceCategory && params.serviceCategory !== 'ALL' && sKey !== params.serviceCategory) return;
       if (params.rightScheme && params.rightScheme !== 'ALL' && rKey !== params.rightScheme) return;
+
+      const isInv = row.data_type === 'INV';
+      const isStm = row.data_type === 'STM';
 
       const rowAmount = Number(row.amount || 0);
       const rowInvoice = Number(row.invoice_amount || 0);
       const rowPaid = Number(row.paid_amount || 0);
 
       const claimed = isInv ? rowPaid : Math.max(rowInvoice, rowAmount, isStm ? rowPaid : 0);
-      const paid = isRep ? 0 : Math.max(0, rowPaid);
+      // Reimbursed amount: recognized whenever paid_amount / compensated is recorded
+      const paid = Math.max(0, rowPaid);
 
       const cFlag = isCCode(row.errorcode);
       const errorCodes = String(row.errorcode || '')
@@ -870,8 +899,21 @@ export async function getExecutiveMonitorSummary(params: {
         .map(c => c.trim().toUpperCase())
         .filter(c => Boolean(c) && !['-', '0', 'NULL'].includes(c));
 
-      // Key by vn/an or tran_id or id
-      const visitKey = String(row.an || row.vn || row.tran_id || `ID_${row.id}`);
+      // Key by vn/an or tran_id or id with cross-referencing between tables
+      const tranId = (row.tran_id && String(row.tran_id).trim() !== '') ? String(row.tran_id).trim() : null;
+      let visitKey = '';
+      if (tranId && tranIdToVisitKey.has(tranId)) {
+        visitKey = tranIdToVisitKey.get(tranId)!;
+      } else if (row.an && String(row.an).trim() !== '' && String(row.an) !== '0' && (row.patient_type === 'IP' || row.department === 'IP' || !/^\d{9}$/.test(String(row.an)))) {
+        visitKey = 'AN_' + String(row.an).trim();
+      } else if (vn) {
+        visitKey = 'VN_' + vn;
+      } else if (tranId) {
+        visitKey = 'TRAN_' + tranId;
+      } else {
+        visitKey = 'ID_' + (row.data_type || '') + '_' + row.id;
+      }
+      if (tranId) tranIdToVisitKey.set(tranId, visitKey);
 
       let agg = visitAggregates.get(visitKey);
       if (!agg) {
@@ -887,6 +929,10 @@ export async function getExecutiveMonitorSummary(params: {
         };
         visitAggregates.set(visitKey, agg);
       } else {
+        // Upgrade to DENTAL if either statement or HOSxP indicates dental care
+        if (sKey === 'DENTAL' && agg.serviceKey !== 'DENTAL') {
+          agg.serviceKey = 'DENTAL';
+        }
         if (claimed > agg.claimedAmount) agg.claimedAmount = claimed;
         if (paid > agg.reimbursedAmount) agg.reimbursedAmount = paid;
         if (cFlag) {
@@ -924,13 +970,7 @@ export async function getExecutiveMonitorSummary(params: {
     };
 
     for (const r of statementRows) processRow(r);
-    for (const r of repDataRows) {
-      // If visit wasn't already processed from repstm_statement_data, process it
-      const visitKey = String(r.an || r.vn || r.tran_id || `REP_${r.id}`);
-      if (!visitAggregates.has(visitKey)) {
-        processRow(r);
-      }
-    }
+    for (const r of repDataRows) processRow(r);
 
     // Now roll up aggregates into matrix, byService, and byRight
     let totalClaimedAmount = 0;

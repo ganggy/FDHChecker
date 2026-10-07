@@ -90,10 +90,69 @@ const claimPages: AppPage[] = ['staff', 'fdh', 'ipd', 'ipdExport', 'ipdClaimMoni
 
 /** ชุดสิทธิ์สำเร็จรูปสำหรับกลุ่มผู้ใช้ — กดเลือกในหน้าจัดการสมาชิก แล้วปรับรายเมนูต่อได้ */
 export const rolePresets: Array<{ key: string; label: string; pages: AppPage[] }> = [
-  { key: 'claim', label: '🏥 เจ้าหน้าที่เคลม', pages: [...claimPages, ...groupPages('นำเข้า/ตรวจสิทธิ', 'ติดตามงาน'), 'icd9Lookup', 'guide'] },
-  { key: 'insurance', label: '🛡️ ประกันสุขภาพ', pages: [...claimPages, ...groupPages('นำเข้า/ตรวจสิทธิ', 'ติดตามงาน', 'REP/STM & กระทบยอด', 'กองทุนเฉพาะ', 'ประกันสังคม'), 'icd9Lookup', 'guide'] },
-  { key: 'finance', label: '💰 การเงิน/บัญชี', pages: [...groupPages('REP/STM & กระทบยอด', 'ลูกหนี้ & บัญชี'), 'insuranceOverview', 'guide'] },
-  { key: 'executive', label: '📊 ผู้บริหาร', pages: [...groupPages('ผู้บริหาร/วิเคราะห์'), 'receivableStandardReport', 'accountingRevenueBudget', 'guide'] },
+  {
+    key: 'claim',
+    label: '🏥 เจ้าหน้าที่เคลม',
+    pages: [...claimPages, ...groupPages('นำเข้า/ตรวจสิทธิ', 'ติดตามงาน'), 'icd9Lookup', 'guide'],
+  },
+  {
+    key: 'audit',
+    label: '👩‍⚕️ พยาบาลตรวจการเบิก (UR / Audit)',
+    pages: [
+      ...claimPages,
+      'preValidator',
+      'workQueue',
+      'rejectTracking',
+      'uuc1Tracking',
+      'repDeny',
+      'collaboration',
+      'stmZeroAudit',
+      'repSheetZeroAudit',
+      'repDailySummary',
+      'reconciliation',
+      'dentalAudit',
+      'mophDmht',
+      'mophVaccine',
+      'ucOutsideCup',
+      'icd9Lookup',
+      'guide',
+    ],
+  },
+  {
+    key: 'stat',
+    label: '📊 เวชสถิติและรหัสโรค',
+    pages: [
+      ...claimPages,
+      'preValidator',
+      'icd9Lookup',
+      'ppfsVisitMatch',
+      'ppfsBenchmark',
+      'reconciliation',
+      'stmZeroAudit',
+      'repSheetZeroAudit',
+      'guide',
+    ],
+  },
+  {
+    key: 'finance',
+    label: '💰 การเงิน/บัญชีลูกหนี้',
+    pages: [...groupPages('REP/STM & กระทบยอด', 'ลูกหนี้ & บัญชี'), 'insuranceOverview', 'guide'],
+  },
+  {
+    key: 'executive',
+    label: '📈 ผู้บริหารและวิเคราะห์',
+    pages: [...groupPages('ผู้บริหาร/วิเคราะห์'), 'receivableStandardReport', 'accountingRevenueBudget', 'guide'],
+  },
+  {
+    key: 'insurance',
+    label: '🛡️ ประกันสุขภาพ (ครอบคลุมครบวงจร)',
+    pages: [
+      ...claimPages,
+      ...groupPages('นำเข้า/ตรวจสิทธิ', 'ติดตามงาน', 'REP/STM & กระทบยอด', 'กองทุนเฉพาะ', 'ประกันสังคม'),
+      'icd9Lookup',
+      'guide',
+    ],
+  },
 ];
 
 export const allMenuItems: NavItem[] = [

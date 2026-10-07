@@ -613,8 +613,22 @@ export const ReceivableSettlementPage: React.FC = () => {
               {/* Step 3: Journal Preview (ผังบัญชี GFMIS) */}
               <div className="journal-preview-card">
                 <div className="journal-header">
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>
-                    📊 พรีวิวการลงบัญชีแยกประเภท (GL Journal Entry - เกณฑ์คงค้าง สธ.)
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>
+                      📊 พรีวิวการลงบัญชีแยกประเภท (GL Journal Entry - เกณฑ์คงค้าง สธ.)
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      style={{ fontSize: '0.76rem', padding: '0.2rem 0.55rem', borderRadius: '6px' }}
+                      onClick={() => {
+                        window.sessionStorage.setItem('settings_target_tab', 'advanced');
+                        window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'settings' } }));
+                      }}
+                      title="เปิดหน้าจอตั้งค่าจับคู่รหัสสิทธิ (pttype) กับผังบัญชีลูกหนี้ของโรงพยาบาล"
+                    >
+                      ⚙️ ตั้งค่าผังลูกหนี้สิทธิ
+                    </button>
                   </div>
                   {activeJournal.isBalanced ? (
                     <span className="badge-balanced">✓ ดุลบัญชีสมบูรณ์ (Debit = Credit)</span>

@@ -239,9 +239,9 @@ export const SettingsPage: React.FC = () => {
     useEffect(() => {
         const checkTargetTab = () => {
             const target = window.sessionStorage.getItem('settings_target_tab');
-            if (target === 'update') {
+            if (target) {
                 window.sessionStorage.removeItem('settings_target_tab');
-                setActiveTab('update');
+                setActiveTab(target as any);
             }
         };
         checkTargetTab();

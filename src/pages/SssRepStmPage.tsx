@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
+import { analyzeRepstmArchiveFile } from '../services/hosxpService';
 
 type ImportType = 'REP' | 'STM';
 type NetworkType = 'ALL' | 'IN' | 'OUT';
@@ -55,7 +56,7 @@ const parseBilRows = (content: string) => {
 const detectType = (filename: string): ImportType => /stm|statement/i.test(filename) ? 'STM' : 'REP';
 
 const parseFile = async (file: File): Promise<Record<string, unknown>[]> => {
-  if (/\.(bil|txt)$/i.test(file.name)) {
+  if (/\.(bil|rep|txt)$/i.test(file.name)) {
     const buffer = await file.arrayBuffer();
     let content = new TextDecoder('utf-8').decode(buffer);
     if (!content.includes('*|')) content = new TextDecoder('windows-874').decode(buffer);
@@ -92,7 +93,35 @@ export const SssRepStmPage: React.FC = () => {
     setError('');
     const parsed: ParsedFile[] = [];
     for (const [index, file] of Array.from(files).entries()) {
-      if (!/\.(xlsx|xls|csv|bil|txt)$/i.test(file.name)) continue;
+      if (!/\.(xlsx|xls|csv|bil|rep|txt|zip)$/i.test(file.name)) continue;
+
+      if (/\.zip$/i.test(file.name)) {
+        try {
+          const archive = await analyzeRepstmArchiveFile(file);
+          for (const [dIndex, dataset] of archive.datasets.entries()) {
+            if (!dataset.rows.length) continue;
+            parsed.push({
+              id: `${file.name}-${dataset.importerId}-${dIndex}`,
+              file,
+              type: dataset.detectedType === 'STM' ? 'STM' : 'REP',
+              rows: dataset.rows,
+              status: 'ready',
+              message: dataset.importerLabel,
+            });
+          }
+        } catch (err) {
+          parsed.push({
+            id: `${file.name}-${file.size}-${index}`,
+            file,
+            type: detectType(file.name),
+            rows: [],
+            status: 'error',
+            message: err instanceof Error ? err.message : 'อ่านไฟล์ ZIP ไม่สำเร็จ',
+          });
+        }
+        continue;
+      }
+
       try {
         const rows = await parseFile(file);
         if (!rows.length) throw new Error('ไม่พบแถวข้อมูล');
@@ -139,11 +168,11 @@ export const SssRepStmPage: React.FC = () => {
         <label className="form-group"><span className="form-label">เครือข่ายของชุดข้อมูล</span><select className="form-control" value={networkType} onChange={(e) => setNetworkType(e.target.value as NetworkType)}><option value="ALL">ไม่ระบุ/รวม</option><option value="IN">ในเครือข่าย</option><option value="OUT">นอกเครือข่าย</option></select></label>
         <label className="form-group"><span className="form-label">ผู้นำเข้า</span><input className="form-control" value={importedBy} onChange={(e) => setImportedBy(e.target.value)} /></label>
         <label className="form-group"><span className="form-label">หมายเหตุ</span><input className="form-control" value={notes} onChange={(e) => setNotes(e.target.value)} /></label>
-        <input ref={inputRef} type="file" multiple hidden accept=".xlsx,.xls,.csv,.bil,.txt" onChange={(e) => void addFiles(e.target.files)} />
+        <input ref={inputRef} type="file" multiple hidden accept=".xlsx,.xls,.csv,.bil,.rep,.txt,.zip" onChange={(e) => void addFiles(e.target.files)} />
         <button className="btn btn-primary" onClick={() => inputRef.current?.click()}>📂 เลือกไฟล์ REP/STM</button>
         <button className="btn btn-success" disabled={!readyCount} onClick={() => void importReady()}>⬆️ นำเข้า {readyCount} ไฟล์</button>
       </div>
-      <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)' }}>รองรับ .BIL, .TXT, .CSV, .XLS และ .XLSX — ระบบตรวจประเภท REP/STM จากชื่อไฟล์และสามารถแก้ประเภทก่อนนำเข้าได้</div>
+      <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)' }}>รองรับ .ZIP (SIGNREP, SIGNSTM, SOCDBIL), .BIL, .REP, .TXT, .CSV, .XLS และ .XLSX — ระบบตรวจประเภท REP/STM จากชื่อไฟล์และเนื้อหาอัตโนมัติ</div>
     </div></div>
     {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{error}</div>}
 

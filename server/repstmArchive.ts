@@ -484,6 +484,425 @@ const parseSummaryDocument = (root: Record<string, unknown>, entryName: string) 
   };
 };
 
+const splitCsvLine = (line: string): string[] => {
+  const values: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"') {
+      if (quoted && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (char === ',' && !quoted) {
+      values.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  values.push(current.trim());
+  return values;
+};
+
+const parseSssInpatientStatement = (root: Record<string, unknown>, entryName: string): RepstmArchiveDataset | null => {
+  const stmDat = asRecord(root.stmdat);
+  const billsContainer = asRecord(root.Bills);
+  const bills = asArray(billsContainer.Bill).map(asRecord).filter((row) => Object.keys(row).length > 0);
+  if (bills.length === 0) return null;
+
+  const statementNo = xmlValue(stmDat.stmno || root.stmno || root.STMdoc);
+  const hcode = xmlValue(stmDat.hcode || root.hcode);
+  const hname = xmlValue(stmDat.hname || root.hname);
+  const period = xmlValue(stmDat.period || root.period);
+  const dateDue = xmlValue(stmDat.dateDue || root.dateDue);
+
+  const rows = bills.map((bill, index) => {
+    const an = xmlValue(bill.an);
+    const hn = xmlValue(bill.hn);
+    const pid = xmlValue(bill.pid);
+    const name = xmlValue(bill.name);
+    const dateadm = xmlValue(bill.dateadm);
+    const datedsc = xmlValue(bill.datedsc);
+    const reimb = Number(xmlValue(bill.Reimb) || 0);
+    const nreimb = Number(xmlValue(bill.Nreimb) || 0);
+    const copay = Number(xmlValue(bill.Copay) || 0);
+    const drg = xmlValue(bill.drg);
+    const rw = Number(xmlValue(bill.rw) || 0);
+    const adjrw = Number(xmlValue(bill.adjrw) || 0);
+    const rid = xmlValue(bill.rid);
+
+    return {
+      'ลำดับ': index + 1,
+      'STM No.': statementNo,
+      'statement_no': statementNo,
+      'HOSPCODE': xmlValue(bill.hcode) || hcode,
+      'hcode': xmlValue(bill.hcode) || hcode,
+      'HMAIN': xmlValue(bill.hmain),
+      'HPROC': xmlValue(bill.hproc),
+      'HN': hn,
+      'hn': hn,
+      'AN': an,
+      'an': an,
+      'PID': pid,
+      'pid': pid,
+      'ชื่อ - สกุล': name,
+      'patient_name': name,
+      'ประเภทผู้ป่วย': 'ผู้ป่วยใน',
+      'patient_type': 'IPD',
+      'department': 'IP',
+      'maininscl': 'SSS',
+      'subinscl': 'SSS',
+      'กองทุน': 'ประกันสังคม (SSS IPD)',
+      'fund': 'SSS',
+      'วันที่เข้ารักษา': dateadm,
+      'วันที่จำหน่าย': datedsc,
+      'service_date': dateadm,
+      'DRG': drg,
+      'drg': drg,
+      'RW': rw,
+      'rw': rw,
+      'AdjRW': adjrw,
+      'adjrw': adjrw,
+      'amount': reimb.toFixed(2),
+      'paid_amount': reimb.toFixed(2),
+      'invoice_amount': (reimb + nreimb + copay).toFixed(2),
+      'Reimb': reimb,
+      'Nreimb': nreimb,
+      'Copay': copay,
+      'RID': rid,
+      'เลขรอบ': rid,
+      'CAreas': xmlValue(bill.careas),
+      'FT': xmlValue(bill.ft),
+      'BF': xmlValue(bill.bf),
+      'raw_data': bill,
+    };
+  });
+
+  const totalAmount = rows.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+  const summary = {
+    documentKind: 'statement',
+    entryName,
+    statementNo,
+    hcode,
+    hospitalName: hname,
+    accountingPeriod: period,
+    dateDue,
+    fundCode: 'SSS-IPD',
+    fundName: 'ประกันสังคม ผู้ป่วยใน (SIGN)',
+    description: `รอบ ${period} (${rows.length} ราย)`,
+    rowCount: rows.length,
+    totalAmount: Number(totalAmount.toFixed(2)),
+  };
+
+  return {
+    id: `${entryName}:sss-ipd-statement`,
+    entryName,
+    importerId: 'sss-ipd-statement',
+    importerLabel: 'STM ผู้ป่วยใน ประกันสังคม (SIGN STM)',
+    detectedType: 'STM',
+    sheetName: [statementNo, 'SSS IPD'].filter(Boolean).join(' · '),
+    headers: Object.keys(rows[0] || {}),
+    rows,
+    summary,
+  };
+};
+
+const parseSssSummaryDocument = (root: Record<string, unknown>, entryName: string) => {
+  return {
+    documentKind: 'summary',
+    entryName,
+    statementNo: xmlValue(root.stmno),
+    hcode: xmlValue(root.hcode),
+    hospitalName: xmlValue(root.hname),
+    accountingPeriod: xmlValue(root.period),
+    dateDue: xmlValue(root.dateDue),
+    cases: Number(xmlValue(root.cases) || 0),
+    adjrw: Number(xmlValue(root.adjrw) || 0),
+  };
+};
+
+const parseSssBilRep = (bilEntries: AdmZip.IZipEntry[]): RepstmArchiveDataset | null => {
+  const mainBil = bilEntries.find((e) => !/dis/i.test(e.entryName)) || bilEntries[0];
+  if (!mainBil) return null;
+
+  const rawBytes = mainBil.getData();
+  let text = '';
+  try {
+    text = iconv.decode(rawBytes, 'tis620');
+  } catch {
+    text = rawBytes.toString('utf8');
+  }
+
+  let hcode = '';
+  let responseNo = '';
+  let batchNo = '';
+  let issueDate = '';
+
+  const hcodeMatch = text.match(/รหัส\s*ร\.?พ\.?\s*[:=]\s*(\d+)/i);
+  if (hcodeMatch) hcode = hcodeMatch[1].trim();
+
+  const respMatch = text.match(/เลขที่ตอบรับ\s*[:=]\s*([A-Za-z0-9_-]+)/i);
+  if (respMatch) responseNo = respMatch[1].trim();
+
+  const batchMatch = text.match(/งวดส่งของ\s*ร\.?พ\.?\s*[:=]\s*([A-Za-z0-9_-]+)/i);
+  if (batchMatch) batchNo = batchMatch[1].trim();
+
+  const dateMatch = text.match(/วันที่ออกเลขตอบรับ\s*[:=]\s*([^\r\n]+)/i);
+  if (dateMatch) issueDate = dateMatch[1].trim();
+
+  const rows: Record<string, unknown>[] = [];
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.includes('*|')) continue;
+    const payload = line.slice(line.indexOf('*|') + 2).trim();
+    const [data, checkCode = ''] = payload.split('|', 2);
+    const parts = splitCsvLine(data);
+    if (parts.length < 5) continue;
+
+    const [statusStation = '', lineNo = '', rowHcode = '', hmain = '', authCode = '', dttran = '', invno = '', pid = '', bp = '', amount = '', claimAmt = ''] = parts;
+    const status = statusStation.split(/\s+/)[0]?.trim() || 'A';
+    if (!invno && !pid && !lineNo) continue;
+
+    let serviceDateIso = '';
+    const dtParts = dttran.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}:\d{1,2}))?/);
+    if (dtParts) {
+      const d = dtParts[1].padStart(2, '0');
+      const m = dtParts[2].padStart(2, '0');
+      let y = parseInt(dtParts[3], 10);
+      if (y > 2400) y -= 543;
+      const time = dtParts[4] ? `${dtParts[4]}:00` : '00:00:00';
+      serviceDateIso = `${y}-${m}-${d} ${time}`;
+    }
+
+    const amtNum = Number(amount || 0);
+    const claimNum = Number(claimAmt || amount || 0);
+    const paidNum = status === 'A' ? claimNum : 0;
+    const cleanCheckCode = checkCode.trim().replace(/^[,;\s]+|[,;\s]+$/g, '');
+
+    rows.push({
+      'ลำดับ': rows.length + 1,
+      'REP No.': responseNo,
+      'rep_no': responseNo,
+      'HOSPCODE': rowHcode || hcode,
+      'hcode': rowHcode || hcode,
+      'HMAIN': hmain,
+      'AuthCode': authCode,
+      'VN': invno,
+      'vn': invno,
+      'PID': pid,
+      'pid': pid,
+      'BP': bp,
+      'ประเภทผู้ป่วย': 'ผู้ป่วยนอก',
+      'patient_type': 'OPD',
+      'department': 'OP',
+      'maininscl': 'SSS',
+      'subinscl': 'SSS',
+      'กองทุน': 'ประกันสังคม (SSS OPD)',
+      'fund': 'SSS',
+      'วันที่รับบริการ': serviceDateIso || dttran,
+      'service_date': serviceDateIso || dttran,
+      'สถานะ': status,
+      'verifycode': status,
+      'errorcode': cleanCheckCode,
+      'amount': amtNum.toFixed(2),
+      'income': claimNum.toFixed(2),
+      'compensated': paidNum.toFixed(2),
+      'paid_amount': paidNum.toFixed(2),
+      'ClaimAmt': claimNum.toFixed(2),
+      'CheckCode': cleanCheckCode,
+      'raw_data': line,
+    });
+  }
+
+  if (rows.length === 0) return null;
+
+  const totalAmount = rows.reduce((sum, r) => sum + Number(r.paid_amount || 0), 0);
+  const acceptedCount = rows.filter((r) => r.verifycode === 'A').length;
+
+  const summary = {
+    documentKind: 'sss-opd-rep',
+    entryName: sanitizeEntryName(mainBil.entryName),
+    responseNo,
+    hcode,
+    batchNo,
+    issueDate,
+    rowCount: rows.length,
+    acceptedCount,
+    rejectedCount: rows.length - acceptedCount,
+    totalAmount: Number(totalAmount.toFixed(2)),
+  };
+
+  return {
+    id: `${sanitizeEntryName(mainBil.entryName)}:sss-opd-bil`,
+    entryName: sanitizeEntryName(mainBil.entryName),
+    importerId: 'sss-opd-bil-rep',
+    importerLabel: 'REP ผู้ป่วยนอก ประกันสังคม (SOCDBIL)',
+    detectedType: 'REP',
+    sheetName: [responseNo, 'SSS OPD'].filter(Boolean).join(' · '),
+    headers: Object.keys(rows[0] || {}),
+    rows,
+    summary,
+  };
+};
+
+const parseSssInpatientRep = (repEntries: AdmZip.IZipEntry[]): RepstmArchiveDataset | null => {
+  const supEntry = repEntries.find((e) => /signsup/i.test(e.entryName)) || repEntries[0];
+  if (!supEntry) return null;
+
+  const rawBytes = supEntry.getData();
+  let text = '';
+  try {
+    text = iconv.decode(rawBytes, 'tis620');
+  } catch {
+    text = rawBytes.toString('utf8');
+  }
+
+  let responseNo = '';
+  let hcode = '';
+  let issueDate = '';
+
+  const respMatch = text.match(/เลขตอบรับที่\s*[:=]\s*(\d+)/i);
+  if (respMatch) responseNo = respMatch[1].trim();
+
+  const hcodeMatch = text.match(/(\d{5})/);
+  if (hcodeMatch) hcode = hcodeMatch[1];
+
+  const dateMatch = text.match(/วันที่ออกเอกสาร\s*[:=]\s*([^\r\n]+)/i);
+  if (dateMatch) issueDate = dateMatch[1].trim();
+
+  const errorDescs = new Map<string, string>();
+  for (const line of text.split(/\r?\n/)) {
+    const errMatch = line.match(/^(\d{2,4})\s*:\s*(.+)$/);
+    if (errMatch) {
+      errorDescs.set(errMatch[1].trim(), errMatch[2].trim());
+    }
+  }
+
+  const rows: Record<string, unknown>[] = [];
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.startsWith('*|')) continue;
+    const m = line.match(/\*\|\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^(]+)\s*\(([^)]+)\)\s*,\s*([A-Za-z]+)(?:\s*\(([^)]*)\))?/);
+    if (m) {
+      const an = m[1].trim();
+      const hn = m[2].trim();
+      if (an.toUpperCase() === 'AN' || hn.toUpperCase() === 'HN') continue;
+      const name = m[3].trim();
+      const pid = m[4].trim();
+      const chkstat = m[5].trim();
+      const rawErrors = (m[6] || '').replace(/,\s*$/, '').trim();
+      const firstError = rawErrors.split(',')[0]?.trim() || '';
+
+      rows.push({
+        'ลำดับ': rows.length + 1,
+        'REP No.': responseNo,
+        'rep_no': responseNo,
+        'HOSPCODE': hcode,
+        'HN': hn,
+        'hn': hn,
+        'AN': an,
+        'an': an,
+        'PID': pid,
+        'pid': pid,
+        'ชื่อ - สกุล': name,
+        'patient_name': name,
+        'ประเภทผู้ป่วย': 'ผู้ป่วยใน',
+        'patient_type': 'IPD',
+        'department': 'IP',
+        'maininscl': 'SSS',
+        'subinscl': 'SSS',
+        'กองทุน': 'ประกันสังคม (SSS IPD)',
+        'fund': 'SSS',
+        'สถานะ': chkstat,
+        'verifycode': chkstat,
+        'errorcode': rawErrors,
+        'รายละเอียดข้อผิดพลาด': errorDescs.get(firstError) || '',
+        'amount': '0.00',
+        'income': '0.00',
+        'compensated': '0.00',
+        'paid_amount': '0.00',
+        'raw_data': line,
+      });
+    }
+  }
+
+  if (rows.length === 0) {
+    const mainRep = repEntries.find((e) => /signrep/i.test(e.entryName) && !/signsup/i.test(e.entryName));
+    if (mainRep) {
+      const mainText = iconv.decode(mainRep.getData(), 'tis620');
+      for (const line of mainText.split(/\r?\n/)) {
+        if (!line.startsWith('*|')) continue;
+        const parts = line.slice(2).split(',');
+        if (parts.length >= 4) {
+          const statusPart = parts[0].trim();
+          const statusMatch = statusPart.match(/([A-Z])/);
+          const status = statusMatch ? statusMatch[1] : 'A';
+          const an = parts[3].trim();
+          const lastPart = parts[parts.length - 1] || '';
+          const [namePart, errPart] = lastPart.split(':');
+
+          rows.push({
+            'ลำดับ': rows.length + 1,
+            'REP No.': responseNo,
+            'rep_no': responseNo,
+            'HOSPCODE': hcode,
+            'AN': an,
+            'an': an,
+            'PID': '',
+            'ชื่อ - สกุล': (namePart || '').trim(),
+            'patient_name': (namePart || '').trim(),
+            'ประเภทผู้ป่วย': 'ผู้ป่วยใน',
+            'patient_type': 'IPD',
+            'department': 'IP',
+            'maininscl': 'SSS',
+            'subinscl': 'SSS',
+            'กองทุน': 'ประกันสังคม (SSS IPD)',
+            'fund': 'SSS',
+            'สถานะ': status,
+            'verifycode': status,
+            'errorcode': (errPart || '').trim(),
+            'amount': '0.00',
+            'income': '0.00',
+            'compensated': '0.00',
+            'paid_amount': '0.00',
+            'raw_data': line,
+          });
+        }
+      }
+    }
+  }
+
+  if (rows.length === 0) return null;
+
+  const summary = {
+    documentKind: 'sss-ipd-rep',
+    entryName: sanitizeEntryName(supEntry.entryName),
+    responseNo,
+    hcode,
+    issueDate,
+    rowCount: rows.length,
+    acceptedCount: rows.filter((r) => r.verifycode === 'A' || r.verifycode === 'P').length,
+    rejectedCount: rows.filter((r) => r.verifycode === 'C').length,
+    totalAmount: 0,
+  };
+
+  return {
+    id: `${sanitizeEntryName(supEntry.entryName)}:sss-ipd-rep`,
+    entryName: sanitizeEntryName(supEntry.entryName),
+    importerId: 'sss-ipd-rep',
+    importerLabel: 'REP ผู้ป่วยใน ประกันสังคม (SIGNREP)',
+    detectedType: 'REP',
+    sheetName: [responseNo, 'SSS IPD REP'].filter(Boolean).join(' · '),
+    headers: Object.keys(rows[0] || {}),
+    rows,
+    summary,
+  };
+};
+
 export const analyzeRepstmArchive = (archiveBuffer: Buffer, archiveName: string): RepstmArchiveAnalysis => {
   if (!Buffer.isBuffer(archiveBuffer) || archiveBuffer.length === 0) throw new Error('ไฟล์ ZIP ว่างหรืออ่านไม่ได้');
   const zip = new AdmZip(archiveBuffer);
@@ -505,10 +924,10 @@ export const analyzeRepstmArchive = (archiveBuffer: Buffer, archiveName: string)
 
   const bilEntries = zipEntries.filter((entry) => /\.bil$/i.test(entry.entryName));
   const dbfEntries = zipEntries.filter((entry) => /\.dbf$/i.test(entry.entryName));
-  if (bilEntries.length > 0 || dbfEntries.length > 0) {
-    if (bilEntries.length !== 1 || dbfEntries.length !== 1) {
-      throw new Error('ZIP ของ CHI HD ต้องมีไฟล์ .BIL และ .DBF อย่างละ 1 ไฟล์');
-    }
+  const repEntries = zipEntries.filter((entry) => /\.rep$/i.test(entry.entryName));
+
+  // 1. CHI HD REP (BIL + DBF)
+  if (bilEntries.length === 1 && dbfEntries.length === 1) {
     try {
       const dataset = parseChiHdRep(bilEntries[0], dbfEntries[0]);
       datasets.push(dataset);
@@ -516,8 +935,35 @@ export const analyzeRepstmArchive = (archiveBuffer: Buffer, archiveName: string)
     } catch (error) {
       throw new Error(`อ่าน REP ไต CHI ไม่สำเร็จ: ${(error as Error).message}`);
     }
+  } else if (bilEntries.length > 0 && dbfEntries.length === 0) {
+    // 2. SSS Outpatient BIL REP (e.g. 11101_SOCDBIL_*.BIL)
+    try {
+      const dataset = parseSssBilRep(bilEntries);
+      if (dataset) {
+        datasets.push(dataset);
+        summaries.push(dataset.summary);
+      }
+    } catch (error) {
+      throw new Error(`อ่าน REP ผู้ป่วยนอก ประกันสังคม (.BIL) ไม่สำเร็จ: ${(error as Error).message}`);
+    }
+  } else if (bilEntries.length > 0 || dbfEntries.length > 0) {
+    throw new Error('ZIP ของ CHI HD ต้องมีไฟล์ .BIL และ .DBF อย่างละ 1 ไฟล์');
   }
 
+  // 3. SSS Inpatient REP (.REP text files e.g. 11101_SIGNREP_*.REP)
+  if (repEntries.length > 0) {
+    try {
+      const dataset = parseSssInpatientRep(repEntries);
+      if (dataset) {
+        datasets.push(dataset);
+        summaries.push(dataset.summary);
+      }
+    } catch (error) {
+      throw new Error(`อ่าน REP ผู้ป่วยใน ประกันสังคม (.REP) ไม่สำเร็จ: ${(error as Error).message}`);
+    }
+  }
+
+  // 4. XML files (COCD, SOCD, SSS SIGNSTM, etc.)
   for (const entry of zipEntries) {
     const entryName = sanitizeEntryName(entry.entryName);
     if (!/\.xml$/i.test(entryName)) continue;
@@ -536,6 +982,17 @@ export const analyzeRepstmArchive = (archiveBuffer: Buffer, archiveName: string)
         } else {
           ignoredEntries.push(entryName);
         }
+      } else if (parsed.STMLIST) {
+        // SSS IPD SIGN STM
+        const dataset = parseSssInpatientStatement(asRecord(parsed.STMLIST), entryName);
+        if (dataset) {
+          datasets.push(dataset);
+          summaries.push(dataset.summary);
+        } else {
+          ignoredEntries.push(entryName);
+        }
+      } else if (parsed.STMSUMS) {
+        summaries.push(parseSssSummaryDocument(asRecord(parsed.STMSUMS), entryName));
       } else if (parsed.STMSUMM) {
         summaries.push(parseSummaryDocument(asRecord(parsed.STMSUMM), entryName));
       } else {
@@ -546,6 +1003,6 @@ export const analyzeRepstmArchive = (archiveBuffer: Buffer, archiveName: string)
     }
   }
 
-  if (datasets.length === 0) throw new Error('ไม่พบ REP ไต CHI หรือ XML รายละเอียด STM ที่ระบบรองรับใน ZIP นี้');
+  if (datasets.length === 0) throw new Error('ไม่พบไฟล์ REP หรือ STM ที่ระบบรองรับใน ZIP นี้');
   return { archiveName, entries, datasets, summaries, ignoredEntries };
 };

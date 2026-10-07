@@ -64,7 +64,7 @@ test('reads COCD STM ZIP and preserves identifiers with leading zeroes', () => {
 test('rejects ZIP files without supported statement detail XML', () => {
   const zip = new AdmZip();
   zip.addFile('readme.xml', Buffer.from('<OTHER><value>1</value></OTHER>', 'utf8'));
-  assert.throws(() => analyzeRepstmArchive(zip.toBuffer(), 'unsupported.zip'), /ไม่พบ REP ไต CHI หรือ XML รายละเอียด STM/);
+  assert.throws(() => analyzeRepstmArchive(zip.toBuffer(), 'unsupported.zip'), /ไม่พบไฟล์ REP หรือ STM ที่ระบบรองรับ/);
 });
 
 test('reads CHI kidney REP from paired BIL and DBF and keeps rejected error details', () => {
@@ -133,4 +133,83 @@ test('flattens SOCD social-security kidney STM into session rows and reconciles 
   assert.equal(dataset.rows[0]['EPO Payment'], '384.00');
   assert.equal(dataset.summary.totalAmount, 1934);
   assert.equal(dataset.summary.sourceTotalAmount, 1934);
+});
+
+test('reads SSS IPD SIGN STM from XML archive', () => {
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+  <STMLIST>
+    <stmAccountID>SIGN</stmAccountID>
+    <stmdat>
+      <hcode>11101</hcode><hname>โรงพยาบาลโคกศรีสุพรรณ</hname>
+      <period>6903</period><stmno>11101ST6903</stmno><dateDue>1 เมษายน 2569</dateDue>
+    </stmdat>
+    <Bills>
+      <Bill>
+        <hcode>11101</hcode><hmain>10710</hmain><hn>97898</hn><an>690000497</an>
+        <pid>1479900376930</pid><name>จันทร์จิรา ปิระนันท์</name>
+        <dateadm>2026-02-22</dateadm><datedsc>2026-02-25</datedsc>
+        <drg>6660</drg><rw>0.5353</rw><adjrw>0.5353</adjrw><Reimb>4480.75</Reimb>
+      </Bill>
+    </Bills>
+  </STMLIST>`;
+  const zip = new AdmZip();
+  zip.addFile('11101_SIGNSTMS_6903.xml', Buffer.from(xml, 'utf8'));
+
+  const result = analyzeRepstmArchive(zip.toBuffer(), '11101_SIGNSTM_6903.zip');
+  assert.equal(result.datasets.length, 1);
+  const d = result.datasets[0];
+  assert.equal(d.importerId, 'sss-ipd-statement');
+  assert.equal(d.detectedType, 'STM');
+  assert.equal(d.rows.length, 1);
+  assert.equal(d.rows[0].an, '690000497');
+  assert.equal(d.rows[0].hn, '97898');
+  assert.equal(d.rows[0].paid_amount, '4480.75');
+  assert.equal(d.rows[0].maininscl, 'SSS');
+});
+
+test('reads SSS OPD BIL REP from .BIL archive', () => {
+  const bil = `เอกสารตอบรับ ข้อมูลเบิกค่ารักษาพยาบาลผู้ป่วยนอกสิทธิประกันสังคม
+รหัส ร.พ. = 11101
+เลขที่ตอบรับ = 9130001
+งวดส่งของ ร.พ. = 1237_01_20260930-102936
+*| A 01, 1, 11101, 10710, , 28/09/2569 08:00, 690928080044, 3471500261344, S, 2330.00, 2330.00 |
+*| C 01, 2, 11101, 10710, , 28/09/2569 08:59, 690928000138, 1471500083181, S, 220.00, 0.00 | 101,
+`;
+  const zip = new AdmZip();
+  zip.addFile('11101_SOCDBIL_9130001.BIL', iconv.encode(bil, 'tis620'));
+
+  const result = analyzeRepstmArchive(zip.toBuffer(), '11101_SOCDBIL_9130001.zip');
+  assert.equal(result.datasets.length, 1);
+  const d = result.datasets[0];
+  assert.equal(d.importerId, 'sss-opd-bil-rep');
+  assert.equal(d.detectedType, 'REP');
+  assert.equal(d.rows.length, 2);
+  assert.equal(d.rows[0].vn, '690928080044');
+  assert.equal(d.rows[0].verifycode, 'A');
+  assert.equal(d.rows[0].paid_amount, '2330.00');
+  assert.equal(d.rows[1].verifycode, 'C');
+  assert.equal(d.rows[1].errorcode, '101');
+});
+
+test('reads SSS IPD SIGNREP from .REP archive', () => {
+  const sup = `รายละเอียดเพิ่มเติมการตอบรับ ข้อมูลเบิกค่ารักษา ระบบ AIPN
+อ้างอิงเอกสารตอบรับข้อมูลผู้ป่วยใน ประกันสังคม  เลขตอบรับที่      =  10242
+*| AN , HN , Name (PID),  chkstat ([checkcode])---
+*|690002359     ,000041118,     พัชรี ใจหาญ  (2419900023709 ) , C (251,)
+251: วันเวลา เริ่ม(in) และ/หรือ สิ้นสุด(out) ของหัตถการอยู่นอกช่วงการอยู่รพ.
+`;
+  const zip = new AdmZip();
+  zip.addFile('11101_SIGNSUP_10242.REP', iconv.encode(sup, 'tis620'));
+
+  const result = analyzeRepstmArchive(zip.toBuffer(), '11101_SIGNREP_10242.zip');
+  assert.equal(result.datasets.length, 1);
+  const d = result.datasets[0];
+  assert.equal(d.importerId, 'sss-ipd-rep');
+  assert.equal(d.detectedType, 'REP');
+  assert.equal(d.rows.length, 1);
+  assert.equal(d.rows[0].an, '690002359');
+  assert.equal(d.rows[0].hn, '000041118');
+  assert.equal(d.rows[0].verifycode, 'C');
+  assert.equal(d.rows[0].errorcode, '251');
+  assert.equal(d.rows[0]['รายละเอียดข้อผิดพลาด'], 'วันเวลา เริ่ม(in) และ/หรือ สิ้นสุด(out) ของหัตถการอยู่นอกช่วงการอยู่รพ.');
 });

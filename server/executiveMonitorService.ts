@@ -151,6 +151,31 @@ export interface TopCCodeItem {
   affectedServices: string[];
 }
 
+export interface ExecutivePipelineMetrics {
+  totalHospitalVisits: number;
+  hospitalOpdVisits: number;
+  hospitalIpdVisits: number;
+  totalClaimedCount: number;
+  totalClaimedAmount: number;
+  submissionRate: number;
+  unclaimedCount: number;
+  unclaimedRate: number;
+  totalReimbursedCount: number;
+  totalReimbursedAmount: number;
+  reimbursementVisitRate: number;
+  reimbursementAmountRate: number;
+  totalDeniedCount: number;
+  totalDeniedAmount: number;
+  denialVisitRate: number;
+  denialAmountRate: number;
+  pendingTransferAmount: number;
+  pendingTransferCount: number;
+  pendingTransferRate: number;
+  transferredAmount: number;
+  transferredCount: number;
+  transferredRate: number;
+}
+
 export interface ExecutiveMonitorResult {
   period: {
     startDate?: string;
@@ -171,6 +196,7 @@ export interface ExecutiveMonitorResult {
     totalSmtDebtAmount: number;
     varianceAmount: number;
   };
+  pipeline: ExecutivePipelineMetrics;
   byService: Record<ServiceCategoryKey, ServiceCategorySummary>;
   byRight: Record<RightSchemeKey, RightSchemeSummary>;
   matrix: Record<RightSchemeKey, Record<ServiceCategoryKey, MetricItem>>;
@@ -637,6 +663,114 @@ export function extractSubSchemeName(row: any): string {
 
 
 /**
+ * Query total hospital patient visits (OPD visits and IPD admissions) from HOSxP.
+ */
+export async function getHospitalVisits(
+  hosConn: any,
+  params: {
+    startDate?: string;
+    endDate?: string;
+    budgetYear?: string;
+    serviceCategory?: string;
+    rightScheme?: string;
+  }
+): Promise<{ total: number; opd: number; ipd: number }> {
+  // Determine date bounds
+  let sDate = params.startDate;
+  let eDate = params.endDate;
+  if (!sDate || !eDate) {
+    if (params.budgetYear) {
+      const by = parseInt(params.budgetYear, 10);
+      if (!isNaN(by) && by > 2500) {
+        sDate = `${by - 543 - 1}-10-01`;
+        eDate = `${by - 543}-09-30`;
+      }
+    }
+  }
+
+  let ovstWhere = 'WHERE 1=1';
+  let iptWhere = 'WHERE 1=1';
+  const ovstParams: any[] = [];
+  const iptParams: any[] = [];
+
+  if (sDate && eDate) {
+    ovstWhere += ' AND o.vstdate >= ? AND o.vstdate <= ?';
+    ovstParams.push(sDate, eDate);
+    iptWhere += ' AND i.regdate >= ? AND i.regdate <= ?';
+    iptParams.push(sDate, eDate);
+  }
+
+  let countOpd = true;
+  let countIpd = true;
+  let joinPttype = false;
+
+  // Right Scheme mapping
+  if (params.rightScheme && params.rightScheme !== 'ALL') {
+    joinPttype = true;
+    let hipCodes: string[] = [];
+    if (params.rightScheme === 'OFC') hipCodes = ['OFC', 'CS'];
+    else if (params.rightScheme === 'LGO') hipCodes = ['LGO'];
+    else if (params.rightScheme === 'SSS') hipCodes = ['SSS', 'SSI'];
+    else if (params.rightScheme === 'UCS_INCUP' || params.rightScheme === 'UCS_OUTCUP') hipCodes = ['UCS', 'WEL', 'UP', 'PUC'];
+    else if (params.rightScheme === 'A9_INS') hipCodes = ['ACT', 'A9', 'INS'];
+    else if (params.rightScheme === 'FOREIGN_SELF') hipCodes = ['FRG', 'CSH', 'NRD', 'DIS'];
+
+    if (hipCodes.length > 0) {
+      ovstWhere += ` AND p.hipdata_code IN (${hipCodes.map(() => '?').join(',')})`;
+      ovstParams.push(...hipCodes);
+      iptWhere += ` AND p.hipdata_code IN (${hipCodes.map(() => '?').join(',')})`;
+      iptParams.push(...hipCodes);
+    }
+  }
+
+  // Service Category mapping
+  if (params.serviceCategory && params.serviceCategory !== 'ALL') {
+    if (params.serviceCategory === 'IPD') {
+      countOpd = false;
+    } else if (params.serviceCategory === 'OPD') {
+      countIpd = false;
+    } else if (params.serviceCategory === 'DENTAL') {
+      countIpd = false;
+      ovstWhere += " AND (o.main_dep IN ('005', '048') OR EXISTS (SELECT 1 FROM dtmain dt WHERE dt.vn = o.vn))";
+    } else if (params.serviceCategory === 'THAI_MED') {
+      countIpd = false;
+      ovstWhere += " AND o.main_dep = '025'";
+    } else if (params.serviceCategory === 'PHYSICAL_THERAPY') {
+      countIpd = false;
+      ovstWhere += " AND o.main_dep = '012'";
+    } else if (params.serviceCategory === 'DIALYSIS') {
+      countIpd = false;
+      ovstWhere += " AND o.main_dep = '060'";
+    }
+  }
+
+  let opdCount = 0;
+  let ipdCount = 0;
+
+  try {
+    if (countOpd) {
+      const fromClause = joinPttype ? 'FROM ovst o JOIN pttype p ON o.pttype = p.pttype' : 'FROM ovst o';
+      const [opdRows] = await hosConn.query(`SELECT COUNT(*) as cnt ${fromClause} ${ovstWhere}`, ovstParams);
+      opdCount = Number((opdRows as any[])[0]?.cnt || 0);
+    }
+
+    if (countIpd) {
+      const fromClause = joinPttype ? 'FROM ipt i JOIN pttype p ON i.pttype = p.pttype' : 'FROM ipt i';
+      const [ipdRows] = await hosConn.query(`SELECT COUNT(*) as cnt ${fromClause} ${iptWhere}`, iptParams);
+      ipdCount = Number((ipdRows as any[])[0]?.cnt || 0);
+    }
+  } catch (err) {
+    console.warn('[ExecutiveMonitor] Error counting hospital visits:', err);
+  }
+
+  return {
+    total: opdCount + ipdCount,
+    opd: opdCount,
+    ipd: ipdCount,
+  };
+}
+
+/**
  * Main aggregator for Executive Monitor Dashboard.
  * Integrates REP, STM, and e-Budget / SMT data.
  */
@@ -655,8 +789,9 @@ export async function getExecutiveMonitorSummary(params: {
 
   const repConn = await getRepstmConnection();
 
-  // Preload HOSxP dental VNs from dtmain for exact clinical category classification
+  // Preload HOSxP clinical data: dental registry and total hospital visits
   let dentalVnSet = new Set<string>();
+  let hospitalVisits = { total: 0, opd: 0, ipd: 0 };
   try {
     const hosConn = await getUTFConnection();
     try {
@@ -667,11 +802,19 @@ export async function getExecutiveMonitorSummary(params: {
         params.startDate && params.endDate ? [params.startDate, params.endDate] : []
       );
       dentalVnSet = new Set((dtRows as any[]).map(r => String(r.vn)));
+
+      hospitalVisits = await getHospitalVisits(hosConn, {
+        startDate: params.startDate,
+        endDate: params.endDate,
+        budgetYear,
+        serviceCategory: params.serviceCategory,
+        rightScheme: params.rightScheme,
+      });
     } finally {
       hosConn.release();
     }
   } catch (err) {
-    console.warn('[ExecutiveMonitor] Unable to load HOSxP dtmain VNs (continuing with statement data):', err);
+    console.warn('[ExecutiveMonitor] Unable to load HOSxP clinical visits/dtmain (continuing with statement data):', err);
   }
 
   try {
@@ -1191,6 +1334,69 @@ export async function getExecutiveMonitorSummary(params: {
     const overallRate = calcRate(totalReimbursedAmount, totalClaimedAmount);
     const varianceAmount = Math.max(0, totalClaimedAmount - totalReimbursedAmount);
 
+    const totalHospitalVisits = hospitalVisits.total;
+    const hospitalOpdVisits = hospitalVisits.opd;
+    const hospitalIpdVisits = hospitalVisits.ipd;
+
+    const submissionRate = totalHospitalVisits > 0
+      ? Math.min(100, Math.round((totalClaimedCount / totalHospitalVisits) * 10000) / 100)
+      : (totalClaimedCount > 0 ? 100 : 0);
+    const unclaimedCount = Math.max(0, totalHospitalVisits - totalClaimedCount);
+    const unclaimedRate = totalHospitalVisits > 0
+      ? Math.round((unclaimedCount / totalHospitalVisits) * 10000) / 100
+      : 0;
+
+    const reimbursementVisitRate = totalClaimedCount > 0
+      ? Math.round((totalReimbursedCount / totalClaimedCount) * 10000) / 100
+      : 0;
+    const reimbursementAmountRate = totalClaimedAmount > 0
+      ? Math.round((totalReimbursedAmount / totalClaimedAmount) * 10000) / 100
+      : 0;
+
+    const denialVisitRate = totalClaimedCount > 0
+      ? Math.round((totalPendingCCount / totalClaimedCount) * 10000) / 100
+      : 0;
+    const denialAmountRate = totalClaimedAmount > 0
+      ? Math.round((totalPendingCAmount / totalClaimedAmount) * 10000) / 100
+      : 0;
+
+    const pendingTransferAmount = Math.round(totalSmtWaitAmount * 100) / 100;
+    const pendingTransferCount = smtRows.filter(r => Number(r.wait_amount || 0) > 0).length;
+    const pendingTransferRate = totalSmtAllocatedAmount > 0
+      ? Math.round((totalSmtWaitAmount / totalSmtAllocatedAmount) * 10000) / 100
+      : 0;
+
+    const transferredAmount = Math.round(totalSmtNetTransferred * 100) / 100;
+    const transferredCount = smtRows.filter(r => Number(r.net_total || 0) > 0).length;
+    const transferredRate = totalSmtAllocatedAmount > 0
+      ? Math.round((totalSmtNetTransferred / totalSmtAllocatedAmount) * 10000) / 100
+      : 0;
+
+    const pipeline: ExecutivePipelineMetrics = {
+      totalHospitalVisits,
+      hospitalOpdVisits,
+      hospitalIpdVisits,
+      totalClaimedCount,
+      totalClaimedAmount: Math.round(totalClaimedAmount * 100) / 100,
+      submissionRate,
+      unclaimedCount,
+      unclaimedRate,
+      totalReimbursedCount,
+      totalReimbursedAmount: Math.round(totalReimbursedAmount * 100) / 100,
+      reimbursementVisitRate,
+      reimbursementAmountRate,
+      totalDeniedCount: totalPendingCCount,
+      totalDeniedAmount: Math.round(totalPendingCAmount * 100) / 100,
+      denialVisitRate,
+      denialAmountRate,
+      pendingTransferAmount,
+      pendingTransferCount,
+      pendingTransferRate,
+      transferredAmount,
+      transferredCount,
+      transferredRate,
+    };
+
     return {
       period: {
         startDate: params.startDate,
@@ -1211,6 +1417,7 @@ export async function getExecutiveMonitorSummary(params: {
         totalSmtDebtAmount: Math.round(totalSmtDebtAmount * 100) / 100,
         varianceAmount: Math.round(varianceAmount * 100) / 100,
       },
+      pipeline,
       byService,
       byRight,
       matrix,

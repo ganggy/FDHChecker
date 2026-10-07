@@ -137,3 +137,30 @@ test('extractSubSchemeName extracts descriptive sub-scheme or statement origin',
   assert.equal(extractSubSchemeName({ filename: 'LGO-HD-6701.stm' }), 'LGO-HD (ฟอกไต อปท.)');
 });
 
+test('ExecutivePipelineMetrics calculates submission, reimbursement, and denial rates accurately', () => {
+  const totalHospitalVisits = 1000;
+  const totalClaimedCount = 950;
+  const totalClaimedAmount = 500000;
+  const totalReimbursedCount = 900;
+  const totalReimbursedAmount = 450000;
+  const totalDeniedCount = 30;
+  const totalDeniedAmount = 25000;
+
+  const submissionRate = Math.min(100, Math.round((totalClaimedCount / totalHospitalVisits) * 10000) / 100);
+  const unclaimedCount = Math.max(0, totalHospitalVisits - totalClaimedCount);
+  const unclaimedRate = Math.round((unclaimedCount / totalHospitalVisits) * 10000) / 100;
+
+  const reimbursementVisitRate = Math.round((totalReimbursedCount / totalClaimedCount) * 10000) / 100;
+  const reimbursementAmountRate = Math.round((totalReimbursedAmount / totalClaimedAmount) * 10000) / 100;
+  const denialVisitRate = Math.round((totalDeniedCount / totalClaimedCount) * 10000) / 100;
+  const denialAmountRate = Math.round((totalDeniedAmount / totalClaimedAmount) * 10000) / 100;
+
+  assert.equal(submissionRate, 95.0);
+  assert.equal(unclaimedCount, 50);
+  assert.equal(unclaimedRate, 5.0);
+  assert.equal(reimbursementVisitRate, 94.74);
+  assert.equal(reimbursementAmountRate, 90.0);
+  assert.equal(denialVisitRate, 3.16);
+  assert.equal(denialAmountRate, 5.0);
+});
+

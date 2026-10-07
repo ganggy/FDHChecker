@@ -80,6 +80,31 @@ export interface TopCCodeItem {
   affectedServices: string[];
 }
 
+export interface ExecutivePipelineMetrics {
+  totalHospitalVisits: number;
+  hospitalOpdVisits: number;
+  hospitalIpdVisits: number;
+  totalClaimedCount: number;
+  totalClaimedAmount: number;
+  submissionRate: number;
+  unclaimedCount: number;
+  unclaimedRate: number;
+  totalReimbursedCount: number;
+  totalReimbursedAmount: number;
+  reimbursementVisitRate: number;
+  reimbursementAmountRate: number;
+  totalDeniedCount: number;
+  totalDeniedAmount: number;
+  denialVisitRate: number;
+  denialAmountRate: number;
+  pendingTransferAmount: number;
+  pendingTransferCount: number;
+  pendingTransferRate: number;
+  transferredAmount: number;
+  transferredCount: number;
+  transferredRate: number;
+}
+
 export interface ExecutiveMonitorResult {
   period: {
     startDate?: string;
@@ -100,6 +125,7 @@ export interface ExecutiveMonitorResult {
     totalSmtDebtAmount: number;
     varianceAmount: number;
   };
+  pipeline?: ExecutivePipelineMetrics;
   byService: Record<string, ServiceCategorySummary>;
   byRight: Record<string, RightSchemeSummary>;
   matrix: Record<string, Record<string, MetricItem>>;
@@ -234,15 +260,27 @@ export const ExecutiveMonitorPage: React.FC = () => {
     const summaryRows = [
       { ตัวชี้วัด: 'ปีงบประมาณ e-Budget SMT', ค่า: data.period.budgetYear },
       { ตัวชี้วัด: 'ช่วงวันที่ประมวลผล', ค่า: `${data.period.startDate || 'ทั้งหมด'} ถึง ${data.period.endDate || 'ปัจจุบัน'}` },
-      { ตัวชี้วัด: 'ยอดเงินส่งเบิกทั้งหมด (Claimed Amount ฿)', ค่า: data.summary.totalClaimedAmount },
-      { ตัวชี้วัด: 'จำนวน Visit ที่ส่งเบิก (Claimed Visits)', ค่า: data.summary.totalClaimedCount },
-      { ตัวชี้วัด: 'ยอดเงินติด C / Deny (Pending C Amount ฿)', ค่า: data.summary.totalPendingCAmount },
-      { ตัวชี้วัด: 'จำนวน Visit ที่ติด C (Pending C Visits)', ค่า: data.summary.totalPendingCCount },
-      { ตัวชี้วัด: 'อัตราการติด C ตามจำนวน Visit (%)', ค่า: `${visitCRate}%` },
-      { ตัวชี้วัด: 'ยอดเงินที่ได้รับการชดเชยแล้ว (Reimbursed STM ฿)', ค่า: data.summary.totalReimbursedAmount },
-      { ตัวชี้วัด: 'จำนวน Visit ที่ได้รับการชดเชยแล้ว (Paid Visits)', ค่า: data.summary.totalReimbursedCount },
-      { ตัวชี้วัด: 'อัตราการชดเชยตามยอดเงิน (Amount Recovery %)', ค่า: `${data.summary.reimbursementRate}%` },
-      { ตัวชี้วัด: 'อัตราการชดเชยตามจำนวน Visit (Visit Recovery %)', ค่า: `${visitRecoveryRate}%` },
+      { ตัวชี้วัด: '--- กระบวนการเบิกจ่ายและชดเชยครบวงจร (6 ขั้นตอน) ---', ค่า: '' },
+      { ตัวชี้วัด: '1. Visit ทั้งหมดในโรงพยาบาล (HOSxP)', ค่า: data.pipeline?.totalHospitalVisits || 0 },
+      { ตัวชี้วัด: '   - ผู้ป่วยนอก (OPD Visits)', ค่า: data.pipeline?.hospitalOpdVisits || 0 },
+      { ตัวชี้วัด: '   - ผู้ป่วยใน (IPD Admissions)', ค่า: data.pipeline?.hospitalIpdVisits || 0 },
+      { ตัวชี้วัด: '2. ส่งเบิกทั้งหมด (Claimed Amount ฿)', ค่า: data.pipeline?.totalClaimedAmount || data.summary.totalClaimedAmount },
+      { ตัวชี้วัด: '   - จำนวน Visit ส่งเบิก (Claimed Visits)', ค่า: data.pipeline?.totalClaimedCount || data.summary.totalClaimedCount },
+      { ตัวชี้วัด: '   - อัตราการส่งข้อมูลครบ (Submission Completeness %)', ค่า: `${data.pipeline?.submissionRate || 0}%` },
+      { ตัวชี้วัด: '   - จำนวน Visit ยังไม่ส่งเบิก (Unclaimed)', ค่า: data.pipeline?.unclaimedCount || 0 },
+      { ตัวชี้วัด: '3. ได้รับการชดเชยแล้ว (Reimbursed STM ฿)', ค่า: data.pipeline?.totalReimbursedAmount || data.summary.totalReimbursedAmount },
+      { ตัวชี้วัด: '   - จำนวน Visit ชดเชย (Paid Visits)', ค่า: data.pipeline?.totalReimbursedCount || data.summary.totalReimbursedCount },
+      { ตัวชี้วัด: '   - อัตราการชดเชยตามยอดเงิน (Amount Recovery %)', ค่า: `${data.pipeline?.reimbursementAmountRate || data.summary.reimbursementRate}%` },
+      { ตัวชี้วัด: '   - อัตราการชดเชยตามจำนวน Visit (Visit Recovery %)', ค่า: `${data.pipeline?.reimbursementVisitRate || visitRecoveryRate}%` },
+      { ตัวชี้วัด: '4. ปฏิเสธการจ่ายทั้งหมด / ติด C (Denied Amount ฿)', ค่า: data.pipeline?.totalDeniedAmount || data.summary.totalPendingCAmount },
+      { ตัวชี้วัด: '   - จำนวน Visit ติด C / ปฏิเสธจ่าย', ค่า: data.pipeline?.totalDeniedCount || data.summary.totalPendingCCount },
+      { ตัวชี้วัด: '   - อัตราการติด C / ปฏิเสธตามจำนวน Visit (%)', ค่า: `${data.pipeline?.denialVisitRate || visitCRate}%` },
+      { ตัวชี้วัด: '   - อัตราการติด C / ปฏิเสธตามยอดเงิน (%)', ค่า: `${data.pipeline?.denialAmountRate || 0}%` },
+      { ตัวชี้วัด: '5. รอเงินโอน (Pending Wire Transfer ฿)', ค่า: data.pipeline?.pendingTransferAmount || data.summary.totalSmtWaitAmount },
+      { ตัวชี้วัด: '   - สัดส่วนรอเงินโอน (%)', ค่า: `${data.pipeline?.pendingTransferRate || 0}%` },
+      { ตัวชี้วัด: '6. รับเงินแล้ว / โอนเข้าบัญชีแล้ว (Transferred ฿)', ค่า: data.pipeline?.transferredAmount || data.summary.totalSmtNetTransferred },
+      { ตัวชี้วัด: '   - อัตราการรับเงินโอนเข้าบัญชี (%)', ค่า: `${data.pipeline?.transferredRate || 0}%` },
+      { ตัวชี้วัด: '--- งบประมาณและการเงินภาพรวม ---', ค่า: '' },
       { ตัวชี้วัด: 'ยอดจัดสรรตาม e-Budget SMT', ค่า: data.summary.totalSmtAllocatedAmount },
       { ตัวชี้วัด: 'ยอดเงินโอนสุทธิ SMT', ค่า: data.summary.totalSmtNetTransferred },
       { ตัวชี้วัด: 'ยอดผลต่าง/คงค้าง (Variance ฿)', ค่า: data.summary.varianceAmount },
@@ -643,6 +681,139 @@ export const ExecutiveMonitorPage: React.FC = () => {
                 <span>โอนสุทธิเข้าบัญชี:</span>
                 <span className="kpi-badge badge-purple">
                   ฿{formatCurrency(data.summary.totalSmtNetTransferred)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* End-to-End Claim & Revenue Cycle Funnel (6 Stages) */}
+          <div className="exec-pipeline-section">
+            <div className="exec-pipeline-header">
+              <div className="exec-pipeline-title-group">
+                <h2>
+                  <span>🔄</span> ท่อกระบวนการเบิกจ่ายและชดเชยครบวงจร (Revenue Cycle & Claim Completeness Funnel)
+                </h2>
+                <p className="exec-subtitle">
+                  ติดตามอัตราการไหลเวียนของข้อมูลครบทุกมิติ: ตั้งแต่ผู้ป่วยมารับบริการ จนถึงการรับเงินโอนเข้าบัญชีโรงพยาบาลจริง
+                </p>
+              </div>
+              <div className="exec-pipeline-kpi-pills">
+                <div className="pipeline-pill pill-blue">
+                  <span>📤 อัตราส่งข้อมูลครบ:</span>
+                  <strong>{data.pipeline?.submissionRate ?? 0}%</strong>
+                </div>
+                <div className="pipeline-pill pill-green">
+                  <span>💰 อัตราชดเชยสำเร็จ:</span>
+                  <strong>{data.pipeline?.reimbursementAmountRate ?? 0}%</strong>
+                </div>
+                <div className="pipeline-pill pill-purple">
+                  <span>🏦 อัตราเงินเข้าบัญชี:</span>
+                  <strong>{data.pipeline?.transferredRate ?? 0}%</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="exec-pipeline-flow">
+              {/* Step 1: Visit ทั้งหมด */}
+              <div className="pipeline-step-card step-1">
+                <div className="step-card-num">ขั้นตอนที่ 1 • ต้นทาง รพ.</div>
+                <div className="step-card-title">
+                  <span>🏥</span> Visit ทั้งหมด
+                </div>
+                <div className="step-card-main-val">
+                  {formatNumber(data.pipeline?.totalHospitalVisits ?? 0)}
+                  <span style={{ fontSize: '0.8rem', fontWeight: 500, color: '#64748b', marginLeft: '4px' }}>visits</span>
+                </div>
+                <div className="step-card-sub">
+                  OPD: {formatNumber(data.pipeline?.hospitalOpdVisits ?? 0)} • IPD: {formatNumber(data.pipeline?.hospitalIpdVisits ?? 0)}
+                </div>
+                <span className="step-card-badge" style={{ background: '#f1f5f9', color: '#475569' }}>
+                  ฐานบริการ รพ. (HOSxP)
+                </span>
+              </div>
+
+              {/* Step 2: ส่งเบิกทั้งหมด */}
+              <div className="pipeline-step-card step-2">
+                <div className="step-card-num">ขั้นตอนที่ 2 • ส่งเบิก</div>
+                <div className="step-card-title">
+                  <span>📤</span> ส่งเบิกทั้งหมด
+                </div>
+                <div className="step-card-main-val" style={{ color: '#2563eb' }}>
+                  ฿{formatCurrency(data.pipeline?.totalClaimedAmount ?? data.summary.totalClaimedAmount)}
+                </div>
+                <div className="step-card-sub">
+                  {formatNumber(data.pipeline?.totalClaimedCount ?? data.summary.totalClaimedCount)} visits • ยังไม่ส่ง {formatNumber(data.pipeline?.unclaimedCount ?? 0)} ({data.pipeline?.unclaimedRate ?? 0}%)
+                </div>
+                <span className="step-card-badge" style={{ background: '#eff6ff', color: '#1d4ed8' }}>
+                  ส่งข้อมูลครบ {data.pipeline?.submissionRate ?? 0}%
+                </span>
+              </div>
+
+              {/* Step 3: ได้รับชดเชยทั้งหมด */}
+              <div className="pipeline-step-card step-3">
+                <div className="step-card-num">ขั้นตอนที่ 3 • ชดเชย</div>
+                <div className="step-card-title">
+                  <span>💰</span> ได้รับชดเชยทั้งหมด
+                </div>
+                <div className="step-card-main-val" style={{ color: '#059669' }}>
+                  ฿{formatCurrency(data.pipeline?.totalReimbursedAmount ?? data.summary.totalReimbursedAmount)}
+                </div>
+                <div className="step-card-sub">
+                  {formatNumber(data.pipeline?.totalReimbursedCount ?? data.summary.totalReimbursedCount)} visits • อัตรา visit {data.pipeline?.reimbursementVisitRate ?? 0}%
+                </div>
+                <span className="step-card-badge" style={{ background: '#ecfdf5', color: '#047857' }}>
+                  ชดเชยแล้ว {data.pipeline?.reimbursementAmountRate ?? data.summary.reimbursementRate}%
+                </span>
+              </div>
+
+              {/* Step 4: ปฏิเสธการจ่ายทั้งหมด / ติด C */}
+              <div className="pipeline-step-card step-4">
+                <div className="step-card-num">ขั้นตอนที่ 4 • ติด C / ปฏิเสธ</div>
+                <div className="step-card-title">
+                  <span>⚠️</span> ปฏิเสธจ่าย / ติด C
+                </div>
+                <div className="step-card-main-val" style={{ color: '#dc2626' }}>
+                  ฿{formatCurrency(data.pipeline?.totalDeniedAmount ?? data.summary.totalPendingCAmount)}
+                </div>
+                <div className="step-card-sub">
+                  {formatNumber(data.pipeline?.totalDeniedCount ?? data.summary.totalPendingCCount)} visits • อัตราเงิน {data.pipeline?.denialAmountRate ?? 0}%
+                </div>
+                <span className="step-card-badge" style={{ background: '#fef2f2', color: '#b91c1c' }}>
+                  ติด C / Deny {data.pipeline?.denialVisitRate ?? 0}%
+                </span>
+              </div>
+
+              {/* Step 5: รอเงินโอน */}
+              <div className="pipeline-step-card step-5">
+                <div className="step-card-num">ขั้นตอนที่ 5 • รอรอบโอน</div>
+                <div className="step-card-title">
+                  <span>⏳</span> รอเงินโอน
+                </div>
+                <div className="step-card-main-val" style={{ color: '#d97706' }}>
+                  ฿{formatCurrency(data.pipeline?.pendingTransferAmount ?? data.summary.totalSmtWaitAmount)}
+                </div>
+                <div className="step-card-sub">
+                  {formatNumber(data.pipeline?.pendingTransferCount ?? 0)} รายการรอโอน • สัดส่วน {data.pipeline?.pendingTransferRate ?? 0}%
+                </div>
+                <span className="step-card-badge" style={{ background: '#fffbeb', color: '#b45309' }}>
+                  อนุมัติแล้วรอรอบโอน
+                </span>
+              </div>
+
+              {/* Step 6: รับเงินแล้ว */}
+              <div className="pipeline-step-card step-6">
+                <div className="step-card-num">ขั้นตอนที่ 6 • เข้าบัญชี</div>
+                <div className="step-card-title">
+                  <span>🏦</span> รับเงินแล้ว
+                </div>
+                <div className="step-card-main-val" style={{ color: '#7c3aed' }}>
+                  ฿{formatCurrency(data.pipeline?.transferredAmount ?? data.summary.totalSmtNetTransferred)}
+                </div>
+                <div className="step-card-sub">
+                  {formatNumber(data.pipeline?.transferredCount ?? 0)} รายการโอนสำเร็จ • สัดส่วน {data.pipeline?.transferredRate ?? 0}%
+                </div>
+                <span className="step-card-badge" style={{ background: '#f5f3ff', color: '#6d28d9' }}>
+                  โอนสุทธิเข้าบัญชี รพ.
                 </span>
               </div>
             </div>

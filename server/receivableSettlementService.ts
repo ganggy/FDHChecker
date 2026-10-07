@@ -41,6 +41,9 @@ export interface SettlementCandidateItem {
   mapping_known?: boolean;
   diff_amount: number;
   settle_action: 'full' | 'partial' | 'writeoff_diff' | 'hold_appeal';
+  match_level?: SettlementMatchLevel;
+  already_settled?: boolean;
+  settled_no?: string | null;
   notes?: string;
 }
 
@@ -100,6 +103,48 @@ export const findRightMapping = (hipdataCode?: string | null, pttype?: string | 
   const matches = RECEIVABLE_RIGHT_MAPPINGS.filter(item => item.hipdata_code === String(hipdataCode || '').trim().toUpperCase());
   const accounts = new Set(matches.map(item => JSON.stringify([item.debtor_opd, item.debtor_ipd, item.revenue_opd, item.revenue_ipd])));
   return accounts.size === 1 ? matches[0] : undefined;
+};
+
+export type SettlementMatchLevel = 'exact' | 'strong' | 'weak' | 'none';
+
+/** ระดับความเชื่อมั่นของการจับคู่รายการ STM กับลูกหนี้ (ไม่ใช้ยอดเงินตัดสิน) */
+export const classifyMatchLevel = (item: {
+  tran_id?: string | null; hn?: string | null; vn?: string | null; an?: string | null;
+  cid?: string | null; service_date?: string | null; mapping_known?: boolean; payment_known?: boolean;
+}): SettlementMatchLevel => {
+  const has = (value?: string | null) => Boolean(value && String(value).trim());
+  if (item.mapping_known === false || item.payment_known === false) return has(item.cid) ? 'weak' : 'none';
+  if (has(item.tran_id) && has(item.hn) && has(item.service_date)) return 'exact';
+  if (has(item.hn) && (has(item.vn) || has(item.an))) return 'strong';
+  if (has(item.cid) && has(item.service_date)) return 'weak';
+  return 'none';
+};
+
+const BANK_ACCOUNT = { code: '1101010104.101', name: 'เงินฝากธนาคารในงบประมาณ/เงินบำรุง' };
+const DISALLOWANCE_ACCOUNT = { code: '5103010102.101', name: 'ค่ารักษาพยาบาลต่ำกว่าเกณฑ์/ส่วนลดจ่าย' };
+const OVERPAY_ACCOUNT = { code: '4301020105.101', name: 'รายได้ค่ารักษาพยาบาลสูงกว่าเกณฑ์/เงินชดเชยเพิ่ม' };
+
+/** สร้างรายการบัญชีชุดเดียวกันทั้งหน้าพรีวิวและตอนบันทึก โดยเครดิตลูกหนี้แยกตามรหัสบัญชีจาก mapping สิทธิ์ */
+export const buildSettlementJournal = (items: Array<{ debtor_code?: string | null; claimable_amount: number; paid_amount: number; diff_amount: number }>) => {
+  const round = (value: number) => Number(value.toFixed(2));
+  let received = 0; let disallowance = 0; let overpay = 0;
+  const byDebtor = new Map<string, number>();
+  for (const item of items) {
+    received += Number(item.paid_amount || 0);
+    const diff = Number(item.diff_amount || 0);
+    if (diff < 0) disallowance += Math.abs(diff); else if (diff > 0) overpay += diff;
+    const code = String(item.debtor_code || '');
+    byDebtor.set(code, (byDebtor.get(code) || 0) + Number(item.claimable_amount || 0));
+  }
+  const entries: SettlementJournalEntry[] = [{ type: 'DEBIT', account_code: BANK_ACCOUNT.code, account_name: BANK_ACCOUNT.name, amount: round(received) }];
+  if (round(disallowance) > 0) entries.push({ type: 'DEBIT', account_code: DISALLOWANCE_ACCOUNT.code, account_name: DISALLOWANCE_ACCOUNT.name, amount: round(disallowance) });
+  for (const [code, amount] of byDebtor) {
+    entries.push({ type: 'CREDIT', account_code: code, account_name: code ? 'ลูกหนี้ตาม mapping สิทธิ์' : 'ยังไม่ยืนยันบัญชีลูกหนี้', amount: round(amount) });
+  }
+  if (round(overpay) > 0) entries.push({ type: 'CREDIT', account_code: OVERPAY_ACCOUNT.code, account_name: OVERPAY_ACCOUNT.name, amount: round(overpay) });
+  const debit = entries.filter(e => e.type === 'DEBIT').reduce((s, e) => s + e.amount, 0);
+  const credit = entries.filter(e => e.type === 'CREDIT').reduce((s, e) => s + e.amount, 0);
+  return { entries, isBalanced: Math.abs(debit - credit) < 0.05 };
 };
 
 export const getAvailableStatements = async (payerType?: string): Promise<SettlementStatementSummary[]> => {
@@ -197,6 +242,16 @@ export const getStatementSettlementCandidates = async (
 
   const rows = rawRows as any[];
   const items: SettlementCandidateItem[] = [];
+  const settledMap = new Map<number, string>();
+  if (rows.length) {
+    const [settledRows] = await connection.query(
+      `SELECT i.statement_record_id, b.settlement_no FROM receivable_settlement_item i
+       JOIN receivable_settlement_batch b ON b.id = i.settlement_batch_id
+       WHERE i.statement_record_id IN (${rows.map(() => '?').join(',')})`,
+      rows.map(r => Number(r.id))
+    );
+    for (const s of (settledRows as any[]) || []) settledMap.set(Number(s.statement_record_id), String(s.settlement_no || ''));
+  }
 
   let totalClaimable = 0;
   let totalReceived = 0;
@@ -265,6 +320,10 @@ export const getStatementSettlementCandidates = async (
       diff_amount: diffAmount,
       settle_action: settleAction,
     });
+    const pushed = items[items.length - 1];
+    pushed.match_level = classifyMatchLevel(pushed);
+    pushed.already_settled = settledMap.has(pushed.id);
+    pushed.settled_no = settledMap.get(pushed.id) || null;
   }
 
   totalClaimable = Number(totalClaimable.toFixed(2));
@@ -274,46 +333,7 @@ export const getStatementSettlementCandidates = async (
   totalOverpay = Number(totalOverpay.toFixed(2));
 
   // Build GL Journal Preview according to MOPH accounting rules (GFMIS)
-  const journalEntries: SettlementJournalEntry[] = [
-    {
-      type: 'DEBIT',
-      account_code: '1101010104.101',
-      account_name: 'เงินฝากธนาคารในงบประมาณ/เงินบำรุง',
-      amount: totalReceived,
-    },
-  ];
-
-  if (totalDisallowance > 0) {
-    journalEntries.push({
-      type: 'DEBIT',
-      account_code: '5103010102.101',
-      account_name: 'ค่ารักษาพยาบาลต่ำกว่าเกณฑ์/ส่วนลดจ่าย',
-      amount: totalDisallowance,
-    });
-  }
-
-  for (const code of new Set(items.map(item => item.debtor_code || ''))) {
-    journalEntries.push({ type: 'CREDIT', account_code: code, account_name: code ? 'ลูกหนี้ตาม mapping สิทธิ์' : 'ยังไม่ยืนยันบัญชีลูกหนี้',
-      amount: Number(items.filter(item => (item.debtor_code || '') === code).reduce((sum, item) => sum + item.claimable_amount, 0).toFixed(2)) });
-  }
-
-  if (totalOverpay > 0) {
-    journalEntries.push({
-      type: 'CREDIT',
-      account_code: '4301020105.101',
-      account_name: 'รายได้ค่ารักษาพยาบาลสูงกว่าเกณฑ์/เงินชดเชยเพิ่ม',
-      amount: totalOverpay,
-    });
-  }
-
-  const totalDebit = journalEntries
-    .filter((e) => e.type === 'DEBIT')
-    .reduce((sum, e) => sum + e.amount, 0);
-  const totalCredit = journalEntries
-    .filter((e) => e.type === 'CREDIT')
-    .reduce((sum, e) => sum + e.amount, 0);
-
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.05;
+  const { entries: journalEntries, isBalanced } = buildSettlementJournal(items);
 
   return {
     statement_no: statementNo,
@@ -418,13 +438,8 @@ export const executeSettlement = async (payload: ExecuteSettlementPayload, actor
   totalDisallowance = Number(totalDisallowance.toFixed(2));
   totalOverpay = Number(totalOverpay.toFixed(2));
 
-  // Compute Journal summary payload
-  const journalPayload = [
-    { type: 'DEBIT', account_code: '1101010104.101', account_name: 'เงินฝากธนาคารในงบประมาณ/เงินบำรุง', amount: totalReceived },
-    ...(totalDisallowance > 0 ? [{ type: 'DEBIT', account_code: '5103010102.101', account_name: 'ค่ารักษาพยาบาลต่ำกว่าเกณฑ์/ส่วนลดจ่าย', amount: totalDisallowance }] : []),
-    { type: 'CREDIT', account_code: '1102050101.201', account_name: 'ลูกหนี้ค่ารักษาพยาบาล สปสช./กองทุน', amount: totalClaimable },
-    ...(totalOverpay > 0 ? [{ type: 'CREDIT', account_code: '4301020105.101', account_name: 'รายได้ค่ารักษาพยาบาลสูงกว่าเกณฑ์/เงินชดเชยเพิ่ม', amount: totalOverpay }] : []),
-  ];
+  // Compute Journal summary payload (same builder as preview; credit debtors per mapping account)
+  const journalPayload = buildSettlementJournal(items).entries;
 
   // Insert batch
   const [batchResult] = await connection.query(

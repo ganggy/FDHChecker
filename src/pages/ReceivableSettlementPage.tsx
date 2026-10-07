@@ -37,12 +37,25 @@ export const ReceivableSettlementPage: React.FC = () => {
   const [bankAccount, setBankAccount] = useState<string>('ธนาคารกรุงไทย (บัญชีเงินบำรุงโรงพยาบาล)');
   const [notes, setNotes] = useState<string>('');
 
+  // Variance Reason mapping per MOPH and Fund guidelines
+  const VARIANCE_REASONS: Record<string, { label: string; desc: string }> = {
+    RATE: { label: 'Base rate/อัตราจ่ายต่ำกว่าที่ตั้งเบิก', desc: 'กองทุนปรับลด Base Rate หรืออัตราจ่ายต่อหน่วย' },
+    DRG: { label: 'AdjRW ต่ำกว่าที่คำนวณเบิก (เวชสถิติ)', desc: 'เวชระเบียนรหัสไม่ตรง/สปสช. ปรับลด AdjRW' },
+    DENY: { label: 'ติดปฏิเสธจ่าย C-Code/เงื่อนไขกองทุน', desc: 'Rep/STM ตรวจพบเงื่อนไขการเบิกผิด ไม่ผ่านเกณฑ์' },
+    DEDUCT: { label: 'หักเงินชดเชยเก่า/เงินทดรอง', desc: 'ถูกหักลบกลบหนี้จากงวดก่อน หรือหักคืนเงินจ่ายล่วงหน้า' },
+    DUP: { label: 'ส่งเบิกซ้ำซ้อน/ชดเชยแล้ว', desc: 'รายการนี้เคยเบิกหรือชดเชยไปแล้วในรอบก่อน' },
+    OTHER: { label: 'อื่นๆ (ระบุในหมายเหตุ)', desc: 'สาเหตุอื่นๆ นอกเหนือจากข้างต้น' },
+  };
+
   // Candidates & Selection state
   const [candidates, setCandidates] = useState<SettlementCandidateResult | null>(null);
   const [selectedIds, setSelectedIds] = useState<Record<number, boolean>>({});
   const [itemActions, setItemActions] = useState<Record<number, string>>({});
+  const [itemReasons, setItemReasons] = useState<Record<number, string>>({});
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'MATCHED' | 'DIFF' | 'ERROR'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'EXACT' | 'STRONG' | 'WEAK_NONE' | 'MATCHED' | 'DIFF' | 'ERROR' | 'UNSETTLED' | 'SETTLED'
+  >('ALL');
 
   // Loading & Alerts
   const [loadingStatements, setLoadingStatements] = useState<boolean>(false);
@@ -98,21 +111,84 @@ export const ReceivableSettlementPage: React.FC = () => {
       const result = await fetchSettlementCandidates(targetStatement);
       setCandidates(result);
 
-      // Select all by default
+      // Preselect only rows that are safe to settle: not settled before, not on appeal hold, and matched exact/strong
       const initialSelected: Record<number, boolean> = {};
       const initialActions: Record<number, string> = {};
+      const initialReasons: Record<number, string> = {};
+
       result.items.forEach((item) => {
-        initialSelected[item.id] = true;
+        initialSelected[item.id] = !item.already_settled
+          && item.settle_action !== 'hold_appeal'
+          && (item.match_level === undefined || item.match_level === 'exact' || item.match_level === 'strong');
         initialActions[item.id] = item.settle_action;
+
+        // Auto suggest variance reason
+        if (item.diff_amount !== 0) {
+          if (item.errorcode) {
+            initialReasons[item.id] = 'DENY';
+          } else if (item.patient_type === 'IPD' && item.diff_amount < 0) {
+            initialReasons[item.id] = 'DRG';
+          } else if (item.diff_amount < 0) {
+            initialReasons[item.id] = 'RATE';
+          } else {
+            initialReasons[item.id] = 'OTHER';
+          }
+        }
       });
       setSelectedIds(initialSelected);
       setItemActions(initialActions);
+      setItemReasons(initialReasons);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการดึงข้อมูลกระทบยอด');
     } finally {
       setLoadingCandidates(false);
     }
   };
+
+  // Match statistics breakdown across all loaded items
+  const matchStats = useMemo(() => {
+    if (!candidates) return null;
+    let exactCount = 0;
+    let exactAmount = 0;
+    let strongCount = 0;
+    let strongAmount = 0;
+    let weakCount = 0;
+    let weakAmount = 0;
+    let errorCount = 0;
+    let errorAmount = 0;
+    let settledCount = 0;
+    let settledAmount = 0;
+
+    candidates.items.forEach((item) => {
+      if (item.already_settled) {
+        settledCount += 1;
+        settledAmount += item.paid_amount;
+      }
+      if (item.errorcode) {
+        errorCount += 1;
+        errorAmount += item.paid_amount;
+      }
+      if (item.match_level === 'exact') {
+        exactCount += 1;
+        exactAmount += item.paid_amount;
+      } else if (item.match_level === 'strong') {
+        strongCount += 1;
+        strongAmount += item.paid_amount;
+      } else {
+        weakCount += 1;
+        weakAmount += item.paid_amount;
+      }
+    });
+
+    return {
+      total: candidates.items.length,
+      exact: { count: exactCount, amount: exactAmount },
+      strong: { count: strongCount, amount: strongAmount },
+      weak: { count: weakCount, amount: weakAmount },
+      error: { count: errorCount, amount: errorAmount },
+      settled: { count: settledCount, amount: settledAmount },
+    };
+  }, [candidates]);
 
   // Filtered Items
   const filteredItems = useMemo(() => {
@@ -121,9 +197,14 @@ export const ReceivableSettlementPage: React.FC = () => {
       const text = `${item.hn || ''} ${item.vn || ''} ${item.an || ''} ${item.cid || ''} ${item.patient_name || ''} ${item.errorcode || ''}`.toLowerCase();
       if (searchTerm && !text.includes(searchTerm.toLowerCase())) return false;
 
+      if (statusFilter === 'EXACT' && item.match_level !== 'exact') return false;
+      if (statusFilter === 'STRONG' && item.match_level !== 'strong') return false;
+      if (statusFilter === 'WEAK_NONE' && (item.match_level === 'exact' || item.match_level === 'strong')) return false;
       if (statusFilter === 'MATCHED' && item.diff_amount !== 0) return false;
       if (statusFilter === 'DIFF' && item.diff_amount === 0) return false;
       if (statusFilter === 'ERROR' && !item.errorcode) return false;
+      if (statusFilter === 'SETTLED' && !item.already_settled) return false;
+      if (statusFilter === 'UNSETTLED' && item.already_settled) return false;
 
       return true;
     });
@@ -133,7 +214,45 @@ export const ReceivableSettlementPage: React.FC = () => {
   const handleToggleSelectAll = (checked: boolean) => {
     const updated = { ...selectedIds };
     filteredItems.forEach((item) => {
-      updated[item.id] = checked;
+      if (!item.already_settled) {
+        updated[item.id] = checked;
+      }
+    });
+    setSelectedIds(updated);
+  };
+
+  // Selection helpers
+  const handleSelectExactAndStrong = () => {
+    if (!candidates) return;
+    const updated = { ...selectedIds };
+    candidates.items.forEach((item) => {
+      if (!item.already_settled && item.settle_action !== 'hold_appeal' && (item.match_level === 'exact' || item.match_level === 'strong')) {
+        updated[item.id] = true;
+      } else {
+        updated[item.id] = false;
+      }
+    });
+    setSelectedIds(updated);
+  };
+
+  const handleSelectExactOnly = () => {
+    if (!candidates) return;
+    const updated = { ...selectedIds };
+    candidates.items.forEach((item) => {
+      if (!item.already_settled && item.settle_action !== 'hold_appeal' && item.match_level === 'exact') {
+        updated[item.id] = true;
+      } else {
+        updated[item.id] = false;
+      }
+    });
+    setSelectedIds(updated);
+  };
+
+  const handleDeselectAll = () => {
+    if (!candidates) return;
+    const updated: Record<number, boolean> = {};
+    candidates.items.forEach((item) => {
+      updated[item.id] = false;
     });
     setSelectedIds(updated);
   };
@@ -170,7 +289,7 @@ export const ReceivableSettlementPage: React.FC = () => {
     };
   }, [candidates, selectedIds]);
 
-  // Dynamic Journal Preview
+  // Dynamic Journal Preview (credits mapped to each debtor account per MOPH standards)
   const activeJournal = useMemo(() => {
     const debit = [
       { code: '1101010104.101', name: 'เงินฝากธนาคารในงบประมาณ/เงินบำรุง', amount: activeSummary.received },
@@ -178,19 +297,40 @@ export const ReceivableSettlementPage: React.FC = () => {
         ? [{ code: '5103010102.101', name: 'ค่ารักษาพยาบาลต่ำกว่าเกณฑ์/ส่วนลดจ่าย', amount: activeSummary.disallowance }]
         : []),
     ];
-    const credit = [
-      { code: '1102050101.201', name: 'ลูกหนี้ค่ารักษาพยาบาล สปสช./กองทุน', amount: activeSummary.claimable },
-      ...(activeSummary.overpay > 0
-        ? [{ code: '4301020105.101', name: 'รายได้ค่ารักษาพยาบาลสูงกว่าเกณฑ์/ชดเชยเพิ่ม', amount: activeSummary.overpay }]
-        : []),
-    ];
+
+    const byDebtor = new Map<string, number>();
+    if (candidates) {
+      candidates.items.forEach((item) => {
+        if (selectedIds[item.id]) {
+          const code = item.debtor_code || '1102050101.201';
+          byDebtor.set(code, (byDebtor.get(code) || 0) + item.claimable_amount);
+        }
+      });
+    }
+
+    const credit: Array<{ code: string; name: string; amount: number }> = [];
+    for (const [code, amount] of byDebtor) {
+      credit.push({
+        code,
+        name: code ? 'ลูกหนี้ตาม mapping สิทธิ์' : 'ยังไม่ยืนยันบัญชีลูกหนี้',
+        amount: Number(amount.toFixed(2)),
+      });
+    }
+
+    if (activeSummary.overpay > 0) {
+      credit.push({
+        code: '4301020105.101',
+        name: 'รายได้ค่ารักษาพยาบาลสูงกว่าเกณฑ์/ชดเชยเพิ่ม',
+        amount: activeSummary.overpay,
+      });
+    }
 
     const totalDebit = debit.reduce((s, e) => s + e.amount, 0);
     const totalCredit = credit.reduce((s, e) => s + e.amount, 0);
     const isBalanced = Math.abs(totalDebit - totalCredit) < 0.05;
 
     return { debit, credit, totalDebit, totalCredit, isBalanced };
-  }, [activeSummary]);
+  }, [activeSummary, candidates, selectedIds]);
 
   // Execute Settlement
   const handleExecuteSettlement = async () => {
@@ -229,7 +369,10 @@ export const ReceivableSettlementPage: React.FC = () => {
           diff_amount: item.diff_amount,
           settle_action: itemActions[item.id] || item.settle_action,
           error_code: item.errorcode,
-          notes: item.notes,
+          notes: [
+            item.notes,
+            itemReasons[item.id] ? `[สาเหตุผลต่าง: ${VARIANCE_REASONS[itemReasons[item.id]]?.label || itemReasons[item.id]}]` : '',
+          ].filter(Boolean).join(' ') || undefined,
         }));
 
       const res = await executeSettlement({
@@ -276,6 +419,8 @@ export const ReceivableSettlementPage: React.FC = () => {
       .filter((item) => selectedIds[item.id])
       .map((item, index) => ({
         ลำดับ: index + 1,
+        ความเชื่อมั่น: item.match_level === 'exact' ? 'ตรงเป๊ะ (Exact)' : item.match_level === 'strong' ? 'เชื่อถือได้ (Strong)' : 'เฝ้าระวัง (Weak/None)',
+        สถานะเดิม: item.already_settled ? `ตัดแล้ว (${item.settled_no || ''})` : 'ยังไม่เคยตัด',
         ประเภท: item.patient_type,
         วันที่บริการ: item.service_date || '',
         HN: item.hn || '',
@@ -287,7 +432,8 @@ export const ReceivableSettlementPage: React.FC = () => {
         ยอดตั้งหนี้: item.claimable_amount,
         ยอดเงินชดเชย: item.paid_amount,
         ผลต่าง: item.diff_amount,
-        สถานะตัดหนี้: itemActions[item.id] || item.settle_action,
+        สาเหตุผลต่าง: itemReasons[item.id] ? VARIANCE_REASONS[itemReasons[item.id]]?.label : '',
+        การตัดหนี้: itemActions[item.id] || item.settle_action,
         ErrorCode: item.errorcode || '',
       }));
 
@@ -508,7 +654,90 @@ export const ReceivableSettlementPage: React.FC = () => {
 
               {/* Step 4: Table Controls & Actions */}
               <div className="settlement-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+                {/* 3-Way Match Summary Strip */}
+                {matchStats && (
+                  <div className="match-summary-strip">
+                    <div
+                      className={`match-summary-chip ${statusFilter === 'ALL' ? 'is-selected' : ''}`}
+                      onClick={() => setStatusFilter('ALL')}
+                    >
+                      <div className="chip-title">
+                        <span>📋 ทั้งหมด</span>
+                        <span>{matchStats.total}</span>
+                      </div>
+                      <div className="chip-count">{candidates.items.length} รายการ</div>
+                      <div className="chip-amount">{formatMoney(candidates.total_received)} บ.</div>
+                    </div>
+
+                    <div
+                      className={`match-summary-chip ${statusFilter === 'EXACT' ? 'is-selected' : ''}`}
+                      onClick={() => setStatusFilter('EXACT')}
+                      style={{ borderLeft: '4px solid #16a34a' }}
+                    >
+                      <div className="chip-title">
+                        <span style={{ color: '#16a34a' }}>🟢 ตรงเป๊ะ (Exact)</span>
+                        <span style={{ fontWeight: 700 }}>{matchStats.exact.count}</span>
+                      </div>
+                      <div className="chip-count" style={{ color: '#16a34a' }}>{matchStats.exact.count} เคส</div>
+                      <div className="chip-amount">{formatMoney(matchStats.exact.amount)} บ. (HIS VN/AN เป๊ะ)</div>
+                    </div>
+
+                    <div
+                      className={`match-summary-chip ${statusFilter === 'STRONG' ? 'is-selected' : ''}`}
+                      onClick={() => setStatusFilter('STRONG')}
+                      style={{ borderLeft: '4px solid #d97706' }}
+                    >
+                      <div className="chip-title">
+                        <span style={{ color: '#d97706' }}>🟡 เชื่อถือได้ (Strong)</span>
+                        <span style={{ fontWeight: 700 }}>{matchStats.strong.count}</span>
+                      </div>
+                      <div className="chip-count" style={{ color: '#d97706' }}>{matchStats.strong.count} เคส</div>
+                      <div className="chip-amount">{formatMoney(matchStats.strong.amount)} บ. (HN/CID+วัน)</div>
+                    </div>
+
+                    <div
+                      className={`match-summary-chip ${statusFilter === 'WEAK_NONE' ? 'is-selected' : ''}`}
+                      onClick={() => setStatusFilter('WEAK_NONE')}
+                      style={{ borderLeft: '4px solid #ea580c' }}
+                    >
+                      <div className="chip-title">
+                        <span style={{ color: '#ea580c' }}>🟠 เฝ้าระวัง (Weak)</span>
+                        <span style={{ fontWeight: 700 }}>{matchStats.weak.count}</span>
+                      </div>
+                      <div className="chip-count" style={{ color: '#ea580c' }}>{matchStats.weak.count} เคส</div>
+                      <div className="chip-amount">{formatMoney(matchStats.weak.amount)} บ. (ยังไม่พบคู่ HIS)</div>
+                    </div>
+
+                    <div
+                      className={`match-summary-chip ${statusFilter === 'ERROR' ? 'is-selected' : ''}`}
+                      onClick={() => setStatusFilter('ERROR')}
+                      style={{ borderLeft: '4px solid #dc2626' }}
+                    >
+                      <div className="chip-title">
+                        <span style={{ color: '#dc2626' }}>🛑 C-Code/Error</span>
+                        <span style={{ fontWeight: 700 }}>{matchStats.error.count}</span>
+                      </div>
+                      <div className="chip-count" style={{ color: '#dc2626' }}>{matchStats.error.count} เคส</div>
+                      <div className="chip-amount">ควรพักรออุทธรณ์ 60 วัน</div>
+                    </div>
+
+                    <div
+                      className={`match-summary-chip ${statusFilter === 'SETTLED' ? 'is-selected' : ''}`}
+                      onClick={() => setStatusFilter('SETTLED')}
+                      style={{ borderLeft: '4px solid #64748b' }}
+                    >
+                      <div className="chip-title">
+                        <span style={{ color: '#475569' }}>⚠️ ตัดบัญชีแล้ว</span>
+                        <span style={{ fontWeight: 700 }}>{matchStats.settled.count}</span>
+                      </div>
+                      <div className="chip-count" style={{ color: '#475569' }}>{matchStats.settled.count} เคส</div>
+                      <div className="chip-amount">{formatMoney(matchStats.settled.amount)} บ. (กันตัดซ้ำ)</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Filter & Action Controls */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '0.75rem' }}>
                   <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
                     <input
                       type="text"
@@ -516,17 +745,22 @@ export const ReceivableSettlementPage: React.FC = () => {
                       placeholder="ค้นหา HN / VN / AN / ชื่อ / Error..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      style={{ width: '260px' }}
+                      style={{ width: '240px' }}
                     />
                     <select
                       className="settlement-select"
                       value={statusFilter}
                       onChange={(e) => setStatusFilter(e.target.value as any)}
                     >
-                      <option value="ALL">ทุกสถานะผลต่าง</option>
-                      <option value="MATCHED">เฉพาะยอดตรงกัน (ครบ)</option>
-                      <option value="DIFF">เฉพาะมียอดต่าง (ขาด/เกิน)</option>
-                      <option value="ERROR">เฉพาะติด Error</option>
+                      <option value="ALL">📋 ทุกรายการ ({candidates.items.length})</option>
+                      <option value="EXACT">🟢 เฉพาะตรงเป๊ะ (Exact)</option>
+                      <option value="STRONG">🟡 เฉพาะเชื่อถือได้ (Strong)</option>
+                      <option value="WEAK_NONE">🟠 เฉพาะเฝ้าระวัง (Weak/None)</option>
+                      <option value="MATCHED">✓ เฉพาะยอดตรงกัน 100%</option>
+                      <option value="DIFF">⚠ เฉพาะมียอดผลต่าง (ขาด/เกิน)</option>
+                      <option value="ERROR">🛑 เฉพาะติด C-Code / Error</option>
+                      <option value="UNSETTLED">📄 ยังไม่เคยตัดบัญชี</option>
+                      <option value="SETTLED">⚠️ ตัดบัญชีไปแล้ว</option>
                     </select>
                     <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
                       แสดง {filteredItems.length} จาก {candidates.items.length} รายการ
@@ -547,6 +781,20 @@ export const ReceivableSettlementPage: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Quick Selection Helpers */}
+                <div className="selection-helpers">
+                  <span style={{ fontWeight: 600, color: '#475569' }}>ทางลัดการเลือก:</span>
+                  <button className="helper-btn" onClick={handleSelectExactOnly}>
+                    🟢 เลือกเฉพาะตรงเป๊ะ ({matchStats?.exact.count || 0})
+                  </button>
+                  <button className="helper-btn" onClick={handleSelectExactAndStrong}>
+                    🎯 เลือกตรงเป๊ะ + เชื่อถือได้ ({(matchStats?.exact.count || 0) + (matchStats?.strong.count || 0)})
+                  </button>
+                  <button className="helper-btn" onClick={handleDeselectAll}>
+                    ❌ ไม่เลือกทั้งหมด
+                  </button>
+                </div>
+
                 {/* Table */}
                 <div className="settlement-table-wrapper">
                   <table className="settlement-table">
@@ -555,13 +803,19 @@ export const ReceivableSettlementPage: React.FC = () => {
                         <th style={{ width: '40px', textAlign: 'center' }}>
                           <input
                             type="checkbox"
-                            checked={filteredItems.length > 0 && filteredItems.every((item) => selectedIds[item.id])}
+                            checked={
+                              filteredItems.filter((i) => !i.already_settled).length > 0 &&
+                              filteredItems
+                                .filter((i) => !i.already_settled)
+                                .every((item) => selectedIds[item.id])
+                            }
                             onChange={(e) => handleToggleSelectAll(e.target.checked)}
                           />
                         </th>
+                        <th>ความเชื่อมั่น 3-Way</th>
                         <th>ประเภท</th>
                         <th>วันที่บริการ</th>
-                        <th>HN</th>
+                        <th>HN / CID</th>
                         <th>VN / AN</th>
                         <th>ชื่อผู้ป่วย</th>
                         <th>สิทธิ</th>
@@ -569,23 +823,53 @@ export const ReceivableSettlementPage: React.FC = () => {
                         <th style={{ textAlign: 'right' }}>ยอดตั้งหนี้</th>
                         <th style={{ textAlign: 'right' }}>เงินชดเชย</th>
                         <th style={{ textAlign: 'right' }}>ผลต่าง</th>
-                        <th>Error</th>
-                        <th>การตัดหนี้</th>
+                        <th>สาเหตุผลต่าง (Account/Stat)</th>
+                        <th>ข้อบ่งชี้ / Error</th>
+                        <th>การตัดหนี้ (Audit/Appeal)</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredItems.map((item) => {
                         const isSelected = Boolean(selectedIds[item.id]);
+                        const isSettled = Boolean(item.already_settled);
+
                         return (
-                          <tr key={item.id} style={{ opacity: isSelected ? 1 : 0.45 }}>
+                          <tr
+                            key={item.id}
+                            style={{
+                              opacity: isSettled ? 0.6 : isSelected ? 1 : 0.45,
+                              background: isSettled ? '#f8fafc' : undefined,
+                            }}
+                          >
                             <td style={{ textAlign: 'center' }}>
                               <input
                                 type="checkbox"
+                                disabled={isSettled}
                                 checked={isSelected}
                                 onChange={(e) =>
                                   setSelectedIds({ ...selectedIds, [item.id]: e.target.checked })
                                 }
+                                title={isSettled ? `ตัดบัญชีแล้วในใบสำคัญ ${item.settled_no || ''}` : ''}
                               />
+                            </td>
+                            <td>
+                              {isSettled ? (
+                                <span className="badge-match-settled" title={`ตัดบัญชีแล้ว เลขที่ ${item.settled_no || '-'}`}>
+                                  ⚠️ ตัดแล้ว ({item.settled_no || 'STL'})
+                                </span>
+                              ) : item.match_level === 'exact' ? (
+                                <span className="badge-match-exact" title="จับคู่สมบูรณ์ด้วย VN/AN, วันที่ และสิทธิ">
+                                  🟢 ตรงเป๊ะ
+                                </span>
+                              ) : item.match_level === 'strong' ? (
+                                <span className="badge-match-strong" title="จับคู่ด้วย HN/CID + วันที่บริการ">
+                                  🟡 เชื่อถือได้
+                                </span>
+                              ) : (
+                                <span className="badge-match-weak" title="ไม่พบประวัติรับบริการที่ตรงกันใน HIS">
+                                  🟠 เฝ้าระวัง
+                                </span>
+                              )}
                             </td>
                             <td>
                               <span style={{
@@ -600,7 +884,10 @@ export const ReceivableSettlementPage: React.FC = () => {
                               </span>
                             </td>
                             <td>{item.service_date || '-'}</td>
-                            <td style={{ fontFamily: 'monospace' }}>{item.hn || '-'}</td>
+                            <td style={{ fontFamily: 'monospace' }}>
+                              {item.hn || '-'}
+                              {item.cid && <div style={{ fontSize: '0.72rem', color: '#94a3b8' }}>{item.cid}</div>}
+                            </td>
                             <td style={{ fontFamily: 'monospace' }}>{item.vn || item.an || '-'}</td>
                             <td>{item.patient_name || '-'}</td>
                             <td>{item.maininscl || '-'}</td>
@@ -614,6 +901,25 @@ export const ReceivableSettlementPage: React.FC = () => {
                                 <span className="badge-diff-neg">{formatMoney(item.diff_amount)}</span>
                               ) : (
                                 <span className="badge-diff-pos">+{formatMoney(item.diff_amount)}</span>
+                              )}
+                            </td>
+                            <td>
+                              {item.diff_amount !== 0 ? (
+                                <select
+                                  className="settlement-select"
+                                  style={{ padding: '0.2rem 0.35rem', fontSize: '0.75rem', maxWidth: '170px' }}
+                                  value={itemReasons[item.id] || (item.errorcode ? 'DENY' : 'RATE')}
+                                  onChange={(e) => setItemReasons({ ...itemReasons, [item.id]: e.target.value })}
+                                  disabled={isSettled}
+                                >
+                                  {Object.entries(VARIANCE_REASONS).map(([key, info]) => (
+                                    <option key={key} value={key} title={info.desc}>
+                                      {info.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>-</span>
                               )}
                             </td>
                             <td>
@@ -633,6 +939,7 @@ export const ReceivableSettlementPage: React.FC = () => {
                                 onChange={(e) =>
                                   setItemActions({ ...itemActions, [item.id]: e.target.value })
                                 }
+                                disabled={isSettled}
                               >
                                 <option value="full">ตัดรับชำระครบ</option>
                                 <option value="writeoff_diff">ตัดผลต่าง/หนี้สูญ</option>

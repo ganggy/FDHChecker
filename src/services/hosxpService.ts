@@ -1765,6 +1765,9 @@ export interface SettlementCandidateItem {
   paid_amount: number;
   diff_amount: number;
   settle_action: 'full' | 'partial' | 'writeoff_diff' | 'hold_appeal';
+  match_level?: 'exact' | 'strong' | 'weak' | 'none';
+  already_settled?: boolean;
+  settled_no?: string | null;
   notes?: string;
 }
 

@@ -1,5 +1,5 @@
 import { getRepstmConnection, getUTFConnection } from './db/connection.js';
-import { ensureRepstmTables } from './db/schema.js';
+import { ensureRepstmTables, ensureSmtBudgetTransferSchema } from './db/schema.js';
 import { readHospitalIdentity } from './siteProfile.js';
 
 export interface SmtTransferRow {
@@ -188,6 +188,7 @@ export async function syncSmtTransfers(customBudgetYear?: string): Promise<{
   const repConn = await getRepstmConnection();
   let affected = 0;
   try {
+    await ensureSmtBudgetTransferSchema(repConn);
     for (const item of rawDatas) {
       const runDate = item.runDt || `${item.cpostingYear || '2024'}-01-01`;
       const postingDate = String(item.postingDate || '');

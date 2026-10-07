@@ -565,6 +565,77 @@ export const SMT_BUDGET_TRANSFER_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+export const ensureSmtBudgetTransferSchema = async (connection: any): Promise<void> => {
+  await connection.query(SMT_BUDGET_TRANSFER_TABLE_SQL);
+
+  const [columnRows] = await connection.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'smt_budget_transfers'`
+  );
+  const existingColumns = new Set(
+    (Array.isArray(columnRows) ? columnRows : [])
+      .map((row: any) => String(row.COLUMN_NAME || '').toLowerCase())
+  );
+
+  const columns: Array<[string, string]> = [
+    ['posting_date', 'ADD COLUMN posting_date VARCHAR(20) NULL AFTER run_date'],
+    ['fund_group', 'ADD COLUMN fund_group VARCHAR(100) NULL AFTER fund_name'],
+    ['fund_descr', 'ADD COLUMN fund_descr VARCHAR(255) NULL AFTER fund_group'],
+    ['efund_desc', 'ADD COLUMN efund_desc VARCHAR(255) NULL AFTER fund_descr'],
+    ['budget_source', 'ADD COLUMN budget_source VARCHAR(50) NULL AFTER efund_desc'],
+    ['moph_id', 'ADD COLUMN moph_id VARCHAR(50) NULL AFTER budget_source'],
+    ['moph_desc', 'ADD COLUMN moph_desc VARCHAR(255) NULL AFTER moph_id'],
+    ['wait_amount', 'ADD COLUMN wait_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER amount'],
+    ['debt_amount', 'ADD COLUMN debt_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER wait_amount'],
+    ['bond_amount', 'ADD COLUMN bond_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER debt_amount'],
+    ['vat_amount', 'ADD COLUMN vat_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER bond_amount'],
+    ['net_total', 'ADD COLUMN net_total DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER vat_amount'],
+    ['bank_name', 'ADD COLUMN bank_name VARCHAR(255) NULL AFTER net_total'],
+    ['pmnt_stts', "ADD COLUMN pmnt_stts VARCHAR(20) NOT NULL DEFAULT '' AFTER bank_name"],
+    ['mou_grp_code', 'ADD COLUMN mou_grp_code VARCHAR(50) NULL AFTER pmnt_stts'],
+    ['efund_cd', 'ADD COLUMN efund_cd VARCHAR(20) NULL AFTER mou_grp_code'],
+    ['sfund_cd', 'ADD COLUMN sfund_cd VARCHAR(20) NULL AFTER efund_cd'],
+    ['raw_payload', 'ADD COLUMN raw_payload JSON NULL AFTER sfund_cd'],
+  ];
+
+  for (const [colName, alterSql] of columns) {
+    if (!existingColumns.has(colName)) {
+      try {
+        await connection.query(`ALTER TABLE smt_budget_transfers ${alterSql}`);
+        console.log(`[Schema] Added missing column '${colName}' to smt_budget_transfers`);
+      } catch (err) {
+        console.warn(`[Schema] Unable to add column '${colName}' to smt_budget_transfers:`, err);
+      }
+    }
+  }
+
+  // Ensure unique key uk_smt_transfer includes sfund_cd, moph_id, pmnt_stts
+  try {
+    const [indexRows] = await connection.query(
+      `SELECT INDEX_NAME, COLUMN_NAME
+       FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'smt_budget_transfers'
+         AND INDEX_NAME = 'uk_smt_transfer'`
+    );
+    const ukCols = new Set(
+      (Array.isArray(indexRows) ? indexRows : [])
+        .map((r: any) => String(r.COLUMN_NAME || '').toLowerCase())
+    );
+    if (ukCols.size > 0 && !ukCols.has('pmnt_stts')) {
+      await connection.query(`ALTER TABLE smt_budget_transfers DROP INDEX uk_smt_transfer`);
+      await connection.query(
+        `ALTER TABLE smt_budget_transfers ADD UNIQUE KEY uk_smt_transfer (hcode, budget_year, batch_no, ref_doc_no, run_date, mou_grp_code, efund_cd, sfund_cd, moph_id, pmnt_stts)`
+      );
+      console.log(`[Schema] Upgraded uk_smt_transfer index on smt_budget_transfers`);
+    }
+  } catch (err) {
+    console.warn(`[Schema] Unable to upgrade uk_smt_transfer index on smt_budget_transfers:`, err);
+  }
+};
+
 
 export const ensureFdhClaimStatusSchema = async (connection: any): Promise<void> => {
   if (activeHospitalDatabaseConfig.type === 'postgresql') {
@@ -672,7 +743,7 @@ const ensureRepstmTablesUncached = async () => {
     await connection.query(RECEIVABLE_SETTLEMENT_BATCH_TABLE_SQL);
     await connection.query(RECEIVABLE_SETTLEMENT_ITEM_TABLE_SQL);
     await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
-    await connection.query(SMT_BUDGET_TRANSFER_TABLE_SQL);
+    await ensureSmtBudgetTransferSchema(connection);
 
     const repSeqColumnTables = ['rep_data', 'rep_data_verify'];
     for (const tableName of repSeqColumnTables) {

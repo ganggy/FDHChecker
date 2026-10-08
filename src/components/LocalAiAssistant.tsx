@@ -261,15 +261,15 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
           <section className="local-ai-panel" aria-label="ผู้ช่วย FDH Local AI">
             <header className="local-ai-header">
               <div className="local-ai-header-info">
-                <strong>FDH Local AI</strong>
+                <strong>{status?.ai?.provider === 'openai' ? 'Jev AI (Gemini 3.7 Flash)' : 'FDH Local AI'}</strong>
                 <span className={`local-ai-status ${status?.ai?.configured && status.auth?.authenticated ? 'is-ready' : ''}`}>
                   {status?.ai?.configured
-                    ? `${status.ai.model} + ${status.ai.embedModel} ${status.auth?.authenticated ? 'พร้อมใช้งาน' : 'รอ Access Key'}`
+                    ? `${status.ai.model || 'Jev AI'}${status.ai.embedModel ? ` + ${status.ai.embedModel}` : ''} ${status.auth?.authenticated ? 'พร้อมใช้งาน' : 'รอ Access Key'}`
                     : status?.ai?.reachable === false
-                      ? 'เชื่อมต่อ Ollama ไม่ได้'
+                      ? (status?.ai?.provider === 'openai' ? 'เชื่อมต่อ Jev AI ไม่ได้' : 'เชื่อมต่อ Ollama ไม่ได้')
                       : status?.ai?.chatConfigured === false || status?.ai?.embeddingConfigured === false
-                        ? `โมเดลไม่ครบ: ${status.ai.chatConfigured === false ? status.ai.model : status.ai.embedModel}`
-                        : 'กำลังตรวจสอบ Ollama'}
+                        ? `โมเดลไม่ครบ: ${status?.ai?.chatConfigured === false ? status.ai.model : status?.ai?.embedModel}`
+                        : (status?.ai?.provider === 'openai' ? 'กำลังตรวจสอบ Jev AI' : 'กำลังตรวจสอบ Ollama')}
                 </span>
               </div>
               <div className="local-ai-header-actions">

@@ -103,6 +103,9 @@ export interface ExecutivePipelineMetrics {
   transferredAmount: number;
   transferredCount: number;
   transferredRate: number;
+  fdhSubmittedCount?: number;
+  repAcceptedCount?: number;
+  stmCompensatedCount?: number;
 }
 
 export interface ExecutiveMonitorResult {
@@ -781,6 +784,11 @@ export const ExecutiveMonitorPage: React.FC = () => {
                 </div>
                 <div className="step-card-sub">
                   {formatNumber(data.pipeline?.totalClaimedCount ?? data.summary.totalClaimedCount)} visits • ยังไม่ส่ง {formatNumber(data.pipeline?.unclaimedCount ?? 0)} ({data.pipeline?.unclaimedRate ?? 0}%)
+                  {data.pipeline?.fdhSubmittedCount !== undefined && (
+                    <div style={{ marginTop: '4px', fontSize: '0.75rem', color: '#1e40af' }}>
+                      FDH: {formatNumber(data.pipeline.fdhSubmittedCount)} • REP: {formatNumber(data.pipeline.repAcceptedCount ?? 0)}
+                    </div>
+                  )}
                 </div>
                 <span className="step-card-badge" style={{ background: '#eff6ff', color: '#1d4ed8' }}>
                   ส่งข้อมูลครบ {data.pipeline?.submissionRate ?? 0}%
@@ -798,6 +806,11 @@ export const ExecutiveMonitorPage: React.FC = () => {
                 </div>
                 <div className="step-card-sub">
                   {formatNumber(data.pipeline?.totalReimbursedCount ?? data.summary.totalReimbursedCount)} visits • อัตรา visit {data.pipeline?.reimbursementVisitRate ?? 0}%
+                  {data.pipeline?.stmCompensatedCount !== undefined && (
+                    <div style={{ marginTop: '4px', fontSize: '0.75rem', color: '#065f46' }}>
+                      STM ชดเชย: {formatNumber(data.pipeline.stmCompensatedCount)} visits
+                    </div>
+                  )}
                 </div>
                 <span className="step-card-badge" style={{ background: '#ecfdf5', color: '#047857' }}>
                   ชดเชยแล้ว {data.pipeline?.reimbursementAmountRate ?? data.summary.reimbursementRate}%

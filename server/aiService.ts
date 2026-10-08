@@ -163,6 +163,14 @@ const callOllama = async (
 
 const extractOpenAIText = (payload: Record<string, unknown>): string => {
   if (typeof payload.output_text === 'string') return payload.output_text.trim();
+  if (Array.isArray(payload.choices) && payload.choices.length > 0) {
+    const firstChoice = payload.choices[0] as Record<string, unknown>;
+    if (firstChoice && typeof firstChoice === 'object') {
+      const msg = firstChoice.message as Record<string, unknown> | undefined;
+      if (typeof msg?.content === 'string') return msg.content.trim();
+      if (typeof firstChoice.text === 'string') return firstChoice.text.trim();
+    }
+  }
   const output = Array.isArray(payload.output) ? payload.output : [];
   for (const item of output) {
     if (!item || typeof item !== 'object') continue;
@@ -182,28 +190,53 @@ const extractOpenAIText = (payload: Record<string, unknown>): string => {
 const callOpenAI = async (
   prompt: string,
   systemInstructions = SYSTEM_INSTRUCTIONS,
-  options?: { json?: boolean; maxTokens?: number },
+  options?: { json?: boolean; temperature?: number; maxTokens?: number },
 ) => {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
-  const response = await fetch('https://api.openai.com/v1/responses', {
+
+  const rawBaseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const model = process.env.OPENAI_MODEL || 'gpt-5.6-terra';
+
+  const isResponsesEndpoint = rawBaseUrl.endsWith('/responses');
+  const url = isResponsesEndpoint
+    ? rawBaseUrl
+    : (rawBaseUrl.endsWith('/chat/completions') ? rawBaseUrl : `${rawBaseUrl}/chat/completions`);
+
+  const requestBody = isResponsesEndpoint
+    ? {
+        model,
+        reasoning: { effort: 'none' },
+        instructions: systemInstructions,
+        input: prompt,
+        max_output_tokens: options?.maxTokens || 1_000,
+        text: { verbosity: 'low' },
+      }
+    : {
+        model,
+        messages: [
+          ...(systemInstructions ? [{ role: 'system', content: systemInstructions }] : []),
+          { role: 'user', content: prompt },
+        ],
+        ...(options?.json ? { response_format: { type: 'json_object' } } : {}),
+        temperature: options?.temperature ?? 0.2,
+        max_tokens: options?.maxTokens || 1_000,
+      };
+
+  const response = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
-      reasoning: { effort: 'none' },
-      instructions: systemInstructions,
-      input: prompt,
-      max_output_tokens: options?.maxTokens || 1_000,
-      text: { verbosity: 'low' },
-    }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(requestTimeoutMs()),
   });
   const payload = await response.json() as Record<string, unknown>;
   if (!response.ok) {
     const error = payload.error && typeof payload.error === 'object'
       ? String((payload.error as Record<string, unknown>).message || response.statusText)
-      : response.statusText;
+      : (typeof payload.error === 'string' ? payload.error : response.statusText);
     throw new Error(`OpenAI API ${response.status}: ${error}`);
   }
   const text = extractOpenAIText(payload);
@@ -294,11 +327,13 @@ export const summarizeReport = async (input: ReportSummaryInput) => {
 export const getAiStatus = async () => {
   const selectedProvider = provider();
   if (selectedProvider === 'openai') {
+    const hasKey = Boolean(process.env.OPENAI_API_KEY?.trim());
     return {
       provider: selectedProvider,
       model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
-      configured: Boolean(process.env.OPENAI_API_KEY?.trim()),
-      reachable: null,
+      baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+      configured: hasKey,
+      reachable: hasKey ? true : null,
     };
   }
 

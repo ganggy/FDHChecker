@@ -105,6 +105,11 @@ test('classifyRightScheme accurately identifies coverage schemes', () => {
   assert.equal(classifyRightScheme(null, null, 'LGO-HD-6701.stm', null), 'LGO');
   assert.equal(classifyRightScheme(null, null, 'SOCD6701.stm', null), 'SSS');
 
+  // CSCD statements mapped to OFC (Comptroller General)
+  assert.equal(classifyRightScheme(null, null, 'STM_11101_OP202601_01.xls', null), 'OFC');
+  assert.equal(classifyRightScheme(null, null, 'STM_11101_IP202601_01.xls', null), 'OFC');
+  assert.equal(classifyRightScheme(null, null, 'STM_11101_OP202512_02.xls', null), 'OFC');
+
   // Other Rights (ทหารผ่านศึก / ผู้พิการ / ชนกลุ่มน้อย)
   assert.equal(classifyRightScheme('VET', null, null, null), 'OTHER');
   assert.equal(classifyRightScheme('DIS', null, null, null), 'OTHER');
@@ -140,6 +145,8 @@ test('extractSubSchemeName extracts descriptive sub-scheme or statement origin',
   assert.equal(extractSubSchemeName({ filename: 'DCKD6701.stm' }), 'DCKD (ฟอกไต สปสช.)');
   assert.equal(extractSubSchemeName({ filename: 'CHIHD6701.stm' }), 'CHI/COCD (ฟอกไต ข้าราชการ)');
   assert.equal(extractSubSchemeName({ filename: 'LGO-HD-6701.stm' }), 'LGO-HD (ฟอกไต อปท.)');
+  assert.equal(extractSubSchemeName({ filename: 'STM_11101_OP202601_01.xls' }), 'CSCD (ข้าราชการเบิกต้นสังกัด)');
+  assert.equal(extractSubSchemeName({ filename: 'STM_11101_IP202601_01.xls' }), 'CSCD (ข้าราชการเบิกต้นสังกัด)');
 });
 
 test('ExecutivePipelineMetrics calculates submission, reimbursement, and denial rates accurately', () => {

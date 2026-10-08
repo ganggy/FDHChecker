@@ -55,12 +55,13 @@ export const APP_SESSION_TABLE_SQL = `
 `;
 
 export const DEFAULT_MENU_PAGES = [
-  'staff', 'ipd', 'aiReports', 'hospitalReports', 'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
+  'staff', 'ipd', 'ipdExport', 'ipdClaimMonitor', 'collaboration', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'officialReceivable', 'receivableStandardReport',
+  'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
   'sssExport', 'sssRepStm',
-  'receivable', 'insuranceOverview', 'executiveMonitor', 'accountingRevenueBudget', 'smtBudget', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
-  'fundOther', 'monitor', 'fsMonitor', 'mophDmht', 'mophVaccine', 'guide', 'settings',
-  'memberAdmin', 'authenSync', 'preValidator', 'workQueue', 'rejectTracking', 'revenueOpportunity', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit',
-  'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking', 'ucOutsideCup'
+  'receivable', 'receivableSettlement', 'insuranceOverview', 'executiveMonitor', 'accountingRevenueBudget', 'smtBudget', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
+  'fundOther', 'monitor', 'fsMonitor', 'revenueOpportunity', 'mophDmht', 'mophVaccine', 'guide', 'settings',
+  'memberAdmin', 'authenSync', 'ktbApproveCode', 'preValidator', 'workQueue', 'rejectTracking', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit',
+  'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking', 'ucOutsideCup', 'dentalAudit', 'icd9Lookup'
 ];
 
 export const DEFAULT_STAFF_MENU_PAGES = [

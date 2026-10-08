@@ -140,6 +140,11 @@ export const rolePresets: Array<{ key: string; label: string; pages: AppPage[] }
     pages: [...groupPages('REP/STM & กระทบยอด', 'ลูกหนี้ & บัญชี'), 'executiveMonitor', 'insuranceOverview', 'guide'],
   },
   {
+    key: 'dental',
+    label: '🦷 เจ้าหน้าที่ทันตกรรม',
+    pages: ['dentalAudit', 'fund43', 'specific', 'ucOutsideCup', 'guide'],
+  },
+  {
     key: 'executive',
     label: '📈 ผู้บริหารและวิเคราะห์',
     pages: [...groupPages('ผู้บริหาร/วิเคราะห์'), 'receivableStandardReport', 'accountingRevenueBudget', 'guide'],

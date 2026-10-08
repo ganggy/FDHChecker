@@ -175,6 +175,9 @@ export interface ExecutivePipelineMetrics {
   transferredAmount: number;
   transferredCount: number;
   transferredRate: number;
+  fdhSubmittedCount?: number;
+  repAcceptedCount?: number;
+  stmCompensatedCount?: number;
 }
 
 export interface ExecutiveMonitorResult {
@@ -499,6 +502,12 @@ export function classifyRightScheme(
   // 2. SECONDARY CHECK: Filename and contextual text (for files where maininscl is empty, null, or generic)
   // OFC (Civil Servant / Comptroller General / ข้าราชการเบิกตรง)
   // รวมถึงระบบไต CHI / COCD / FOCD / CSCD / CHIHD / CORTBIL ของกรมบัญชีกลาง
+  // และไฟล์ Statement CSCD ข้าราชการต้นสังกัด เช่น STM_11101_OP20... หรือ STM_11101_IP20... (ที่ไม่มีคำว่า UCS หรือ LGO)
+  const isCscdStatement =
+    /STM_\d{5}_(OP|IP)\d{6}/i.test(fileStr) &&
+    !fileStr.includes('UCS') &&
+    !fileStr.includes('LGO');
+
   if (
     fileStr.includes('COCD') ||
     fileStr.includes('FOCD') ||
@@ -511,6 +520,7 @@ export function classifyRightScheme(
     fileStr.includes('CSMBS') ||
     fileStr.includes('OPBKK') ||
     fileStr.includes('IPBKK') ||
+    isCscdStatement ||
     metaText.includes('เบิกจ่ายตรง') ||
     metaText.includes('ข้าราชการ')
   ) {
@@ -573,8 +583,6 @@ export function classifyRightScheme(
     fileStr.includes('DCKD') ||
     fileStr.includes('OPUCS') ||
     fileStr.includes('IPUCS') ||
-    fileStr.includes('STM_11101_IP') ||
-    fileStr.includes('STM_11101_OP') ||
     fileStr.includes('R08') ||
     metaText.includes('บัตรทอง') ||
     metaText.includes('หลักประกัน') ||
@@ -698,6 +706,7 @@ const SUB_SCHEME_FRIENDLY_NAMES: Record<string, string> = {
   S1: 'S1 (ผู้ประกันตน ม.33)',
   S2: 'S2 (ผู้ประกันตน ม.39)',
   S3: 'S3 (ผู้ประกันตน ม.40)',
+  CSCD: 'CSCD (ข้าราชการเบิกต้นสังกัด)',
   ANC: 'ANC (ฝากครรภ์และส่งเสริมสุขภาพ)',
 };
 
@@ -725,7 +734,15 @@ export function extractSubSchemeName(row: any): string {
     if (base.includes('OPUCS') || base.includes('IPUCS')) return 'e-Claim UCS (สปสช.)';
     if (base.includes('OPLGO') || base.includes('IPLGO')) return 'e-Claim LGO (อปท.)';
     if (base.includes('ECLAIM')) return 'e-Claim (สปสช.)';
-    return base.slice(0, 16);
+    if (
+      base.includes('CSCD') ||
+      /STM_\d{5}_(OP|IP)\d{6}/i.test(base) ||
+      base.startsWith('STM_11101_OP') ||
+      base.startsWith('STM_11101_IP')
+    ) {
+      return 'CSCD (ข้าราชการเบิกต้นสังกัด)';
+    }
+    return 'ไม่ระบุรหัสย่อย';
   } else {
     return 'ไม่ระบุรหัสย่อย';
   }
@@ -815,7 +832,7 @@ export async function getHospitalVisits(
       ovstWhere += " AND (o.main_dep IN ('005', '048') OR EXISTS (SELECT 1 FROM dtmain dt WHERE dt.vn = o.vn))";
     } else if (params.serviceCategory === 'THAI_MED') {
       countIpd = false;
-      ovstWhere += " AND o.main_dep = '025'";
+      ovstWhere += " AND (o.main_dep = '025' OR EXISTS (SELECT 1 FROM health_med_service hms WHERE hms.vn = o.vn))";
     } else if (params.serviceCategory === 'PHYSICAL_THERAPY') {
       countIpd = false;
       ovstWhere += " AND o.main_dep = '012'";
@@ -883,8 +900,10 @@ export async function getExecutiveMonitorSummary(params: {
 
   const repConn = await getRepstmConnection();
 
-  // Preload HOSxP clinical data: dental registry and total hospital visits
+  // Preload HOSxP clinical data: dental registry, Thai medicine procedures, FDH claim status, and total hospital visits
   let dentalVnSet = new Set<string>();
+  let thaiMedVnMap = new Map<string, { opName: string; opType: 'นวด' | 'ประคบ' | 'อบ' | 'นวดพร้อมประคบ' | 'อื่นๆ' }>();
+  let fdhStatusMap = new Map<string, { fdhAmt: number; status: string }>();
   let hospitalVisits = { total: 0, opd: 0, ipd: 0 };
   try {
     const hosConn = await getUTFConnection();
@@ -897,6 +916,81 @@ export async function getExecutiveMonitorSummary(params: {
       );
       dentalVnSet = new Set((dtRows as any[]).map(r => String(r.vn)));
 
+      // Preload Thai Medicine procedures: นวด (58101), ประคบ (58201), อบ (58301), นวดพร้อมประคบ (58130)
+      const tmQuery = effectiveStartDate && effectiveEndDate
+        ? `SELECT 
+             s.vn,
+             i.health_med_operation_item_name,
+             i.health_med_operation_item_code,
+             i.icd10tm
+           FROM health_med_service s
+           JOIN health_med_service_operation o ON o.health_med_service_id = s.health_med_service_id
+           JOIN health_med_operation_item i ON i.health_med_operation_item_id = o.health_med_operation_item_id
+           WHERE s.service_date >= ? AND s.service_date <= ?`
+        : `SELECT 
+             s.vn,
+             i.health_med_operation_item_name,
+             i.health_med_operation_item_code,
+             i.icd10tm
+           FROM health_med_service s
+           JOIN health_med_service_operation o ON o.health_med_service_id = s.health_med_service_id
+           JOIN health_med_operation_item i ON i.health_med_operation_item_id = o.health_med_operation_item_id`;
+      const tmParams = effectiveStartDate && effectiveEndDate ? [effectiveStartDate, effectiveEndDate] : [];
+      const [tmRows] = await hosConn.query(tmQuery, tmParams);
+      for (const r of tmRows as any[]) {
+        const vn = String(r.vn || '').trim();
+        if (!vn) continue;
+        const name = String(r.health_med_operation_item_name || '');
+        const code = String(r.health_med_operation_item_code || '');
+
+        let opType: 'นวด' | 'ประคบ' | 'อบ' | 'นวดพร้อมประคบ' | 'อื่นๆ' = 'อื่นๆ';
+        if (code === '58130' || (name.includes('นวด') && name.includes('ประคบ'))) {
+          opType = 'นวดพร้อมประคบ';
+        } else if (code === '58301' || name.includes('อบไอน้ำ') || name.includes('อบสมุนไพร')) {
+          opType = 'อบ';
+        } else if (code === '58201' || name.includes('ประคบ')) {
+          opType = 'ประคบ';
+        } else if (code === '58101' || name.includes('นวด')) {
+          opType = 'นวด';
+        }
+
+        const existing = thaiMedVnMap.get(vn);
+        if (!existing) {
+          thaiMedVnMap.set(vn, { opName: name, opType });
+        } else {
+          if ((existing.opType === 'นวด' && opType === 'ประคบ') || (existing.opType === 'ประคบ' && opType === 'นวด')) {
+            existing.opType = 'นวดพร้อมประคบ';
+            existing.opName = 'นวดและประคบสมุนไพร';
+          } else if (existing.opType === 'อื่นๆ' && opType !== 'อื่นๆ') {
+            existing.opType = opType;
+            existing.opName = name;
+          }
+        }
+      }
+
+      // Preload FDH claim status & actual amounts from HOSxP
+      const fsQuery = effectiveStartDate && effectiveEndDate
+        ? `SELECT vn, COALESCE(fdh_act_amt, 0) as fdh_act_amt, fdh_claim_status_message
+           FROM fdh_claim_status
+           WHERE (fdh_claim_status_datetime >= ? AND fdh_claim_status_datetime <= ?)
+              OR (last_update >= ? AND last_update <= ?)`
+        : `SELECT vn, COALESCE(fdh_act_amt, 0) as fdh_act_amt, fdh_claim_status_message
+           FROM fdh_claim_status
+           WHERE fdh_claim_status_datetime IS NOT NULL`;
+      const fsParams = effectiveStartDate && effectiveEndDate
+        ? [`${effectiveStartDate} 00:00:00`, `${effectiveEndDate} 23:59:59`, `${effectiveStartDate} 00:00:00`, `${effectiveEndDate} 23:59:59`]
+        : [];
+      const [fsRows] = await hosConn.query(fsQuery, fsParams);
+      for (const r of fsRows as any[]) {
+        const vn = String(r.vn || '').trim();
+        if (vn) {
+          fdhStatusMap.set(vn, {
+            fdhAmt: Number(r.fdh_act_amt || 0),
+            status: String(r.fdh_claim_status_message || ''),
+          });
+        }
+      }
+
       hospitalVisits = await getHospitalVisits(hosConn, {
         startDate: effectiveStartDate,
         endDate: effectiveEndDate,
@@ -908,7 +1002,7 @@ export async function getExecutiveMonitorSummary(params: {
       hosConn.release();
     }
   } catch (err) {
-    console.warn('[ExecutiveMonitor] Unable to load HOSxP clinical visits/dtmain (continuing with statement data):', err);
+    console.warn('[ExecutiveMonitor] Unable to load HOSxP clinical visits/dtmain/health_med/fdh_status (continuing with statement data):', err);
   }
 
   try {
@@ -1013,6 +1107,47 @@ export async function getExecutiveMonitorSummary(params: {
     );
     const repDataRows = (repDataRowsRaw as any[]) || [];
 
+    // Also fetch FDH claim detail rows for end-to-end claim submission visibility
+    let fdhWhere = 'WHERE 1=1';
+    const fdhQueryParams: unknown[] = [];
+    if (effectiveStartDate && effectiveEndDate) {
+      fdhWhere += ` AND (
+        (service_datetime >= ? AND service_datetime <= ?)
+        OR (admit_datetime >= ? AND admit_datetime <= ?)
+        OR (sent_at >= ? AND sent_at <= ?)
+        OR (created_at >= ? AND created_at <= ?)
+      )`;
+      const startDateTime = `${effectiveStartDate} 00:00:00`;
+      const endDateTime = `${effectiveEndDate} 23:59:59`;
+      fdhQueryParams.push(
+        startDateTime, endDateTime,
+        startDateTime, endDateTime,
+        startDateTime, endDateTime,
+        startDateTime, endDateTime
+      );
+    }
+
+    const [fdhRowsRaw] = await repConn.query(
+      `SELECT
+         id,
+         'FDH' AS data_type,
+         claim_code,
+         hn,
+         vn,
+         an,
+         patient_type,
+         DATE_FORMAT(COALESCE(service_datetime, admit_datetime), '%Y-%m-%d') AS service_date,
+         DATE_FORMAT(sent_at, '%Y-%m-%d') AS send_date,
+         maininscl,
+         claim_status,
+         raw_data
+       FROM fdh_claim_detail_row
+       ${fdhWhere}
+       ORDER BY id ASC`,
+      fdhQueryParams
+    );
+    const fdhRows = (fdhRowsRaw as any[]) || [];
+
     // 3. Initialize metrics
     const matrix: Record<RightSchemeKey, Record<ServiceCategoryKey, MetricItem>> = {} as any;
     const byService: Record<ServiceCategoryKey, ServiceCategorySummary> = {} as any;
@@ -1083,6 +1218,9 @@ export async function getExecutiveMonitorSummary(params: {
       hasC: boolean;
       cAmount: number;
       cCodes: string[];
+      inFdh: boolean;
+      inRep: boolean;
+      inStm: boolean;
     }>();
 
     const tranIdToVisitKey = new Map<string, string>();
@@ -1132,17 +1270,26 @@ export async function getExecutiveMonitorSummary(params: {
         if (rowDate < effectiveStartDate || rowDate > effectiveEndDate) return;
       }
 
-      const vn = String(row.vn || rawObj?.['SEQ NO'] || rawObj?.vn || rawObj?.VN || '').trim();
+      const vn = String(row.vn || rawObj?.['รหัสบริการ (SEQ)'] || rawObj?.['SEQ NO'] || rawObj?.vn || rawObj?.VN || '').trim();
       const isDental = vn !== '' && dentalVnSet.has(vn);
+      const tmInfo = vn !== '' ? thaiMedVnMap.get(vn) : undefined;
+      const isThaiMed = Boolean(tmInfo);
 
-      const sKey = isDental
-        ? 'DENTAL'
-        : classifyServiceCategory(row.patient_type, row.department, row.an, row.filename, row.raw_data);
+      let sKey: ServiceCategoryKey;
+      if (isDental) {
+        sKey = 'DENTAL';
+      } else if (isThaiMed) {
+        sKey = 'THAI_MED';
+      } else {
+        sKey = classifyServiceCategory(row.patient_type, row.department, row.an, row.filename, row.raw_data);
+      }
       const rKey = classifyRightScheme(row.maininscl, row.subinscl, row.filename, row.raw_data);
 
       if (params.serviceCategory && params.serviceCategory !== 'ALL' && sKey !== params.serviceCategory) return;
       if (params.rightScheme && params.rightScheme !== 'ALL' && rKey !== params.rightScheme) return;
 
+      const isFdh = row.data_type === 'FDH';
+      const isRep = row.data_type === 'REP';
       const isInv = row.data_type === 'INV';
       const isStm = row.data_type === 'STM';
 
@@ -1150,19 +1297,42 @@ export async function getExecutiveMonitorSummary(params: {
       const rowInvoice = Number(row.invoice_amount || 0);
       const rowPaid = Number(row.paid_amount || 0);
 
-      const claimed = isInv ? rowPaid : Math.max(rowInvoice, rowAmount, isStm ? rowPaid : 0);
-      // Reimbursed amount: recognized whenever paid_amount / compensated is recorded
-      const paid = Math.max(0, rowPaid);
+      let claimed = 0;
+      let paid = 0;
+      if (isFdh) {
+        const fdhActAmt = vn !== '' ? (fdhStatusMap.get(vn)?.fdhAmt || 0) : 0;
+        claimed = rowAmount > 0 ? rowAmount : fdhActAmt;
+        paid = 0;
+      } else if (isInv) {
+        claimed = rowPaid;
+        paid = rowPaid;
+      } else {
+        claimed = Math.max(rowInvoice, rowAmount, isStm ? rowPaid : 0);
+        paid = Math.max(0, rowPaid);
+      }
 
-      const cFlag = isCCode(row.errorcode);
+      let cFlag = isCCode(row.errorcode);
+      if (isFdh) {
+        const st = String(row.claim_status || '');
+        if (st.includes('ไม่ผ่าน') || st.includes('ติดขัด') || st.includes('ปฏิเสธ') || isCCode(st)) {
+          cFlag = true;
+        }
+      }
       const errorCodes = String(row.errorcode || '')
         .split(/[,|;/\s]+/)
         .map(c => c.trim().toUpperCase())
         .filter(c => Boolean(c) && !['-', '0', 'NULL'].includes(c));
 
+      let subName = '';
+      if (isThaiMed && tmInfo) {
+        subName = `แผนไทย: ${tmInfo.opType}`;
+      } else {
+        subName = extractSubSchemeName(row);
+      }
+
       // Key by vn/an or tran_id or id with cross-referencing between tables
       const tranId = (row.tran_id && String(row.tran_id).trim() !== '') ? String(row.tran_id).trim() : null;
-      const cleanAn = String(row.an || '').trim();
+      const cleanAn = String(row.an || rawObj?.['รหัสผู้ป่วยใน (AN)'] || '').trim();
       const isLikelyTranId = /^5\d{8}$/.test(cleanAn);
       const hasRealAn = cleanAn !== '' && cleanAn !== '0' && !isLikelyTranId;
 
@@ -1175,6 +1345,8 @@ export async function getExecutiveMonitorSummary(params: {
         visitKey = 'VN_' + vn;
       } else if (tranId || isLikelyTranId) {
         visitKey = 'TRAN_' + (tranId || cleanAn);
+      } else if (row.claim_code) {
+        visitKey = 'CLAIM_' + row.claim_code;
       } else {
         visitKey = 'ID_' + (row.data_type || '') + '_' + row.id;
       }
@@ -1185,18 +1357,41 @@ export async function getExecutiveMonitorSummary(params: {
         agg = {
           serviceKey: sKey,
           rightKey: rKey,
-          subSchemeName: extractSubSchemeName(row),
+          subSchemeName: subName,
           claimedAmount: claimed,
           reimbursedAmount: paid,
           hasC: cFlag,
           cAmount: cFlag ? claimed : 0,
           cCodes: errorCodes,
+          inFdh: isFdh || (vn !== '' && fdhStatusMap.has(vn)),
+          inRep: isRep,
+          inStm: isStm,
         };
         visitAggregates.set(visitKey, agg);
       } else {
         // Upgrade to DENTAL if either statement or HOSxP indicates dental care
         if (sKey === 'DENTAL' && agg.serviceKey !== 'DENTAL') {
           agg.serviceKey = 'DENTAL';
+        }
+        // Upgrade to THAI_MED if HOSxP indicates Thai medicine
+        if (sKey === 'THAI_MED' && agg.serviceKey !== 'THAI_MED') {
+          agg.serviceKey = 'THAI_MED';
+          if (isThaiMed && tmInfo) {
+            agg.subSchemeName = `แผนไทย: ${tmInfo.opType}`;
+          }
+        }
+        // Upgrade rightKey if current is generic or OTHER and row has specific scheme
+        if (agg.rightKey === 'OTHER' && rKey !== 'OTHER') {
+          agg.rightKey = rKey;
+        } else if (agg.rightKey === 'UCS_INCUP' && rKey === 'OFC') {
+          agg.rightKey = 'OFC';
+        }
+        // Upgrade subSchemeName if currently unassigned
+        if (
+          (agg.subSchemeName === 'ไม่ระบุรหัสย่อย' || agg.subSchemeName === '') &&
+          subName !== 'ไม่ระบุรหัสย่อย'
+        ) {
+          agg.subSchemeName = subName;
         }
         if (claimed > agg.claimedAmount) agg.claimedAmount = claimed;
         if (paid > agg.reimbursedAmount) agg.reimbursedAmount = paid;
@@ -1207,6 +1402,9 @@ export async function getExecutiveMonitorSummary(params: {
         for (const ec of errorCodes) {
           if (!agg.cCodes.includes(ec)) agg.cCodes.push(ec);
         }
+        if (isFdh || (vn !== '' && fdhStatusMap.has(vn))) agg.inFdh = true;
+        if (isRep) agg.inRep = true;
+        if (isStm) agg.inStm = true;
       }
 
       // Track C-code details
@@ -1236,6 +1434,7 @@ export async function getExecutiveMonitorSummary(params: {
 
     for (const r of statementRows) processRow(r);
     for (const r of repDataRows) processRow(r);
+    for (const r of fdhRows) processRow(r);
 
     // Now roll up aggregates into matrix, byService, and byRight
     let totalClaimedAmount = 0;
@@ -1244,8 +1443,15 @@ export async function getExecutiveMonitorSummary(params: {
     let totalPendingCCount = 0;
     let totalReimbursedAmount = 0;
     let totalReimbursedCount = 0;
+    let fdhSubmittedCount = 0;
+    let repAcceptedCount = 0;
+    let stmCompensatedCount = 0;
 
     for (const agg of visitAggregates.values()) {
+      if (agg.inFdh) fdhSubmittedCount++;
+      if (agg.inRep) repAcceptedCount++;
+      if (agg.inStm) stmCompensatedCount++;
+
       const sk = agg.serviceKey;
       const rk = agg.rightKey;
 
@@ -1517,6 +1723,9 @@ export async function getExecutiveMonitorSummary(params: {
       transferredAmount,
       transferredCount,
       transferredRate,
+      fdhSubmittedCount,
+      repAcceptedCount,
+      stmCompensatedCount,
     };
 
     return {

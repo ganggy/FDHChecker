@@ -329,19 +329,40 @@ const parseCocdStatement = (root: Record<string, unknown>, entryName: string): R
     const sourceAmount = xmlValue(bill.amount);
     const sessionNo = xmlValue(bill.invno);
     const extP = bill.ExtP;
+    const dttran = xmlValue(bill.dttran);
+    const hn = xmlValue(bill.hn);
+    const namepat = xmlValue(bill.namepat);
+    const fund = xmlValue(bill.sys) || containerFundCode || 'HD';
     return {
       'ลำดับ': index + 1,
       'STM No.': statementNo,
+      'statement_no': statementNo,
       'transaction_uid': sessionNo ? `CHIHD:${sessionNo}` : '',
       'HOSPCODE': hcode,
-      'กองทุน': xmlValue(bill.sys) || containerFundCode,
+      'hcode': hcode,
+      'กองทุน': fund,
+      'fund': 'OFC',
+      'maininscl': 'OFC',
+      'subinscl': 'OFC',
+      'ประเภทผู้ป่วย': 'ผู้ป่วยนอก',
+      'patient_type': 'OPD',
+      'department': 'OP',
       'สถานี': xmlValue(bill.station),
       'HREG': xmlValue(bill.hreg),
-      'HN': xmlValue(bill.hn),
-      'ชื่อ - สกุล': xmlValue(bill.namepat),
+      'HN': hn,
+      'hn': hn,
+      'VN': sessionNo,
+      'vn': sessionNo,
+      'PID': '',
+      'pid': '',
+      'ชื่อ - สกุล': namepat,
+      'patient_name': namepat,
       'เลขที่ใบแจ้งหนี้': sessionNo,
       'SESSNO': sessionNo,
-      'วันที่รับบริการ': xmlValue(bill.dttran),
+      'วันที่รับบริการ': dttran,
+      'service_date': dttran,
+      'วันเข้ารักษา': dttran,
+      'admdate': dttran,
       'เลขรอบ': xmlValue(bill.rid),
       'สถานะ': xmlValue(bill.cstat),
       'HD Flag': xmlValue(bill.HDflag || bill.KTflag),
@@ -353,6 +374,7 @@ const parseCocdStatement = (root: Record<string, unknown>, entryName: string): R
       'source_paid': xmlValue(bill.paid),
       'ส่วนเพิ่ม': xmlValue(extP),
       'รหัสส่วนเพิ่ม': xmlAttribute(extP, 'code'),
+      'raw_data': bill,
     };
   });
 
@@ -622,6 +644,175 @@ const parseSssSummaryDocument = (root: Record<string, unknown>, entryName: strin
     dateDue: xmlValue(root.dateDue),
     cases: Number(xmlValue(root.cases) || 0),
     adjrw: Number(xmlValue(root.adjrw) || 0),
+  };
+};
+
+const parseCocdBilRep = (bilEntries: AdmZip.IZipEntry[]): RepstmArchiveDataset | null => {
+  const mainBil = bilEntries.find((e) => /cocdbil/i.test(e.entryName)) || bilEntries[0];
+  if (!mainBil) return null;
+
+  const rawBytes = mainBil.getData();
+  let text = '';
+  try {
+    text = iconv.decode(rawBytes, 'tis620');
+  } catch {
+    text = rawBytes.toString('utf8');
+  }
+
+  const errorDescs = new Map<string, string>();
+  for (const entry of bilEntries) {
+    let entryText = '';
+    try {
+      entryText = iconv.decode(entry.getData(), 'tis620');
+    } catch {
+      entryText = entry.getData().toString('utf8');
+    }
+    const lines = entryText.split(/\r?\n/);
+    for (const line of lines) {
+      const m = line.match(/^([A-Z0-9]{2,4})\s*[:=]\s*(.+)$/);
+      if (m && !m[2].includes('==')) {
+        errorDescs.set(m[1].trim(), m[2].trim());
+      }
+    }
+  }
+
+  let hcode = '';
+  let responseNo = '';
+  let batchNo = '';
+  let issueDate = '';
+
+  const hcodeMatch = text.match(/รหัส\s*ร\.?พ\.?\s*[:=]\s*(\d+)/i);
+  if (hcodeMatch) hcode = hcodeMatch[1].trim();
+
+  const respMatch = text.match(/เลขที่ตอบรับ\s*[:=]\s*([A-Za-z0-9_-]+)/i);
+  if (respMatch) responseNo = respMatch[1].trim();
+
+  const batchMatch = text.match(/งวดส่งของ\s*ร\.?พ\.?\s*[:=]\s*([^\r\n]+)/i);
+  if (batchMatch) batchNo = batchMatch[1].trim();
+
+  const dateMatch = text.match(/วันที่ออกเลขตอบรับ\s*[:=]\s*([^\r\n]+)/i);
+  if (dateMatch) issueDate = dateMatch[1].trim();
+
+  const rows: Record<string, unknown>[] = [];
+  const lines = text.split(/\r?\n/);
+  let currentAgency = '';
+
+  for (const line of lines) {
+    const agencyMatch = line.match(/==\s*([^=]+?)\s*==/);
+    if (agencyMatch) {
+      currentAgency = agencyMatch[1].trim();
+      continue;
+    }
+
+    if (!line.includes('*|')) continue;
+    const payload = line.slice(line.indexOf('*|') + 2).trim();
+    const [data, checkCode = ''] = payload.split('|', 2);
+    const parts = splitCsvLine(data);
+    if (parts.length < 5 || /^stat/i.test(parts[0])) continue;
+
+    const statStationTokens = (parts[0] || '').trim().split(/\s+/);
+    const status = statStationTokens[0] || 'A';
+    const station = statStationTokens[1] || '01';
+    const lineNo = (parts[1] || '').trim();
+    const authCode = (parts[2] || '').replace(/_+$/, '').trim();
+    const dttran = (parts[3] || '').trim();
+    const invno = (parts[4] || '').replace(/_+$/, '').trim();
+    const billno = (parts[5] || '').replace(/_+$/, '').trim();
+    const hn = (parts[6] || '').replace(/_+$/, '').trim();
+    const memberno = (parts[7] || '').replace(/_+$/, '').trim();
+    const claimAmtStr = (parts[8] || '').trim();
+
+    if (!invno && !hn && !lineNo) continue;
+
+    let serviceDateIso = '';
+    const dtParts = dttran.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}:\d{1,2}(?::\d{1,2})?))?/);
+    if (dtParts) {
+      const d = dtParts[1].padStart(2, '0');
+      const m = dtParts[2].padStart(2, '0');
+      let y = parseInt(dtParts[3], 10);
+      if (y > 2400) y -= 543;
+      const time = dtParts[4] ? (dtParts[4].length === 5 ? `${dtParts[4]}:00` : dtParts[4]) : '00:00:00';
+      serviceDateIso = `${y}-${m}-${d} ${time}`;
+    }
+
+    const claimNum = Number(claimAmtStr || 0);
+    const paidNum = status === 'A' ? claimNum : 0;
+    const cleanCheckCode = checkCode.trim().replace(/^[,;\s]+|[,;\s]+$/g, '');
+    const firstCode = cleanCheckCode.split(/[,;\s]+/)[0] || '';
+    const errorDetail = errorDescs.get(firstCode) || (cleanCheckCode ? cleanCheckCode.split(',').map((c) => errorDescs.get(c.trim()) || c.trim()).join('; ') : '');
+    const vn = invno || billno;
+
+    rows.push({
+      'ลำดับ': rows.length + 1,
+      'REP No.': responseNo,
+      'rep_no': responseNo,
+      'HOSPCODE': hcode,
+      'hcode': hcode,
+      'Station': station,
+      'สถานี': station,
+      'Line': lineNo,
+      'AuthCode': authCode,
+      'VN': vn,
+      'vn': vn,
+      'HN': hn,
+      'hn': hn,
+      'MemberNo': memberno,
+      'PID': '',
+      'pid': '',
+      'ประเภทผู้ป่วย': 'ผู้ป่วยนอก',
+      'patient_type': 'OPD',
+      'department': 'OP',
+      'maininscl': 'OFC',
+      'subinscl': 'OFC',
+      'กองทุน': currentAgency ? `ข้าราชการ/เบิกตรง (${currentAgency})` : 'ข้าราชการ/เบิกตรง (CSOP)',
+      'fund': 'OFC',
+      'หน่วยงาน': currentAgency,
+      'วันที่รับบริการ': serviceDateIso || dttran,
+      'service_date': serviceDateIso || dttran,
+      'วันเข้ารักษา': serviceDateIso || dttran,
+      'admdate': serviceDateIso || dttran,
+      'สถานะ': status,
+      'verifycode': status,
+      'errorcode': cleanCheckCode,
+      'รายละเอียดข้อผิดพลาด': errorDetail,
+      'amount': claimNum.toFixed(2),
+      'income': claimNum.toFixed(2),
+      'compensated': paidNum.toFixed(2),
+      'paid_amount': paidNum.toFixed(2),
+      'ClaimAmt': claimNum.toFixed(2),
+      'CheckCode': cleanCheckCode,
+      'raw_data': line,
+    });
+  }
+
+  if (rows.length === 0) return null;
+
+  const totalAmount = rows.reduce((sum, r) => sum + Number(r.paid_amount || 0), 0);
+  const acceptedCount = rows.filter((r) => r.verifycode === 'A').length;
+
+  const summary = {
+    documentKind: 'cocd-opd-rep',
+    entryName: sanitizeEntryName(mainBil.entryName),
+    responseNo,
+    hcode,
+    batchNo,
+    issueDate,
+    rowCount: rows.length,
+    acceptedCount,
+    rejectedCount: rows.length - acceptedCount,
+    totalAmount: Number(totalAmount.toFixed(2)),
+  };
+
+  return {
+    id: `${sanitizeEntryName(mainBil.entryName)}:cocd-opd-bil`,
+    entryName: sanitizeEntryName(mainBil.entryName),
+    importerId: 'cocd-opd-bil-rep',
+    importerLabel: 'REP ผู้ป่วยนอก กรมบัญชีกลาง/CSOP (COCDBIL)',
+    detectedType: 'REP',
+    sheetName: [responseNo, 'CSOP OPD'].filter(Boolean).join(' · '),
+    headers: Object.keys(rows[0] || {}),
+    rows,
+    summary,
   };
 };
 
@@ -936,15 +1127,28 @@ export const analyzeRepstmArchive = (archiveBuffer: Buffer, archiveName: string)
       throw new Error(`อ่าน REP ไต CHI ไม่สำเร็จ: ${(error as Error).message}`);
     }
   } else if (bilEntries.length > 0 && dbfEntries.length === 0) {
-    // 2. SSS Outpatient BIL REP (e.g. 11101_SOCDBIL_*.BIL)
-    try {
-      const dataset = parseSssBilRep(bilEntries);
-      if (dataset) {
-        datasets.push(dataset);
-        summaries.push(dataset.summary);
+    // 2. Outpatient BIL REP: COCD/CSOP vs SSS (SOCDBIL)
+    const isCocd = bilEntries.some((e) => /cocd|csop/i.test(e.entryName)) || /cocd/i.test(archiveName);
+    if (isCocd) {
+      try {
+        const dataset = parseCocdBilRep(bilEntries);
+        if (dataset) {
+          datasets.push(dataset);
+          summaries.push(dataset.summary);
+        }
+      } catch (error) {
+        throw new Error(`อ่าน REP ผู้ป่วยนอก กรมบัญชีกลาง/CSOP (.BIL) ไม่สำเร็จ: ${(error as Error).message}`);
       }
-    } catch (error) {
-      throw new Error(`อ่าน REP ผู้ป่วยนอก ประกันสังคม (.BIL) ไม่สำเร็จ: ${(error as Error).message}`);
+    } else {
+      try {
+        const dataset = parseSssBilRep(bilEntries);
+        if (dataset) {
+          datasets.push(dataset);
+          summaries.push(dataset.summary);
+        }
+      } catch (error) {
+        throw new Error(`อ่าน REP ผู้ป่วยนอก ประกันสังคม (.BIL) ไม่สำเร็จ: ${(error as Error).message}`);
+      }
     }
   } else if (bilEntries.length > 0 || dbfEntries.length > 0) {
     throw new Error('ZIP ของ CHI HD ต้องมีไฟล์ .BIL และ .DBF อย่างละ 1 ไฟล์');

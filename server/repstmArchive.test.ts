@@ -213,3 +213,44 @@ test('reads SSS IPD SIGNREP from .REP archive', () => {
   assert.equal(d.rows[0].errorcode, '251');
   assert.equal(d.rows[0]['รายละเอียดข้อผิดพลาด'], 'วันเวลา เริ่ม(in) และ/หรือ สิ้นสุด(out) ของหัตถการอยู่นอกช่วงการอยู่รพ.');
 });
+
+test('reads COCD/CSOP BIL REP from .BIL archive and maps fields accurately', () => {
+  const cocdText = `เอกสารตอบรับ ข้อมูลเบิกค่ารักษาพยาบาลผู้ป่วยนอก
+สำหรับ\tโคกศรีสุพรรณ
+รหัส ร.พ.\t\t\t= 11101
+งวดส่งของ ร.พ.\t\t= 0001_01_20260421-151122
+วันที่ออกเลขตอบรับ \t\t= 22/04/2569   เวลา: 10:47:24
+เลขที่ตอบรับ\t\t= 8968001\t
+
+==  คณะกรรมการการเลือกตั้ง  ==
+*| C 01  , 1,           , 08/04/2569 08:15:44, 690408000125____, ________________, 000098420, __________,              600.00 | T73,
+
+T73 : หมวดค่าบริการทางการพยาบาลสูงผิดปกติ
+
+==  สำนักงานกองทุนฟื้นฟูและพัฒนาเกษตรกร  ==
+*| A 01  , 1,           , 16/11/2568 07:23:23, 681116072323____, ________________, 000081710, __________,              100.00 |
+`;
+  const zip = new AdmZip();
+  zip.addFile('11101_COCDBIL_8968001.BIL', iconv.encode(cocdText, 'tis620'));
+
+  const result = analyzeRepstmArchive(zip.toBuffer(), '11101_cocdbil_8968001.ZIP');
+  assert.equal(result.datasets.length, 1);
+  const d = result.datasets[0];
+  assert.equal(d.importerId, 'cocd-opd-bil-rep');
+  assert.equal(d.detectedType, 'REP');
+  assert.equal(d.rows.length, 2);
+  assert.equal(d.rows[0].vn, '690408000125');
+  assert.equal(d.rows[0].hn, '000098420');
+  assert.equal(d.rows[0].maininscl, 'OFC');
+  assert.equal(d.rows[0].department, 'OP');
+  assert.equal(d.rows[0].verifycode, 'C');
+  assert.equal(d.rows[0].errorcode, 'T73');
+  assert.equal(d.rows[0]['รายละเอียดข้อผิดพลาด'], 'หมวดค่าบริการทางการพยาบาลสูงผิดปกติ');
+  assert.equal(d.rows[0].paid_amount, '0.00');
+
+  assert.equal(d.rows[1].vn, '681116072323');
+  assert.equal(d.rows[1].hn, '000081710');
+  assert.equal(d.rows[1].maininscl, 'OFC');
+  assert.equal(d.rows[1].verifycode, 'A');
+  assert.equal(d.rows[1].paid_amount, '100.00');
+});

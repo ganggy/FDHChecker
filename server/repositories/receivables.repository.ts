@@ -141,18 +141,18 @@ const buildLogicalRowIdentity = (
     'INV No.', 'INV No', 'INV',
     'invoice_no', 'เลขที่เอกสาร', 'เลขที่ใบแจ้งหนี้', 'document_no', 'docno'
   ]));
-  const seqNo = normalizeLogicalToken(pickRowValueAdvanced(row, ['SEQ NO', 'SEQ_NO', 'SEQNO', 'SEQ', 'VN', 'visit_no', 'ลำดับที่', 'no']));
+  const seqNo = normalizeLogicalToken(pickRowValueAdvanced(row, ['SEQ NO', 'SEQ_NO', 'SEQNO', 'SEQ', 'VN', 'visit_no', 'InvNo', 'invno', 'ลำดับที่', 'no']));
   const hcode = normalizeLogicalToken(pickRowValueAdvanced(row, ['HOSPCODE', 'hcode']));
   const hn = normalizeLogicalToken(pickRowValueAdvanced(row, ['HN']));
   const an = normalizeLogicalToken(pickRowValueAdvanced(row, ['AN']));
   const cid = normalizeCitizenId(pickRowValueAdvanced(row, ['PID', 'CID', 'เลขบัตรประชาชน']));
   const serviceDate = normalizeLogicalDateToken(pickRowValueAdvanced(row, [
     'วันเข้ารักษา', 'วันที่เข้ารับบริการ', 'วันที่ฟอกเลือดด้วยเครื่องไตเทียม',
-    'admdate', 'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่'
+    'admdate', 'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่', 'วัน/เดือน/ปี เวลาที่ใช้บริการ'
   ]));
   const amount = normalizeLogicalAmount(pickRowValueAdvanced(row, [
     'ชดเชยสุทธิ', 'compensated', 'ชดเชยสุทธิรวม',
-    'amount', 'total', 'paid', 'paid_amount', 'ยอดชำระ', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount'
+    'amount', 'total', 'paid', 'paid_amount', 'ยอดชำระ', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount', 'ค่ารักษาพยาบาลที่เบิก'
   ]));
 
   if (tranId) return `${dataType}:tran:${tranId}`;
@@ -806,10 +806,11 @@ const importRepDataRows = async (
     const pid = pickRowValueAdvanced(row, ['PID', 'CID']);
     const patientName = pickRowValueAdvanced(row, ['ชื่อ-สกุล', 'ชื่อ - สกุล', 'ชื่อสกุล']);
     const patientType = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย']);
-    const admdate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันเข้ารักษา', 'admdate']));
+    const admdate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันเข้ารักษา', 'admdate', 'service_datetime', 'service_date', 'วันที่รับบริการ']));
     const dchdate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันจำหน่าย', 'dchdate']));
     const senddate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['senddate', 'วันส่งข้อมูล']));
-    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก', 'กองทุนหลัก', 'fund', 'fund_code']);
+    const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก', 'กองทุนหลัก', 'fund', 'fund_code'])
+      || (/cocd|csop/i.test(payload.sourceFilename) ? 'OFC' : '');
     const subinscl = pickRowValueAdvanced(row, ['subinscl', 'สิทธิย่อย', 'กองทุนย่อย']);
     const errorcode = pickRowValueAdvanced(row, ['errorcode', 'error code']);
     const verifycode = pickRowValueAdvanced(row, ['verifycode', 'verify code']);
@@ -832,7 +833,7 @@ const importRepDataRows = async (
 
     const department = resolveDepartment(patientType, rawAn);
     const normalizedSeqNo = normalizeImportCellValue(seqNo);
-    const fallbackVn = department === 'OP' ? normalizedSeqNo : '';
+    const fallbackVn = department === 'OP' ? (normalizeImportCellValue(pickRowValueAdvanced(row, ['VN', 'vn', 'InvNo', 'invno'])) || normalizedSeqNo) : '';
     const fallbackAn = department === 'IP' ? (rawAn.trim() || normalizedSeqNo) : rawAn.trim();
     const visitLookupKey = [department, hn.trim(), admdate || '', normalizeCitizenId(pid), fallbackAn, fallbackVn].join('|');
     let resolvedVisitCode = visitCodeCache.get(visitLookupKey);
@@ -944,19 +945,20 @@ export const importStatementDataRows = async (
     const fallbackSiteSettings = (businessRules as Record<string, unknown>)?.site_settings as Record<string, unknown> | undefined;
     const hcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode']) || String(fallbackSiteSettings?.hospital_code || '');
     const hn = pickRowValueAdvanced(row, ['HN']);
-    const rawVn = pickRowValueAdvanced(row, ['VN', 'SEQ', 'SEQ NO', 'SEQ_NO', 'SEQNO', 'visit_no']);
+    const rawVn = pickRowValueAdvanced(row, ['VN', 'SEQ', 'SEQ NO', 'SEQ_NO', 'SEQNO', 'visit_no', 'InvNo', 'invno', 'เลขที่ใบแจ้งหนี้', 'SESSNO']);
     const rawAn = pickRowValueAdvanced(row, ['AN']);
     const pid = pickRowValueAdvanced(row, ['PID', 'CID', 'เลขบัตรประชาชน']);
     const patientName = pickRowValueAdvanced(row, ['ชื่อ-สกุล', 'ชื่อ - สกุล', 'ชื่อสกุล', 'ชื่อ-นามสกุล']);
     const patientType = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย']);
     const serviceDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, [
-      'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่',
+      'service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันที่', 'วัน/เดือน/ปี เวลาที่ใช้บริการ',
       'วันเข้ารักษา', 'วันที่เข้ารับบริการ', 'วันที่ฟอกเลือดด้วยเครื่องไตเทียม',
       'วันจำหน่าย', 'admdate', 'dchdate'
     ]));
     const senddate = parseFlexibleDateTime(pickRowValueAdvanced(row, ['senddate', 'วันส่งข้อมูล']));
     const maininscl = pickRowValueAdvanced(row, ['maininscl', 'สิทธิหลัก', 'กองทุนหลัก', 'fund', 'fund_code', 'สิทธิ์การรักษาพยาบาล'])
-      || (kidneyReport && /^LGO-HD/i.test(payload.sourceFilename) ? 'LGO' : '');
+      || (kidneyReport && /^LGO-HD/i.test(payload.sourceFilename) ? 'LGO' : '')
+      || (/COCD/i.test(payload.sourceFilename) || /COCD/i.test(statementNo) ? 'OFC' : '');
     const subinscl = pickRowValueAdvanced(row, ['subinscl', 'สิทธิย่อย']);
     const errorcode = pickRowValueAdvanced(row, ['errorcode', 'error code']);
     const verifycode = pickRowValueAdvanced(row, ['verifycode', 'verify code']);
@@ -964,11 +966,11 @@ export const importStatementDataRows = async (
       ...(kidneyReport ? ['จำนวนเงินที่ขอเบิก'] : []),
       'amount', 'total', 'ยอดเงิน', 'จำนวนเงิน', 'sum_amount', 'พึงรับ', 'พึงรับทั้งหมด',
       'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ', 'จ่ายชดเชย', 'จ่ายชดเชยสุทธิ',
-      'จำนวนเงินที่ขอเบิก', 'ยอดชดเชยหลังหักเงินเดือน'
+      'จำนวนเงินที่ขอเบิก', 'ยอดชดเชยหลังหักเงินเดือน', 'ค่ารักษาพยาบาลที่เบิก'
     ]));
     const parsedPaidAmount = toAmountValue(pickRowValueAdvanced(row, [
       'paid', 'paid_amount', 'ยอดชำระ', 'ยอดรับสุทธิ', 'ยอดเงินสุทธิ', 'net_paid', 'net_amount',
-      'พึงรับ', 'พึงรับทั้งหมด', 'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ', 'จ่ายชดเชยสุทธิ'
+      'พึงรับ', 'พึงรับทั้งหมด', 'ยอดชดเชยทั้งสิ้น', 'ชดเชยสุทธิ', 'จ่ายชดเชยสุทธิ', 'ค่ารักษาพยาบาลที่เบิก'
     ]));
     const invoiceAmount = toAmountValue(pickRowValueAdvanced(row, [
       'invoice_amount', 'inv_amount', 'ยอดเรียกเก็บ', 'เรียกเก็บ', 'เรียกเก็บ (1)', 'เบิกได้'

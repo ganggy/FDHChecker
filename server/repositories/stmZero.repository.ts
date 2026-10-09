@@ -275,7 +275,15 @@ export async function readStmZeroRows(startDate: string, endDate: string, source
         }
       }
     } finally { hospital.release(); }
-    return rows.map(r => ({ ...r, action: classifyZeroAction(r), reason: !r.matched ? 'ยังยืนยัน VN/AN และ HN กับ HIS ไม่ได้' : r.payment_uncertain ? 'Visit มีรายการที่ยังไม่ทราบยอดจ่าย ต้องตรวจให้ครบก่อน' : r.paid_amount == null ? 'ไม่พบคอลัมน์ยอดจ่ายที่อ่านได้ ต้องตรวจแถวต้นฉบับ' : 'อ่านเหตุผลจากแถวต้นฉบับและตรวจข้อมูล HIS ก่อนดำเนินการ' }));
+    return rows.map(r => ({
+      ...r,
+      action: classifyZeroAction(r),
+      reason: pickImportColumn(r.raw_data, ['เหตุผล', 'คำอธิบายเหตุผล', 'คำอธิบาย', 'reason', 'remark', 'error_description'], true)
+        || (!r.matched ? 'ยังยืนยัน VN/AN และ HN กับ HIS ไม่ได้'
+        : r.payment_uncertain ? 'Visit มีรายการที่ยังไม่ทราบยอดจ่าย ต้องตรวจให้ครบก่อน'
+        : r.paid_amount == null ? 'ไม่พบคอลัมน์ยอดจ่ายที่อ่านได้ ต้องตรวจแถวต้นฉบับ'
+        : 'อ่านเหตุผลจากแถวต้นฉบับและตรวจข้อมูล HIS ก่อนดำเนินการ'),
+    }));
   } finally { connection.release(); }
 }
 

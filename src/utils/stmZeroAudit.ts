@@ -25,7 +25,7 @@ export const parseOriginalRow = (value: unknown): Record<string, unknown> => {
 export const originalPaidAmount = (raw: Record<string, unknown>): number | null => {
   const keys = ['paid', 'paid_amount', 'net_paid', 'net_amount', 'ยอดชำระ', 'ยอดรับสุทธิ', 'ยอดเงินสุทธิ',
     'ชดเชยสุทธิ', 'จ่ายชดเชย', 'จ่ายชดเชยสุทธิ', 'ยอดชดเชยสุทธิ', 'ยอดชดเชยทั้งสิ้น', 'ยอดชดเชยหลังหักเงินเดือน',
-    'จ่ายชดเชยหลังหัก พรบ.และเงินเดือน', 'พึงรับ', 'พึงรับทั้งหมด'];
+    'จ่ายชดเชยหลังหัก พรบ.และเงินเดือน', 'พึงรับ', 'พึงรับทั้งหมด', 'เงินที่จ่าย', 'จำนวนเงินที่จ่าย'];
   for (const key of keys) {
     const entry = Object.entries(raw).find(([name]) => name.trim().toLowerCase() === key);
     if (entry && entry[1] != null && String(entry[1]).trim() !== '') {

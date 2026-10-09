@@ -4055,9 +4055,21 @@ app.post('/api/reconciliation/rep-sheet-zero/apply-fix', async (req, res) => {
 
 app.post('/api/reconciliation/rep-sheet-zero/batch-fix', async (req, res) => {
   try {
-    const { items } = req.body || {};
+    const { items, all, startDate, endDate, fdhStatus, action, match, search } = req.body || {};
     const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
-    const result = await batchApplyRepSheetZeroFix({ items, actorName });
+    let targetItems: Array<{ vn: string; an?: string }> = items || [];
+    if (all) {
+      const rows = await readStmZeroRows(startDate, endDate, 'rep-sheet-zero');
+      const filtered = rows.filter(r => (!action || r.action === action)
+        && (!search || [r.hn, r.vn, r.an, r.tran_id, r.errorcode, r.verifycode, r.source_filename, r.statement_no, ...Object.values(r.raw_data).filter(v => typeof v === 'string') as string[]].some(v => v.toLowerCase().includes(String(search).toLowerCase())))
+        && (match !== 'unmatched' || !r.matched) && (match !== 'matched' || r.matched)
+        && (!fdhStatus || fdhStatus === 'all'
+          || (fdhStatus === 'unsent' && !r.last_fdh_sent_at)
+          || (fdhStatus === 'sent_today' && Boolean(r.fdh_sent_today))
+          || ((fdhStatus === 'sent_previously' || fdhStatus === 'sent_any') && Boolean(r.last_fdh_sent_at))));
+      targetItems = filtered.filter(r => Boolean(r.vn || r.an)).map(r => ({ vn: r.vn, an: r.an }));
+    }
+    const result = await batchApplyRepSheetZeroFix({ items: targetItems, actorName });
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'แก้ไขแบบกลุ่มไม่สำเร็จ';

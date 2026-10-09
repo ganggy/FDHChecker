@@ -272,16 +272,39 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     }
   };
 
-  const handleBatchAutoFix = async () => {
+  const handleBatchAutoFix = async (fixAll = false) => {
     const eligible = chosen.filter(r => r.vn || r.an);
-    if (!eligible.length) return;
+    if (!fixAll && !eligible.length) return;
+
+    if (fixAll) {
+      const confirmRun = window.confirm(
+        `⚡ ยืนยันการดำเนินการแก้ไขอัตโนมัติ "ทุกรายการใน Data Sheet 0" (${result?.total?.toLocaleString('th-TH') || 0} รายการ)?\n\n` +
+        `ระบบจะตรวจและแก้ไขรหัส Claim/Authen Code, ลบรหัสหัตถการตัวเลขตกค้างใน ovstdiag, ตรวจสร้าง dtmain สำหรับทันตกรรม, และเพิ่มรหัสวินิจฉัยยาสมุนไพรใน HOSxP ให้อัตโนมัติ`
+      );
+      if (!confirmRun) return;
+    }
+
     setBatchFixing(true);
     setFixNotification(null);
     try {
+      const payload = fixAll
+        ? {
+            all: true,
+            startDate: loaded.start,
+            endDate: loaded.end,
+            action: loaded.action,
+            match: loaded.match,
+            search: loaded.search,
+            fdhStatus: loaded.fdhStatus,
+          }
+        : {
+            items: eligible.map(r => ({ vn: r.vn, an: r.an })),
+          };
+
       const res = await fetch('/api/reconciliation/rep-sheet-zero/batch-fix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: eligible.map(r => ({ vn: r.vn, an: r.an })) }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขอัตโนมัติแบบกลุ่มไม่สำเร็จ');
@@ -290,8 +313,9 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
       setFixNotification({
         type: 'success',
         message: `ดำเนินการแก้ไขอัตโนมัติสำเร็จ ${fixedCount} จาก ${total} รายการ`,
-        details: allActions.slice(0, 10),
+        details: allActions.slice(0, 15),
       });
+      await load(page);
     } catch (err) {
       setFixNotification({
         type: 'error',
@@ -348,16 +372,28 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     <header className={`zero-hero ${isRep ? 'zero-hero-rep' : ''}`}><div className="zero-hero-title"><span className="zero-eyebrow">{isRep ? 'ผลตอบกลับ REP · ตรวจเหตุผลและแก้ไขส่งซ้ำ' : 'ติดตามผลชดเชย · ตรวจสอบหลักฐาน'}</span><h1>ตรวจ {title}</h1><p>{isRep ? 'ดูแถบ Data Sheet 0 ใน REP แก้ไขอัตโนมัติใน HOSxP และเตรียมส่งเบิกซ้ำเข้า FDH / e-Claim' : 'ค้นรายการจ่าย 0 บาท เทียบข้อมูลต้นทาง และติดตามการแก้ไขในที่เดียว'}</p></div>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
         {isRep && (
-          <button
-            type="button"
-            className="rec-btn rec-btn-secondary"
-            disabled={!result || loading || !(result?.data?.length)}
-            onClick={() => exportFdhExcel(false)}
-            title="ส่งออกรายการ Data Sheet 0 เป็นไฟล์ Excel สำหรับนำไปส่งต่อ FDH หรือเก็บรายงาน"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-          >
-            📥 ส่งออก Excel สำหรับส่ง FDH
-          </button>
+          <>
+            <button
+              type="button"
+              className="rec-btn rec-btn-secondary"
+              disabled={!result || loading || !(result?.data?.length)}
+              onClick={() => exportFdhExcel(false)}
+              title="ส่งออกรายการ Data Sheet 0 เป็นไฟล์ Excel สำหรับนำไปส่งต่อ FDH หรือเก็บรายงาน"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              📥 ส่งออก Excel สำหรับส่ง FDH
+            </button>
+            <button
+              type="button"
+              className="rec-btn rec-btn-primary"
+              disabled={!result || loading || batchFixing || !(result?.data?.length)}
+              onClick={() => void handleBatchAutoFix(true)}
+              title="สั่งตรวจและแก้ไขข้อมูลอัตโนมัติใน HOSxP ทุกรายการใน Data Sheet 0 ตามตัวกรองปัจจุบัน"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: '#0284c7', borderColor: '#0284c7' }}
+            >
+              {batchFixing ? '⏳ กำลังแก้ไข Auto...' : `⚡ แก้ไข Auto ทุกรายการ (${result?.total?.toLocaleString('th-TH') || 0})`}
+            </button>
+          </>
         )}
         <button className="zero-report-button" disabled={!result || loading} onClick={exportExecutive}>↗ ดาวน์โหลดสรุปผู้บริหาร</button>
       </div></header>
@@ -494,6 +530,18 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                     ☑ เลือกทั้งหมดทุกหน้า ({result.total.toLocaleString('th-TH')})
                   </button>
                 )}
+                {isRep && result && result.total > 0 && (
+                  <button
+                    type="button"
+                    className="rec-btn rec-btn-primary"
+                    style={{ fontSize: '12px', padding: '5px 12px', background: '#0284c7', borderColor: '#0284c7' }}
+                    disabled={batchFixing}
+                    onClick={() => void handleBatchAutoFix(true)}
+                    title="สั่งตรวจและแก้ไขข้อมูลอัตโนมัติใน HOSxP ทุกรายการใน Data Sheet 0 ตามตัวกรองปัจจุบัน"
+                  >
+                    {batchFixing ? '⏳ กำลังแก้ไข Auto...' : `⚡ แก้ไข Auto ทุกรายการ (${result.total.toLocaleString('th-TH')})`}
+                  </button>
+                )}
                 {chosen.length > 0 && (
                   <button
                     type="button"
@@ -593,14 +641,27 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
         <p>{isRep ? 'รายการที่เลือกสามารถกดแก้ไขอัตโนมัติใน HOSxP หรือส่งต่อเข้าสู่หน้าส่งออก FDH (OPD / IPD) และดาวน์โหลดเพื่อนำไปส่ง e-Claim/OSR ได้' : 'รายการรออนุมัติ รอรอบจ่าย ยังจับคู่ไม่ได้ หรือพบยอดจ่ายแล้วจะเลือกไม่ได้ ตรวจแถว 0 ที่ไม่ทราบเหตุผลให้ครบก่อนเลือก'}</p>
         {isRep && (
           <div style={{ marginBottom: 16 }}>
-            <button
-              type="button"
-              className="zero-btn-autofix-batch"
-              disabled={batchFixing || !chosen.some(r => r.vn || r.an)}
-              onClick={() => void handleBatchAutoFix()}
-            >
-              {batchFixing ? '⏳ กำลังดำเนินการแก้ไขอัตโนมัติ...' : `⚡ แก้ไขอัตโนมัติทั้งหมดที่เลือก (${chosen.filter(r => r.vn || r.an).length} รายการ)`}
-            </button>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="zero-btn-autofix-batch"
+                disabled={batchFixing || !chosen.some(r => r.vn || r.an)}
+                onClick={() => void handleBatchAutoFix(false)}
+              >
+                {batchFixing ? '⏳ กำลังดำเนินการแก้ไขอัตโนมัติ...' : `⚡ แก้ไขอัตโนมัติเฉพาะที่เลือก (${chosen.filter(r => r.vn || r.an).length} รายการ)`}
+              </button>
+              {result && result.total > 0 && (
+                <button
+                  type="button"
+                  className="zero-btn-autofix-batch"
+                  style={{ background: '#0284c7' }}
+                  disabled={batchFixing}
+                  onClick={() => void handleBatchAutoFix(true)}
+                >
+                  {batchFixing ? '⏳ กำลังดำเนินการ...' : `⚡ แก้ไข Auto ทุกรายการใน Data Sheet 0 (${result.total.toLocaleString('th-TH')} รายการ)`}
+                </button>
+              )}
+            </div>
             <small style={{ display: 'block', marginTop: 6, color: '#4b6584' }}>
               ระบบจะตรวจและแก้ไขรหัส Claim/Authen Code, ลบรหัสหัตถการตัวเลขตกค้างใน ovstdiag, และสร้าง dtmain ให้ใน HOSxP
             </small>
@@ -624,7 +685,22 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
           )}
           {channel === 'fdh' && <><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => !r.an && r.vn)} onClick={() => void handoff(false)}>🚀 เปิดส่งออก OPD เฉพาะที่เลือก ({chosen.filter(r => !r.an && r.vn).length})</button><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => r.an)} onClick={() => void handoff(true)}>🚀 เปิดส่งออก IPD เฉพาะที่เลือก ({chosen.filter(r => r.an).length})</button></>}
         </div><small>การเปิดส่งออกยังต้องผ่านการตรวจความพร้อมและยืนยันส่งซ้ำ ระบบนี้ไม่ได้ส่งเคลมโดยอัตโนมัติ การเปลี่ยนหน้า/โหลดใหม่ล้างรายการที่เลือกและการยืนยัน</small>
-      </section> : <div className="zero-selection-hint">เลือกแถวในตารางเพื่อเตรียมรายการแก้ไข / ส่งใหม่ · แถวที่ยังไม่ผ่านเงื่อนไขสามารถเปิดดูหลักฐานได้</div>}
+      </section> : (
+        <div className="zero-selection-hint" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+          <span>เลือกแถวในตารางเพื่อเตรียมรายการแก้ไข / ส่งใหม่ หรือกดปุ่มสั่งแก้ไข Auto ทุกรายการใน Data Sheet 0</span>
+          {isRep && result && result.total > 0 && (
+            <button
+              type="button"
+              className="zero-btn-autofix-batch"
+              style={{ margin: 0, padding: '8px 16px', background: '#0284c7' }}
+              disabled={batchFixing}
+              onClick={() => void handleBatchAutoFix(true)}
+            >
+              {batchFixing ? '⏳ กำลังดำเนินการ...' : `⚡ แก้ไข Auto ทุกรายการใน Data Sheet 0 (${result.total.toLocaleString('th-TH')} รายการ)`}
+            </button>
+          )}
+        </div>
+      )}
     </>}
     {!isRep && <details className="zero-guide"><summary>อ่านเพิ่มเติม: Sheet 0 และแนวทางตรวจ</summary><p>เอกสารชี้แจง สปสช. แสดง Sheet 0 เป็นรายการจ่าย 0 พร้อมเหตุผล กองทุน HERB_GB อาจอยู่ระหว่างรอประมวลผล ส่วน W305 ต้องตรวจการอนุมัติ และ D011 ต้องตรวจการเปิดแก้ไขใน eClaim/OSR คำแนะนำนี้ไม่ใช่การรับรองสิทธิส่งใหม่หรือกำหนดเวลาทักท้วงปัจจุบัน</p>
       <a href="https://www.kpnhospital.com/wp-content/uploads/2025/09/ระบบโปรแกรม_e-Claim_ยาสมุนไพร_HERBFS_25680523.pdf" target="_blank" rel="noreferrer">เอกสารชี้แจง eClaim ยาสมุนไพร (เผยแพร่ผ่านโรงพยาบาล)</a><br />

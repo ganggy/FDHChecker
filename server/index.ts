@@ -62,6 +62,7 @@ import {
   adminResetUserPassword,
   saveFdhStatusImportLog,
   saveFdhSubmissionLog,
+  recordFdhExportSend,
   getFdhSubmissionLogs,
   getFdhStatusImportLogs,
   ensureRepstmTables,
@@ -2731,6 +2732,13 @@ app.post('/api/fdh/export-zip', async (req, res) => {
     const files = buildFdhFiles(prepared.data, prepared.profile, includeHeader, process.env.FDH_EXPORT_ENCODING);
     const zip = new AdmZip();
     files.forEach((file) => zip.addFile(file.filename, file.content));
+    if (prepared.vns && prepared.vns.length > 0) {
+      void recordFdhExportSend({
+        vns: prepared.vns,
+        patientType: prepared.patientType || 'OPD',
+        note: 'ส่งออก 16 แฟ้ม (ZIP)',
+      });
+    }
     const zipBuffer = zip.toBuffer();
     const filename = `FDH_${prepared.profile}_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
     res.setHeader('Content-Type', 'application/zip');
@@ -2781,6 +2789,13 @@ app.post('/api/fdh/submit', async (req, res) => {
       patientType: prepared.patientType,
       counts: prepared.validation.counts,
     })).digest('hex');
+    if (prepared.vns && prepared.vns.length > 0) {
+      void recordFdhExportSend({
+        vns: prepared.vns,
+        patientType: prepared.patientType || 'OPD',
+        note: success ? 'ส่งออก FDH สำเร็จ (API)' : 'ส่งออก FDH (API)',
+      });
+    }
     await saveFdhSubmissionLog({
       batchUid,
       profile: prepared.profile,

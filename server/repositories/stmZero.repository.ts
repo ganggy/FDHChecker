@@ -117,54 +117,139 @@ export async function readStmZeroRows(startDate: string, endDate: string, source
 
         // Query FDH submission history to prevent duplicate submission on the same day
         const fdhStatusMap = new Map<string, { sent_at: string; status: string; uid: string; sent_today: boolean }>();
-        if (vns.length) {
+        const allCodes = [...new Set([...vns, ...ans])].filter(Boolean);
+
+        // 1. Check fdh_send_log in HOSxP (real-time export log recorded immediately when sending FDH today)
+        if (allCodes.length) {
           try {
-            const [fdhRows] = await hospital.query<RowDataPacket[]>(`
-              SELECT vn, DATE_FORMAT(fdh_claim_status_datetime, '%Y-%m-%d %H:%i:%s') AS sent_at,
-                fdh_claim_status_message AS status_msg, transaction_uid,
-                CASE WHEN DATE(fdh_claim_status_datetime) = CURRENT_DATE() THEN 1 ELSE 0 END AS sent_today
-              FROM fdh_claim_status
-              WHERE vn IN (${vns.map(() => '?').join(',')})
-              ORDER BY fdh_claim_status_id DESC
-            `, vns);
-            for (const item of fdhRows as Array<Record<string, unknown>>) {
-              const vnKey = String(item.vn || '');
-              if (vnKey && !fdhStatusMap.has(`vn:${vnKey}`)) {
-                fdhStatusMap.set(`vn:${vnKey}`, {
-                  sent_at: String(item.sent_at || ''),
-                  status: String(item.status_msg || ''),
-                  uid: String(item.transaction_uid || ''),
-                  sent_today: Number(item.sent_today) === 1,
-                });
+            const [sendLogs] = await hospital.query<RowDataPacket[]>(`
+              SELECT fdh_send_log_vnan, fdh_send_log_type,
+                DATE_FORMAT(COALESCE(fdh_send_log_lastupdate, fdh_send_log_date), '%Y-%m-%d %H:%i:%s') AS sent_at,
+                COALESCE(fdh_send_log_message, fdh_send_log_status) AS status_msg,
+                CASE WHEN DATE(COALESCE(fdh_send_log_lastupdate, fdh_send_log_date)) = CURRENT_DATE() THEN 1 ELSE 0 END AS sent_today
+              FROM fdh_send_log
+              WHERE fdh_send_log_vnan IN (${allCodes.map(() => '?').join(',')})
+              ORDER BY fdh_send_log_id DESC
+            `, allCodes);
+            for (const item of sendLogs as Array<Record<string, unknown>>) {
+              const code = String(item.fdh_send_log_vnan || '').trim();
+              const isToday = Number(item.sent_today) === 1;
+              const sentAt = String(item.sent_at || '');
+              const statusMsg = String(item.status_msg || 'ส่งออก FDH แล้ว');
+              if (vns.includes(code)) {
+                const existing = fdhStatusMap.get(`vn:${code}`);
+                if (!existing || (!existing.sent_today && isToday)) {
+                  fdhStatusMap.set(`vn:${code}`, { sent_at: sentAt, status: statusMsg, uid: '', sent_today: isToday });
+                }
+              }
+              if (ans.includes(code)) {
+                const existing = fdhStatusMap.get(`an:${code}`);
+                if (!existing || (!existing.sent_today && isToday)) {
+                  fdhStatusMap.set(`an:${code}`, { sent_at: sentAt, status: statusMsg, uid: '', sent_today: isToday });
+                }
               }
             }
           } catch {
-            // fdh_claim_status table might not exist or have different columns in some hospital setups
+            // fdh_send_log might not exist in some hospital setups
           }
         }
 
-        // Also check repstminv fdh_claim_detail_row for both VN and AN
-        const fdhCodes = [...new Set([...vns, ...ans])];
-        if (fdhCodes.length) {
+        // 2. Check mophclaim_send in App DB (exports performed via FDH Checker)
+        if (allCodes.length) {
+          try {
+            const [appSendLogs] = await connection.query<RowDataPacket[]>(`
+              SELECT vn, type,
+                DATE_FORMAT(COALESCE(senddate, created_at), '%Y-%m-%d %H:%i:%s') AS sent_at,
+                COALESCE(note, flag) AS status_msg,
+                CASE WHEN DATE(COALESCE(senddate, created_at)) = CURRENT_DATE() THEN 1 ELSE 0 END AS sent_today
+              FROM mophclaim_send
+              WHERE vn IN (${allCodes.map(() => '?').join(',')})
+              ORDER BY updated_at DESC
+            `, allCodes);
+            for (const item of appSendLogs as Array<Record<string, unknown>>) {
+              const code = String(item.vn || '').trim();
+              const isToday = Number(item.sent_today) === 1;
+              const sentAt = String(item.sent_at || '');
+              const statusMsg = String(item.status_msg || 'ส่งออก FDH แล้ว');
+              if (vns.includes(code)) {
+                const existing = fdhStatusMap.get(`vn:${code}`);
+                if (!existing || (!existing.sent_today && isToday)) {
+                  fdhStatusMap.set(`vn:${code}`, { sent_at: sentAt, status: statusMsg, uid: '', sent_today: isToday });
+                }
+              }
+              if (ans.includes(code)) {
+                const existing = fdhStatusMap.get(`an:${code}`);
+                if (!existing || (!existing.sent_today && isToday)) {
+                  fdhStatusMap.set(`an:${code}`, { sent_at: sentAt, status: statusMsg, uid: '', sent_today: isToday });
+                }
+              }
+            }
+          } catch {
+            // best-effort
+          }
+        }
+
+        // 3. Also check fdh_claim_status in HOSxP
+        if (allCodes.length) {
+          try {
+            const [fdhRows] = await hospital.query<RowDataPacket[]>(`
+              SELECT vn, DATE_FORMAT(COALESCE(last_update, fdh_claim_status_datetime), '%Y-%m-%d %H:%i:%s') AS sent_at,
+                fdh_claim_status_message AS status_msg, transaction_uid,
+                CASE WHEN DATE(COALESCE(last_update, fdh_claim_status_datetime)) = CURRENT_DATE() THEN 1 ELSE 0 END AS sent_today
+              FROM fdh_claim_status
+              WHERE vn IN (${allCodes.map(() => '?').join(',')})
+              ORDER BY fdh_claim_status_id DESC
+            `, allCodes);
+            for (const item of fdhRows as Array<Record<string, unknown>>) {
+              const vnKey = String(item.vn || '');
+              const isToday = Number(item.sent_today) === 1;
+              const sentAt = String(item.sent_at || '');
+              const statusMsg = String(item.status_msg || '');
+              const uid = String(item.transaction_uid || '');
+              if (vns.includes(vnKey)) {
+                const existing = fdhStatusMap.get(`vn:${vnKey}`);
+                if (!existing || (!existing.sent_today && isToday)) {
+                  fdhStatusMap.set(`vn:${vnKey}`, { sent_at: sentAt, status: statusMsg, uid, sent_today: isToday });
+                }
+              }
+              if (ans.includes(vnKey)) {
+                const existing = fdhStatusMap.get(`an:${vnKey}`);
+                if (!existing || (!existing.sent_today && isToday)) {
+                  fdhStatusMap.set(`an:${vnKey}`, { sent_at: sentAt, status: statusMsg, uid, sent_today: isToday });
+                }
+              }
+            }
+          } catch {
+            // best-effort
+          }
+        }
+
+        // 4. Also check repstminv fdh_claim_detail_row for both VN and AN
+        if (allCodes.length) {
           try {
             const [claimDetails] = await connection.query<RowDataPacket[]>(`
-              SELECT vn, an, DATE_FORMAT(sent_at, '%Y-%m-%d %H:%i:%s') AS sent_at,
+              SELECT vn, an, DATE_FORMAT(COALESCE(sent_at, created_at), '%Y-%m-%d %H:%i:%s') AS sent_at,
                 claim_status, upload_uid,
-                CASE WHEN DATE(sent_at) = CURRENT_DATE() THEN 1 ELSE 0 END AS sent_today
+                CASE WHEN DATE(COALESCE(sent_at, created_at)) = CURRENT_DATE() THEN 1 ELSE 0 END AS sent_today
               FROM fdh_claim_detail_row
-              WHERE vn IN (${fdhCodes.map(() => '?').join(',')}) OR an IN (${fdhCodes.map(() => '?').join(',')})
+              WHERE vn IN (${allCodes.map(() => '?').join(',')}) OR an IN (${allCodes.map(() => '?').join(',')})
               ORDER BY id DESC
-            `, [...fdhCodes, ...fdhCodes]);
+            `, [...allCodes, ...allCodes]);
             for (const item of claimDetails as Array<Record<string, unknown>>) {
               const vnKey = String(item.vn || '');
               const anKey = String(item.an || '');
-              const targetKey = anKey ? `an:${anKey}` : `vn:${vnKey}`;
-              if (!fdhStatusMap.has(targetKey)) {
+              const targetKey = anKey && ans.includes(anKey) ? `an:${anKey}` : `vn:${vnKey}`;
+              const isToday = Number(item.sent_today) === 1;
+              const sentAt = String(item.sent_at || '');
+              const statusMsg = String(item.claim_status || '');
+              const uid = String(item.upload_uid || '');
+              const existing = fdhStatusMap.get(targetKey);
+              if (!existing || (!existing.sent_today && isToday)) {
                 fdhStatusMap.set(targetKey, {
-                  sent_at: String(item.sent_at || ''),
-                  status: String(item.claim_status || ''),
-                  uid: String(item.upload_uid || ''),
-                  sent_today: Number(item.sent_today) === 1,
+                  sent_at: sentAt,
+                  status: statusMsg,
+                  uid,
+                  sent_today: isToday,
                 });
               }
             }

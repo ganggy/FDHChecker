@@ -4133,3 +4133,42 @@ export const trackFdhStatusForVns = async (options: {
   return summary;
 };
 
+
+export const recordFdhExportSend = async (options: {
+  vns: string[];
+  patientType?: string;
+  note?: string;
+}) => {
+  const codes = [...new Set(options.vns.map(v => String(v || '').trim()))].filter(Boolean);
+  if (!codes.length) return;
+  const connection = await getRepstmConnection();
+  try {
+    await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
+    const type = (options.patientType || 'OPD').toUpperCase().slice(0, 10);
+    const note = (options.note || 'FDH Export').slice(0, 200);
+    for (let offset = 0; offset < codes.length; offset += 500) {
+      const batch = codes.slice(offset, offset + 500);
+      const values = batch.map(vn => [
+        vn.slice(0, 25),
+        type,
+        new Date(),
+        'Y',
+        note,
+      ]);
+      await connection.query(
+        `INSERT INTO mophclaim_send (vn, type, senddate, flag, note, created_at, updated_at)
+         VALUES ${values.map(() => '(?, ?, ?, ?, ?, NOW(), NOW())').join(',')}
+         ON DUPLICATE KEY UPDATE
+           senddate = VALUES(senddate),
+           flag = VALUES(flag),
+           note = VALUES(note),
+           updated_at = NOW()`,
+        values.flat()
+      );
+    }
+  } catch (error) {
+    console.warn('Could not record export to mophclaim_send:', error);
+  } finally {
+    connection.release();
+  }
+};

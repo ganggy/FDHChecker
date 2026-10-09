@@ -2335,16 +2335,19 @@ app.post('/api/hosxp/audit', express.json(), async (req, res) => {
 });
 
 // API สำหรับดึงข้อมูล Visit ที่เข้าข่ายเบิก FDH
-app.get('/api/hosxp/eligible-visits', async (req, res) => {
+app.all('/api/hosxp/eligible-visits', async (req, res) => {
   try {
-    const { startDate, endDate, fund, vns } = req.query;
-    const targetVns = typeof vns === 'string'
-      ? vns.split(',').map((s) => s.trim()).filter(Boolean)
-      : Array.isArray(vns)
-      ? vns.map(String).map((s) => s.trim()).filter(Boolean)
+    const startDate = (req.method === 'POST' ? req.body?.startDate : req.query.startDate) as string | undefined;
+    const endDate = (req.method === 'POST' ? req.body?.endDate : req.query.endDate) as string | undefined;
+    const fund = (req.method === 'POST' ? req.body?.fund : req.query.fund) as string | undefined;
+    const rawVns = req.method === 'POST' ? (req.body?.vns || req.body?.targetVns) : req.query.vns;
+    const targetVns = typeof rawVns === 'string'
+      ? rawVns.split(',').map((s) => s.trim()).filter(Boolean)
+      : Array.isArray(rawVns)
+      ? rawVns.map(String).map((s) => s.trim()).filter(Boolean)
       : [];
 
-    console.log(`🔍 Checking FDH eligibility - Dates: ${startDate} to ${endDate}, Fund: ${fund || 'All'}, Targets: ${targetVns.length} VNs`);
+    console.log(`🔍 Checking FDH eligibility (${req.method}) - Dates: ${startDate} to ${endDate}, Fund: ${fund || 'All'}, Targets: ${targetVns.length} VNs`);
 
     let data: Record<string, unknown>[] = [];
     if (targetVns.length > 0) {

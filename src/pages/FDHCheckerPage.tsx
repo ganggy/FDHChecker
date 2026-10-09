@@ -187,11 +187,18 @@ export const FDHCheckerPage: React.FC = () => {
                 }
             }
 
-            const url = hasTargets
-                ? `/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}&vns=${encodeURIComponent(targetList.join(','))}`
-                : `/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}`;
+            const response = hasTargets
+                ? await fetch('/api/hosxp/eligible-visits', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        startDate: rangeStart,
+                        endDate: rangeEnd,
+                        vns: targetList,
+                    }),
+                })
+                : await fetch(`/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}`);
 
-            const response = await fetch(url);
             const result = await response.json();
             if (result.success) {
                 setData(result.data);

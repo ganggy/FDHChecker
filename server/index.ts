@@ -114,7 +114,7 @@ import {
   closeDatabasePools,
 } from './db.js';
 import businessRules from './config/business_rules.json';
-import { promises as fs } from 'fs';
+import { promises as fs, existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getPpfsNhsoReport } from './ppfsReport.js';
@@ -2750,6 +2750,22 @@ app.post('/api/fdh/export-zip', async (req, res) => {
   } catch (error) {
     console.error('Error exporting FDH ZIP:', error);
     res.status(400).json({ success: false, error: (error as Error).message });
+  }
+});
+
+app.get('/api/fdh/download-batch-zip', async (req, res) => {
+  try {
+    const rawFile = String(req.query.file || 'FDH_Sheet0_ALL_BATCHES.zip').trim();
+    const safeName = path.basename(rawFile);
+    const directPath = path.join(process.cwd(), 'exports', safeName);
+    const batchPath = path.join(process.cwd(), 'exports', 'FDH_DataSheet0_Batches', safeName);
+    const targetPath = existsSync(directPath) ? directPath : existsSync(batchPath) ? batchPath : null;
+    if (!targetPath) {
+      return res.status(404).json({ success: false, error: 'ไม่พบไฟล์ที่ระบุ' });
+    }
+    return res.download(targetPath);
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
   }
 });
 

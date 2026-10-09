@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { formatLocalDateInput } from '../utils/dateUtils';
 import { navigateFromDashboard } from '../utils/navigationState';
-import { canPrepareZeroResend, canPrepareRepSheetZeroResend, ZERO_ACTION_LABELS, type StmZeroRow } from '../utils/stmZeroAudit';
+import { ZERO_ACTION_LABELS, type StmZeroRow } from '../utils/stmZeroAudit';
 import './StmZeroAuditPanel.css';
 import { loadRepErrorCatalog, type RepErrorCatalog } from '../services/repErrorCatalogService';
 import { repSheetZeroReasons } from '../utils/repSheetZeroAudit';
@@ -20,7 +20,6 @@ const writeWorkbook = (name: string, sheets: Array<[string, Record<string, unkno
 
 export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-zero' }) {
   const isRep = mode === 'rep-sheet-zero';
-  const isRowEligible = (r: StmZeroRow) => isRep ? canPrepareRepSheetZeroResend(r) : canPrepareZeroResend(r);
   const title = isRep ? 'REP Data Sheet 0' : 'STM 0';
   const endpoint = `/api/reconciliation/${isRep ? 'rep-sheet-zero' : 'stm-zero'}`;
   const [catalog, setCatalog] = useState<RepErrorCatalog>({});
@@ -93,9 +92,34 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     ]], ['ประเด็นที่ต้องติดตาม', s.groups.map(g => ({ ประเด็น: g.label, จำนวนแถว: g.count }))]]);
   };
   const chosen = Object.values(selected);
-  const exportFdhExcel = (onlySelected = false) => {
-    const listToExport = onlySelected && chosen.length > 0 ? chosen : (result?.data || []);
-    if (!listToExport.length) return;
+  const exportFdhExcel = async (onlySelected = false) => {
+    let listToExport = onlySelected && chosen.length > 0 ? chosen : [];
+    if (!listToExport.length) {
+      setLoading(true);
+      try {
+        const query = new URLSearchParams({
+          startDate: loaded.start,
+          endDate: loaded.end,
+          action: loaded.action,
+          match: loaded.match,
+          search: loaded.search,
+          exportAll: 'true',
+          ...(isRep && loaded.fdhStatus ? { fdhStatus: loaded.fdhStatus } : {}),
+        });
+        const res = await fetch(`${endpoint}?${query}`);
+        const json = await res.json();
+        listToExport = json.success && Array.isArray(json.data) ? json.data : (result?.data || []);
+      } catch {
+        listToExport = result?.data || [];
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    if (!listToExport.length) {
+      alert('ไม่มีรายการสำหรับส่งออก');
+      return;
+    }
 
     const opdRows = listToExport.filter(r => !r.an && r.vn);
     const ipdRows = listToExport.filter(r => Boolean(r.an));
@@ -125,6 +149,37 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     if (!sheets.length) sheets.push(['รวมทั้งหมด', listToExport.map(formatRow)]);
 
     writeWorkbook(`REP_DataSheet0_FDH_Target_${loaded.start}_${loaded.end}`, sheets);
+  };
+
+  const handleSelectAllPages = async () => {
+    if (!result) return;
+    setLoading(true);
+    try {
+      const query = new URLSearchParams({
+        startDate: loaded.start,
+        endDate: loaded.end,
+        action: loaded.action,
+        match: loaded.match,
+        search: loaded.search,
+        exportAll: 'true',
+        ...(isRep && loaded.fdhStatus ? { fdhStatus: loaded.fdhStatus } : {}),
+      });
+      const res = await fetch(`${endpoint}?${query}`);
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        const next: Record<string, StmZeroRow> = {};
+        json.data.forEach((r: StmZeroRow) => { next[r.id] = r; });
+        setSelected(next);
+        setFixNotification({
+          type: 'success',
+          message: `เลือกครบทุกหน้าแล้วทั้งหมด ${json.data.length.toLocaleString('th-TH')} รายการ`,
+        });
+      }
+    } catch {
+      alert('เลือกทุกหน้าไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExcelImportFilter = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -406,11 +461,51 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
         </div>
       )}
       <p className="zero-caption">{isRep ? 'นับแถว REP ไม่ใช่จำนวน Visit; รายการที่จับคู่ HIS แล้วสามารถกดปุ่ม ⚡ แก้ไข Auto หรือเลือกแถวเพื่อส่งเบิกซ้ำได้' : 'นับแถว ไม่ใช่จำนวน Visit; แถว 0 อาจเป็นเพียงบางรายการใน Visit ที่ได้รับเงินแล้ว จึงไม่รวมยอดเงินเป็นความเสียหาย'}</p>
-      <div className="zero-section-heading"><h2>รายการตรวจสอบ <span className="zero-count">{result.total.toLocaleString('th-TH')} แถว</span></h2><span>{isRep ? 'เลือกแถวเพื่อกดแก้ไขอัตโนมัติ หรือเตรียมส่งเบิกซ้ำเข้า FDH / e-Claim' : 'เลือกได้เฉพาะแถวที่ผ่านเงื่อนไขเตรียมตรวจส่งใหม่'}</span></div>
       {result && (() => {
         const displayedData = result.data;
         return (
           <>
+            <div className="zero-section-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <h2>รายการตรวจสอบ <span className="zero-count">{result.total.toLocaleString('th-TH')} แถว</span></h2>
+                <span>{isRep ? 'เลือกแถวเพื่อกดแก้ไขอัตโนมัติ ส่งออก Excel หรือเตรียมส่งเบิกซ้ำเข้า FDH' : 'เลือกแถวเพื่อเตรียมตรวจส่งใหม่'}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="rec-btn rec-btn-secondary"
+                  style={{ fontSize: '12px', padding: '5px 12px' }}
+                  onClick={() => {
+                    const next = { ...selected };
+                    displayedData.forEach(r => { next[r.id] = r; });
+                    setSelected(next);
+                  }}
+                >
+                  ☑ เลือกทั้งหมดในหน้านี้ ({displayedData.length})
+                </button>
+                {result.total > displayedData.length && (
+                  <button
+                    type="button"
+                    className="rec-btn rec-btn-secondary"
+                    style={{ fontSize: '12px', padding: '5px 12px' }}
+                    onClick={() => void handleSelectAllPages()}
+                    title="เลือกทุกรายการที่ตรงกับตัวกรองปัจจุบัน (ทุกหน้า)"
+                  >
+                    ☑ เลือกทั้งหมดทุกหน้า ({result.total.toLocaleString('th-TH')})
+                  </button>
+                )}
+                {chosen.length > 0 && (
+                  <button
+                    type="button"
+                    className="rec-btn rec-btn-secondary"
+                    style={{ fontSize: '12px', padding: '5px 12px', color: '#dc2626' }}
+                    onClick={() => setSelected({})}
+                  >
+                    ☒ ล้างการเลือก ({chosen.length})
+                  </button>
+                )}
+              </div>
+            </div>
             {isRep && (loaded.fdhStatus === 'all' || loaded.fdhStatus === 'sent_previously') && result.summary.fdh && result.summary.fdh.sentAny > 0 && (
               <div className="zero-duplicate-warning-banner">
                 <div>
@@ -434,13 +529,12 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                 type="checkbox"
                 title="เลือก/ยกเลิกทั้งหมดในหน้านี้"
                 aria-label="เลือกแถวทั้งหมดในหน้านี้"
-                checked={Boolean(displayedData.length && displayedData.filter(isRowEligible).length && displayedData.filter(isRowEligible).every(r => Boolean(selected[r.id])))}
+                checked={Boolean(displayedData.length && displayedData.every(r => Boolean(selected[r.id])))}
                 onChange={e => {
                   setReviewed(false);
                   if (e.target.checked) {
-                    const eligible = displayedData.filter(r => isRowEligible(r) && (loaded.fdhStatus === 'sent_previously' || !r.last_fdh_sent_at));
                     const next = { ...selected };
-                    eligible.forEach(r => { next[r.id] = r; });
+                    displayedData.forEach(r => { next[r.id] = r; });
                     setSelected(next);
                   } else {
                     const currentIds = new Set(displayedData.map(r => r.id));
@@ -451,7 +545,7 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                 }}
               />
             </th><th>Visit / วันที่</th><th>ต้นทาง</th><th>{isRep ? 'ยอดชดเชยใน REP' : 'ยอดจ่าย'}</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>การดำเนินการ / สถานะ FDH</th></tr></thead><tbody>
-              {displayedData.map(r => <tr key={r.id}><td><input aria-label={`เลือก ${r.id}`} type="checkbox" disabled={!isRowEligible(r)} checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>
+              {displayedData.map(r => <tr key={r.id}><td><input aria-label={`เลือก ${r.id}`} type="checkbox" checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>
                 <td><b>{r.an ? `IPD · AN ${r.an}` : r.vn ? `OPD · VN ${r.vn}` : `${r.encounter_type === 'OP' ? 'OPD' : r.encounter_type === 'IP' ? 'IPD' : 'ไม่ทราบประเภท'} · รอจับคู่ HIS`}</b>{r.tran_id && <small>TRAN_ID {r.tran_id}</small>}<small>HN {r.hn || 'ไม่พบ'} · {r.service_date || 'ไม่ระบุวันที่'}</small></td>
                 <td className="zero-file">{r.source_filename}<small>{r.sheet_name || 'STM'} · {r.statement_no || r.tran_id || r.id}</small></td>
                 <td className="zero-paid">{money(r.paid_amount)}</td><td>{isRep ? reasons(r) : <b>{r.errorcode} {r.verifycode}</b>}<small className="zero-action-badge" data-action={r.action}>{ZERO_ACTION_LABELS[r.action]}</small></td>

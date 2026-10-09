@@ -4004,10 +4004,11 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
         || (fdhStatus === 'unsent' && !r.last_fdh_sent_at)
         || (fdhStatus === 'sent_today' && Boolean(r.fdh_sent_today))
         || ((fdhStatus === 'sent_previously' || fdhStatus === 'sent_any') && Boolean(r.last_fdh_sent_at))));
+    const exportAll = req.query.exportAll === 'true' || req.query.all === 'true';
     const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
-    const pageSize = Math.min(200, Math.max(10, Math.floor(Number(req.query.pageSize) || 50)));
+    const pageSize = exportAll ? filtered.length : Math.min(200, Math.max(10, Math.floor(Number(req.query.pageSize) || 50)));
     const groups = Object.entries(ZERO_ACTION_LABELS).map(([action, label]) => ({ action, label, count: filtered.filter(r => r.action === action).length }));
-    res.json({ success: true, data: filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length,
+    res.json({ success: true, data: exportAll ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize), total: filtered.length,
       summary: { total: filtered.length, confirmedZero: filtered.filter(r => r.paid_amount === 0).length,
         unknownPayment: filtered.filter(r => r.paid_amount == null).length,
         matched: filtered.filter(r => r.matched).length, unmatched: filtered.filter(r => !r.matched).length,

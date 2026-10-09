@@ -96,6 +96,12 @@ const isOfcOrLgoVisit = (item: any, logic?: any) => {
         || Boolean(logic?.billingStatusLabel?.includes('OFC/LGO'));
 };
 
+const isLgoVisit = (item: any) => {
+    const hipdataCode = String(item?.hipdata_code || '').trim().toUpperCase();
+    const fundText = `${item?.fund || ''} ${item?.hipdata_desc || ''}`.toLowerCase();
+    return hipdataCode === 'LGO' || fundText.includes('lgo') || /อปท|องค์กรปกครองส่วนท้องถิ่น|ท้องถิ่น/.test(fundText);
+};
+
 export const FDHCheckerPage: React.FC = () => {
     const [data, setData] = useState<EligibleVisit[]>([]);
     const [loading, setLoading] = useState(false);
@@ -707,7 +713,7 @@ export const FDHCheckerPage: React.FC = () => {
             {(waitingApproveRows.length > 0 || waitingApproveOnly) && (
                 <div className="alert alert-warning" role="status" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
                     <div style={{ flex: 1, minWidth: 260 }}>
-                        <strong>OFC/LGO รอ Approve code {waitingApproveRows.length} รายการ</strong>
+                        <strong>OFC รอ Approve code {waitingApproveRows.length} รายการ</strong>
                         <div>รายการที่ยังไม่ส่งหรือส่งไม่ผ่านยังอยู่ในคิวของช่วงวันที่และสิทธิ์ที่เลือก ระบบส่งออกเฉพาะรายการพร้อมส่งที่มีรหัสแล้ว</div>
                     </div>
                     <button className="btn btn-secondary" type="button" onClick={() => { setWaitingApproveOnly(!waitingApproveOnly); setFdhStatusFilter('all'); setSearchTerm(''); setSelectedVns([]); }}>{waitingApproveOnly ? 'กลับดูรายการทั้งหมด' : 'ดูรายการรอ Approve'}</button>
@@ -1301,7 +1307,16 @@ export const FDHCheckerPage: React.FC = () => {
                                                     )}
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
-                                                    {isOfcOrLgo ? (
+                                                    {isLgoVisit(item) ? (
+                                                        item.approve_code || item.authen_code ? (
+                                                            <div>
+                                                                <span className="badge badge-success">มีรหัส</span>
+                                                                <div style={{ marginTop: 4, fontWeight: 700 }}>{item.approve_code ?? item.authen_code}</div>
+                                                            </div>
+                                                        ) : (
+                                                            <span style={{ color: 'var(--text-muted)' }} title="สิทธิ LGO ไม่ต้องมี approve code">-</span>
+                                                        )
+                                                    ) : isOfcOrLgo ? (
                                                         hasApproveCode(item.approve_code ?? item.authen_code) ? <div><span className="badge badge-success">มี Approve code</span><div style={{ marginTop: 4, fontWeight: 700 }}>{item.approve_code ?? item.authen_code}</div></div> : <span className="badge badge-warning">รอ Approve code</span>
                                                     ) : item.authen_code ? (
                                                         <div>
@@ -1359,7 +1374,7 @@ export const FDHCheckerPage: React.FC = () => {
                                                 </td>
                                                 <td>
                                                     {isWaitingOfcApprove(item) ? (
-                                                        <span className="badge badge-warning">รอ Approve code OFC/LGO</span>
+                                                        <span className="badge badge-warning">รอ Approve code OFC</span>
                                                     ) : exportFund !== ALL_SPECIAL_FUNDS && !readyForSelectedFund ? (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                                             <span className="badge badge-warning">🟡 รอแก้เงื่อนไขกองทุน</span>

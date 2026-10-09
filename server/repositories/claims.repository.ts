@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { isOfcLgoRight } from '../../src/utils/ofcApproveCode.js';
+import { isLgoRight, isOfcLgoRight } from '../../src/utils/ofcApproveCode.js';
 import mysql from 'mysql2/promise';
 import { pool, getUTFConnection, getRepstmConnection, repstmDatabaseName } from '../db/connection.js';
 import {
@@ -2313,6 +2313,24 @@ export const getCheckData = async (
         (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND di.sks_product_category_id IN (3,4) AND di.ttmt_code IS NOT NULL LIMIT 1) as has_herb,
         (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_type_id = 2 LIMIT 1) as has_instrument,
         (SELECT 1 FROM health_med_service s JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id WHERE s.vn = ovst.vn AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835') LIMIT 1) as has_knee_oper,
+        (
+          SELECT GROUP_CONCAT(DISTINCT tm_code SEPARATOR ',')
+          FROM (
+            SELECT COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) as tm_code
+            FROM opitemrece oo
+            LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+            LEFT JOIN nondrugitems nd ON nd.icode = oo.icode
+            WHERE oo.vn = ovst.vn
+              AND COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) IN ('58101', '58102', '58130', '58131', '58201')
+            UNION
+            SELECT i.health_med_operation_item_code as tm_code
+            FROM health_med_service s
+            JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
+            JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
+            WHERE s.vn = ovst.vn
+              AND i.health_med_operation_item_code IN ('58101', '58102', '58130', '58131', '58201')
+          ) tm_sub
+        ) as thai_med_codes,
         
         CASE WHEN v.age_y BETWEEN 35 AND 59 THEN 1 ELSE 0 END as fpg_age_eligible,
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12003' LIMIT 1) THEN 1 ELSE 0 END as has_fpg_adp,
@@ -2729,6 +2747,24 @@ export const getEligibleVisits = async (
         (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND di.sks_product_category_id IN (3,4) AND di.ttmt_code IS NOT NULL LIMIT 1) as has_herb,
         (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_type_id = 2 LIMIT 1) as has_instrument,
         (SELECT 1 FROM health_med_service s JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id WHERE s.vn = ovst.vn AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835') LIMIT 1) as has_knee_oper,
+        (
+          SELECT GROUP_CONCAT(DISTINCT tm_code SEPARATOR ',')
+          FROM (
+            SELECT COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) as tm_code
+            FROM opitemrece oo
+            LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
+            LEFT JOIN nondrugitems nd ON nd.icode = oo.icode
+            WHERE oo.vn = ovst.vn
+              AND COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) IN ('58101', '58102', '58130', '58131', '58201')
+            UNION
+            SELECT i.health_med_operation_item_code as tm_code
+            FROM health_med_service s
+            JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
+            JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
+            WHERE s.vn = ovst.vn
+              AND i.health_med_operation_item_code IN ('58101', '58102', '58130', '58131', '58201')
+          ) tm_sub
+        ) as thai_med_codes,
         
         -- คัดกรองความเสี่ยง
         CASE WHEN v.age_y BETWEEN 35 AND 59 THEN 1 ELSE 0 END as fpg_age_eligible,
@@ -3186,7 +3222,11 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     `, [hcode, hcode, hcode, vns]);
 
     for (const row of ins as Record<string, unknown>[]) {
-      if (isOfcLgoRight({ hipdata_code: row.INSCL, fund: row._pttypeName })) {
+      if (isLgoRight({ hipdata_code: row.INSCL, fund: row._pttypeName })) {
+        // สิทธิ LGO ไม่ต้องมี approve code มีหรือไม่มีเลขปิดสิทธิ ก็ได้
+        row.PERMITNO = row._approveCode || row.PERMITNO || '';
+        row._requiresApproveCode = false;
+      } else if (isOfcLgoRight({ hipdata_code: row.INSCL, fund: row._pttypeName })) {
         row.PERMITNO = row._approveCode;
         row._requiresApproveCode = true;
       }

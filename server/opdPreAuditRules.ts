@@ -1,3 +1,5 @@
+import { findThaiMedSameDayConflict, suggestCombinedThaiMedCode, THAI_MED_CATALOG } from '../src/utils/thaiTraditionalMedicineRules.js';
+
 export type OpdPreAuditSeverity = 'blocking' | 'warning';
 
 export interface OpdPreAuditIssue {
@@ -88,6 +90,24 @@ export const evaluateOpdPreAudit = (row: Record<string, unknown>): OpdPreAuditIs
       code: 'OPD-DX01',
       message: `รหัสวินิจฉัยกลุ่ม S ต้องมีอย่างน้อย 5 หลักหลังตัดจุด: ${incompleteInjuryCodes.join(', ')}`,
       severity: 'warning',
+    });
+  }
+
+  const rawTmCodes = Array.isArray(row.thai_med_codes)
+    ? (row.thai_med_codes as string[])
+    : String(row.thai_med_codes ?? '').split(/[\s,;|]+/);
+  const tmConflicts = findThaiMedSameDayConflict(rawTmCodes);
+  const hipdataCode = String(row.hipdata_code ?? row.INSCL ?? '').trim().toUpperCase();
+  const fundText = `${row.fund ?? ''} ${row.pttypeName ?? ''} ${row.hipdata_desc ?? ''}`.toLowerCase();
+  const isOfcLgo = hipdataCode === 'OFC' || hipdataCode === 'LGO' || hipdataCode === 'CSCD'
+    || /\b(ofc|lgo|cscd)\b|ข้าราชการ|เบิกตรง|เบิกจ่ายตรง|อปท|องค์กรปกครองส่วนท้องถิ่น/.test(fundText);
+  if (isOfcLgo && tmConflicts.length > 1) {
+    const suggested = suggestCombinedThaiMedCode(tmConflicts);
+    const suggestionText = suggested ? ` (แนะนำปรับเป็นรหัสรวม ${suggested}: ${THAI_MED_CATALOG[suggested]?.name})` : '';
+    issues.push({
+      code: 'OPD-TM01',
+      message: `พบการเบิกรหัสนวด/ประคบสมุนไพร (${tmConflicts.join(', ')}) ในวันเดียวกันเกิน 1 รหัส สิทธิ OFC/LGO เบิกได้เพียงรหัสเดียวตามหนังสือ กค 0422.2/ว 447 (REP 853)${suggestionText}`,
+      severity: 'blocking',
     });
   }
 

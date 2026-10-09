@@ -46,6 +46,8 @@ interface ClaimDetailFileItem {
   id: string;
   fileName: string;
   sheetName: string;
+  sentAt?: string;
+  importedBy?: string;
   headers: string[];
   rows: Record<string, unknown>[];
   status: ImportStatus;
@@ -55,15 +57,56 @@ interface ClaimDetailFileItem {
 const normalizeCell = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const numberTh = (value: unknown) => Number(value || 0).toLocaleString('th-TH');
 
+const parseThaiDateTime = (text: string): string | null => {
+  if (!text) return null;
+  const thaiMonths: Record<string, string> = {
+    'มกราคม': '01', 'กุมภาพันธ์': '02', 'มีนาคม': '03', 'เมษายน': '04',
+    'พฤษภาคม': '05', 'มิถุนายน': '06', 'กรกฎาคม': '07', 'สิงหาคม': '08',
+    'กันยายน': '09', 'ตุลาคม': '10', 'พฤศจิกายน': '11', 'ธันวาคม': '12',
+    'ม.ค.': '01', 'ก.พ.': '02', 'มี.ค.': '03', 'เม.ย.': '04',
+    'พ.ค.': '05', 'มิ.ย.': '06', 'ก.ค.': '07', 'ส.ค.': '08',
+    'ก.ย.': '09', 'ต.ค.': '10', 'พ.ย.': '11', 'ธ.ค.': '12',
+  };
+  const match = text.match(/(?:วันที่\s*)?(\d{1,2})\s+([^\s\d]+)\s+(\d{4})(?:\s+(?:เวลา\s*)?(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*น\.?)?)?/);
+  if (match) {
+    const [, d, mName, yStr, h = '00', min = '00', s = '00'] = match;
+    const m = thaiMonths[mName];
+    if (m) {
+      let year = Number(yStr);
+      if (year > 2400) year -= 543;
+      return `${String(year).padStart(4, '0')}-${m}-${d.padStart(2, '0')} ${h.padStart(2, '0')}:${min.padStart(2, '0')}:${s.padStart(2, '0')}`;
+    }
+  }
+  return null;
+};
+
 const isHeaderRow = (row: unknown[]) => {
   const text = row.map(normalizeCell).join('|');
-  const signals = ['รหัสการเคลม', 'HN', 'รหัสบริการ (SEQ)', 'รหัสผู้ป่วยใน (AN)', 'ประเภทผู้ป่วย', 'สถานะรายการเคลม'];
-  return signals.filter((signal) => text.includes(signal)).length >= 4;
+  const format1Signals = ['รหัสการเคลม', 'HN', 'รหัสบริการ (SEQ)', 'รหัสผู้ป่วยใน (AN)', 'ประเภทผู้ป่วย', 'สถานะรายการเคลม'];
+  if (format1Signals.filter((signal) => text.includes(signal)).length >= 4) return true;
+  const format2Signals = ['HN', 'AN', 'SEQ', 'ประเภทผู้ป่วย', 'ผ่าน / ไม่ผ่าน', 'สถานะรายการเคลม'];
+  if (format2Signals.filter((signal) => text.includes(signal)).length >= 4) return true;
+  return false;
 };
 
 const parseClaimDetailWorkbook = async (file: File) => {
-  const buffer = await file.arrayBuffer();
-  const workbook = XLSX.read(buffer, { type: 'array' });
+  let workbook: XLSX.WorkBook;
+  if (file.name.toLowerCase().endsWith('.csv')) {
+    const buffer = await file.arrayBuffer();
+    let text = new TextDecoder('utf-8').decode(buffer);
+    if (text.includes('\uFFFD')) {
+      try {
+        text = new TextDecoder('windows-874').decode(buffer);
+      } catch {
+        // fallback to utf-8 text
+      }
+    }
+    workbook = XLSX.read(text, { type: 'string' });
+  } else {
+    const buffer = await file.arrayBuffer();
+    workbook = XLSX.read(buffer, { type: 'array' });
+  }
+
   const sheetName = workbook.SheetNames.find((name) => name.toLowerCase().includes('claimdetail')) || workbook.SheetNames[0];
   if (!sheetName) throw new Error('ไม่พบ sheet ในไฟล์');
 
@@ -75,7 +118,43 @@ const parseClaimDetailWorkbook = async (file: File) => {
   });
   const headerIndex = grid.findIndex((row) => Array.isArray(row) && isHeaderRow(row));
   if (headerIndex < 0) {
-    throw new Error('ไม่พบ header ของ FDH ClaimDetail กรุณาใช้ไฟล์ export จากหน้า FDH');
+    throw new Error('ไม่พบ header ของ FDH ClaimDetail หรือรายงานผลการส่ง 16 แฟ้ม กรุณาใช้ไฟล์ export จาก FDH');
+  }
+
+  const metadata: {
+    title?: string;
+    sentAtText?: string;
+    sentAt?: string;
+    hcode?: string;
+    hname?: string;
+    importedBy?: string;
+  } = {};
+
+  for (let i = 0; i < headerIndex; i++) {
+    const row = grid[i];
+    if (!Array.isArray(row)) continue;
+    for (const cell of row) {
+      const cellStr = normalizeCell(cell);
+      if (!cellStr) continue;
+      if (cellStr.includes('รายละเอียดการนำเข้า 16 แฟ้ม')) {
+        metadata.title = cellStr;
+      }
+      const dateMatch = cellStr.match(/วันเวลาส่งข้อมูล\s*:\s*(.+)/);
+      if (dateMatch) {
+        metadata.sentAtText = dateMatch[1].trim();
+        const parsedDate = parseThaiDateTime(metadata.sentAtText);
+        if (parsedDate) metadata.sentAt = parsedDate;
+      }
+      const hospMatch = cellStr.match(/หน่วยบริการ\s*:\s*(\d+)\s*(?:-\s*(.+))?/);
+      if (hospMatch) {
+        metadata.hcode = hospMatch[1].trim();
+        if (hospMatch[2]) metadata.hname = hospMatch[2].trim();
+      }
+      const senderMatch = cellStr.match(/ชื่อผู้ส่ง\s*:\s*(.+)/);
+      if (senderMatch) {
+        metadata.importedBy = senderMatch[1].trim();
+      }
+    }
   }
 
   const headers = grid[headerIndex].map(normalizeCell);
@@ -86,10 +165,42 @@ const parseClaimDetailWorkbook = async (file: File) => {
   const rows = grid
     .slice(headerIndex + 1)
     .filter((row) => Array.isArray(row) && row.some((cell) => normalizeCell(cell)))
-    .map((row) => Object.fromEntries(activeIndexes.map(({ header, index }) => [header, normalizeCell(row[index])])))
-    .filter((row) => row['รหัสการเคลม'] || row['HN'] || row['รหัสบริการ (SEQ)'] || row['รหัสผู้ป่วยใน (AN)']);
+    .map((row) => {
+      const obj = Object.fromEntries(activeIndexes.map(({ header, index }) => [header, normalizeCell(row[index])]));
+      const hn = obj['HN'];
+      const seq = obj['SEQ'];
+      const an = obj['AN'];
+      const pType = obj['ประเภทผู้ป่วย'] || 'OP';
+      const passFail = obj['ผ่าน / ไม่ผ่าน'];
+      const rawStatus = obj['สถานะรายการเคลม'];
+      const oldStatus = obj['สถานะเดิม'];
 
-  return { sheetName, headers: activeIndexes.map(({ header }) => header), rows };
+      if (passFail) {
+        const combinedStatus = `${passFail} - ${rawStatus}${oldStatus ? ` (${oldStatus})` : ''}`;
+        obj['สถานะรายการเคลม'] = combinedStatus;
+        obj['claim_status'] = combinedStatus;
+      }
+      if (!obj['รหัสบริการ (SEQ)'] && seq) {
+        obj['รหัสบริการ (SEQ)'] = seq;
+      }
+      if (!obj['รหัสผู้ป่วยใน (AN)']) {
+        obj['รหัสผู้ป่วยใน (AN)'] = (pType === 'OP' && an === seq) ? '' : an;
+      }
+      if (!obj['รหัสการเคลม']) {
+        obj['รหัสการเคลม'] = `${pType}-${seq || an || hn}`;
+      }
+      if (metadata.sentAt) {
+        if (!obj['วันที่ส่งหา สปสช.']) obj['วันที่ส่งหา สปสช.'] = metadata.sentAt;
+        obj['sent_at'] = metadata.sentAt;
+      }
+      if (metadata.importedBy) {
+        obj['imported_by'] = metadata.importedBy;
+      }
+      return obj;
+    })
+    .filter((row) => row['รหัสการเคลม'] || row['HN'] || row['รหัสบริการ (SEQ)'] || row['SEQ'] || row['รหัสผู้ป่วยใน (AN)'] || row['AN']);
+
+  return { sheetName, headers: activeIndexes.map(({ header }) => header), rows, metadata };
 };
 
 const statusTone = (status: ImportStatus) => {
@@ -147,7 +258,7 @@ export const FdhClaimDetailImportPage = () => {
   }, []);
 
   const handleFiles = async (files: FileList | null) => {
-    const selectedFiles = Array.from(files || []).filter((file) => /\.(xlsx|xls)$/i.test(file.name));
+    const selectedFiles = Array.from(files || []).filter((file) => /\.(xlsx|xls|csv)$/i.test(file.name));
     if (selectedFiles.length === 0) return;
     setStatus('parsing');
     setMessage(`กำลังอ่าน ${selectedFiles.length.toLocaleString('th-TH')} ไฟล์...`);
@@ -156,10 +267,15 @@ export const FdhClaimDetailImportPage = () => {
       const id = `${file.name}-${file.size}-${file.lastModified}-${index}`;
       try {
         const parsed = await parseClaimDetailWorkbook(file);
+        if (parsed.metadata.importedBy && (!importedBy || importedBy === 'เปรมศักดิ์ เทพวงสา')) {
+          setImportedBy(parsed.metadata.importedBy);
+        }
         parsedItems.push({
           id,
           fileName: file.name,
           sheetName: parsed.sheetName,
+          sentAt: parsed.metadata.sentAt,
+          importedBy: parsed.metadata.importedBy,
           headers: parsed.headers,
           rows: parsed.rows,
           status: 'ready',
@@ -200,7 +316,7 @@ export const FdhClaimDetailImportPage = () => {
           const response = await fetch('/api/fdh/claim-detail/import', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sourceFilename: item.fileName, sheetName: item.sheetName, importedBy, notes, rows: item.rows }),
+            body: JSON.stringify({ sourceFilename: item.fileName, sheetName: item.sheetName, importedBy: item.importedBy || importedBy, sentAt: item.sentAt, notes, rows: item.rows }),
           });
           const json = await response.json();
           if (!response.ok || !json.success) throw new Error(json.error || 'นำเข้าไม่สำเร็จ');
@@ -242,7 +358,7 @@ export const FdhClaimDetailImportPage = () => {
             ref={inputRef}
             type="file"
             multiple
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xls,.csv"
             style={{ display: 'none' }}
             onChange={(event) => {
               void handleFiles(event.target.files);
@@ -251,11 +367,11 @@ export const FdhClaimDetailImportPage = () => {
           />
           <div className="workflow-filter-grid">
             <div className="form-group">
-              <label>ไฟล์ FDH ClaimDetail</label>
+              <label>ไฟล์ FDH ClaimDetail / รายงาน 16 แฟ้ม</label>
               <button className="btn btn-primary" type="button" onClick={() => inputRef.current?.click()}>
-                เลือกหลายไฟล์ Excel จาก FDH
+                เลือกหลายไฟล์ Excel / CSV จาก FDH
               </button>
-              <small>{fileItems.length > 0 ? `เลือกแล้ว ${fileItems.length.toLocaleString('th-TH')} ไฟล์ พร้อมนำเข้า ${readyFileCount.toLocaleString('th-TH')} ไฟล์` : 'รองรับไฟล์ 11101-NHSO-ClaimDetail.xlsx'}</small>
+              <small>{fileItems.length > 0 ? `เลือกแล้ว ${fileItems.length.toLocaleString('th-TH')} ไฟล์ พร้อมนำเข้า ${readyFileCount.toLocaleString('th-TH')} ไฟล์` : 'รองรับไฟล์ ClaimDetail (.xlsx) และ รายงานผลการนำเข้า 16 แฟ้ม รายบุคคล (.xlsx, .csv)'}</small>
               <small style={{ display: 'block', marginTop: 6, color: '#64748b' }}>
                 ระบบตรวจซ้ำจากเนื้อหาในไฟล์ ไม่ได้ดูแค่ชื่อไฟล์ หากชื่อเดิมแต่สถานะในไฟล์เปลี่ยน จะนำเข้าเป็นรอบใหม่ได้
               </small>
@@ -386,7 +502,7 @@ export const FdhClaimDetailImportPage = () => {
                       <td>{normalizeCell(row['วันจำหน่ายออก']) || '-'}</td>
                       <td>{normalizeCell(row['วันที่ส่งหา สปสช.']) || '-'}</td>
                       <td className="workflow-id-cell">{normalizeCell(row['upload uid']) || '-'}</td>
-                      <td><span className="insurance-status insurance-status--success">{normalizeCell(row['สถานะรายการเคลม']) || '-'}</span></td>
+                      <td><span className={`insurance-status ${String(row['สถานะรายการเคลม'] || '').includes('ไม่ผ่าน') ? 'insurance-status--danger' : 'insurance-status--success'}`}>{normalizeCell(row['สถานะรายการเคลม']) || '-'}</span></td>
                     </tr>
                   ))}
                 </tbody>

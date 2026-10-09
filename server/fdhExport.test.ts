@@ -55,12 +55,24 @@ const validIpdData = (): FdhExportData => ({
   CHA: [{ HN: '0002', AN: 'AN001', DATE: '20260803', CHRGITEM: '01', AMOUNT: 1000, PERSON_ID: '1234567890123', SEQ: 'VN2' }],
 });
 
-test('OFC export queue uses approval codes rather than a generic ready flag', () => {
+test('OFC export queue uses approval codes rather than a generic ready flag while LGO does not require approval code', () => {
   assert.equal(isWaitingOfcApprove({ hipdata_code: 'OFC', approve_code: '' }), true);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'LGO', approve_code: '' }), false);
   assert.equal(isWaitingOfcApprove({ hipdata_code: 'LGO', approve_code: '034843' }), false);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'LGO', fund: 'เบิกจ่ายตรง อปท.', approve_code: '' }), false);
   assert.equal(isWaitingOfcApprove({ hipdata_code: 'A1', authen_code: 'EP123' }), true);
   assert.equal(isWaitingOfcApprove({ hipdata_code: 'LOCAL', fund: 'เบิกจ่ายตรงข้าราชการ', approve_code: '' }), true);
   assert.equal(isWaitingOfcApprove({ hipdata_code: 'UCS', authen_code: 'PP123' }), false);
+});
+
+test('LGO export permits absent approve code and absent close right in standard profile', () => {
+  const data = validIpdData();
+  data.INS[0].INSCL = 'LGO';
+  data.INS[0].PERMITNO = '';
+  delete data.INS[0]._requiresApproveCode;
+  const result = validateFdhData(data, 'standard', '11101');
+  assert.equal(result.errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), false);
+  assert.equal(result.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
 });
 
 test('raw OFC right metadata prevents FWF profile from bypassing approval and is never serialized', () => {
@@ -143,7 +155,7 @@ test('PERMITNO is conditional by fund and remains required for UCS', () => {
   assert.equal(result.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), true);
 });
 
-test('OFC and LGO require an approval code separately from NHSO PERMITNO checks', () => {
+test('OFC requires an approval code separately from NHSO PERMITNO checks while LGO does not', () => {
   const dataOfc = validFwfData();
   dataOfc.INS[0] = { ...dataOfc.INS[0], INSCL: 'OFC', DATEIN: '20260720', PERMITNO: '' };
   const resultOfc = validateFdhData(projectFdhData(dataOfc, 'standard'), 'standard', '11101');
@@ -154,13 +166,13 @@ test('OFC and LGO require an approval code separately from NHSO PERMITNO checks'
   dataLgo.INS[0] = { ...dataLgo.INS[0], INSCL: 'LGO', DATEIN: '20260720', PERMITNO: '' };
   const resultLgo = validateFdhData(projectFdhData(dataLgo, 'standard'), 'standard', '11101');
   assert.equal(resultLgo.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
-  assert.equal(resultLgo.errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true);
+  assert.equal(resultLgo.errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), false);
 });
 
 test('OFC approval gate rejects NHSO and placeholder codes and preserves leading zeroes', () => {
   for (const permit of ['', ' ', 'EP123', 'PP123', '000000', '-']) {
     const data = validIpdData();
-    data.INS[0].INSCL = 'LGO';
+    data.INS[0].INSCL = 'OFC';
     data.INS[0].PERMITNO = permit;
     assert.equal(validateFdhData(data, 'standard', '11101').errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true, permit);
   }

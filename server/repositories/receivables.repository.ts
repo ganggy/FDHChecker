@@ -1284,6 +1284,7 @@ export const importFdhClaimDetailRows = async (payload: {
   sourceFilename: string;
   sheetName?: string;
   importedBy?: string;
+  sentAt?: string;
   notes?: string;
   rows: Record<string, unknown>[];
 }) => {
@@ -1355,17 +1356,26 @@ export const importFdhClaimDetailRows = async (payload: {
       const claimCode = pickRowValueAdvanced(row, ['รหัสการเคลม', 'claim_code', 'claim code']);
       const hn = pickRowValueAdvanced(row, ['HN']);
       const vn = pickRowValueAdvanced(row, ['รหัสบริการ (SEQ)', 'SEQ', 'VN']);
-      const an = pickRowValueAdvanced(row, ['รหัสผู้ป่วยใน (AN)', 'AN']);
+      const rawAn = pickRowValueAdvanced(row, ['รหัสผู้ป่วยใน (AN)', 'AN']);
       const patientTypeRaw = pickRowValueAdvanced(row, ['ประเภทผู้ป่วย', 'patient_type']);
-      const patientType = patientTypeRaw.toUpperCase() === 'IPD' ? 'IP' : patientTypeRaw.toUpperCase() === 'OPD' ? 'OP' : patientTypeRaw.toUpperCase();
+      const patientType = patientTypeRaw.toUpperCase() === 'IPD' ? 'IP' : patientTypeRaw.toUpperCase() === 'OPD' ? 'OP' : (patientTypeRaw.toUpperCase() || 'OP');
+      const resolvedAn = (patientType === 'OP' && rawAn === vn) ? null : (rawAn || null);
       const serviceDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันเข้ารับบริการ', 'service_datetime', 'service date']));
       const admitDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันที่รับการรักษา', 'วันเข้ารักษา', 'admit_datetime', 'admdate']));
       const dischargeDateTime = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันจำหน่ายออก', 'วันจำหน่าย', 'discharge_datetime', 'dchdate']));
-      const sentAt = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันที่ส่งหา สปสช.', 'วันส่งข้อมูล', 'sent_at', 'senddate']));
+      const sentAt = parseFlexibleDateTime(pickRowValueAdvanced(row, ['วันที่ส่งหา สปสช.', 'วันส่งข้อมูล', 'sent_at', 'senddate']))
+        || (payload.sentAt ? parseFlexibleDateTime(payload.sentAt) : null);
       const privilegeUse = pickRowValueAdvanced(row, ['การใช้สิทธิ']);
       const uploadUid = pickRowValueAdvanced(row, ['upload uid', 'upload_uid']);
       const maininscl = pickRowValueAdvanced(row, ['สิทธิ', 'maininscl']);
-      const claimStatus = pickRowValueAdvanced(row, ['สถานะรายการเคลม', 'claim_status', 'status']);
+      let claimStatus = pickRowValueAdvanced(row, ['สถานะรายการเคลม', 'claim_status', 'status']);
+      const passFail = pickRowValueAdvanced(row, ['ผ่าน / ไม่ผ่าน', 'ผ่าน/ไม่ผ่าน', 'pass_status']);
+      const oldStatus = pickRowValueAdvanced(row, ['สถานะเดิม', 'old_status']);
+      if (passFail && !claimStatus.startsWith(passFail)) {
+        claimStatus = claimStatus ? `${passFail} - ${claimStatus}${oldStatus ? ` (${oldStatus})` : ''}` : passFail;
+      }
+      const fallbackClaimCode = `${patientType}-${vn || resolvedAn || hn || index + 1}`;
+      const resolvedClaimCode = claimCode || fallbackClaimCode;
 
       await connection.query(
         `INSERT INTO fdh_claim_detail_row
@@ -1391,10 +1401,10 @@ export const importFdhClaimDetailRows = async (payload: {
         [
           batchId,
           index + 1,
-          claimCode || null,
+          resolvedClaimCode || null,
           hn || null,
           vn || null,
-          an || null,
+          resolvedAn || null,
           patientType || null,
           serviceDateTime,
           admitDateTime,

@@ -1,5 +1,6 @@
 import iconv from 'iconv-lite';
-import { hasApproveCode, isOfcLgoRight } from '../src/utils/ofcApproveCode.js';
+import { hasApproveCode, isLgoRight, isOfcLgoRight } from '../src/utils/ofcApproveCode.js';
+import { THAI_MED_CATALOG, isThaiMedSameDayCode, type ThaiMedSameDayCode } from '../src/utils/thaiTraditionalMedicineRules.js';
 
 export const FDH_FILE_CODES = [
   'INS', 'PAT', 'OPD', 'ORF', 'ODX', 'OOP', 'IPD', 'IRF',
@@ -303,8 +304,9 @@ export const validateFdhData = (
     const hn = value(row, 'HN');
     const inscl = value(row, 'INSCL').toUpperCase();
     const original = input.INS?.[index];
-    if ((original?._requiresApproveCode === true || (profile === 'standard' && isOfcLgoRight({ hipdata_code: inscl }))) && !hasApproveCode(row.PERMITNO)) {
-      add({ code: 'OFC_APPROVE_REQUIRED', file: 'INS', row: index + 1, field: 'PERMITNO', key: keyOf(row, ['HN', 'SEQ']), message: `INS แถว ${index + 1}: OFC/LGO รอ Approve code กรุณานำเข้าและบันทึกรหัสก่อนส่งออก` });
+    const isLgo = isLgoRight({ hipdata_code: inscl });
+    if (!isLgo && (original?._requiresApproveCode === true || (profile === 'standard' && isOfcLgoRight({ hipdata_code: inscl }))) && !hasApproveCode(row.PERMITNO)) {
+      add({ code: 'OFC_APPROVE_REQUIRED', file: 'INS', row: index + 1, field: 'PERMITNO', key: keyOf(row, ['HN', 'SEQ']), message: `INS แถว ${index + 1}: OFC รอ Approve code กรุณานำเข้าและบันทึกรหัสก่อนส่งออก` });
     }
     if (profile === 'standard' && ['UCS', 'WEL'].includes(inscl) && !value(row, 'PERMITNO')) {
       add({
@@ -420,6 +422,63 @@ export const validateFdhData = (
       });
     }
   });
+
+  if (profile === 'standard') {
+    // กรมบัญชีกลาง ว 447 (12 พ.ย. 58): สิทธิ LGO/OFC ใน 1 วัน เบิกรหัส 58101, 58102, 58130, 58131, 58201 ได้เพียงรหัสเดียว (REP 853)
+    const hnInsclMap = new Map<string, string>();
+    data.INS.forEach((ins) => {
+      const hn = value(ins, 'HN');
+      const inscl = value(ins, 'INSCL').toUpperCase();
+      if (hn && inscl) hnInsclMap.set(hn, inscl);
+    });
+
+    const thaiMedByHnDate = new Map<string, Array<{ code: ThaiMedSameDayCode; rowIndex: number }>>();
+    data.ADP.forEach((row, index) => {
+      const hn = value(row, 'HN');
+      const inscl = hnInsclMap.get(hn) || '';
+      const isOfcLgo = isOfcLgoRight({ hipdata_code: inscl });
+      if (!isOfcLgo) return;
+
+      const code = value(row, 'CODE');
+      if (isThaiMedSameDayCode(code)) {
+        const dateOpd = value(row, 'DATEOPD') || value(row, 'SEQ');
+        const key = `${hn}:${dateOpd}`;
+        const list = thaiMedByHnDate.get(key) || [];
+        list.push({ code, rowIndex: index + 1 });
+        thaiMedByHnDate.set(key, list);
+
+        const standard = THAI_MED_CATALOG[code];
+        const rate = money(row.RATE);
+        if (standard && rate > 0 && Math.abs(rate - standard.rate) > 0.01) {
+          add({
+            code: 'THAI_MED_RATE_MISMATCH',
+            file: 'ADP',
+            row: index + 1,
+            field: 'RATE',
+            message: `ADP แถว ${index + 1}: รหัส ${code} (${standard.name}) อัตราเบิกคือ ${standard.rate.toFixed(2)} บาท (ปัจจุบันระบุ ${rate.toFixed(2)}) ตามหนังสือ กค 0422.2/ว 447`,
+          }, 'warning');
+        }
+      }
+    });
+
+    for (const [key, entries] of thaiMedByHnDate.entries()) {
+      const distinctCodes = Array.from(new Set(entries.map((e) => e.code)));
+      if (distinctCodes.length > 1) {
+        const [hn, dateOpd] = key.split(':');
+        const inscl = hnInsclMap.get(hn) || 'OFC/LGO';
+        entries.forEach((entry) => {
+          add({
+            code: 'THAI_MED_SAME_DAY_LIMIT',
+            file: 'ADP',
+            row: entry.rowIndex,
+            field: 'CODE',
+            key,
+            message: `ADP แถว ${entry.rowIndex}: HN ${hn} วันที่ ${dateOpd || 'เดียวกัน'} สิทธิ ${inscl} มีการเบิกรหัสนวด/ประคบสมุนไพร (${distinctCodes.join(', ')}) ในวันเดียวกันเกิน 1 รหัส — กรมบัญชีกลางกำหนดให้เบิกได้เพียงรหัสเดียวตามหนังสือ กค 0422.2/ว 447 (REP 853)`,
+          });
+        });
+      }
+    }
+  }
   data.DRU.forEach((row, index) => {
     if (money(row.DRUGPRIC) <= 0) add({ code: 'DRUG_PRICE', file: 'DRU', row: index + 1, field: 'DRUGPRIC', message: 'DRUGPRIC ต้องมากกว่า 0' });
     if (!['1', '2', '3', '4'].includes(value(row, 'USE_STATUS'))) add({ code: 'DRUG_USE_STATUS', file: 'DRU', row: index + 1, field: 'USE_STATUS', message: 'DRU.USE_STATUS ต้องเป็น 1, 2, 3 หรือ 4' });

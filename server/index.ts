@@ -2,6 +2,7 @@ import { canAccessApiPage } from './apiPagePermissions.js';
 import { RECEIVABLE_RIGHT_MAPPINGS, RECEIVABLE_MAPPING_SETTING_KEY, validateReceivableMappings, applyReceivableMappings } from './receivableMapping.js';
 import { readHospitalIdentity, parseSiteWalkinSettings, parseVillageScope } from './siteProfile.js';
 import { isWaitingOfcApprove } from '../src/utils/ofcApproveCode.js';
+import { findThaiMedSameDayConflict, suggestCombinedThaiMedCode, THAI_MED_CATALOG } from '../src/utils/thaiTraditionalMedicineRules.js';
 import { readStmZeroRows, readStmZeroSource } from './repositories/stmZero.repository.js';
 import { canPrepareZeroResend, ZERO_ACTION_LABELS } from '../src/utils/stmZeroAudit.js';
 import { detectRepSheetZeroFix, applyRepSheetZeroFix, batchApplyRepSheetZeroFix } from './repSheetZeroAutoFix.js';
@@ -1928,7 +1929,7 @@ app.get('/api/hosxp/ipd-list', async (req, res) => {
         includeDocumentAudit: true,
       });
       const exportIssues: string[] = [];
-      if (isWaitingOfcApprove(row)) exportIssues.push('รอ Approve code OFC/LGO — นำเข้าและบันทึกรหัสก่อนส่งออก');
+      if (isWaitingOfcApprove(row)) exportIssues.push('รอ Approve code OFC — นำเข้าและบันทึกรหัสก่อนส่งออก');
       if (!row.dchdate) exportIssues.push('ยังไม่จำหน่าย');
       if (!String(row.pdx || '').trim()) exportIssues.push('ไม่พบ Principal diagnosis');
       if (Number(row.totalPrice || 0) <= 0) exportIssues.push('ไม่พบยอดค่าใช้จ่าย');
@@ -2477,10 +2478,10 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
       const palliativeAuthenReady = !item.an && hasPalliativeAuthenReady(item);
 
       if (!item.an && isWaitingOfcApprove(item)) {
-        issues.push('ER-OFC-APPROVE: รอ Approve code OFC/LGO (นำเข้าและบันทึกรหัสก่อนส่งออก)');
+        issues.push('ER-OFC-APPROVE: รอ Approve code OFC (นำเข้าและบันทึกรหัสก่อนส่งออก)');
         if (status === 'ready') status = 'pending';
       }
-      // OFC/LGO requires approval, but does not require NHSO EP close-right.
+      // OFC requires approval; LGO does not require approval code; neither requires NHSO EP close-right.
       // เฉพาะบัตรทอง (UCS) ที่เข้ากองทุนพิเศษเท่านั้นที่ต้องปิดสิทธิ EP
       const requiresCloseEp = !item.an && isUCS && isSpecialFund && !palliativeAuthenReady;
       if (requiresCloseEp && !hasCloseEp) {
@@ -2529,6 +2530,21 @@ app.get('/api/hosxp/eligible-visits', async (req, res) => {
         issues.push(`ER-PALLIATIVE-MORPHINE-MISSING-DX: ผู้ป่วยมีประวัติ Palliative Care${priorDateDesc} และได้รับยากลุ่มมอร์ฟีน${morphDesc} แต่ลืมลงรหัสวินิจฉัย Z51.5 / Z71.8 (กดแก้ไข Auto ได้)`);
         autoFixableActions.push('ADD_PALLIATIVE_MORPHINE_DX');
         if (status === 'ready') status = 'pending';
+      }
+
+      // หนังสือกรมบัญชีกลาง ด่วนที่สุด ที่ กค 0422.2/ว 447 ลว. 12 พ.ย. 58: สิทธิ LGO หรือ OFC
+      // เบิกรหัส 58101, 58102, 58130, 58131 และ 58201 ใน 1 วัน ให้เบิกได้เพียงรหัสเดียว (REP 853)
+      if (!item.an && isOFC_CSCD_LGO) {
+        const rawTmCodes = Array.isArray(item.thai_med_codes)
+          ? item.thai_med_codes
+          : String(item.thai_med_codes ?? '').split(/[\s,;|]+/);
+        const tmConflicts = findThaiMedSameDayConflict(rawTmCodes);
+        if (tmConflicts.length > 1) {
+          const suggested = suggestCombinedThaiMedCode(tmConflicts);
+          const suggestionText = suggested ? ` — แนะนำใช้รหัสรวม ${suggested} (${THAI_MED_CATALOG[suggested]?.name})` : '';
+          issues.push(`ER-853: สิทธิ OFC/LGO เบิกรหัสนวด/ประคบสมุนไพร (${tmConflicts.join(', ')}) ในวันเดียวกันเกิน 1 รหัส (ตามหนังสือ กค 0422.2/ว 447)${suggestionText}`);
+          if (status === 'ready') status = 'pending';
+        }
       }
 
       return {
@@ -3858,10 +3874,11 @@ app.get('/api/repstm/:dataType', async (req, res) => {
 
 app.post('/api/fdh/claim-detail/import', async (req, res) => {
   try {
-    const { sourceFilename, sheetName, importedBy, notes, rows } = req.body as {
+    const { sourceFilename, sheetName, importedBy, sentAt, notes, rows } = req.body as {
       sourceFilename?: string;
       sheetName?: string;
       importedBy?: string;
+      sentAt?: string;
       notes?: string;
       rows?: Record<string, unknown>[];
     };
@@ -3874,6 +3891,7 @@ app.post('/api/fdh/claim-detail/import', async (req, res) => {
       sourceFilename: String(sourceFilename).trim(),
       sheetName: sheetName ? String(sheetName).trim() : undefined,
       importedBy: importedBy ? String(importedBy).trim() : undefined,
+      sentAt: sentAt ? String(sentAt).trim() : undefined,
       notes: notes ? String(notes).trim() : undefined,
       rows,
     });

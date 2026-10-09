@@ -39,6 +39,8 @@ const ISSUE_FILE_MAP: Record<string, string[]> = {
   'ER-MISSING-PDX': ['ODX'],
   'ER-HERB-MISSING-DX': ['DRU', 'ODX'],
   'ER-PALLIATIVE-MORPHINE-MISSING-DX': ['DRU', 'ODX'],
+  'ER-853': ['ADP'],
+  'OPD-TM01': ['ADP'],
 };
 
 const FILE_LABELS: Record<string, string> = {
@@ -90,9 +92,11 @@ const ISSUE_LABELS: Record<string, string> = {
   'ER-MISSING-PDX': 'มีการลงรหัสโรคแต่ขาดรหัสโรคหลัก diagtype=1 (ตั้งค่า Auto ได้)',
   'ER-HERB-MISSING-DX': 'มีการสั่งยาสมุนไพรแต่ขาดรหัสวินิจฉัยตามข้อบ่งใช้ (เติม Auto ได้)',
   'ER-PALLIATIVE-MORPHINE-MISSING-DX': 'มีการสั่งจ่ายยากลุ่มมอร์ฟีนแต่ขาดรหัสวินิจฉัย Z51.5 / Z71.8 (เติม Auto ได้)',
+  'ER-853': 'เบิกรหัสนวด/ประคบสมุนไพรซ้ำในวันเดียวกันเกิน 1 รหัส (กค 0422.2/ว 447)',
+  'OPD-TM01': 'เบิกรหัสนวด/ประคบสมุนไพรซ้ำในวันเดียวกันเกิน 1 รหัส (กค 0422.2/ว 447)',
 };
 
-const OPD_BLOCKING_CODES = new Set(['OPD-LAB01', 'OPD-CHG01', 'OPD-CHG03', 'OPD-CHG04', 'OPD-CHG05', 'OPD-DRU01']);
+const OPD_BLOCKING_CODES = new Set(['OPD-LAB01', 'OPD-CHG01', 'OPD-CHG03', 'OPD-CHG04', 'OPD-CHG05', 'OPD-DRU01', 'OPD-TM01', 'ER-853']);
 const extractIssueCode = (issue: string) => issue.split(':')[0]?.trim() || issue.trim();
 const isCritical = (issue: string) => {
   const code = extractIssueCode(issue);

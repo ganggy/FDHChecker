@@ -157,7 +157,17 @@ export const scopeFdhData = (input: Partial<FdhExportData>, patientType: FdhPati
     return { ...data, OPD: [], ORF: [], ODX: [], OOP: [] };
   }
   if (patientType === 'OPD') {
-    return { ...data, IPD: [], IRF: [], IDX: [], IOP: [], LVD: [] };
+    const clearAn = (rows: FdhRow[]) => rows.map((r) => ('AN' in r ? { ...r, AN: '' } : r));
+    return {
+      ...data,
+      IPD: [], IRF: [], IDX: [], IOP: [], LVD: [],
+      INS: clearAn(data.INS),
+      CHT: clearAn(data.CHT),
+      CHA: clearAn(data.CHA),
+      AER: clearAn(data.AER),
+      ADP: clearAn(data.ADP),
+      DRU: clearAn(data.DRU),
+    };
   }
   return data;
 };

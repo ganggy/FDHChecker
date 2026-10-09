@@ -139,6 +139,7 @@ export const FDHCheckerPage: React.FC = () => {
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
     const [endDate, setEndDate] = useState(todayStr);
+    const [autoSplitBatches, setAutoSplitBatches] = useState(true);
 
     const syncFdhIpdAuthen = async (rangeStart: string, rangeEnd: string, force = false) => {
         const start = new Date(rangeStart);
@@ -677,21 +678,46 @@ export const FDHCheckerPage: React.FC = () => {
             const response = await fetch('/api/fdh/export-zip', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...buildFdhPayload(vnsToExport), includeHeader: exportWithHeader })
+                body: JSON.stringify({
+                    ...buildFdhPayload(vnsToExport),
+                    includeHeader: exportWithHeader,
+                    splitBatches: autoSplitBatches,
+                    batchSize: 500
+                })
             });
 
             if (response.ok) {
                 const blob = await response.blob();
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let downloadFilename = `FDH_16Folder_Export_${formatLocalDateStamp()}.zip`;
+                if (contentDisposition) {
+                    const match = contentDisposition.match(/filename=(.+)/i);
+                    if (match && match[1]) downloadFilename = match[1].replace(/["']/g, '').trim();
+                } else if (autoSplitBatches && vnsToExport.length > 500) {
+                    downloadFilename = `FDH_Export_Batches_Total_${vnsToExport.length}_${formatLocalDateStamp()}.zip`;
+                }
+
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `FDH_16Folder_Export_${formatLocalDateStamp()}.zip`;
+                a.download = downloadFilename;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
+
+                if (autoSplitBatches && vnsToExport.length > 500) {
+                    const batchCount = Math.ceil(vnsToExport.length / 500);
+                    alert(`📦 ส่งออกสำเร็จ: สร้าง Master ZIP รวม ${batchCount} ชุดย่อย (${vnsToExport.length} วิสิต) เรียบร้อย\n\nท่านสามารถแตกไฟล์เพื่อนำเข้าเว็บ FDH ทีละชุด (ขนาดแต่ละชุดไม่เกิน 50 MB ตามมาตรฐาน)`);
+                }
             } else {
                 const result = await response.json();
-                alert(`Error: ${result.error || 'Export failed'}`);
+                if (result.validation?.errors?.length > 0) {
+                    setPreviewValidation(result.validation);
+                    const firstIssues = result.validation.errors.slice(0, 5).map((e: any) => `• ${e.message}`).join('\n');
+                    alert(`ไม่สามารถส่งออกได้เนื่องจากข้อมูลยังติดเงื่อนไข Pre-flight:\n\n${firstIssues}\n\nกรุณาใช้ฟังก์ชัน Preview/Preflight หรือ Auto-Fix เพื่อแก้ไขก่อนส่งออก`);
+                } else {
+                    alert(`Error: ${result.error || 'Export failed'}`);
+                }
             }
         } catch (err) {
             alert('Error connecting to server for export');
@@ -1231,25 +1257,77 @@ export const FDHCheckerPage: React.FC = () => {
                 </div>
             )}
 
-            {!loading && !error && autoFixableCount > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(135deg, #eef2ff, #f5f3ff)', border: '1px solid #c7d2fe', borderRadius: '10px', padding: '12px 18px', marginBottom: 16, color: '#3730a3', flexWrap: 'wrap', gap: 12 }}>
-                    <div>
-                        <strong style={{ fontSize: '14px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            ⚡ มี {autoFixableCount} รายการที่สามารถแก้ไขข้อมูล HOSxP อัตโนมัติได้ทันที
-                        </strong>
-                        <div style={{ fontSize: '12px', color: '#4338ca', marginTop: 3 }}>
-                            (แก้รหัส Authen ที่ค้นพบแต่ยังไม่ได้ผูก, เคลียร์รหัสหัตถการตัวเลขในช่องโรค, เพิ่มบันทึกตรวจทันตกรรม dtmain, ตั้งค่ารหัสโรคหลัก)
+            {!loading && !error && (
+                <div className="card fdh-preflight-guard-card" style={{ marginBottom: 16, background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 12, padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, borderBottom: '1px solid #e2e8f0', paddingBottom: 12, marginBottom: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 24 }}>🛡️</span>
+                            <div>
+                                <strong style={{ fontSize: 16, color: '#0f172a' }}>Pre-flight Error Guard (Zero-Error Export)</strong>
+                                <div style={{ fontSize: 12, color: '#64748b' }}>
+                                    ตรวจสอบความถูกต้องล่วงหน้าตามมาตรฐาน MOPH FDH 16 แฟ้ม ป้องกันการถูกปฏิเสธทั้ง Batch
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={handlePreviewData}
+                                disabled={isLoadingPreview || exportVisitCount === 0}
+                                style={{ fontSize: 13, padding: '6px 14px' }}
+                            >
+                                {isLoadingPreview ? '⏳ กำลังตรวจ...' : '🔎 เจาะลึก 16 แฟ้ม (Preflight Inspector)'}
+                            </button>
+                            {autoFixableCount > 0 && (
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    onClick={handleBatchAutoFix}
+                                    disabled={batchFixing || fixingVn !== null}
+                                    style={{ fontSize: 13, padding: '6px 14px', background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', border: 'none', color: '#fff', fontWeight: 600 }}
+                                >
+                                    {batchFixing ? '⏳ กำลังแก้ไข...' : `⚡ Auto-Fix อัตโนมัติ (${autoFixableCount} รายการ)`}
+                                </button>
+                            )}
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        className="btn btn-primary"
-                        onClick={handleBatchAutoFix}
-                        disabled={batchFixing || fixingVn !== null}
-                        style={{ whiteSpace: 'nowrap' }}
-                    >
-                        {batchFixing ? '⏳ กำลังประมวลผลแก้ไข...' : `⚡ แก้ไขอัตโนมัติทั้งหมด (${autoFixableCount} รายการ)`}
-                    </button>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '10px 14px' }}>
+                            <div style={{ fontSize: 12, color: '#047857', fontWeight: 600 }}>🟢 พร้อมส่งสมบูรณ์ (Zero-Error)</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#065f46', marginTop: 4 }}>
+                                {readyCount.toLocaleString()} <span style={{ fontSize: 13, fontWeight: 400 }}>วิสิต</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#059669', marginTop: 2 }}>ผ่านเกณฑ์โครงสร้างและสิทธิกองทุนแล้ว</div>
+                        </div>
+
+                        <div style={{ background: pendingCount > 0 ? '#fff7ed' : '#f8fafc', border: `1px solid ${pendingCount > 0 ? '#fed7aa' : '#e2e8f0'}`, borderRadius: 8, padding: '10px 14px' }}>
+                            <div style={{ fontSize: 12, color: pendingCount > 0 ? '#c2410c' : '#64748b', fontWeight: 600 }}>🔴 รอแก้ไข / ติดเงื่อนไข (Blocking)</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: pendingCount > 0 ? '#9a3412' : '#475569', marginTop: 4 }}>
+                                {pendingCount.toLocaleString()} <span style={{ fontSize: 13, fontWeight: 400 }}>วิสิต</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#b45309', marginTop: 2 }}>
+                                {waitingApproveRows.length > 0 ? `รอ Approve ${waitingApproveRows.length} • ` : ''}
+                                {autoFixableCount > 0 ? `แก้ Auto ได้ ${autoFixableCount} รายการ` : 'ต้องปรับข้อมูลใน HOSxP'}
+                            </div>
+                        </div>
+
+                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px' }}>
+                            <div style={{ fontSize: 12, color: '#1d4ed8', fontWeight: 600 }}>📦 การแบ่งชุดส่งออก (Batch Guard)</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#1e40af', marginTop: 4 }}>
+                                {exportVisitCount > 500 && autoSplitBatches ? `${Math.ceil(exportVisitCount / 500)} ชุด (Batches)` : '1 ชุด'}
+                                <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 6 }}>
+                                    ({exportVisitCount.toLocaleString()} วิสิต)
+                                </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#2563eb', marginTop: 2 }}>
+                                {exportVisitCount > 500 && autoSplitBatches
+                                    ? 'แบ่งไฟล์ละ ≤ 500 วิสิต (< 50MB) อัตโนมัติ'
+                                    : 'ขนาดไฟล์ปกติ ไม่เกินขีดจำกัด 50 MB'}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1543,13 +1621,28 @@ export const FDHCheckerPage: React.FC = () => {
                                 setPreviewValidation(null);
                             }}
                         />
-                        ยืนยันให้เลือกและส่งรายการที่เคยส่งซ้ำ
+                        ยืนยันส่งซ้ำ
+                    </label>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', background: '#f1f5f9', padding: '5px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }} title="แบ่งเป็น Batch ย่อยชุดละไม่เกิน 500 รายการ เพื่อไม่ให้ขนาดไฟล์เกิน 50 MB ตามกฎของระบบ FDH">
+                        <input
+                            type="checkbox"
+                            checked={autoSplitBatches}
+                            onChange={(event) => setAutoSplitBatches(event.target.checked)}
+                        />
+                        <span>
+                            <strong>แบ่งชุดอัตโนมัติ (≤500)</strong>
+                            {exportVisitCount > 500 && autoSplitBatches && (
+                                <span className="badge badge-info" style={{ marginLeft: 6, fontSize: 11 }}>
+                                    {Math.ceil(exportVisitCount / 500)} Batches
+                                </span>
+                            )}
+                        </span>
                     </label>
                     <button className="btn btn-secondary" type="button" onClick={handlePreviewData} disabled={isLoadingPreview || exportVisitCount === 0}>
                         {isLoadingPreview ? 'กำลังตรวจ...' : '🔎 Preview / Preflight'}
                     </button>
                     <button className="btn btn-warning" type="button" onClick={handleExportZip} disabled={exporting || exportVisitCount === 0}>
-                        {exporting ? 'กำลังสร้าง ZIP...' : '📦 ดาวน์โหลด 16 แฟ้ม'}
+                        {exporting ? 'กำลังสร้าง ZIP...' : (exportVisitCount > 500 && autoSplitBatches ? `📦 ดาวน์โหลด (${Math.ceil(exportVisitCount / 500)} Batches)` : '📦 ดาวน์โหลด 16 แฟ้ม')}
                     </button>
                     <button className="btn btn-success" type="button" onClick={handleSubmitFdhApi} disabled={submitting || exportVisitCount === 0}>
                         {submitting ? 'กำลังส่ง...' : '🚀 ส่ง FDH API'}

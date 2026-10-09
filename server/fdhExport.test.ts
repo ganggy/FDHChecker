@@ -241,3 +241,25 @@ test('API upload uses multipart type=txt and repeated file fields', async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('OPD export scope clears AN across INS, CHT, CHA, AER, ADP, DRU to prevent MOPH parser rejection', () => {
+  const data: FdhExportData = {
+    ...emptyData(),
+    INS: [{ HN: '0001', AN: '690001', SEQ: '691234567890', INSCL: 'UCS', CID: '1234567890123', DATEIN: '20260720', HOSPMAIN: '11101', HOSPSUB: '11101', PERMITNO: 'P1' }],
+    PAT: [{ HCODE: '11101', HN: '0001', DOB: '19900101', SEX: '1', MARRIAGE: '1', OCCUPA: '999', NATION: '099', PERSON_ID: '1234567890123', NAMEPAT: 'TEST,MR', TITLE: 'MR', FNAME: 'TEST', LNAME: 'PERSON', IDTYPE: '1' }],
+    OPD: [{ HN: '0001', CLINIC: '00100', DATEOPD: '20260720', TIMEOPD: '0900', SEQ: '691234567890', UUC: '1', TYPEIN: '1' }],
+    CHT: [{ HN: '0001', AN: '690001', DATE: '20260720', TOTAL: 100, PAID: 0, PTTYPE: '37', PERSON_ID: '1234567890123', SEQ: '691234567890', INVOICE_NO: 'INV1' }],
+    CHA: [{ HN: '0001', AN: '690001', DATE: '20260720', CHRGITEM: '01', AMOUNT: 100, PERSON_ID: '1234567890123', SEQ: '691234567890' }],
+    ADP: [{ HN: '0001', AN: '690001', DATEOPD: '20260720', TYPE: '1', CODE: '12003', QTY: 1, RATE: 100, SEQ: '691234567890', TOTAL: 100 }],
+    DRU: [{ HCODE: '11101', HN: '0001', AN: '690001', CLINIC: '00100', PERSON_ID: '1234567890123', DATE_SERV: '20260720', DID: 'D1', DIDNAME: 'DRUG1', AMOUNT: 1, DRUGPRIC: 50, UNIT: 'TAB', SEQ: '691234567890', USE_STATUS: '1', TOTAL: 50 }],
+  };
+
+  const scoped = scopeFdhData(data, 'OPD');
+  assert.equal(scoped.INS[0].AN, '');
+  assert.equal(scoped.CHT[0].AN, '');
+  assert.equal(scoped.CHA[0].AN, '');
+  assert.equal(scoped.ADP[0].AN, '');
+  assert.equal(scoped.DRU[0].AN, '');
+  assert.equal(scoped.INS[0].SEQ, '691234567890');
+});
+

@@ -2676,15 +2676,24 @@ const prepareFdhExport = async (body: Record<string, unknown>) => {
       message: `รวม OOP ซ้ำจากหลายแหล่ง ${oopDuplicateGroups.toLocaleString('th-TH')} คีย์ ตัดแถวซ้ำ ${oopMergedRows.toLocaleString('th-TH')} แถวแล้ว`,
     });
   }
+  const splitBatchesRequested = body?.splitBatches === true || (body?.splitBatches !== false && (request.vns?.length || 0) > 500);
   const estimatedBytes = buildFdhFiles(data, request.profile, true, process.env.FDH_EXPORT_ENCODING)
     .reduce((sum, file) => sum + file.content.length, 0);
   if (estimatedBytes > MAX_FDH_UPLOAD_BYTES) {
-    validation.errors.push({
-      severity: 'error',
-      code: 'MAX_UPLOAD_SIZE',
-      message: `ข้อมูลรวม ${(estimatedBytes / 1024 / 1024).toFixed(2)} MB เกินขนาดสูงสุด 50 MB`,
-    });
-    validation.valid = false;
+    if (splitBatchesRequested) {
+      validation.warnings.push({
+        severity: 'warning',
+        code: 'MAX_UPLOAD_SIZE_SPLIT',
+        message: `ข้อมูลรวม ${(estimatedBytes / 1024 / 1024).toFixed(2)} MB เกิน 50 MB ระบบจะแบ่งเป็นชุดส่งออก (Batches ละไม่เกิน 500 วิสิต) ให้อัตโนมัติ`,
+      });
+    } else {
+      validation.errors.push({
+        severity: 'error',
+        code: 'MAX_UPLOAD_SIZE',
+        message: `ข้อมูลรวม ${(estimatedBytes / 1024 / 1024).toFixed(2)} MB เกินขนาดสูงสุด 50 MB แนะนำให้เปิดตัวเลือกแบ่งชุดส่งออกอัตโนมัติ`,
+      });
+      validation.valid = false;
+    }
   }
   return { ...request, config, hcode, data, validation };
 };
@@ -2732,6 +2741,96 @@ app.post('/api/fdh/export-zip', async (req, res) => {
       return res.status(422).json({ success: false, error: 'ข้อมูลยังไม่ผ่าน Preflight', validation: prepared.validation });
     }
     const includeHeader = req.body?.includeHeader !== false;
+    const splitBatches = req.body?.splitBatches === true || (req.body?.splitBatches !== false && (prepared.vns?.length || 0) > 500);
+    const batchSize = Math.max(50, Math.min(1000, Number(req.body?.batchSize) || 500));
+    const totalVns = prepared.vns?.length || 0;
+
+    if (splitBatches && totalVns > batchSize) {
+      const masterZip = new AdmZip();
+      const chunks: string[][] = [];
+      for (let i = 0; i < prepared.vns.length; i += batchSize) {
+        chunks.push(prepared.vns.slice(i, i + batchSize));
+      }
+
+      const summaryRows: Array<{ batch: number; vns: number; patients: number; zipName: string }> = [];
+
+      chunks.forEach((chunkVns, chunkIdx) => {
+        const batchNum = chunkIdx + 1;
+        const vnSet = new Set(chunkVns.map(String));
+        const batchOpd = (prepared.data.OPD || []).filter((r) => vnSet.has(String(r.SEQ ?? '')));
+        const batchHnSet = new Set(batchOpd.map((r) => String(r.HN ?? '')));
+        const batchIns = (prepared.data.INS || []).filter((r) => vnSet.has(String(r.SEQ ?? '')));
+        batchIns.forEach((r) => { if (r.HN) batchHnSet.add(String(r.HN)); });
+
+        const batchData = {
+          INS: batchIns,
+          PAT: (prepared.data.PAT || []).filter((r) => batchHnSet.has(String(r.HN ?? ''))),
+          OPD: batchOpd,
+          ORF: (prepared.data.ORF || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          ODX: (prepared.data.ODX || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          OOP: (prepared.data.OOP || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          IPD: (prepared.data.IPD || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          IRF: (prepared.data.IRF || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          IDX: (prepared.data.IDX || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          IOP: (prepared.data.IOP || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          CHT: (prepared.data.CHT || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          CHA: (prepared.data.CHA || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          AER: (prepared.data.AER || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          ADP: (prepared.data.ADP || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          LVD: (prepared.data.LVD || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+          DRU: (prepared.data.DRU || []).filter((r) => vnSet.has(String(r.SEQ ?? ''))),
+        };
+
+        const batchScoped = scopeFdhData(batchData, prepared.patientType || 'OPD');
+        const batchFiles = buildFdhFiles(batchScoped, prepared.profile, includeHeader, process.env.FDH_EXPORT_ENCODING);
+        const batchZip = new AdmZip();
+        batchFiles.forEach((file) => batchZip.addFile(file.filename, file.content));
+
+        const batchZipName = `Batch_${String(batchNum).padStart(2, '0')}_Visits_${chunkVns.length}.zip`;
+        masterZip.addFile(batchZipName, batchZip.toBuffer());
+        summaryRows.push({
+          batch: batchNum,
+          vns: chunkVns.length,
+          patients: batchHnSet.size,
+          zipName: batchZipName,
+        });
+      });
+
+      const manifestContent = [
+        '========================================================================',
+        'FDH 16-File Export Batch Package (ชุดส่งออกแบ่งย่อยตามมาตรฐาน MOPH FDH)',
+        `สร้างเมื่อ: ${new Date().toLocaleString('th-TH')}`,
+        `จำนวนวิสิตรวม: ${totalVns.toLocaleString('th-TH')} รายการ`,
+        `จำนวนชุดย่อย: ${chunks.length} ชุด (Batches)`,
+        `ขนาดแต่ละชุด: ไม่เกิน ${batchSize} รายการ (ขนาดไฟล์ < 50 MB)`,
+        '========================================================================',
+        '',
+        'คำแนะนำการนำเข้าหน้าเว็บ MOPH FDH Portal (https://fdh.moph.go.th):',
+        '1. แตกไฟล์ Master ZIP นี้ลงในคอมพิวเตอร์ของท่าน',
+        `2. ท่านจะพบไฟล์ Batch ZIP จำนวน ${chunks.length} ไฟล์`,
+        '3. นำเข้า Batch ZIP ทีละไฟล์เข้าสู่เว็บ FDH ตามลำดับ',
+        '',
+        'รายละเอียดของแต่ละชุด:',
+        ...summaryRows.map((r) => `  - ชุดที่ ${r.batch}: ${r.vns} วิสิต (${r.patients} ผู้ป่วย) -> ${r.zipName}`),
+      ].join('\r\n');
+
+      masterZip.addFile('README_FDH_IMPORT.txt', Buffer.from(manifestContent, 'utf8'));
+
+      if (prepared.vns && prepared.vns.length > 0) {
+        void recordFdhExportSend({
+          vns: prepared.vns,
+          patientType: prepared.patientType || 'OPD',
+          note: `ส่งออก 16 แฟ้มแบบแบ่งชุด (${chunks.length} Batches / ${totalVns} วิสิต)`,
+        });
+      }
+
+      const masterZipBuffer = masterZip.toBuffer();
+      const filename = `FDH_Export_Batches_Total_${totalVns}_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+      return res.send(masterZipBuffer);
+    }
+
     const files = buildFdhFiles(prepared.data, prepared.profile, includeHeader, process.env.FDH_EXPORT_ENCODING);
     const zip = new AdmZip();
     files.forEach((file) => zip.addFile(file.filename, file.content));

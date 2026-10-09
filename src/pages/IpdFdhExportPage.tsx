@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { FDHPreviewModal } from '../components/FDHPreviewModal';
 import { formatLocalDateInput, formatLocalDateStamp } from '../utils/dateUtils';
 import { isFailedFdhSubmission, isMissingFdhStatus } from '../utils/fdhClaimProgress';
@@ -136,17 +137,19 @@ export const IpdFdhExportPage: React.FC = () => {
     }
   };
 
-  const loadRows = async (forceAuthen = false) => {
+  const loadRows = async (forceAuthen = false, overrideStart?: string, overrideEnd?: string) => {
+    const activeStart = overrideStart ?? startDate;
+    const activeEnd = overrideEnd ?? endDate;
     setLoading(true);
     setError('');
     setSelectedAns([]);
     try {
-      const syncKey = `${startDate}:${endDate}`;
+      const syncKey = `${activeStart}:${activeEnd}`;
       if (forceAuthen || (!targetAns.length && lastAutoAuthenSyncKey.current !== syncKey)) {
         lastAutoAuthenSyncKey.current = syncKey;
         await syncAuthen(forceAuthen);
       }
-      const query = new URLSearchParams({ startDate, endDate, statusFilter: 'discharged' });
+      const query = new URLSearchParams({ startDate: activeStart, endDate: activeEnd, statusFilter: 'discharged' });
       const response = await fetch(`/api/hosxp/ipd-list?${query}`);
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || 'โหลดรายการ IPD ไม่สำเร็จ');
@@ -156,6 +159,76 @@ export const IpdFdhExportPage: React.FC = () => {
       setError(loadError instanceof Error ? loadError.message : 'โหลดรายการ IPD ไม่สำเร็จ');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExcelImportAns = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const extractedAns = new Set<string>();
+      const extractedDates: string[] = [];
+
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
+        for (const row of jsonRows) {
+          for (const [key, val] of Object.entries(row)) {
+            const strVal = String(val ?? '').trim();
+            if (!strVal) continue;
+            const normKey = key.trim().toUpperCase();
+            if (
+              normKey === 'AN' ||
+              normKey === 'ADMISSION' ||
+              normKey === 'ADMISSION_NO' ||
+              normKey === 'เลขที่ผู้ป่วยใน'
+            ) {
+              extractedAns.add(strVal);
+            } else if (
+              normKey === 'วันที่รับบริการ' ||
+              normKey === 'SERVICE_DATE' ||
+              normKey === 'DCHDATE' ||
+              normKey === 'ADMDATE' ||
+              normKey === 'DATE'
+            ) {
+              const dateMatch = strVal.match(/^(\d{4}-\d{2}-\d{2})/);
+              if (dateMatch) extractedDates.push(dateMatch[1]);
+            } else if (/^\d{7,10}$/.test(strVal) && !normKey.includes('HN') && !normKey.includes('CID') && !normKey.includes('PHONE')) {
+              extractedAns.add(strVal);
+            }
+          }
+        }
+      }
+
+      const anList = Array.from(extractedAns);
+      if (anList.length === 0) {
+        alert('ไม่พบคอลัมน์ AN หรือหมายเลข Admission ในไฟล์ Excel ที่เลือก');
+        return;
+      }
+
+      let newStart = startDate;
+      let newEnd = endDate;
+      if (extractedDates.length > 0) {
+        extractedDates.sort();
+        newStart = extractedDates[0];
+        newEnd = extractedDates[extractedDates.length - 1];
+        setStartDate(newStart);
+        setEndDate(newEnd);
+      }
+
+      setTargetAns(anList);
+      setSelectedAns([]);
+      setReadinessFilter('all');
+      setFdhStatusFilter('all');
+      setAuditFilter('all');
+      await loadRows(false, newStart, newEnd);
+      alert(`นำเข้าไฟล์ Excel สำเร็จ: พบ ${anList.length} AN และกรองเฉพาะรายการนี้เรียบร้อยแล้ว`);
+    } catch (err) {
+      alert(`อ่านไฟล์ Excel ไม่สำเร็จ: ${err instanceof Error ? err.message : 'รูปแบบไฟล์ไม่ถูกต้อง'}`);
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -294,8 +367,9 @@ export const IpdFdhExportPage: React.FC = () => {
         <p className="page-subtitle">คัดเลือกด้วย AN ตรวจ Pre-audit/Preflight และส่ง FDH แยกจากรายการ OPD</p>
       </div>
       {targetAns.length > 0 && <div className="card" style={{ padding: 16, marginBottom: 16 }}>
-        <strong>คัดเฉพาะ {targetAns.length} AN จาก STM 0</strong><p>{incoming?.contextLabel}</p>
-        <button className="btn btn-secondary" onClick={() => { setTargetAns([]); setSelectedAns([]); setConfirmResend(false); }}>ยกเลิกขอบเขตและดูทั้งหมด</button>
+        <strong>คัดเฉพาะ {targetAns.length} AN {incoming?.contextLabel ? `จาก STM 0: ${incoming.contextLabel}` : 'จากไฟล์ Excel / นำเข้า'}</strong>
+        <p>แสดงเฉพาะผู้ป่วยในที่ตรงกับรายชื่อ AN ที่นำเข้าหรือส่งต่อมา</p>
+        <button className="btn btn-secondary" onClick={() => { setTargetAns([]); setSelectedAns([]); setConfirmResend(false); void loadRows(); }}>ยกเลิกขอบเขตและดูทั้งหมด</button>
       </div>}
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -308,6 +382,30 @@ export const IpdFdhExportPage: React.FC = () => {
           <div className="form-group"><label className="form-label">สถานะ FDH</label><select className="form-control" value={fdhStatusFilter} onChange={(event) => setFdhStatusFilter(event.target.value as FdhStatusFilter)}><option value="all">ทั้งหมด</option><option value="not-submitted">ยังไม่ส่ง</option><option value="failed">ส่งไม่ผ่าน</option><option value="submitted">เคยส่งแล้ว</option></select></div>
           <button className="btn btn-primary" type="button" onClick={() => void loadRows()} disabled={loading}>{loading ? 'กำลังประมวลผล...' : '🔄 ดึงข้อมูลใหม่'}</button>
           <button className="btn btn-secondary" type="button" onClick={() => void loadRows(true)} disabled={loading || authenSyncing}>{authenSyncing ? 'กำลังตรวจ Authen...' : '🪪 ตรวจ Authen API ใหม่'}</button>
+          <label
+            className="btn btn-secondary"
+            style={{
+              height: 'fit-content',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              margin: 0,
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              color: '#0f172a',
+              fontWeight: 600,
+            }}
+            title="นำเข้าไฟล์ Excel จากหน้า Data Sheet 0 หรือไฟล์รายการ AN เพื่อเลือกส่งออกเฉพาะรายที่มีใน Excel"
+          >
+            📥 นำเข้า Excel เพื่อส่งออก
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              style={{ display: 'none' }}
+              onChange={(e) => void handleExcelImportAns(e)}
+            />
+          </label>
         </div>
       </div>
 

@@ -93,6 +93,92 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     ]], ['ประเด็นที่ต้องติดตาม', s.groups.map(g => ({ ประเด็น: g.label, จำนวนแถว: g.count }))]]);
   };
   const chosen = Object.values(selected);
+  const exportFdhExcel = (onlySelected = false) => {
+    const listToExport = onlySelected && chosen.length > 0 ? chosen : (result?.data || []);
+    if (!listToExport.length) return;
+
+    const opdRows = listToExport.filter(r => !r.an && r.vn);
+    const ipdRows = listToExport.filter(r => Boolean(r.an));
+
+    const formatRow = (r: StmZeroRow) => ({
+      'ประเภท': r.an ? 'IPD' : 'OPD',
+      'VN': r.vn || '',
+      'AN': r.an || '',
+      'HN': r.hn || '',
+      'ชื่อ-สกุล': r.patient_name || '',
+      'วันที่รับบริการ': r.service_date || '',
+      'สิทธิ/กองทุน': r.maininscl || '',
+      'ยอดเรียกเก็บ': r.amount ?? '',
+      'ยอดชดเชยใน REP': r.paid_amount ?? 0,
+      'รหัสเหตุผล': `${r.errorcode || ''} ${r.verifycode || ''}`.trim(),
+      'ขั้นตอน': ZERO_ACTION_LABELS[r.action] || r.action,
+      'สถานะส่ง FDH': r.fdh_sent_today ? 'ส่งวันนี้แล้ว' : (r.last_fdh_sent_at ? `เคยส่งเมื่อ ${r.last_fdh_sent_at.slice(0, 10)}` : 'ยังไม่เคยส่ง'),
+      'วันที่ส่ง FDH ล่าสุด': r.last_fdh_sent_at || '',
+      'TRAN_ID': r.tran_id || '',
+      'ชื่อไฟล์ REP': r.source_filename || '',
+      'ชีต': r.sheet_name || 'Data Sheet 0',
+    });
+
+    const sheets: Array<[string, Record<string, unknown>[]]> = [];
+    if (opdRows.length) sheets.push(['OPD (ผู้ป่วยนอก)', opdRows.map(formatRow)]);
+    if (ipdRows.length) sheets.push(['IPD (ผู้ป่วยใน)', ipdRows.map(formatRow)]);
+    if (!sheets.length) sheets.push(['รวมทั้งหมด', listToExport.map(formatRow)]);
+
+    writeWorkbook(`REP_DataSheet0_FDH_Target_${loaded.start}_${loaded.end}`, sheets);
+  };
+
+  const handleExcelImportFilter = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const extractedVns = new Set<string>();
+      const extractedAns = new Set<string>();
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
+        for (const row of jsonRows) {
+          for (const [key, val] of Object.entries(row)) {
+            const strVal = String(val ?? '').trim();
+            const normKey = key.trim().toUpperCase();
+            if (normKey === 'VN' || normKey === 'VISIT' || normKey === 'VISIT_NO') {
+              if (strVal) extractedVns.add(strVal);
+            } else if (normKey === 'AN' || normKey === 'ADMISSION' || normKey === 'ADMISSION_NO') {
+              if (strVal) extractedAns.add(strVal);
+            } else {
+              if (/^\d{12}$/.test(strVal)) extractedVns.add(strVal);
+              else if (/^\d{9}$/.test(strVal)) extractedAns.add(strVal);
+            }
+          }
+        }
+      }
+      if (extractedVns.size === 0 && extractedAns.size === 0) {
+        alert('ไม่พบคอลัมน์ VN หรือ AN ในไฟล์ Excel ที่เลือก');
+        return;
+      }
+      if (result) {
+        const nextSelected = { ...selected };
+        let matchedCount = 0;
+        for (const row of result.data) {
+          if ((row.vn && extractedVns.has(row.vn)) || (row.an && extractedAns.has(row.an))) {
+            nextSelected[row.id] = row;
+            matchedCount++;
+          }
+        }
+        setSelected(nextSelected);
+        setFixNotification({
+          type: 'success',
+          message: `นำเข้าไฟล์ Excel สำเร็จ: พบ ${extractedVns.size} VN และ ${extractedAns.size} AN (ตรงกับรายการในหน้านี้ ${matchedCount} แถว และเลือกให้เรียบร้อยแล้ว)`
+        });
+      }
+    } catch (err) {
+      alert(`อ่านไฟล์ Excel ไม่สำเร็จ: ${err instanceof Error ? err.message : 'รูปแบบไฟล์ไม่ถูกต้อง'}`);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
   const exportQueue = () => writeWorkbook(`STM0_เตรียมแก้ไข_${loaded.start}_${loaded.end}`, [['รายการตรวจส่งใหม่', chosen.map(r => ({
     รหัสแถว: r.id, Batch: r.batch_id, ไฟล์: r.source_filename, ชีต: r.sheet_name, แถวข้อมูลนำเข้า: r.row_no ?? '',
     HN: r.hn, VN: r.vn, AN: r.an, TRAN_ID: r.tran_id, วันที่บริการ: r.service_date,
@@ -205,10 +291,42 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
   };
   return <section className="stm-zero-audit" aria-label={`ตรวจ ${title}`}>
     <header className={`zero-hero ${isRep ? 'zero-hero-rep' : ''}`}><div className="zero-hero-title"><span className="zero-eyebrow">{isRep ? 'ผลตอบกลับ REP · ตรวจเหตุผลและแก้ไขส่งซ้ำ' : 'ติดตามผลชดเชย · ตรวจสอบหลักฐาน'}</span><h1>ตรวจ {title}</h1><p>{isRep ? 'ดูแถบ Data Sheet 0 ใน REP แก้ไขอัตโนมัติใน HOSxP และเตรียมส่งเบิกซ้ำเข้า FDH / e-Claim' : 'ค้นรายการจ่าย 0 บาท เทียบข้อมูลต้นทาง และติดตามการแก้ไขในที่เดียว'}</p></div>
-      <button className="zero-report-button" disabled={!result || loading} onClick={exportExecutive}>↗ ดาวน์โหลดสรุปผู้บริหาร</button></header>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+        {isRep && (
+          <button
+            type="button"
+            className="rec-btn rec-btn-secondary"
+            disabled={!result || loading || !(result?.data?.length)}
+            onClick={() => exportFdhExcel(false)}
+            title="ส่งออกรายการ Data Sheet 0 เป็นไฟล์ Excel สำหรับนำไปส่งต่อ FDH หรือเก็บรายงาน"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            📥 ส่งออก Excel สำหรับส่ง FDH
+          </button>
+        )}
+        <button className="zero-report-button" disabled={!result || loading} onClick={exportExecutive}>↗ ดาวน์โหลดสรุปผู้บริหาร</button>
+      </div></header>
     <ol className="zero-workflow"><li><b>1</b><span>ค้นรายการ<span>ตามวันที่นำเข้าไฟล์</span></span></li><li><b>2</b><span>ตรวจหลักฐาน<span>เทียบแถว {isRep ? 'REP' : 'STM'} กับ HIS</span></span></li><li><b>3</b><span>{isRep ? 'แก้ไข & ส่งซ้ำ' : 'เตรียมแก้ไข'}<span>{isRep ? 'ปุ่ม Auto-Fix และส่งเบิกซ้ำ' : 'ยืนยันสิทธิส่งใหม่ก่อนส่ง'}</span></span></li></ol>
     <div className="zero-notice"><strong>{isRep ? 'Data Sheet 0 จาก REP' : 'ตรวจเหตุผลก่อนส่งซ้ำ'}</strong><span>{isRep ? 'แสดงทุกแถวของชีตนี้ พร้อมปุ่ม ⚡ แก้ไข Auto ในแต่ละรายการ และสามารถเลือกแถวส่งเบิกซ้ำเข้า FDH หรือ e-Claim ได้ทันที' : 'บางรายการต้องรอรอบจ่าย อนุมัติ SMCS หรือเปิดแก้ไขผ่าน OSR ยอดว่างจะแยกจากยอด 0 เสมอ'}</span></div>
-    {isRep && <div className="zero-actions"><button onClick={() => navigateFromDashboard('repstm', {})}>นำเข้าไฟล์ REP</button><button onClick={() => navigateFromDashboard('stmZeroAudit', {})}>เปิดหน้าตรวจ STM 0</button></div>}
+    {isRep && (
+      <div className="zero-actions">
+        <button onClick={() => navigateFromDashboard('repstm', {})}>นำเข้าไฟล์ REP</button>
+        <button onClick={() => navigateFromDashboard('stmZeroAudit', {})}>เปิดหน้าตรวจ STM 0</button>
+        <label
+          className="rec-btn rec-btn-secondary"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', margin: 0, padding: '7px 14px', fontSize: '13px' }}
+          title="เลือกไฟล์ Excel ที่มีคอลัมน์ VN หรือ AN เพื่อเลือกแถวในหน้านี้โดยอัตโนมัติ"
+        >
+          📂 นำเข้า Excel เพื่อเลือกแถว
+          <input
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            style={{ display: 'none' }}
+            onChange={(e) => void handleExcelImportFilter(e)}
+          />
+        </label>
+      </div>
+    )}
     {catalogError && <p role="alert" className="zero-error">{catalogError}</p>}
     <section className="zero-filter-card" aria-label={`ตัวกรอง ${title}`}><div className="zero-section-heading"><h2>ค้นหารายการที่ต้องตรวจ</h2><span>ใช้วันที่นำเข้าไฟล์ ไม่ใช่วันที่บริการ</span></div><div className="zero-filters">
       <label>นำเข้าตั้งแต่<input type="date" value={start} onChange={e => setStart(e.target.value)} /></label>
@@ -397,7 +515,19 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
         <label>ช่องทางส่งต่อ<select value={channel} onChange={e => { setChannel(e.target.value); setReviewed(false); }}><option value="fdh">FDH — ส่งออกเบิกซ้ำเข้า FDH (OPD / IPD)</option><option value="eclaim">eClaim / OSR — ดาวน์โหลดรายการไปดำเนินการ</option></select></label>
         <label>ผลการตรวจ / สิ่งที่แก้ไข<textarea value={note} onChange={e => { setNote(e.target.value); setReviewed(false); }} placeholder="ระบุเหตุผล หลักฐานที่ตรวจ และสิ่งที่แก้ไขในระบบ" /></label>
         <label><input type="checkbox" checked={reviewed} onChange={e => setReviewed(e.target.checked)} /> ตรวจข้อมูลต้นทาง แก้ไขในระบบงาน และยืนยันสิทธิแก้ไขส่งใหม่ตามกองทุนแล้ว</label>
-        <div className="zero-actions"><button disabled={!chosen.length || !reviewed || !note.trim()} onClick={exportQueue}>📥 ดาวน์โหลดรายการที่ตรวจแล้ว (Excel)</button>
+        <div className="zero-actions">
+          <button disabled={!chosen.length || !reviewed || !note.trim()} onClick={exportQueue}>📥 ดาวน์โหลดรายการที่ตรวจแล้ว (Excel)</button>
+          {isRep && (
+            <button
+              type="button"
+              className="rec-btn rec-btn-secondary"
+              disabled={!chosen.length}
+              onClick={() => exportFdhExcel(true)}
+              title="ส่งออกเฉพาะรายการที่เลือกเป็น Excel สำหรับนำไปส่งต่อ FDH หรือ OSR"
+            >
+              📥 ส่งออก Excel (${chosen.length} รายการที่เลือก)
+            </button>
+          )}
           {channel === 'fdh' && <><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => !r.an && r.vn)} onClick={() => void handoff(false)}>🚀 เปิดส่งออก OPD เฉพาะที่เลือก ({chosen.filter(r => !r.an && r.vn).length})</button><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => r.an)} onClick={() => void handoff(true)}>🚀 เปิดส่งออก IPD เฉพาะที่เลือก ({chosen.filter(r => r.an).length})</button></>}
         </div><small>การเปิดส่งออกยังต้องผ่านการตรวจความพร้อมและยืนยันส่งซ้ำ ระบบนี้ไม่ได้ส่งเคลมโดยอัตโนมัติ การเปลี่ยนหน้า/โหลดใหม่ล้างรายการที่เลือกและการยืนยัน</small>
       </section> : <div className="zero-selection-hint">เลือกแถวในตารางเพื่อเตรียมรายการแก้ไข / ส่งใหม่ · แถวที่ยังไม่ผ่านเงื่อนไขสามารถเปิดดูหลักฐานได้</div>}

@@ -250,6 +250,79 @@ export const FDHCheckerPage: React.FC = () => {
         }
     };
 
+    const handleExcelImportVns = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+            const buffer = await file.arrayBuffer();
+            const workbook = XLSX.read(buffer, { type: 'array' });
+            const extractedVns = new Set<string>();
+            const extractedDates: string[] = [];
+
+            for (const sheetName of workbook.SheetNames) {
+                const sheet = workbook.Sheets[sheetName];
+                const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
+                for (const row of jsonRows) {
+                    for (const [key, val] of Object.entries(row)) {
+                        const strVal = String(val ?? '').trim();
+                        if (!strVal) continue;
+                        const normKey = key.trim().toUpperCase();
+                        if (
+                            normKey === 'VN' ||
+                            normKey === 'VISIT' ||
+                            normKey === 'VISIT_NO' ||
+                            normKey === 'เลขที่รับบริการ' ||
+                            normKey === 'ลำดับการบริการ'
+                        ) {
+                            extractedVns.add(strVal);
+                        } else if (
+                            normKey === 'วันที่รับบริการ' ||
+                            normKey === 'SERVICE_DATE' ||
+                            normKey === 'VSTDATE' ||
+                            normKey === 'DATE'
+                        ) {
+                            const dateMatch = strVal.match(/^(\d{4}-\d{2}-\d{2})/);
+                            if (dateMatch) extractedDates.push(dateMatch[1]);
+                        } else if (/^\d{12}$/.test(strVal)) {
+                            extractedVns.add(strVal);
+                        }
+                    }
+                }
+            }
+
+            const vnList = Array.from(extractedVns);
+            if (vnList.length === 0) {
+                alert('ไม่พบคอลัมน์ VN หรือหมายเลข Visit (12 หลัก) ในไฟล์ Excel ที่เลือก');
+                return;
+            }
+
+            let newStart = startDate;
+            let newEnd = endDate;
+            if (extractedDates.length > 0) {
+                extractedDates.sort();
+                newStart = extractedDates[0];
+                newEnd = extractedDates[extractedDates.length - 1];
+                setStartDate(newStart);
+                setEndDate(newEnd);
+            }
+
+            setIncomingTargetVns(vnList);
+            setSelectedVns(vnList);
+            setStatusFilter('all');
+            setDashboardContextItems([
+                `นำเข้าจาก Excel (${file.name})`,
+                `ช่วงวันที่ ${newStart} ถึง ${newEnd}`,
+                `เลือกเฉพาะ ${vnList.length} รายการที่นำเข้า`,
+            ]);
+            await fetchEligibleData({ startDate: newStart, endDate: newEnd, targetVns: vnList });
+            alert(`นำเข้าไฟล์ Excel สำเร็จ: พบ ${vnList.length} VN และค้นหาพร้อมเลือกรายการให้อัตโนมัติเรียบร้อย`);
+        } catch (err) {
+            alert(`อ่านไฟล์ Excel ไม่สำเร็จ: ${err instanceof Error ? err.message : 'รูปแบบไฟล์ไม่ถูกต้อง'}`);
+        } finally {
+            e.target.value = '';
+        }
+    };
+
     useEffect(() => {
         const incoming = consumeDashboardNavigation('fdh');
         if (incoming?.startDate) setStartDate(incoming.startDate);
@@ -1087,6 +1160,30 @@ export const FDHCheckerPage: React.FC = () => {
                         >
                             {ipdAuthenSyncing ? '⏳ กำลังตรวจ Authen IPD...' : '🪪 ตรวจ Authen IPD ใหม่'}
                         </button>
+                        <label
+                            className="btn btn-secondary"
+                            style={{
+                                height: 'fit-content',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                margin: 0,
+                                background: '#f8fafc',
+                                border: '1px solid #cbd5e1',
+                                color: '#0f172a',
+                                fontWeight: 600,
+                            }}
+                            title="นำเข้าไฟล์ Excel จากหน้า Data Sheet 0 หรือไฟล์รายการ VN เพื่อเลือกส่งออกเฉพาะรายที่มีใน Excel"
+                        >
+                            📥 นำเข้า Excel เพื่อส่งออก
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls,.csv"
+                                style={{ display: 'none' }}
+                                onChange={(e) => void handleExcelImportVns(e)}
+                            />
+                        </label>
                     </div>
                     </section>
                 </div>

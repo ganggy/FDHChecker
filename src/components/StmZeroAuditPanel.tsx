@@ -8,7 +8,8 @@ import { loadRepErrorCatalog, type RepErrorCatalog } from '../services/repErrorC
 import { repSheetZeroReasons } from '../utils/repSheetZeroAudit';
 
 type Summary = { total: number; confirmedZero: number; unknownPayment: number; matched: number; unmatched: number;
-  paidElsewhere: number; prepareCandidates: number; requestedAmount: number; groups: Array<{ action: string; label: string; count: number }> };
+  paidElsewhere: number; prepareCandidates: number; requestedAmount: number; groups: Array<{ action: string; label: string; count: number }>;
+  fdh?: { unsent: number; sentToday: number; sentAny: number; total: number } };
 type Snapshot = { data: StmZeroRow[]; total: number; summary: Summary; snapshot: string };
 const money = (n: number | null) => n == null ? 'ไม่ระบุ' : n.toLocaleString('th-TH', { minimumFractionDigits: 2 });
 const writeWorkbook = (name: string, sheets: Array<[string, Record<string, unknown>[]]>) => {
@@ -37,9 +38,9 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
   const [start, setStart] = useState(() => `${formatLocalDateInput().slice(0, 7)}-01`);
   const [end, setEnd] = useState(formatLocalDateInput);
   const [action, setAction] = useState(''); const [match, setMatch] = useState(''); const [search, setSearch] = useState('');
-  const [hideSentToday, setHideSentToday] = useState(false);
+  const [fdhStatus, setFdhStatus] = useState<string>(isRep ? 'unsent' : 'all');
   const [result, setResult] = useState<Snapshot | null>(null); const [page, setPage] = useState(1);
-  const [loaded, setLoaded] = useState({ start: '', end: '', action: '', match: '', search: '' });
+  const [loaded, setLoaded] = useState({ start: '', end: '', action: '', match: '', search: '', fdhStatus: isRep ? 'unsent' : 'all' });
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   const [selected, setSelected] = useState<Record<string, StmZeroRow>>({});
   const [detail, setDetail] = useState<StmZeroRow | null>(null);
@@ -53,10 +54,10 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
   const [fixNotification, setFixNotification] = useState<{ type: 'success' | 'error'; message: string; details?: string[] } | null>(null);
   const load = async (nextPage = 1, overrides: Partial<typeof loaded> = {}) => {
     setLoading(true); setError(''); setResult(null); setSelected({}); setReviewed(false);
-    const filters = { ...(nextPage === 1 ? { start, end, action, match, search } : loaded), ...overrides };
+    const filters = { ...(nextPage === 1 ? { start, end, action, match, search, fdhStatus } : loaded), ...overrides };
     try {
       const query = new URLSearchParams({ startDate: filters.start, endDate: filters.end, action: filters.action,
-        match: filters.match, search: filters.search, page: String(nextPage) });
+        match: filters.match, search: filters.search, fdhStatus: filters.fdhStatus || '', page: String(nextPage) });
       const response = await fetch(`${endpoint}?${query}`);
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || 'โหลด audit ไม่สำเร็จ');
@@ -165,17 +166,17 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     if (!rows.length || !reviewed || !note.trim()) return;
 
     if (isRep) {
-      const alreadySent = rows.filter(r => r.fdh_sent_today);
+      const alreadySent = rows.filter(r => r.last_fdh_sent_at);
       if (alreadySent.length > 0) {
         const proceedWithExclusion = window.confirm(
-          `⚠️ มี ${alreadySent.length} จาก ${rows.length} รายการที่ส่งออก FDH ไปแล้วในรอบวันนี้!\n\n` +
-          `• กด [ตกลง (OK)] เพื่อ "ข้ามรายการที่ส่งแล้ว" และเปิดส่งเฉพาะ ${rows.length - alreadySent.length} รายการที่เหลือ\n` +
+          `⚠️ มี ${alreadySent.length} จาก ${rows.length} รายการที่เคยส่งออก FDH ไปแล้ว (หากส่งซ้ำ FDH จะปฏิเสธ 409 Duplicate Visit)!\n\n` +
+          `• กด [ตกลง (OK)] เพื่อ "ข้ามรายการที่เคยส่งแล้ว" และเปิดส่งเฉพาะ ${rows.length - alreadySent.length} รายการที่ยังไม่เคยส่ง\n` +
           `• กด [ยกเลิก (Cancel)] เพื่อยกเลิกและตรวจรายการใหม่อีกครั้ง`
         );
         if (!proceedWithExclusion) return;
-        rows = rows.filter(r => !r.fdh_sent_today);
+        rows = rows.filter(r => !r.last_fdh_sent_at);
         if (!rows.length) {
-          setError('ทุกรายการที่เลือกถูกส่งออก FDH ในรอบวันนี้แล้ว ไม่สามารถส่งซ้ำได้');
+          setError('ทุกรายการที่เลือกเคยส่งออก FDH แล้ว ระบบป้องกันการส่งซ้ำ');
           return;
         }
       }
@@ -216,9 +217,14 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
       <label>การจับคู่<select value={match} onChange={e => setMatch(e.target.value)}><option value="">ทั้งหมด</option><option value="matched">จับคู่ HIS แล้ว</option><option value="unmatched">ยังจับคู่ไม่ได้</option></select></label>
       <label>ค้น HN / VN / AN / รหัส / ไฟล์<input value={search} onChange={e => setSearch(e.target.value)} /></label>
       {isRep && (
-        <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', color: '#1e3a8a', paddingBottom: '10px' }}>
-          <input type="checkbox" checked={hideSentToday} onChange={e => setHideSentToday(e.target.checked)} style={{ width: 16, height: 16 }} />
-          <span>ซ่อนรายการที่ส่ง FDH แล้วในรอบวันนี้</span>
+        <label>
+          สถานะส่ง FDH
+          <select value={fdhStatus} onChange={e => { setFdhStatus(e.target.value); void load(1, { fdhStatus: e.target.value }); }}>
+            <option value="unsent">🟢 ยังไม่เคยส่ง FDH (แนะนำ)</option>
+            <option value="sent_previously">✔ เคยส่ง FDH แล้ว (ทุกรอบ)</option>
+            <option value="sent_today">🔵 ส่ง FDH แล้ววันนี้</option>
+            <option value="all">ทั้งหมด (รวมที่เคยส่งแล้ว)</option>
+          </select>
         </label>
       )}
       <button className="rec-btn rec-btn-primary" disabled={loading} onClick={() => void load()}>{loading ? 'กำลังตรวจ...' : `ค้นหา ${isRep ? 'Data Sheet 0' : 'STM 0'}`}</button>
@@ -245,28 +251,63 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
         { label: 'พบยอดจ่ายใน Visit', value: result.summary.paidElsewhere, tone: 'teal', sub: 'ตรวจระดับรายการก่อนส่งซ้ำ' },
       ].map(m => <div className={`zero-metric ${m.tone}`} key={m.label}><span>{m.label}</span><strong>{m.value.toLocaleString('th-TH')} <small>แถว</small></strong><small>{m.sub}</small></div>)}</div>
       <div className="zero-groups" aria-label="กรองขั้นตอนอย่างรวดเร็ว"><button disabled={loading} aria-pressed={loaded.action === ''} onClick={() => { setAction(''); void load(1, { action: '' }); }}>ทุกขั้นตอน</button>{result.summary.groups.filter(g => g.count).map(g => <button disabled={loading} aria-pressed={loaded.action === g.action} key={g.action} onClick={() => { setAction(g.action); void load(1, { action: g.action }); }}>{g.label} <b>{g.count}</b></button>)}</div>
+      {isRep && result.summary.fdh && (
+        <div className="zero-fdh-status-tabs" aria-label="กรองสถานะการส่ง FDH">
+          <button
+            type="button"
+            className={`zero-fdh-tab-btn ${loaded.fdhStatus === 'unsent' ? 'active' : ''}`}
+            onClick={() => { setFdhStatus('unsent'); void load(1, { fdhStatus: 'unsent' }); }}
+          >
+            <span>🟢 ยังไม่เคยส่ง FDH (แนะนำ)</span>
+            <span className="zero-fdh-tab-badge">{result.summary.fdh.unsent.toLocaleString('th-TH')}</span>
+          </button>
+          <button
+            type="button"
+            className={`zero-fdh-tab-btn ${loaded.fdhStatus === 'sent_previously' ? 'active' : ''}`}
+            onClick={() => { setFdhStatus('sent_previously'); void load(1, { fdhStatus: 'sent_previously' }); }}
+          >
+            <span>✔ เคยส่ง FDH แล้ว</span>
+            <span className="zero-fdh-tab-badge">{result.summary.fdh.sentAny.toLocaleString('th-TH')}</span>
+          </button>
+          <button
+            type="button"
+            className={`zero-fdh-tab-btn ${loaded.fdhStatus === 'sent_today' ? 'active' : ''}`}
+            onClick={() => { setFdhStatus('sent_today'); void load(1, { fdhStatus: 'sent_today' }); }}
+          >
+            <span>🔵 ส่ง FDH แล้ววันนี้</span>
+            <span className="zero-fdh-tab-badge">{result.summary.fdh.sentToday.toLocaleString('th-TH')}</span>
+          </button>
+          <button
+            type="button"
+            className={`zero-fdh-tab-btn ${loaded.fdhStatus === 'all' || !loaded.fdhStatus ? 'active' : ''}`}
+            onClick={() => { setFdhStatus('all'); void load(1, { fdhStatus: 'all' }); }}
+          >
+            <span>ทั้งหมด</span>
+            <span className="zero-fdh-tab-badge">{result.summary.fdh.total.toLocaleString('th-TH')}</span>
+          </button>
+        </div>
+      )}
       <p className="zero-caption">{isRep ? 'นับแถว REP ไม่ใช่จำนวน Visit; รายการที่จับคู่ HIS แล้วสามารถกดปุ่ม ⚡ แก้ไข Auto หรือเลือกแถวเพื่อส่งเบิกซ้ำได้' : 'นับแถว ไม่ใช่จำนวน Visit; แถว 0 อาจเป็นเพียงบางรายการใน Visit ที่ได้รับเงินแล้ว จึงไม่รวมยอดเงินเป็นความเสียหาย'}</p>
       <div className="zero-section-heading"><h2>รายการตรวจสอบ <span className="zero-count">{result.total.toLocaleString('th-TH')} แถว</span></h2><span>{isRep ? 'เลือกแถวเพื่อกดแก้ไขอัตโนมัติ หรือเตรียมส่งเบิกซ้ำเข้า FDH / e-Claim' : 'เลือกได้เฉพาะแถวที่ผ่านเงื่อนไขเตรียมตรวจส่งใหม่'}</span></div>
       {result && (() => {
-        const displayedData = isRep && hideSentToday ? result.data.filter(r => !r.fdh_sent_today) : result.data;
-        const sentTodayCount = result.data.filter(r => r.fdh_sent_today).length;
+        const displayedData = result.data;
         return (
           <>
-            {isRep && sentTodayCount > 0 && (
+            {isRep && (loaded.fdhStatus === 'all' || loaded.fdhStatus === 'sent_previously') && result.summary.fdh && result.summary.fdh.sentAny > 0 && (
               <div className="zero-duplicate-warning-banner">
                 <div>
-                  <strong>⚠️ พบรายการที่ส่งออก FDH ไปแล้วในรอบวันนี้: {sentTodayCount} รายการ</strong>
+                  <strong>⚠️ กำลังแสดงรายการที่เคยส่งออก FDH แล้ว ({result.summary.fdh.sentAny.toLocaleString('th-TH')} รายการ)</strong>
                   <span style={{ display: 'block', fontSize: '12px', marginTop: 2 }}>
-                    ระบบตรวจพบประวัติส่งข้อมูลวันนี้ เพื่อป้องกันการส่งซ้ำ สามารถเลือก "ซ่อนรายการที่ส่ง FDH แล้วในรอบวันนี้" ได้
+                    เพื่อป้องกันข้อผิดพลาด 409 Duplicate Visit แนะนำให้สลับไปที่แถบ "ยังไม่เคยส่ง FDH" สำหรับการส่งซ้ำ
                   </span>
                 </div>
                 <button
                   type="button"
-                  className="rec-btn"
-                  onClick={() => setHideSentToday(!hideSentToday)}
-                  style={{ background: '#fff', fontSize: '12px', padding: '6px 12px' }}
+                  className="rec-btn rec-btn-primary"
+                  onClick={() => { setFdhStatus('unsent'); void load(1, { fdhStatus: 'unsent' }); }}
+                  style={{ fontSize: '12px', padding: '6px 14px' }}
                 >
-                  {hideSentToday ? 'แสดงทั้งหมดรวมที่ส่งวันนี้' : 'ซ่อนรายการที่ส่งวันนี้'}
+                  🟢 สลับไปดูเฉพาะที่ยังไม่เคยส่ง ({result.summary.fdh.unsent.toLocaleString('th-TH')})
                 </button>
               </div>
             )}
@@ -279,7 +320,7 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                 onChange={e => {
                   setReviewed(false);
                   if (e.target.checked) {
-                    const eligible = displayedData.filter(isRowEligible);
+                    const eligible = displayedData.filter(r => isRowEligible(r) && (loaded.fdhStatus === 'sent_previously' || !r.last_fdh_sent_at));
                     const next = { ...selected };
                     eligible.forEach(r => { next[r.id] = r; });
                     setSelected(next);
@@ -318,15 +359,19 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                         </span>
                       ) : (
                         r.last_fdh_sent_at ? (
-                          <span className="zero-fdh-badge not-sent-today" title={`ประวัติส่ง FDH ล่าสุดเมื่อ ${r.last_fdh_sent_at} (${r.fdh_status_message || ''})`}>
-                            ✓ เคยส่งเมื่อ {r.last_fdh_sent_at.slice(0, 10)}
+                          <span className="zero-fdh-badge previously-sent" title={`ประวัติส่ง FDH ล่าสุดเมื่อ ${r.last_fdh_sent_at} (${r.fdh_status_message || ''})`}>
+                            ✔ เคยส่งเมื่อ {r.last_fdh_sent_at.slice(0, 10)}
                           </span>
-                        ) : null
+                        ) : (
+                          <span className="zero-fdh-badge unsent" title="ยังไม่เคยมีประวัติส่งออก FDH มาก่อน">
+                            🟢 ยังไม่เคยส่ง
+                          </span>
+                        )
                       )
                     )}
                   </div>
                 </td></tr>)}
-              {!displayedData.length && <tr><td colSpan={7}>ไม่พบรายการตามเงื่อนไข{hideSentToday ? ' (ซ่อนรายการที่ส่ง FDH แล้วในรอบวันนี้อยู่)' : ''} — ตรวจว่ามีการนำเข้า {title} ครบแล้วหรือไม่</td></tr>}
+              {!displayedData.length && <tr><td colSpan={7}>ไม่พบรายการตามเงื่อนไข ({loaded.fdhStatus === 'unsent' ? 'ไม่มีรายการค้างส่ง' : 'ตรวจตัวกรองอีกครั้ง'})</td></tr>}
             </tbody></table></div>
           </>
         );

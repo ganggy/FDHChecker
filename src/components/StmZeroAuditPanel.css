@@ -143,10 +143,58 @@
   color: #b45309;
   border: 1px solid #fde68a;
 }
+.zero-fdh-badge.unsent {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+.zero-fdh-badge.previously-sent,
 .zero-fdh-badge.not-sent-today {
-  background: #f0fdf4;
-  color: #15803d;
-  border: 1px solid #bbf7d0;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+.zero-fdh-status-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 16px 0;
+  flex-wrap: wrap;
+}
+.zero-fdh-tab-btn {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease-in-out;
+}
+.zero-fdh-tab-btn:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+.zero-fdh-tab-btn.active {
+  background: #1e40af;
+  color: #ffffff;
+  border-color: #1e40af;
+  box-shadow: 0 2px 4px rgba(30, 64, 175, 0.2);
+}
+.zero-fdh-tab-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #1e293b;
+}
+.zero-fdh-tab-btn.active .zero-fdh-tab-badge {
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
 }
 .zero-duplicate-warning-banner {
   background: #fffbeb;

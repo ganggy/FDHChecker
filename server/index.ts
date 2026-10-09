@@ -3996,9 +3996,14 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
       return res.json({ success: true, data: await readStmZeroSource(row) });
     }
     const search = String(req.query.search || '').trim().toLowerCase();
+    const fdhStatus = String(req.query.fdhStatus || '').trim().toLowerCase();
     const filtered = rows.filter(r => (!req.query.action || r.action === req.query.action)
       && (!search || [r.hn, r.vn, r.an, r.tran_id, r.errorcode, r.verifycode, r.source_filename, r.statement_no, ...Object.values(r.raw_data).filter(v => typeof v === 'string') as string[]].some(v => v.toLowerCase().includes(search)))
-      && (req.query.match !== 'unmatched' || !r.matched) && (req.query.match !== 'matched' || r.matched));
+      && (req.query.match !== 'unmatched' || !r.matched) && (req.query.match !== 'matched' || r.matched)
+      && (!fdhStatus || fdhStatus === 'all'
+        || (fdhStatus === 'unsent' && !r.last_fdh_sent_at)
+        || (fdhStatus === 'sent_today' && Boolean(r.fdh_sent_today))
+        || ((fdhStatus === 'sent_previously' || fdhStatus === 'sent_any') && Boolean(r.last_fdh_sent_at))));
     const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
     const pageSize = Math.min(200, Math.max(10, Math.floor(Number(req.query.pageSize) || 50)));
     const groups = Object.entries(ZERO_ACTION_LABELS).map(([action, label]) => ({ action, label, count: filtered.filter(r => r.action === action).length }));
@@ -4008,7 +4013,13 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
         matched: filtered.filter(r => r.matched).length, unmatched: filtered.filter(r => !r.matched).length,
         paidElsewhere: filtered.filter(r => r.has_payment).length,
         prepareCandidates: repSheetZero ? filtered.filter(r => r.matched && Boolean(r.vn || r.an)).length : filtered.filter(canPrepareZeroResend).length,
-        requestedAmount: filtered.reduce((sum, r) => sum + (r.amount || 0), 0), groups },
+        requestedAmount: filtered.reduce((sum, r) => sum + (r.amount || 0), 0), groups,
+        fdh: {
+          unsent: rows.filter(r => !r.last_fdh_sent_at).length,
+          sentToday: rows.filter(r => r.fdh_sent_today).length,
+          sentAny: rows.filter(r => Boolean(r.last_fdh_sent_at)).length,
+          total: rows.length,
+        } },
       snapshot: new Date().toISOString(), page, pageSize });
   } catch (error) {
     // Do not log imported rows or patient identifiers.

@@ -2313,23 +2313,23 @@ export const getCheckData = async (
         (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND di.sks_product_category_id IN (3,4) AND di.ttmt_code IS NOT NULL LIMIT 1) as has_herb,
         (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_type_id = 2 LIMIT 1) as has_instrument,
         (SELECT 1 FROM health_med_service s JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id WHERE s.vn = ovst.vn AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835') LIMIT 1) as has_knee_oper,
-        (
-          SELECT GROUP_CONCAT(DISTINCT tm_code SEPARATOR ',')
-          FROM (
-            SELECT COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) as tm_code
+        CONCAT_WS(',',
+          NULLIF((
+            SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) SEPARATOR ',')
             FROM opitemrece oo
             LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
             LEFT JOIN nondrugitems nd ON nd.icode = oo.icode
             WHERE oo.vn = ovst.vn
               AND COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) IN ('58101', '58102', '58130', '58131', '58201')
-            UNION
-            SELECT i.health_med_operation_item_code as tm_code
+          ), ''),
+          NULLIF((
+            SELECT GROUP_CONCAT(DISTINCT i.health_med_operation_item_code SEPARATOR ',')
             FROM health_med_service s
             JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
             JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
             WHERE s.vn = ovst.vn
               AND i.health_med_operation_item_code IN ('58101', '58102', '58130', '58131', '58201')
-          ) tm_sub
+          ), '')
         ) as thai_med_codes,
         
         CASE WHEN v.age_y BETWEEN 35 AND 59 THEN 1 ELSE 0 END as fpg_age_eligible,
@@ -2747,23 +2747,23 @@ export const getEligibleVisits = async (
         (SELECT 1 FROM opitemrece oo JOIN drugitems di ON di.icode = oo.icode WHERE oo.vn = ovst.vn AND di.sks_product_category_id IN (3,4) AND di.ttmt_code IS NOT NULL LIMIT 1) as has_herb,
         (SELECT 1 FROM opitemrece oo JOIN nondrugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_type_id = 2 LIMIT 1) as has_instrument,
         (SELECT 1 FROM health_med_service s JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id WHERE s.vn = ovst.vn AND REPLACE(i.icd10tm, '-', '') IN ('8727811','8737811','8747811','8737835') LIMIT 1) as has_knee_oper,
-        (
-          SELECT GROUP_CONCAT(DISTINCT tm_code SEPARATOR ',')
-          FROM (
-            SELECT COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) as tm_code
+        CONCAT_WS(',',
+          NULLIF((
+            SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) SEPARATOR ',')
             FROM opitemrece oo
             LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
             LEFT JOIN nondrugitems nd ON nd.icode = oo.icode
             WHERE oo.vn = ovst.vn
               AND COALESCE(NULLIF(sd.nhso_adp_code, ''), NULLIF(nd.nhso_adp_code, '')) IN ('58101', '58102', '58130', '58131', '58201')
-            UNION
-            SELECT i.health_med_operation_item_code as tm_code
+          ), ''),
+          NULLIF((
+            SELECT GROUP_CONCAT(DISTINCT i.health_med_operation_item_code SEPARATOR ',')
             FROM health_med_service s
             JOIN health_med_service_operation op ON op.health_med_service_id = s.health_med_service_id
             JOIN health_med_operation_item i ON i.health_med_operation_item_id = op.health_med_operation_item_id
             WHERE s.vn = ovst.vn
               AND i.health_med_operation_item_code IN ('58101', '58102', '58130', '58131', '58201')
-          ) tm_sub
+          ), '')
         ) as thai_med_codes,
         
         -- คัดกรองความเสี่ยง

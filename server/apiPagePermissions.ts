@@ -29,7 +29,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/(annual-checkup|reports\/checkup)(\/|$)/, pages: ['annualCheckupReport', 'hospitalReports'] },
   { pattern: /^\/ktb-approve(\/|$)/, pages: ['ktbApproveCode'] },
   { pattern: /^\/reconciliation\/stm-zero$/, pages: ['stmZeroAudit', 'reconciliation', 'ucOutsideCup'] },
-  { pattern: /^\/reconciliation\/rep-sheet-zero$/, pages: ['repSheetZeroAudit', 'reconciliation'] },
+  { pattern: /^\/reconciliation\/rep-sheet-zero(\/|$)/, pages: ['repSheetZeroAudit', 'reconciliation'] },
   { pattern: /^\/reconciliation(\/|$)/, pages: ['reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/receivables\/(reconciliation|filter-options)(\/|$)/, pages: ['reconciliation', 'receivable', 'ucOutsideCup'] },
   { pattern: /^\/receivables\/settlement(\/|$)/, pages: ['receivableSettlement'] },

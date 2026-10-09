@@ -3,7 +3,7 @@ import { getRepstmConnection, getUTFConnection } from '../db/connection.js';
 import { readVisitItems, readVisitClinical } from '../visitDetails.js';
 import { statementEncounterIdentity, findStatementEncounter, matchesHospitalIdentity, type HisEncounter } from '../stmEncounterIdentity.js';
 import { pickImportColumn } from '../utils/importColumnLookup.js';
-import { classifyZeroAction, isExplicitZero, originalPaidAmount, parseOriginalRow, resolveUniqueRepVisit, type StmZeroRow } from '../../src/utils/stmZeroAudit.js';
+import { classifyZeroAction, computeZeroLifecycle, isExplicitZero, isFdhStatusPassed, originalPaidAmount, parseOriginalRow, resolveUniqueRepVisit, type StmZeroRow } from '../../src/utils/stmZeroAudit.js';
 
 const active = `NOT EXISTS (SELECT 1 FROM repstm_import_batch replacement WHERE replacement.replaces_batch_id = b.id)`;
 const sheetZero = `LOWER(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(b.sheet_name, ''), ' ', ''), '_', ''), '-', ''), '.', '')) IN ('sheet0', 'datasheet0', '0')`;
@@ -275,16 +275,146 @@ export async function readStmZeroRows(startDate: string, endDate: string, source
         }
       }
     } finally { hospital.release(); }
-    return rows.map(r => ({
-      ...r,
-      action: classifyZeroAction(r),
-      reason: pickImportColumn(r.raw_data, ['เหตุผล', 'คำอธิบายเหตุผล', 'คำอธิบาย', 'reason', 'remark', 'error_description'], true)
-        || (!r.matched ? 'ยังยืนยัน VN/AN และ HN กับ HIS ไม่ได้'
-        : r.payment_uncertain ? 'Visit มีรายการที่ยังไม่ทราบยอดจ่าย ต้องตรวจให้ครบก่อน'
-        : r.paid_amount == null ? 'ไม่พบคอลัมน์ยอดจ่ายที่อ่านได้ ต้องตรวจแถวต้นฉบับ'
-        : 'อ่านเหตุผลจากแถวต้นฉบับและตรวจข้อมูล HIS ก่อนดำเนินการ'),
-    }));
+
+    let resolutionMap = new Map<string, { status: string; reason: string; resolved_at: string; note: string }>();
+    try {
+      await ensureRepSheetZeroResolutionTable(connection);
+      const [resolutions] = await connection.query<RowDataPacket[]>(`
+        SELECT audit_id, status, resolved_reason, resolved_at, note
+        FROM rep_sheet_zero_resolution
+      `);
+      for (const item of resolutions as Array<Record<string, unknown>>) {
+        resolutionMap.set(String(item.audit_id), {
+          status: String(item.status || 'resolved'),
+          reason: String(item.resolved_reason || ''),
+          resolved_at: String(item.resolved_at || ''),
+          note: String(item.note || ''),
+        });
+      }
+    } catch {
+      // best-effort
+    }
+
+    return rows.map(r => {
+      const isPassed = isFdhStatusPassed(r.fdh_status_message);
+      const res = resolutionMap.get(r.id);
+      const isResolved = Boolean(res);
+      const updatedRow: StmZeroRow = {
+        ...r,
+        fdh_passed: isPassed,
+        is_resolved: isResolved,
+        resolution_status: res?.status || null,
+        resolution_reason: res?.reason || null,
+        resolved_at: res?.resolved_at || null,
+        action: classifyZeroAction(r),
+        reason: pickImportColumn(r.raw_data, ['เหตุผล', 'คำอธิบายเหตุผล', 'คำอธิบาย', 'reason', 'remark', 'error_description'], true)
+          || (!r.matched ? 'ยังยืนยัน VN/AN และ HN กับ HIS ไม่ได้'
+          : r.payment_uncertain ? 'Visit มีรายการที่ยังไม่ทราบยอดจ่าย ต้องตรวจให้ครบก่อน'
+          : r.paid_amount == null ? 'ไม่พบคอลัมน์ยอดจ่ายที่อ่านได้ ต้องตรวจแถวต้นฉบับ'
+          : 'อ่านเหตุผลจากแถวต้นฉบับและตรวจข้อมูล HIS ก่อนดำเนินการ'),
+      };
+      updatedRow.lifecycle_status = computeZeroLifecycle(updatedRow);
+      return updatedRow;
+    });
   } finally { connection.release(); }
+}
+
+export async function ensureRepSheetZeroResolutionTable(connection: Pick<PoolConnection, 'query'>) {
+  await connection.query(`
+    CREATE TABLE IF NOT EXISTS rep_sheet_zero_resolution (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      audit_id VARCHAR(64) NOT NULL UNIQUE,
+      vn VARCHAR(32) NULL,
+      an VARCHAR(32) NULL,
+      hn VARCHAR(32) NULL,
+      tran_id VARCHAR(191) NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'resolved',
+      resolved_reason VARCHAR(255) NULL,
+      resolved_by VARCHAR(128) NULL,
+      resolved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      note TEXT NULL,
+      INDEX idx_vn (vn),
+      INDEX idx_an (an),
+      INDEX idx_tran_id (tran_id),
+      INDEX idx_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+export async function resolveRepSheetZeroItems(params: {
+  items: Array<string | { audit_id: string; vn?: string; an?: string; hn?: string; tran_id?: string }>;
+  status?: string;
+  reason?: string;
+  user?: string;
+  note?: string;
+}): Promise<{ count: number }> {
+  if (!params.items || !params.items.length) return { count: 0 };
+  const connection = await getRepstmConnection();
+  try {
+    await ensureRepSheetZeroResolutionTable(connection);
+    let count = 0;
+    for (const raw of params.items) {
+      const item = typeof raw === 'string' ? { audit_id: raw } : raw;
+      if (!item.audit_id) continue;
+      const [res] = await connection.query(`
+        INSERT INTO rep_sheet_zero_resolution (audit_id, vn, an, hn, tran_id, status, resolved_reason, resolved_by, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          status = VALUES(status),
+          resolved_reason = VALUES(resolved_reason),
+          resolved_by = VALUES(resolved_by),
+          note = VALUES(note),
+          resolved_at = CURRENT_TIMESTAMP
+      `, [
+        item.audit_id,
+        item.vn || null,
+        item.an || null,
+        item.hn || null,
+        item.tran_id || null,
+        params.status || 'resolved',
+        params.reason || 'ตัดยอด / ตรวจสอบผ่านแล้ว',
+        params.user || 'System',
+        params.note || null,
+      ]);
+      if ((res as any).affectedRows > 0) count++;
+    }
+    return { count };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function unresolveRepSheetZeroItems(auditIds: string[]): Promise<{ count: number }> {
+  if (!auditIds || !auditIds.length) return { count: 0 };
+  const connection = await getRepstmConnection();
+  try {
+    await ensureRepSheetZeroResolutionTable(connection);
+    const [res] = await connection.query(`
+      DELETE FROM rep_sheet_zero_resolution WHERE audit_id IN (${auditIds.map(() => '?').join(',')})
+    `, auditIds);
+    return { count: (res as any).affectedRows || 0 };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function autoSyncResolveRepSheetZero(startDate: string, endDate: string): Promise<{ resolvedCount: number }> {
+  const rows = await readStmZeroRows(startDate, endDate, 'rep-sheet-zero');
+  const eligible = rows.filter(r => !r.is_resolved && (r.has_payment || r.fdh_passed));
+  if (!eligible.length) return { resolvedCount: 0 };
+  const res = await resolveRepSheetZeroItems({
+    items: eligible.map(r => ({
+      audit_id: r.id,
+      vn: r.vn,
+      an: r.an,
+      hn: r.hn,
+      tran_id: r.tran_id,
+    })),
+    status: 'auto_settled',
+    reason: 'ตรวจพบผลส่ง FDH ผ่าน หรือได้รับการชดเชยแล้วใน STM (Auto-Sync)',
+    user: 'Auto-Sync',
+  });
+  return { resolvedCount: res.count };
 }
 
 export async function readStmZeroSource(row: StmZeroRow) {

@@ -3,7 +3,7 @@ import { RECEIVABLE_RIGHT_MAPPINGS, RECEIVABLE_MAPPING_SETTING_KEY, validateRece
 import { readHospitalIdentity, parseSiteWalkinSettings, parseVillageScope } from './siteProfile.js';
 import { isWaitingOfcApprove } from '../src/utils/ofcApproveCode.js';
 import { findThaiMedSameDayConflict, suggestCombinedThaiMedCode, THAI_MED_CATALOG } from '../src/utils/thaiTraditionalMedicineRules.js';
-import { readStmZeroRows, readStmZeroSource } from './repositories/stmZero.repository.js';
+import { readStmZeroRows, readStmZeroSource, resolveRepSheetZeroItems, unresolveRepSheetZeroItems, autoSyncResolveRepSheetZero } from './repositories/stmZero.repository.js';
 import { canPrepareZeroResend, ZERO_ACTION_LABELS } from '../src/utils/stmZeroAudit.js';
 import { detectRepSheetZeroFix, applyRepSheetZeroFix, batchApplyRepSheetZeroFix } from './repSheetZeroAutoFix.js';
 import {
@@ -3997,13 +3997,15 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
     }
     const search = String(req.query.search || '').trim().toLowerCase();
     const fdhStatus = String(req.query.fdhStatus || '').trim().toLowerCase();
+    const lifecycle = String(req.query.lifecycle || 'all').trim().toLowerCase();
     const filtered = rows.filter(r => (!req.query.action || r.action === req.query.action)
       && (!search || [r.hn, r.vn, r.an, r.tran_id, r.errorcode, r.verifycode, r.source_filename, r.statement_no, ...Object.values(r.raw_data).filter(v => typeof v === 'string') as string[]].some(v => v.toLowerCase().includes(search)))
       && (req.query.match !== 'unmatched' || !r.matched) && (req.query.match !== 'matched' || r.matched)
       && (!fdhStatus || fdhStatus === 'all'
         || (fdhStatus === 'unsent' && !r.last_fdh_sent_at)
         || (fdhStatus === 'sent_today' && Boolean(r.fdh_sent_today))
-        || ((fdhStatus === 'sent_previously' || fdhStatus === 'sent_any') && Boolean(r.last_fdh_sent_at))));
+        || ((fdhStatus === 'sent_previously' || fdhStatus === 'sent_any') && Boolean(r.last_fdh_sent_at)))
+      && (!lifecycle || lifecycle === 'all' || r.lifecycle_status === lifecycle));
     const exportAll = req.query.exportAll === 'true' || req.query.all === 'true';
     const page = Math.max(1, Math.floor(Number(req.query.page) || 1));
     const pageSize = exportAll ? filtered.length : Math.min(200, Math.max(10, Math.floor(Number(req.query.pageSize) || 50)));
@@ -4019,6 +4021,12 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
           unsent: rows.filter(r => !r.last_fdh_sent_at).length,
           sentToday: rows.filter(r => r.fdh_sent_today).length,
           sentAny: rows.filter(r => Boolean(r.last_fdh_sent_at)).length,
+          total: rows.length,
+        },
+        lifecycle: {
+          actionRequired: rows.filter(r => r.lifecycle_status === 'action_required').length,
+          pending: rows.filter(r => r.lifecycle_status === 'pending').length,
+          resolved: rows.filter(r => r.lifecycle_status === 'resolved').length,
           total: rows.length,
         } },
       snapshot: new Date().toISOString(), page, pageSize });
@@ -4055,7 +4063,7 @@ app.post('/api/reconciliation/rep-sheet-zero/apply-fix', async (req, res) => {
 
 app.post('/api/reconciliation/rep-sheet-zero/batch-fix', async (req, res) => {
   try {
-    const { items, all, startDate, endDate, fdhStatus, action, match, search } = req.body || {};
+    const { items, all, startDate, endDate, fdhStatus, lifecycle, action, match, search } = req.body || {};
     const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
     let targetItems: Array<{ vn: string; an?: string }> = items || [];
     if (all) {
@@ -4066,13 +4074,58 @@ app.post('/api/reconciliation/rep-sheet-zero/batch-fix', async (req, res) => {
         && (!fdhStatus || fdhStatus === 'all'
           || (fdhStatus === 'unsent' && !r.last_fdh_sent_at)
           || (fdhStatus === 'sent_today' && Boolean(r.fdh_sent_today))
-          || ((fdhStatus === 'sent_previously' || fdhStatus === 'sent_any') && Boolean(r.last_fdh_sent_at))));
+          || ((fdhStatus === 'sent_previously' || fdhStatus === 'sent_any') && Boolean(r.last_fdh_sent_at)))
+        && (!lifecycle || lifecycle === 'all' || r.lifecycle_status === lifecycle));
       targetItems = filtered.filter(r => Boolean(r.vn || r.an)).map(r => ({ vn: r.vn, an: r.an }));
     }
     const result = await batchApplyRepSheetZeroFix({ items: targetItems, actorName });
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'แก้ไขแบบกลุ่มไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Resolution endpoints for REP Data Sheet 0
+app.post('/api/reconciliation/rep-sheet-zero/resolve', async (req, res) => {
+  try {
+    const { items, status, reason, note } = req.body || {};
+    const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
+    const result = await resolveRepSheetZeroItems({
+      items: Array.isArray(items) ? items : [],
+      status: status || 'resolved',
+      reason: reason || 'ตัดยอด / ตรวจสอบผ่านแล้ว',
+      user: actorName,
+      note,
+    });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'บันทึกตัดยอดไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/reconciliation/rep-sheet-zero/unresolve', async (req, res) => {
+  try {
+    const { auditIds } = req.body || {};
+    const result = await unresolveRepSheetZeroItems(Array.isArray(auditIds) ? auditIds : []);
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ยกเลิกการตัดยอดไม่สำเร็จ';
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+app.post('/api/reconciliation/rep-sheet-zero/auto-sync-resolve', async (req, res) => {
+  try {
+    const { startDate, endDate } = req.body || {};
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุช่วงวันที่' });
+    }
+    const result = await autoSyncResolveRepSheetZero(String(startDate), String(endDate));
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'ซิงค์ตัดยอดอัตโนมัติไม่สำเร็จ';
     return res.status(500).json({ success: false, error: message });
   }
 });

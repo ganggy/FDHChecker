@@ -1,4 +1,6 @@
 export type ZeroAction = 'review' | 'approval' | 'appeal' | 'deferred' | 'correction' | 'paid';
+export type ZeroLifecycleStatus = 'action_required' | 'pending' | 'resolved';
+
 export interface StmZeroRow {
   id: string; batch_id: number; source_filename: string; sheet_name: string;
   row_no: number | null; statement_no: string; tran_id: string;
@@ -11,10 +13,39 @@ export interface StmZeroRow {
   last_fdh_sent_at?: string | null;
   fdh_status_message?: string | null;
   fdh_transaction_uid?: string | null;
+  fdh_passed?: boolean;
+  is_resolved?: boolean;
+  resolution_status?: string | null;
+  resolution_reason?: string | null;
+  resolved_at?: string | null;
+  lifecycle_status?: ZeroLifecycleStatus;
 }
 export const ZERO_ACTION_LABELS: Record<ZeroAction, string> = {
   review: 'ตรวจเหตุผลก่อน', approval: 'ตรวจการอนุมัติ SMCS', appeal: 'ตรวจสิทธิทักท้วง OSR',
   deferred: 'ตรวจรอบจ่ายกองทุน', correction: 'ตรวจการเปิดแก้ไขส่งใหม่', paid: 'พบยอดจ่ายใน Visit เดียวกัน',
+};
+
+export const isFdhStatusPassed = (statusMessage: string | null | undefined): boolean => {
+  if (!statusMessage) return false;
+  const s = statusMessage.toLowerCase();
+  return s.includes('ผ่าน') || s.includes('pass') || s.includes('settled') || s.includes('success') || s.includes('โอนเงิน') || s.includes('อนุมัติ');
+};
+
+export const computeZeroLifecycle = (row: {
+  has_payment?: boolean;
+  is_resolved?: boolean;
+  fdh_passed?: boolean;
+  fdh_sent_today?: boolean;
+  last_fdh_sent_at?: string | null;
+  fdh_status_message?: string | null;
+}): ZeroLifecycleStatus => {
+  if (row.is_resolved || row.has_payment || row.fdh_passed || isFdhStatusPassed(row.fdh_status_message)) {
+    return 'resolved';
+  }
+  if (row.fdh_sent_today || Boolean(row.last_fdh_sent_at)) {
+    return 'pending';
+  }
+  return 'action_required';
 };
 export const isExplicitZero = (value: unknown): boolean => value != null && String(value).trim() !== ''
   && Number.isFinite(Number(value)) && Number(value) === 0;

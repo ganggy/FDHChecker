@@ -9,7 +9,8 @@ import { repSheetZeroReasons } from '../utils/repSheetZeroAudit';
 
 type Summary = { total: number; confirmedZero: number; unknownPayment: number; matched: number; unmatched: number;
   paidElsewhere: number; prepareCandidates: number; requestedAmount: number; groups: Array<{ action: string; label: string; count: number }>;
-  fdh?: { unsent: number; sentToday: number; sentAny: number; total: number } };
+  fdh?: { unsent: number; sentToday: number; sentAny: number; total: number };
+  lifecycle?: { actionRequired: number; pending: number; resolved: number; total: number } };
 type Snapshot = { data: StmZeroRow[]; total: number; summary: Summary; snapshot: string };
 const money = (n: number | null) => n == null ? 'ไม่ระบุ' : n.toLocaleString('th-TH', { minimumFractionDigits: 2 });
 const writeWorkbook = (name: string, sheets: Array<[string, Record<string, unknown>[]]>) => {
@@ -38,8 +39,9 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
   const [end, setEnd] = useState(formatLocalDateInput);
   const [action, setAction] = useState(''); const [match, setMatch] = useState(''); const [search, setSearch] = useState('');
   const [fdhStatus, setFdhStatus] = useState<string>(isRep ? 'unsent' : 'all');
+  const [lifecycleTab, setLifecycleTab] = useState<'all' | 'action_required' | 'pending' | 'resolved'>('all');
   const [result, setResult] = useState<Snapshot | null>(null); const [page, setPage] = useState(1);
-  const [loaded, setLoaded] = useState({ start: '', end: '', action: '', match: '', search: '', fdhStatus: isRep ? 'unsent' : 'all' });
+  const [loaded, setLoaded] = useState({ start: '', end: '', action: '', match: '', search: '', fdhStatus: isRep ? 'unsent' : 'all', lifecycle: 'all' });
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
   const [selected, setSelected] = useState<Record<string, StmZeroRow>>({});
   const [detail, setDetail] = useState<StmZeroRow | null>(null);
@@ -50,13 +52,15 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
   const [channel, setChannel] = useState('fdh');
   const [fixingVn, setFixingVn] = useState<string | null>(null);
   const [batchFixing, setBatchFixing] = useState(false);
+  const [syncingResolve, setSyncingResolve] = useState(false);
+  const [resolvingBatch, setResolvingBatch] = useState(false);
   const [fixNotification, setFixNotification] = useState<{ type: 'success' | 'error'; message: string; details?: string[] } | null>(null);
   const load = async (nextPage = 1, overrides: Partial<typeof loaded> = {}) => {
     setLoading(true); setError(''); setResult(null); setSelected({}); setReviewed(false);
-    const filters = { ...(nextPage === 1 ? { start, end, action, match, search, fdhStatus } : loaded), ...overrides };
+    const filters = { ...(nextPage === 1 ? { start, end, action, match, search, fdhStatus, lifecycle: lifecycleTab } : loaded), ...overrides };
     try {
       const query = new URLSearchParams({ startDate: filters.start, endDate: filters.end, action: filters.action,
-        match: filters.match, search: filters.search, fdhStatus: filters.fdhStatus || '', page: String(nextPage) });
+        match: filters.match, search: filters.search, fdhStatus: filters.fdhStatus || '', lifecycle: filters.lifecycle || 'all', page: String(nextPage) });
       const response = await fetch(`${endpoint}?${query}`);
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || 'โหลด audit ไม่สำเร็จ');
@@ -326,6 +330,115 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
     }
   };
 
+  const handleAutoSyncResolve = async () => {
+    if (!loaded.start || !loaded.end) return;
+    setSyncingResolve(true);
+    try {
+      const res = await fetch('/api/reconciliation/rep-sheet-zero/auto-sync-resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate: loaded.start, endDate: loaded.end }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setFixNotification({
+          type: 'success',
+          message: `ซิงค์ตัดยอดสำเร็จ! ตัดยอดให้อัตโนมัติ ${json.data?.resolvedCount?.toLocaleString('th-TH') || 0} รายการ (พบผลส่ง FDH ผ่าน หรือได้รับการชดเชยแล้วใน STM)`,
+        });
+        void load(page);
+      } else {
+        alert(json.error || 'ซิงค์ตัดยอดไม่สำเร็จ');
+      }
+    } catch {
+      alert('เชื่อมต่อเซิร์ฟเวอร์เพื่อซิงค์ตัดยอดไม่สำเร็จ');
+    } finally {
+      setSyncingResolve(false);
+    }
+  };
+
+  const handleBatchResolve = async () => {
+    if (!chosen.length) {
+      alert('กรุณาเลือกรายการที่ต้องการตัดยอด');
+      return;
+    }
+    const defaultReason = chosen.some(r => r.fdh_passed) ? 'ส่ง FDH ผ่านแล้ว' : 'ตรวจสอบผ่านแล้ว / ปิดเคส';
+    const reason = prompt('ระบุเหตุผลการตัดยอด (เช่น ส่ง FDH ผ่านแล้ว / ยอมรับการตัดจ่าย / ได้รับเงินใน STM แล้ว):', defaultReason);
+    if (reason === null) return;
+    setResolvingBatch(true);
+    try {
+      const res = await fetch('/api/reconciliation/rep-sheet-zero/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: chosen.map(r => ({
+            audit_id: r.id,
+            vn: r.vn,
+            an: r.an,
+            hn: r.hn,
+            tran_id: r.tran_id,
+          })),
+          reason: reason.trim() || 'ตัดยอดโดยเจ้าหน้าที่',
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setFixNotification({
+          type: 'success',
+          message: `ตัดยอดสำเร็จทั้งหมด ${json.data?.count || chosen.length} รายการ (ย้ายเข้าแท็บ "ตัดยอด / ผ่านแล้ว")`,
+        });
+        setSelected({});
+        void load(page);
+      } else {
+        alert(json.error || 'ตัดยอดไม่สำเร็จ');
+      }
+    } catch {
+      alert('เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ');
+    } finally {
+      setResolvingBatch(false);
+    }
+  };
+
+  const handleSingleResolve = async (row: StmZeroRow) => {
+    try {
+      const reason = row.fdh_passed ? 'ส่ง FDH ประมวลผลผ่าน' : (row.has_payment ? 'ได้รับเงินใน STM แล้ว' : 'ตัดยอดโดยเจ้าหน้าที่');
+      const res = await fetch('/api/reconciliation/rep-sheet-zero/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ audit_id: row.id, vn: row.vn, an: row.an, hn: row.hn, tran_id: row.tran_id }],
+          reason,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        void load(page);
+      } else {
+        alert(json.error || 'ตัดยอดไม่สำเร็จ');
+      }
+    } catch {
+      alert('ตัดยอดไม่สำเร็จ');
+    }
+  };
+
+  const handleSingleUnresolve = async (row: StmZeroRow) => {
+    if (!confirm(`ต้องการยกเลิกการตัดยอดของ ${row.vn || row.an || row.hn} และนำกลับมาคิวรอตรวจหรือไม่?`)) return;
+    try {
+      const res = await fetch('/api/reconciliation/rep-sheet-zero/unresolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auditIds: [row.id] }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        void load(page);
+      } else {
+        alert(json.error || 'ยกเลิกการตัดยอดไม่สำเร็จ');
+      }
+    } catch {
+      alert('ยกเลิกการตัดยอดไม่สำเร็จ');
+    }
+  };
+
   const handoff = async (ipd: boolean) => {
     let rows = chosen.filter(r => ipd ? Boolean(r.an) : !r.an && r.vn);
     if (!rows.length || !reviewed || !note.trim()) return;
@@ -385,6 +498,28 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
             </button>
             <button
               type="button"
+              className="rec-btn rec-btn-secondary"
+              disabled={!result || loading || syncingResolve}
+              onClick={() => void handleAutoSyncResolve()}
+              title="ตรวจจับรายการที่ส่ง FDH ผ่าน หรือได้รับเงินใน STM รอบใหม่ แล้วตัดยอดให้อัตโนมัติ"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              {syncingResolve ? '⏳ กำลังซิงค์ตัดยอด...' : '🔄 ซิงค์ตัดยอดอัตโนมัติ'}
+            </button>
+            {chosen.length > 0 && (
+              <button
+                type="button"
+                className="rec-btn rec-btn-secondary"
+                disabled={resolvingBatch}
+                onClick={() => void handleBatchResolve()}
+                title="ตัดยอดรายการที่เลือก ย้ายเข้าสู่แท็บตัดยอด / ผ่านแล้ว"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#16a34a', borderColor: '#86efac' }}
+              >
+                {resolvingBatch ? '⏳ กำลังตัดยอด...' : `✔ ตัดยอดที่เลือก (${chosen.length})`}
+              </button>
+            )}
+            <button
+              type="button"
               className="rec-btn rec-btn-primary"
               disabled={!result || loading || batchFixing || !(result?.data?.length)}
               onClick={() => void handleBatchAutoFix(true)}
@@ -436,8 +571,55 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
           </select>
         </label>
       )}
+      {isRep && (
+        <label>
+          สถานะตัดยอด / Lifecycle
+          <select value={lifecycleTab} onChange={e => {
+            const val = e.target.value as any;
+            setLifecycleTab(val);
+            void load(1, { lifecycle: val });
+          }}>
+            <option value="all">⚪ ทั้งหมด</option>
+            <option value="action_required">🔴 รอจัดการ (ยังไม่ส่ง/ยังไม่ผ่าน)</option>
+            <option value="pending">🟡 ส่งแล้ว รอผล</option>
+            <option value="resolved">🟢 ตัดยอด / ผ่านแล้ว</option>
+          </select>
+        </label>
+      )}
       <button className="rec-btn rec-btn-primary" disabled={loading} onClick={() => void load()}>{loading ? 'กำลังตรวจ...' : `ค้นหา ${isRep ? 'Data Sheet 0' : 'STM 0'}`}</button>
     </div></section>
+    {isRep && (
+      <div className="zero-lifecycle-tabs">
+        <button
+          type="button"
+          className={`zero-tab-pill ${lifecycleTab === 'all' ? 'active' : ''}`}
+          onClick={() => { setLifecycleTab('all'); void load(1, { lifecycle: 'all' }); }}
+        >
+          ⚪ ทั้งหมด ({result?.summary?.lifecycle?.total ?? result?.total ?? 0})
+        </button>
+        <button
+          type="button"
+          className={`zero-tab-pill danger ${lifecycleTab === 'action_required' ? 'active' : ''}`}
+          onClick={() => { setLifecycleTab('action_required'); void load(1, { lifecycle: 'action_required' }); }}
+        >
+          🔴 รอจัดการ ({result?.summary?.lifecycle?.actionRequired ?? 0})
+        </button>
+        <button
+          type="button"
+          className={`zero-tab-pill warning ${lifecycleTab === 'pending' ? 'active' : ''}`}
+          onClick={() => { setLifecycleTab('pending'); void load(1, { lifecycle: 'pending' }); }}
+        >
+          🟡 ส่งแล้ว รอผล ({result?.summary?.lifecycle?.pending ?? 0})
+        </button>
+        <button
+          type="button"
+          className={`zero-tab-pill success ${lifecycleTab === 'resolved' ? 'active' : ''}`}
+          onClick={() => { setLifecycleTab('resolved'); void load(1, { lifecycle: 'resolved' }); }}
+        >
+          🟢 ตัดยอด / ผ่านแล้ว ({result?.summary?.lifecycle?.resolved ?? 0})
+        </button>
+      </div>
+    )}
     {error && <p role="alert" className="zero-error">{error}</p>}
     {fixNotification && (
       <div className={`zero-toast-alert ${fixNotification.type}`}>
@@ -592,7 +774,7 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                   }
                 }}
               />
-            </th><th>Visit / วันที่</th><th>ต้นทาง</th><th>{isRep ? 'ยอดชดเชยใน REP' : 'ยอดจ่าย'}</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>การดำเนินการ / สถานะ FDH</th></tr></thead><tbody>
+            </th><th>Visit / วันที่</th><th>ต้นทาง</th><th>{isRep ? 'ยอดชดเชยใน REP' : 'ยอดจ่าย'}</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>{isRep ? 'การดำเนินการ / สถานะ FDH / ตัดยอด' : 'การดำเนินการ / สถานะ FDH'}</th></tr></thead><tbody>
               {displayedData.map(r => <tr key={r.id}><td><input aria-label={`เลือก ${r.id}`} type="checkbox" checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>
                 <td><b>{r.an ? `IPD · AN ${r.an}` : r.vn ? `OPD · VN ${r.vn}` : `${r.encounter_type === 'OP' ? 'OPD' : r.encounter_type === 'IP' ? 'IPD' : 'ไม่ทราบประเภท'} · รอจับคู่ HIS`}</b>{r.tran_id && <small>TRAN_ID {r.tran_id}</small>}<small>HN {r.hn || 'ไม่พบ'} · {r.service_date || 'ไม่ระบุวันที่'}</small></td>
                 <td className="zero-file">{r.source_filename}<small>{r.sheet_name || 'STM'} · {r.statement_no || r.tran_id || r.id}</small></td>
@@ -601,7 +783,7 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                 <td>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <button className="zero-detail-button" onClick={() => void openDetail(r)}>ดูต้นทาง / HIS ↗</button>
-                    {isRep && r.matched && Boolean(r.vn) && (
+                    {isRep && r.matched && Boolean(r.vn) && !r.is_resolved && (
                       <button
                         type="button"
                         className="zero-autofix-button"
@@ -613,20 +795,49 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                       </button>
                     )}
                     {isRep && (
-                      r.fdh_sent_today ? (
-                        <span className="zero-fdh-badge sent-today" title={`ส่งออก FDH แล้วเมื่อ ${r.last_fdh_sent_at || 'วันนี้'} (${r.fdh_status_message || 'รอผล'})`}>
-                          ⚠️ ส่ง FDH แล้ววันนี้ {r.last_fdh_sent_at ? `(${r.last_fdh_sent_at.slice(11, 16)} น.)` : ''}
+                      r.is_resolved ? (
+                        <span className="zero-lifecycle-badge resolved" title={r.resolution_reason || 'ตัดยอดแล้ว'}>
+                          🟢 ตัดยอดแล้ว {r.resolution_reason ? `(${r.resolution_reason})` : ''}
+                        </span>
+                      ) : r.has_payment ? (
+                        <span className="zero-lifecycle-badge resolved" title="พบยอดชดเชยใน STM แล้ว">
+                          🟢 ชดเชยใน STM แล้ว
+                        </span>
+                      ) : r.fdh_passed ? (
+                        <span className="zero-lifecycle-badge resolved" title={`FDH ประมวลผลผ่าน: ${r.fdh_status_message || ''}`}>
+                          🟢 FDH ประมวลผลผ่าน
+                        </span>
+                      ) : r.lifecycle_status === 'pending' ? (
+                        <span className="zero-lifecycle-badge pending" title={r.last_fdh_sent_at || ''}>
+                          🟡 ส่งแล้ว รอผล {r.fdh_sent_today ? '(วันนี้)' : ''}
                         </span>
                       ) : (
-                        r.last_fdh_sent_at ? (
-                          <span className="zero-fdh-badge previously-sent" title={`ประวัติส่ง FDH ล่าสุดเมื่อ ${r.last_fdh_sent_at} (${r.fdh_status_message || ''})`}>
-                            ✔ เคยส่งเมื่อ {r.last_fdh_sent_at.slice(0, 10)}
-                          </span>
-                        ) : (
-                          <span className="zero-fdh-badge unsent" title="ยังไม่เคยมีประวัติส่งออก FDH มาก่อน">
-                            🟢 ยังไม่เคยส่ง
-                          </span>
-                        )
+                        <span className="zero-lifecycle-badge action-required">
+                          🔴 รอจัดการ
+                        </span>
+                      )
+                    )}
+                    {isRep && (
+                      r.is_resolved ? (
+                        <button
+                          type="button"
+                          className="rec-btn rec-btn-secondary"
+                          style={{ fontSize: '11px', padding: '3px 8px', color: '#dc2626' }}
+                          onClick={() => void handleSingleUnresolve(r)}
+                          title="ยกเลิกการตัดยอด นำกลับมาในคิวรอตรวจ"
+                        >
+                          ↩ ยกเลิกตัดยอด
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="rec-btn rec-btn-secondary"
+                          style={{ fontSize: '11px', padding: '3px 8px', color: '#16a34a' }}
+                          onClick={() => void handleSingleResolve(r)}
+                          title="มาร์กตัดรายการนี้ออก บันทึกว่าผ่านแล้วหรือปิดเคส"
+                        >
+                          ✔ ตัดยอด
+                        </button>
                       )
                     )}
                   </div>
@@ -661,6 +872,16 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
                   {batchFixing ? '⏳ กำลังดำเนินการ...' : `⚡ แก้ไข Auto ทุกรายการใน Data Sheet 0 (${result.total.toLocaleString('th-TH')} รายการ)`}
                 </button>
               )}
+              <button
+                type="button"
+                className="zero-btn-autofix-batch"
+                style={{ background: '#16a34a', borderColor: '#16a34a' }}
+                disabled={resolvingBatch || !chosen.length}
+                onClick={() => void handleBatchResolve()}
+                title="ตัดยอดรายการที่เลือก ย้ายเข้าแท็บตัดยอด / ผ่านแล้ว"
+              >
+                {resolvingBatch ? '⏳ กำลังตัดยอด...' : `✔ ตัดยอดรายการที่เลือก (${chosen.length} รายการ)`}
+              </button>
             </div>
             <small style={{ display: 'block', marginTop: 6, color: '#4b6584' }}>
               ระบบจะตรวจและแก้ไขรหัส Claim/Authen Code, ลบรหัสหัตถการตัวเลขตกค้างใน ovstdiag, และสร้าง dtmain ให้ใน HOSxP
@@ -680,7 +901,7 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
               onClick={() => exportFdhExcel(true)}
               title="ส่งออกเฉพาะรายการที่เลือกเป็น Excel สำหรับนำไปส่งต่อ FDH หรือ OSR"
             >
-              📥 ส่งออก Excel (${chosen.length} รายการที่เลือก)
+              📥 ส่งออก Excel ({chosen.length} รายการที่เลือก)
             </button>
           )}
           {channel === 'fdh' && <><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => !r.an && r.vn)} onClick={() => void handoff(false)}>🚀 เปิดส่งออก OPD เฉพาะที่เลือก ({chosen.filter(r => !r.an && r.vn).length})</button><button disabled={loading || !reviewed || !note.trim() || !chosen.some(r => r.an)} onClick={() => void handoff(true)}>🚀 เปิดส่งออก IPD เฉพาะที่เลือก ({chosen.filter(r => r.an).length})</button></>}

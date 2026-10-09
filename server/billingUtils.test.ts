@@ -197,3 +197,45 @@ test('WALKIN pttype without walkin item is detected as warning with missing serv
   assert.equal(result.detectedSpecialFundNotes.includes('WALKIN (ผู้ป่วยนอกเหตุสมควร)'), true);
 });
 
+test('Hemodialysis (HD) matching: detects HD with 58301 and N185 diagnosis', () => {
+  const result = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    main_diag: 'N185',
+    adp_names: '58301',
+    has_close: 1,
+  });
+
+  assert.equal(result.isUUC1, true);
+  assert.equal(result.specialFundNotes.some((note: string) => note.includes('ฟอกเลือดไตเทียม (HD 58301/58302)')), true);
+  assert.equal(result.matchedSpecialFundNotes.includes('ฟอกเลือดไตเทียม (HD 58301/58302)'), true);
+});
+
+test('Physical Therapy (PT) matching: detects PT with 55001 and Z501 diagnosis', () => {
+  const result = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    main_diag: 'Z501',
+    adp_names: '55001',
+    has_close: 1,
+  });
+
+  assert.equal(result.isUUC1, true);
+  assert.equal(result.specialFundNotes.some((note: string) => note.includes('กายภาพบำบัด / ฟื้นฟูสมรรถภาพ (PT)')), true);
+  assert.equal(result.matchedSpecialFundNotes.includes('กายภาพบำบัด / ฟื้นฟูสมรรถภาพ (PT)'), true);
+});
+
+test('Cataract Phaco matching: detects cataract surgery with H25 diagnosis and 1341 oper code', () => {
+  const result = evaluateBillingLogic({
+    serviceType: 'ผู้ป่วยนอก',
+    hipdata_code: 'UCS',
+    main_diag: 'H250',
+    oper_codes: '1341',
+    has_close: 1,
+  });
+
+  assert.equal(result.isUUC1, true);
+  assert.equal(result.specialFundNotes.some((note: string) => note.includes('ผ่าตัดต้อกระจก (Cataract Phaco)')), true);
+});
+
+

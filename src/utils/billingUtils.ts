@@ -620,6 +620,30 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '🩻 อ่านฟิล์ม CXR', kind: 'matched', group: 'other' });
         }
 
+        const hasHdDiag = hasDiagCode(item, ['N185', 'Z491']) || hasDiagPrefix(item, ['N18.5', 'Z49.1']);
+        const hasHdAdp = hasAnyCodeValue(item?.adp_names, ['58301', '58302', '58307']) || toBool(item?.has_hd_adp);
+        if (hasHdAdp && hasHdDiag) {
+            fundNotes.push({ label: '🩸 ฟอกเลือดไตเทียม (HD 58301/58302)', kind: 'matched', group: 'other' });
+        } else if (hasHdAdp && !hasHdDiag) {
+            addWarningFundNote(fundNotes, 'ฟอกเลือดไตเทียม (HD)', [' Diagnosis N18.5/Z49.1']);
+        }
+
+        const hasPtDiag = hasDiagCode(item, ['Z501', 'Z508', 'Z509']) || hasDiagPrefix(item, ['Z50', 'I60', 'I61', 'I62', 'I63', 'I64', 'I69', 'G81']);
+        const hasPtAdp = hasAnyCodeValue(item?.adp_names, ['55001', '55002', '55003', '55004', '55005']) || toBool(item?.has_pt_adp);
+        if (hasPtAdp && hasPtDiag) {
+            fundNotes.push({ label: '🏃 กายภาพบำบัด / ฟื้นฟูสมรรถภาพ (PT)', kind: 'matched', group: 'other' });
+        } else if (hasPtAdp && !hasPtDiag) {
+            addWarningFundNote(fundNotes, 'กายภาพบำบัด (PT)', [' Diagnosis Z50.1 / การฟื้นฟูสมรรถภาพ']);
+        }
+
+        const hasCataractDiag = hasDiagPrefix(item, ['H25', 'H26']);
+        const hasCataractProc = hasAnyCodeValue(item?.oper_codes, ['1341', '1319', '1359']) || toBool(item?.has_cataract_oper);
+        if (hasCataractProc && hasCataractDiag) {
+            fundNotes.push({ label: '👁️ ผ่าตัดต้อกระจก (Cataract Phaco)', kind: 'matched', group: 'other' });
+        } else if (hasCataractProc && !hasCataractDiag) {
+            addWarningFundNote(fundNotes, 'ผ่าตัดต้อกระจก', [' Diagnosis H25/H26']);
+        }
+
         const dialysisRegex = new RegExp(dialysisPattern);
         const isDialysis = dialysisRegex.test(item?.pdx || item?.main_diag || '');
         const isOutsideArea = (item?.fund || '').includes('นอกเขต') ||
@@ -629,7 +653,7 @@ export const evaluateBillingLogic = (item: any) => {
 
         if (isDialysis && isOutsideArea) {
             fundNotes.push({ label: '🩸 ล้างไต (นอกเขต)', kind: 'matched', group: 'other' });
-        } else if (isDialysis) {
+        } else if (isDialysis && !hasHdAdp) {
             fundNotes.push({ label: '⚠️ ล้างไต (ในเขต)', kind: 'warning', group: 'other' });
         }
 

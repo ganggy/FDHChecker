@@ -340,6 +340,11 @@ export interface AgingForm1Item {
   totalValue: number;
   le30Days: number;
   gt30Days: number;
+  days31To60?: number;
+  days61To90?: number;
+  days91To180?: number;
+  days181To365?: number;
+  gt365Days?: number;
 }
 
 export interface AgingForm1Result {
@@ -351,6 +356,11 @@ export interface AgingForm1Result {
     totalValue: number;
     le30Days: number;
     gt30Days: number;
+    days31To60?: number;
+    days61To90?: number;
+    days91To180?: number;
+    days181To365?: number;
+    gt365Days?: number;
   };
 }
 
@@ -409,12 +419,32 @@ export const getOfficialReceivableAgingReport = async (
 
     const { stmMap } = await fetchReconciliationMaps(connection, repConn, vns, ans);
 
-    // Grouping by normalized account code
-    const statsMap = new Map<string, { count: number; total: number; le30: number; gt30: number }>();
+    // Grouping by normalized account code with 6 aging tiers
+    const statsMap = new Map<string, {
+      count: number;
+      total: number;
+      le30: number;
+      gt30: number;
+      d31_60: number;
+      d61_90: number;
+      d91_180: number;
+      d181_365: number;
+      gt365: number;
+    }>();
 
     const addRecord = (accountCode: string, total: number, ageDays: number) => {
       if (total <= 0) return;
-      const cur = statsMap.get(accountCode) || { count: 0, total: 0, le30: 0, gt30: 0 };
+      const cur = statsMap.get(accountCode) || {
+        count: 0,
+        total: 0,
+        le30: 0,
+        gt30: 0,
+        d31_60: 0,
+        d61_90: 0,
+        d91_180: 0,
+        d181_365: 0,
+        gt365: 0,
+      };
       cur.count += 1;
       cur.total += total;
       if (ageDays <= 30) {
@@ -422,6 +452,12 @@ export const getOfficialReceivableAgingReport = async (
       } else {
         cur.gt30 += total;
       }
+      if (ageDays > 30 && ageDays <= 60) cur.d31_60 += total;
+      else if (ageDays > 60 && ageDays <= 90) cur.d61_90 += total;
+      else if (ageDays > 90 && ageDays <= 180) cur.d91_180 += total;
+      else if (ageDays > 180 && ageDays <= 365) cur.d181_365 += total;
+      else if (ageDays > 365) cur.gt365 += total;
+
       statsMap.set(accountCode, cur);
     };
 
@@ -448,7 +484,17 @@ export const getOfficialReceivableAgingReport = async (
 
     // Build the 54 rows
     const items: AgingForm1Item[] = OFFICIAL_CHART_OF_ACCOUNTS_54.map((acc) => {
-      const stat = statsMap.get(acc.code) || { count: 0, total: 0, le30: 0, gt30: 0 };
+      const stat = statsMap.get(acc.code) || {
+        count: 0,
+        total: 0,
+        le30: 0,
+        gt30: 0,
+        d31_60: 0,
+        d61_90: 0,
+        d91_180: 0,
+        d181_365: 0,
+        gt365: 0,
+      };
       return {
         code: acc.code,
         order: acc.order,
@@ -458,6 +504,11 @@ export const getOfficialReceivableAgingReport = async (
         totalValue: Math.round(stat.total * 100) / 100,
         le30Days: Math.round(stat.le30 * 100) / 100,
         gt30Days: Math.round(stat.gt30 * 100) / 100,
+        days31To60: Math.round(stat.d31_60 * 100) / 100,
+        days61To90: Math.round(stat.d61_90 * 100) / 100,
+        days91To180: Math.round(stat.d91_180 * 100) / 100,
+        days181To365: Math.round(stat.d181_365 * 100) / 100,
+        gt365Days: Math.round(stat.gt365 * 100) / 100,
       };
     });
 
@@ -467,14 +518,34 @@ export const getOfficialReceivableAgingReport = async (
         acc.totalValue += item.totalValue;
         acc.le30Days += item.le30Days;
         acc.gt30Days += item.gt30Days;
+        acc.days31To60 = (acc.days31To60 || 0) + (item.days31To60 || 0);
+        acc.days61To90 = (acc.days61To90 || 0) + (item.days61To90 || 0);
+        acc.days91To180 = (acc.days91To180 || 0) + (item.days91To180 || 0);
+        acc.days181To365 = (acc.days181To365 || 0) + (item.days181To365 || 0);
+        acc.gt365Days = (acc.gt365Days || 0) + (item.gt365Days || 0);
         return acc;
       },
-      { caseCount: 0, totalValue: 0, le30Days: 0, gt30Days: 0 }
+      {
+        caseCount: 0,
+        totalValue: 0,
+        le30Days: 0,
+        gt30Days: 0,
+        days31To60: 0,
+        days61To90: 0,
+        days91To180: 0,
+        days181To365: 0,
+        gt365Days: 0,
+      }
     );
 
     totals.totalValue = Math.round(totals.totalValue * 100) / 100;
     totals.le30Days = Math.round(totals.le30Days * 100) / 100;
     totals.gt30Days = Math.round(totals.gt30Days * 100) / 100;
+    totals.days31To60 = Math.round((totals.days31To60 || 0) * 100) / 100;
+    totals.days61To90 = Math.round((totals.days61To90 || 0) * 100) / 100;
+    totals.days91To180 = Math.round((totals.days91To180 || 0) * 100) / 100;
+    totals.days181To365 = Math.round((totals.days181To365 || 0) * 100) / 100;
+    totals.gt365Days = Math.round((totals.gt365Days || 0) * 100) / 100;
 
     return {
       period,

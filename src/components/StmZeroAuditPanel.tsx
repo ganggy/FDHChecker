@@ -37,6 +37,7 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
   const [start, setStart] = useState(() => `${formatLocalDateInput().slice(0, 7)}-01`);
   const [end, setEnd] = useState(formatLocalDateInput);
   const [action, setAction] = useState(''); const [match, setMatch] = useState(''); const [search, setSearch] = useState('');
+  const [hideSentToday, setHideSentToday] = useState(false);
   const [result, setResult] = useState<Snapshot | null>(null); const [page, setPage] = useState(1);
   const [loaded, setLoaded] = useState({ start: '', end: '', action: '', match: '', search: '' });
   const [loading, setLoading] = useState(false); const [error, setError] = useState('');
@@ -160,8 +161,26 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
   };
 
   const handoff = async (ipd: boolean) => {
-    const rows = chosen.filter(r => ipd ? Boolean(r.an) : !r.an && r.vn);
+    let rows = chosen.filter(r => ipd ? Boolean(r.an) : !r.an && r.vn);
     if (!rows.length || !reviewed || !note.trim()) return;
+
+    if (isRep) {
+      const alreadySent = rows.filter(r => r.fdh_sent_today);
+      if (alreadySent.length > 0) {
+        const proceedWithExclusion = window.confirm(
+          `⚠️ มี ${alreadySent.length} จาก ${rows.length} รายการที่ส่งออก FDH ไปแล้วในรอบวันนี้!\n\n` +
+          `• กด [ตกลง (OK)] เพื่อ "ข้ามรายการที่ส่งแล้ว" และเปิดส่งเฉพาะ ${rows.length - alreadySent.length} รายการที่เหลือ\n` +
+          `• กด [ยกเลิก (Cancel)] เพื่อยกเลิกและตรวจรายการใหม่อีกครั้ง`
+        );
+        if (!proceedWithExclusion) return;
+        rows = rows.filter(r => !r.fdh_sent_today);
+        if (!rows.length) {
+          setError('ทุกรายการที่เลือกถูกส่งออก FDH ในรอบวันนี้แล้ว ไม่สามารถส่งซ้ำได้');
+          return;
+        }
+      }
+    }
+
     setLoading(true); setError('');
     try {
       const query = new URLSearchParams({ startDate: loaded.start, endDate: loaded.end, checkIds: rows.map(r => r.id).join(',') });
@@ -196,6 +215,12 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
       <label>ขั้นตอนติดตาม<select value={action} onChange={e => setAction(e.target.value)}><option value="">ทุกขั้นตอน</option>{Object.entries(ZERO_ACTION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
       <label>การจับคู่<select value={match} onChange={e => setMatch(e.target.value)}><option value="">ทั้งหมด</option><option value="matched">จับคู่ HIS แล้ว</option><option value="unmatched">ยังจับคู่ไม่ได้</option></select></label>
       <label>ค้น HN / VN / AN / รหัส / ไฟล์<input value={search} onChange={e => setSearch(e.target.value)} /></label>
+      {isRep && (
+        <label style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '12px', color: '#1e3a8a', paddingBottom: '10px' }}>
+          <input type="checkbox" checked={hideSentToday} onChange={e => setHideSentToday(e.target.checked)} style={{ width: 16, height: 16 }} />
+          <span>ซ่อนรายการที่ส่ง FDH แล้วในรอบวันนี้</span>
+        </label>
+      )}
       <button className="rec-btn rec-btn-primary" disabled={loading} onClick={() => void load()}>{loading ? 'กำลังตรวจ...' : `ค้นหา ${isRep ? 'Data Sheet 0' : 'STM 0'}`}</button>
     </div></section>
     {error && <p role="alert" className="zero-error">{error}</p>}
@@ -222,51 +247,90 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
       <div className="zero-groups" aria-label="กรองขั้นตอนอย่างรวดเร็ว"><button disabled={loading} aria-pressed={loaded.action === ''} onClick={() => { setAction(''); void load(1, { action: '' }); }}>ทุกขั้นตอน</button>{result.summary.groups.filter(g => g.count).map(g => <button disabled={loading} aria-pressed={loaded.action === g.action} key={g.action} onClick={() => { setAction(g.action); void load(1, { action: g.action }); }}>{g.label} <b>{g.count}</b></button>)}</div>
       <p className="zero-caption">{isRep ? 'นับแถว REP ไม่ใช่จำนวน Visit; รายการที่จับคู่ HIS แล้วสามารถกดปุ่ม ⚡ แก้ไข Auto หรือเลือกแถวเพื่อส่งเบิกซ้ำได้' : 'นับแถว ไม่ใช่จำนวน Visit; แถว 0 อาจเป็นเพียงบางรายการใน Visit ที่ได้รับเงินแล้ว จึงไม่รวมยอดเงินเป็นความเสียหาย'}</p>
       <div className="zero-section-heading"><h2>รายการตรวจสอบ <span className="zero-count">{result.total.toLocaleString('th-TH')} แถว</span></h2><span>{isRep ? 'เลือกแถวเพื่อกดแก้ไขอัตโนมัติ หรือเตรียมส่งเบิกซ้ำเข้า FDH / e-Claim' : 'เลือกได้เฉพาะแถวที่ผ่านเงื่อนไขเตรียมตรวจส่งใหม่'}</span></div>
-      <div className="zero-table-scroll" tabIndex={0} aria-label={`ตารางรายการ ${title} เลื่อนแนวนอนเพื่อดูหลักฐาน`}><table><thead><tr><th>
-        <input
-          type="checkbox"
-          title="เลือก/ยกเลิกทั้งหมดในหน้านี้"
-          aria-label="เลือกแถวทั้งหมดในหน้านี้"
-          checked={Boolean(result.data.length && result.data.filter(isRowEligible).length && result.data.filter(isRowEligible).every(r => Boolean(selected[r.id])))}
-          onChange={e => {
-            setReviewed(false);
-            if (e.target.checked) {
-              const eligible = result.data.filter(isRowEligible);
-              const next = { ...selected };
-              eligible.forEach(r => { next[r.id] = r; });
-              setSelected(next);
-            } else {
-              const currentIds = new Set(result.data.map(r => r.id));
-              const next = { ...selected };
-              Object.keys(next).forEach(k => { if (currentIds.has(k)) delete next[k]; });
-              setSelected(next);
-            }
-          }}
-        />
-      </th><th>Visit / วันที่</th><th>ต้นทาง</th><th>{isRep ? 'ยอดชดเชยใน REP' : 'ยอดจ่าย'}</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>การดำเนินการ / หลักฐาน</th></tr></thead><tbody>
-        {result.data.map(r => <tr key={r.id}><td><input aria-label={`เลือก ${r.id}`} type="checkbox" disabled={!isRowEligible(r)} checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>
-          <td><b>{r.an ? `IPD · AN ${r.an}` : r.vn ? `OPD · VN ${r.vn}` : `${r.encounter_type === 'OP' ? 'OPD' : r.encounter_type === 'IP' ? 'IPD' : 'ไม่ทราบประเภท'} · รอจับคู่ HIS`}</b>{r.tran_id && <small>TRAN_ID {r.tran_id}</small>}<small>HN {r.hn || 'ไม่พบ'} · {r.service_date || 'ไม่ระบุวันที่'}</small></td>
-          <td className="zero-file">{r.source_filename}<small>{r.sheet_name || 'STM'} · {r.statement_no || r.tran_id || r.id}</small></td>
-          <td className="zero-paid">{money(r.paid_amount)}</td><td>{isRep ? reasons(r) : <b>{r.errorcode} {r.verifycode}</b>}<small className="zero-action-badge" data-action={r.action}>{ZERO_ACTION_LABELS[r.action]}</small></td>
-          <td><span className={`zero-match-badge ${r.matched ? 'matched' : ''}`}>{r.matched ? '✓ จับคู่ HIS แล้ว' : 'รอจับคู่'}</span>{r.payment_uncertain && <small>Visit มียอดจ่ายไม่ทราบค่า</small>}</td>
-          <td>
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button className="zero-detail-button" onClick={() => void openDetail(r)}>ดูต้นทาง / HIS ↗</button>
-              {isRep && r.matched && Boolean(r.vn) && (
+      {result && (() => {
+        const displayedData = isRep && hideSentToday ? result.data.filter(r => !r.fdh_sent_today) : result.data;
+        const sentTodayCount = result.data.filter(r => r.fdh_sent_today).length;
+        return (
+          <>
+            {isRep && sentTodayCount > 0 && (
+              <div className="zero-duplicate-warning-banner">
+                <div>
+                  <strong>⚠️ พบรายการที่ส่งออก FDH ไปแล้วในรอบวันนี้: {sentTodayCount} รายการ</strong>
+                  <span style={{ display: 'block', fontSize: '12px', marginTop: 2 }}>
+                    ระบบตรวจพบประวัติส่งข้อมูลวันนี้ เพื่อป้องกันการส่งซ้ำ สามารถเลือก "ซ่อนรายการที่ส่ง FDH แล้วในรอบวันนี้" ได้
+                  </span>
+                </div>
                 <button
                   type="button"
-                  className="zero-autofix-button"
-                  disabled={fixingVn === r.vn}
-                  onClick={() => void handleSingleAutoFix(r)}
-                  title="ตรวจและแก้ไขข้อมูลอัตโนมัติใน HOSxP (Authen, ทันตกรรม, ตารางโรค)"
+                  className="rec-btn"
+                  onClick={() => setHideSentToday(!hideSentToday)}
+                  style={{ background: '#fff', fontSize: '12px', padding: '6px 12px' }}
                 >
-                  {fixingVn === r.vn ? '⏳ กำลังแก้...' : '⚡ แก้ไข Auto'}
+                  {hideSentToday ? 'แสดงทั้งหมดรวมที่ส่งวันนี้' : 'ซ่อนรายการที่ส่งวันนี้'}
                 </button>
-              )}
-            </div>
-          </td></tr>)}
-        {!result.data.length && <tr><td colSpan={7}>ไม่พบรายการตามเงื่อนไข — ตรวจว่ามีการนำเข้า {title} ครบแล้วหรือไม่</td></tr>}
-      </tbody></table></div>
+              </div>
+            )}
+            <div className="zero-table-scroll" tabIndex={0} aria-label={`ตารางรายการ ${title} เลื่อนแนวนอนเพื่อดูหลักฐาน`}><table><thead><tr><th>
+              <input
+                type="checkbox"
+                title="เลือก/ยกเลิกทั้งหมดในหน้านี้"
+                aria-label="เลือกแถวทั้งหมดในหน้านี้"
+                checked={Boolean(displayedData.length && displayedData.filter(isRowEligible).length && displayedData.filter(isRowEligible).every(r => Boolean(selected[r.id])))}
+                onChange={e => {
+                  setReviewed(false);
+                  if (e.target.checked) {
+                    const eligible = displayedData.filter(isRowEligible);
+                    const next = { ...selected };
+                    eligible.forEach(r => { next[r.id] = r; });
+                    setSelected(next);
+                  } else {
+                    const currentIds = new Set(displayedData.map(r => r.id));
+                    const next = { ...selected };
+                    Object.keys(next).forEach(k => { if (currentIds.has(k)) delete next[k]; });
+                    setSelected(next);
+                  }
+                }}
+              />
+            </th><th>Visit / วันที่</th><th>ต้นทาง</th><th>{isRep ? 'ยอดชดเชยใน REP' : 'ยอดจ่าย'}</th><th>เหตุผล / ขั้นตอน</th><th>จับคู่</th><th>การดำเนินการ / สถานะ FDH</th></tr></thead><tbody>
+              {displayedData.map(r => <tr key={r.id}><td><input aria-label={`เลือก ${r.id}`} type="checkbox" disabled={!isRowEligible(r)} checked={Boolean(selected[r.id])} onChange={e => { setReviewed(false); setSelected(prev => { const next = { ...prev }; if (e.target.checked) next[r.id] = r; else delete next[r.id]; return next; }); }} /></td>
+                <td><b>{r.an ? `IPD · AN ${r.an}` : r.vn ? `OPD · VN ${r.vn}` : `${r.encounter_type === 'OP' ? 'OPD' : r.encounter_type === 'IP' ? 'IPD' : 'ไม่ทราบประเภท'} · รอจับคู่ HIS`}</b>{r.tran_id && <small>TRAN_ID {r.tran_id}</small>}<small>HN {r.hn || 'ไม่พบ'} · {r.service_date || 'ไม่ระบุวันที่'}</small></td>
+                <td className="zero-file">{r.source_filename}<small>{r.sheet_name || 'STM'} · {r.statement_no || r.tran_id || r.id}</small></td>
+                <td className="zero-paid">{money(r.paid_amount)}</td><td>{isRep ? reasons(r) : <b>{r.errorcode} {r.verifycode}</b>}<small className="zero-action-badge" data-action={r.action}>{ZERO_ACTION_LABELS[r.action]}</small></td>
+                <td><span className={`zero-match-badge ${r.matched ? 'matched' : ''}`}>{r.matched ? '✓ จับคู่ HIS แล้ว' : 'รอจับคู่'}</span>{r.payment_uncertain && <small>Visit มียอดจ่ายไม่ทราบค่า</small>}</td>
+                <td>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button className="zero-detail-button" onClick={() => void openDetail(r)}>ดูต้นทาง / HIS ↗</button>
+                    {isRep && r.matched && Boolean(r.vn) && (
+                      <button
+                        type="button"
+                        className="zero-autofix-button"
+                        disabled={fixingVn === r.vn}
+                        onClick={() => void handleSingleAutoFix(r)}
+                        title="ตรวจและแก้ไขข้อมูลอัตโนมัติใน HOSxP (Authen, ทันตกรรม, ตารางโรค)"
+                      >
+                        {fixingVn === r.vn ? '⏳ กำลังแก้...' : '⚡ แก้ไข Auto'}
+                      </button>
+                    )}
+                    {isRep && (
+                      r.fdh_sent_today ? (
+                        <span className="zero-fdh-badge sent-today" title={`ส่งออก FDH แล้วเมื่อ ${r.last_fdh_sent_at || 'วันนี้'} (${r.fdh_status_message || 'รอผล'})`}>
+                          ⚠️ ส่ง FDH แล้ววันนี้ {r.last_fdh_sent_at ? `(${r.last_fdh_sent_at.slice(11, 16)} น.)` : ''}
+                        </span>
+                      ) : (
+                        r.last_fdh_sent_at ? (
+                          <span className="zero-fdh-badge not-sent-today" title={`ประวัติส่ง FDH ล่าสุดเมื่อ ${r.last_fdh_sent_at} (${r.fdh_status_message || ''})`}>
+                            ✓ เคยส่งเมื่อ {r.last_fdh_sent_at.slice(0, 10)}
+                          </span>
+                        ) : null
+                      )
+                    )}
+                  </div>
+                </td></tr>)}
+              {!displayedData.length && <tr><td colSpan={7}>ไม่พบรายการตามเงื่อนไข{hideSentToday ? ' (ซ่อนรายการที่ส่ง FDH แล้วในรอบวันนี้อยู่)' : ''} — ตรวจว่ามีการนำเข้า {title} ครบแล้วหรือไม่</td></tr>}
+            </tbody></table></div>
+          </>
+        );
+      })()}
       <div className="zero-pagination"><button disabled={loading || page <= 1} onClick={() => void load(page - 1)}>ก่อนหน้า</button><span>หน้า {page} / {Math.max(1, Math.ceil(result.total / 50))} · {result.total} แถว</span><button disabled={loading || page * 50 >= result.total} onClick={() => void load(page + 1)}>ถัดไป</button></div>
       {chosen.length > 0 ? <section className="zero-prepare"><h3>เตรียมรายการแก้ไข / ส่งใหม่ ({title}: {chosen.length} แถวในหน้านี้)</h3>
         <p>{isRep ? 'รายการที่เลือกสามารถกดแก้ไขอัตโนมัติใน HOSxP หรือส่งต่อเข้าสู่หน้าส่งออก FDH (OPD / IPD) และดาวน์โหลดเพื่อนำไปส่ง e-Claim/OSR ได้' : 'รายการรออนุมัติ รอรอบจ่าย ยังจับคู่ไม่ได้ หรือพบยอดจ่ายแล้วจะเลือกไม่ได้ ตรวจแถว 0 ที่ไม่ทราบเหตุผลให้ครบก่อนเลือก'}</p>

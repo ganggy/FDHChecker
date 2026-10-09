@@ -7,6 +7,10 @@ export interface StmZeroRow {
   maininscl: string; errorcode: string; verifycode: string;
   amount: number | null; paid_amount: number | null; raw_data: Record<string, unknown>;
   matched: boolean; has_payment: boolean; payment_uncertain?: boolean; action: ZeroAction; reason: string;
+  fdh_sent_today?: boolean;
+  last_fdh_sent_at?: string | null;
+  fdh_status_message?: string | null;
+  fdh_transaction_uid?: string | null;
 }
 export const ZERO_ACTION_LABELS: Record<ZeroAction, string> = {
   review: 'ตรวจเหตุผลก่อน', approval: 'ตรวจการอนุมัติ SMCS', appeal: 'ตรวจสิทธิทักท้วง OSR',

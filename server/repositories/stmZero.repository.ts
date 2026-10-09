@@ -54,6 +54,7 @@ export async function readStmZeroRows(startDate: string, endDate: string, source
           errorcode: text(r.errorcode) || pickImportColumn(raw, ['errorcode', 'error code', 'error_code', 'รหัสข้อผิดพลาด', 'รหัสไม่ผ่าน', 'รหัสปฏิเสธ'], true), verifycode: text(r.verifycode) || pickImportColumn(raw, ['verifycode', 'verify code', 'verify_code'], true),
           amount: amount(r.amount) ?? amount(pickImportColumn(raw, ['amount', 'เรียกเก็บ', 'ยอดเรียกเก็บ', 'จำนวนเงินที่ขอเบิก'], true) || null), paid_amount: paid, raw_data: raw, matched: false, has_payment: false, payment_uncertain: false,
           action: 'review' as const, reason: '',
+          fdh_sent_today: false, last_fdh_sent_at: null as string | null, fdh_status_message: null as string | null, fdh_transaction_uid: null as string | null,
         };
       }).filter(r => source === 'rep-sheet-zero' || r.paid_amount == null || isExplicitZero(r.paid_amount));
     const hospital = await getUTFConnection();
@@ -111,6 +112,80 @@ export async function readStmZeroRows(startDate: string, endDate: string, source
             const linked = paid.filter(p => (r.an ? p.an === r.an : r.vn && p.vn === r.vn) || (r.tran_id && p.tran_id === r.tran_id));
             r.has_payment = linked.some(p => (amount(p.paid_amount) ?? originalPaidAmount(parseOriginalRow(p.raw_data)) ?? 0) > 0);
             r.payment_uncertain = linked.some(p => p.paid_amount == null && originalPaidAmount(parseOriginalRow(p.raw_data)) == null);
+          }
+        }
+
+        // Query FDH submission history to prevent duplicate submission on the same day
+        const fdhStatusMap = new Map<string, { sent_at: string; status: string; uid: string; sent_today: boolean }>();
+        if (vns.length) {
+          try {
+            const [fdhRows] = await hospital.query<RowDataPacket[]>(`
+              SELECT vn, DATE_FORMAT(fdh_claim_status_datetime, '%Y-%m-%d %H:%i:%s') AS sent_at,
+                fdh_claim_status_message AS status_msg, transaction_uid,
+                CASE WHEN DATE(fdh_claim_status_datetime) = CURRENT_DATE() THEN 1 ELSE 0 END AS sent_today
+              FROM fdh_claim_status
+              WHERE vn IN (${vns.map(() => '?').join(',')})
+              ORDER BY fdh_claim_status_id DESC
+            `, vns);
+            for (const item of fdhRows as Array<Record<string, unknown>>) {
+              const vnKey = String(item.vn || '');
+              if (vnKey && !fdhStatusMap.has(`vn:${vnKey}`)) {
+                fdhStatusMap.set(`vn:${vnKey}`, {
+                  sent_at: String(item.sent_at || ''),
+                  status: String(item.status_msg || ''),
+                  uid: String(item.transaction_uid || ''),
+                  sent_today: Number(item.sent_today) === 1,
+                });
+              }
+            }
+          } catch {
+            // fdh_claim_status table might not exist or have different columns in some hospital setups
+          }
+        }
+
+        // Also check repstminv fdh_claim_detail_row for both VN and AN
+        const fdhCodes = [...new Set([...vns, ...ans])];
+        if (fdhCodes.length) {
+          try {
+            const [claimDetails] = await connection.query<RowDataPacket[]>(`
+              SELECT vn, an, DATE_FORMAT(sent_at, '%Y-%m-%d %H:%i:%s') AS sent_at,
+                claim_status, upload_uid,
+                CASE WHEN DATE(sent_at) = CURRENT_DATE() THEN 1 ELSE 0 END AS sent_today
+              FROM fdh_claim_detail_row
+              WHERE vn IN (${fdhCodes.map(() => '?').join(',')}) OR an IN (${fdhCodes.map(() => '?').join(',')})
+              ORDER BY id DESC
+            `, [...fdhCodes, ...fdhCodes]);
+            for (const item of claimDetails as Array<Record<string, unknown>>) {
+              const vnKey = String(item.vn || '');
+              const anKey = String(item.an || '');
+              const targetKey = anKey ? `an:${anKey}` : `vn:${vnKey}`;
+              if (!fdhStatusMap.has(targetKey)) {
+                fdhStatusMap.set(targetKey, {
+                  sent_at: String(item.sent_at || ''),
+                  status: String(item.claim_status || ''),
+                  uid: String(item.upload_uid || ''),
+                  sent_today: Number(item.sent_today) === 1,
+                });
+              }
+            }
+          } catch {
+            // best-effort
+          }
+        }
+
+        for (const r of chunk) {
+          const key = r.an ? `an:${r.an}` : (r.vn ? `vn:${r.vn}` : '');
+          const fdh = key ? fdhStatusMap.get(key) : undefined;
+          if (fdh) {
+            r.last_fdh_sent_at = fdh.sent_at || null;
+            r.fdh_status_message = fdh.status || null;
+            r.fdh_transaction_uid = fdh.uid || null;
+            r.fdh_sent_today = fdh.sent_today;
+          } else {
+            r.last_fdh_sent_at = null;
+            r.fdh_status_message = null;
+            r.fdh_transaction_uid = null;
+            r.fdh_sent_today = false;
           }
         }
       }

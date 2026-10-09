@@ -45,4 +45,5 @@ knowlage/ksp-vault/FDHChecker/_ksp/ai-revisions/
 *.sw?
 .agents/
 skills-lock.json
+*.xlsx
 

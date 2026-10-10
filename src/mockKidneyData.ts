@@ -3,7 +3,7 @@ export interface KidneyMonitorRecord {
   hn: string;
   vn: string;
   patientName: string;
-  insuranceType: 'UCS+SSS' | 'OFC+LGO' | 'UC-EPO';
+  insuranceType: string;
   hipdata_code: string;
   serviceDate: string;  dialysisFee: number;
   dialysisCost: number;

@@ -104,11 +104,46 @@ const CLAIM_TRACKING_LABELS = {
     REP_ERROR: { label: 'REP/STM มี Error', color: '#9a3412', background: '#ffedd5' },
 } as const;
 
-const RIGHT_LABEL_MAP: Record<string, string> = {
-    all: 'ทั้งหมด',
-    ucs: 'UCS + SSS',
-    ofc_lgo: 'OFC + LGO',
-    uc: 'UC - EPO จริง',
+export type ClaimCategoryKey = 'all' | 'ucs' | 'ofc' | 'lgo' | 'sss' | 'other';
+
+const RIGHT_LABEL_MAP: Record<ClaimCategoryKey, string> = {
+    all: 'ทุกกลุ่มสิทธิ',
+    ucs: 'บัตรทอง (UCS)',
+    ofc: 'ข้าราชการ (OFC)',
+    lgo: 'อปท. (LGO)',
+    sss: 'ประกันสังคม (SSS)',
+    other: 'สิทธิอื่นๆ',
+};
+
+const CLAIM_CATEGORY_CONFIG: Record<
+    Exclude<ClaimCategoryKey, 'all'>,
+    { label: string; short: string; code: string; color: string; background: string; border: string }
+> = {
+    ucs: { label: 'บัตรทอง', short: 'UCS', code: 'UCS', color: '#059669', background: '#ecfdf5', border: '#10b981' },
+    ofc: { label: 'ข้าราชการ', short: 'OFC', code: 'OFC', color: '#7c3aed', background: '#f5f3ff', border: '#8b5cf6' },
+    lgo: { label: 'อปท.', short: 'LGO', code: 'LGO', color: '#d97706', background: '#fffbeb', border: '#f59e0b' },
+    sss: { label: 'ประกันสังคม', short: 'SSS', code: 'SSS', color: '#0284c7', background: '#f0f9ff', border: '#0ea5e9' },
+    other: { label: 'สิทธิอื่นๆ', short: 'OTHER', code: 'OTHER', color: '#64748b', background: '#f8fafc', border: '#94a3b8' },
+};
+
+export const getVisitClaimCategory = (item: MonitorItem): Exclude<ClaimCategoryKey, 'all'> => {
+    const code = String(item.hipdataCode || item.hipdata_code || '').trim().toUpperCase();
+    const rightName = String(item.insuranceType || item.pttypeName || '').trim().toLowerCase();
+    const group = String(item.insuranceGroup || '').trim().toUpperCase();
+
+    if (code === 'LGO' || /อปท|ท้องถิ่น/.test(rightName)) return 'lgo';
+    if (code === 'OFC' || /ข้าราชการ|ส่วนราชการ|cscd|เบิกตรง|เบิกหน่วยงาน/.test(rightName)) return 'ofc';
+    if (code === 'SSS' || /ประกันสังคม/.test(rightName)) return 'sss';
+    if (['UCS', 'UC', 'WEL'].includes(code) || /บัตรทอง|สุขภาพ|สปสช|ผู้สูงอายุ|ผู้พิการ|ผู้มีรายได้น้อย|ทหารผ่านศึก|อสม/.test(rightName)) return 'ucs';
+
+    if (group === 'UC-EPO') return 'ucs';
+    if (group === 'OFC+LGO') {
+        return (/อปท|ท้องถิ่น/.test(rightName)) ? 'lgo' : 'ofc';
+    }
+    if (group === 'UCS+SSS') {
+        return (/ประกันสังคม/.test(rightName)) ? 'sss' : 'ucs';
+    }
+    return 'other';
 };
 
 type StmView = 'all' | 'received' | 'waiting' | 'no-rep';
@@ -120,8 +155,9 @@ const STM_VIEW_LABELS: Record<StmView, string> = {
     'no-rep': 'ยังไม่มี REP',
 };
 
-export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, setActiveMonitor] = useState('kidney');
-    const [filterRight, setFilterRight] = useState('all');
+export const SpecialMonitorPage: React.FC = () => {
+    const [activeMonitor, setActiveMonitor] = useState('kidney');
+    const [filterRight, setFilterRight] = useState<ClaimCategoryKey>('all');
     const [filterPatientRight, setFilterPatientRight] = useState('all');
     const [stmView, setStmView] = useState<StmView>('all');
     const [searchText, setSearchText] = useState('');
@@ -284,31 +320,18 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
 
     const filteredData = useMemo(() => {
         return (Array.isArray(allKidneyData) ? allKidneyData : []).filter((item) => {
-            const analysis = getAnalysis(item);
             // Filter by active monitor type
             if (activeMonitor === 'kidney') {
                 // Backend returns only department 060 visits with dialysis evidence.
                 if (!('insuranceGroup' in item && 'dialysisFee' in item)) return false;
             }
-    
-            // Check if this is a kidney monitor record with insuranceGroup
-            if ('insuranceGroup' in item) {
-                const kidneyRecord = item as unknown as KidneyMonitorRecord;
-                // Only apply filter if not 'all'
-                if (filterRight !== 'all') {
-                    if (filterRight === 'ucs' && kidneyRecord.insuranceGroup !== 'UCS+SSS') return false;
-                    if (filterRight === 'ofc_lgo' && kidneyRecord.insuranceGroup !== 'OFC+LGO') return false;
-                    if (filterRight === 'uc' && kidneyRecord.insuranceGroup !== 'UC-EPO') return false;
-                }
-            } else {
-                // Old logic for non-kidney records (apply only if not 'all')
-                if (filterRight !== 'all') {
-                    if (filterRight === 'ucs' && analysis.right !== 'UCS + SSS') return false;
-                    if (filterRight === 'ofc_lgo' && analysis.right !== 'OFC + LGO') return false;
-                    if (filterRight === 'uc' && analysis.right !== 'UC (EPO จริง)') return false;
-                }
+
+            // Filter by claim group (ucs, ofc, lgo, sss, other)
+            if (filterRight !== 'all') {
+                const category = getVisitClaimCategory(item);
+                if (category !== filterRight) return false;
             }
-    
+
             if (filterPatientRight !== 'all') {
                 const patientRight = 'insuranceType' in item
                     ? String((item as unknown as KidneyMonitorRecord).insuranceType || '').trim()
@@ -316,9 +339,9 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 if (patientRight !== filterPatientRight) return false;
             }
 
-            return true; // Keep item if it passes all filters
+            return true;
         });
-    }, [allKidneyData, activeMonitor, filterRight, filterPatientRight, getAnalysis]);
+    }, [allKidneyData, activeMonitor, filterRight, filterPatientRight]);
 
     const stmCounts = useMemo(() => {
         const records = filteredData as KidneyMonitorRecord[];
@@ -354,6 +377,88 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
         return Array.from(set).sort((a, b) => a.localeCompare(b, 'th'));
     }, [allKidneyData]);
 
+    // สรุปยอดรวมแยกตามกลุ่มสิทธิ 5 กลุ่ม (UCS, OFC, LGO, SSS, OTHER) + ภาพรวม
+    const rightSummaries = useMemo(() => {
+        const list = (Array.isArray(allKidneyData) ? allKidneyData : []).filter((item) => {
+            if (activeMonitor === 'kidney') {
+                return 'insuranceGroup' in item && 'dialysisFee' in item;
+            }
+            return true;
+        });
+
+        const initialCategory = () => ({
+            count: 0,
+            revenue: 0,
+            costTotal: 0,
+            profit: 0,
+            repAmount: 0,
+            stmPaidAmount: 0,
+            repCount: 0,
+            stmCount: 0,
+        });
+
+        const byCat: Record<Exclude<ClaimCategoryKey, 'all'>, ReturnType<typeof initialCategory>> = {
+            ucs: initialCategory(),
+            ofc: initialCategory(),
+            lgo: initialCategory(),
+            sss: initialCategory(),
+            other: initialCategory(),
+        };
+
+        const overall = initialCategory();
+
+        list.forEach((item) => {
+            const cat = getVisitClaimCategory(item);
+            const row = item as KidneyMonitorRecord;
+            const rev = Number(row.revenue ?? item.revenue ?? 0);
+            const cost = Number(row.costTotal ?? item.costTotal ?? 0);
+            const prof = Number(row.profit ?? item.profit ?? (rev - cost));
+            const rep = Number(row.repAmount ?? 0);
+            const stm = Number(row.stmPaidAmount ?? 0);
+
+            byCat[cat].count += 1;
+            byCat[cat].revenue += rev;
+            byCat[cat].costTotal += cost;
+            byCat[cat].profit += prof;
+            byCat[cat].repAmount += rep;
+            byCat[cat].stmPaidAmount += stm;
+            if (row.repFound) byCat[cat].repCount += 1;
+            if (row.stmFound) byCat[cat].stmCount += 1;
+
+            overall.count += 1;
+            overall.revenue += rev;
+            overall.costTotal += cost;
+            overall.profit += prof;
+            overall.repAmount += rep;
+            overall.stmPaidAmount += stm;
+            if (row.repFound) overall.repCount += 1;
+            if (row.stmFound) overall.stmCount += 1;
+        });
+
+        return { byCat, overall };
+    }, [allKidneyData, activeMonitor]);
+
+    const currentFilteredSummary = useMemo(() => {
+        let count = 0;
+        let revenue = 0;
+        let costTotal = 0;
+        let profit = 0;
+        let repAmount = 0;
+        let stmPaidAmount = 0;
+
+        visibleData.forEach((item) => {
+            const row = item as KidneyMonitorRecord;
+            count += 1;
+            revenue += Number(row.revenue ?? item.revenue ?? 0);
+            costTotal += Number(row.costTotal ?? item.costTotal ?? 0);
+            profit += Number(row.profit ?? item.profit ?? 0);
+            repAmount += Number(row.repAmount ?? 0);
+            stmPaidAmount += Number(row.stmPaidAmount ?? 0);
+        });
+
+        return { count, revenue, costTotal, profit, repAmount, stmPaidAmount };
+    }, [visibleData]);
+
     const handleExportExcel = useCallback(() => {
         if (!visibleData.length) return;
 
@@ -369,16 +474,19 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
             const groupValue = isKidneyRecord && kidneyRecord
                 ? kidneyRecord.insuranceGroup
                 : analysis.category || '-';
+            const claimCat = getVisitClaimCategory(item);
+            const claimCatLabel = CLAIM_CATEGORY_CONFIG[claimCat]?.label || claimCat;
 
             return {
                 ลำดับ: index + 1,
                 VN: item.vn || kidneyRecord?.vn || '-',
                 HN: item.hn || kidneyRecord?.hn || '-',
                 ชื่อผู้ป่วย: item.ptname || kidneyRecord?.patientName || '-',
+                กลุ่มสิทธิหลัก: claimCatLabel,
                 สิทธิการรักษา: rightValue,
-                กลุ่มสิทธิ: groupValue,
+                กลุ่มสิทธิ_เดิม: groupValue,
                 วันที่รับบริการ: dateValue || '-',
-                รายรับ: Number(
+                ยอดเงิน_Visit: Number(
                     isKidneyRecord && kidneyRecord
                         ? kidneyRecord.revenue
                         : item.revenue ?? analysis.totalCost ?? analysis.totalAmount ?? 0
@@ -412,8 +520,17 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
             { wch: 12 },
             { wch: 28 },
             { wch: 18 },
+            { wch: 18 },
             { wch: 14 },
             { wch: 14 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 20 },
+            { wch: 18 },
+            { wch: 18 },
+            { wch: 14 },
+            { wch: 18 },
             { wch: 14 },
             { wch: 14 },
             { wch: 24 },
@@ -1010,15 +1127,98 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                         </div>
                     </div>
 
+                    {/* สรุปยอดรวมแยกตามกลุ่มสิทธิการรักษา (UCS, OFC, LGO, SSS, OTHER) */}
+                    <div style={{ marginTop: '16px', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>
+                                💳 สรุปยอดรวมแยกตามกลุ่มสิทธิ ({allKidneyData.length.toLocaleString('th-TH')} visit ทั้งหมดในช่วงวันที่)
+                            </div>
+                            {filterRight !== 'all' && (
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterRight('all')}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#2563eb',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        textDecoration: 'underline'
+                                    }}
+                                >
+                                    ล้างตัวกรองสิทธิ (แสดงทั้งหมด)
+                                </button>
+                            )}
+                        </div>
+                        <div className="special-monitor-summary-grid">
+                            {(['ucs', 'ofc', 'lgo', 'sss', 'other'] as const).map((catKey) => {
+                                const conf = CLAIM_CATEGORY_CONFIG[catKey];
+                                const sum = rightSummaries.byCat[catKey];
+                                const isSelected = filterRight === catKey;
+                                return (
+                                    <div
+                                        key={catKey}
+                                        role="button"
+                                        tabIndex={0}
+                                        className={`special-monitor-summary-card ${isSelected ? 'active' : ''}`}
+                                        style={{
+                                            borderLeft: `4px solid ${conf.border}`,
+                                            background: isSelected ? conf.background : '#ffffff',
+                                        }}
+                                        onClick={() => setFilterRight((prev) => prev === catKey ? 'all' : catKey)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                setFilterRight((prev) => prev === catKey ? 'all' : catKey);
+                                            }
+                                        }}
+                                        title={`คลิกเพื่อกรองเฉพาะกลุ่ม ${conf.label}`}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                            <span style={{ fontSize: '12px', fontWeight: 700, color: conf.color }}>
+                                                {conf.label} ({conf.code})
+                                            </span>
+                                            <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', background: '#f1f5f9', padding: '1px 6px', borderRadius: '4px' }}>
+                                                {sum.count.toLocaleString('th-TH')} visit
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
+                                            ฿{sum.revenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>ได้รับ STM:</span>
+                                                <strong style={{ color: '#166534' }}>฿{sum.stmPaidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>รอชดเชย REP:</span>
+                                                <strong style={{ color: '#2563eb' }}>฿{sum.repAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #e2e8f0', paddingTop: '3px', marginTop: '2px' }}>
+                                                <span>กำไรสุทธิ:</span>
+                                                <strong style={{ color: sum.profit >= 0 ? '#166534' : '#b91c1c' }}>
+                                                    ฿{sum.profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                                </strong>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     <div className="special-monitor-filters">
                         <label>เริ่มวันที่<input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
                         <label>ถึงวันที่<input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} /></label>
                         <label>กลุ่มสิทธิ์
-                            <select value={filterRight} onChange={(e) => setFilterRight(e.target.value)}>
-                                <option value="all">ทุกกลุ่มสิทธิ์</option>
-                                <option value="ucs">UCS + SSS</option>
-                                <option value="ofc_lgo">OFC + LGO</option>
-                                <option value="uc">UC - EPO</option>
+                            <select value={filterRight} onChange={(e) => setFilterRight(e.target.value as ClaimCategoryKey)}>
+                                <option value="all">ทุกกลุ่มสิทธิ์ ({rightSummaries.overall.count.toLocaleString('th-TH')} visit · ฿{rightSummaries.overall.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="ucs">บัตรทอง (UCS) - {rightSummaries.byCat.ucs.count} visit (฿{rightSummaries.byCat.ucs.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="ofc">ข้าราชการ (OFC) - {rightSummaries.byCat.ofc.count} visit (฿{rightSummaries.byCat.ofc.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="lgo">อปท. (LGO) - {rightSummaries.byCat.lgo.count} visit (฿{rightSummaries.byCat.lgo.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="sss">ประกันสังคม (SSS) - {rightSummaries.byCat.sss.count} visit (฿{rightSummaries.byCat.sss.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="other">สิทธิอื่นๆ (Other) - {rightSummaries.byCat.other.count} visit (฿{rightSummaries.byCat.other.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
                             </select>
                         </label>
                         <label>สิทธิ์คนไข้
@@ -1045,7 +1245,13 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                             </button>
                         ))}
                     </div>
-                    <p className="special-monitor-result-count">แสดง {visibleData.length.toLocaleString('th-TH')} จาก {stmCounts[stmView].toLocaleString('th-TH')} visit ในกลุ่มนี้{searchText.trim() ? ' หลังค้นหา' : ''} · คลิกรายการเพื่อดูรายละเอียด</p>
+                    <p className="special-monitor-result-count">
+                        แสดง {visibleData.length.toLocaleString('th-TH')} จาก {stmCounts[stmView].toLocaleString('th-TH')} visit ในกลุ่มนี้{searchText.trim() ? ' หลังค้นหา' : ''}
+                        {' · '}ยอดเงินรวม <strong>฿{currentFilteredSummary.revenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                        {' · '}ชดเชย STM <strong>฿{currentFilteredSummary.stmPaidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                        {' · '}รอ REP <strong>฿{currentFilteredSummary.repAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                        {' · '}คลิกรายการเพื่อดูรายละเอียด
+                    </p>
                 </section>
             )}
 
@@ -1054,7 +1260,9 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 <div style={{ padding: '15px', background: '#ffebee', color: '#c62828', borderRadius: '4px', marginBottom: '20px' }}>
                     ⚠️ {error}
                 </div>
-            )}            {loading && (
+            )}
+
+            {loading && (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>⏳ กำลังโหลดข้อมูล...</div>
             )}
 
@@ -1078,6 +1286,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                         <thead><tr>
                             <th>visit / ผู้ป่วย</th>
                             <th>สิทธิ์</th>
+                            <th>ยอดเงิน Visit</th>
                             <th>REP</th>
                             <th>STM</th>
                             <th>ตรวจสอบ</th>
@@ -1086,10 +1295,38 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                             {visibleData.map((item, index) => {
                                 const row = item as KidneyMonitorRecord;
                                 const status = row.claimTrackingStatus ? CLAIM_TRACKING_LABELS[row.claimTrackingStatus] : null;
+                                const claimCat = getVisitClaimCategory(row);
+                                const claimConfig = CLAIM_CATEGORY_CONFIG[claimCat];
                                 return (
                                     <tr key={`${row.vn || row.hn}-${row.serviceDate}-${index}`} role="button" aria-label={`ดูรายละเอียด visit ${row.vn || row.hn}`} onClick={() => setSelectedKidneyRecord(row)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedKidneyRecord(row); } }}>
                                         <td><strong>{row.patientName || '-'}</strong><small>{row.serviceDate || '-'} · HN {row.hn || '-'} · VN {row.vn || '-'}</small></td>
-                                        <td><strong>{row.insuranceGroup || '-'}</strong><small>{row.insuranceType || '-'}</small></td>
+                                        <td>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span
+                                                    className="special-monitor-right-badge"
+                                                    style={{
+                                                        color: claimConfig.color,
+                                                        background: claimConfig.background,
+                                                        borderColor: claimConfig.border,
+                                                    }}
+                                                >
+                                                    {claimConfig.short}
+                                                </span>
+                                                <strong>{row.insuranceGroup || '-'}</strong>
+                                            </div>
+                                            <small>{row.insuranceType || '-'}</small>
+                                        </td>
+                                        <td>
+                                            <strong style={{ color: '#0f172a', fontSize: '14px' }}>
+                                                ฿{Number(row.revenue || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                            </strong>
+                                            <small style={{ color: '#64748b' }}>
+                                                ทุน ฿{Number(row.costTotal || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                                <span style={{ color: Number(row.profit || 0) >= 0 ? '#166534' : '#b91c1c', marginLeft: 4, fontWeight: 600 }}>
+                                                    · กำไร ฿{Number(row.profit || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                                </span>
+                                            </small>
+                                        </td>
                                         <td>{row.repFound ? <><strong>฿{Number(row.repAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong><small>{row.repNos?.length ? `เลข ${row.repNos.join(', ')}` : 'พบ REP'}</small></> : <span className="special-monitor-muted">ยังไม่มี REP</span>}</td>
                                         <td>{row.stmFound ? <><span className="special-monitor-pill received">ได้รับ STM</span><strong>฿{Number(row.stmPaidAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong><small>{row.stmNos?.length ? `เลข ${row.stmNos.join(', ')}` : 'พบรายการ STM ที่จับคู่แล้ว'}</small></> : <span className="special-monitor-pill waiting">{row.repFound ? 'รอ STM' : 'รอ REP'}</span>}</td>
                                         <td>

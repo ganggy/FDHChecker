@@ -2383,7 +2383,7 @@ export interface ReconciliationQueryParams {
   hmain?: string;
   search?: string;
   page?: number;
-  pageSize?: number;
+  pageSize?: number | string;
 }
 
 export interface ReconciliationRow {
@@ -2475,7 +2475,9 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
   const rawEndDate = String(params.endDate || startDate).slice(0, 10);
   const endDate = rawEndDate > today ? today : rawEndDate;
   const page = Math.max(1, Number(params.page || 1));
-  const pageSize = Math.min(500, Math.max(10, Number(params.pageSize || 100)));
+  const rawPageSizeStr = String(params.pageSize ?? '100').trim().toLowerCase();
+  const isFetchAll = rawPageSizeStr === '0' || rawPageSizeStr === 'all';
+  const pageSize = isFetchAll ? 0 : Math.min(50000, Math.max(10, Number(rawPageSizeStr) || 100));
   const compareStatusFilter = String(params.compareStatus || '').trim();
 
   // Step 1: load the full candidate set for the selected period so summary and filters are consistent.
@@ -2928,8 +2930,8 @@ export const getVisitRepStmComparison = async (params: ReconciliationQueryParams
       outstanding_amount: Math.round(group.outstanding_amount * 100) / 100,
     }))
     .sort((a, b) => b.claimable_amount - a.claimable_amount);
-  const offset = (page - 1) * pageSize;
-  const data = filtered.slice(offset, offset + pageSize);
+  const offset = pageSize > 0 ? (page - 1) * pageSize : 0;
+  const data = pageSize > 0 ? filtered.slice(offset, offset + pageSize) : filtered;
 
   return { data, total, summary, group_summary };
 };

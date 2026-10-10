@@ -1042,7 +1042,7 @@ export const fetchReceivableReconciliation = async (params: {
   financeRight?: string;
   compareStatus?: string;
   page?: number;
-  pageSize?: number;
+  pageSize?: number | string;
 }): Promise<ReconciliationResponse> => {
   const query = new URLSearchParams();
   query.set('startDate', params.startDate);
@@ -1053,7 +1053,7 @@ export const fetchReceivableReconciliation = async (params: {
   if (params.financeRight) query.set('financeRight', params.financeRight);
   if (params.compareStatus) query.set('compareStatus', params.compareStatus);
   if (params.page) query.set('page', String(params.page));
-  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  if (params.pageSize !== undefined) query.set('pageSize', String(params.pageSize));
 
   const response = await fetch(`/api/receivables/reconciliation?${query.toString()}`, {
     method: 'GET',

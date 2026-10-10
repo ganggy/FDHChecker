@@ -79,7 +79,16 @@ const SummaryCard = ({
   </div>
 );
 
-const PAGE_SIZE_OPTIONS = [50, 100, 200, 500];
+const PAGE_SIZE_OPTIONS = [
+  { value: 50, label: '50 รายการ' },
+  { value: 100, label: '100 รายการ' },
+  { value: 200, label: '200 รายการ' },
+  { value: 500, label: '500 รายการ' },
+  { value: 1000, label: '1,000 รายการ' },
+  { value: 2000, label: '2,000 รายการ' },
+  { value: 5000, label: '5,000 รายการ' },
+  { value: 0, label: 'ทั้งหมดตามช่วงเวลา (ไม่จำกัด)' },
+];
 
 export const VisitReconciliationPage = () => {
   const [dashboardNavigation] = useState(() => consumeDashboardNavigation('reconciliation'));
@@ -109,7 +118,8 @@ export const VisitReconciliationPage = () => {
       .catch(() => {});
   }, []);
 
-  const handleLoad = async (newPage = 1) => {
+  const handleLoad = async (newPage = 1, overridePageSize?: number) => {
+    const currentSize = overridePageSize !== undefined ? overridePageSize : pageSize;
     setLoading(true);
     setError('');
     setRows([]); setSummary(null);
@@ -121,7 +131,7 @@ export const VisitReconciliationPage = () => {
         hosxpRight: hosxpRight === 'ALL' ? undefined : hosxpRight,
         compareStatus: compareStatus || undefined,
         page: newPage,
-        pageSize,
+        pageSize: currentSize,
       });
       setRows(result.data || []);
       setTotal(result.total || 0);
@@ -132,6 +142,13 @@ export const VisitReconciliationPage = () => {
       setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    if (rows.length > 0 || summary) {
+      void handleLoad(1, newSize);
     }
   };
 
@@ -156,7 +173,8 @@ export const VisitReconciliationPage = () => {
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const isAll = pageSize === 0;
+  const totalPages = isAll ? 1 : Math.max(1, Math.ceil(total / (pageSize || 1)));
 
   const handleExport = () => {
     if (rows.length === 0) return;
@@ -194,7 +212,8 @@ export const VisitReconciliationPage = () => {
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Reconciliation');
-    XLSX.writeFile(wb, `reconciliation_page${page}_${auditScope.startDate}_${auditScope.endDate}.xlsx`);
+    const fileSuffix = isAll || rows.length === total ? 'all' : `page${page}`;
+    XLSX.writeFile(wb, `reconciliation_${fileSuffix}_${auditScope.startDate}_${auditScope.endDate}.xlsx`);
   };
 
   const exportAuditSummary = () => {
@@ -341,9 +360,11 @@ export const VisitReconciliationPage = () => {
             <select
               className="reconciliation-select"
               value={pageSize}
-              onChange={e => setPageSize(Number(e.target.value))}
+              onChange={e => handlePageSizeChange(Number(e.target.value))}
             >
-              {PAGE_SIZE_OPTIONS.map(s => <option key={s} value={s}>{s} แถว</option>)}
+              {PAGE_SIZE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
             </select>
           </div>
           <div className="reconciliation-filter-actions">
@@ -425,35 +446,46 @@ export const VisitReconciliationPage = () => {
         <section className="reconciliation-table-card">
           <div className="reconciliation-table-header">
             <div className="rec-count-badge">
-              <span>📋 แสดง {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, total)} จาก {total.toLocaleString('th-TH')} รายการ</span>
+              <span>
+                📋 {isAll
+                  ? `แสดงทั้งหมด ${total.toLocaleString('th-TH')} รายการ (${startDate} ถึง ${endDate})`
+                  : `แสดง ${((page - 1) * pageSize) + 1}–${Math.min(page * pageSize, total)} จาก ${total.toLocaleString('th-TH')} รายการ`}
+              </span>
             </div>
-            <div className="rec-pagination">
-              <button
-                className="rec-page-btn"
-                onClick={() => handleLoad(1)}
-                disabled={page === 1 || loading}
-                title="หน้าแรก"
-              >«</button>
-              <button
-                className="rec-page-btn"
-                onClick={() => handleLoad(page - 1)}
-                disabled={page === 1 || loading}
-                title="ก่อนหน้า"
-              >‹ ก่อนหน้า</button>
-              <span className="rec-page-indicator">หน้า {page} / {totalPages}</span>
-              <button
-                className="rec-page-btn"
-                onClick={() => handleLoad(page + 1)}
-                disabled={page >= totalPages || loading}
-                title="ถัดไป"
-              >ถัดไป ›</button>
-              <button
-                className="rec-page-btn"
-                onClick={() => handleLoad(totalPages)}
-                disabled={page >= totalPages || loading}
-                title="หน้าสุดท้าย"
-              >»</button>
-            </div>
+            {!isAll && (
+              <div className="rec-pagination">
+                <button
+                  className="rec-page-btn"
+                  onClick={() => handleLoad(1)}
+                  disabled={page === 1 || loading}
+                  title="หน้าแรก"
+                >«</button>
+                <button
+                  className="rec-page-btn"
+                  onClick={() => handleLoad(page - 1)}
+                  disabled={page === 1 || loading}
+                  title="ก่อนหน้า"
+                >‹ ก่อนหน้า</button>
+                <span className="rec-page-indicator">หน้า {page} / {totalPages}</span>
+                <button
+                  className="rec-page-btn"
+                  onClick={() => handleLoad(page + 1)}
+                  disabled={page >= totalPages || loading}
+                  title="ถัดไป"
+                >ถัดไป ›</button>
+                <button
+                  className="rec-page-btn"
+                  onClick={() => handleLoad(totalPages)}
+                  disabled={page >= totalPages || loading}
+                  title="หน้าสุดท้าย"
+                >»</button>
+              </div>
+            )}
+            {isAll && (
+              <span style={{ fontSize: '0.82rem', color: '#166534', fontWeight: 600, background: '#dcfce7', padding: '4px 12px', borderRadius: 999 }}>
+                ✓ โหมดแสดงผลครบทุก Visit ในหน้าเดียว ({rows.length.toLocaleString('th-TH')} รายการ)
+              </span>
+            )}
           </div>
 
           <div className="reconciliation-table-wrap">

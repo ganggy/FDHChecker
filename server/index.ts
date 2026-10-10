@@ -4251,7 +4251,9 @@ app.post('/api/reconciliation/rep-sheet-zero/auto-sync-resolve', async (req, res
 app.get('/api/receivables/reconciliation', async (req, res) => {
   try {
     const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
-    const pageSize = req.query.pageSize ? Math.min(500, Math.max(10, Number(req.query.pageSize))) : 100;
+    const rawPageSize = req.query.pageSize !== undefined ? String(req.query.pageSize).trim().toLowerCase() : '100';
+    const isFetchAll = rawPageSize === '0' || rawPageSize === 'all';
+    const pageSize = isFetchAll ? 0 : Math.min(50000, Math.max(10, Number(rawPageSize) || 100));
     const result = await getVisitRepStmComparison({
       startDate: req.query.startDate ? String(req.query.startDate) : undefined,
       endDate: req.query.endDate ? String(req.query.endDate) : undefined,
@@ -4274,7 +4276,9 @@ app.get('/api/receivables/reconciliation', async (req, res) => {
 app.get('/api/uc-outside-cup/dashboard', async (req, res) => {
   try {
     const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
-    const pageSize = req.query.pageSize ? Math.min(500, Math.max(10, Number(req.query.pageSize))) : 100;
+    const rawPageSize = req.query.pageSize !== undefined ? String(req.query.pageSize).trim().toLowerCase() : '100';
+    const isFetchAll = rawPageSize === '0' || rawPageSize === 'all';
+    const pageSize = isFetchAll ? 0 : Math.min(50000, Math.max(10, Number(rawPageSize) || 100));
     const result = await getUcOutsideCupDashboard({
       startDate: req.query.startDate ? String(req.query.startDate) : undefined,
       endDate: req.query.endDate ? String(req.query.endDate) : undefined,
@@ -4545,7 +4549,9 @@ app.get('/api/ppfs/nhso-report', async (req, res) => {
 app.get('/api/ppfs/visit-match', async (req, res) => {
   try {
     const page = req.query.page ? Math.max(1, Number(req.query.page)) : 1;
-    const pageSize = req.query.pageSize ? Math.min(500, Math.max(10, Number(req.query.pageSize))) : 100;
+    const rawPageSize = req.query.pageSize !== undefined ? String(req.query.pageSize).trim().toLowerCase() : '100';
+    const isFetchAll = rawPageSize === '0' || rawPageSize === 'all';
+    const pageSize = isFetchAll ? 0 : Math.min(50000, Math.max(10, Number(rawPageSize) || 100));
     const result = await getVisitRepStmComparison({
       startDate: req.query.startDate ? String(req.query.startDate) : undefined,
       endDate: req.query.endDate ? String(req.query.endDate) : undefined,

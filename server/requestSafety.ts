@@ -15,6 +15,7 @@ const largeJsonBodyPaths = new Set([
   '/api/ktb-approve/upload-and-match',
   '/api/ktb-approve/apply',
   '/api/hosxp/eligible-visits',
+  '/api/hsub/import-raw',
 ]);
 const standardJsonParser = express.json({ limit: '2mb' });
 const importJsonParser = express.json({ limit: '25mb' });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import './HsubPaymentReconcilePage.css';
 
@@ -94,6 +94,18 @@ export const HsubPaymentReconcilePage: React.FC = () => {
   const [importFeedback, setImportFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // File upload & drag-drop state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number;
+    total: number;
+    filename: string;
+    percentage: number;
+  } | null>(null);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [showServerModal, setShowServerModal] = useState<boolean>(false);
+  const [serverPath, setServerPath] = useState<string>('D:\\hsub');
+
   // Tabs: 'hospitals' | 'ebudget' | 'transactions'
   const [activeTab, setActiveTab] = useState<'hospitals' | 'ebudget' | 'transactions'>('hospitals');
 
@@ -166,17 +178,114 @@ export const HsubPaymentReconcilePage: React.FC = () => {
     }
   }, [activeTab, loadTransactions]);
 
-  // Handle Import from D:\hsub
+  // Client-side Excel File Processing
+  const processFiles = async (files: File[]) => {
+    const excelFiles = files.filter((f) => {
+      const name = f.name.toLowerCase();
+      return name.endsWith('.xls') || name.endsWith('.xlsx');
+    });
+
+    if (excelFiles.length === 0) {
+      setError('กรุณาเลือกไฟล์ Excel (.xls หรือ .xlsx)');
+      return;
+    }
+
+    setImporting(true);
+    setError(null);
+    setImportFeedback(null);
+
+    let totalImported = 0;
+    let totalRecords = 0;
+    let totalPaid = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < excelFiles.length; i++) {
+      const file = excelFiles[i];
+      const percent = Math.round(((i + 1) / excelFiles.length) * 100);
+      setUploadProgress({
+        current: i + 1,
+        total: excelFiles.length,
+        filename: file.name,
+        percentage: percent,
+      });
+
+      try {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+          throw new Error('ไม่พบแผ่นงาน (Sheet) ในไฟล์');
+        }
+        const sheet = workbook.Sheets[firstSheetName];
+        const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
+
+        const res = await fetch('/api/hsub/import-raw', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: file.name,
+            data: rawData,
+          }),
+        });
+
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || 'นำเข้าไม่สำเร็จ');
+        }
+
+        const d = json.data;
+        totalImported += d.imported_files || 1;
+        totalRecords += d.total_records || 0;
+        totalPaid += d.total_paid || 0;
+      } catch (err: any) {
+        errors.push(`${file.name}: ${err.message}`);
+      }
+    }
+
+    setUploadProgress(null);
+    setImporting(false);
+
+    let feedbackMsg = `นำเข้าสำเร็จ ${totalImported}/${excelFiles.length} ไฟล์ (${totalRecords.toLocaleString()} รายการ, ยอดพึงจ่าย ฿${totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`;
+    if (errors.length > 0) {
+      feedbackMsg += ` [พบข้อผิดพลาด ${errors.length} ไฟล์: ${errors.slice(0, 3).join(', ')}]`;
+    }
+    setImportFeedback(feedbackMsg);
+
+    await loadSummary();
+    if (activeTab === 'transactions') {
+      await loadTransactions();
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      processFiles(files);
+      e.target.value = '';
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const files = Array.from(e.dataTransfer.files);
+      processFiles(files);
+    }
+  };
+
+  // Handle Import from server directory
   const handleImportDir = async () => {
     if (importing) return;
     setImporting(true);
     setImportFeedback(null);
     setError(null);
+    setShowServerModal(false);
     try {
       const res = await fetch('/api/hsub/import-dir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dir: 'D:\\hsub' }),
+        body: JSON.stringify({ dir: serverPath.trim() || 'D:\\hsub' }),
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
@@ -184,7 +293,7 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       }
       const d = json.data;
       setImportFeedback(
-        `นำเข้าสำเร็จ! ประมวลผล ${d.imported_files}/${d.total_files} ไฟล์ (${d.total_records.toLocaleString()} รายการ, ยอดพึงจ่าย ฿${d.total_paid.toLocaleString()})`
+        `นำเข้าสำเร็จ! ประมวลผล ${d.imported_files}/${d.total_files} ไฟล์ (${d.total_records.toLocaleString()} รายการ, ยอดพึงจ่าย ฿${d.total_paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
       );
       await loadSummary();
       if (activeTab === 'transactions') {
@@ -196,6 +305,7 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       setImporting(false);
     }
   };
+
 
   // Export Excel
   const handleExportExcel = () => {
@@ -276,12 +386,27 @@ export const HsubPaymentReconcilePage: React.FC = () => {
           </p>
         </div>
         <div className="hsub-header-actions">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".xls,.xlsx"
+            style={{ display: 'none' }}
+            onChange={handleFileInputChange}
+          />
           <button
             className="hsub-btn hsub-btn-import"
-            onClick={handleImportDir}
+            onClick={() => fileInputRef.current?.click()}
             disabled={importing}
           >
-            {importing ? '⏳ กำลังประมวลผลนำเข้า...' : '📥 นำเข้าไฟล์ D:\\hsub'}
+            {importing ? '⏳ กำลังประมวลผลนำเข้า...' : '📁 เลือกไฟล์จากเครื่อง (เลือกหลายไฟล์ได้)'}
+          </button>
+          <button
+            className="hsub-btn hsub-btn-secondary"
+            onClick={() => setShowServerModal(true)}
+            disabled={importing}
+          >
+            🖥️ โฟลเดอร์เซิร์ฟเวอร์
           </button>
           <button
             className="hsub-btn hsub-btn-export"
@@ -292,6 +417,37 @@ export const HsubPaymentReconcilePage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Drag & Drop Zone */}
+      <div
+        className={`hsub-dropzone ${isDragging ? 'active' : ''}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <div className="hsub-dropzone-icon">📥</div>
+        <div className="hsub-dropzone-text">ลากไฟล์ Excel (.xls, .xlsx) ของ รพ.สต. มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</div>
+        <div className="hsub-dropzone-hint">
+          รองรับการเลือกทีละหลายไฟล์พร้อมกันจากโฟลเดอร์ <code>D:\hsub</code> หรือที่จัดเก็บในเครื่องของคุณ
+        </div>
+      </div>
+
+      {/* Upload Progress Bar */}
+      {uploadProgress && (
+        <div className="hsub-progress-box">
+          <div className="hsub-progress-header">
+            <span>⏳ กำลังนำเข้า: <strong>{uploadProgress.filename}</strong></span>
+            <span>{uploadProgress.current} / {uploadProgress.total} ไฟล์ ({uploadProgress.percentage}%)</span>
+          </div>
+          <div className="hsub-progress-bar-bg">
+            <div className="hsub-progress-bar-fill" style={{ width: `${uploadProgress.percentage}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* Feedback Messages */}
       {loading && (
@@ -789,6 +945,53 @@ export const HsubPaymentReconcilePage: React.FC = () => {
                 disabled={txPage >= totalPages || txLoading}
               >
                 หน้าสุดท้าย »
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Server Directory Modal */}
+      {showServerModal && (
+        <div className="hsub-modal-overlay" onClick={() => setShowServerModal(false)}>
+          <div className="hsub-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="hsub-modal-title">🖥️ นำเข้าจากโฟลเดอร์บนเครื่องเซิร์ฟเวอร์</h3>
+            <p className="hsub-modal-desc">
+              กรณีโปรแกรมรันอยู่บนเครื่องเดียวกับที่เก็บไฟล์ (เช่น โฮสต์เซิร์ฟเวอร์มีไดรฟ์หรือโฟลเดอร์เก็บไฟล์) สามารถระบุตำแหน่งโฟลเดอร์เพื่อนำเข้าโดยตรงได้
+            </p>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                โฟลเดอร์บนเซิร์ฟเวอร์
+              </label>
+              <input
+                type="text"
+                value={serverPath}
+                onChange={(e) => setServerPath(e.target.value)}
+                placeholder="D:\hsub"
+                style={{
+                  width: '100%',
+                  padding: '0.6rem 0.8rem',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  fontSize: '0.9rem',
+                }}
+              />
+            </div>
+            <div className="hsub-modal-actions">
+              <button
+                type="button"
+                className="hsub-btn hsub-btn-secondary"
+                onClick={() => setShowServerModal(false)}
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                className="hsub-btn hsub-btn-import"
+                onClick={handleImportDir}
+                disabled={importing}
+              >
+                {importing ? '⏳ กำลังประมวลผล...' : 'เริ่มนำเข้า'}
               </button>
             </div>
           </div>

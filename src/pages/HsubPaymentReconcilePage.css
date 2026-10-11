@@ -92,9 +92,84 @@
   background: #f1f5f9;
 }
 
-.hsub-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.hsub-btn-secondary {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.hsub-btn-secondary:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+/* Dropzone */
+.hsub-dropzone {
+  border: 2px dashed #0d9488;
+  background: #f0fdfa;
+  border-radius: 12px;
+  padding: 1.75rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 1.5rem;
+}
+
+.hsub-dropzone:hover, .hsub-dropzone.active {
+  background: #ccfbf1;
+  border-color: #0f766e;
+  transform: translateY(-1px);
+}
+
+.hsub-dropzone-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.hsub-dropzone-text {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f766e;
+  margin-bottom: 0.25rem;
+}
+
+.hsub-dropzone-hint {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+/* Progress Box */
+.hsub-progress-box {
+  background: #ffffff;
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.hsub-progress-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #166534;
+  margin-bottom: 0.5rem;
+}
+
+.hsub-progress-bar-bg {
+  width: 100%;
+  height: 10px;
+  background: #dcfce7;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.hsub-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #059669);
+  border-radius: 5px;
+  transition: width 0.3s ease;
 }
 
 /* Feedback banners */
@@ -476,4 +551,50 @@
   height: 100%;
   background: linear-gradient(90deg, #0d9488, #14b8a6);
   border-radius: 4px;
+}
+
+/* Modal */
+.hsub-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.hsub-modal {
+  background: #ffffff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 520px;
+  padding: 1.5rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+}
+
+.hsub-modal-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 0.5rem 0;
+}
+
+.hsub-modal-desc {
+  font-size: 0.9rem;
+  color: #64748b;
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+
+.hsub-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
 }

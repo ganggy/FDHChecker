@@ -173,6 +173,253 @@ function parseReportDate(val: any): string | null {
 }
 
 /**
+ * Import a single H-Sub file's parsed raw rows into database
+ */
+export async function importHsubRawData(
+  filename: string,
+  data: any[][],
+  filePath?: string,
+  externalConn?: any
+): Promise<{
+  success: boolean;
+  filename: string;
+  records: number;
+  claim: number;
+  paid: number;
+}> {
+  await ensureRepstmTables();
+  const conn = externalConn || (await getRepstmConnection());
+  const releaseConn = !externalConn;
+
+  try {
+    if (!data || data.length < 8) {
+      return { success: false, filename, records: 0, claim: 0, paid: 0 };
+    }
+
+    let reportDate: string | null = null;
+    if (data[0] && data[0][0]) {
+      reportDate = parseReportDate(data[0][0]);
+    }
+
+    let sectionType: 'normal' | 'appeal' = 'normal';
+    const fileItems: HsubPaymentItem[] = [];
+    const fileHcodes = new Set<string>();
+    const fileReps = new Set<string>();
+    let fileClaim = 0;
+    let filePaid = 0;
+
+    for (let r = 7; r < data.length; r++) {
+      const row = data[r];
+      if (!row || row.length === 0 || !row[0]) continue;
+
+      const col0 = String(row[0]).trim();
+      if (col0 === 'ข้อมูลอุทธรณ์') {
+        sectionType = 'appeal';
+        continue;
+      }
+      if (col0 === 'REP' || col0.includes('รายงาน') || col0.includes('ลำดับ')) {
+        continue;
+      }
+      if (!/^\d+$/.test(col0)) continue;
+
+      const rep = col0;
+      const tranId = String(row[2] || '').trim();
+      if (!tranId) continue;
+
+      const hcode = String(row[13] || '').trim();
+      if (hcode) fileHcodes.add(hcode);
+      fileReps.add(rep);
+
+      const claimAmt = Number(row[17]) || 0;
+      const ipNet = Number(row[26]) || 0;
+      const opAmt = Number(row[27]) || 0;
+      const ipCalc = Number(row[28]) || 0;
+      const ipPaid = Number(row[29]) || 0;
+      const hcAmt = Number(row[30]) || 0;
+      const hcDrug = Number(row[31]) || 0;
+      const aeAmt = Number(row[32]) || 0;
+      const aeDrug = Number(row[33]) || 0;
+      const instAmt = Number(row[34]) || 0;
+      const dmisCalc = Number(row[35]) || 0;
+      const dmisPaid = Number(row[36]) || 0;
+      const dmisDrug = Number(row[37]) || 0;
+      const palliativeAmt = Number(row[38]) || 0;
+      const dmishdAmt = Number(row[39]) || 0;
+      const ppAmt = Number(row[40]) || 0;
+      const fsAmt = Number(row[41]) || 0;
+      const paidTotal = Number(row[42]) || 0;
+
+      fileClaim += claimAmt;
+      filePaid += paidTotal;
+
+      fileItems.push({
+        filename,
+        rep,
+        item_no: Number(row[1]) || null,
+        tran_id: tranId,
+        hn: row[3] ? String(row[3]).trim() : null,
+        an: row[4] ? String(row[4]).trim() : null,
+        pid: row[5] ? String(row[5]).trim() : null,
+        patient_name: row[6] ? String(row[6]).trim() : null,
+        service_date: parseReportDate(row[7]),
+        discharge_date: parseReportDate(row[8]),
+        maininscl: row[9] ? String(row[9]).trim() : null,
+        projcode: row[10] ? String(row[10]).trim() : null,
+        hcode: hcode || '11101',
+        hcode_paid: row[16] ? String(row[16]).trim() : '11101',
+        claim_amt: claimAmt,
+        ip_net: ipNet,
+        op_amt: opAmt,
+        ip_calc: ipCalc,
+        ip_paid: ipPaid,
+        hc_amt: hcAmt,
+        hc_drug: hcDrug,
+        ae_amt: aeAmt,
+        ae_drug: aeDrug,
+        inst_amt: instAmt,
+        dmis_calc: dmisCalc,
+        dmis_paid: dmisPaid,
+        dmis_drug: dmisDrug,
+        palliative_amt: palliativeAmt,
+        dmishd_amt: dmishdAmt,
+        pp_amt: ppAmt,
+        fs_amt: fsAmt,
+        total_paid: paidTotal,
+        section_type: sectionType,
+      });
+    }
+
+    if (fileItems.length === 0) {
+      return { success: true, filename, records: 0, claim: 0, paid: 0 };
+    }
+
+    // Upsert into hsub_import_batch
+    const hcodesStr = Array.from(fileHcodes).join(',');
+    const repsStr = Array.from(fileReps).join(',');
+    const [batchResult]: any = await conn.query(
+      `INSERT INTO hsub_import_batch (
+        filename, file_path, report_date, total_records, total_claim, total_paid, hcodes, reps
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        file_path = VALUES(file_path),
+        report_date = VALUES(report_date),
+        total_records = VALUES(total_records),
+        total_claim = VALUES(total_claim),
+        total_paid = VALUES(total_paid),
+        hcodes = VALUES(hcodes),
+        reps = VALUES(reps),
+        updated_at = CURRENT_TIMESTAMP`,
+      [filename, filePath || null, reportDate, fileItems.length, fileClaim, filePaid, hcodesStr, repsStr]
+    );
+
+    const [batchRows]: any = await conn.query(
+      'SELECT id FROM hsub_import_batch WHERE filename = ? LIMIT 1',
+      [filename]
+    );
+    const batchId = batchRows[0]?.id || batchResult.insertId;
+
+    // Insert items in chunks of 500 rows using bulk nested array
+    const chunkSize = 500;
+    for (let i = 0; i < fileItems.length; i += chunkSize) {
+      const chunk = fileItems.slice(i, i + chunkSize);
+      const chunkRows = chunk.map((item) => [
+        batchId,
+        item.filename,
+        item.rep,
+        item.item_no,
+        item.tran_id,
+        item.hn,
+        item.an,
+        item.pid,
+        item.patient_name,
+        item.service_date,
+        item.discharge_date,
+        item.maininscl,
+        item.projcode,
+        item.hcode,
+        item.hcode_paid,
+        item.claim_amt,
+        item.ip_net,
+        item.op_amt,
+        item.ip_calc,
+        item.ip_paid,
+        item.hc_amt,
+        item.hc_drug,
+        item.ae_amt,
+        item.ae_drug,
+        item.inst_amt,
+        item.dmis_calc,
+        item.dmis_paid,
+        item.dmis_drug,
+        item.palliative_amt,
+        item.dmishd_amt,
+        item.pp_amt,
+        item.fs_amt,
+        item.total_paid,
+        item.section_type,
+      ]);
+
+      const sql = `
+        INSERT INTO hsub_payment_item (
+          batch_id, filename, rep, item_no, tran_id, hn, an, pid, patient_name,
+          service_date, discharge_date, maininscl, projcode, hcode, hcode_paid,
+          claim_amt, ip_net, op_amt, ip_calc, ip_paid, hc_amt, hc_drug,
+          ae_amt, ae_drug, inst_amt, dmis_calc, dmis_paid, dmis_drug,
+          palliative_amt, dmishd_amt, pp_amt, fs_amt, total_paid, section_type
+        ) VALUES ?
+        ON DUPLICATE KEY UPDATE
+          batch_id = VALUES(batch_id),
+          filename = VALUES(filename),
+          item_no = VALUES(item_no),
+          hn = VALUES(hn),
+          an = VALUES(an),
+          pid = VALUES(pid),
+          patient_name = VALUES(patient_name),
+          service_date = VALUES(service_date),
+          discharge_date = VALUES(discharge_date),
+          maininscl = VALUES(maininscl),
+          projcode = VALUES(projcode),
+          hcode_paid = VALUES(hcode_paid),
+          claim_amt = VALUES(claim_amt),
+          ip_net = VALUES(ip_net),
+          op_amt = VALUES(op_amt),
+          ip_calc = VALUES(ip_calc),
+          ip_paid = VALUES(ip_paid),
+          hc_amt = VALUES(hc_amt),
+          hc_drug = VALUES(hc_drug),
+          ae_amt = VALUES(ae_amt),
+          ae_drug = VALUES(ae_drug),
+          inst_amt = VALUES(inst_amt),
+          dmis_calc = VALUES(dmis_calc),
+          dmis_paid = VALUES(dmis_paid),
+          dmis_drug = VALUES(dmis_drug),
+          palliative_amt = VALUES(palliative_amt),
+          dmishd_amt = VALUES(dmishd_amt),
+          pp_amt = VALUES(pp_amt),
+          fs_amt = VALUES(fs_amt),
+          total_paid = VALUES(total_paid),
+          section_type = VALUES(section_type),
+          updated_at = CURRENT_TIMESTAMP
+      `;
+
+      await conn.query(sql, [chunkRows]);
+    }
+
+    return {
+      success: true,
+      filename,
+      records: fileItems.length,
+      claim: fileClaim,
+      paid: filePaid,
+    };
+  } finally {
+    if (releaseConn) {
+      conn.release();
+    }
+  }
+}
+
+/**
  * Import all H-Sub payment files from directory (default D:\hsub)
  */
 export async function importHsubDirectory(customDir?: string): Promise<{
@@ -221,223 +468,11 @@ export async function importHsubDirectory(customDir?: string): Promise<{
         if (!ws) continue;
 
         const data: any[][] = xlsx.utils.sheet_to_json(ws, { header: 1 });
-        if (!data || data.length < 9) continue;
-
-        // Parse report date from row 0 if available
-        let reportDate: string | null = null;
-        if (data[0] && data[0][0]) {
-          reportDate = parseReportDate(data[0][0]);
-        }
-
-        let sectionType: 'normal' | 'appeal' = 'normal';
-        const fileItems: HsubPaymentItem[] = [];
-        const fileHcodes = new Set<string>();
-        const fileReps = new Set<string>();
-        let fileClaim = 0;
-        let filePaid = 0;
-
-        for (let r = 7; r < data.length; r++) {
-          const row = data[r];
-          if (!row || row.length === 0 || !row[0]) continue;
-
-          const col0 = String(row[0]).trim();
-          if (col0 === 'ข้อมูลอุทธรณ์') {
-            sectionType = 'appeal';
-            continue;
-          }
-          if (col0 === 'REP' || col0.includes('รายงาน') || col0.includes('ลำดับ')) {
-            continue;
-          }
-          // Must start with digits for statement REP
-          if (!/^\d+$/.test(col0)) continue;
-
-          const rep = col0;
-          const tranId = String(row[2] || '').trim();
-          if (!tranId) continue;
-
-          const hcode = String(row[13] || '').trim();
-          if (hcode) fileHcodes.add(hcode);
-          fileReps.add(rep);
-
-          const claimAmt = Number(row[17]) || 0;
-          const ipNet = Number(row[26]) || 0;
-          const opAmt = Number(row[27]) || 0;
-          const ipCalc = Number(row[28]) || 0;
-          const ipPaid = Number(row[29]) || 0;
-          const hcAmt = Number(row[30]) || 0;
-          const hcDrug = Number(row[31]) || 0;
-          const aeAmt = Number(row[32]) || 0;
-          const aeDrug = Number(row[33]) || 0;
-          const instAmt = Number(row[34]) || 0;
-          const dmisCalc = Number(row[35]) || 0;
-          const dmisPaid = Number(row[36]) || 0;
-          const dmisDrug = Number(row[37]) || 0;
-          const palliativeAmt = Number(row[38]) || 0;
-          const dmishdAmt = Number(row[39]) || 0;
-          const ppAmt = Number(row[40]) || 0;
-          const fsAmt = Number(row[41]) || 0;
-          const paidTotal = Number(row[42]) || 0;
-
-          fileClaim += claimAmt;
-          filePaid += paidTotal;
-
-          fileItems.push({
-            filename: file,
-            rep,
-            item_no: Number(row[1]) || null,
-            tran_id: tranId,
-            hn: row[3] ? String(row[3]).trim() : null,
-            an: row[4] ? String(row[4]).trim() : null,
-            pid: row[5] ? String(row[5]).trim() : null,
-            patient_name: row[6] ? String(row[6]).trim() : null,
-            service_date: parseReportDate(row[7]),
-            discharge_date: parseReportDate(row[8]),
-            maininscl: row[9] ? String(row[9]).trim() : null,
-            projcode: row[10] ? String(row[10]).trim() : null,
-            hcode: hcode || '11101',
-            hcode_paid: row[16] ? String(row[16]).trim() : '11101',
-            claim_amt: claimAmt,
-            ip_net: ipNet,
-            op_amt: opAmt,
-            ip_calc: ipCalc,
-            ip_paid: ipPaid,
-            hc_amt: hcAmt,
-            hc_drug: hcDrug,
-            ae_amt: aeAmt,
-            ae_drug: aeDrug,
-            inst_amt: instAmt,
-            dmis_calc: dmisCalc,
-            dmis_paid: dmisPaid,
-            dmis_drug: dmisDrug,
-            palliative_amt: palliativeAmt,
-            dmishd_amt: dmishdAmt,
-            pp_amt: ppAmt,
-            fs_amt: fsAmt,
-            total_paid: paidTotal,
-            section_type: sectionType,
-          });
-        }
-
-        if (fileItems.length === 0) continue;
-
-        // Upsert into hsub_import_batch
-        const hcodesStr = Array.from(fileHcodes).join(',');
-        const repsStr = Array.from(fileReps).join(',');
-        const [batchResult]: any = await conn.query(
-          `INSERT INTO hsub_import_batch (
-            filename, file_path, report_date, total_records, total_claim, total_paid, hcodes, reps
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE
-            file_path = VALUES(file_path),
-            report_date = VALUES(report_date),
-            total_records = VALUES(total_records),
-            total_claim = VALUES(total_claim),
-            total_paid = VALUES(total_paid),
-            hcodes = VALUES(hcodes),
-            reps = VALUES(reps),
-            updated_at = CURRENT_TIMESTAMP`,
-          [file, fullPath, reportDate, fileItems.length, fileClaim, filePaid, hcodesStr, repsStr]
-        );
-
-        // Fetch batch ID
-        const [batchRows]: any = await conn.query(
-          'SELECT id FROM hsub_import_batch WHERE filename = ? LIMIT 1',
-          [file]
-        );
-        const batchId = batchRows[0]?.id || batchResult.insertId;
-
-        // Insert items in chunks of 500 rows
-        // Insert items in chunks of 500 rows using bulk nested array
-        const chunkSize = 500;
-        for (let i = 0; i < fileItems.length; i += chunkSize) {
-          const chunk = fileItems.slice(i, i + chunkSize);
-          const chunkRows = chunk.map((item) => [
-            batchId,
-            item.filename,
-            item.rep,
-            item.item_no,
-            item.tran_id,
-            item.hn,
-            item.an,
-            item.pid,
-            item.patient_name,
-            item.service_date,
-            item.discharge_date,
-            item.maininscl,
-            item.projcode,
-            item.hcode,
-            item.hcode_paid,
-            item.claim_amt,
-            item.ip_net,
-            item.op_amt,
-            item.ip_calc,
-            item.ip_paid,
-            item.hc_amt,
-            item.hc_drug,
-            item.ae_amt,
-            item.ae_drug,
-            item.inst_amt,
-            item.dmis_calc,
-            item.dmis_paid,
-            item.dmis_drug,
-            item.palliative_amt,
-            item.dmishd_amt,
-            item.pp_amt,
-            item.fs_amt,
-            item.total_paid,
-            item.section_type,
-          ]);
-
-          const sql = `
-            INSERT INTO hsub_payment_item (
-              batch_id, filename, rep, item_no, tran_id, hn, an, pid, patient_name,
-              service_date, discharge_date, maininscl, projcode, hcode, hcode_paid,
-              claim_amt, ip_net, op_amt, ip_calc, ip_paid, hc_amt, hc_drug,
-              ae_amt, ae_drug, inst_amt, dmis_calc, dmis_paid, dmis_drug,
-              palliative_amt, dmishd_amt, pp_amt, fs_amt, total_paid, section_type
-            ) VALUES ?
-            ON DUPLICATE KEY UPDATE
-              batch_id = VALUES(batch_id),
-              filename = VALUES(filename),
-              item_no = VALUES(item_no),
-              hn = VALUES(hn),
-              an = VALUES(an),
-              pid = VALUES(pid),
-              patient_name = VALUES(patient_name),
-              service_date = VALUES(service_date),
-              discharge_date = VALUES(discharge_date),
-              maininscl = VALUES(maininscl),
-              projcode = VALUES(projcode),
-              hcode_paid = VALUES(hcode_paid),
-              claim_amt = VALUES(claim_amt),
-              ip_net = VALUES(ip_net),
-              op_amt = VALUES(op_amt),
-              ip_calc = VALUES(ip_calc),
-              ip_paid = VALUES(ip_paid),
-              hc_amt = VALUES(hc_amt),
-              hc_drug = VALUES(hc_drug),
-              ae_amt = VALUES(ae_amt),
-              ae_drug = VALUES(ae_drug),
-              inst_amt = VALUES(inst_amt),
-              dmis_calc = VALUES(dmis_calc),
-              dmis_paid = VALUES(dmis_paid),
-              dmis_drug = VALUES(dmis_drug),
-              palliative_amt = VALUES(palliative_amt),
-              dmishd_amt = VALUES(dmishd_amt),
-              pp_amt = VALUES(pp_amt),
-              fs_amt = VALUES(fs_amt),
-              total_paid = VALUES(total_paid),
-              section_type = VALUES(section_type),
-              updated_at = CURRENT_TIMESTAMP
-          `;
-
-          await conn.query(sql, [chunkRows]);
-        }
-
+        const res = await importHsubRawData(file, data, fullPath, conn);
         importedFiles++;
-        totalRecords += fileItems.length;
-        totalClaim += fileClaim;
-        totalPaid += filePaid;
+        totalRecords += res.records;
+        totalClaim += res.claim;
+        totalPaid += res.paid;
       } catch (err: any) {
         console.error(`[HsubService] Error importing ${file}:`, err);
         errors.push(`เกิดข้อผิดพลาดในการนำเข้าไฟล์ ${file}: ${err.message}`);

@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "ADP_CODE_INTEGRATION.md"
-source_hash: "f27d1f17bf7654b6e58e8f2d54514b16219bd0841a7fc259efdfd6b6d1adabd7"
+source_hash: "60413c124225ed16f2fec5da7361232512b9a940506b3195f51e922746db9490"
 managed_by: "sync-ksp-vault"
 ---
 # 🏥 ADP Code Integration Guide

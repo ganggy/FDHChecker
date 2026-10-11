@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SPECIAL_MONITOR_QUICK_REFERENCE.md"
-source_hash: "65138ed0e28b27b5040948b1b20306a8627ebbdd2ef2874d87dabb1b8d979b70"
+source_hash: "146e20e0152443d3c879e03036193fc102e16bc0bb688ff7574f2728f2be4858"
 managed_by: "sync-ksp-vault"
 ---
 # Special Monitor Page - Quick Reference Guide

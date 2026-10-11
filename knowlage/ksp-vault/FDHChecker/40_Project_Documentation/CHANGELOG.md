@@ -4,10 +4,17 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "CHANGELOG.md"
-source_hash: "77040d204844a651921c3af4e6ba344e2ab4c60a922a42db683c3ad9256d6051"
+source_hash: "b269f70b63fe0bc5c951ebc57216daf8e5e7a8a8ff4b84965b06c3254b207e15"
 managed_by: "sync-ksp-vault"
 ---
 # 📝 CHANGELOG - Complete Implementation
+
+## Version 1.0.1 - September 18, 2026
+
+### 🚀 Enhancements & Notification System
+- 🔔 **Navbar Update Notification**: จุดเตือนสีแดงกระพริบและปุ่มแจ้งเตือน "มีอัปเดตใหม่" ที่แถบเมนูด้านบนขวา เมื่อมี Commit ใหม่บน GitHub
+- ⚙️ **Direct Navigation to System Update**: คลิกปุ่มแจ้งเตือนแล้วจะสลับไปยังแท็บ "🔄 อัปเดตระบบ" ในหน้าตั้งค่าให้อัตโนมัติ
+- ⚡ **Background Polling & Caching**: มีระบบ Cache การตรวจสอบสถานะจาก Git ฝั่ง Backend ทุก 10 นาที เพื่อความรวดเร็วและไม่โหลดเครื่องแม่ข่าย
 
 ## Version 1.0.0 - March 15, 2026
 

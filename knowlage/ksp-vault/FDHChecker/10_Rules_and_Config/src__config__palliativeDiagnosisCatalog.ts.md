@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "rules-and-config"
 source: "src/config/palliativeDiagnosisCatalog.ts"
-source_hash: "bebe733638f356f1736a5196a29c251bc15c4d9070d3a9165158a47be902bbad"
+source_hash: "b9f724467b41cb0cc00311edbc11b70e0104509b6980503d81de3816d53a0b44"
 managed_by: "sync-ksp-vault"
 ---
 # palliativeDiagnosisCatalog.ts
 
 > Source: `src/config/palliativeDiagnosisCatalog.ts`
-> SHA-256: `bebe733638f356f1736a5196a29c251bc15c4d9070d3a9165158a47be902bbad`
+> SHA-256: `b9f724467b41cb0cc00311edbc11b70e0104509b6980503d81de3816d53a0b44`
 
 ````typescript
 export interface PalliativeDiagnosisGroup {

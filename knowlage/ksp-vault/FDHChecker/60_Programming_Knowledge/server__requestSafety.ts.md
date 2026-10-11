@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/requestSafety.ts"
-source_hash: "8c28a16671bd1bfd08e5a14e257ab820d77b9a0871d5ba5117ff3aa16b3d71db"
+source_hash: "d067bf8e6ad245db28e13a61c6cb67525e40edada7ec7d8db7ca790a3cbfea77"
 managed_by: "sync-ksp-vault"
 ---
 # requestSafety.ts
 
 > Source: `server/requestSafety.ts`
-> SHA-256: `8c28a16671bd1bfd08e5a14e257ab820d77b9a0871d5ba5117ff3aa16b3d71db`
+> SHA-256: `d067bf8e6ad245db28e13a61c6cb67525e40edada7ec7d8db7ca790a3cbfea77`
 
 ````typescript
 import crypto from 'crypto';
@@ -24,6 +24,12 @@ const largeJsonBodyPaths = new Set([
   '/api/fdh/view-data',
   '/api/fdh/submit',
   '/api/receivables/batches',
+  '/api/sss/repstm/import',
+  '/api/sss/export',
+  '/api/sss/ipd/export',
+  '/api/ktb-approve/upload-and-match',
+  '/api/ktb-approve/apply',
+  '/api/hosxp/eligible-visits',
 ]);
 const standardJsonParser = express.json({ limit: '2mb' });
 const importJsonParser = express.json({ limit: '25mb' });
@@ -90,6 +96,7 @@ export const dateRangeGuard: RequestHandler = (req, res, next) => {
   const hasStart = req.query.startDate != null && String(req.query.startDate).trim() !== '';
   const hasEnd = req.query.endDate != null && String(req.query.endDate).trim() !== '';
   if (!hasStart && !hasEnd) return next();
+  if (req.query.vns || req.query.vn || req.query.an || req.query.targetVns) return next();
   const maxDays = /^\/hosxp\/(checks|eligible-visits)$/.test(req.path) ? 93 : 1_096;
   const validation = validateDateRange(req.query.startDate, req.query.endDate, maxDays);
   if (!validation.ok) return res.status(400).json({ success: false, error: validation.error });

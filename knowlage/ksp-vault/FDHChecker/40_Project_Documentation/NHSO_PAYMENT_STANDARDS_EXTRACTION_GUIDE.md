@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "NHSO_PAYMENT_STANDARDS_EXTRACTION_GUIDE.md"
-source_hash: "31f88d08bb8d3173b3a6b8cd007b6dd50173d976af5e0588fc5bd93c48a7201f"
+source_hash: "33c20f006c5cd91ec46c58635bc711fe180edeb394bcd573ef0c7fe3aa5b5110"
 managed_by: "sync-ksp-vault"
 ---
 # 📋 NHSO PAYMENT STANDARDS EXTRACTION GUIDE

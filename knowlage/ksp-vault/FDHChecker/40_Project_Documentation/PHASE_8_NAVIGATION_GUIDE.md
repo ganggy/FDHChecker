@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PHASE_8_NAVIGATION_GUIDE.md"
-source_hash: "5e46f8782765d1c38caf728e120c86f3a18655e9bc8428e054585cfee2d65587"
+source_hash: "da3559b9311ca8625cdce8afe8e80853118e66942bb0c3cf76fe23d75fe42101"
 managed_by: "sync-ksp-vault"
 ---
 # 🗺️ PHASE 8 NAVIGATION GUIDE

@@ -1,0 +1,84 @@
+---
+ksp_schema: 1
+project: FDHChecker
+type: "source-snapshot"
+category: "programming"
+source: "src/services/systemUpdateStatus.ts"
+source_hash: "14f197cb129d8650fd84d7f1877336bc977c7c4b08bafe49a1c2f1afde9d9400"
+managed_by: "sync-ksp-vault"
+---
+# systemUpdateStatus.ts
+
+> Source: `src/services/systemUpdateStatus.ts`
+> SHA-256: `14f197cb129d8650fd84d7f1877336bc977c7c4b08bafe49a1c2f1afde9d9400`
+
+````typescript
+export async function fetchSystemUpdateStatus(refreshRemote = false, timeoutMs = refreshRemote ? 60000 : 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`/api/admin/system-update?refresh=${refreshRemote ? '1' : '0'}`, {
+      cache: 'no-store', signal: controller.signal,
+    });
+    if (response.status === 401 || response.status === 403) throw new Error('กรุณาเข้าสู่ระบบด้วยบัญชีผู้ดูแลระบบอีกครั้งเพื่อตรวจผลอัปเดต');
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.success !== true || !payload.data || typeof payload.data.currentCommit !== 'string') {
+      throw new Error('ยังอ่านสถานะอัปเดตจากเซิร์ฟเวอร์ไม่ได้ ระบบจะลองเชื่อมต่อใหม่');
+    }
+    return payload.data;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('เซิร์ฟเวอร์ตอบสถานะช้า ระบบจะลองเชื่อมต่อใหม่');
+    throw error;
+  } finally { clearTimeout(timer); }
+}
+
+export type QuickUpdateInfo = {
+  available: boolean;
+  behind: number;
+  checkedAt: string;
+  changesCount?: number;
+};
+
+export async function checkSystemUpdateQuick(refresh = false, timeoutMs = 8000): Promise<QuickUpdateInfo> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`/api/system/update-check?refresh=${refresh ? '1' : '0'}`, {
+      cache: 'no-store', signal: controller.signal,
+    });
+    if (!response.ok) return { available: false, behind: 0, checkedAt: new Date().toISOString() };
+    const payload = await response.json().catch(() => null);
+    return payload?.data || { available: false, behind: 0, checkedAt: new Date().toISOString() };
+  } catch {
+    return { available: false, behind: 0, checkedAt: new Date().toISOString() };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function resetSystemUpdateLock(): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/admin/system-update/reset-lock', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.success !== true) {
+    throw new Error(payload?.error || 'ปลดล็อกสถานะไม่สำเร็จ');
+  }
+  return payload.data;
+}
+
+export async function startDirectSystemUpdate(options: { force?: boolean; expectedRemoteCommit?: string } = {}): Promise<any> {
+  const response = await fetch('/api/admin/system-update/direct', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.success !== true) {
+    throw new Error(payload?.error || 'เริ่มอัปเดตตรงไม่สำเร็จ');
+  }
+  return payload.data;
+}
+
+````

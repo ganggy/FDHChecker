@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/AdminDashboard.tsx"
-source_hash: "761ec76382bc9fdad95d64b728cdf17879c9ee990032aad91824256ba7abb4be"
+source_hash: "1a8515e5ed5155da69075594257357d106a54070e6353c8d1b0624f07e31e126"
 managed_by: "sync-ksp-vault"
 ---
 # AdminDashboard.tsx
 
 > Source: `src/pages/AdminDashboard.tsx`
-> SHA-256: `761ec76382bc9fdad95d64b728cdf17879c9ee990032aad91824256ba7abb4be`
+> SHA-256: `1a8515e5ed5155da69075594257357d106a54070e6353c8d1b0624f07e31e126`
 
 ````tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';

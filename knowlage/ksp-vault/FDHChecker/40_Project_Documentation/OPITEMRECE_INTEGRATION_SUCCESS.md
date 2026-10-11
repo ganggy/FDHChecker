@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "OPITEMRECE_INTEGRATION_SUCCESS.md"
-source_hash: "833e7a6e18e31a91c4fdce44da35099818574bb2e8d330174b0899b1059ba517"
+source_hash: "9da7346837c245f7f57fb1f48d6a87bde4d0cb3c87d49dd97f5e1848d006505e"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ การใช้ข้อมูลใบเสร็จจริงจาก opitemrece สำเร็จแล้ว

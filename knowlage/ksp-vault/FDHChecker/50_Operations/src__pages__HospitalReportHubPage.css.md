@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/HospitalReportHubPage.css"
-source_hash: "7eff57f7b7955a0ded152a423b94adad5491742c209d248673161de683ee6449"
+source_hash: "86a8318e2789b9137eca85c8f620f7997b0c7c569eb03f98c508ca140b43355b"
 managed_by: "sync-ksp-vault"
 ---
 # HospitalReportHubPage.css
 
 > Source: `src/pages/HospitalReportHubPage.css`
-> SHA-256: `7eff57f7b7955a0ded152a423b94adad5491742c209d248673161de683ee6449`
+> SHA-256: `86a8318e2789b9137eca85c8f620f7997b0c7c569eb03f98c508ca140b43355b`
 
 ````css
 .hospital-report-hub { min-height: 100%; padding: 24px; color: #172033; background: #f4f7fb; }

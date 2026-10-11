@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "DEPLOYMENT_READY_CHECKLIST.md"
-source_hash: "04b0e05676da8078526304a5b61f77694b6712df616e0b1f90a2f3c78e05af43"
+source_hash: "5b8ef46d9c5ff8db1f8fb35794546bcd1193fe9adb35c612d0196a909fa01639"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ SERVICE DATE COLUMN - FINAL DEPLOYMENT CHECKLIST

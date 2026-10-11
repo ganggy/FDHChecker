@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "scripts/query-catalog.test.mjs"
-source_hash: "d7c7e70458fe025b52c39570714bed4768eadc92f36aa1089f295fc3cd30b27b"
+source_hash: "00197916a9084a7831028b1121126a741db7229f74815d1c9868fc45b9d9e7f8"
 managed_by: "sync-ksp-vault"
 ---
 # query-catalog.test.mjs
 
 > Source: `scripts/query-catalog.test.mjs`
-> SHA-256: `d7c7e70458fe025b52c39570714bed4768eadc92f36aa1089f295fc3cd30b27b`
+> SHA-256: `00197916a9084a7831028b1121126a741db7229f74815d1c9868fc45b9d9e7f8`
 
 ````javascript
 import assert from 'node:assert/strict';

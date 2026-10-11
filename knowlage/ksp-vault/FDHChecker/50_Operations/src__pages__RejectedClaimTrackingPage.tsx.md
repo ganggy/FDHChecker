@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/RejectedClaimTrackingPage.tsx"
-source_hash: "e5cdef9c252fcf66a6bf63de6feef7b8ee311f47e2cec74f487bb7c220e9b30b"
+source_hash: "93ada68419cd3cddc925579ff276f4543bd73165a8a1373ae31f528404fca4c6"
 managed_by: "sync-ksp-vault"
 ---
 # RejectedClaimTrackingPage.tsx
 
 > Source: `src/pages/RejectedClaimTrackingPage.tsx`
-> SHA-256: `e5cdef9c252fcf66a6bf63de6feef7b8ee311f47e2cec74f487bb7c220e9b30b`
+> SHA-256: `93ada68419cd3cddc925579ff276f4543bd73165a8a1373ae31f528404fca4c6`
 
 ````tsx
 import { useState, useEffect, useCallback } from 'react';

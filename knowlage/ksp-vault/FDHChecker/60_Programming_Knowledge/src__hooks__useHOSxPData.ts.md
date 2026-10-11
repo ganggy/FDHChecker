@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/hooks/useHOSxPData.ts"
-source_hash: "2f3353d7dd5cc8c1bae8c83e1a28f05bdfcbe63cde09853560123713c586d908"
+source_hash: "54cf73e6837711ff1ae80a9152f09799657782bae9f48a041580a9b73de91cac"
 managed_by: "sync-ksp-vault"
 ---
 # useHOSxPData.ts
 
 > Source: `src/hooks/useHOSxPData.ts`
-> SHA-256: `2f3353d7dd5cc8c1bae8c83e1a28f05bdfcbe63cde09853560123713c586d908`
+> SHA-256: `54cf73e6837711ff1ae80a9152f09799657782bae9f48a041580a9b73de91cac`
 
 ````typescript
 ﻿import { useState, useEffect } from 'react';
@@ -28,6 +28,7 @@ export const useHOSxPData = ({ fund, startDate, endDate }: UseHOSxPDataProps = {
   const [totalFromDB, setTotalFromDB] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     const loadData = async () => {
@@ -94,9 +95,11 @@ export const useHOSxPData = ({ fund, startDate, endDate }: UseHOSxPDataProps = {
     };
 
     loadData();
-  }, [fund, startDate, endDate]);
+  }, [fund, startDate, endDate, refreshToken]);
 
-  return { data, totalFromDB, loading, error };
+  const refresh = () => setRefreshToken((value) => value + 1);
+
+  return { data, totalFromDB, loading, error, refresh };
 };
 
 ````

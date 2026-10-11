@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "rules-and-config"
 source: "src/config/fundRuleCatalog.ts"
-source_hash: "cb45083f39e89dbc62dd71d7ed77a1b3531faaf969fd2a6ca272c9d5577ac6bd"
+source_hash: "309e19b525770c9650005d697bb9a2c81595f6177c78bfd711e90c75f7846329"
 managed_by: "sync-ksp-vault"
 ---
 # fundRuleCatalog.ts
 
 > Source: `src/config/fundRuleCatalog.ts`
-> SHA-256: `cb45083f39e89dbc62dd71d7ed77a1b3531faaf969fd2a6ca272c9d5577ac6bd`
+> SHA-256: `309e19b525770c9650005d697bb9a2c81595f6177c78bfd711e90c75f7846329`
 
 ````typescript
 export interface FundRuleCondition {

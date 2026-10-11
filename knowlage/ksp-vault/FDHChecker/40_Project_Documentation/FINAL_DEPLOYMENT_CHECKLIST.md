@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "FINAL_DEPLOYMENT_CHECKLIST.md"
-source_hash: "6ad39174d369095f3cc0b7e787c642e74f2714ed66edb17a325f56235c3381ee"
+source_hash: "b9526a045ce4791b65410016079871fdcb38386dddd13fb82cf885129af84359"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ FINAL CHECKLIST - Service Date Column Fix

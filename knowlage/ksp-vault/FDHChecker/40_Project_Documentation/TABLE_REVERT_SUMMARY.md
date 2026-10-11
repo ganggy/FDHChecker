@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "TABLE_REVERT_SUMMARY.md"
-source_hash: "7420aa2c1180a64dedd15e51851de7f4eb7f2d9a2ff6e32af776df35d638a217"
+source_hash: "066be02c63d90a142a1693e61c55716fdfc68845d2539c80680e18915f1b345b"
 managed_by: "sync-ksp-vault"
 ---
 # Table Format - Reverted to Lighter Version

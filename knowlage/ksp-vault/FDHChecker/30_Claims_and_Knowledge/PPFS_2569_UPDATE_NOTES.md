@@ -4,7 +4,7 @@ project: FDHChecker
 type: "domain-knowledge"
 category: "claims"
 source: "knowlage/PPFS_2569_UPDATE_NOTES.md"
-source_hash: "017afd2fbea9d7e97ac81905a97b65e1130d1b5f51d0ebae34c4cd914c1352e2"
+source_hash: "29746cb5f55f9e4bb83f8e10d348762729ab1f6e1c1d2f0cb45c8f5927eff04e"
 managed_by: "sync-ksp-vault"
 ---
 # PPFS 2569 Update Notes

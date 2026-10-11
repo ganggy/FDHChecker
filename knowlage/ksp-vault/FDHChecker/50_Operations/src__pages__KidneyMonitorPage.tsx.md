@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/KidneyMonitorPage.tsx"
-source_hash: "191d03d0be7d15da80ad6a823648b447cf7d373a9b7529fb8f97403a23c5330e"
+source_hash: "7e2bdce581a4c98567939279976fee7c649339db73b2b20d5d71b461f7b09e3b"
 managed_by: "sync-ksp-vault"
 ---
 # KidneyMonitorPage.tsx
 
 > Source: `src/pages/KidneyMonitorPage.tsx`
-> SHA-256: `191d03d0be7d15da80ad6a823648b447cf7d373a9b7529fb8f97403a23c5330e`
+> SHA-256: `7e2bdce581a4c98567939279976fee7c649339db73b2b20d5d71b461f7b09e3b`
 
 ````tsx
 // filepath: d:\react\fdh_rect\src/pages/KidneyMonitorPage.tsx

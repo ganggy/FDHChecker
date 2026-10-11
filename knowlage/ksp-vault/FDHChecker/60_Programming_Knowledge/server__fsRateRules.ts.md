@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/fsRateRules.ts"
-source_hash: "ac560968970ff5cd8f3cb248086ecdc716bff94d518de2e4bcb13c2c32c2a548"
+source_hash: "3e73a92e8498b99db3ca8cbe93dcbff8a6b46ded9c6d82211a64b2a231215241"
 managed_by: "sync-ksp-vault"
 ---
 # fsRateRules.ts
 
 > Source: `server/fsRateRules.ts`
-> SHA-256: `ac560968970ff5cd8f3cb248086ecdc716bff94d518de2e4bcb13c2c32c2a548`
+> SHA-256: `3e73a92e8498b99db3ca8cbe93dcbff8a6b46ded9c6d82211a64b2a231215241`
 
 ````typescript
 export type FsProjectItem = {

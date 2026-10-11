@@ -4,25 +4,28 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/FDHCheckerPage.tsx"
-source_hash: "e6bc92671fa3ca4683e1b5ebfc048d3f313384c6d0da200599fdfecfc2ee0e5e"
+source_hash: "e3f7a1107145ba5666a1cd0d46a20098c90d8302b0f01e1fab077340a22d0a86"
 managed_by: "sync-ksp-vault"
 ---
 # FDHCheckerPage.tsx
 
 > Source: `src/pages/FDHCheckerPage.tsx`
-> SHA-256: `e6bc92671fa3ca4683e1b5ebfc048d3f313384c6d0da200599fdfecfc2ee0e5e`
+> SHA-256: `e3f7a1107145ba5666a1cd0d46a20098c90d8302b0f01e1fab077340a22d0a86`
 
 ````tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FundEligibilityRules } from '../components/FundEligibilityRules';
 import * as XLSX from 'xlsx';
 import { evaluateBillingLogic } from '../utils/billingUtils';
 import { FDHPreviewModal } from '../components/FDHPreviewModal';
 import { formatLocalDateInput, formatLocalDateStamp } from '../utils/dateUtils';
 import { consumeDashboardNavigation } from '../utils/navigationState';
+import { isFailedFdhSubmission, isMissingFdhStatus } from '../utils/fdhClaimProgress';
+import { hasApproveCode, isWaitingOfcApprove } from '../utils/ofcApproveCode';
 
 interface EligibleVisit {
     vn: string;
+    an?: string;
     hn: string;
     serviceDate: string;
     patientName: string;
@@ -33,7 +36,9 @@ interface EligibleVisit {
     has_receipt: number;
     has_authen: number;
     has_close?: number;
+    palliative_authen_ready?: number;
     authen_code?: string;
+    approve_code?: string;
     close_code?: string;
     main_diag: string | null;
     total_price: number;
@@ -41,6 +46,7 @@ interface EligibleVisit {
     status: 'ready' | 'pending' | 'rejected';
     missing: string[];
     _dataSource: string;
+    pttype_code?: string;
     hipdata_code: string;
     has_telmed: number;
     has_drugp: number;
@@ -59,6 +65,8 @@ interface EligibleVisit {
     has_knee_oper: number;
     has_pal_diag: number;
     has_pal_adp: number;
+    has_walkin?: number;
+    is_walkin_pttype?: number;
     age_y: number;
     fdh_status_label?: string | null;
     fdh_claim_detail_status?: string | null;
@@ -69,9 +77,13 @@ interface EligibleVisit {
     fdh_claim_status_message?: string | null;
     fdh_error_code?: string | null;
     fdh_updated_at?: string | null;
+    fdh_has_submission?: boolean;
+    can_auto_fix?: boolean;
+    auto_fix_actions?: string[];
 }
 
 type FdhExportProfile = 'standard' | 'fwf-migrants';
+type FdhStatusFilter = 'all' | 'not-submitted' | 'failed' | 'submitted';
 const ALL_SPECIAL_FUNDS = '__all_special_funds__';
 
 interface FdhValidationIssue {
@@ -90,16 +102,39 @@ interface FdhValidationResult {
     totalRows: number;
 }
 
+const isOfcOrLgoVisit = (item: any, logic?: any) => {
+    const hipdataCode = String(item?.hipdata_code || '').trim().toUpperCase();
+    const fundText = `${item?.fund || ''} ${item?.hipdata_desc || ''}`.toLowerCase();
+    return hipdataCode === 'OFC' || hipdataCode === 'LGO' || hipdataCode === 'CSCD'
+        || fundText.includes('cscd') || fundText.includes('ofc') || fundText.includes('lgo')
+        || /ข้าราชการ|เบิกตรง|เบิกจ่ายตรง|อปท|องค์กรปกครองส่วนท้องถิ่น/.test(fundText)
+        || Boolean(logic?.billingStatusLabel?.includes('OFC/LGO'));
+};
+
+const isLgoVisit = (item: any) => {
+    const hipdataCode = String(item?.hipdata_code || '').trim().toUpperCase();
+    const fundText = `${item?.fund || ''} ${item?.hipdata_desc || ''}`.toLowerCase();
+    return hipdataCode === 'LGO' || fundText.includes('lgo') || /อปท|องค์กรปกครองส่วนท้องถิ่น|ท้องถิ่น/.test(fundText);
+};
+
 export const FDHCheckerPage: React.FC = () => {
     const [data, setData] = useState<EligibleVisit[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'pending'>('all');
+    const [waitingApproveOnly, setWaitingApproveOnly] = useState(false);
+    const [fdhStatusFilter, setFdhStatusFilter] = useState<FdhStatusFilter>('all');
+    const [selectedPttypes, setSelectedPttypes] = useState<string[]>([]);
+    const [isPttypeDropdownOpen, setIsPttypeDropdownOpen] = useState(false);
+    const [pttypeSearchQuery, setPttypeSearchQuery] = useState('');
+    const pttypeDropdownRef = useRef<HTMLDivElement>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [dashboardContextItems, setDashboardContextItems] = useState<string[]>([]);
     const [selectedVns, setSelectedVns] = useState<string[]>([]);
+    const [incomingTargetVns, setIncomingTargetVns] = useState<string[]>([]);
     const [exporting, setExporting] = useState(false);
     const [previewData, setPreviewData] = useState<any>(null);
+    const [previewExportRequest, setPreviewExportRequest] = useState<any>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
     const [exportWithHeader, setExportWithHeader] = useState(true);
@@ -108,22 +143,85 @@ export const FDHCheckerPage: React.FC = () => {
     const [fcodeByHn, setFcodeByHn] = useState<Record<string, string>>({});
     const [previewValidation, setPreviewValidation] = useState<FdhValidationResult | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [confirmResend, setConfirmResend] = useState(false);
+    const [ipdAuthenSyncing, setIpdAuthenSyncing] = useState(false);
+    const [ipdAuthenNotice, setIpdAuthenNotice] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
+    const [fixingVn, setFixingVn] = useState<string | null>(null);
+    const [batchFixing, setBatchFixing] = useState(false);
+    const [fixAlert, setFixAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const lastIpdAuthenSyncKey = useRef('');
+    const visitTableScrollRef = useRef<HTMLDivElement>(null);
 
     const todayStr = formatLocalDateInput();
     const [startDate, setStartDate] = useState(todayStr);
     const [endDate, setEndDate] = useState(todayStr);
+    const [autoSplitBatches, setAutoSplitBatches] = useState(true);
 
-    const fetchEligibleData = async (dateRange?: { startDate?: string; endDate?: string }) => {
+    const syncFdhIpdAuthen = async (rangeStart: string, rangeEnd: string, force = false) => {
+        const start = new Date(rangeStart);
+        const end = new Date(rangeEnd);
+        const dayDiff = Math.floor((end.getTime() - start.getTime()) / 86400000);
+        if (dayDiff > 31) {
+            return;
+        }
+        setIpdAuthenSyncing(true);
+        setIpdAuthenNotice(null);
+        try {
+            const response = await fetch('/api/fdh/ipd/authen/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ startDate: rangeStart, endDate: rangeEnd, force }),
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || !result.success) throw new Error(result.error || 'ตรวจ Authen IPD จาก API ไม่สำเร็จ');
+            const summary = result.summary || {};
+            setIpdAuthenNotice({
+                type: 'success',
+                text: `ตรวจ Authen ผู้ป่วยในสำหรับ FDH แล้ว ${Number(summary.total || 0)} AN — นำเข้าใหม่ ${Number(summary.updated || 0)}, ไม่พบ ${Number(summary.notFound || 0)}, ข้าม ${Number(summary.skipped || 0)}, ผิดพลาด ${Number(summary.errors || 0)}`,
+            });
+        } catch (err) {
+            setIpdAuthenNotice({ type: 'warning', text: err instanceof Error ? err.message : 'ตรวจ Authen IPD จาก API ไม่สำเร็จ' });
+        } finally {
+            setIpdAuthenSyncing(false);
+        }
+    };
+
+    const fetchEligibleData = async (dateRange?: { startDate?: string; endDate?: string; forceIpdAuthen?: boolean; targetVns?: string[] }) => {
         const rangeStart = dateRange?.startDate ?? startDate;
         const rangeEnd = dateRange?.endDate ?? endDate;
+        const targetList = dateRange?.targetVns !== undefined ? dateRange.targetVns : incomingTargetVns;
+        const hasTargets = targetList.length > 0;
+
         setLoading(true);
         setError(null);
-        setSelectedVns([]); // Clear selection on refresh
+        setSelectedVns(hasTargets ? targetList : []);
         try {
-            const response = await fetch(`/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}`);
+            if (!hasTargets) {
+                const syncKey = `${rangeStart}:${rangeEnd}`;
+                if (dateRange?.forceIpdAuthen || lastIpdAuthenSyncKey.current !== syncKey) {
+                    lastIpdAuthenSyncKey.current = syncKey;
+                    await syncFdhIpdAuthen(rangeStart, rangeEnd, Boolean(dateRange?.forceIpdAuthen));
+                }
+            }
+
+            const response = hasTargets
+                ? await fetch('/api/hosxp/eligible-visits', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        startDate: rangeStart,
+                        endDate: rangeEnd,
+                        vns: targetList,
+                    }),
+                })
+                : await fetch(`/api/hosxp/eligible-visits?startDate=${rangeStart}&endDate=${rangeEnd}`);
+
             const result = await response.json();
             if (result.success) {
                 setData(result.data);
+                if (hasTargets) {
+                    setSelectedVns(targetList);
+                }
             } else {
                 setError(result.error || 'Failed to fetch data');
             }
@@ -134,11 +232,130 @@ export const FDHCheckerPage: React.FC = () => {
         }
     };
 
+    const handleSingleAutoFix = async (vn: string) => {
+        setFixingVn(vn);
+        setFixAlert(null);
+        try {
+            const res = await fetch('/api/hosxp/auto-fix-visit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vn, fixType: 'ALL' }),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขอัตโนมัติไม่สำเร็จ');
+            setFixAlert({ type: 'success', message: `แก้ไขข้อมูล HOSxP สำหรับ VN ${vn} สำเร็จ: ${json.data.message}` });
+            await fetchEligibleData();
+        } catch (err) {
+            setFixAlert({ type: 'error', message: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไข' });
+        } finally {
+            setFixingVn(null);
+        }
+    };
+
+    const handleBatchAutoFix = async () => {
+        const vnsToFix = data.filter((d) => Boolean(d.can_auto_fix)).map((d) => d.vn);
+        if (!vnsToFix.length) return;
+        setBatchFixing(true);
+        setFixAlert(null);
+        try {
+            const res = await fetch('/api/hosxp/batch-auto-fix-visits', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vns: vnsToFix }),
+            });
+            const json = await res.json();
+            if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขแบบกลุ่มไม่สำเร็จ');
+            setFixAlert({ type: 'success', message: `แก้ไขอัตโนมัติเรียบร้อย: สำเร็จ ${json.data.fixedCount} จาก ${json.data.total} รายการ` });
+            await fetchEligibleData();
+        } catch (err) {
+            setFixAlert({ type: 'error', message: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไขแบบกลุ่ม' });
+        } finally {
+            setBatchFixing(false);
+        }
+    };
+
+    const handleExcelImportVns = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+            const buffer = await file.arrayBuffer();
+            const workbook = XLSX.read(buffer, { type: 'array' });
+            const extractedVns = new Set<string>();
+            const extractedDates: string[] = [];
+
+            for (const sheetName of workbook.SheetNames) {
+                const sheet = workbook.Sheets[sheetName];
+                const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
+                for (const row of jsonRows) {
+                    for (const [key, val] of Object.entries(row)) {
+                        const strVal = String(val ?? '').trim();
+                        if (!strVal) continue;
+                        const normKey = key.trim().toUpperCase();
+                        if (
+                            normKey === 'VN' ||
+                            normKey === 'VISIT' ||
+                            normKey === 'VISIT_NO' ||
+                            normKey === 'เลขที่รับบริการ' ||
+                            normKey === 'ลำดับการบริการ'
+                        ) {
+                            extractedVns.add(strVal);
+                        } else if (
+                            normKey === 'วันที่รับบริการ' ||
+                            normKey === 'SERVICE_DATE' ||
+                            normKey === 'VSTDATE' ||
+                            normKey === 'DATE'
+                        ) {
+                            const dateMatch = strVal.match(/^(\d{4}-\d{2}-\d{2})/);
+                            if (dateMatch) extractedDates.push(dateMatch[1]);
+                        } else if (/^\d{12}$/.test(strVal)) {
+                            extractedVns.add(strVal);
+                        }
+                    }
+                }
+            }
+
+            const vnList = Array.from(extractedVns);
+            if (vnList.length === 0) {
+                alert('ไม่พบคอลัมน์ VN หรือหมายเลข Visit (12 หลัก) ในไฟล์ Excel ที่เลือก');
+                return;
+            }
+
+            let newStart = startDate;
+            let newEnd = endDate;
+            if (extractedDates.length > 0) {
+                extractedDates.sort();
+                newStart = extractedDates[0];
+                newEnd = extractedDates[extractedDates.length - 1];
+                setStartDate(newStart);
+                setEndDate(newEnd);
+            }
+
+            setIncomingTargetVns(vnList);
+            setSelectedVns(vnList);
+            setStatusFilter('all');
+            setDashboardContextItems([
+                `นำเข้าจาก Excel (${file.name})`,
+                `ช่วงวันที่ ${newStart} ถึง ${newEnd}`,
+                `เลือกเฉพาะ ${vnList.length} รายการที่นำเข้า`,
+            ]);
+            await fetchEligibleData({ startDate: newStart, endDate: newEnd, targetVns: vnList });
+            alert(`นำเข้าไฟล์ Excel สำเร็จ: พบ ${vnList.length} VN และค้นหาพร้อมเลือกรายการให้อัตโนมัติเรียบร้อย`);
+        } catch (err) {
+            alert(`อ่านไฟล์ Excel ไม่สำเร็จ: ${err instanceof Error ? err.message : 'รูปแบบไฟล์ไม่ถูกต้อง'}`);
+        } finally {
+            e.target.value = '';
+        }
+    };
+
     useEffect(() => {
         const incoming = consumeDashboardNavigation('fdh');
         if (incoming?.startDate) setStartDate(incoming.startDate);
         if (incoming?.endDate) setEndDate(incoming.endDate);
         if (incoming?.fdh?.statusFilter) setStatusFilter(incoming.fdh.statusFilter);
+        if (incoming?.fdh?.targetVns && incoming.fdh.targetVns.length > 0) {
+            setIncomingTargetVns(incoming.fdh.targetVns);
+            setSelectedVns(incoming.fdh.targetVns);
+        }
 
         if (incoming) {
             const noteParts: string[] = [];
@@ -147,15 +364,48 @@ export const FDHCheckerPage: React.FC = () => {
             if (incoming?.fdh?.statusFilter && incoming.fdh.statusFilter !== 'all') {
                 noteParts.push(`สถานะ ${incoming.fdh.statusFilter === 'ready' ? 'พร้อมส่ง' : 'รอแก้ไข'}`);
             }
+            if (incoming?.fdh?.targetVns && incoming.fdh.targetVns.length > 0) {
+                noteParts.push(`เลือกเฉพาะ ${incoming.fdh.targetVns.length} รายการที่ส่งต่อมา`);
+            }
             setDashboardContextItems(noteParts);
         }
 
         fetchEligibleData({
             startDate: incoming?.startDate ?? todayStr,
             endDate: incoming?.endDate ?? todayStr,
+            targetVns: incoming?.fdh?.targetVns,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    useEffect(() => {
+        const scroller = visitTableScrollRef.current;
+        if (!scroller) return undefined;
+
+        const forwardVerticalWheelToPage = (event: WheelEvent) => {
+            if (event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+            if (scroller.scrollHeight > scroller.clientHeight + 2) return;
+            event.preventDefault();
+            window.scrollBy({ top: event.deltaY, behavior: 'auto' });
+        };
+
+        scroller.addEventListener('wheel', forwardVerticalWheelToPage, { passive: false });
+        return () => scroller.removeEventListener('wheel', forwardVerticalWheelToPage);
+    }, [loading, error]);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (pttypeDropdownRef.current && !pttypeDropdownRef.current.contains(e.target as Node)) {
+                setIsPttypeDropdownOpen(false);
+            }
+        };
+        if (isPttypeDropdownOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isPttypeDropdownOpen]);
 
     const specialFundOptions = Array.from(data.reduce((options, item) => {
         const logic = evaluateBillingLogic(item);
@@ -177,9 +427,89 @@ export const FDHCheckerPage: React.FC = () => {
     const matchesExportFund = (item: EligibleVisit) => exportFund === ALL_SPECIAL_FUNDS
         || evaluateBillingLogic(item).detectedSpecialFundNotes.includes(exportFund);
 
-    const isReadyForExportFund = (item: EligibleVisit) => item.status === 'ready'
+    const isReadyForExportFund = (item: EligibleVisit) => item.status === 'ready' && !isWaitingOfcApprove(item)
         && (exportFund === ALL_SPECIAL_FUNDS
             || evaluateBillingLogic(item).matchedSpecialFundNotes.includes(exportFund));
+
+    const fundFilteredData = data.filter(matchesExportFund);
+
+    const matchesPttype = (item: EligibleVisit) => {
+        if (selectedPttypes.length === 0) return true;
+        const pttypeName = String(item.fund || 'ไม่ระบุสิทธิ์').trim();
+        const pttypeCode = String(item.pttype_code || '').trim();
+        const key = pttypeCode ? `${pttypeCode}: ${pttypeName}` : pttypeName;
+        return selectedPttypes.includes(key)
+            || (pttypeCode && selectedPttypes.includes(pttypeCode))
+            || (pttypeName && selectedPttypes.includes(pttypeName));
+    };
+
+    const scopedData = fundFilteredData.filter(matchesPttype);
+    const downloadWaitingApprove = () => {
+        const sheet = XLSX.utils.json_to_sheet(waitingApproveRows.map((item) => ({ VN: item.vn, HN: item.hn, ชื่อผู้ป่วย: item.patientName, วันที่รับบริการ: item.serviceDate, สิทธิ์: item.fund, สถานะ: 'รอ Approve code', จุดที่ต้องแก้ไข: item.missing.join(', ') })));
+        const book = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(book, sheet, 'Waiting Approve');
+        XLSX.writeFile(book, `OFC_LGO_waiting_approve_${formatLocalDateStamp()}.xlsx`);
+    };
+
+    const pttypeOptions = Array.from(fundFilteredData.reduce((options, item) => {
+        const pttypeName = String(item.fund || 'ไม่ระบุสิทธิ์').trim();
+        const pttypeCode = String(item.pttype_code || '').trim();
+        const key = pttypeCode ? `${pttypeCode}: ${pttypeName}` : pttypeName;
+        const current = options.get(key) || { key, pttypeCode, name: pttypeName, total: 0, ready: 0, pending: 0 };
+        current.total += 1;
+        if (item.status === 'ready') {
+            current.ready += 1;
+        } else {
+            current.pending += 1;
+        }
+        options.set(key, current);
+        return options;
+    }, new Map<string, { key: string; pttypeCode: string; name: string; total: number; ready: number; pending: number }>()).values())
+        .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+    const displayedPttypeOptions = pttypeOptions.filter((opt) => {
+        if (!pttypeSearchQuery.trim()) return true;
+        const q = pttypeSearchQuery.trim().toLowerCase();
+        return opt.key.toLowerCase().includes(q) || opt.name.toLowerCase().includes(q) || opt.pttypeCode.toLowerCase().includes(q);
+    });
+
+    const handleTogglePttype = (key: string) => {
+        setSelectedPttypes((prev) => (
+            prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+        ));
+        setSelectedVns([]);
+        setPreviewValidation(null);
+    };
+
+    const handleSelectAllPttypes = () => {
+        setSelectedPttypes([]);
+        setSelectedVns([]);
+        setPreviewValidation(null);
+    };
+
+    const handleClearPttypes = () => {
+        setSelectedPttypes([]);
+        setSelectedVns([]);
+        setPreviewValidation(null);
+    };
+
+    const hasFdhSubmission = (item: EligibleVisit) => Boolean(
+        item.fdh_has_submission ||
+        item.fdh_claim_code ||
+        item.fdh_upload_uid ||
+        item.fdh_sent_at ||
+        item.fdh_error_code ||
+        !isMissingFdhStatus(
+            item.fdh_claim_detail_status ||
+            item.fdh_reservation_status ||
+            item.fdh_claim_status_message
+        )
+    );
+
+    const isSelectableForExport = (item: EligibleVisit) => isReadyForExportFund(item)
+        && matchesPttype(item)
+        && (isFailedFdhSubmission(item) || confirmResend || !hasFdhSubmission(item));
+    const waitingApproveRows = scopedData.filter((item) => !item.an && isWaitingOfcApprove(item) && (!hasFdhSubmission(item) || isFailedFdhSubmission(item)));
 
     const normalizeSearchValue = (value: unknown) => String(value ?? '').trim().toLowerCase();
 
@@ -193,6 +523,7 @@ export const FDHCheckerPage: React.FC = () => {
             item.hn,
             item.patientName,
             item.fund,
+            item.pttype_code,
             item.hipdata_code,
             item.serviceDate,
             item.main_diag,
@@ -212,16 +543,22 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const filtered = data.filter(item => {
+        if (waitingApproveOnly && !waitingApproveRows.some((row) => row.vn === item.vn)) return false;
+        if (incomingTargetVns.length > 0 && !incomingTargetVns.includes(item.vn)) return false;
         if (!matchesExportFund(item)) return false;
-        if (statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
-        if (statusFilter === 'pending' && isReadyForExportFund(item)) return false;
+        if (!matchesPttype(item)) return false;
+        if (!waitingApproveOnly && statusFilter === 'ready' && !isReadyForExportFund(item)) return false;
+        if (!waitingApproveOnly && statusFilter === 'pending' && isReadyForExportFund(item)) return false;
+        if (fdhStatusFilter === 'not-submitted' && hasFdhSubmission(item)) return false;
+        if (fdhStatusFilter === 'failed' && !isFailedFdhSubmission(item)) return false;
+        if (fdhStatusFilter === 'submitted' && !hasFdhSubmission(item)) return false;
         return matchesSearchTerm(item);
     });
 
     const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.checked) {
             // Select only those that are ready
-            const readyVns = filtered.filter(isReadyForExportFund).map(i => i.vn);
+            const readyVns = filtered.filter(isSelectableForExport).map(i => i.vn);
             setSelectedVns(readyVns);
         } else {
             setSelectedVns([]);
@@ -235,7 +572,7 @@ export const FDHCheckerPage: React.FC = () => {
     };
 
     const getReadyVns = () => {
-        const visibleReadyVns = filtered.filter(isReadyForExportFund).map(i => i.vn).filter(Boolean);
+        const visibleReadyVns = filtered.filter(isSelectableForExport).map(i => i.vn).filter(Boolean);
         if (selectedVns.length === 0) return visibleReadyVns;
         const visibleReadySet = new Set(visibleReadyVns);
         return selectedVns.filter((vn) => visibleReadySet.has(vn));
@@ -243,6 +580,7 @@ export const FDHCheckerPage: React.FC = () => {
 
     const buildFdhPayload = (vns: string[]) => ({
         vns,
+        patientType: 'OPD',
         profile: exportProfile,
         fcodeByHn,
         uucByVn: Object.fromEntries(vns.map((vn) => {
@@ -258,10 +596,12 @@ export const FDHCheckerPage: React.FC = () => {
 
         setIsLoadingPreview(true);
         try {
+            const payload = buildFdhPayload(vnsToPreview);
+            setPreviewExportRequest(payload);
             const response = await fetch('/api/fdh/view-data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(buildFdhPayload(vnsToPreview))
+                body: JSON.stringify(payload)
             });
 
             const result = await response.json();
@@ -283,6 +623,7 @@ export const FDHCheckerPage: React.FC = () => {
         const headers = '#,VN,HN,ชื่อผู้ป่วย,สิทธิ์,วันที่รับบริการ,ประเภท,DIAG,สถานะกองทุน,สถานะ FDH,สถานะข้อมูล,ราคา (บาท)';
         const rows = filtered.map((item, index) => {
             const logic = evaluateBillingLogic(item);
+            const isOfcOrLgo = isOfcOrLgoVisit(item, logic);
             return [
                 index + 1,
                 item.vn,
@@ -294,7 +635,9 @@ export const FDHCheckerPage: React.FC = () => {
                 item.main_diag || '-',
                 logic.isUUC1 ? 'UUC1' : 'UUC2',
                 item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
-                item.status === 'ready' ? 'พร้อมส่ง (ปิดสิทธิแล้ว)' : 'รอแก้ไข/รอปิดสิทธิ',
+                item.status === 'ready'
+                    ? (isOfcOrLgo ? 'พร้อมส่ง (OFC/LGO)' : (item.palliative_authen_ready && !item.has_close ? 'พร้อมส่ง (Palliative/Authen)' : 'พร้อมส่ง (ปิดสิทธิแล้ว)'))
+                    : (isOfcOrLgo ? 'รอแก้ไข' : 'รอแก้ไข/รอปิดสิทธิ'),
                 item.total_price
             ].join(',')
         });
@@ -309,6 +652,7 @@ export const FDHCheckerPage: React.FC = () => {
     const handleExportExcel = () => {
         const dataForExcel = filtered.map((item, index) => {
             const logic = evaluateBillingLogic(item);
+            const isOfcOrLgo = isOfcOrLgoVisit(item, logic);
             return {
                 '#': index + 1,
                 'VN': item.vn,
@@ -320,7 +664,9 @@ export const FDHCheckerPage: React.FC = () => {
                 'DIAG': item.main_diag || '-',
                 'สถานะกองทุน': logic.isUUC1 ? 'UUC1' : 'UUC2',
                 'สถานะ FDH': item.fdh_status_label || 'ยังไม่พบข้อมูล FDH',
-                'สถานะข้อมูล': item.status === 'ready' ? 'พร้อมส่ง (ปิดสิทธิแล้ว)' : 'รอแก้ไข/รอปิดสิทธิ',
+                'สถานะข้อมูล': item.status === 'ready'
+                    ? (isOfcOrLgo ? 'พร้อมส่ง (OFC/LGO)' : (item.palliative_authen_ready && !item.has_close ? 'พร้อมส่ง (Palliative/Authen)' : 'พร้อมส่ง (ปิดสิทธิแล้ว)'))
+                    : (isOfcOrLgo ? 'รอแก้ไข' : 'รอแก้ไข/รอปิดสิทธิ'),
                 'ราคา (บาท)': item.total_price
             };
         });
@@ -350,21 +696,46 @@ export const FDHCheckerPage: React.FC = () => {
             const response = await fetch('/api/fdh/export-zip', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...buildFdhPayload(vnsToExport), includeHeader: exportWithHeader })
+                body: JSON.stringify({
+                    ...buildFdhPayload(vnsToExport),
+                    includeHeader: exportWithHeader,
+                    splitBatches: autoSplitBatches,
+                    batchSize: 500
+                })
             });
 
             if (response.ok) {
                 const blob = await response.blob();
+                const contentDisposition = response.headers.get('Content-Disposition');
+                let downloadFilename = `FDH_16Folder_Export_${formatLocalDateStamp()}.zip`;
+                if (contentDisposition) {
+                    const match = contentDisposition.match(/filename=(.+)/i);
+                    if (match && match[1]) downloadFilename = match[1].replace(/["']/g, '').trim();
+                } else if (autoSplitBatches && vnsToExport.length > 500) {
+                    downloadFilename = `FDH_Export_Batches_Total_${vnsToExport.length}_${formatLocalDateStamp()}.zip`;
+                }
+
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `FDH_16Folder_Export_${formatLocalDateStamp()}.zip`;
+                a.download = downloadFilename;
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
+
+                if (autoSplitBatches && vnsToExport.length > 500) {
+                    const batchCount = Math.ceil(vnsToExport.length / 500);
+                    alert(`📦 ส่งออกสำเร็จ: สร้าง Master ZIP รวม ${batchCount} ชุดย่อย (${vnsToExport.length} วิสิต) เรียบร้อย\n\nท่านสามารถแตกไฟล์เพื่อนำเข้าเว็บ FDH ทีละชุด (ขนาดแต่ละชุดไม่เกิน 50 MB ตามมาตรฐาน)`);
+                }
             } else {
                 const result = await response.json();
-                alert(`Error: ${result.error || 'Export failed'}`);
+                if (result.validation?.errors?.length > 0) {
+                    setPreviewValidation(result.validation);
+                    const firstIssues = result.validation.errors.slice(0, 5).map((e: any) => `• ${e.message}`).join('\n');
+                    alert(`ไม่สามารถส่งออกได้เนื่องจากข้อมูลยังติดเงื่อนไข Pre-flight:\n\n${firstIssues}\n\nกรุณาใช้ฟังก์ชัน Preview/Preflight หรือ Auto-Fix เพื่อแก้ไขก่อนส่งออก`);
+                } else {
+                    alert(`Error: ${result.error || 'Export failed'}`);
+                }
             }
         } catch (err) {
             alert('Error connecting to server for export');
@@ -376,7 +747,11 @@ export const FDHCheckerPage: React.FC = () => {
     const handleSubmitFdhApi = async () => {
         const vnsToSubmit = getReadyVns();
         if (vnsToSubmit.length === 0) return alert('ไม่มีรายการพร้อมส่งสำหรับส่ง FDH API');
-        if (!window.confirm(`ยืนยันส่ง ${vnsToSubmit.length} visit ไป FDH API จริง?`)) return;
+        const resendCount = filtered.filter((item) => vnsToSubmit.includes(item.vn) && hasFdhSubmission(item)).length;
+        const confirmationText = confirmResend
+            ? `ยืนยันส่ง ${vnsToSubmit.length} visit ไป FDH API จริง?\n\nมี ${resendCount} รายการที่เคยส่ง/มีสถานะ FDH และจะถูกส่งซ้ำ`
+            : `ยืนยันส่ง ${vnsToSubmit.length} visit ที่ยังไม่เคยส่งไป FDH API จริง?`;
+        if (!window.confirm(confirmationText)) return;
         setSubmitting(true);
         try {
             const response = await fetch('/api/fdh/submit', {
@@ -399,79 +774,37 @@ export const FDHCheckerPage: React.FC = () => {
         }
     };
 
-    const fundFilteredData = data.filter(matchesExportFund);
-    const readyCount = fundFilteredData.filter(isReadyForExportFund).length;
-    const pendingCount = fundFilteredData.length - readyCount;
+    const readyCount = scopedData.filter(isReadyForExportFund).length;
+    const pendingCount = scopedData.length - readyCount;
+    const autoFixableCount = scopedData.filter((item) => Boolean(item.can_auto_fix)).length;
     const exportVisitCount = getReadyVns().length;
+    const selectedVisibleCount = selectedVns.filter((vn) => filtered.some((item) => item.vn === vn && isSelectableForExport(item))).length;
     const visibleReadyCount = filtered.filter(isReadyForExportFund).length;
     const visiblePendingCount = filtered.length - visibleReadyCount;
+    const visibleAlreadySentCount = filtered.filter((item) => isReadyForExportFund(item) && hasFdhSubmission(item)).length;
+    const failedFdhCount = scopedData.filter(isFailedFdhSubmission).length;
+    const notSubmittedFdhCount = scopedData.filter((item) => !hasFdhSubmission(item)).length;
+    const submittedFdhCount = scopedData.length - notSubmittedFdhCount;
+
+    const clearListFilters = () => {
+        setWaitingApproveOnly(false);
+        setExportFund(ALL_SPECIAL_FUNDS);
+        setSelectedPttypes([]);
+        setStatusFilter('all');
+        setFdhStatusFilter('all');
+        setSearchTerm('');
+        setConfirmResend(false);
+        setSelectedVns([]);
+        setPreviewValidation(null);
+    };
 
 
 
     return (
-        <div className="page-container">
+        <div className="page-container fdh-checker-page">
             <div className="page-header">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                        <h1 className="page-title">🔍 ตรวจสอบสิทธิเบิก FDH</h1>
-                        <p className="page-subtitle">เช็คความพร้อมของ Visit ว่ามีข้อมูลครบถ้วนสำหรับส่งเบิก 16 แฟ้ม หรือไม่</p>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        <button className="btn btn-success" onClick={handleExportCSV}>📥 CSV</button>
-                        <button className="btn btn-warning" onClick={handleExportExcel}>📊 Excel</button>
-                        <label
-                            className="btn btn-secondary"
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                cursor: 'pointer',
-                                userSelect: 'none'
-                            }}
-                            title="ให้ตรงกับตัวเลือก TXT มีหัวคอลัมน์ บนหน้า FDH"
-                        >
-                            <input
-                                type="checkbox"
-                                checked={exportWithHeader}
-                                onChange={(e) => setExportWithHeader(e.target.checked)}
-                            />
-                            TXT มีหัวคอลัมน์
-                        </label>
-                        <button
-                            className="btn btn-info"
-                            onClick={handlePreviewData}
-                            disabled={isLoadingPreview || data.length === 0}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                background: '#0ea5e9',
-                                color: 'white',
-                                fontWeight: 600
-                            }}
-                        >
-                            {isLoadingPreview ? '⏳ กำลังโหลด...' : '🔍 ตรวจสอบข้อมูล 16 แฟ้ม'}
-                        </button>
-                        <button
-                            className="btn btn-primary"
-                            onClick={handleExportZip}
-                            disabled={exporting || data.length === 0}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '10px 20px',
-                                fontSize: 15,
-                                fontWeight: 700,
-                                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)'
-                            }}
-                        >
-                            {exporting
-                                ? '⏳ กำลังสร้าง ZIP...'
-                                : `📦 ส่งออก 16 แฟ้ม ZIP (${exportVisitCount} รายการ)`}
-                        </button>
-                    </div>
-                </div>
+                <h1 className="page-title">📤 ส่งออกผู้ป่วยนอก (OPD 16 แฟ้ม)</h1>
+                <p className="page-subtitle">คัดเลือกด้วย VN ตรวจความพร้อม/Preflight และส่ง FDH แยกจากรายการ IPD</p>
             </div>
 
             {dashboardContextItems.length > 0 && (
@@ -492,15 +825,60 @@ export const FDHCheckerPage: React.FC = () => {
                 </div>
             )}
 
-            <FundEligibilityRules />
+            <details className="card" style={{ marginBottom: 16 }}>
+                <summary style={{ cursor: 'pointer', padding: '14px 16px', fontWeight: 700 }}>
+                    📋 ดูเงื่อนไขกองทุนและเกณฑ์ตรวจสอบ OPD
+                </summary>
+                <div style={{ padding: '0 16px 16px' }}>
+                    <FundEligibilityRules />
+                </div>
+            </details>
 
-            <div className="card" style={{ marginBottom: 16 }}>
-                <div className="card-body" style={{ padding: '14px 16px' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, alignItems: 'end' }}>
+            {(waitingApproveRows.length > 0 || waitingApproveOnly) && (
+                <div className="alert alert-warning" role="status" style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                    <div style={{ flex: 1, minWidth: 260 }}>
+                        <strong>OFC รอ Approve code {waitingApproveRows.length} รายการ</strong>
+                        <div>รายการที่ยังไม่ส่งหรือส่งไม่ผ่านยังอยู่ในคิวของช่วงวันที่และสิทธิ์ที่เลือก ระบบส่งออกเฉพาะรายการพร้อมส่งที่มีรหัสแล้ว</div>
+                    </div>
+                    <button className="btn btn-secondary" type="button" onClick={() => { setWaitingApproveOnly(!waitingApproveOnly); setFdhStatusFilter('all'); setSearchTerm(''); setSelectedVns([]); }}>{waitingApproveOnly ? 'กลับดูรายการทั้งหมด' : 'ดูรายการรอ Approve'}</button>
+                    <button className="btn btn-secondary" type="button" onClick={downloadWaitingApprove}>ดาวน์โหลดรายการรอ</button>
+                    <button className="btn btn-primary" type="button" onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'ktbApproveCode' } }))}>นำเข้า Approve code</button>
+                </div>
+            )}
+            <div
+                className={`card fdh-filter-card${isPttypeDropdownOpen ? ' fdh-filter-card--dropdown-open' : ''}`}
+                style={{
+                    marginBottom: 16,
+                    position: 'relative',
+                    zIndex: isPttypeDropdownOpen ? 1200 : 2,
+                }}
+            >
+                <div className="fdh-filter-heading">
+                    <div>
+                        <div className="fdh-filter-title">ตั้งค่าชุดส่งออกและตัวกรอง</div>
+                        <div className="fdh-filter-subtitle">เลือกชุดข้อมูลก่อน แล้วจึงกรองรายการที่ต้องการตรวจหรือส่งออก</div>
+                    </div>
+                    <button
+                        type="button"
+                        className="btn btn-secondary fdh-filter-clear"
+                        onClick={clearListFilters}
+                        disabled={!waitingApproveOnly && exportFund === ALL_SPECIAL_FUNDS && selectedPttypes.length === 0 && statusFilter === 'all' && fdhStatusFilter === 'all' && !searchTerm}
+                    >
+                        ล้างตัวกรอง
+                    </button>
+                </div>
+
+                <div className="fdh-filter-body">
+                    <section className="fdh-filter-section">
+                        <div className="fdh-filter-section-label">
+                            <span className="fdh-filter-step">1</span>
+                            <span>กำหนดชุดส่งออก</span>
+                        </div>
+                        <div className="fdh-filter-grid fdh-filter-grid--export">
                         <div className="form-group">
                             <label className="form-label">มาตรฐานส่งออก</label>
                             <select
-                                className="form-control"
+                                className="form-control fdh-filter-select"
                                 value={exportProfile}
                                 onChange={(event) => {
                                     setExportProfile(event.target.value as FdhExportProfile);
@@ -511,10 +889,10 @@ export const FDHCheckerPage: React.FC = () => {
                                 <option value="fwf-migrants">FWF Migrants (แรงงานต่างด้าว)</option>
                             </select>
                         </div>
-                        <div className="form-group">
+                        <div className="form-group fdh-filter-fund">
                             <label className="form-label">🏷️ กองทุนที่จะส่งออก</label>
                             <select
-                                className="form-control"
+                                className="form-control fdh-filter-select"
                                 value={exportFund}
                                 onChange={(event) => {
                                     setExportFund(event.target.value);
@@ -529,26 +907,237 @@ export const FDHCheckerPage: React.FC = () => {
                                     </option>
                                 ))}
                             </select>
-                            <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
+                            <div className="fdh-filter-help">
                                 ตาราง ตรวจสอบก่อนส่ง และ ZIP จะใช้กองทุนเดียวกัน
+                                {!confirmResend && visibleAlreadySentCount > 0 ? ` • ไม่รวม ${visibleAlreadySentCount} รายการที่มีสถานะ FDH แล้ว` : ''}
                             </div>
                         </div>
+                        <div className="form-group fdh-header-option">
+                            <label className="form-label">รูปแบบไฟล์ TXT</label>
+                            <label className="fdh-checkbox-card">
+                                <input
+                                    type="checkbox"
+                                    checked={exportWithHeader}
+                                    onChange={(event) => setExportWithHeader(event.target.checked)}
+                                />
+                                <span>
+                                    <strong>มีหัวคอลัมน์</strong>
+                                    <small>ใส่ชื่อฟิลด์ในแถวแรก</small>
+                                </span>
+                            </label>
+                        </div>
+                        </div>
+                    </section>
+
+                    <section
+                        className="fdh-filter-section"
+                        style={{
+                            position: 'relative',
+                            zIndex: isPttypeDropdownOpen ? 1250 : 2,
+                        }}
+                    >
+                        <div className="fdh-filter-section-label">
+                            <span className="fdh-filter-step">2</span>
+                            <span>กรองรายการในตาราง</span>
+                        </div>
+                        <div className="fdh-filter-grid fdh-filter-grid--list">
                         <div className="form-group">
                             <label className="form-label">🔍 สถานะความพร้อม</label>
                             <select
-                                className="form-control"
+                                className="form-control fdh-filter-select"
                                 value={statusFilter}
-                                onChange={(e) => setStatusFilter(e.target.value as any)}
+                                onChange={(e) => { setWaitingApproveOnly(false); setStatusFilter(e.target.value as any); }}
                             >
-                                <option value="all">ทั้งหมด ({data.length})</option>
+                                <option value="all">ทั้งหมด ({scopedData.length})</option>
                                 <option value="ready">🟢 ข้อมูลพร้อมส่ง ({readyCount})</option>
                                 <option value="pending">🟡 ข้อมูลรอแก้ไข ({pendingCount})</option>
                             </select>
                         </div>
 
+                        <div className={`form-group fdh-filter-pttype-group${isPttypeDropdownOpen ? ' fdh-filter-pttype-group--open' : ''}`} ref={pttypeDropdownRef}>
+                            <label className="form-label">🏷️ สิทธิการรักษา (Checklist)</label>
+                            <button
+                                type="button"
+                                className={`form-control fdh-filter-select fdh-checklist-trigger${selectedPttypes.length > 0 ? ' fdh-checklist-trigger--active' : ''}`}
+                                onClick={() => setIsPttypeDropdownOpen((prev) => !prev)}
+                                aria-expanded={isPttypeDropdownOpen}
+                            >
+                                <span className="fdh-checklist-trigger-text">
+                                    {selectedPttypes.length === 0
+                                        ? `ทุกสิทธิการรักษา (${pttypeOptions.length} สิทธิ์)`
+                                        : selectedPttypes.length === 1
+                                            ? selectedPttypes[0]
+                                            : `เลือก ${selectedPttypes.length} สิทธิการรักษา`
+                                    }
+                                </span>
+                                <span className="fdh-checklist-chevron">{isPttypeDropdownOpen ? '▴' : '▾'}</span>
+                            </button>
+
+                            {isPttypeDropdownOpen && (
+                                <div className="fdh-checklist-popover" role="dialog" aria-label="เลือกสิทธิการรักษา">
+                                    <div className="fdh-checklist-header">
+                                        <div className="fdh-checklist-header-title">
+                                            <strong>เลือกสิทธิการรักษา</strong>
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 6 }}>
+                                                ({selectedPttypes.length > 0 ? `เลือก ${selectedPttypes.length}/${pttypeOptions.length} สิทธิ์` : 'ทุกสิทธิ์'})
+                                            </span>
+                                        </div>
+                                        <div className="fdh-checklist-actions">
+                                            {selectedPttypes.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-secondary fdh-checklist-btn-xs"
+                                                    onClick={handleClearPttypes}
+                                                >
+                                                    ล้างเลือก
+                                                </button>
+                                            )}
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary fdh-checklist-btn-xs"
+                                                onClick={handleSelectAllPttypes}
+                                            >
+                                                ทุกสิทธิ์
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {pttypeOptions.length > 5 && (
+                                        <div className="fdh-checklist-search">
+                                            <input
+                                                type="text"
+                                                className="form-control fdh-checklist-search-input"
+                                                placeholder="🔍 ค้นหารหัส หรือชื่อสิทธิ์..."
+                                                value={pttypeSearchQuery}
+                                                onChange={(e) => setPttypeSearchQuery(e.target.value)}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="fdh-checklist-list">
+                                        <label className={`fdh-checklist-item${selectedPttypes.length === 0 ? ' fdh-checklist-item--selected' : ''}`}>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedPttypes.length === 0}
+                                                onChange={() => handleClearPttypes()}
+                                            />
+                                            <div className="fdh-checklist-item-body">
+                                                <div className="fdh-checklist-item-name">
+                                                    <strong>ทุกสิทธิการรักษา (ทั้งหมด)</strong>
+                                                </div>
+                                                <div className="fdh-checklist-item-meta">
+                                                    <span className="badge badge-primary">{fundFilteredData.length} visit</span>
+                                                </div>
+                                            </div>
+                                        </label>
+
+                                        <div className="fdh-checklist-divider" />
+
+                                        {displayedPttypeOptions.map((opt) => {
+                                            const isChecked = selectedPttypes.includes(opt.key);
+                                            return (
+                                                <label
+                                                    key={opt.key}
+                                                    className={`fdh-checklist-item${isChecked ? ' fdh-checklist-item--selected' : ''}`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={() => handleTogglePttype(opt.key)}
+                                                    />
+                                                    <div className="fdh-checklist-item-body">
+                                                        <div className="fdh-checklist-item-name">{opt.key}</div>
+                                                        <div className="fdh-checklist-item-meta">
+                                                            <span className="badge badge-primary">{opt.total} visit</span>
+                                                            <span className="badge badge-success">พร้อม {opt.ready}</span>
+                                                            {opt.pending > 0 && (
+                                                                <span className="badge badge-warning">รอแก้ {opt.pending}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
+
+                                        {displayedPttypeOptions.length === 0 && (
+                                            <div className="fdh-checklist-empty">
+                                                ไม่พบสิทธิการรักษาที่ตรงกับคำค้น
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="fdh-checklist-footer">
+                                        <button
+                                            type="button"
+                                            className="btn btn-primary fdh-checklist-done-btn"
+                                            onClick={() => setIsPttypeDropdownOpen(false)}
+                                        >
+                                            ✓ เรียบร้อย ({selectedPttypes.length > 0 ? `เลือก ${selectedPttypes.length} สิทธิ์` : 'ทุกสิทธิ์'})
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="fdh-filter-help">
+                                {selectedPttypes.length === 0 ? (
+                                    <span>ทุกสิทธิการรักษา ({pttypeOptions.length} สิทธิ์)</span>
+                                ) : (
+                                    <span style={{ color: '#1d4ed8', fontWeight: 600 }}>
+                                        ✓ เลือก {selectedPttypes.length} สิทธิ์
+                                        <button
+                                            type="button"
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: '#ef4444',
+                                                cursor: 'pointer',
+                                                marginLeft: 6,
+                                                padding: 0,
+                                                fontSize: 10,
+                                                textDecoration: 'underline'
+                                            }}
+                                            onClick={handleClearPttypes}
+                                        >
+                                            (ล้าง)
+                                        </button>
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+
                         <div className="form-group">
+                            <label className="form-label">📡 สถานะการส่ง FDH</label>
+                            <select
+                                className="form-control fdh-filter-select"
+                                value={fdhStatusFilter}
+                                onChange={(event) => {
+                                    const nextFilter = event.target.value as FdhStatusFilter;
+                                    setFdhStatusFilter(nextFilter);
+                                    setSelectedVns([]);
+                                    setPreviewValidation(null);
+                                    if (nextFilter === 'failed') {
+                                        setConfirmResend(true);
+                                        setStatusFilter('ready');
+                                    } else if (nextFilter === 'not-submitted') {
+                                        setConfirmResend(false);
+                                    }
+                                }}
+                            >
+                                <option value="all">ทุกสถานะ FDH ({scopedData.length})</option>
+                                <option value="not-submitted">ยังไม่ส่ง / ไม่พบใน FDH ({notSubmittedFdhCount})</option>
+                                <option value="failed">🔴 ประมวลผลไม่ผ่าน — ส่งซ้ำ ({failedFdhCount})</option>
+                                <option value="submitted">เคยส่ง / มีสถานะ FDH ({submittedFdhCount})</option>
+                            </select>
+                            <div className={`fdh-filter-help${fdhStatusFilter === 'failed' ? ' fdh-filter-help--danger' : ''}`}>
+                                {fdhStatusFilter === 'failed'
+                                    ? 'เปิด “ยืนยันส่งซ้ำ” แล้ว • เลือกได้เฉพาะรายการไม่ผ่านที่ข้อมูลพร้อมส่ง'
+                                    : 'ใช้กรองรายการตามผลตอบกลับล่าสุดจาก FDH'}
+                            </div>
+                        </div>
+
+                        <div className="form-group fdh-filter-search">
                             <label className="form-label">🔎 ค้นหาในตาราง</label>
-                            <div style={{ display: 'flex', gap: 8 }}>
+                            <div className="fdh-search-control">
                                 <input
                                     type="text"
                                     className="form-control"
@@ -566,12 +1155,26 @@ export const FDHCheckerPage: React.FC = () => {
                                     </button>
                                 )}
                             </div>
-                            <div style={{ marginTop: 5, color: 'var(--text-muted)', fontSize: 11 }}>
-                                แสดง {filtered.length} รายการ จากทั้งหมด {fundFilteredData.length} รายการ
+                            <div className="fdh-filter-help">
+                                แสดง {filtered.length} รายการ จากทั้งหมด {scopedData.length} รายการ
                                 {searchTerm ? ` • พร้อมส่ง ${visibleReadyCount} • รอแก้ ${visiblePendingCount}` : ''}
                             </div>
                         </div>
+                        </div>
+                    </section>
 
+                    <section
+                        className="fdh-filter-section fdh-filter-section--last"
+                        style={{
+                            position: 'relative',
+                            zIndex: 1,
+                        }}
+                    >
+                        <div className="fdh-filter-section-label">
+                            <span className="fdh-filter-step">3</span>
+                            <span>เลือกช่วงบริการและดึงข้อมูล</span>
+                        </div>
+                        <div className="fdh-filter-grid fdh-filter-grid--dates">
                         <div className="form-group">
                             <label className="form-label">📅 วันที่เริ่ม</label>
                             <input
@@ -595,14 +1198,156 @@ export const FDHCheckerPage: React.FC = () => {
                         <button
                             className="btn btn-primary"
                             onClick={() => fetchEligibleData()}
-                            disabled={loading || exporting}
+                            disabled={loading || exporting || ipdAuthenSyncing}
                             style={{ height: 'fit-content' }}
                         >
                             🔄 ดึงข้อมูลใหม่
                         </button>
+                        <button
+                            className="btn btn-secondary"
+                            onClick={() => fetchEligibleData({ forceIpdAuthen: true })}
+                            disabled={loading || exporting || ipdAuthenSyncing}
+                            style={{ height: 'fit-content' }}
+                        >
+                            {ipdAuthenSyncing ? '⏳ กำลังตรวจ Authen IPD...' : '🪪 ตรวจ Authen IPD ใหม่'}
+                        </button>
+                        <label
+                            className="btn btn-secondary"
+                            style={{
+                                height: 'fit-content',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                margin: 0,
+                                background: '#f8fafc',
+                                border: '1px solid #cbd5e1',
+                                color: '#0f172a',
+                                fontWeight: 600,
+                            }}
+                            title="นำเข้าไฟล์ Excel จากหน้า Data Sheet 0 หรือไฟล์รายการ VN เพื่อเลือกส่งออกเฉพาะรายที่มีใน Excel"
+                        >
+                            📥 นำเข้า Excel เพื่อส่งออก
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls,.csv"
+                                style={{ display: 'none' }}
+                                onChange={(e) => void handleExcelImportVns(e)}
+                            />
+                        </label>
                     </div>
+                    </section>
                 </div>
             </div>
+
+            {incomingTargetVns.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#eff6ff', border: '1px solid #93c5fd', borderRadius: '8px', padding: '12px 16px', marginBottom: 16, color: '#1e40af', fontSize: '13px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <div>
+                        <strong style={{ fontSize: '14px' }}>🎯 กำลังล็อกแสดงผลเฉพาะ {incomingTargetVns.length} วิสิตที่เลือกส่งต่อมา</strong>
+                        <div style={{ fontSize: '12px', color: '#3b82f6', marginTop: 2 }}>
+                            ระบบเลือกและล็อกรายการเหล่านี้ไว้ให้แล้วเพื่อป้องกันไม่ให้วิสิตอื่นที่ไม่เกี่ยวข้องถูกส่งออกไปด้วย
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setIncomingTargetVns([]);
+                            fetchEligibleData({ targetVns: [] });
+                        }}
+                        style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', color: '#1e40af', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                        ✕ ปลดล็อก (แสดงทั้งหมด)
+                    </button>
+                </div>
+            )}
+
+            {(ipdAuthenSyncing || ipdAuthenNotice) && (
+                <div className={`alert ${ipdAuthenNotice?.type === 'warning' ? 'alert-warning' : 'alert-info'}`} style={{ marginBottom: 16 }}>
+                    <span>{ipdAuthenSyncing ? '⏳' : ipdAuthenNotice?.type === 'warning' ? '⚠️' : '✅'}</span>
+                    <span>{ipdAuthenSyncing ? 'กำลังตรวจสอบและนำเข้า Authen Code ของผู้ป่วยในก่อนส่ง FDH...' : ipdAuthenNotice?.text}</span>
+                </div>
+            )}
+
+            {fixAlert && (
+                <div className={`alert ${fixAlert.type === 'success' ? 'alert-success' : 'alert-danger'}`} style={{ marginBottom: 16 }}>
+                    <span>{fixAlert.type === 'success' ? '✅' : '⚠️'}</span>
+                    <span>{fixAlert.message}</span>
+                </div>
+            )}
+
+            {!loading && !error && (
+                <div className="card fdh-preflight-guard-card" style={{ marginBottom: 16, background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 12, padding: '16px 20px', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, borderBottom: '1px solid #e2e8f0', paddingBottom: 12, marginBottom: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span style={{ fontSize: 24 }}>🛡️</span>
+                            <div>
+                                <strong style={{ fontSize: 16, color: '#0f172a' }}>Pre-flight Error Guard (Zero-Error Export)</strong>
+                                <div style={{ fontSize: 12, color: '#64748b' }}>
+                                    ตรวจสอบความถูกต้องล่วงหน้าตามมาตรฐาน MOPH FDH 16 แฟ้ม ป้องกันการถูกปฏิเสธทั้ง Batch
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={handlePreviewData}
+                                disabled={isLoadingPreview || exportVisitCount === 0}
+                                style={{ fontSize: 13, padding: '6px 14px' }}
+                            >
+                                {isLoadingPreview ? '⏳ กำลังตรวจ...' : '🔎 เจาะลึก 16 แฟ้ม (Preflight Inspector)'}
+                            </button>
+                            {autoFixableCount > 0 && (
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    onClick={handleBatchAutoFix}
+                                    disabled={batchFixing || fixingVn !== null}
+                                    style={{ fontSize: 13, padding: '6px 14px', background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', border: 'none', color: '#fff', fontWeight: 600 }}
+                                >
+                                    {batchFixing ? '⏳ กำลังแก้ไข...' : `⚡ Auto-Fix อัตโนมัติ (${autoFixableCount} รายการ)`}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '10px 14px' }}>
+                            <div style={{ fontSize: 12, color: '#047857', fontWeight: 600 }}>🟢 พร้อมส่งสมบูรณ์ (Zero-Error)</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#065f46', marginTop: 4 }}>
+                                {readyCount.toLocaleString()} <span style={{ fontSize: 13, fontWeight: 400 }}>วิสิต</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#059669', marginTop: 2 }}>ผ่านเกณฑ์โครงสร้างและสิทธิกองทุนแล้ว</div>
+                        </div>
+
+                        <div style={{ background: pendingCount > 0 ? '#fff7ed' : '#f8fafc', border: `1px solid ${pendingCount > 0 ? '#fed7aa' : '#e2e8f0'}`, borderRadius: 8, padding: '10px 14px' }}>
+                            <div style={{ fontSize: 12, color: pendingCount > 0 ? '#c2410c' : '#64748b', fontWeight: 600 }}>🔴 รอแก้ไข / ติดเงื่อนไข (Blocking)</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: pendingCount > 0 ? '#9a3412' : '#475569', marginTop: 4 }}>
+                                {pendingCount.toLocaleString()} <span style={{ fontSize: 13, fontWeight: 400 }}>วิสิต</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#b45309', marginTop: 2 }}>
+                                {waitingApproveRows.length > 0 ? `รอ Approve ${waitingApproveRows.length} • ` : ''}
+                                {autoFixableCount > 0 ? `แก้ Auto ได้ ${autoFixableCount} รายการ` : 'ต้องปรับข้อมูลใน HOSxP'}
+                            </div>
+                        </div>
+
+                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 14px' }}>
+                            <div style={{ fontSize: 12, color: '#1d4ed8', fontWeight: 600 }}>📦 การแบ่งชุดส่งออก (Batch Guard)</div>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: '#1e40af', marginTop: 4 }}>
+                                {exportVisitCount > 500 && autoSplitBatches ? `${Math.ceil(exportVisitCount / 500)} ชุด (Batches)` : '1 ชุด'}
+                                <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 6 }}>
+                                    ({exportVisitCount.toLocaleString()} วิสิต)
+                                </span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#2563eb', marginTop: 2 }}>
+                                {exportVisitCount > 500 && autoSplitBatches
+                                    ? 'แบ่งไฟล์ละ ≤ 500 วิสิต (< 50MB) อัตโนมัติ'
+                                    : 'ขนาดไฟล์ปกติ ไม่เกินขีดจำกัด 50 MB'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {loading && (
                 <div className="loading-container">
@@ -618,17 +1363,32 @@ export const FDHCheckerPage: React.FC = () => {
             )}
 
             {!loading && !error && (
-                <div className="card overflow-hidden">
-                    <div style={{ overflowX: 'auto' }}>
-                        <table className="table">
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+                    <span className="badge badge-primary">OPD Visit {scopedData.length}</span>
+                    <span className="badge badge-success">พร้อมส่ง {readyCount}</span>
+                    <span className="badge badge-warning">รอแก้ไข {pendingCount}</span>
+                    <span className="badge badge-info">ยังไม่ส่ง {notSubmittedFdhCount}</span>
+                    <span className="badge badge-danger">ส่งไม่ผ่าน {failedFdhCount}</span>
+                    <span className="badge">เคยส่งแล้ว {submittedFdhCount}</span>
+                    <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                        <button className="btn btn-success" type="button" onClick={handleExportCSV}>📥 CSV</button>
+                        <button className="btn btn-warning" type="button" onClick={handleExportExcel}>📊 Excel</button>
+                    </span>
+                </div>
+            )}
+
+            {!loading && !error && (
+                <div className="card overflow-hidden fdh-visit-table-card">
+                    <div ref={visitTableScrollRef} className="fdh-visit-table-scroll">
+                        <table className="table fdh-visit-table">
                             <thead>
                             <tr>
                                 <th style={{ width: 40, textAlign: 'center' }}>
                                     <input
                                         type="checkbox"
-                                        checked={selectedVns.length > 0 && selectedVns.length === filtered.filter(isReadyForExportFund).length}
+                                        checked={selectedVns.length > 0 && selectedVns.length === filtered.filter(isSelectableForExport).length}
                                         onChange={handleSelectAll}
-                                        disabled={filtered.filter(isReadyForExportFund).length === 0}
+                                        disabled={filtered.filter(isSelectableForExport).length === 0}
                                     />
                                 </th>
                                 <th style={{ width: 40 }}>#</th>
@@ -640,8 +1400,9 @@ export const FDHCheckerPage: React.FC = () => {
                                 <th style={{ textAlign: 'center' }}>CID</th>
                                 <th style={{ textAlign: 'center' }}>Diagnosis</th>
                                 <th style={{ textAlign: 'center' }}>Invoice</th>
+                                <th style={{ minWidth: 150, textAlign: 'center' }}>Authen Code<br /><span style={{ fontSize: 10, fontWeight: 400 }}>FDH IPD</span></th>
                                 <th style={{ textAlign: 'center' }}>ปิดสิทธิ (EP)</th>
-                                <th style={{ minWidth: 200 }}>สถานะกองทุน (สปสช.)</th>
+                                <th className="fdh-fund-status-column">สถานะกองทุน (สปสช.)</th>
                                 <th style={{ minWidth: 180 }}>สถานะ FDH</th>
                                 <th>สถานะส่งออก / ข้อมูล</th>
                             </tr>
@@ -650,6 +1411,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 {filtered.length > 0 ? (
                                     filtered.map((item, index) => {
                                         const logic = evaluateBillingLogic(item);
+                                        const isOfcOrLgo = isOfcOrLgoVisit(item, logic);
                                         const readyForSelectedFund = isReadyForExportFund(item);
                                         const fdhStatus = String(item.fdh_status_label || '').trim();
                                         const fdhStatusText = `${fdhStatus} ${item.fdh_error_code || ''}`.trim();
@@ -662,12 +1424,16 @@ export const FDHCheckerPage: React.FC = () => {
                                                     : 'badge-secondary';
                                         const specialFundNotes = logic.specialFundNotes.filter((note) => !note.includes('ปิดสิทธิ'));
                                         const epNotes = logic.specialFundNotes.filter((note) => note.includes('ปิดสิทธิ'));
-                                        const hasSpecialFundBlock = specialFundNotes.length > 0;
                                         const specialSummary = logic.matchedFund
                                             ? 'เข้าเงื่อนไขกองทุนพิเศษ'
                                             : logic.incompleteFund
                                                 ? 'ใกล้เข้าเงื่อนไขกองทุนพิเศษ'
                                                 : '';
+                                        const fundSecondaryText = [
+                                            specialSummary,
+                                            ...specialFundNotes,
+                                            ...epNotes,
+                                        ].filter(Boolean).join(' • ');
                                         return (
                                             <tr key={item.vn} style={{
                                                 opacity: logic.opacity,
@@ -681,7 +1447,14 @@ export const FDHCheckerPage: React.FC = () => {
                                                         type="checkbox"
                                                         checked={selectedVns.includes(item.vn)}
                                                         onChange={() => handleSelect(item.vn)}
-                                                        disabled={!isReadyForExportFund(item)}
+                                                        disabled={!isSelectableForExport(item)}
+                                                        title={!readyForSelectedFund
+                                                            ? 'ข้อมูลยังไม่พร้อมส่ง'
+                                                            : isFailedFdhSubmission(item)
+                                                                ? 'FDH ประมวลผลไม่ผ่าน สามารถเลือกเพื่อส่งใหม่ได้'
+                                                                : hasFdhSubmission(item) && !confirmResend
+                                                                ? 'รายการนี้มีสถานะ FDH แล้ว หากต้องการเลือกให้กด “ยืนยันส่งซ้ำ”'
+                                                                : undefined}
                                                     />
                                                 </td>
                                                 <td style={{ textAlign: 'center', opacity: 0.6, fontSize: 13 }}>{index + 1}</td>
@@ -734,66 +1507,50 @@ export const FDHCheckerPage: React.FC = () => {
                                                     )}
                                                 </td>
                                                 <td style={{ textAlign: 'center' }}>
-                                                    {item.has_close ? <span style={{ color: 'var(--success)' }}>✓</span> : <span style={{ color: 'var(--danger)' }}>✗</span>}
-                                                </td>
-                                                <td>
-                                                    <div className="fund-status-block">
-                                                        <div className="fund-status-title">{logic.billingStatusLabel}</div>
-                                                        {hasSpecialFundBlock && (
-                                                            <>
-                                                                <div className={`fund-status-summary ${logic.matchedFund ? 'fund-status-summary--success' : 'fund-status-summary--warning'}`}>
-                                                                    <span>{specialSummary}</span>
-                                                                </div>
-                                                                <div className="fund-status-kicker">กองทุนพิเศษ</div>
-                                                                <div className="fund-status-badges">
-                                                                    {specialFundNotes.map((note, idx) => {
-                                                                const badgeStyle: React.CSSProperties = { fontSize: 10, padding: '2px 6px' };
-
-                                                                if (note.includes('ขาด') || note.includes('ไม่ผ่าน') || note.includes('ไม่ถึงเกณฑ์') || note.includes('เบิกไม่ได้')) {
-                                                                    return <span key={idx} className="badge badge-danger" style={badgeStyle}>{note}</span>;
-                                                                }
-
-                                                                if (note.match(/ANC|ตรวจครรภ์/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/ตรวจหลังคลอด/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/คัดกรอง|ตรวจมะเร็ง/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/Telemedicine|EMS/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#faf5ff', color: '#6b21a8', border: '1px solid #e9d5ff'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/คุมกำเนิด|ถุงยาง|ยาฉีด/)) {
-                                                                    return <span key={idx} className="badge" style={{...badgeStyle, background: '#fff1f2', color: '#9f1239', border: '1px solid #fecdd3'}}>{note}</span>;
-                                                                }
-                                                                if (note.match(/ล้างไต/)) {
-                                                                    return <span key={idx} className="badge badge-info" style={badgeStyle}>{note}</span>;
-                                                                }
-
-                                                                return (
-                                                                    <span key={idx} className="badge badge-success" style={badgeStyle}>
-                                                                        {note}
-                                                                    </span>
-                                                                );
-                                                                    })}
-                                                                </div>
-                                                            </>
-                                                        )}
-                                                        {epNotes.length > 0 && (
-                                                            <div className="fund-status-badges fund-status-badges--ep">
-                                                                {epNotes.map((note, idx) => (
-                                                                    <span
-                                                                        key={idx}
-                                                                        className={`badge ${item.has_close ? 'badge-success' : 'badge-warning'}`}
-                                                                        style={{ fontSize: 10 }}
-                                                                    >
-                                                                        {note}
-                                                                    </span>
-                                                                ))}
+                                                    {isLgoVisit(item) ? (
+                                                        item.approve_code || item.authen_code ? (
+                                                            <div>
+                                                                <span className="badge badge-success">มีรหัส</span>
+                                                                <div style={{ marginTop: 4, fontWeight: 700 }}>{item.approve_code ?? item.authen_code}</div>
                                                             </div>
-                                                        )}
+                                                        ) : (
+                                                            <span style={{ color: 'var(--text-muted)' }} title="สิทธิ LGO ไม่ต้องมี approve code">-</span>
+                                                        )
+                                                    ) : isOfcOrLgo ? (
+                                                        hasApproveCode(item.approve_code ?? item.authen_code) ? <div><span className="badge badge-success">มี Approve code</span><div style={{ marginTop: 4, fontWeight: 700 }}>{item.approve_code ?? item.authen_code}</div></div> : <span className="badge badge-warning">รอ Approve code</span>
+                                                    ) : item.authen_code ? (
+                                                        <div>
+                                                            <span className="badge badge-success">พบแล้ว</span>
+                                                            <div style={{ marginTop: 4, fontSize: 11, fontWeight: 800, color: '#0e7490' }}>{item.authen_code}</div>
+                                                        </div>
+                                                    ) : item.an ? (
+                                                        <span className="badge badge-warning">ยังไม่พบ</span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--text-muted)' }}>{item.has_authen ? '✓' : '-'}</span>
+                                                    )}
+                                                </td>
+                                                <td style={{ textAlign: 'center' }}>
+                                                    {item.has_close ? (
+                                                        <span style={{ color: 'var(--success)' }}>✓</span>
+                                                    ) : item.palliative_authen_ready ? (
+                                                        <span className="badge badge-success">Authen ผ่าน</span>
+                                                    ) : isOfcOrLgo ? (
+                                                        <span className="badge badge-secondary" style={{ fontSize: 10, background: '#f1f5f9', color: '#64748b' }}>ไม่จำเป็น</span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--danger)' }}>✗</span>
+                                                    )}
+                                                </td>
+                                                <td className="fdh-fund-status-column">
+                                                    <div
+                                                        className="fund-status-block fund-status-block--two-lines"
+                                                        title={[logic.billingStatusLabel, fundSecondaryText].filter(Boolean).join(' — ')}
+                                                    >
+                                                        <div className="fund-status-line fund-status-line--primary">
+                                                            {logic.billingStatusLabel}
+                                                        </div>
+                                                        <div className={`fund-status-line fund-status-line--secondary ${logic.matchedFund ? 'is-success' : 'is-warning'}`}>
+                                                            {fundSecondaryText || '—'}
+                                                        </div>
                                                     </div>
                                                 </td>
                                                 <td>
@@ -816,7 +1573,9 @@ export const FDHCheckerPage: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    {exportFund !== ALL_SPECIAL_FUNDS && !readyForSelectedFund ? (
+                                                    {isWaitingOfcApprove(item) ? (
+                                                        <span className="badge badge-warning">รอ Approve code OFC</span>
+                                                    ) : exportFund !== ALL_SPECIAL_FUNDS && !readyForSelectedFund ? (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                                             <span className="badge badge-warning">🟡 รอแก้เงื่อนไขกองทุน</span>
                                                             <div style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 600 }}>{exportFund}</div>
@@ -824,9 +1583,21 @@ export const FDHCheckerPage: React.FC = () => {
                                                     ) : item.status === 'ready' ? (
                                                         <span className="badge badge-success">🟢 พร้อมส่ง</span>
                                                     ) : item.status === 'pending' ? (
-                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                            <span className="badge badge-warning">🟡 รอแก้ไข / รอปิดสิทธิ</span>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                            <span className="badge badge-warning">{isOfcOrLgo ? '🟡 รอแก้ไข' : '🟡 รอแก้ไข / รอปิดสิทธิ'}</span>
                                                             <div style={{ fontSize: 9, color: 'var(--danger)', fontWeight: 600 }}>ต้องแก้: {item.missing.join(', ')}</div>
+                                                            {item.can_auto_fix && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="btn btn-primary"
+                                                                    style={{ padding: '2px 8px', fontSize: 11, width: 'fit-content', marginTop: 2, whiteSpace: 'nowrap' }}
+                                                                    onClick={() => handleSingleAutoFix(item.vn)}
+                                                                    disabled={fixingVn === item.vn || batchFixing}
+                                                                    title="แก้ไขข้อมูล HOSxP อัตโนมัติ"
+                                                                >
+                                                                    {fixingVn === item.vn ? '⏳ แก้...' : '⚡ แก้ไข Auto'}
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     ) : (
                                                         <span className="badge badge-danger">🔴 UUC2 ไม่ประสงค์เบิก</span>
@@ -837,7 +1608,7 @@ export const FDHCheckerPage: React.FC = () => {
                                     })
                                 ) : (
                                     <tr>
-                                        <td colSpan={exportProfile === 'fwf-migrants' ? 14 : 13} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
+                                        <td colSpan={exportProfile === 'fwf-migrants' ? 15 : 14} style={{ textAlign: 'center', padding: '40px 0', opacity: 0.6 }}>
                                             ไม่พบข้อมูล Visit ในช่วงวันที่เลือก
                                         </td>
                                     </tr>
@@ -845,6 +1616,55 @@ export const FDHCheckerPage: React.FC = () => {
                             </tbody>
                         </table>
                     </div>
+                </div>
+            )}
+            {!loading && !error && (
+                <div
+                    className="no-print"
+                    role="region"
+                    aria-label="คำสั่งส่งออก OPD"
+                    style={{ position: 'fixed', left: 24, right: 24, bottom: 18, zIndex: 90, padding: '14px 18px', borderRadius: 14, background: 'rgba(255,255,255,.96)', border: '1px solid var(--border)', boxShadow: '0 12px 35px rgba(15,23,42,.18)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}
+                >
+                    <strong style={{ marginRight: 'auto' }}>
+                        เลือกส่ง {exportVisitCount} VN {selectedVisibleCount === 0 && exportVisitCount > 0 ? '(รายการพร้อมส่งที่มองเห็นทั้งหมด)' : ''}
+                        {waitingApproveRows.length > 0 && <small style={{ display: 'block', color: 'var(--warning)', marginTop: 4 }}>คงคิวรอ Approve code {waitingApproveRows.length} รายการ</small>}
+                    </strong>
+                    <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13, cursor: 'pointer' }} title="เปิดเพื่อเลือกรายการที่เคยส่งสำเร็จหรือมีสถานะ FDH แล้ว">
+                        <input
+                            type="checkbox"
+                            checked={confirmResend}
+                            onChange={(event) => {
+                                setConfirmResend(event.target.checked);
+                                setSelectedVns([]);
+                                setPreviewValidation(null);
+                            }}
+                        />
+                        ยืนยันส่งซ้ำ
+                    </label>
+                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', background: '#f1f5f9', padding: '5px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }} title="แบ่งเป็น Batch ย่อยชุดละไม่เกิน 500 รายการ เพื่อไม่ให้ขนาดไฟล์เกิน 50 MB ตามกฎของระบบ FDH">
+                        <input
+                            type="checkbox"
+                            checked={autoSplitBatches}
+                            onChange={(event) => setAutoSplitBatches(event.target.checked)}
+                        />
+                        <span>
+                            <strong>แบ่งชุดอัตโนมัติ (≤500)</strong>
+                            {exportVisitCount > 500 && autoSplitBatches && (
+                                <span className="badge badge-info" style={{ marginLeft: 6, fontSize: 11 }}>
+                                    {Math.ceil(exportVisitCount / 500)} Batches
+                                </span>
+                            )}
+                        </span>
+                    </label>
+                    <button className="btn btn-secondary" type="button" onClick={handlePreviewData} disabled={isLoadingPreview || exportVisitCount === 0}>
+                        {isLoadingPreview ? 'กำลังตรวจ...' : '🔎 Preview / Preflight'}
+                    </button>
+                    <button className="btn btn-warning" type="button" onClick={handleExportZip} disabled={exporting || exportVisitCount === 0}>
+                        {exporting ? 'กำลังสร้าง ZIP...' : (exportVisitCount > 500 && autoSplitBatches ? `📦 ดาวน์โหลด (${Math.ceil(exportVisitCount / 500)} Batches)` : '📦 ดาวน์โหลด 16 แฟ้ม')}
+                    </button>
+                    <button className="btn btn-success" type="button" onClick={handleSubmitFdhApi} disabled={submitting || exportVisitCount === 0}>
+                        {submitting ? 'กำลังส่ง...' : '🚀 ส่ง FDH API'}
+                    </button>
                 </div>
             )}
             <FDHPreviewModal
@@ -856,6 +1676,7 @@ export const FDHCheckerPage: React.FC = () => {
                 isDownloading={exporting}
                 onSubmit={handleSubmitFdhApi}
                 isSubmitting={submitting}
+                exportRequest={previewExportRequest}
             />
         </div>
     );

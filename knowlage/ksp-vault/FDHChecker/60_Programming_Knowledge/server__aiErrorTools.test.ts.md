@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiErrorTools.test.ts"
-source_hash: "3e32e802d978c629a0ebba5ecd9dbd7757ac0d374d428f011e2148de44c087ba"
+source_hash: "d02a617841ae628971b57b6724d12200466961c12f1c2fd93fe06dcfa20c087a"
 managed_by: "sync-ksp-vault"
 ---
 # aiErrorTools.test.ts
 
 > Source: `server/aiErrorTools.test.ts`
-> SHA-256: `3e32e802d978c629a0ebba5ecd9dbd7757ac0d374d428f011e2148de44c087ba`
+> SHA-256: `d02a617841ae628971b57b6724d12200466961c12f1c2fd93fe06dcfa20c087a`
 
 ````typescript
 import assert from 'node:assert/strict';
@@ -27,8 +27,19 @@ test('recognizes a VN error investigation without treating the VN as an error co
   });
 });
 
+test('does not mistake ICD-10 codes in a report request for REP errors', () => {
+  assert.equal(
+    parseErrorAnalysisIntent('ขอรายชื่อผู้ป่วย วันที่รับบริการ และรหัสโรค ที่มี ICD-10 ตั้งแต่ O240 ถึง O249 ในปีงบประมาณ 2569 ส่งออกเป็น Excel'),
+    null,
+  );
+});
+
 test('loads the authoritative REP error guidance', () => {
   assert.match(loadErrorCatalog()['116'].description, /เลขบัตรประชาชน/);
+});
+
+test('recognizes corrective prefixes and hyphenated subcodes without truncation', () => {
+  assert.deepEqual(parseErrorAnalysisIntent('REP C256-1 และ 940-1 แก้อย่างไร'), { codes: ['256-1', '940-1'] });
 });
 
 ````

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/cacheManager.ts"
-source_hash: "374fb0a203b9ef7580a77daf49c95a79e7b3448354899c69d0452a534b3a38aa"
+source_hash: "72090e1f31b834ff104febc9fb586f9c81c8100ba6710d7073738fc76923b41a"
 managed_by: "sync-ksp-vault"
 ---
 # cacheManager.ts
 
 > Source: `server/cacheManager.ts`
-> SHA-256: `374fb0a203b9ef7580a77daf49c95a79e7b3448354899c69d0452a534b3a38aa`
+> SHA-256: `72090e1f31b834ff104febc9fb586f9c81c8100ba6710d7073738fc76923b41a`
 
 ````typescript
 import { getEligibleVisits } from './db.js';

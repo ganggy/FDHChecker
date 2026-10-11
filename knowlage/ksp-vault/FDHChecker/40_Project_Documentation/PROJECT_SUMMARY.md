@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PROJECT_SUMMARY.md"
-source_hash: "3de501e0706f4d23933236f393ab15d071ffac18379e7307b6551c8363a8112e"
+source_hash: "4985b6f9c5e9faacb8b658d549a62bf5007a8e0b1cf3ff02fd4f37fdb96c403d"
 managed_by: "sync-ksp-vault"
 ---
 # 🎉 โครงการตรวจสอบข้อมูลเบิกจ่ายกองทุน HOSxP - สรุปการพัฒนา

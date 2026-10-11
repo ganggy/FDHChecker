@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "NHSO_RATES_IMPLEMENTATION_TECHNICAL_GUIDE.md"
-source_hash: "a0a4ff6266d1052292d6732dda70297515959685f06f2f23db3c523702602f5f"
+source_hash: "d2be4d3a42fcb0091a0bf755e37613801bf80f9836733a8a07e4798bfc0f3185"
 managed_by: "sync-ksp-vault"
 ---
 # ⚙️ NHSO RATES IMPLEMENTATION TECHNICAL GUIDE

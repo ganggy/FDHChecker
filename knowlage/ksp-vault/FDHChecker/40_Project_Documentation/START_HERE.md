@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "START_HERE.md"
-source_hash: "2a6d690f9146a66ad4c23ef37cde2a310e94e9183734cabb26617d933cebbecd"
+source_hash: "306f60676759f4e637e61f2c923c25928f1cd448bdd1e8b830d8bd4c6a9c7c81"
 managed_by: "sync-ksp-vault"
 ---
 # 🚀 START HERE - KIDNEY MONITOR SYSTEM

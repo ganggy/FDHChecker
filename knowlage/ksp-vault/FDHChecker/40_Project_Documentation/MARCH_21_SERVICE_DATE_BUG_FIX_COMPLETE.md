@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "MARCH_21_SERVICE_DATE_BUG_FIX_COMPLETE.md"
-source_hash: "d2d2f45e820e9ff322448cf07d53220c70ccad5ba3f0be877a16bebc718718cc"
+source_hash: "893f90f3a638d2a85d2f318727aa9dd98496b74fd4617eb56f00b6764ec35434"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ COMPLETE: Service Date Column Fix - March 21, 2026

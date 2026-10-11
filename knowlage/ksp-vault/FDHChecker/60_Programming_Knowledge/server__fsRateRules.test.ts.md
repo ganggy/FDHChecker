@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/fsRateRules.test.ts"
-source_hash: "a9a555df83b99de838c951c4549a00b0ee3ade4b7121af67cad65d54c3b87120"
+source_hash: "3572332256ab699e570597254cbf0e4f15bfb644c125ffd717ef6199f2c73272"
 managed_by: "sync-ksp-vault"
 ---
 # fsRateRules.test.ts
 
 > Source: `server/fsRateRules.test.ts`
-> SHA-256: `a9a555df83b99de838c951c4549a00b0ee3ade4b7121af67cad65d54c3b87120`
+> SHA-256: `3572332256ab699e570597254cbf0e4f15bfb644c125ffd717ef6199f2c73272`
 
 ````typescript
 import assert from 'node:assert/strict';

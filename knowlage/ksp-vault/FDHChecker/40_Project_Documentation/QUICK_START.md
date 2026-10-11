@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "QUICK_START.md"
-source_hash: "8d94f0cdbae6b2815515abf6797a73da6a79de19e0eee71e15aec0c12838a5c6"
+source_hash: "178982e162c8bde5eae599bd4ed3455be13e4cf9354d58e6546a2c5ae4386e9d"
 managed_by: "sync-ksp-vault"
 ---
 # Quick Start
@@ -48,7 +48,7 @@ API ยกเว้น health และการเข้าสู่ระบ�
 - SSH host: `192.168.2.202`
 - SSH user: `war12oc`
 - Project path: `/opt/FDHChecker`
-- Git branch: `agent/add-local-ai`
+- Git branch: `main`
 - Public frontend: `http://147.50.107.211:3507`
 - Public backend: `http://147.50.107.211:3506`
 - PM2 applications: `fdh-frontend` และ `fdh-backend`

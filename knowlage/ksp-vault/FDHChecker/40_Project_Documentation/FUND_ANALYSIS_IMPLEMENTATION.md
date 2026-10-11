@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "FUND_ANALYSIS_IMPLEMENTATION.md"
-source_hash: "92fc9003671f602181e1e5f5bbc54436b6e99b11a024d9b20cb05683a391ab4a"
+source_hash: "6d7f0f77306a081c25348f6a6a407907da3b8b7cc31cdd4109cd9b8c23e21f13"
 managed_by: "sync-ksp-vault"
 ---
 # 🎉 FDH AdminDashboard - Fund Analysis Page COMPLETE

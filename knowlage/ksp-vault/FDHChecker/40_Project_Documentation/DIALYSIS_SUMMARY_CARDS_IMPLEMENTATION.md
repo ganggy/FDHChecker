@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "DIALYSIS_SUMMARY_CARDS_IMPLEMENTATION.md"
-source_hash: "3e49076de54721652baefb5b83ae043134422b8e6d921db4cd28e2c84bff643f"
+source_hash: "0f8e451776300254f2b747435d4f6bfae239e2c3ceddd0d37d31be996163a5f5"
 managed_by: "sync-ksp-vault"
 ---
 # 🏥 DIALYSIS SUMMARY CARDS - IMPLEMENTATION COMPLETE

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/revenueOpportunityMonitor.ts"
-source_hash: "b7b76f7f1d11c2affc3f4c6e12155dab8159fffd31ab409dbcf32c067eb8e267"
+source_hash: "06186e3e1b18bf00b7b3654e986f7bc72abe8abc6e412267e7e52d3e5f9f38e7"
 managed_by: "sync-ksp-vault"
 ---
 # revenueOpportunityMonitor.ts
 
 > Source: `server/revenueOpportunityMonitor.ts`
-> SHA-256: `b7b76f7f1d11c2affc3f4c6e12155dab8159fffd31ab409dbcf32c067eb8e267`
+> SHA-256: `06186e3e1b18bf00b7b3654e986f7bc72abe8abc6e412267e7e52d3e5f9f38e7`
 
 ````typescript
 export type RevenueMonitorStatus = 'data_error' | 'ready' | 'submitted' | 'paid';

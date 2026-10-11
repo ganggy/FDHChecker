@@ -4,7 +4,7 @@ project: FDHChecker
 type: "domain-knowledge"
 category: "claims"
 source: "knowlage/CLAIM_CHANNEL_CLASSIFICATION.md"
-source_hash: "97c5e7d86c778be91a8a9e1756060e02848a2535b370010584449a69667d3a6d"
+source_hash: "ae241b0f985553ba32110895e9e624fe3e1a65a54bb08e6a64ff0d00429b5ca3"
 managed_by: "sync-ksp-vault"
 ---
 # Claim Channel Classification

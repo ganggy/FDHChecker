@@ -4,26 +4,31 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/ReceivablePage.tsx"
-source_hash: "6e3f20de4486ef192a5961d6eb2811c104267adab3f4c9241679553c23c625c0"
+source_hash: "023f1fc036a4d081acfb94f62368dcb515dd087e1663a6c37669145438f5f54d"
 managed_by: "sync-ksp-vault"
 ---
 # ReceivablePage.tsx
 
 > Source: `src/pages/ReceivablePage.tsx`
-> SHA-256: `6e3f20de4486ef192a5961d6eb2811c104267adab3f4c9241679553c23c625c0`
+> SHA-256: `023f1fc036a4d081acfb94f62368dcb515dd087e1663a6c37669145438f5f54d`
 
 ````tsx
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   fetchAppSettings,
   fetchReceivableBatches,
   fetchReceivableCandidates,
   fetchReceivableFilterOptions,
+  fetchReceivableLatestBalance,
   saveReceivableBatch,
+  type ReceivableBatch,
   type ReceivableCandidate,
   type ReceivableFilterOptions,
 } from '../services/hosxpService';
+import { ReceivableReportModal } from '../components/ReceivableReportModal';
+import { OfficialReceivableFormsModal } from '../components/OfficialReceivableFormsModal';
+import '../styles/receivableReport.css';
 
 type Signer = {
   name?: string;
@@ -38,16 +43,6 @@ type ReceivableSettings = {
     insurance_head?: Signer;
     finance?: Signer;
   };
-};
-
-type ReceivableBatch = {
-  id: number;
-  batch_no?: string | null;
-  start_date?: string | null;
-  end_date?: string | null;
-  item_count?: number | string | null;
-  total_receivable?: number | string | null;
-  created_at?: string | null;
 };
 
 const todayIso = () => {
@@ -118,6 +113,49 @@ export const ReceivablePage = () => {
   const [batches, setBatches] = useState<ReceivableBatch[]>([]);
   const [loadedSignature, setLoadedSignature] = useState<string | null>(null);
   const [lastSavedSelection, setLastSavedSelection] = useState('');
+  const [openingBalance, setOpeningBalance] = useState<number>(0);
+  const [openingBalanceManual, setOpeningBalanceManual] = useState<boolean>(false);
+  const [previousBatchInfo, setPreviousBatchInfo] = useState<{ batchNo?: string; endDate?: string } | null>(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isOfficialModalOpen, setIsOfficialModalOpen] = useState(false);
+
+  const checkLatestBalance = useCallback(async (date: string, type: string) => {
+    try {
+      const res = await fetchReceivableLatestBalance({ beforeDate: date, patientType: type });
+      if (res) {
+        if (!openingBalanceManual) {
+          setOpeningBalance(Number(res.suggestedOpeningBalance || 0));
+        }
+        if (res.previousBatchNo) {
+          setPreviousBatchInfo({ batchNo: res.previousBatchNo, endDate: res.previousEndDate });
+        } else {
+          setPreviousBatchInfo(null);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [openingBalanceManual]);
+
+  useEffect(() => {
+    void checkLatestBalance(startDate, patientType);
+  }, [startDate, patientType, checkLatestBalance]);
+
+  const syncFromPreviousBatch = async () => {
+    try {
+      const res = await fetchReceivableLatestBalance({ beforeDate: startDate, patientType });
+      setOpeningBalance(Number(res?.suggestedOpeningBalance || 0));
+      setOpeningBalanceManual(false);
+      if (res?.previousBatchNo) {
+        setPreviousBatchInfo({ batchNo: res.previousBatchNo, endDate: res.previousEndDate });
+        setMessage(`ดึงยอดลูกหนี้ยกมา ${formatMoney(res.suggestedOpeningBalance)} บาท จากชุด ${res.previousBatchNo}`);
+      } else {
+        setMessage('ไม่พบชุดลูกหนี้ก่อนหน้า กำหนดยอดลูกหนี้ยกมาเป็น 0.00 บาท');
+      }
+    } catch {
+      setError('ไม่สามารถดึงยอดจากชุดก่อนหน้าได้');
+    }
+  };
 
   useEffect(() => {
     fetchAppSettings<ReceivableSettings>()
@@ -171,6 +209,21 @@ export const ReceivablePage = () => {
   const totalClaimable = useMemo(
     () => selectedRows.reduce((sum, row) => sum + toNumber(row.claimable_amount), 0),
     [selectedRows],
+  );
+
+  const totalCollected = useMemo(
+    () => selectedRows.reduce((sum, row) => sum + (toNumber(row.receipt_amount) > 0 ? toNumber(row.receipt_amount) : 0), 0),
+    [selectedRows],
+  );
+
+  const collectedCount = useMemo(
+    () => selectedRows.filter((row) => toNumber(row.receipt_amount) > 0).length,
+    [selectedRows],
+  );
+
+  const closingBalance = useMemo(
+    () => toNumber(openingBalance) + totalClaimable - totalCollected,
+    [openingBalance, totalClaimable, totalCollected],
   );
 
   const debtorCodeCount = useMemo(
@@ -277,7 +330,16 @@ export const ReceivablePage = () => {
       ยอดตั้งลูกหนี้: toNumber(row.claimable_amount),
     }));
 
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const summaryHeader = [
+      { ลำดับ: 'สรุปยอดบัญชีลูกหนี้', ประเภท: `ช่วงวันที่ ${startDate} ถึง ${endDate}` },
+      { ลำดับ: 'ลูกหนี้ยกมา (บาท)', ประเภท: toNumber(openingBalance) },
+      { ลำดับ: 'ตั้งลูกหนี้ในงวด (บาท)', ประเภท: totalClaimable },
+      { ลำดับ: 'รับชำระ/ชดเชยแล้ว (บาท)', ประเภท: totalCollected },
+      { ลำดับ: 'ลูกหนี้ยกไปคงเหลือ (บาท)', ประเภท: closingBalance },
+      { ลำดับ: '-------------------' },
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet([...summaryHeader, ...exportRows]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Receivable');
     XLSX.writeFile(workbook, `receivable_${startDate}_${endDate}.xlsx`);
@@ -307,9 +369,12 @@ export const ReceivablePage = () => {
         hosxpRight,
         financeRight,
         notes,
+        openingBalance: toNumber(openingBalance),
+        collectedAmount: totalCollected,
+        closingBalance,
         items: selectedRows,
       });
-      setMessage(`บันทึกชุดบัญชีลูกหนี้สำเร็จ เลขที่ชุด ${result.batchNo || result.batchId || '-'}`);
+      setMessage(`บันทึกชุดบัญชีลูกหนี้สำเร็จ เลขที่ชุด ${result.batchNo || result.batchId || '-'} (ยกไป ${formatMoney(closingBalance)} บาท)`);
       setLastSavedSelection(selectedSignature);
       const latest = await fetchReceivableBatches(10);
       setBatches(latest);
@@ -333,116 +398,269 @@ export const ReceivablePage = () => {
         <div className="receivable-hero-note">
           <strong>{settings?.hospital_name || 'หน่วยบริการ'}</strong>
           <span>ตั้งลูกหนี้เฉพาะรายการที่เข้าเกณฑ์เบิกได้ เช่น กองทุนพิเศษ ยาสมุนไพร ค่าบริการ OPD อุปกรณ์/ADP ที่เบิกได้</span>
+          <div className="receivable-hero-actions">
+            <button
+              type="button"
+              className="receivable-hero-btn"
+              onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableSettlement' } }))}
+              title="เปิดหน้าระบบตัดรับรู้ลูกหนี้เมื่อได้รับเงินโอนจากกองทุนหรือต้นสังกัด"
+            >
+              💳 ไปที่ระบบตัดรับรู้ลูกหนี้ (เมื่อได้รับเงินโอน)
+            </button>
+            <a
+              href="/manual_accounts_receivable.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="receivable-hero-link"
+              title="เปิดคู่มือการใช้งานระบบบัญชีลูกหนี้ (HTML)"
+            >
+              📖 คู่มือการใช้งาน (HTML)
+            </a>
+            <a
+              href="/manual_accounts_receivable.pdf"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="receivable-hero-link receivable-hero-link--pdf"
+              title="ดาวน์โหลดคู่มือการใช้งานระบบบัญชีลูกหนี้ (PDF A4)"
+            >
+              📄 ดาวน์โหลดคู่มือ PDF (A4)
+            </a>
+          </div>
         </div>
       </section>
 
       <section className="receivable-filter-panel no-print">
-        <div className="form-group">
-          <label>วันที่เริ่ม</label>
-          <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} />
+        {/* Section 1: HOSxP Query Criteria */}
+        <div className="receivable-filter-section">
+          <div className="receivable-filter-section__title">
+            <span className="receivable-section-icon">📅</span>
+            <span>เงื่อนไขการดึงข้อมูลจาก HOSxP</span>
+          </div>
+          <div className="receivable-filter-grid receivable-filter-grid--query">
+            <div className="form-group">
+              <label>วันที่เริ่ม</label>
+              <input type="date" value={startDate} max={endDate || undefined} onChange={(event) => setStartDate(event.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>วันที่สิ้นสุด</label>
+              <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />
+            </div>
+            <div className="form-group">
+              <label>ประเภทผู้ป่วย</label>
+              <select value={patientType} onChange={(event) => setPatientType(event.target.value)}>
+                <option value="ALL">ทั้งหมด (OPD/IPD)</option>
+                <option value="OPD">OPD</option>
+                <option value="IPD">IPD</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>สิทธิ์ HOSxP</label>
+              <select value={hosxpRight} onChange={(event) => setHosxpRight(event.target.value)}>
+                <option value="ALL">สิทธิ์ทั้งหมด</option>
+                {filterOptions.hosxpRights.map((item) => (
+                  <option key={item.code} value={item.code}>{optionLabel(item.code, item.name)}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>สิทธิการเงิน</label>
+              <select value={financeRight} onChange={(event) => setFinanceRight(event.target.value)}>
+                <option value="ALL">สิทธิการเงินทั้งหมด</option>
+                {filterOptions.financeRights.map((item) => (
+                  <option key={item.code} value={item.code}>{optionLabel(item.code, item.name)}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
-        <div className="form-group">
-          <label>วันที่สิ้นสุด</label>
-          <input type="date" value={endDate} min={startDate || undefined} onChange={(event) => setEndDate(event.target.value)} />
+
+        {/* Section 2: Ledger Settings & Table Filter */}
+        <div className="receivable-filter-section">
+          <div className="receivable-filter-section__title">
+            <span className="receivable-section-icon">💼</span>
+            <span>ตั้งค่ายอดบัญชีลูกหนี้ & ตัวกรองตาราง</span>
+          </div>
+          <div className="receivable-filter-grid receivable-filter-grid--ledger">
+            <div className="form-group receivable-opening-group">
+              <label>ลูกหนี้ยกมาต้นงวด (บาท)</label>
+              <div className="receivable-opening-input-wrap">
+                <span className="receivable-currency-symbol">฿</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={openingBalance}
+                  onChange={(event) => {
+                    setOpeningBalance(toNumber(event.target.value));
+                    setOpeningBalanceManual(true);
+                  }}
+                  placeholder="0.00"
+                  className="receivable-opening-input"
+                />
+                <button
+                  type="button"
+                  className="opening-sync-btn"
+                  onClick={syncFromPreviousBatch}
+                  title="ดึงยอดลูกหนี้ยกมาจากชุดล่าสุดก่อนหน้า"
+                >
+                  🔄 ดึงยอดล่าสุด
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group receivable-notes-group">
+              <label>หมายเหตุชุดลูกหนี้</label>
+              <input
+                value={notes}
+                maxLength={2000}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="เช่น ลูกหนี้สิทธิ์ประจำเดือนกันยายน 2569"
+              />
+            </div>
+
+            <div className="form-group receivable-search-group">
+              <label>ค้นหาในตาราง</label>
+              <div className="receivable-search-input-wrap">
+                <span className="receivable-search-icon">🔍</span>
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="VN / AN / HN / ชื่อผู้ป่วย / รหัสบัญชี"
+                />
+              </div>
+            </div>
+
+            <div className="form-group receivable-readiness-group">
+              <label>ความพร้อม</label>
+              <select value={readiness} onChange={(event) => setReadiness(event.target.value as typeof readiness)}>
+                <option value="ALL">ทั้งหมด</option>
+                <option value="READY">พร้อมตั้งลูกหนี้</option>
+                <option value="REVIEW">ต้องตรวจสอบ</option>
+              </select>
+            </div>
+          </div>
         </div>
-        <div className="form-group">
-          <label>ประเภทผู้ป่วย</label>
-          <select value={patientType} onChange={(event) => setPatientType(event.target.value)}>
-            <option value="ALL">ทั้งหมด</option>
-            <option value="OPD">OPD</option>
-            <option value="IPD">IPD</option>
-          </select>
-        </div>
-        <div className="form-group">
-          <label>สิทธิ์ HOSxP</label>
-          <select value={hosxpRight} onChange={(event) => setHosxpRight(event.target.value)}>
-            <option value="ALL">ทั้งหมด</option>
-            {filterOptions.hosxpRights.map((item) => (
-              <option key={item.code} value={item.code}>{optionLabel(item.code, item.name)}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-group">
-          <label>สิทธิการเงิน</label>
-          <select value={financeRight} onChange={(event) => setFinanceRight(event.target.value)}>
-            <option value="ALL">ทั้งหมด</option>
-            {filterOptions.financeRights.map((item) => (
-              <option key={item.code} value={item.code}>{optionLabel(item.code, item.name)}</option>
-            ))}
-          </select>
-        </div>
-        <div className="form-group form-group--wide">
-          <label>หมายเหตุชุดลูกหนี้</label>
-          <input value={notes} maxLength={2000} onChange={(event) => setNotes(event.target.value)} placeholder="เช่น ลูกหนี้เดือนเมษายน 2569" />
-        </div>
-        <div className="form-group form-group--wide">
-          <label>ค้นหาในผลลัพธ์</label>
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="VN / AN / HN / ชื่อผู้ป่วย / รหัสบัญชี"
-          />
-        </div>
-        <div className="form-group">
-          <label>ความพร้อม</label>
-          <select value={readiness} onChange={(event) => setReadiness(event.target.value as typeof readiness)}>
-            <option value="ALL">ทั้งหมด</option>
-            <option value="READY">พร้อมตั้งลูกหนี้</option>
-            <option value="REVIEW">ต้องตรวจสอบ</option>
-          </select>
-        </div>
-        <div className="receivable-actions">
-          <button
-            className={`btn btn-primary receivable-btn receivable-btn--load${loading ? ' is-loading' : ''}`}
-            onClick={loadData}
-            disabled={loading}
-          >
-            <span className="receivable-btn__icon">↻</span>
-            <span className="receivable-btn__label">{loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}</span>
-          </button>
-          <button
-            className="btn receivable-btn receivable-btn--soft"
-            onClick={() => toggleVisible(true)}
-            disabled={!visibleRows.some(({ row }) => isCandidateReady(row))}
-          >
-            <span className="receivable-btn__icon">✓</span>
-            <span className="receivable-btn__label">เลือกที่แสดง</span>
-          </button>
-          <button
-            className="btn receivable-btn receivable-btn--soft"
-            onClick={() => toggleVisible(false)}
-            disabled={!visibleRows.length}
-          >
-            <span className="receivable-btn__icon">×</span>
-            <span className="receivable-btn__label">ล้างที่แสดง</span>
-          </button>
-          <button
-            className={`btn btn-success receivable-btn receivable-btn--save${saving ? ' is-loading' : ''}`}
-            onClick={saveBatch}
-            disabled={saving || isStale || selectedRows.length === 0 || lastSavedSelection === selectedSignature}
-          >
-            <span className="receivable-btn__icon">💾</span>
-            <span className="receivable-btn__label">{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
-          </button>
-          <button
-            className="btn receivable-btn receivable-btn--excel"
-            onClick={exportExcel}
-            disabled={isStale || selectedRows.length === 0}
-          >
-            <span className="receivable-btn__icon">📊</span>
-            <span className="receivable-btn__label">ส่งออก Excel</span>
-          </button>
-          <button
-            className="btn receivable-btn receivable-btn--print"
-            onClick={() => {
-              if (isStale) return setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนพิมพ์');
-              window.print();
-            }}
-            disabled={isStale || selectedRows.length === 0}
-          >
-            <span className="receivable-btn__icon">🖨</span>
-            <span className="receivable-btn__label">พิมพ์หลักฐาน</span>
-          </button>
+
+        {/* Section 3: Action Toolbar - เมนูการทำงานจัดกลุ่มเป็นระเบียบชัดเจน */}
+        <div className="receivable-actions-toolbar">
+          <div className="receivable-action-group">
+            <span className="receivable-action-group__title">1. ดึงและคัดเลือก</span>
+            <div className="receivable-action-group__items">
+              <button
+                type="button"
+                className={`receivable-tool-btn receivable-tool-btn--primary${loading ? ' is-loading' : ''}`}
+                onClick={loadData}
+                disabled={loading}
+                title="ดึงข้อมูลลูกหนี้จาก HOSxP ตามเงื่อนไขวันที่และสิทธิ์"
+              >
+                <span className="receivable-tool-btn__icon">↻</span>
+                <span>{loading ? 'กำลังดึงข้อมูล...' : 'ดึงข้อมูล'}</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--soft"
+                onClick={() => toggleVisible(true)}
+                disabled={!visibleRows.some(({ row }) => isCandidateReady(row))}
+                title="เลือกเฉพาะรายการที่พร้อมตั้งลูกหนี้ในมุมมองปัจจุบัน"
+              >
+                <span className="receivable-tool-btn__icon">✓</span>
+                <span>เลือกที่แสดง</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--soft"
+                onClick={() => toggleVisible(false)}
+                disabled={!visibleRows.length}
+                title="ยกเลิกการเลือกรายการทั้งหมดในมุมมองปัจจุบัน"
+              >
+                <span className="receivable-tool-btn__icon">×</span>
+                <span>ล้างที่แสดง</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="receivable-toolbar-sep" aria-hidden="true" />
+
+          <div className="receivable-action-group">
+            <span className="receivable-action-group__title">2. บันทึกบัญชี</span>
+            <div className="receivable-action-group__items">
+              <button
+                type="button"
+                className={`receivable-tool-btn receivable-tool-btn--save${saving ? ' is-loading' : ''}`}
+                onClick={saveBatch}
+                disabled={saving || isStale || selectedRows.length === 0 || lastSavedSelection === selectedSignature}
+                title="บันทึกรายการที่เลือกเข้าสู่สมุดบัญชีลูกหนี้ของโรงพยาบาล"
+              >
+                <span className="receivable-tool-btn__icon">💾</span>
+                <span>{saving ? 'กำลังบันทึก...' : 'บันทึกชุดลูกหนี้'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="receivable-toolbar-sep" aria-hidden="true" />
+
+          <div className="receivable-action-group">
+            <span className="receivable-action-group__title">3. แบบฟอร์ม & รายงาน</span>
+            <div className="receivable-action-group__items">
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--report"
+                onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'receivableStandardReport' } }))}
+                title="เปิดหน้าจอพิมพ์รายงานบัญชีลูกหนี้มาตรฐาน 6 แบบ (สรุปรวมสิทธิ OPD/IPD, แยกตามสิทธิ OPD/IPD, และแจกแจงรายละเอียด 12/13 หมวด)"
+              >
+                <span className="receivable-tool-btn__icon">📑</span>
+                <span>รายงานลูกหนี้ 6 แบบ</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--official"
+                onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'officialReceivable' } }))}
+                title="เปิดหน้าจอแบบฟอร์มทะเบียนคุมและพิมพ์เอกสารหลักฐานลูกหนี้ 4 แบบราชการมาตรฐาน (หน้างบ, ทะเบียนคุม, ส่งเบิก, ใบสรุปหนี้)"
+              >
+                <span className="receivable-tool-btn__icon">🏛️</span>
+                <span>แบบลูกหนี้ราชการ 4 แบบ</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--smt"
+                onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'smtBudget' } }))}
+                title="เปิดหน้าจอดึงข้อมูลโอนเงินจาก SMT สปสช. (e-Budget) เพื่อตัดรับรู้บัญชีลูกหนี้"
+              >
+                <span className="receivable-tool-btn__icon">🏦</span>
+                <span>ตัดหนี้ SMT / e-Budget</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="receivable-toolbar-sep" aria-hidden="true" />
+
+          <div className="receivable-action-group">
+            <span className="receivable-action-group__title">4. ส่งออก & พิมพ์</span>
+            <div className="receivable-action-group__items">
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--excel"
+                onClick={exportExcel}
+                disabled={isStale || selectedRows.length === 0}
+                title="ส่งออกรายการลูกหนี้ที่เลือกเป็นไฟล์ Excel (.xlsx)"
+              >
+                <span className="receivable-tool-btn__icon">📊</span>
+                <span>ส่งออก Excel</span>
+              </button>
+              <button
+                type="button"
+                className="receivable-tool-btn receivable-tool-btn--print"
+                onClick={() => {
+                  if (isStale) return setError('ตัวกรองมีการเปลี่ยนแปลง กรุณาดึงข้อมูลใหม่ก่อนพิมพ์');
+                  window.print();
+                }}
+                disabled={isStale || selectedRows.length === 0}
+                title="พิมพ์เอกสารหลักฐานงวดบัญชีลูกหนี้ปัจจุบัน"
+              >
+                <span className="receivable-tool-btn__icon">🖨</span>
+                <span>พิมพ์หลักฐานงวด</span>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -454,24 +672,71 @@ export const ReceivablePage = () => {
         </div>
       )}
 
+      {/* 4 Financial Metric Cards: เสาหลักทางบัญชีลูกหนี้ */}
       <section className="receivable-summary-grid">
-        <div className="summary-card">
-          <span>รายการที่เลือก</span>
-          <strong>{selectedRows.length.toLocaleString('th-TH')}</strong>
+        <div className="summary-card summary-card--opening">
+          <span>
+            <span>📥 ลูกหนี้ยกมา</span>
+            {previousBatchInfo && <small style={{ color: '#2563eb' }}>ชุด {previousBatchInfo.batchNo}</small>}
+          </span>
+          <strong>{formatMoney(openingBalance)} บาท</strong>
+          <small>
+            {previousBatchInfo
+              ? `ยกมาจากงวดก่อนหน้า (สิ้นสุด ${formatDate(previousBatchInfo.endDate)})`
+              : 'ยอดลูกหนี้คงค้างยกมา (ปรับยอดได้ในตัวกรอง)'}
+          </small>
         </div>
-        <div className="summary-card">
-          <span>ยอดตั้งลูกหนี้</span>
+
+        <div className="summary-card summary-card--claimable">
+          <span>
+            <span>➕ ตั้งลูกหนี้ในงวด</span>
+            <small>{selectedRows.length.toLocaleString('th-TH')} รายการ</small>
+          </span>
           <strong>{formatMoney(totalClaimable)} บาท</strong>
+          <small>ยอดเรียกเก็บค่ารักษาที่เลือกตั้งลูกหนี้</small>
         </div>
-        <div className="summary-card">
-          <span>พร้อมตั้ง / ต้องตรวจสอบ</span>
-          <strong>{readyRows.length.toLocaleString('th-TH')} / {reviewRows.length.toLocaleString('th-TH')}</strong>
+
+        <div className="summary-card summary-card--collected">
+          <span>
+            <span>➖ รับชำระแล้ว</span>
+            <small>{collectedCount.toLocaleString('th-TH')} รายการ</small>
+          </span>
+          <strong>{formatMoney(totalCollected)} บาท</strong>
+          <small>ยอดเงินที่ได้รับชำระ/ออกใบเสร็จในงวด</small>
         </div>
-        <div className="summary-card">
-          <span>รหัสลูกหนี้ / รายรับที่ใช้</span>
-          <strong>{debtorCodeCount.toLocaleString('th-TH')} / {revenueCodeCount.toLocaleString('th-TH')}</strong>
+
+        <div className="summary-card summary-card--closing">
+          <span>
+            <span>📤 ลูกหนี้ยกไปคงเหลือ</span>
+            <small>Ending Balance</small>
+          </span>
+          <strong>{formatMoney(closingBalance)} บาท</strong>
+          <small>
+            ยกมา ({formatMoney(openingBalance)}) + ตั้งงวดนี้ ({formatMoney(totalClaimable)}) - ชำระ ({formatMoney(totalCollected)})
+          </small>
         </div>
       </section>
+
+      <div className="receivable-secondary-metrics no-print">
+        <span className="receivable-pill-item">
+          <span>✅ พร้อมตั้งลูกหนี้:</span>
+          <strong>{readyRows.length.toLocaleString('th-TH')}</strong> รายการ
+        </span>
+        <span className="receivable-pill-item">
+          <span>⚠️ ต้องตรวจสอบ:</span>
+          <strong style={{ color: reviewRows.length > 0 ? '#b91c1c' : '#15803d' }}>
+            {reviewRows.length.toLocaleString('th-TH')}
+          </strong> รายการ
+        </span>
+        <span className="receivable-pill-item">
+          <span>🏷️ รหัสลูกหนี้ที่ใช้:</span>
+          <strong>{debtorCodeCount.toLocaleString('th-TH')}</strong> รหัส
+        </span>
+        <span className="receivable-pill-item">
+          <span>📊 รหัสรายรับที่ใช้:</span>
+          <strong>{revenueCodeCount.toLocaleString('th-TH')}</strong> รหัส
+        </span>
+      </div>
 
       <section className="receivable-table-card">
         <div className="section-header">
@@ -582,9 +847,12 @@ export const ReceivablePage = () => {
           {batches.map((batch) => (
             <div key={batch.id} className="history-item">
               <strong title={batch.batch_no || `#${batch.id}`}>{batch.batch_no || `#${batch.id}`}</strong>
-              <span>{formatDate(batch.start_date)} ถึง {formatDate(batch.end_date)}</span>
-              <span>{Number(batch.item_count || 0).toLocaleString('th-TH')} รายการ</span>
-              <span>{formatMoney(batch.total_receivable)} บาท</span>
+              <span>{formatDate(batch.start_date)} ถึง {formatDate(batch.end_date)} ({Number(batch.item_count || 0).toLocaleString('th-TH')} รายการ)</span>
+              <span>📥 ยกมา: {formatMoney(batch.opening_balance)} บ.</span>
+              <span>➕ ตั้งลูกหนี้: {formatMoney(batch.total_receivable)} บ.</span>
+              <span style={{ fontWeight: 700, color: '#047857' }}>
+                📤 ยกไป: {formatMoney(batch.closing_balance ?? batch.total_receivable)} บ.
+              </span>
             </div>
           ))}
         </div>
@@ -594,6 +862,27 @@ export const ReceivablePage = () => {
         <h1>รายงานบัญชีลูกหนี้สิทธิ์</h1>
         <p>{settings?.hospital_name || ''} {settings?.hospital_code ? `(${settings.hospital_code})` : ''}</p>
         <p>ช่วงวันที่ {startDate} ถึง {endDate} | ประเภท {patientType} | สิทธิ์ HOSxP {selectedHosxpRightLabel} | สิทธิการเงิน {selectedFinanceRightLabel}</p>
+
+        {/* Financial Summary Box in Print */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, margin: '14px 0 18px', border: '1px solid #cbd5e1', padding: '12px 14px', borderRadius: 8, background: '#f8fafc' }}>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>ลูกหนี้ยกมา:</span>
+            <strong style={{ display: 'block', fontSize: '1.1rem', color: '#1e3a8a' }}>{formatMoney(openingBalance)} บาท</strong>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>ตั้งลูกหนี้ในงวดนี้:</span>
+            <strong style={{ display: 'block', fontSize: '1.1rem', color: '#047857' }}>{formatMoney(totalClaimable)} บาท</strong>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>รับชำระแล้วในงวด:</span>
+            <strong style={{ display: 'block', fontSize: '1.1rem', color: '#b45309' }}>{formatMoney(totalCollected)} บาท</strong>
+          </div>
+          <div>
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>ลูกหนี้ยกไปคงเหลือ:</span>
+            <strong style={{ display: 'block', fontSize: '1.15rem', color: '#0f172a' }}>{formatMoney(closingBalance)} บาท</strong>
+          </div>
+        </div>
+
         <table>
           <thead>
             <tr>
@@ -635,7 +924,7 @@ export const ReceivablePage = () => {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={13}>รวม</td>
+              <td colSpan={13}>รวมยอดตั้งลูกหนี้ในงวดนี้ ({selectedRows.length} รายการ)</td>
               <td>{formatMoney(totalClaimable)}</td>
             </tr>
           </tfoot>
@@ -643,21 +932,41 @@ export const ReceivablePage = () => {
         <div className="signature-grid">
           <div>
             <div className="signature-line" />
-            <strong>{signers.finance.name || '........................................'}</strong>
+            <strong>{signers.finance.name ? `( ${signers.finance.name} )` : '........................................'}</strong>
             <span>{signers.finance.position}</span>
           </div>
           <div>
             <div className="signature-line" />
-            <strong>{signers.insurance.name || '........................................'}</strong>
+            <strong>{signers.insurance.name ? `( ${signers.insurance.name} )` : '........................................'}</strong>
             <span>{signers.insurance.position}</span>
           </div>
           <div>
             <div className="signature-line" />
-            <strong>{signers.director.name || '........................................'}</strong>
+            <strong>{signers.director.name ? `( ${signers.director.name} )` : '........................................'}</strong>
             <span>{signers.director.position}</span>
           </div>
         </div>
       </section>
+
+      <ReceivableReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        defaultStartDate={startDate}
+        defaultEndDate={endDate}
+        defaultPttype={hosxpRight}
+        hospitalName={settings?.hospital_name || ''}
+        signers={{
+          director: { name: signers.director.name, position: signers.director.position },
+          insurance: { name: signers.insurance.name, position: signers.insurance.position },
+          finance: { name: signers.finance.name, position: signers.finance.position },
+        }}
+      />
+
+      <OfficialReceivableFormsModal
+        isOpen={isOfficialModalOpen}
+        onClose={() => setIsOfficialModalOpen(false)}
+        hospitalName={settings?.hospital_name || ''}
+      />
     </div>
   );
 };

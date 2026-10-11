@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "FIX_SUMMARY.md"
-source_hash: "c310ce26bd472cb6a56e1e22acd37b6f561807a101b864b5e8ba9ed02597fac6"
+source_hash: "5accb32c4410b0ddd1f8c8b5fda753a9de67b938d9554e82c5a1dc7b945ddf61"
 managed_by: "sync-ksp-vault"
 ---
 # 🎯 KIDNEY MONITOR FIX - EXECUTIVE SUMMARY

@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "REAL_DATABASE_IMPLEMENTATION.md"
-source_hash: "2f846c369f38c73c5bfa69bcf7b15c72f11ce3a75216a43606a7f041c8616655"
+source_hash: "cf1fb17f7afde0ee865954193c02767f599252f7e43e66b2276ae5f3512ce55e"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ การเชื่อมต่อข้อมูลจริงจากฐานข้อมูล HOSxP สำเร็จแล้ว

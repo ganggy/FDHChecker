@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "KIDNEY_MONITOR_DISPLAY_FIXED.md"
-source_hash: "70bea6e01e794b6c0389bbc19c67dea62ca490c88d8c6bb1fc03c7a0d60424f0"
+source_hash: "61e622bb3e9fec2ee4be52d49671506513f9e1e5bc9187103330295862690698"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ Kidney Monitor Display Fixed

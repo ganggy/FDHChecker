@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/aiOperationalTools.ts"
-source_hash: "6551870a7ffd9e9d540e7f373e8fa485da3543dbfe0965515a59225e3bc58bb9"
+source_hash: "47eada3b995a2166a262648076d14782182e6131fef13803222a730c4b5837f7"
 managed_by: "sync-ksp-vault"
 ---
 # aiOperationalTools.ts
 
 > Source: `server/aiOperationalTools.ts`
-> SHA-256: `6551870a7ffd9e9d540e7f373e8fa485da3543dbfe0965515a59225e3bc58bb9`
+> SHA-256: `47eada3b995a2166a262648076d14782182e6131fef13803222a730c4b5837f7`
 
 ````typescript
 import { getRepstmConnection, getUTFConnection } from './db.js';

@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SYSTEM_RUNNING.md"
-source_hash: "ee8acc2932536d5424323822c59a69354bafd65da0cadb7d9d1b49dc5cd6a8f2"
+source_hash: "e180d35dcd770d8628fb460ff262bc562ce9e506723972c3cc847f49d79c5373"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ FDH RECT SYSTEM - STARTUP COMPLETE

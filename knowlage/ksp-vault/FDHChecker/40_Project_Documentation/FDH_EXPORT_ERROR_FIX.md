@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "FDH_EXPORT_ERROR_FIX.md"
-source_hash: "2e63638f63c81387cf399780ef30c7be6b86734afe4dc287c7f3dc10c4a149cc"
+source_hash: "5126dc7afb0fe929780fe853543f434a114dc763273bf3df58b2a2c5dad87f54"
 managed_by: "sync-ksp-vault"
 ---
 # 🔧 FDH Export Error Fix

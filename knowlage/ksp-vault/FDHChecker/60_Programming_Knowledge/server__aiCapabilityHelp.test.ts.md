@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiCapabilityHelp.test.ts"
-source_hash: "411aa5aee80129aa6ed8d631bd24399e358ef7475dddcdee87a1d4e36ad80c23"
+source_hash: "7e7fff2812540a735a8961b68d3a60dad2c73310efed45a308852226a0e67ae4"
 managed_by: "sync-ksp-vault"
 ---
 # aiCapabilityHelp.test.ts
 
 > Source: `server/aiCapabilityHelp.test.ts`
-> SHA-256: `411aa5aee80129aa6ed8d631bd24399e358ef7475dddcdee87a1d4e36ad80c23`
+> SHA-256: `7e7fff2812540a735a8961b68d3a60dad2c73310efed45a308852226a0e67ae4`
 
 ````typescript
 import assert from 'node:assert/strict';

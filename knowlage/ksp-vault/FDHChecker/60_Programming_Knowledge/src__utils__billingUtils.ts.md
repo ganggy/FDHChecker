@@ -4,24 +4,31 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/utils/billingUtils.ts"
-source_hash: "2e328bc050a5f29bad6c52e43a4bfbf0b6d973f00a7147fecb7056cb5b1b9a2b"
+source_hash: "d49f3c8530dc2f880303306c286d53c406c2e29658fdffd477861d6ca284220b"
 managed_by: "sync-ksp-vault"
 ---
 # billingUtils.ts
 
 > Source: `src/utils/billingUtils.ts`
-> SHA-256: `2e328bc050a5f29bad6c52e43a4bfbf0b6d973f00a7147fecb7056cb5b1b9a2b`
+> SHA-256: `d49f3c8530dc2f880303306c286d53c406c2e29658fdffd477861d6ca284220b`
 
 ````typescript
 import businessRules from '../config/business_rules.json';
 import { getAnemiaRuleBand } from '../config/fundRuleCatalog';
+import {
+    ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+    ANC_DENTAL_CLEAN_ICD9,
+    ANC_DENTAL_EXAM_PROCEDURE_CODES,
+    ANC_DENTAL_EXAM_ICD9,
+    hasMatchingDentalProcedureIcd9,
+} from './ancDentalRules';
 
 const rules = businessRules as any;
 const insuranceMapping = rules.insurance_mapping || {};
 const diagnosisPatterns = rules.diagnosis_patterns || {};
 
 const ofcCodes = new Set(
-    [...(insuranceMapping.OFC_LGO?.hipdata_codes || []), 'OFC', 'LGO', 'A1']
+    [...(insuranceMapping.OFC_LGO?.hipdata_codes || []), 'OFC', 'LGO', 'A1', 'CSCD']
         .map((value: string) => value.toUpperCase())
 );
 const sssCodes = new Set(['SSS']);
@@ -31,12 +38,14 @@ const ucsCodes = new Set(
         .map((value: string) => value.toUpperCase())
 );
 
-const ofcKeywords = [...(insuranceMapping.OFC_LGO?.keywords || []), 'CSCD']
+const ofcKeywords = [...(insuranceMapping.OFC_LGO?.keywords || []), 'cscd', 'เบิกตรง', 'เบิกจ่ายตรง']
     .map((value: string) => value.toLowerCase());
 const sssKeywords = ['ประกันสังคม', 'sss'];
 const ucsKeywords = [
     ...(insuranceMapping.UCS_SSS?.keywords || []),
     ...(insuranceMapping.UC_EPO?.keywords || []),
+    'walkin',
+    'เหตุสมควร',
 ]
     .filter((value: string) => !sssKeywords.includes(value.toLowerCase()))
     .map((value: string) => value.toLowerCase());
@@ -86,6 +95,23 @@ const hasDiagCode = (item: any, codes: string[]) => {
         item?.dx5,
     ].some((value) => targets.has(cleanDiag(value)));
 };
+
+export const hasPalliativeClaimData = (item: any) => {
+    const hasPalliativeDiagnosis = toBool(item?.has_pal_diag) || hasDiagCode(item, ['Z515', 'Z718']);
+    const hasMorphine = toBool(item?.has_morphine) || hasValue(item?.morphine_names);
+    if (hasPalliativeDiagnosis && hasMorphine) return true;
+
+    const hasPalliativeService = toBool(item?.has_pal_adp)
+        || toBool(item?.has_30001)
+        || toBool(item?.has_cons01)
+        || toBool(item?.has_eva001);
+
+    return hasPalliativeDiagnosis && hasPalliativeService;
+};
+
+export const hasPalliativeAuthenReady = (item: any) => hasPalliativeClaimData(item) && (
+    toBool(item?.has_authen) || hasValue(item?.authen_code)
+);
 const hasDiagPrefix = (item: any, prefixes: string | string[]) => {
     const targets = (Array.isArray(prefixes) ? prefixes : [prefixes]).map((prefix) => cleanDiag(prefix));
     return [
@@ -208,10 +234,20 @@ export const evaluateBillingLogic = (item: any) => {
     const hipdataCodeUpper = hipdataCode.toUpperCase();
     const hipdataText = `${hipdataCode} ${item?.fund || ''} ${item?.hipdata_desc || ''}`.trim();
     const hipdataTextLower = hipdataText.toLowerCase();
+    const pttypeCode = String(item?.pttype_code ?? item?.pttype ?? '').trim().toUpperCase();
+    const isPaidInFull = pttypeCode === '10' || hipdataTextLower.includes('ชำระเงินครบ');
+    const isSelfPaidMotorInsurance = pttypeCode === '83'
+        || /พรบ\.?\s*ชำระเงินเอง/.test(hipdataTextLower);
 
-    const isOFC_LGO = ofcCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ofcKeywords);
+    // HOSxP maps "ชำระเงินครบ" to HIPDATA A1, which is also present in the
+    // OFC/LGO mapping. The concrete HOSxP right must win so it is exported as
+    // UUC2 instead of being mistaken for a whole-visit UUC1 claim.
+    const isOFC_LGO = !isPaidInFull && !isSelfPaidMotorInsurance
+        && (ofcCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ofcKeywords));
     const isSSS = !isOFC_LGO && (sssCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, sssKeywords));
-    const isUCS = !isOFC_LGO && !isSSS && (ucsCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ucsKeywords));
+    const hasWalkinFlag = toBool(item?.has_walkin) || toBool(item?.is_walkin_pttype);
+    const isUCS = (!isOFC_LGO && !isSSS && (ucsCodes.has(hipdataCodeUpper) || hasAnyKeyword(hipdataTextLower, ucsKeywords))) || hasWalkinFlag;
+    const isUuc2ExportOnly = isSSS || isPaidInFull || isSelfPaidMotorInsurance;
 
     let opacity = 1;
     let bgStyle = 'transparent';
@@ -220,10 +256,13 @@ export const evaluateBillingLogic = (item: any) => {
     let hasNoDiagnosis = false;
     const fundNotes: FundNote[] = [];
 
-    if (isSSS) {
-        opacity = 0.5;
+    if (isUuc2ExportOnly) {
         bgStyle = 'rgba(245, 158, 11, 0.05)';
-        billingStatusLabel = item.hipdata_code === 'CSCD' ? 'UUC2 ไม่ประสงค์เบิก' : 'เบิกไม่ได้ (UUC2/SSS)';
+        billingStatusLabel = isSSS
+            ? 'UUC2 ประกันสังคม — ส่งออกข้อมูล (ไม่ขอเบิก)'
+            : isPaidInFull
+                ? 'UUC2 ชำระเงินครบ — ส่งออกข้อมูล (ไม่ขอเบิก)'
+                : 'UUC2 พ.ร.บ.ชำระเงินเอง — ส่งออกข้อมูล (ไม่ขอเบิก)';
     } else if (!item.hipdata_code || (!isOFC_LGO && !isUCS)) {
         opacity = 0.5;
         billingStatusLabel = `เบิกไม่ได้ (${item.hipdata_code || 'ชำระเงิน'})`;
@@ -237,7 +276,16 @@ export const evaluateBillingLogic = (item: any) => {
 
         const palliativeDiag = toBool(item?.has_pal_diag) || hasDiagCode(item, ['Z515', 'Z718']);
         const palliativeAdp = toBool(item?.has_pal_adp) || toBool(item?.has_30001) || toBool(item?.has_cons01) || toBool(item?.has_eva001);
-        const palliativeMatch = palliativeDiag && palliativeAdp;
+        const palliativeMatch = hasPalliativeClaimData(item);
+        const palliativeAuthenReady = hasPalliativeAuthenReady(item);
+
+        const hasWalkinItem = toBool(item?.has_walkin);
+        const isWalkinPttype = toBool(item?.is_walkin_pttype);
+        if (hasWalkinItem) {
+            fundNotes.push({ label: '🚶 WALKIN (ผู้ป่วยนอกเหตุสมควร)', kind: 'matched', group: 'other' });
+        } else if (isWalkinPttype) {
+            addWarningFundNote(fundNotes, 'WALKIN (ผู้ป่วยนอกเหตุสมควร)', [' รายการค่าบริการ WALKIN'], 'other');
+        }
 
         if (toBool(item?.has_telmed) || String(item?.ovstist_export_code ?? '').trim() === String(rules.project_codes?.ovstist_tele ?? '5').trim()) {
             fundNotes.push({ label: '📱 Telemedicine', kind: 'matched', group: 'other' });
@@ -429,26 +477,36 @@ export const evaluateBillingLogic = (item: any) => {
         }
         const hasAncDentalExamAdp = toBool(item?.has_anc_dental_exam) || hasAnyCodeValue(item?.anc_adp_codes, ['30008']);
         const hasAncDentalExamProcedure = toBool(item?.has_anc_dental_exam_procedure)
-            || hasAnyCodeValue(item?.dental_procedure_codes, ['2330011', '2330013']);
+            || hasAnyCodeValue(item?.dental_procedure_codes, ANC_DENTAL_EXAM_PROCEDURE_CODES);
+        const hasAncDentalExamProcedurePair = toBool(item?.has_anc_dental_exam_procedure) || hasMatchingDentalProcedureIcd9(
+            item?.dental_procedure_pairs,
+            ANC_DENTAL_EXAM_PROCEDURE_CODES,
+            ANC_DENTAL_EXAM_ICD9,
+        );
         const ancDentalExamNearMissing = getNearFundMissingParts(hasAncDentalExamAdp, ' ADP 30008', [
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-            { met: hasAncDentalExamProcedure, label: ' หัตถการ 2330011/2330013' },
+            { met: hasAncDentalExamProcedurePair, label: ` ICD10TM ${ANC_DENTAL_EXAM_PROCEDURE_CODES.join('/')} + หัตถการ ICD-9 ${ANC_DENTAL_EXAM_ICD9}` },
         ], isFemale && hasAncDiag && hasAncDentalExamProcedure);
-        if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasAncDentalExamProcedure) {
+        if (hasAncDentalExamAdp && isFemale && hasAncDiag && hasAncDentalExamProcedurePair) {
             fundNotes.push({ label: '🦷 ANC ตรวจฟัน', kind: 'matched', group: 'other' });
         } else if (isFemale && (hasAncDentalExamAdp || hasAncDiag || hasAncDentalExamProcedure) && ancDentalExamNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ตรวจฟัน', ancDentalExamNearMissing);
         }
         const hasAncDentalCleanAdp = toBool(item?.has_anc_dental_clean) || hasAnyCodeValue(item?.anc_adp_codes, ['30009']);
         const hasAncDentalCleanProcedure = toBool(item?.has_anc_dental_clean_procedure)
-            || hasAnyCodeValue(item?.dental_procedure_codes, ['2387010', '2277310', '2277320', '2287310', '2287320']);
+            || hasAnyCodeValue(item?.dental_procedure_codes, ANC_DENTAL_CLEAN_PROCEDURE_CODES);
+        const hasAncDentalCleanProcedurePair = toBool(item?.has_anc_dental_clean_procedure) || hasMatchingDentalProcedureIcd9(
+            item?.dental_procedure_pairs,
+            ANC_DENTAL_CLEAN_PROCEDURE_CODES,
+            ANC_DENTAL_CLEAN_ICD9,
+        );
         const ancDentalCleanNearMissing = getNearFundMissingParts(hasAncDentalCleanAdp, ' ADP 30009', [
             { met: isFemale, label: ' เพศหญิง' },
             { met: hasAncDiag, label: ' Diagnosis Z34/Z35' },
-            { met: hasAncDentalCleanProcedure, label: ' หัตถการ 2387010/2277310/2277320/2287310/2287320' },
+            { met: hasAncDentalCleanProcedurePair, label: ` ICD10TM ${ANC_DENTAL_CLEAN_PROCEDURE_CODES.join('/')} + หัตถการ ICD-9 ${ANC_DENTAL_CLEAN_ICD9}` },
         ], isFemale && hasAncDiag && hasAncDentalCleanProcedure);
-        if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasAncDentalCleanProcedure) {
+        if (hasAncDentalCleanAdp && isFemale && hasAncDiag && hasAncDentalCleanProcedurePair) {
             fundNotes.push({ label: '🪥 ANC ขัดทำความสะอาดฟัน', kind: 'matched', group: 'other' });
         } else if (isFemale && (hasAncDentalCleanAdp || hasAncDiag || hasAncDentalCleanProcedure) && ancDentalCleanNearMissing.length > 0) {
             addWarningFundNote(fundNotes, 'ANC ขัดทำความสะอาดฟัน', ancDentalCleanNearMissing);
@@ -486,18 +544,22 @@ export const evaluateBillingLogic = (item: any) => {
         const hasFpDiag = toBool(item?.has_fp_diag) || hasDiagRegex(item, /^Z30/);
         const hasZ304Diag = toBool(item?.has_z304_diag) || hasDiagCode(item, ['Z304']);
         const hasFpAnyAdp = toBool(item?.has_fp_adp);
-        const fpPillNearMissing = getNearFundMissingParts(toBool(item?.has_fp_pill), ' ADP FP003_1/FP003_2', [
-            { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)' },
+        const fpPillNearMissing = getNearFundMissingParts(toBool(item?.has_fp_pill), ' ADP FP003_1/FP003_2/FP003_3', [
+            { met: hasZ304Diag, label: ' Diagnosis Z304 (การเฝ้าระวังการใช้ยาคุมกำเนิด)' },
         ], hasZ304Diag);
-        if (toBool(item?.has_fp_pill) && hasZ304Diag) {
-            fundNotes.push({ label: '💊 ยาคุมกำเนิด', kind: 'matched', group: 'drug' });
+        const fpEmergencyYearQty = Number(item?.fp_emergency_year_qty || 0);
+        if (fpEmergencyYearQty > 2) fpPillNearMissing.push(` FP003_3 เกิน 2 แผง/ปี (พบ ${fpEmergencyYearQty})`);
+        if (toBool(item?.has_fp_pill) && hasZ304Diag && fpEmergencyYearQty <= 2) {
+            fundNotes.push({ label: '💊 ยาเม็ดคุมกำเนิด', kind: 'matched', group: 'drug' });
         } else {
-            addWarningFundNote(fundNotes, 'ยาคุมกำเนิด', fpPillNearMissing, 'drug');
+            addWarningFundNote(fundNotes, 'ยาเม็ดคุมกำเนิด', fpPillNearMissing, 'drug');
         }
         const fpInjectionNearMissing = getNearFundMissingParts(toBool(item?.has_fp_condom), ' ADP FP003_4', [
-            { met: hasFpDiag, label: ' Diagnosis Z30x' },
-        ], hasFpDiag);
-        if (toBool(item?.has_fp_condom) && hasFpDiag) {
+            { met: hasZ304Diag, label: ' Diagnosis Z304' },
+        ], hasZ304Diag);
+        const fpInjectionYearCount = Number(item?.fp_injection_year_count || 0);
+        if (fpInjectionYearCount > 5) fpInjectionNearMissing.push(` FP003_4 เกิน 5 ครั้ง/ปี (พบ ${fpInjectionYearCount})`);
+        if (toBool(item?.has_fp_condom) && hasZ304Diag && fpInjectionYearCount <= 5) {
             fundNotes.push({ label: '💉 ยาฉีดคุมกำเนิด', kind: 'matched', group: 'drug' });
         } else {
             addWarningFundNote(fundNotes, 'ยาฉีดคุมกำเนิด', fpInjectionNearMissing, 'drug');
@@ -518,9 +580,33 @@ export const evaluateBillingLogic = (item: any) => {
             addWarningFundNote(fundNotes, 'คัดกรองมะเร็งปากมดลูก', cxNearMissing);
         }
 
-        if (palliativeMatch) {
-            fundNotes.push({ label: '🕊️ Palliative Care', kind: 'matched', group: 'palliative' });
-        } else {
+        const hasMorphine = toBool(item?.has_morphine) || hasValue(item?.morphine_names);
+        const hasPriorPalliative = toBool(item?.has_prior_palliative) || hasValue(item?.prior_palliative_date);
+        const hasZ515 = Boolean(item?.z515_code) || hasDiagCode(item, ['Z515']);
+        const hasZ718 = Boolean(item?.z718_code) || hasDiagCode(item, ['Z718']);
+        const hasBothPalliativeDiags = hasZ515 && hasZ718;
+
+        if (hasMorphine) {
+            if (hasBothPalliativeDiags) {
+                fundNotes.push({
+                    label: '🕊️💊 Palliative (จ่ายยามอร์ฟีน + Z51.5 & Z71.8)',
+                    kind: 'matched',
+                    group: 'palliative',
+                });
+            } else if (hasPriorPalliative || hasZ515 || hasZ718) {
+                const missingParts: string[] = [];
+                if (!hasZ515 && !hasZ718) missingParts.push('ลืมลง Diag Z51.5 & Z71.8');
+                else if (!hasZ718) missingParts.push('ขาด Diag Z71.8 (ACP)');
+                else if (!hasZ515) missingParts.push('ขาด Diag Z51.5');
+                addWarningFundNote(fundNotes, 'Palliative (มียามอร์ฟีน)', missingParts, 'palliative');
+            }
+        } else if (palliativeMatch) {
+            fundNotes.push({
+                label: '🕊️ Palliative Care',
+                kind: 'matched',
+                group: 'palliative',
+            });
+        } else if (palliativeAdp || palliativeDiag) {
             const palliativeNearMissing = getNearFundMissingParts(palliativeAdp, ' ADP 30001/Cons01/Eva001', [
                 { met: palliativeDiag, label: ' Diagnosis Z515/Z718' },
             ], palliativeDiag);
@@ -549,6 +635,30 @@ export const evaluateBillingLogic = (item: any) => {
             fundNotes.push({ label: '🩻 อ่านฟิล์ม CXR', kind: 'matched', group: 'other' });
         }
 
+        const hasHdDiag = hasDiagCode(item, ['N185', 'Z491']) || hasDiagPrefix(item, ['N18.5', 'Z49.1']);
+        const hasHdAdp = hasAnyCodeValue(item?.adp_names, ['58301', '58302', '58307']) || toBool(item?.has_hd_adp);
+        if (hasHdAdp && hasHdDiag) {
+            fundNotes.push({ label: '🩸 ฟอกเลือดไตเทียม (HD 58301/58302)', kind: 'matched', group: 'other' });
+        } else if (hasHdAdp && !hasHdDiag) {
+            addWarningFundNote(fundNotes, 'ฟอกเลือดไตเทียม (HD)', [' Diagnosis N18.5/Z49.1']);
+        }
+
+        const hasPtDiag = hasDiagCode(item, ['Z501', 'Z508', 'Z509']) || hasDiagPrefix(item, ['Z50', 'I60', 'I61', 'I62', 'I63', 'I64', 'I69', 'G81']);
+        const hasPtAdp = hasAnyCodeValue(item?.adp_names, ['55001', '55002', '55003', '55004', '55005']) || toBool(item?.has_pt_adp);
+        if (hasPtAdp && hasPtDiag) {
+            fundNotes.push({ label: '🏃 กายภาพบำบัด / ฟื้นฟูสมรรถภาพ (PT)', kind: 'matched', group: 'other' });
+        } else if (hasPtAdp && !hasPtDiag) {
+            addWarningFundNote(fundNotes, 'กายภาพบำบัด (PT)', [' Diagnosis Z50.1 / การฟื้นฟูสมรรถภาพ']);
+        }
+
+        const hasCataractDiag = hasDiagPrefix(item, ['H25', 'H26']);
+        const hasCataractProc = hasAnyCodeValue(item?.oper_codes, ['1341', '1319', '1359']) || toBool(item?.has_cataract_oper);
+        if (hasCataractProc && hasCataractDiag) {
+            fundNotes.push({ label: '👁️ ผ่าตัดต้อกระจก (Cataract Phaco)', kind: 'matched', group: 'other' });
+        } else if (hasCataractProc && !hasCataractDiag) {
+            addWarningFundNote(fundNotes, 'ผ่าตัดต้อกระจก', [' Diagnosis H25/H26']);
+        }
+
         const dialysisRegex = new RegExp(dialysisPattern);
         const isDialysis = dialysisRegex.test(item?.pdx || item?.main_diag || '');
         const isOutsideArea = (item?.fund || '').includes('นอกเขต') ||
@@ -558,7 +668,7 @@ export const evaluateBillingLogic = (item: any) => {
 
         if (isDialysis && isOutsideArea) {
             fundNotes.push({ label: '🩸 ล้างไต (นอกเขต)', kind: 'matched', group: 'other' });
-        } else if (isDialysis) {
+        } else if (isDialysis && !hasHdAdp) {
             fundNotes.push({ label: '⚠️ ล้างไต (ในเขต)', kind: 'warning', group: 'other' });
         }
 
@@ -604,6 +714,9 @@ export const evaluateBillingLogic = (item: any) => {
 
         if (item?.serviceType !== 'ผู้ป่วยใน' && toBool(item?.has_close)) {
             visibleFundNotes.push({ label: '🔐 ปิดสิทธิแล้ว (EP)', kind: 'ep', group: 'other' });
+        } else if (item?.serviceType !== 'ผู้ป่วยใน' && isUUC1 && palliativeAuthenReady) {
+            visibleFundNotes.push({ label: '🪪 Palliative มี Authen Code — พร้อมส่ง', kind: 'ep', group: 'palliative' });
+            billingStatusLabel = 'UUC1 Palliative พร้อมส่ง (Authen)';
         } else if (item?.serviceType !== 'ผู้ป่วยใน' && isUUC1) {
             visibleFundNotes.push({ label: '🔐 ยังไม่ปิดสิทธิ (EP)', kind: 'ep', group: 'other' });
             billingStatusLabel = 'UUC1 รอปิดสิทธิ (EP)';
@@ -630,7 +743,7 @@ export const evaluateBillingLogic = (item: any) => {
 
     if (item?.serviceType !== 'ผู้ป่วยใน' && toBool(item?.has_close)) {
         fundNotes.push({ label: '🔐 ปิดสิทธิแล้ว (EP)', kind: 'ep', group: 'other' });
-    } else if (item?.serviceType !== 'ผู้ป่วยใน' && isUUC1) {
+    } else if (item?.serviceType !== 'ผู้ป่วยใน' && isUUC1 && !isOFC_LGO) {
         fundNotes.push({ label: '🔐 ยังไม่ปิดสิทธิ (EP)', kind: 'ep', group: 'other' });
         billingStatusLabel = 'UUC1 รอปิดสิทธิ (EP)';
     }

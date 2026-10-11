@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "MODAL_DOUBLE_LAYER_FIX.md"
-source_hash: "ee2edc69bd249994a4adf39dc3df86c466ff80f24b86f24778c910e559d8fe83"
+source_hash: "c6177f7330650212a8bd66920ff9b01cc670fcf2e3ca184410ff4da38d2cc1ee"
 managed_by: "sync-ksp-vault"
 ---
 # Modal Double Layer Fix - แก้ไขปัญหา Modal ซ้อนกันแล้ว ✅

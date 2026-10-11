@@ -1,0 +1,722 @@
+---
+ksp_schema: 1
+project: FDHChecker
+type: "source-snapshot"
+category: "operations"
+source: "src/pages/AnnualHealthCheckupReportPage.css"
+source_hash: "4088c14c5b51aac9582aeca239f9745bfeadc38a9c23b190f8a8c3dc04e41a0f"
+managed_by: "sync-ksp-vault"
+---
+# AnnualHealthCheckupReportPage.css
+
+> Source: `src/pages/AnnualHealthCheckupReportPage.css`
+> SHA-256: `4088c14c5b51aac9582aeca239f9745bfeadc38a9c23b190f8a8c3dc04e41a0f`
+
+````css
+/* Annual Health Checkup Report Styling */
+.checkup-page {
+  padding: 1.5rem;
+  max-width: 1440px;
+  margin: 0 auto;
+  font-family: 'Sarabun', 'Prompt', system-ui, -apple-system, sans-serif;
+  color: #1e293b;
+}
+
+.checkup-header-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.5rem;
+  border: 1px solid #e2e8f0;
+}
+
+.checkup-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.checkup-title-row h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkup-tabs {
+  display: flex;
+  gap: 0.5rem;
+  background: #f1f5f9;
+  padding: 0.25rem;
+  border-radius: 8px;
+}
+
+.checkup-tab-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.checkup-tab-btn.active {
+  background: white;
+  color: #0284c7;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+}
+
+.checkup-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.checkup-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.checkup-form-group label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.checkup-form-group input,
+.checkup-form-group select {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.checkup-form-group input:focus,
+.checkup-form-group select:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+}
+
+.checkup-info-banner {
+  background: #eff6ff;
+  border-left: 4px solid #3b82f6;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: #1e40af;
+  margin-bottom: 1.25rem;
+}
+
+.checkup-action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+.checkup-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: #0284c7;
+  color: white;
+}
+.btn-primary:hover {
+  background: #0369a1;
+}
+
+.btn-success {
+  background: #10b981;
+  color: white;
+}
+.btn-success:hover {
+  background: #059669;
+}
+
+.btn-secondary {
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+.btn-secondary:hover {
+  background: #e2e8f0;
+}
+
+.btn-outline {
+  background: white;
+  color: #0284c7;
+  border: 1px solid #0284c7;
+}
+.btn-outline:hover {
+  background: #f0f9ff;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.6rem !important;
+  font-size: 0.8rem !important;
+}
+
+/* Patient Selector Section */
+.checkup-selector-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.85rem;
+  margin-top: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.selector-title-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.selection-badge {
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.patient-selector-scroll {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 0.5rem;
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+
+.patient-select-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  font-size: 0.82rem;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+}
+
+.patient-select-item:hover {
+  background: #e2e8f0;
+}
+
+.patient-select-item.is-selected {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #0369a1;
+}
+
+.patient-select-item .p-num {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.patient-select-item .p-name {
+  font-weight: 500;
+}
+
+.patient-select-item .p-age {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.patient-select-item .p-price {
+  font-weight: 600;
+  color: #0284c7;
+  font-size: 0.78rem;
+}
+
+.checkup-page.page-landscape {
+  max-width: 1600px;
+}
+
+/* Paper / Report View Container */
+.checkup-paper-card {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e2e8f0;
+  margin-bottom: 2rem;
+}
+
+/* Print specific styles */
+@media print {
+  body {
+    background: white !important;
+    font-size: 11px !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .checkup-page {
+    padding: 0 !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+  .checkup-paper-card {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .page-break {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+  .report-table {
+    width: 100% !important;
+    font-size: 8.5pt !important;
+    line-height: 1.2 !important;
+  }
+  .report-table th,
+  .report-table td {
+    border: 0.5pt solid black !important;
+    padding: 2.5px 4px !important;
+  }
+  .report-table th {
+    background-color: #f1f5f9 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .lab-item-price {
+    color: black !important;
+    font-weight: 600 !important;
+  }
+  .table-sig-box {
+    color: black !important;
+  }
+  .report-signatures {
+    margin-top: 1.5rem !important;
+    page-break-inside: avoid !important;
+  }
+}
+
+/* Report Header Styles */
+.report-paper-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.report-paper-header h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 0.4rem 0;
+  color: black;
+}
+
+.report-paper-header p {
+  margin: 0.2rem 0;
+  font-size: 0.95rem;
+  color: #334155;
+}
+
+/* Summary Table Styles */
+.report-table-wrapper {
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.report-table th,
+.report-table td {
+  border: 1px solid #94a3b8;
+  padding: 4px 6px;
+  vertical-align: middle;
+}
+
+.report-table th {
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.report-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+/* 1 row per person */
+.report-row-single {
+  height: 32px;
+}
+
+.text-center { text-align: center; }
+.text-right { text-align: right; }
+.text-left { text-align: left; }
+.font-bold { font-weight: bold; }
+
+/* Inline Lab Group & X-Ray Styles */
+.lab-inline-wrapper {
+  display: block;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #1e293b;
+}
+
+.lab-inline-item {
+  display: inline;
+}
+
+.lab-item-name {
+  font-weight: 500;
+}
+
+.lab-item-price {
+  font-weight: 600;
+  color: #0284c7;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.lab-sep {
+  color: #64748b;
+  margin-right: 2px;
+}
+
+.xray-inline-item {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.table-sig-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.table-sig-line {
+  letter-spacing: 1px;
+}
+
+/* Signatures block */
+.report-signatures {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 2.5rem;
+  page-break-inside: avoid;
+}
+
+.sig-col {
+  text-align: center;
+  min-width: 240px;
+}
+
+.sig-dots {
+  margin: 1.5rem 0 0.5rem 0;
+  letter-spacing: 2px;
+}
+
+/* =========================================================
+   Matrix Report View (Matching Hospital Official Form Image 2)
+   ========================================================= */
+.matrix-paper-card {
+  padding: 1.25rem 1.5rem;
+}
+
+.matrix-top-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 9pt;
+  color: #000;
+  line-height: 1.35;
+}
+
+.matrix-meta-left {
+  text-align: left;
+}
+
+.matrix-meta-right {
+  text-align: right;
+}
+
+.matrix-report-header {
+  text-align: center;
+  margin: 0.25rem 0 1rem 0;
+}
+
+.matrix-report-header h3 {
+  font-size: 13pt;
+  font-weight: 700;
+  margin: 0 0 0.35rem 0;
+  color: #000;
+  letter-spacing: 0.3px;
+}
+
+.matrix-report-header .matrix-gov-org {
+  font-size: 10.5pt;
+  margin: 0 0 0.25rem 0;
+  color: #000;
+}
+
+.matrix-report-header .matrix-date-line {
+  font-size: 10pt;
+  margin: 0;
+  color: #000;
+}
+
+/* Matrix Table Styling */
+.matrix-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.5pt;
+  color: #000;
+  line-height: 1.25;
+}
+
+.matrix-report-table th,
+.matrix-report-table td {
+  border: 1px solid #000;
+  padding: 3.5px 2px;
+  vertical-align: middle;
+}
+
+.matrix-super-header-row th {
+  font-weight: 700;
+  font-size: 8pt;
+  text-align: center;
+  background: #f1f5f9;
+}
+
+.matrix-group-title {
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+.matrix-test-names-row th.test-name-th {
+  font-weight: 600;
+  font-size: 7pt;
+  text-align: center;
+  padding: 2.5px 1px;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.1;
+  background: #f8fafc;
+}
+
+.matrix-row td {
+  height: 22px;
+}
+
+.matrix-row .td-name {
+  text-align: left;
+  padding-left: 5px;
+  white-space: nowrap;
+  font-size: 8pt;
+}
+
+.matrix-row .td-val {
+  text-align: center;
+  font-size: 7.5pt;
+}
+
+.matrix-row .td-zero {
+  color: #1e293b;
+}
+
+.matrix-row .td-positive {
+  font-weight: 700;
+  color: #000;
+}
+
+.matrix-row .td-total {
+  text-align: right;
+  padding-right: 5px;
+  font-weight: 700;
+  font-size: 8pt;
+}
+
+.matrix-tfoot-row td {
+  background: #f8fafc;
+  padding: 4px 5px;
+}
+
+/* Matrix Signature Block (Bottom Right single signature box) */
+.matrix-signature-container {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+  page-break-inside: avoid;
+}
+
+.matrix-sig-box {
+  text-align: center;
+  min-width: 280px;
+  font-size: 9pt;
+  line-height: 1.5;
+  color: #000;
+}
+
+.matrix-sig-box .sig-line {
+  margin-bottom: 0.2rem;
+}
+
+.matrix-sig-box .sig-name {
+  font-weight: 500;
+}
+
+.matrix-sig-box .sig-pos {
+  font-size: 8.5pt;
+}
+
+.matrix-sig-box .sig-head {
+  font-size: 8.5pt;
+}
+
+@media print {
+  .matrix-paper-card {
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .matrix-report-table th,
+  .matrix-report-table td {
+    border: 0.5pt solid black !important;
+    padding: 2px 1px !important;
+  }
+  .rate-empty {
+    border: none !important;
+    border-bottom: 0.5pt solid black !important;
+  }
+  .matrix-super-header-row th,
+  .matrix-test-names-row th,
+  .matrix-tfoot-row td,
+  .rate-num-cell {
+    background-color: transparent !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .matrix-signature-container {
+    margin-top: 1.2cm !important;
+    page-break-inside: avoid !important;
+  }
+}
+
+/* Individual Slip Styles */
+.individual-slip {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  background: white;
+}
+
+@media print {
+  .individual-slip {
+    border: none !important;
+    padding: 0.5cm !important;
+    margin-bottom: 0 !important;
+    page-break-after: always !important;
+  }
+}
+
+.slip-header {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.slip-header h4 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0 0 0.3rem 0;
+}
+
+.slip-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.95rem;
+}
+
+.slip-meta-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.slip-meta-label {
+  font-weight: 600;
+  color: #475569;
+  min-width: 120px;
+}
+
+.slip-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.25rem;
+}
+
+.slip-table th,
+.slip-table td {
+  border: 1px solid #000;
+  padding: 0.5rem 0.75rem;
+}
+
+.slip-table th {
+  background: #f1f5f9;
+  text-align: center;
+  font-weight: 700;
+}
+
+.slip-footer {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: space-between;
+  page-break-inside: avoid;
+}
+
+````

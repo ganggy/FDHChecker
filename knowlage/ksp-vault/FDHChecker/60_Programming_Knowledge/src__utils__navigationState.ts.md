@@ -4,16 +4,16 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/utils/navigationState.ts"
-source_hash: "a0b5a0afbc05a7241fbb70f5d99ffe739061c8a7b0feaa14770e4618dab07e4a"
+source_hash: "a61137663b22bbdcb356510b2597a4363d141876ab363b6c2da7ad7e76ecfdab"
 managed_by: "sync-ksp-vault"
 ---
 # navigationState.ts
 
 > Source: `src/utils/navigationState.ts`
-> SHA-256: `a0b5a0afbc05a7241fbb70f5d99ffe739061c8a7b0feaa14770e4618dab07e4a`
+> SHA-256: `a61137663b22bbdcb356510b2597a4363d141876ab363b6c2da7ad7e76ecfdab`
 
 ````typescript
-export type AppPage = 'staff' | 'ipd' | 'ipdClaimMonitor' | 'aiReports' | 'hospitalReports' | 'admin' | 'fdh' | 'fdhImport' | 'fdhClaimDetail' | 'nhsoClose' | 'repstm' | 'repstmManage' | 'receivable' | 'insuranceOverview' | 'repDeny' | 'specific' | 'fundFdh' | 'fund43' | 'fundKtb' | 'fundOther' | 'monitor' | 'fsMonitor' | 'revenueOpportunity' | 'mophDmht' | 'mophVaccine' | 'guide' | 'settings' | 'memberAdmin' | 'authenSync' | 'preValidator' | 'workQueue' | 'rejectTracking' | 'reconciliation' | 'repDailySummary' | 'ppfsBenchmark' | 'ppfsVisitMatch' | 'uuc1Tracking' | 'ucOutsideCup';
+export type AppPage = 'staff' | 'ipd' | 'ipdExport' | 'ipdClaimMonitor' | 'collaboration' | 'aiReports' | 'hospitalReports' | 'annualCheckupReport' | 'officialReceivable' | 'receivableStandardReport' | 'admin' | 'fdh' | 'fdhImport' | 'fdhClaimDetail' | 'nhsoClose' | 'repstm' | 'repstmManage' | 'sssExport' | 'sssRepStm' | 'receivable' | 'receivableSettlement' | 'insuranceOverview' | 'accountingRevenueBudget' | 'smtBudget' | 'repDeny' | 'specific' | 'fundFdh' | 'fund43' | 'fundKtb' | 'fundOther' | 'monitor' | 'fsMonitor' | 'revenueOpportunity' | 'mophDmht' | 'mophVaccine' | 'guide' | 'settings' | 'memberAdmin' | 'authenSync' | 'preValidator' | 'workQueue' | 'rejectTracking' | 'reconciliation' | 'stmZeroAudit' | 'repSheetZeroAudit' | 'repDailySummary' | 'ppfsBenchmark' | 'ppfsVisitMatch' | 'uuc1Tracking' | 'ucOutsideCup' | 'dentalAudit' | 'ktbApproveCode' | 'icd9Lookup' | 'executiveMonitor';
 
 export interface DashboardNavigationPayload {
   source?: 'dashboard';
@@ -29,7 +29,10 @@ export interface DashboardNavigationPayload {
   };
   fdh?: {
     statusFilter?: 'all' | 'ready' | 'pending';
+    search?: string;
+    targetVns?: string[];
   };
+  ipdExport?: { targetAns?: string[] };
   specific?: {
     activeFund?: string;
     showIncompleteOnly?: boolean;

@@ -4,7 +4,7 @@ project: FDHChecker
 type: "domain-knowledge"
 category: "claims"
 source: "knowlage/extracted/1.2.3.หล_กเกณฑ_และเง__อนไขบร_การ_ PP_ส__งท__เปล.txt"
-source_hash: "ec7710499c198ed6b5cd3b5eabfb20b140d42749ab52d73c9fdccbb1284738dd"
+source_hash: "3a876dc5a5eec23507df3cbcdff54056457676229906dc121803393c8ea027bd"
 managed_by: "sync-ksp-vault"
 ---
 --- SOURCE: C:\Users\Admin\Desktop\1.2.3.หลักเกณฑ์และเงื่อนไขบริการ_ PP_สิ่งที่เปล.pdf

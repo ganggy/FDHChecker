@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SPECIFIC_FUND_PAGE_COMPLETE_GUIDE.md"
-source_hash: "1334523965779bf35ddd5db6afedfe59968552f286bcbd1b34be253bb8f24cea"
+source_hash: "ae404ce550029cf9e2a42c0db287d5d10b9333a36a36b066406ab7b24db6df24"
 managed_by: "sync-ksp-vault"
 ---
 # 🎯 Specific Fund Page - Complete Implementation Guide

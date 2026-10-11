@@ -4,18 +4,20 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/LocalAiAssistant.tsx"
-source_hash: "04990cb70f530c1dcc0e533533d564a7824876093a40e9e8e61f26c20afcbe03"
+source_hash: "867892ab3d0e4da21ffaf54fdb647f232da123c2f380c65c3fc9e885e985168a"
 managed_by: "sync-ksp-vault"
 ---
 # LocalAiAssistant.tsx
 
 > Source: `src/components/LocalAiAssistant.tsx`
-> SHA-256: `04990cb70f530c1dcc0e533533d564a7824876093a40e9e8e61f26c20afcbe03`
+> SHA-256: `867892ab3d0e4da21ffaf54fdb647f232da123c2f380c65c3fc9e885e985168a`
 
 ````tsx
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { AI_PROMPT_EXAMPLES, AI_PROMPT_TEMPLATE } from '../config/aiPromptExamples';
 import './LocalAiAssistant.css';
+import './AiPromptExamples.css';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -37,7 +39,10 @@ type AiStatus = {
   ai?: {
     provider?: string;
     model?: string;
+    embedModel?: string;
     configured?: boolean;
+    chatConfigured?: boolean;
+    embeddingConfigured?: boolean;
     reachable?: boolean | null;
   };
   auth?: {
@@ -54,7 +59,11 @@ type ConversationContext = {
   lastAction?: { kind: 'patient-report' | 'operational' | 'hospital-report' | 'dynamic-query'; label: string };
 };
 
-export function LocalAiAssistant() {
+type LocalAiAssistantProps = {
+  avoidBottomActionBar?: boolean;
+};
+
+export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssistantProps) {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -242,24 +251,57 @@ export function LocalAiAssistant() {
     }
   };
 
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open]);
+
   return (
-    <div className={`local-ai ${open ? 'local-ai--open' : ''}`}>
+    <>
       {open && (
-        <section className="local-ai-panel" aria-label="ผู้ช่วย FDH Local AI">
-          <header className="local-ai-header">
-            <div>
-              <strong>FDH Local AI</strong>
-              <span className={`local-ai-status ${status?.ai?.configured && status.auth?.authenticated ? 'is-ready' : ''}`}>
-                {status?.ai?.configured ? `${status.ai.model} ${status.auth?.authenticated ? 'พร้อมใช้งาน' : 'รอ Access Key'}` : 'กำลังตรวจสอบ Ollama'}
-              </span>
-            </div>
-            <div className="local-ai-header-actions">
-              {status?.auth?.authenticated && (
-                <button type="button" className="local-ai-logout" onClick={logout}>ออก</button>
-              )}
-              <button type="button" className="local-ai-close" onClick={() => setOpen(false)} aria-label="ปิดผู้ช่วย">×</button>
-            </div>
-          </header>
+        <div
+          className="local-ai-backdrop"
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <div className={`local-ai ${open ? 'local-ai--open' : ''} ${avoidBottomActionBar ? 'local-ai--raised' : ''}`}>
+        {open && (
+          <section className="local-ai-panel" aria-label="ผู้ช่วย FDH Local AI">
+            <header className="local-ai-header">
+              <div className="local-ai-header-info">
+                <strong>{status?.ai?.provider === 'openai' ? 'Jev AI (Gemini 3.7 Flash)' : 'FDH Local AI'}</strong>
+                <span className={`local-ai-status ${status?.ai?.configured && status.auth?.authenticated ? 'is-ready' : ''}`}>
+                  {status?.ai?.configured
+                    ? `${status.ai.model || 'Jev AI'}${status.ai.embedModel ? ` + ${status.ai.embedModel}` : ''} ${status.auth?.authenticated ? 'พร้อมใช้งาน' : 'รอ Access Key'}`
+                    : status?.ai?.reachable === false
+                      ? (status?.ai?.provider === 'openai' ? 'เชื่อมต่อ Jev AI ไม่ได้' : 'เชื่อมต่อ Ollama ไม่ได้')
+                      : status?.ai?.chatConfigured === false || status?.ai?.embeddingConfigured === false
+                        ? `โมเดลไม่ครบ: ${status?.ai?.chatConfigured === false ? status.ai.model : status?.ai?.embedModel}`
+                        : (status?.ai?.provider === 'openai' ? 'กำลังตรวจสอบ Jev AI' : 'กำลังตรวจสอบ Ollama')}
+                </span>
+              </div>
+              <div className="local-ai-header-actions">
+                {status?.auth?.authenticated && (
+                  <button type="button" className="local-ai-logout" onClick={logout} title="ออกจากระบบ AI">ออก</button>
+                )}
+                <button
+                  type="button"
+                  className="local-ai-close"
+                  onClick={() => setOpen(false)}
+                  aria-label="ปิดผู้ช่วย"
+                  title="ปิดหน้าต่าง AI (Esc)"
+                >
+                  ✕ ปิด
+                </button>
+              </div>
+            </header>
 
           {status?.auth?.authenticated && (
             <div className="local-ai-context" aria-label="บริบทการสนทนาปัจจุบัน">
@@ -307,21 +349,31 @@ export function LocalAiAssistant() {
               <div className="local-ai-welcome">
                 <strong>ถามข้อมูล HOSxP ต่อเนื่อง หรือให้สร้าง Word/Excel ได้ครับ</strong>
                 <p>ค้นด้วย HN, VN, AN, CID หรือชื่อ ดูประวัติ ยา แล็บ วันนัด ถามต่อจากคำตอบเดิม และดาวน์โหลด Word, Excel, CSV หรือ JSON ได้ ทุกคำค้นถูกตรวจและรันแบบอ่านอย่างเดียว</p>
-                <p>ลองถาม “Word ทำอะไรได้บ้าง” เพื่อดูตัวอย่างรายงานที่สร้างได้</p>
+                <p>Prompt ที่แม่นยำควรมี: ต้องการอะไร · ช่วงวันที่ · เงื่อนไข · หน่วยนับ · รูปแบบผลลัพธ์</p>
+                <div className="local-ai-starter-prompts">
+                  {AI_PROMPT_EXAMPLES.slice(0, 4).map((example) => (
+                    <button type="button" key={example.id} onClick={() => setQuestion(example.prompt)}>{example.label}</button>
+                  ))}
+                </div>
               </div>
             )}
             {status?.auth?.authenticated && messages.map((message, index) => (
               <article key={`${message.role}-${index}`} className={`local-ai-message is-${message.role}`}>
-                <div>{message.text}</div>
+                <div className="local-ai-message-text">{message.text}</div>
                 {message.needsClarification && (
                   <small className="local-ai-clarification-hint">ตอบคำถามนี้เพื่อให้ AI ดำเนินงานเดิมต่อ</small>
                 )}
                 {!!message.sources?.length && (
                   <details>
                     <summary>แหล่งข้อมูล {message.sources.length} รายการ</summary>
+                    <div className="local-ai-sources">
                     {message.sources.map((source) => (
-                      <small key={`${source.id}-${source.source}`}>[{source.id}] {source.source} › {source.heading}</small>
+                      <small key={`${source.id}-${source.source}`}>
+                        <span className="local-ai-source-index">{source.id}</span>
+                        <span><strong>{source.heading}</strong><em>{source.source}</em></span>
+                      </small>
                     ))}
+                    </div>
                   </details>
                 )}
                 {message.attachment && (
@@ -365,8 +417,10 @@ export function LocalAiAssistant() {
 
           {status?.auth?.authenticated && <form className="local-ai-form" onSubmit={submit}>
             <div className="local-ai-quick-actions">
-              <button type="button" onClick={() => setQuestion('แผนกไหนมีข้อมูลผิดพลาดวันนี้')}>สรุปวันนี้</button>
-              <button type="button" onClick={() => setQuestion('ตรวจข้อผิดพลาด VN ')}>ตรวจ VN</button>
+              <button type="button" onClick={() => setQuestion(AI_PROMPT_TEMPLATE)}>＋ แม่แบบ Prompt</button>
+              <button type="button" onClick={() => setQuestion(AI_PROMPT_EXAMPLES[0].prompt)}>ยอด OPD วันนี้</button>
+              <button type="button" onClick={() => setQuestion(AI_PROMPT_EXAMPLES[2].prompt)}>ตรวจ VN</button>
+              <button type="button" onClick={() => setQuestion(AI_PROMPT_EXAMPLES[5].prompt)}>เกณฑ์พอกเข่า</button>
               <button type="button" disabled={!conversationContext.lastAction || loading} onClick={() => void sendPrompt('เอาผลล่าสุดเป็น Excel')}>ทำ Excel</button>
               <button type="button" disabled={!conversationContext.patient || loading} onClick={() => void sendPrompt('ขอผลแล็บล่าสุด')}>ผลแล็บ</button>
             </div>
@@ -381,13 +435,22 @@ export function LocalAiAssistant() {
               }}
               maxLength={2_000}
               rows={2}
-              placeholder="พิมพ์ได้หลายบรรทัด เช่น รายงานที่ต้องการ ช่วงเวลา และรูปแบบไฟล์"
+              placeholder="ระบุ: ต้องการอะไร • ช่วงวันที่ • เงื่อนไข • หน่วยนับ • รูปแบบผลลัพธ์"
               disabled={loading}
             />
             <button type="submit" disabled={!question.trim() || loading}>ส่ง</button>
             <small className="local-ai-input-hint">Enter ส่ง • Shift+Enter ขึ้นบรรทัดใหม่ • ตอบต่อจากคำถาม AI ได้ทันที</small>
           </form>}
-          <footer>AI session สร้างอัตโนมัติ • Feedback ช่วยให้ AI เรียนรู้รูปแบบคำถามที่ถูกต้อง</footer>
+          <footer className="local-ai-footer">
+            <span>AI session สร้างอัตโนมัติ • Feedback ช่วยให้ AI เรียนรู้</span>
+            <button
+              type="button"
+              className="local-ai-footer-close"
+              onClick={() => setOpen(false)}
+            >
+              ✕ ปิดหน้าต่าง AI
+            </button>
+          </footer>
         </section>
       )}
 
@@ -397,10 +460,12 @@ export function LocalAiAssistant() {
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-label={open ? 'ปิด FDH Local AI' : 'เปิด FDH Local AI'}
+        title={open ? 'ปิดหน้าต่าง AI (Esc)' : 'เปิดผู้ช่วย FDH Local AI'}
       >
         {open ? '×' : 'AI'}
       </button>
     </div>
+    </>
   );
 }
 

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/aiReportTools.ts"
-source_hash: "333d0e4a26a024597da890f3c026f35f788de3bcfca3988995ee9736399602ce"
+source_hash: "747588f4d2eab37b01128612b66e23d9441124da6ce0e97eebb630d71e800c4a"
 managed_by: "sync-ksp-vault"
 ---
 # aiReportTools.ts
 
 > Source: `server/aiReportTools.ts`
-> SHA-256: `333d0e4a26a024597da890f3c026f35f788de3bcfca3988995ee9736399602ce`
+> SHA-256: `747588f4d2eab37b01128612b66e23d9441124da6ce0e97eebb630d71e800c4a`
 
 ````typescript
 import { getDiagsAndProcedures, getUTFConnection, getVisitChargeItems } from './db.js';
@@ -149,6 +149,11 @@ const requestedFormat = (question: string): ReportFormat | undefined => {
 
 export const parsePatientTopicFollowup = (question: string): Pick<PatientLookupIntent, 'topic' | 'format'> | null => {
   const normalized = question.trim().toLowerCase();
+  // A topic follow-up is only about the patient already selected in the
+  // conversation. Cohort/report wording must continue to the dynamic query
+  // planner instead of incorrectly asking for a single HN.
+  const asksForCohortReport = /รายชื่อ|รายการ|คนไข้ที่|ผู้ป่วยที่|ทั้งหมด|ช่วง(?:วัน|เวลา)|ตั้งแต่|วันที่รับบริการ|ปีงบประมาณ|ปีนี้|เดือนนี้/.test(normalized);
+  if (asksForCohortReport) return null;
   const asksFollowup = /(?:ขอ|ดู|แสดง|เอา|แล้ว).*(?:แล็บ|แลบ|\blab\b|ยา|นัด|วินิจฉัย|โรค)|(?:แล็บ|แลบ|\blab\b|ยา|นัด|วินิจฉัย|โรค).*(?:ล่ะ|ล่าสุด|ด้วย)/i.test(normalized);
   if (!asksFollowup) return null;
   const topic = /(?:ผล(?:ตรวจ)?(?:แล็บ|แลบ)|\blab\b)/i.test(normalized)

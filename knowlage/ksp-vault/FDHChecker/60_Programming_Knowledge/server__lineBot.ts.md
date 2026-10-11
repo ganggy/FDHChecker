@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/lineBot.ts"
-source_hash: "8e7f6ba0e5278ec927ae955bea1a6b60333f51cca26cf25b6d6232f9a30a018b"
+source_hash: "b75ce3934f1891ee8e5bc402a93994135bdcc23f2dd7a88eb48e22924792622f"
 managed_by: "sync-ksp-vault"
 ---
 # lineBot.ts
 
 > Source: `server/lineBot.ts`
-> SHA-256: `8e7f6ba0e5278ec927ae955bea1a6b60333f51cca26cf25b6d6232f9a30a018b`
+> SHA-256: `b75ce3934f1891ee8e5bc402a93994135bdcc23f2dd7a88eb48e22924792622f`
 
 ````typescript
 import crypto from 'crypto';

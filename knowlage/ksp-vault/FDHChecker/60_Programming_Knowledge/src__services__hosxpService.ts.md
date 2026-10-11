@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/services/hosxpService.ts"
-source_hash: "91bb6211088b772eee0260ae3d8ee18ebd019ee10ac687604a267c45c80684d4"
+source_hash: "1ebf0b11817a647be6993101dd3d20bf8475ce20f240f2f23f8b430589ba258a"
 managed_by: "sync-ksp-vault"
 ---
 # hosxpService.ts
 
 > Source: `src/services/hosxpService.ts`
-> SHA-256: `91bb6211088b772eee0260ae3d8ee18ebd019ee10ac687604a267c45c80684d4`
+> SHA-256: `1ebf0b11817a647be6993101dd3d20bf8475ce20f240f2f23f8b430589ba258a`
 
 ````typescript
 // บริการเชื่อมต่อฐานข้อมูล HOSxP
@@ -50,11 +50,11 @@ export const fetchHOSxPData = async (
 };
 
 // ฟังก์ชันดึงข้อมูลรายการใบเสร็จจาก opitemrece
-export const fetchReceiptData = async (vn: string) => {
+export const fetchReceiptData = async (vn: string, an?: string) => {
   try {
     console.log(`🧾 Fetching receipt data for VN: ${vn} from opitemrece table`);
 
-    const response = await fetch(`/api/hosxp/receipt/${vn}`, {
+    const response = await fetch(`/api/hosxp/receipt/${encodeURIComponent(vn)}${an ? '?an=' + encodeURIComponent(an) : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -66,7 +66,7 @@ export const fetchReceiptData = async (vn: string) => {
     }
 
     const data = await response.json();
-    console.log(`✅ Receipt API response:`, data);
+
     return data;
   } catch (error) {
     console.error('Error fetching receipt data:', error);
@@ -76,14 +76,15 @@ export const fetchReceiptData = async (vn: string) => {
 
 // ฟังก์ชันดึงข้อมูลการวินิจฉัยและหัตถการ
 export interface VisitClinicalData {
+  warnings?: string[];
   clinical: { cc?: string; hpi?: string };
   diagnoses: Array<{ code?: string; name?: string; type?: string; category?: string }>;
   procedures: Array<{ code?: string; name?: string; type?: string; category?: string }>;
 }
 
-export const fetchDiagsAndProceduresData = async (vn: string) => {
+export const fetchDiagsAndProceduresData = async (vn: string, an?: string) => {
   try {
-    const response = await fetch(`/api/hosxp/visit/${vn}/diags`, {
+    const response = await fetch(`/api/hosxp/visit/${encodeURIComponent(vn)}/diags${an ? '?an=' + encodeURIComponent(an) : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -103,9 +104,9 @@ export const fetchDiagsAndProceduresData = async (vn: string) => {
 };
 
 // ฟังก์ชันดึงข้อมูลค่าบริการ ADP Code
-export const fetchServiceADPData = async (vn: string) => {
+export const fetchServiceADPData = async (vn: string, an?: string) => {
   try {
-    const response = await fetch(`/api/hosxp/services/${vn}`, {
+    const response = await fetch(`/api/hosxp/services/${encodeURIComponent(vn)}${an ? '?an=' + encodeURIComponent(an) : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -125,9 +126,9 @@ export const fetchServiceADPData = async (vn: string) => {
 };
 
 // ฟังก์ชันดึงข้อมูลยาและการรักษา
-export const fetchPrescriptionData = async (vn: string) => {
+export const fetchPrescriptionData = async (vn: string, an?: string) => {
   try {
-    const response = await fetch(`/api/hosxp/prescriptions/${vn}`, {
+    const response = await fetch(`/api/hosxp/prescriptions/${encodeURIComponent(vn)}${an ? '?an=' + encodeURIComponent(an) : ''}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -354,8 +355,8 @@ export const importRepstmData = async (payload: {
   return json;
 };
 
-export const fetchVisitChargeItems = async (vn: string) => {
-  const response = await fetch(`/api/hosxp/visit-items/${encodeURIComponent(vn)}`);
+export const fetchVisitChargeItems = async (vn: string, an?: string) => {
+  const response = await fetch(`/api/hosxp/visit-items/${encodeURIComponent(vn)}${an ? '?an=' + encodeURIComponent(an) : ''}`);
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error || 'ไม่สามารถอ่านรายการค่าใช้จ่ายของ visit ได้');
@@ -623,7 +624,21 @@ export const fetchReceivableFilterOptions = async (): Promise<ReceivableFilterOp
   return json.data || { hosxpRights: [], financeRights: [] };
 };
 
-export const fetchReceivableBatches = async (limit = 50) => {
+export interface ReceivableBatch {
+  id: number;
+  batch_no?: string | null;
+  patient_type?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  item_count?: number | string | null;
+  total_receivable?: number | string | null;
+  opening_balance?: number | string | null;
+  collected_amount?: number | string | null;
+  closing_balance?: number | string | null;
+  created_at?: string | null;
+}
+
+export const fetchReceivableBatches = async (limit = 50): Promise<ReceivableBatch[]> => {
   const response = await fetch(`/api/receivables/batches?limit=${limit}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
@@ -636,6 +651,26 @@ export const fetchReceivableBatches = async (limit = 50) => {
   return json.data || [];
 };
 
+export const fetchReceivableLatestBalance = async (params: {
+  beforeDate?: string;
+  patientType?: string;
+}): Promise<{ previousBatchNo?: string; previousEndDate?: string; suggestedOpeningBalance: number }> => {
+  const query = new URLSearchParams();
+  if (params.beforeDate) query.set('beforeDate', params.beforeDate);
+  if (params.patientType) query.set('patientType', params.patientType);
+
+  try {
+    const response = await fetch(`/api/receivables/balance-overview?${query.toString()}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const json = await response.json();
+    return json?.data || { suggestedOpeningBalance: 0 };
+  } catch {
+    return { suggestedOpeningBalance: 0 };
+  }
+};
+
 export const saveReceivableBatch = async (payload: {
   startDate: string;
   endDate: string;
@@ -645,6 +680,9 @@ export const saveReceivableBatch = async (payload: {
   financeRight?: string;
   createdBy?: string;
   notes?: string;
+  openingBalance?: number;
+  collectedAmount?: number;
+  closingBalance?: number;
   items: ReceivableCandidate[];
 }) => {
   const response = await fetch('/api/receivables/batches', {
@@ -996,6 +1034,7 @@ export interface ReconciliationSummary {
   total_inv: number;
   rep_issue: number;
   stm_zero: number;
+  stm_unknown?: number;
   overpaid: number;
   underpaid: number;
 }
@@ -1018,7 +1057,7 @@ export const fetchReceivableReconciliation = async (params: {
   financeRight?: string;
   compareStatus?: string;
   page?: number;
-  pageSize?: number;
+  pageSize?: number | string;
 }): Promise<ReconciliationResponse> => {
   const query = new URLSearchParams();
   query.set('startDate', params.startDate);
@@ -1029,7 +1068,7 @@ export const fetchReceivableReconciliation = async (params: {
   if (params.financeRight) query.set('financeRight', params.financeRight);
   if (params.compareStatus) query.set('compareStatus', params.compareStatus);
   if (params.page) query.set('page', String(params.page));
-  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+  if (params.pageSize !== undefined) query.set('pageSize', String(params.pageSize));
 
   const response = await fetch(`/api/receivables/reconciliation?${query.toString()}`, {
     method: 'GET',
@@ -1128,6 +1167,27 @@ export interface UcOutsideCupResponse extends ReconciliationResponse {
   group_summary: UcOutsideCupGroup[];
 }
 
+export interface UcOutsideCupWalkinAudit {
+  configurationKey: string;
+  item: { icode: string; name: string };
+  period: { startDate: string; endDate: string };
+  pttypes: string[];
+  summary: {
+    total_visits: number;
+    has_walkin: number;
+    missing_walkin: number;
+    duplicate_visits: number;
+    missing_without_template: number;
+  };
+  data: Array<{
+    vn: string; hn: string; service_date: string; service_time: string; pttype: string;
+    hospmain: string; has_walkin: boolean; walkin_rows: number; has_prescription_template: boolean;
+  }>;
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export const fetchUcOutsideCupDashboard = async (params: {
   startDate: string;
   endDate: string;
@@ -1148,6 +1208,207 @@ export const fetchUcOutsideCupDashboard = async (params: {
     throw new Error(json.error || 'ไม่สามารถโหลดข้อมูล UC นอก CUP ในจังหวัดได้');
   }
   return json as UcOutsideCupResponse;
+};
+
+export const fetchUcOutsideCupWalkinAudit = async (params: { startDate: string; endDate: string; page?: number; pageSize?: number }) => {
+  const query = new URLSearchParams({
+    startDate: params.startDate, endDate: params.endDate,
+    page: String(params.page || 1), pageSize: String(params.pageSize || 100), missingOnly: 'true',
+  });
+  const response = await fetch(`/api/uc-outside-cup/walkin-audit?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'ตรวจสอบ WALKIN ไม่สำเร็จ');
+  return json.data as UcOutsideCupWalkinAudit;
+};
+
+export const insertUcOutsideCupWalkin = async (payload: {
+  startDate: string;
+  endDate: string;
+  expectedCount?: number;
+  confirmation?: string;
+  configurationKey?: string;
+  auto?: boolean;
+}) => {
+  const response = await fetch('/api/uc-outside-cup/walkin-insert', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'เพิ่มรายการ WALKIN ไม่สำเร็จ');
+  return json.data as { insertedCount: number; startDate: string; endDate: string };
+};
+
+export interface WalkinAuditIssue {
+  code: string;
+  level: 'critical' | 'warning' | 'info';
+  title: string;
+  detail: string;
+  recommendation: string;
+  category: 'dental' | 'clinical' | 'billing';
+}
+
+export interface UcWalkinClinicalAuditRow {
+  vn: string;
+  hn: string;
+  patient_name: string;
+  sex: string;
+  age_y: number;
+  service_date: string;
+  service_time: string;
+  pttype: string;
+  hospmain: string;
+  department: string;
+  is_dental: boolean;
+  diagnoses: Array<{
+    code: string;
+    name?: string;
+    diagtype: string;
+  }>;
+  procedures: Array<{
+    code: string;
+    name?: string;
+    type?: string;
+    tooth?: string;
+  }>;
+  has_walkin: boolean;
+  walkin_rows: number;
+  total_charge: number;
+  issues: WalkinAuditIssue[];
+  audit_status: 'critical' | 'warning' | 'valid';
+  can_auto_fix?: boolean;
+  auto_fix_actions?: string[];
+}
+
+export interface UcWalkinClinicalAuditSummary {
+  total_visits: number;
+  valid_count: number;
+  critical_count: number;
+  warning_count: number;
+  dental_total: number;
+  dental_issue_count: number;
+  missing_walkin_count: number;
+  auto_fixable_count?: number;
+}
+
+export interface UcWalkinClinicalAuditResponse {
+  summary: UcWalkinClinicalAuditSummary;
+  data: UcWalkinClinicalAuditRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export const fetchUcOutsideCupClinicalAudit = async (params: {
+  startDate?: string;
+  endDate?: string;
+  serviceCategory?: 'ALL' | 'DENTAL' | 'GENERAL';
+  auditStatus?: 'ALL' | 'CRITICAL' | 'WARNING' | 'VALID';
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<UcWalkinClinicalAuditResponse> => {
+  const query = new URLSearchParams();
+  if (params.startDate) query.set('startDate', params.startDate);
+  if (params.endDate) query.set('endDate', params.endDate);
+  if (params.serviceCategory && params.serviceCategory !== 'ALL') query.set('serviceCategory', params.serviceCategory);
+  if (params.auditStatus && params.auditStatus !== 'ALL') query.set('auditStatus', params.auditStatus);
+  if (params.search?.trim()) query.set('search', params.search.trim());
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
+
+  const response = await fetch(`/api/uc-outside-cup/walkin-clinical-audit?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'ตรวจสอบเวชระเบียน WALKIN ไม่สำเร็จ');
+  return json.data as UcWalkinClinicalAuditResponse;
+};
+
+export const fixUcOutsideCupClinicalIssueSingle = async (vn: string): Promise<{
+  success: boolean;
+  vn: string;
+  hn: string;
+  actions: string[];
+  message: string;
+}> => {
+  const response = await fetch('/api/uc-outside-cup/walkin-clinical-fix-single', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vn }),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'แก้ไขข้อมูลทางคลินิกไม่สำเร็จ');
+  return json.data;
+};
+
+export const batchFixUcOutsideCupClinicalIssues = async (vns: string[]): Promise<{
+  total: number;
+  success_count: number;
+  failed_count: number;
+  details: Array<{ vn: string; success: boolean; actions: string[]; message: string }>;
+}> => {
+  const response = await fetch('/api/uc-outside-cup/walkin-clinical-fix-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vns }),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'แก้ไขข้อมูลทางคลินิกแบบกลุ่มไม่สำเร็จ');
+  return json.data;
+};
+
+export interface UcWalkinBatchConfig {
+  enabled: boolean;
+  intervalMinutes: number;
+  scanDays: number;
+  autoFixClinical: boolean;
+  autoInsertWalkin: boolean;
+}
+
+export interface UcWalkinBatchSummary {
+  timestamp: string;
+  startDate: string;
+  endDate: string;
+  walkinChecked: number;
+  walkinInserted: number;
+  clinicalChecked: number;
+  clinicalFixed: number;
+  errors: string[];
+  durationMs: number;
+  triggeredBy: 'scheduler' | 'manual' | 'startup';
+}
+
+export interface UcWalkinBatchStatus extends UcWalkinBatchConfig {
+  isRunning: boolean;
+  isSchedulerActive: boolean;
+  lastRunAt: string | null;
+  lastSummary: UcWalkinBatchSummary | null;
+  lastError: string | null;
+}
+
+export const fetchUcWalkinBatchStatus = async (): Promise<UcWalkinBatchStatus> => {
+  const response = await fetch('/api/uc-outside-cup/batch-status');
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'ไม่สามารถอ่านสถานะ Batch ได้');
+  return json.data;
+};
+
+export const saveUcWalkinBatchConfig = async (config: Partial<UcWalkinBatchConfig>): Promise<UcWalkinBatchConfig> => {
+  const response = await fetch('/api/uc-outside-cup/batch-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'บันทึกการตั้งค่า Batch ไม่สำเร็จ');
+  return json.data;
+};
+
+export const triggerUcWalkinBatchRunNow = async (): Promise<UcWalkinBatchSummary> => {
+  const response = await fetch('/api/uc-outside-cup/batch-run-now', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) throw new Error(json.error || 'สั่งรัน Batch ไม่สำเร็จ');
+  return json.data;
 };
 
 export interface Uuc1TrackingSummary {
@@ -1484,5 +1745,174 @@ export const submitToFDH = async (records: CheckRecord[]) => {
     throw error;
   }
 };
+
+export interface SettlementStatementSummary {
+  statement_no: string;
+  data_type: string;
+  filefrom: string;
+  record_count: number;
+  total_paid_amount: number;
+  total_invoice_amount: number;
+  min_service_date: string | null;
+  max_service_date: string | null;
+  filename: string;
+  imported_at: string;
+}
+
+export interface SettlementCandidateItem {
+  id: number;
+  statement_no: string;
+  tran_id: string | null;
+  hn: string | null;
+  vn: string | null;
+  an: string | null;
+  cid: string | null;
+  patient_name: string | null;
+  patient_type: string;
+  service_date: string | null;
+  maininscl: string | null;
+  subinscl: string | null;
+  errorcode: string | null;
+  verifycode: string | null;
+  debtor_code: string;
+  revenue_code: string;
+  claimable_amount: number;
+  paid_amount: number;
+  diff_amount: number;
+  settle_action: 'full' | 'partial' | 'writeoff_diff' | 'hold_appeal';
+  match_level?: 'exact' | 'strong' | 'weak' | 'none';
+  already_settled?: boolean;
+  settled_no?: string | null;
+  notes?: string;
+}
+
+export interface SettlementJournalEntry {
+  type: 'DEBIT' | 'CREDIT';
+  account_code: string;
+  account_name: string;
+  amount: number;
+}
+
+export interface SettlementCandidateResult {
+  statement_no: string;
+  payer_type: string;
+  total_cases: number;
+  total_claimable: number;
+  total_received: number;
+  total_diff: number;
+  total_disallowance: number;
+  total_overpay: number;
+  items: SettlementCandidateItem[];
+  journal_entries: SettlementJournalEntry[];
+  is_balanced: boolean;
+}
+
+export interface SettlementBatchHistory {
+  id: number;
+  settlement_no: string;
+  payer_type: string;
+  statement_no: string;
+  transfer_date: string;
+  bank_account: string;
+  total_claimable: number;
+  total_received: number;
+  total_diff: number;
+  total_disallowance: number;
+  total_overpay: number;
+  item_count: number;
+  created_by: string;
+  notes: string;
+  created_at: string;
+}
+
+export interface SettlementVoucherDetail {
+  batch: SettlementBatchHistory & { journal_entries: SettlementJournalEntry[] };
+  items: Array<{
+    id: number;
+    patient_type: string;
+    vn: string | null;
+    an: string | null;
+    hn: string | null;
+    cid: string | null;
+    patient_name: string | null;
+    service_date: string | null;
+    pttype: string | null;
+    pttype_name: string | null;
+    hipdata_code: string | null;
+    debtor_code: string | null;
+    revenue_code: string | null;
+    claimable_amount: number;
+    paid_amount: number;
+    diff_amount: number;
+    settle_action: string;
+    error_code: string | null;
+    notes: string | null;
+  }>;
+  hospital: {
+    hospital_code: string;
+    hospital_name: string;
+  };
+}
+
+export const fetchSettlementStatements = async (payerType?: string): Promise<SettlementStatementSummary[]> => {
+  const query = new URLSearchParams();
+  if (payerType) query.set('payerType', payerType);
+  const response = await fetch(`/api/receivables/settlement/statements?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถดึงข้อมูล Statement ได้');
+  }
+  return json.data || [];
+};
+
+export const fetchSettlementCandidates = async (statementNo: string): Promise<SettlementCandidateResult> => {
+  const query = new URLSearchParams({ statementNo });
+  const response = await fetch(`/api/receivables/settlement/candidates?${query.toString()}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถคำนวณข้อมูลตัดลูกหนี้ได้');
+  }
+  return json.data;
+};
+
+export const executeSettlement = async (payload: {
+  payer_type: string;
+  statement_no: string;
+  transfer_date: string;
+  bank_account?: string;
+  notes?: string;
+  created_by?: string;
+  items: any[];
+}) => {
+  const response = await fetch('/api/receivables/settlement/execute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'บันทึกตัดลูกหนี้ไม่สำเร็จ');
+  }
+  return json.data;
+};
+
+export const fetchSettlementHistory = async (limit = 50): Promise<SettlementBatchHistory[]> => {
+  const response = await fetch(`/api/receivables/settlement/history?limit=${limit}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถดึงประวัติการตัดลูกหนี้ได้');
+  }
+  return json.data || [];
+};
+
+export const fetchSettlementVoucher = async (id: number): Promise<SettlementVoucherDetail> => {
+  const response = await fetch(`/api/receivables/settlement/voucher/${id}`);
+  const json = await response.json();
+  if (!response.ok || !json.success) {
+    throw new Error(json.error || 'ไม่สามารถดึงข้อมูลใบสำคัญได้');
+  }
+  return json.data;
+};
+
 
 ````

@@ -4,18 +4,18 @@ project: FDHChecker
 type: "source-snapshot"
 category: "rules-and-config"
 source: "server/config/business_rules.json"
-source_hash: "4e388464cb0596986408867390b75b3257342fc5f722a38be0549e54c503f883"
+source_hash: "fb0f77e08b0c9fed32c368affc56479c6a6db0d12fa76e77f635e6e05d0ba48f"
 managed_by: "sync-ksp-vault"
 ---
 # business_rules.json
 
 > Source: `server/config/business_rules.json`
-> SHA-256: `4e388464cb0596986408867390b75b3257342fc5f722a38be0549e54c503f883`
+> SHA-256: `fb0f77e08b0c9fed32c368affc56479c6a6db0d12fa76e77f635e6e05d0ba48f`
 
 ````json
 {
     "hospital": {
-        "hcode": "11101"
+        "hcode": ""
     },
     "query_limits": {
         "default_limit": 1000,
@@ -59,6 +59,17 @@ managed_by: "sync-ksp-vault"
             "30008",
             "30009"
         ],
+        "anc_dental_exam_procedures": [
+            "2330011",
+            "2330010"
+        ],
+        "anc_dental_exam_icd9": "8931",
+        "anc_dental_clean_procedures": [
+            "2387010",
+            "2277310",
+            "2287310"
+        ],
+        "anc_dental_clean_icd9": "9654",
         "cx_regex": "^1B004|^1B005",
         "fp_regex": "^FP",
         "pp_regex": "^Z39",
@@ -144,10 +155,10 @@ managed_by: "sync-ksp-vault"
         "er_emergency": "OP AE"
     },
     "site_settings": {
-        "hospital_name": "โรงพยาบาลโคกศรีสุพรรณ",
-        "hospital_code": "11101",
-        "nhso_region": "8",
-        "province": "สกลนคร",
+        "hospital_name": "",
+        "hospital_code": "",
+        "nhso_region": "",
+        "province": "",
         "lab_costs": {
             "default": {
                 "enabled": true,

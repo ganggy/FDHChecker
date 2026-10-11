@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/fundErrorReportCli.ts"
-source_hash: "ba921daaaa10bc24cfa964549281072d4e7d3bf27e570de70902333d2a883b46"
+source_hash: "4e48894ae364239ee523b94ab64d414fa8c9d21f4c7d1aef6bffe813874bfb6d"
 managed_by: "sync-ksp-vault"
 ---
 # fundErrorReportCli.ts
 
 > Source: `server/fundErrorReportCli.ts`
-> SHA-256: `ba921daaaa10bc24cfa964549281072d4e7d3bf27e570de70902333d2a883b46`
+> SHA-256: `4e48894ae364239ee523b94ab64d414fa8c9d21f4c7d1aef6bffe813874bfb6d`
 
 ````typescript
 import 'dotenv/config';

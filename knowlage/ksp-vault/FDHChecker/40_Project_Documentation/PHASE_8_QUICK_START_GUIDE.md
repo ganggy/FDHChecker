@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PHASE_8_QUICK_START_GUIDE.md"
-source_hash: "4e6455d7769beaaa9d3b09f36b0b64f6244d995fe3c61f65250be9f74b77604d"
+source_hash: "fa7ff4c72957adcf63f5f2edc348d14e533e16eb7f8fbc54061f5c214ff41faa"
 managed_by: "sync-ksp-vault"
 ---
 # 🚀 PHASE 8: QUICK START GUIDE

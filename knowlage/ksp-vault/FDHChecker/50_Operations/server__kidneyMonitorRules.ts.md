@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/kidneyMonitorRules.ts"
-source_hash: "61927dee778ec11ee34d9a860447d5e9971a5e73363df967565f113c6b5688b0"
+source_hash: "bbe89284f252eaf31e7b8a8ad4bf1d8bff83265109825c11cd1663d1d60f19a5"
 managed_by: "sync-ksp-vault"
 ---
 # kidneyMonitorRules.ts
 
 > Source: `server/kidneyMonitorRules.ts`
-> SHA-256: `61927dee778ec11ee34d9a860447d5e9971a5e73363df967565f113c6b5688b0`
+> SHA-256: `bbe89284f252eaf31e7b8a8ad4bf1d8bff83265109825c11cd1663d1d60f19a5`
 
 ````typescript
 export type DialysisVisitEvidence = {

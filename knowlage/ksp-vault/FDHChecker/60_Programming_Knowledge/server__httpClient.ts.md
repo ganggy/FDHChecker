@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/httpClient.ts"
-source_hash: "443b65a4b21842a29b20927340a368604f7d8315f223e887c23efca2ba38b46e"
+source_hash: "d4c545f0c6013eca90c6d14dc05ef963876a6174bf16ec8f1b687d9c33ba5b25"
 managed_by: "sync-ksp-vault"
 ---
 # httpClient.ts
 
 > Source: `server/httpClient.ts`
-> SHA-256: `443b65a4b21842a29b20927340a368604f7d8315f223e887c23efca2ba38b46e`
+> SHA-256: `d4c545f0c6013eca90c6d14dc05ef963876a6174bf16ec8f1b687d9c33ba5b25`
 
 ````typescript
 export const boundedInteger = (value: unknown, fallback: number, min: number, max: number) => {

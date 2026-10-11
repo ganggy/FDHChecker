@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "rules-and-config"
 source: "src/config/fundDefinitions.ts"
-source_hash: "5e690b5897f85908ed5232d33c69c43d093bd79bbf5ce58da6dc0980351e6ecf"
+source_hash: "9d283f66eb707d1f801a7e5e3c80edbde3353ce8e7d1d89d0bebf06553a50ef7"
 managed_by: "sync-ksp-vault"
 ---
 # fundDefinitions.ts
 
 > Source: `src/config/fundDefinitions.ts`
-> SHA-256: `5e690b5897f85908ed5232d33c69c43d093bd79bbf5ce58da6dc0980351e6ecf`
+> SHA-256: `9d283f66eb707d1f801a7e5e3c80edbde3353ce8e7d1d89d0bebf06553a50ef7`
 
 ````typescript
 import { getFundRule } from './fundRuleCatalog';
@@ -66,7 +66,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'รายการสมุนไพรและยาไทย',
         claimChannel: 'FDH/e-Claim',
         recordingSystem: 'FDH/e-Claim หรือระบบที่ประกาศกำหนด',
-        conditions: ['สิทธิ UCS/WEL', 'มียาสมุนไพรหรือยาไทย', 'มียอดราคามากกว่า 0 บาท']
+        conditions: ['สิทธิ UCS/WEL', 'มียาสมุนไพรหรือยาไทย', 'มียอดราคามากกว่า 0 บาท', 'ชื่อยาสมุนไพรสัมพันธ์กับ Diagnosis ตามตารางตรวจสอบ']
     },
     {
         id: 'knee',
@@ -95,7 +95,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ตรวจครรภ์ (UPT)',
         description: 'คัดกรองการตั้งครรภ์',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามประกาศ',
         conditions: ['ADP 30014', 'Diagnosis Z320 หรือ Z321', 'มีรายการ 31101 / Lab UPT']
     },
     {
@@ -103,7 +103,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC Visit',
         description: 'ตรวจครรภ์คุณภาพ / ฝากครรภ์',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30011']
     },
     {
@@ -111,7 +111,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC Ultrasound',
         description: 'อัลตราซาวนด์ระหว่างตั้งครรภ์',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30010 (ถือเป็นหลักฐานบริการ ANC Ultrasound)']
     },
     {
@@ -119,7 +119,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC Lab 1',
         description: 'ห้องแล็บชุดที่ 1 ของ ANC',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30012', 'CBC', 'DCIP', 'ABO group cell grouping', 'Rh grouping tube method', 'HBs Ag', 'Treponema Pallidum Antibody', 'HIV-Ab Screening rapid test']
     },
     {
@@ -127,7 +127,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC Lab 2',
         description: 'ห้องแล็บชุดที่ 2 ของ ANC',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
         conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30013', 'Anti-HIV ANC 2 (Screening) Rapid', 'Treponema Pallidum Antibody (ANC 2)', 'CBC (Complete blood count without smear)']
     },
     {
@@ -135,23 +135,23 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ANC ตรวจฟัน',
         description: 'ตรวจสุขภาพช่องปากหญิงตั้งครรภ์ (30008)',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
-        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30008', 'หัตถการตรวจช่องปาก 2330011 หรือ 2330013']
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30008', 'ICD10TM 2330011 หรือ 2330010 ต้องคู่กับหัตถการ ICD-9 8931']
     },
     {
         id: 'anc_dental_clean',
         name: 'ANC ขัดทำความสะอาดฟัน',
         description: 'ขูดหินปูน/ทำความสะอาดฟันหญิงตั้งครรภ์ (30009)',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim',
-        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30009', 'หัตถการขัดทำความสะอาดฟัน 2387010, 2277310, 2277320, 2287310 หรือ 2287320']
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim',
+        conditions: ['Diagnosis ฝากครรภ์ Z34 หรือ Z35', 'ADP 30009', 'ICD10TM 2387010 หรือรหัส Scaling 2277310/2287310 ต้องคู่กับหัตถการ ICD-9 9654']
     },
     {
         id: 'postnatal_care',
         name: 'ดูแลหลังคลอด',
         description: 'ติดตาม/ตรวจหลังคลอด',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามประกาศ',
         conditions: ['Diagnosis Z390 หรือ Z391 หรือ Z392', 'ADP 30015']
     },
     {
@@ -159,7 +159,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'เสริมธาตุเหล็กหลังคลอด',
         description: 'ยาเสริมธาตุเหล็กหลังคลอด',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามประกาศ',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามประกาศ',
         conditions: ['Diagnosis Z391 หรือ Z392', 'ADP 30016', 'มีรายการยาเสริมธาตุเหล็กตามเกณฑ์']
     },
     {
@@ -167,7 +167,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'เคลือบฟลูออไรด์',
         description: 'ทันตกรรมป้องกันฟันผุ',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือระบบที่ประกาศกำหนด',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim หรือระบบที่ประกาศกำหนด',
         conditions: ['ADP 15001', 'อยู่ในช่วงอายุหรือสิทธิที่หน่วยบริการใช้เบิก']
     },
     {
@@ -175,16 +175,16 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'วางแผนครอบครัว',
         description: 'บริการคุมกำเนิดและวางแผนครอบครัว',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z30x', 'กรณี Z308 ให้จับคู่ ICD9/ADP ให้ครบ', 'มี ADP กลุ่ม FP ตามบริการที่ทำจริง']
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามรายการย่อย',
+        conditions: ['FP002_2: Z308 + ICD-9 8605 · 350 บาท', 'FP003_1/FP003_2/FP003_3/FP003_4: Diagnosis Z304', 'อัตราตามบริการ 40/80/50/60 บาท']
     },
     {
         id: 'contraceptive_pill',
-        name: 'ยาคุมกำเนิด',
-        description: 'ยาคุมชนิดเม็ด (Anna / Lynestrenol)',
+        name: 'ยาเม็ดคุมกำเนิด',
+        description: 'Anna / Lynestrenol / ยาคุมฉุกเฉิน',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z304 (การเฝ้าระวังสถาณะการใช้ยาคุมกำเนิด)', 'ADP FP003_1 (ยา Anna 40.-) หรือ FP003_2 (ยา Lynestrenol 80.-)']
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามรายการย่อย',
+        conditions: ['Diagnosis Z304 (การเฝ้าระวังการใช้ยาคุมกำเนิด)', 'FP003_1 Anna 40 บาท / FP003_2 Lynestrenol 80 บาท / FP003_3 ยาคุมฉุกเฉิน 50 บาท']
     },
     {
         // Legacy id retained for saved settings/API compatibility; FP003_4 is injection contraception.
@@ -192,8 +192,8 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'ยาฉีดคุมกำเนิด',
         description: 'บริการยาฉีดคุมกำเนิด อัตรา 60 บาท',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim ตามรายการย่อย',
-        conditions: ['Diagnosis Z30x ตามบริการวางแผนครอบครัว', 'ADP FP003_4', 'อัตรา 60 บาทต่อครั้ง']
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim ตามรายการย่อย',
+        conditions: ['Diagnosis Z304', 'ADP FP003_4', 'อัตรา 60 บาทต่อเข็ม (ไม่เกิน 5 ครั้ง/ปี)']
     },
     {
         id: 'cacervix',
@@ -216,7 +216,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'คัดกรองเบาหวาน',
         description: 'กลุ่มเสี่ยงอายุ 35-59 ปี ด้วย FPG',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
         conditions: ['อายุ 35-59 ปี', 'Lab FPG', 'Diagnosis Z131 หรือ Z133 หรือ Z136', 'ADP 12003', 'อัตรา 50 บาทต่อครั้ง']
     },
     {
@@ -224,7 +224,7 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         name: 'คัดกรองหัวใจหลอดเลือด',
         description: 'ตรวจ Total Cholesterol และ HDL ตามเกณฑ์ปี 2569',
         claimChannel: 'e-Claim',
-        recordingSystem: 'โรงพยาบาลโคกศรีสุพรรณ เขต 8: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
+        recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
         conditions: ['อายุ 45-70 ปี', 'Lab Total Cholesterol และ HDL', 'Diagnosis Z136', 'ADP 12004', 'อัตรา 160 บาทต่อครั้ง']
     },
     {
@@ -249,8 +249,8 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         recordingSystem: 'KTB; รายงาน/เชื่อมข้อมูลบางส่วนผ่าน Seamless/DMIS ตามพื้นที่',
         conditions: [
             'ประชาชนทั่วไปเพศชาย',
-            'มี Lab Treponema Pallidum Antibody หรือรายการตรวจซิฟิลิส',
-            'รองรับชื่อ Lab/บริการกลุ่ม Treponema, Syphilis, RPR, VDRL, TPHA, TPPA'
+            'มีผล Lab Treponema Pallidum Antibody/RPR หรือรายการตรวจซิฟิลิส',
+            'รหัสบริการ 36003 (VDRL/RPR) หรือ 36006 (TPHA); ชื่อยาหรือข้อความทั่วไปไม่นับเป็นผลตรวจ'
         ],
         caution: 'ตรวจสอบความเหมาะสมของกลุ่มเป้าหมายตามประกาศกองทุน และผลตรวจที่ผูกกับ visit ให้ถูกต้อง'
     },
@@ -391,6 +391,163 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         recordingSystem: 'FDH/e-Claim หรือระบบยาตามประกาศ',
         conditions: ['มียา Clopidogrel ใน visit']
     },
+    {
+        id: 'ttm_massage',
+        name: 'นวดไทยเพื่อการรักษา',
+        description: 'บริการนวดรักษาและฟื้นฟูสภาพด้วยการแพทย์แผนไทย ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/OPPP)',
+        claimChannelNote: 'ส่งออกแฟ้ม PROCEDURE_OPD ตรวจรหัส ICD-10-TM กลุ่ม U59, ผู้ให้บริการ และเวลาบริการ',
+        conditions: [
+            'มีหัตถการนวดรักษา ICD-10-TM กลุ่ม U59 (เช่น U59.1-U59.9 หรือ 871-78-10 ถึง 874-78-10)',
+            'มี Diagnosis กลุ่มอาการปวดกล้ามเนื้อ/กระดูก/ข้อ หรืออัมพฤกษ์อัมพาต (เช่น M54.5, M79.1, G81 หรือ U53-U77)',
+            'ผู้ให้บริการ (PROVIDER) ต้องมีเลขที่ใบประกอบวิชาชีพแพทย์แผนไทย',
+            'บันทึกเวลาเริ่มและสิ้นสุดบริการ (ตรวจระยะเวลารับบริการอย่างน้อย 45 นาที)'
+        ],
+        caution: 'ตรวจสอบเลขที่ใบประกอบวิชาชีพของผู้ให้บริการแพทย์แผนไทย และเวลาเริ่ม-สิ้นสุดบริการให้ครบถ้วนเพื่อไม่ให้ถูกตัดเงิน OPPP'
+    },
+    {
+        id: 'ttm_compress',
+        name: 'ประคบสมุนไพรเพื่อการรักษา',
+        description: 'บริการประคบสมุนไพรเพื่อการรักษา ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/OPPP)',
+        claimChannelNote: 'ส่งออกแฟ้ม PROCEDURE_OPD ตรวจรหัส ICD-10-TM กลุ่ม U60 และผู้ให้บริการ',
+        conditions: [
+            'มีหัตถการประคบสมุนไพร ICD-10-TM กลุ่ม U60 (เช่น U60.1-U60.9 หรือ 871-78-20 ถึง 874-78-20)',
+            'มี Diagnosis ที่สอดคล้องกับอาการปวดเมื่อย/การอักเสบกล้ามเนื้อ',
+            'ระบุผู้ให้บริการแพทย์แผนไทย (PROVIDER)'
+        ],
+        caution: 'มักบันทึกควบคู่กับการนวดรักษาเพื่อเพิ่มผลการบำบัด'
+    },
+    {
+        id: 'ttm_steam',
+        name: 'อบไอน้ำสมุนไพรเพื่อการรักษา',
+        description: 'บริการอบไอน้ำสมุนไพรเพื่อการรักษา ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/OPPP)',
+        claimChannelNote: 'ส่งออกแฟ้ม PROCEDURE_OPD ตรวจรหัส ICD-10-TM กลุ่ม U61 และข้อบ่งชี้การรักษา',
+        conditions: [
+            'มีหัตถการอบสมุนไพร ICD-10-TM กลุ่ม U61 (เช่น U61.1-U61.9 หรือ 870-78-30)',
+            'มี Diagnosis กลุ่มโรคทางเดินหายใจ ภูมิแพ้ หรือปวดเมื่อยเรื้อรัง',
+            'ระบุผู้ให้บริการ (PROVIDER)'
+        ],
+        caution: 'ตรวจวัดสัญญาณชีพก่อนและหลังการอบสมุนไพรเพื่อความปลอดภัยของผู้รับบริการ'
+    },
+    {
+        id: 'ttm_postnatal',
+        name: 'ฟื้นฟูมารดาหลังคลอด (แพทย์แผนไทย)',
+        description: 'บริการฟื้นฟูสภาพมารดาหลังคลอด (ทับหม้อเกลือ/นวดประคบ) ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/OPPP)',
+        claimChannelNote: 'ส่งออกแฟ้ม PROCEDURE_OPD ตรวจรหัส ICD-10-TM กลุ่ม U62 คู่กับ Diagnosis หลังคลอด',
+        conditions: [
+            'มีหัตถการฟื้นฟูมารดาหลังคลอด: ทับหม้อเกลือ (U62.1), นวดประคบหลังคลอด (U62.2), อบสมุนไพรหลังคลอด (U62.3)',
+            'มี Diagnosis การดูแลหลังคลอด Z39.1 หรือ Z39.2 หรือรหัสแพทย์แผนไทยที่เกี่ยวข้อง',
+            'ระบุผู้ให้บริการแพทย์แผนไทย (PROVIDER)'
+        ],
+        caution: 'บริการนี้เป็นสิทธิประโยชน์สำหรับหญิงหลังคลอดที่คลอดปกติครบกำหนด'
+    },
+    {
+        id: 'fecal_fit_test',
+        name: 'คัดกรองมะเร็งลำไส้ใหญ่ (Fit Test)',
+        description: 'บริการตรวจคัดกรองมะเร็งลำไส้ใหญ่และไส้ตรงด้วย Fit Test ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/PPFS)',
+        claimChannelNote: 'ส่งออกแฟ้ม SPECIALPP รหัส 1B0080/1B0081 หรือแฟ้ม LABFU',
+        conditions: [
+            'ประชาชนสิทธิหลักประกันสุขภาพ อายุ 50-70 ปีบริบูรณ์',
+            'มีรหัสบริการ 1B0080 หรือรายการตรวจ Fit Test (Fecal Immunochemical Test)',
+            'ความถี่การรับบริการ: ตรวจคัดกรอง 1 ครั้ง ทุก 2 ปี'
+        ],
+        caution: 'หากผลตรวจเป็นบวก (Positive) ต้องส่งต่อส่องกล้อง Colonoscopy ต่อไป'
+    },
+    {
+        id: 'ncd_screening',
+        name: 'คัดกรองเบาหวานและความดัน (NCDSCREEN)',
+        description: 'บริการคัดกรองความเสี่ยงโรคเบาหวานและความดันโลหิตสูง ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/NCDSCREEN)',
+        claimChannelNote: 'ส่งออกแฟ้ม NCDSCREEN ตรวจความครบของค่าความดัน, BMI, น้ำตาลในเลือด และ CVD Risk',
+        conditions: [
+            'ประชาชนอายุ 35 ปีขึ้นไปที่ยังไม่ได้รับการวินิจฉัยเป็นเบาหวานหรือความดันโลหิตสูง',
+            'บันทึกค่าความดันโลหิต (SBP, DBP) และค่าดัชนีมวลกาย (Weight, Height, BMI) ครบถ้วน',
+            'บันทึกผลตรวจระดับน้ำตาลในเลือด (FPG หรือ Fasting Blood Glucose / DTX)',
+            'มีการประเมินโอกาสเสี่ยงต่อโรคหัวใจและหลอดเลือด (CVD Risk)'
+        ],
+        caution: 'แฟ้ม NCDSCREEN ต้องบันทึกข้อมูลให้ครบทุกช่อง มิฉะนั้นจะติด Error รหัส 43 แฟ้มบน HDC'
+    },
+    {
+        id: 'dspm_screening',
+        name: 'คัดกรองพัฒนาการเด็ก (DSPM/DAIM)',
+        description: 'บริการคัดกรองพัฒนาการเด็กปฐมวัยด้วยเครื่องมือ DSPM/DAIM ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/SPECIALPP)',
+        claimChannelNote: 'ส่งออกแฟ้ม SPECIALPP รหัส 1B260, 1B261, 1B262, 1B263',
+        conditions: [
+            'เด็กไทยอายุช่วงเป้าหมาย (9, 18, 30, 42 เดือน หรือเด็ก 0-5 ปี)',
+            'มีรหัสประเมินพัฒนาการ: 1B260 (สมวัย), 1B261 (สงสัยล่าช้า), 1B262 (กระตุ้นพัฒนาการ), 1B263 (ติดตามผล)',
+            'ระบุผู้ให้บริการ (PROVIDER)'
+        ],
+        caution: 'กรณีผลสงสัยล่าช้า (1B261) ต้องมีการนัดติดตามกระตุ้นพัฒนาการและประเมินซ้ำภายใน 30 วัน'
+    },
+    {
+        id: 'retinopathy_screening',
+        name: 'คัดกรองจอประสาทตาเบาหวาน',
+        description: 'บริการตรวจคัดกรองภาวะแทรกซ้อนทางจอประสาทตาในผู้ป่วยเบาหวาน ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/SPECIALPP)',
+        claimChannelNote: 'ส่งออกแฟ้ม SPECIALPP รหัส 1B0120 หรือแฟ้ม CHRONICFU',
+        conditions: [
+            'ผู้ป่วยที่ได้รับการวินิจฉัยเป็นโรคเบาหวาน (ICD-10 E10-E14) หรือลงทะเบียนในคลินิกเบาหวาน',
+            'มีรหัสบริการตรวจจอประสาทตา 1B0120 หรือผลการตรวจ Fundus Camera / Opthalmologist exam',
+            'ความถี่การรับบริการ: อย่างน้อยปีละ 1 ครั้ง'
+        ],
+        caution: 'เป็นตัวชี้วัดสำคัญของงบ QOF และการดูแลผู้ป่วยโรคเรื้อรัง (NCD Quality)'
+    },
+    {
+        id: 'foot_screening',
+        name: 'คัดกรองสุขภาพเท้าเบาหวาน',
+        description: 'บริการตรวจคัดกรองภาวะแทรกซ้อนทางเท้าในผู้ป่วยเบาหวาน ในชุดข้อมูล 43 แฟ้ม',
+        claimChannel: '43 แฟ้ม',
+        recordingSystem: 'ส่งข้อมูลมาตรฐาน 43 แฟ้ม (HDC/SPECIALPP)',
+        claimChannelNote: 'ส่งออกแฟ้ม SPECIALPP รหัส 1B0110 หรือแฟ้ม CHRONICFU',
+        conditions: [
+            'ผู้ป่วยที่ได้รับการวินิจฉัยเป็นโรคเบาหวาน (ICD-10 E10-E14) หรือลงทะเบียนในคลินิกเบาหวาน',
+            'มีรหัสบริการตรวจสุขภาพเท้า 1B0110 (การตรวจ Monofilament, ชีพจรหลังเท้า, แผลเบาหวาน)',
+            'ความถี่การรับบริการ: อย่างน้อยปีละ 1 ครั้ง'
+        ],
+        caution: 'เป็นตัวชี้วัดคุณภาพบริการเพื่อป้องกันการถูกตัดขาในผู้ป่วยเบาหวาน'
+    },
+    {
+        id: 'cataract',
+        name: 'ผ่าตัดต้อกระจก (Cataract)',
+        description: 'บริการผ่าตัดต้อกระจกพร้อมใส่เลนส์แก้วตาเทียม (IOL)',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH หรือ e-Claim สปสช. (ระบบลงทะเบียนต้อกระจก Cataract Pre-authorization)',
+        conditions: [
+            'มีหัตถการ ICD-9 ผ่าตัดต้อกระจก: 13.41 (Phacoemulsification), 13.59 (Extracapsular cataract extraction - ECCE), 13.19/13.2',
+            'มีหัตถการใส่เลนส์แก้วตาเทียม ICD-9: 13.71 (Insertion of intraocular lens prosthesis at time of cataract extraction)',
+            'มี Diagnosis ต้อกระจก ICD-10 กลุ่ม H25 (Senile cataract) หรือ H26',
+            'ขอรหัสอนุมัติ Pre-authorization จากระบบสปสช. ก่อนหรือหลังทำตามเกณฑ์'
+        ],
+        caution: 'ต้องตรวจสอบการบันทึกตาข้างที่ทำ (Left/Right) ในใบผ่าตัดและการส่งข้อมูล Pre-auth ต้อกระจก'
+    },
+    {
+        id: 'endoscopy',
+        name: 'ส่องกล้องระบบทางเดินอาหาร (GI Endoscopy)',
+        description: 'บริการส่องกล้องทางเดินอาหารส่วนต้น (EGD/Gastroscopy) และลำไส้ใหญ่ (Colonoscopy)',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH หรือ e-Claim ตามระบบ Fast track / Fee Schedule',
+        conditions: [
+            'หัตถการส่องกล้องลำไส้ใหญ่ Colonoscopy: ICD-9 45.23 (Total colonoscopy), 45.24 (Flexible sigmoidoscopy)',
+            'หัตถการส่องกล้องหลอดอาหารและกระเพาะอาหาร: ICD-9 44.13 (Gastroscopy), 42.23 (Esophagoscopy)',
+            'กรณีตัดชิ้นเนื้อ (Biopsy): ICD-9 45.25 (Endoscopic biopsy of large intestine) หรือ 44.14 (Endoscopic biopsy of stomach)',
+            'กรณีผู้ป่วยผลคัดกรอง Fit Test Positive ให้ระบุรหัสส่งต่อหรือตรวจยืนยันมะเร็งลำไส้ใหญ่'
+        ],
+        caution: 'ตรวจสอบภาพถ่ายการส่องกล้อง (Endoscopic Photos) และผลพยาธิวิทยา (Pathology Report) ในเวชระเบียน'
+    },
 ];
+
 
 ````

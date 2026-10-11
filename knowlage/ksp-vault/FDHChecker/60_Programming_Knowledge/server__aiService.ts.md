@@ -4,15 +4,16 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiService.ts"
-source_hash: "eec27dd5ecea8d308d72ce2d5eaa6f3e9c17671342b7060980cdc49f8ecf1233"
+source_hash: "9104d5840457b134033f29648082020a788595b1a74bc985d108530d4cd9b085"
 managed_by: "sync-ksp-vault"
 ---
 # aiService.ts
 
 > Source: `server/aiService.ts`
-> SHA-256: `eec27dd5ecea8d308d72ce2d5eaa6f3e9c17671342b7060980cdc49f8ecf1233`
+> SHA-256: `9104d5840457b134033f29648082020a788595b1a74bc985d108530d4cd9b085`
 
 ````typescript
+import './loadEnv.js';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -34,6 +35,7 @@ const provider = (): AiProvider => process.env.AI_PROVIDER?.trim().toLowerCase()
   : 'ollama';
 const ollamaBaseUrl = () => (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const ollamaModel = () => process.env.OLLAMA_MODEL || 'qwen3:4b-instruct';
+const ollamaEmbeddingModel = () => process.env.OLLAMA_EMBED_MODEL || 'bge-m3';
 const reportRowLimit = () => Math.max(1, Number(process.env.AI_REPORT_MAX_ROWS) || 50);
 const requestTimeoutMs = () => Math.max(5_000, Number(process.env.AI_TIMEOUT_MS) || 90_000);
 const responseCacheMs = () => Math.max(0, Number(process.env.AI_RESPONSE_CACHE_MS) || 5 * 60_000);
@@ -147,7 +149,7 @@ const callOllama = async (
       signal: AbortSignal.timeout(requestTimeoutMs()),
     });
     const payload = await response.json() as {
-      message?: { content?: string };
+      message?: { content?: string; thinking?: string };
       error?: string | { message?: string; type?: string };
     };
     const errorText = typeof payload.error === 'string'
@@ -165,7 +167,10 @@ const callOllama = async (
       throw new Error(`Ollama ${response.status}: ${errorText}`);
     }
     const text = payload.message?.content?.trim();
-    if (!text) throw new Error('Ollama returned no text');
+    if (!text && payload.message?.thinking?.trim()) {
+      throw new Error(`Ollama model ${ollamaModel()} ส่งเฉพาะ thinking โดยไม่มีคำตอบ กรุณาสร้างโมเดลใหม่จาก qwen3:4b-instruct`);
+    }
+    if (!text) throw new Error('Ollama returned no answer text');
     return text;
   }
   throw new Error('บริบท AI ยาวเกินขนาดหลังจากย่ออัตโนมัติแล้ว กรุณาเริ่มบทสนทนาใหม่');
@@ -173,6 +178,14 @@ const callOllama = async (
 
 const extractOpenAIText = (payload: Record<string, unknown>): string => {
   if (typeof payload.output_text === 'string') return payload.output_text.trim();
+  if (Array.isArray(payload.choices) && payload.choices.length > 0) {
+    const firstChoice = payload.choices[0] as Record<string, unknown>;
+    if (firstChoice && typeof firstChoice === 'object') {
+      const msg = firstChoice.message as Record<string, unknown> | undefined;
+      if (typeof msg?.content === 'string') return msg.content.trim();
+      if (typeof firstChoice.text === 'string') return firstChoice.text.trim();
+    }
+  }
   const output = Array.isArray(payload.output) ? payload.output : [];
   for (const item of output) {
     if (!item || typeof item !== 'object') continue;
@@ -192,28 +205,53 @@ const extractOpenAIText = (payload: Record<string, unknown>): string => {
 const callOpenAI = async (
   prompt: string,
   systemInstructions = SYSTEM_INSTRUCTIONS,
-  options?: { json?: boolean; maxTokens?: number },
+  options?: { json?: boolean; temperature?: number; maxTokens?: number },
 ) => {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error('OPENAI_API_KEY is not configured');
-  const response = await fetch('https://api.openai.com/v1/responses', {
+
+  const rawBaseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const model = process.env.OPENAI_MODEL || 'gpt-5.6-terra';
+
+  const isResponsesEndpoint = rawBaseUrl.endsWith('/responses');
+  const url = isResponsesEndpoint
+    ? rawBaseUrl
+    : (rawBaseUrl.endsWith('/chat/completions') ? rawBaseUrl : `${rawBaseUrl}/chat/completions`);
+
+  const requestBody = isResponsesEndpoint
+    ? {
+        model,
+        reasoning: { effort: 'none' },
+        instructions: systemInstructions,
+        input: prompt,
+        max_output_tokens: options?.maxTokens || 1_000,
+        text: { verbosity: 'low' },
+      }
+    : {
+        model,
+        messages: [
+          ...(systemInstructions ? [{ role: 'system', content: systemInstructions }] : []),
+          { role: 'user', content: prompt },
+        ],
+        ...(options?.json ? { response_format: { type: 'json_object' } } : {}),
+        temperature: options?.temperature ?? 0.2,
+        max_tokens: options?.maxTokens || 1_000,
+      };
+
+  const response = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
-      reasoning: { effort: 'none' },
-      instructions: systemInstructions,
-      input: prompt,
-      max_output_tokens: options?.maxTokens || 1_000,
-      text: { verbosity: 'low' },
-    }),
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(requestTimeoutMs()),
   });
   const payload = await response.json() as Record<string, unknown>;
   if (!response.ok) {
     const error = payload.error && typeof payload.error === 'object'
       ? String((payload.error as Record<string, unknown>).message || response.statusText)
-      : response.statusText;
+      : (typeof payload.error === 'string' ? payload.error : response.statusText);
     throw new Error(`OpenAI API ${response.status}: ${error}`);
   }
   const text = extractOpenAIText(payload);
@@ -304,11 +342,13 @@ export const summarizeReport = async (input: ReportSummaryInput) => {
 export const getAiStatus = async () => {
   const selectedProvider = provider();
   if (selectedProvider === 'openai') {
+    const hasKey = Boolean(process.env.OPENAI_API_KEY?.trim());
     return {
       provider: selectedProvider,
       model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
-      configured: Boolean(process.env.OPENAI_API_KEY?.trim()),
-      reachable: null,
+      baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+      configured: hasKey,
+      reachable: hasKey ? true : null,
     };
   }
 
@@ -317,11 +357,17 @@ export const getAiStatus = async () => {
       signal: AbortSignal.timeout(3_000),
     });
     const payload = await response.json() as { models?: Array<{ name?: string }> };
-    const models = (payload.models || []).map((item) => item.name).filter(Boolean);
+    const models = (payload.models || []).map((item) => item.name).filter((name): name is string => Boolean(name));
+    const hasModel = (model: string) => models.some((name) => name === model || name === `${model}:latest`);
+    const chatConfigured = hasModel(ollamaModel());
+    const embeddingConfigured = hasModel(ollamaEmbeddingModel());
     return {
       provider: selectedProvider,
       model: ollamaModel(),
-      configured: models.some((name) => name === ollamaModel() || name === `${ollamaModel()}:latest`),
+      embedModel: ollamaEmbeddingModel(),
+      configured: chatConfigured && embeddingConfigured,
+      chatConfigured,
+      embeddingConfigured,
       reachable: response.ok,
       baseUrl: ollamaBaseUrl(),
       installedModels: models,
@@ -330,7 +376,10 @@ export const getAiStatus = async () => {
     return {
       provider: selectedProvider,
       model: ollamaModel(),
+      embedModel: ollamaEmbeddingModel(),
       configured: false,
+      chatConfigured: false,
+      embeddingConfigured: false,
       reachable: false,
       baseUrl: ollamaBaseUrl(),
       error: (error as Error).message,

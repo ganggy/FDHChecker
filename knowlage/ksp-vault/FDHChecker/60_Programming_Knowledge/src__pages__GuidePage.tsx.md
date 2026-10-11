@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/GuidePage.tsx"
-source_hash: "c3da8c13ecb3f34c011ebd7dc3049c6f521c4ccf66db8b89b123e0a0aa5e7a59"
+source_hash: "9069fc98693b71f0c9b1ea2172ab82798f0539f44ef815c28f498e19704dd232"
 managed_by: "sync-ksp-vault"
 ---
 # GuidePage.tsx
 
 > Source: `src/pages/GuidePage.tsx`
-> SHA-256: `c3da8c13ecb3f34c011ebd7dc3049c6f521c4ccf66db8b89b123e0a0aa5e7a59`
+> SHA-256: `9069fc98693b71f0c9b1ea2172ab82798f0539f44ef815c28f498e19704dd232`
 
 ````tsx
 import React, { useState } from 'react';
@@ -506,7 +506,7 @@ export const GuidePage: React.FC = () => {
         }
     };
 
-    const normalizedSearchTerm = searchTerm.trim().replace('.', '').toLowerCase();
+    const normalizedSearchTerm = searchTerm.trim().replaceAll('.', '').toLowerCase();
     const operationalGuides = FUND_DEFINITIONS.map(buildFundOperationalGuide);
     const filteredOperationalGuides = operationalGuides.filter((guide) => {
         const searchableText = [
@@ -515,7 +515,9 @@ export const GuidePage: React.FC = () => {
             guide.claimChannel,
             guide.recordingSystem,
             ...guide.requiredData,
-            ...guide.automatedChecks,
+            ...guide.diagnosisRequirements,
+            ...guide.passConditions,
+            ...guide.recordingSteps,
             ...guide.manualChecks,
             ...guide.commonErrors,
         ].filter(Boolean).join(' ').replaceAll('.', '').toLowerCase();
@@ -536,8 +538,52 @@ export const GuidePage: React.FC = () => {
         <div className="page-container" style={{ padding: '0 16px' }}>
             <div className="page-header" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
-                    <h1 className="page-title">📚 คู่มือและเงื่อนไขกองทุน (Knowledge Base)</h1>
-                    <p className="page-subtitle">อ้างอิงข้อมูลเงื่อนไขการเบิกจ่าย รหัสโรค และมูลค่าชดเชยของแต่ละกองทุน สปสช. (อัปเดต 2569)</p>
+                    <h1 className="page-title">📚 คู่มือการใช้งานและเงื่อนไขกองทุน (Knowledge Base)</h1>
+                    <p className="page-subtitle">คู่มือการใช้งานระบบ FDH Checker, รหัส Diag, ข้อมูลที่ต้องคีย์ และเงื่อนไขการพิมพ์รายงานบัญชีลูกหนี้สิทธิ์</p>
+                    <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                        <a
+                            href="/manual_system_overview.html?v=20260930"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-primary btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 14px', borderRadius: 6, fontWeight: 700 }}
+                        >
+                            📘 เปิดคู่มือทั้งระบบในแท็บใหม่
+                        </a>
+                        <a
+                            href="/manual_system_overview.pdf?v=20260930"
+                            download="FDH-Checker-คู่มือทั้งระบบ.pdf"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-success btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 14px', borderRadius: 6, fontWeight: 700 }}
+                        >
+                            📄 ดาวน์โหลดคู่มือทั้งระบบ (PDF A4)
+                        </a>
+                        <a
+                            href="/manual_accounts_receivable.html"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-secondary btn-sm"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none', padding: '6px 14px', borderRadius: 6 }}
+                        >
+                            💼 คู่มือเฉพาะบัญชีลูกหนี้ 5 รายงาน
+                        </a>
+                    </div>
+                    <p style={{ margin: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>
+                        ฉบับ 22 กันยายน 2569 · 42 หน้า · 32 บท ครบ 44 เมนู ตั้งแต่ติดตั้งและตั้งค่าโรงพยาบาล งาน OPD/IPD ส่งเคลม ลูกหนี้ รายงาน จนถึงอัปเดต สำรองและกู้คืนระบบ
+                    </p>
+                    <details className="card" style={{ marginTop: 12 }}>
+                        <summary style={{ padding: 16, cursor: 'pointer', fontWeight: 700, color: 'var(--primary)' }}>
+                            อ่านคู่มือทั้งระบบในหน้านี้
+                        </summary>
+                        <iframe
+                            title="คู่มือ FDH Checker ทั้งระบบ 32 บท"
+                            src="/manual_system_overview.html?v=20260930"
+                            loading="lazy"
+                            style={{ width: '100%', height: '75vh', minHeight: 400, border: 0 }}
+                        />
+                    </details>
                 </div>
                 <div style={{ maxWidth: 400 }}>
                     <div style={{ position: 'relative' }}>
@@ -558,13 +604,17 @@ export const GuidePage: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
                     <div>
                         <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: 20 }}>✅ Checklist ก่อนส่งเบิกทุกกองทุน</h2>
-                        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13 }}>ข้อมูลที่ต้องกรอก • ระบบตรวจอัตโนมัติ • จุดตรวจด้วยตนเอง • ข้อผิดพลาดที่พบบ่อย</p>
+                        <p style={{ margin: '4px 0 0', color: 'var(--text-secondary)', fontSize: 13 }}>Diag • ข้อมูลที่ต้องคีย์ • ขั้นตอนบันทึก • เงื่อนไขที่ต้องผ่าน • หลักฐานประกอบ</p>
                     </div>
                     <span className="badge badge-primary" style={{ padding: '7px 12px', fontSize: 12 }}>
                         แสดง {filteredOperationalGuides.length} / {operationalGuides.length} กองทุน
                     </span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 12 }}>
+                <div style={{ padding: 12, marginBottom: 12, borderRadius: 8, background: '#fffbeb', color: '#92400e', fontSize: 12, lineHeight: 1.6 }}>
+                    <strong>อ่านก่อนคีย์:</strong> ลง Diag และบริการตามเวชระเบียนจริงเท่านั้น รหัส ICD-10, ICD-9, ICD10TM และ ADP เป็นคนละช่องข้อมูล เครื่องหมาย “หรือ” ให้เลือกตามบริการ ส่วน “และ/คู่กับ” ต้องครบทั้งคู่
+                    <br />สถานะ “สมบูรณ์” หมายถึงผ่านเฉพาะข้อมูลที่โปรแกรมตรวจได้ ยังต้องตรวจเอกสาร ความถี่ สิทธิ และผลตอบรับของกองทุน ไม่ใช่ผลอนุมัติจ่าย
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))', gap: 12 }}>
                     {filteredOperationalGuides.map((guide) => (
                         <details key={guide.id} className="card" style={{ overflow: 'hidden', borderLeft: '4px solid var(--primary)' }}>
                             <summary style={{ cursor: 'pointer', padding: 16, listStylePosition: 'inside' }}>
@@ -575,11 +625,16 @@ export const GuidePage: React.FC = () => {
                                 <div style={{ margin: '5px 0 0 20px', color: 'var(--text-secondary)', fontSize: 11 }}>{guide.description}</div>
                             </summary>
                             <div style={{ padding: '0 16px 16px', display: 'grid', gap: 10 }}>
+                                <ChecklistBlock title="🩺 ต้องใช้ Diag อะไร / คู่รหัสที่ต้องมี" items={guide.diagnosisRequirements} color="#9d174d" background="#fdf2f8" />
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 10 }}>
                                     <ChecklistBlock title="📝 ข้อมูลที่ต้องกรอก/ต้องมี" items={guide.requiredData} color="#2563eb" background="#eff6ff" />
-                                    <ChecklistBlock title="🤖 ระบบตรวจอัตโนมัติ" items={guide.automatedChecks} color="#7c3aed" background="#f5f3ff" />
+                                    <ChecklistBlock title="✅ เงื่อนไขรายการที่ต้องผ่าน" items={guide.passConditions} color="#7c3aed" background="#f5f3ff" />
                                     <ChecklistBlock title="👀 เจ้าหน้าที่ต้องตรวจ" items={guide.manualChecks} color="#047857" background="#ecfdf5" />
                                     <ChecklistBlock title="⚠️ ข้อผิดพลาดที่พบบ่อย" items={guide.commonErrors} color="#c2410c" background="#fff7ed" />
+                                </div>
+                                <div style={{ padding: 11, borderRadius: 9, background: 'var(--surface-2)', fontSize: 12, lineHeight: 1.6 }}>
+                                    <strong>⌨️ คีย์ที่ไหน / ทำตามลำดับ</strong>
+                                    <ol style={{ margin: '6px 0 0', paddingLeft: 20 }}>{guide.recordingSteps.map((step) => <li key={step}>{step}</li>)}</ol>
                                 </div>
                                 {guide.caution && (
                                     <div style={{ padding: '9px 11px', borderRadius: 8, border: '1px solid #fbbf24', background: '#fffbeb', color: '#92400e', fontSize: 11, lineHeight: 1.5 }}>
@@ -587,7 +642,7 @@ export const GuidePage: React.FC = () => {
                                     </div>
                                 )}
                                 <div style={{ padding: '9px 11px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', fontSize: 11, lineHeight: 1.5 }}>
-                                    <strong>พร้อมส่งเมื่อ:</strong> ข้อมูลผู้ป่วย สิทธิ/Authen เวชระเบียน และเงื่อนไขอัตโนมัติครบทั้งหมด ไม่มีรายการผิด VN/ผิดวัน และเจ้าหน้าที่ตรวจหลักฐานจริงแล้ว
+                                    <strong>พร้อมส่งเมื่อ:</strong> ข้อมูลที่ต้องคีย์และเงื่อนไขรายการครบ ตรวจหลักฐานจริงและสิทธิ/Authen ตามช่องทางแล้ว ไม่มีข้อมูลผิด VN/วันหรือรายการซ้ำ กรณีจับคู่ข้ามวันต้องมีหลักฐานเชื่อมโยงตามเกณฑ์ หลังส่งให้ตรวจผลรับข้อมูล/รายการปฏิเสธและติดตามการจ่ายอีกครั้ง
                                 </div>
                             </div>
                         </details>

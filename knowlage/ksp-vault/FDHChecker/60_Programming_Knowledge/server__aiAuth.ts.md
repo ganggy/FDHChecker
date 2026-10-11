@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiAuth.ts"
-source_hash: "46031eabe7511012bb90f68cd419fd11428d0b4a08bfd4b995029c224b3a0d6e"
+source_hash: "721a09eaf592919162c1bbcdf589b4909f970d711fa8b46159b3941b38cc3898"
 managed_by: "sync-ksp-vault"
 ---
 # aiAuth.ts
 
 > Source: `server/aiAuth.ts`
-> SHA-256: `46031eabe7511012bb90f68cd419fd11428d0b4a08bfd4b995029c224b3a0d6e`
+> SHA-256: `721a09eaf592919162c1bbcdf589b4909f970d711fa8b46159b3941b38cc3898`
 
 ````typescript
 import crypto from 'crypto';
@@ -105,6 +105,13 @@ const accessIdentity = (req: Request, accessKey: string) => {
   const headerKey = req.header('x-fdh-ai-key')?.trim() || '';
   if (headerKey && isAccessKeyMatch(headerKey, accessKey)) {
     return `api:${crypto.createHash('sha256').update(headerKey).digest('hex').slice(0, 20)}`;
+  }
+  // Native WebViews cannot reliably share the separate HttpOnly AI cookie with
+  // a remote API origin. The parent /api middleware has already validated this
+  // user from its Bearer token before the AI router runs.
+  const appUser = (req as Request & { authUser?: { id?: number; username?: string } }).authUser;
+  if (appUser?.id) {
+    return `app-user:${appUser.id}:${String(appUser.username || 'unknown')}`;
   }
   const token = readCookie(req, COOKIE_NAME);
   if (token && verifyAiSessionToken(token, accessKey)) {

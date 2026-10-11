@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiHosxpCatalog.ts"
-source_hash: "c60bb0bf8c107481518fead3465b18057f25af978d321530024efe917880ce67"
+source_hash: "cdb63733d5a47e2a773f89c594abce1a4a2090024730e8dab47406cca7539183"
 managed_by: "sync-ksp-vault"
 ---
 # aiHosxpCatalog.ts
 
 > Source: `server/aiHosxpCatalog.ts`
-> SHA-256: `c60bb0bf8c107481518fead3465b18057f25af978d321530024efe917880ce67`
+> SHA-256: `cdb63733d5a47e2a773f89c594abce1a4a2090024730e8dab47406cca7539183`
 
 ````typescript
 export const AI_ALLOWED_HOSXP_TABLES = new Set([
@@ -76,6 +76,7 @@ export const HOSXP_SEMANTIC_CATALOG = `
 - นัดที่ยังใช้งาน: COALESCE(oapp_status_id,1) <> 4
 - ชื่อเต็ม: CONCAT(COALESCE(pname,''),COALESCE(fname,''),' ',COALESCE(lname,''))
 - ระบุช่วงวันที่เสมอเมื่อคำถามเกี่ยวข้องกับเวลา และใช้ parameter เป็นค่าวันที่ literal รูปแบบ YYYY-MM-DD
+- ปีงบประมาณไทย XXXX คือ 1 ตุลาคมของปีคริสต์ศักราช (XXXX-544) ถึง 30 กันยายนของปีคริสต์ศักราช (XXXX-543); เช่น ปีงบประมาณ 2569 คือ 2025-10-01 ถึง 2026-09-30
 - ผลลัพธ์ต้องไม่เกิน 200 แถว
 `.trim();
 

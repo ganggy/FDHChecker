@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "scripts/tune-ollama-macos.sh"
-source_hash: "20ecee4fa73a1360006a660270e06aa217ebbb61044f2c461ff0b99d21795899"
+source_hash: "669bdebe0445ef422680dcaddd91392fe34ce78f39f12d896c07647eb2853cf3"
 managed_by: "sync-ksp-vault"
 ---
 # tune-ollama-macos.sh
 
 > Source: `scripts/tune-ollama-macos.sh`
-> SHA-256: `20ecee4fa73a1360006a660270e06aa217ebbb61044f2c461ff0b99d21795899`
+> SHA-256: `669bdebe0445ef422680dcaddd91392fe34ce78f39f12d896c07647eb2853cf3`
 
 ````bash
 #!/bin/sh

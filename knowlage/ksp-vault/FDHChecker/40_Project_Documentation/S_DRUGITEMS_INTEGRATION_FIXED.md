@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "S_DRUGITEMS_INTEGRATION_FIXED.md"
-source_hash: "61ec6d7a4a06dd7987535359680d1e530554f7051a37683eaa4eaa7640ea4a12"
+source_hash: "4bcaaa95c7ecd1b617efe5f9c93d9d58cf2555e6026033070648ae50d8fa6a1d"
 managed_by: "sync-ksp-vault"
 ---
 # S_DRUGITEMS Integration - Fixed Successfully ✅

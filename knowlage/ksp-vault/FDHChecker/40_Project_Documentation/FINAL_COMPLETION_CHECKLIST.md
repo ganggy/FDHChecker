@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "FINAL_COMPLETION_CHECKLIST.md"
-source_hash: "3ea675f36f00b75b1263ecb20a0695124dc603f1a7b7109ab6301829ad11e6b4"
+source_hash: "5700c6083e0c21852639fc83865032a46daf5a2e47d175c91fe879b4a6f06ef9"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ FDH RECT - FINAL COMPLETION CHECKLIST

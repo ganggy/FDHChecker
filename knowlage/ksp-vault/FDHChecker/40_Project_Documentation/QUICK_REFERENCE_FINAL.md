@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "QUICK_REFERENCE_FINAL.md"
-source_hash: "53014b34a71ae5a39b0615b4b76158c1af5ee411f95e8832df9c7f34fae8aad7"
+source_hash: "1fa684914bbd5601229d45e6f1a6b3205a9fc676e0ada826f6bee704f26086b3"
 managed_by: "sync-ksp-vault"
 ---
 # 🏥 KIDNEY MONITOR SYSTEM - QUICK REFERENCE GUIDE

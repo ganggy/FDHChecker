@@ -4,16 +4,18 @@ project: FDHChecker
 type: "source-snapshot"
 category: "rules-and-config"
 source: "src/config/fundOperationalGuideCatalog.ts"
-source_hash: "21080681ae2e522beb2ec773fae3ea33740a8420135e37dd5b068c4bb208d5fe"
+source_hash: "58adee207b7bc7de273cb217f040210de88a84602e1f94e73cc126c77c9c57b2"
 managed_by: "sync-ksp-vault"
 ---
 # fundOperationalGuideCatalog.ts
 
 > Source: `src/config/fundOperationalGuideCatalog.ts`
-> SHA-256: `21080681ae2e522beb2ec773fae3ea33740a8420135e37dd5b068c4bb208d5fe`
+> SHA-256: `58adee207b7bc7de273cb217f040210de88a84602e1f94e73cc126c77c9c57b2`
 
 ````typescript
 import type { FundDefinition } from './fundDefinitions';
+import { FAMILY_PLANNING_SERVICE_RULES } from '../utils/familyPlanningRules';
+import { HERBAL_MEDICATION_RULES } from '../utils/herbalMedicationRules';
 
 export interface FundOperationalGuideDetail {
     requiredData: string[];
@@ -84,12 +86,12 @@ export const FUND_OPERATIONAL_GUIDE_DETAILS: Record<string, FundOperationalGuide
         ['นำผล ANC Lab 1 มาใช้แทนโดยไม่ตรวจครั้ง', 'ขาดผลตัวใดตัวหนึ่ง'],
     ),
     anc_dental_exam: detail(
-        ['Diagnosis Z34/Z35', 'ADP 30008', 'หัตถการ 2330011/2330013', 'บันทึกตรวจช่องปากและผู้ให้บริการทันตกรรม'],
+        ['Diagnosis Z34/Z35', 'ADP 30008', 'ICD10TM 2330011/2330010 + ICD-9 8931', 'บันทึกตรวจช่องปากและผู้ให้บริการทันตกรรม'],
         ['ตรวจว่ามีบริการจริงและเชื่อมโยงกับการตั้งครรภ์เดียวกัน', 'ผลตรวจช่องปากต้องครบ', 'บริการตรวจและขัดทำความสะอาดไม่จำเป็นต้องอยู่วันเดียวกัน'],
         ['มี ADP แต่ไม่มีบันทึกตรวจฟัน', 'บริการต่าง VN แต่ไม่มีข้อมูลเชื่อมโยงการตั้งครรภ์'],
     ),
     anc_dental_clean: detail(
-        ['Diagnosis Z34/Z35', 'ADP 30009', 'หัตถการ 2387010/2277310/2277320/2287310/2287320', 'รายการขูดหินปูน/ขัดทำความสะอาดฟัน'],
+        ['Diagnosis Z34/Z35', 'ADP 30009', 'ICD10TM 2387010 หรือ Scaling 2277310/2287310 + ICD-9 9654', 'รายการขูดหินปูน/ขัดทำความสะอาดฟัน'],
         ['ยืนยันหัตถการจริงและผู้ให้บริการ', 'ตรวจไม่ให้ซ้ำกับการตรวจช่องปากอย่างเดียว', 'จับคู่กับบริการตรวจช่องปากในการตั้งครรภ์เดียวกันแม้ต่างวัน'],
         ['ลง 30009 โดยไม่มีหัตถการ', 'สับสนระหว่าง 30008 กับ 30009'],
     ),
@@ -114,17 +116,17 @@ export const FUND_OPERATIONAL_GUIDE_DETAILS: Record<string, FundOperationalGuide
         ['Diagnosis กับวิธีคุมกำเนิดไม่ตรง', 'ขาด ADP หรือ ICD-9', 'รวมหลายวิธีผิด visit'],
     ),
     contraceptive_pill: detail(
-        ['Diagnosis Z30.4', 'ADP FP003_1 หรือ FP003_2', 'ชื่อยา จำนวน และวิธีใช้'],
+        ['Diagnosis Z30.4', 'ADP FP003_1, FP003_2 หรือ FP003_3', 'ชื่อยา จำนวน และวิธีใช้'],
         ['จับคู่ Anna/Lynestrenol กับ ADP ให้ถูก', 'ตรวจว่าจ่ายยาจริง'],
         ['ใช้ ADP ผิดชนิดยา', 'มี ADP แต่ไม่มียา', 'Diagnosis ไม่ใช่ Z30.4'],
     ),
     condom: detail(
-        ['Diagnosis Z30x', 'ADP FP003_4', 'รายการยาฉีดคุมกำเนิดและวันที่ให้บริการ', 'อัตรา 60 บาทต่อครั้ง'],
+        ['Diagnosis Z30.4', 'ADP FP003_4', 'รายการยาฉีดคุมกำเนิดและวันที่ให้บริการ', 'อัตรา 60 บาทต่อเข็ม ไม่เกิน 5 ครั้ง/ปี'],
         ['ตรวจ Diagnosis และรายการบริการให้เป็น visit เดียวกัน', 'ตรวจว่าเลือก ADP ตรงชนิดบริการจริง'],
         ['ขาด FP003_4', 'บันทึกเป็นบริการคุมกำเนิดชนิดอื่น', 'ราคาไม่เท่ากับ 60 บาท'],
     ),
     cacervix: detail(
-        ['Diagnosis/บริการคัดกรองปากมดลูก', 'ADP 1B004 หรือ 1B005', 'ชนิดตัวอย่าง วันเก็บ และผลตรวจ'],
+        ['Diagnosis Z12.4 หรือ Z01.4 ตามบริการจริง (รูปแบบที่ระบบค้นหา Z124/Z014)', 'ADP 1B004 หรือ 1B005', 'ชนิดตัวอย่าง วันเก็บ และผลตรวจ'],
         ['ตรวจวิธีตรวจให้ตรง ADP', 'ผลและ specimen ต้องผูกผู้ป่วย/visit'],
         ['สลับ 1B004/1B005', 'มี order แต่ไม่มีผล', 'CID หรือ specimen ผิดราย'],
     ),
@@ -149,7 +151,7 @@ export const FUND_OPERATIONAL_GUIDE_DETAILS: Record<string, FundOperationalGuide
         ['เลือกชุด Lab ผิดช่วงอายุ', 'ขาดผลหรือ ADP', 'อายุไม่เข้าเกณฑ์'],
     ),
     syphilis_screening_male: detail(
-        ['เพศชาย', 'รายการ/ผล Treponema, Syphilis, RPR, VDRL, TPHA หรือ TPPA', 'กลุ่มเป้าหมายตามประกาศ'],
+        ['เพศชาย', 'รายการ 36003/36006 หรือผล Treponema, Syphilis, RPR, VDRL, TPHA, TPPA', 'กลุ่มเป้าหมายตามประกาศ'],
         ['ผลต้องผูก VN และมีค่า', 'ยืนยันว่าเป็นคัดกรอง ไม่ใช่การรักษา'],
         ['เพศ/กลุ่มเป้าหมายไม่ตรง', 'มี order แต่ไม่มีผล', 'ชื่อ Lab ไม่อยู่ในรายการรองรับ'],
     ),
@@ -238,12 +240,17 @@ export const FUND_OPERATIONAL_GUIDE_DETAILS: Record<string, FundOperationalGuide
 const BASE_REQUIRED_DATA = [
     'HN/CID ชื่อ-สกุล และวันเกิดตรงกับผู้รับบริการ',
     'VN วันเวลา คลินิก/แผนก และผู้ให้บริการถูกต้อง',
-    'สิทธิ PTTYPE/HIPDATA และ Authen/Claim code ของวันรับบริการ',
+    'สิทธิ PTTYPE/HIPDATA และ Authen/Claim code ของวันรับบริการเมื่อช่องทางนั้นกำหนด',
+    'บันทึกอาการสำคัญ/ประวัติ ผลตรวจ และชื่อผู้ให้บริการประจำ visit',
 ];
 
 const BASE_MANUAL_CHECKS = [
     'เทียบรายการในระบบกับเวชระเบียนและบริการที่เกิดขึ้นจริง',
     'ยืนยันว่า Diagnosis, Lab, ยา, หัตถการ และ ADP อยู่ใน VN/วันเดียวกันตามเกณฑ์',
+    'ตรวจอายุ ณ วันบริการ กลุ่มเป้าหมาย และประวัติรับบริการย้อนหลังตามเพดานของรายการ; ไม่ใช้เฉพาะจำนวนในช่วงวันที่ค้นหา',
+    'รายการค่าใช้จ่ายต้องมีจำนวนมากกว่า 0 ไม่ซ้ำ และราคา/ยอดรวมตรงกับบริการจริง',
+    'ถ้ามีค่าบริการ 55020/55021 เลือกได้เพียงรายการเดียว และไม่เบิกร่วมกับค่าเตียงสังเกตอาการ',
+    'ตรวจสิทธิหน่วยบริการ เอกสารอนุมัติ และกำหนดส่งตามประกาศที่ใช้กับวันบริการและพื้นที่',
 ];
 
 const BASE_COMMON_ERRORS = [
@@ -253,10 +260,38 @@ const BASE_COMMON_ERRORS = [
 
 export const buildFundOperationalGuide = (definition: FundDefinition) => {
     const specific = FUND_OPERATIONAL_GUIDE_DETAILS[definition.id] || detail([], [], []);
+    const fpCodes = definition.id === 'fp' ? FAMILY_PLANNING_SERVICE_RULES
+        : definition.id === 'contraceptive_pill' ? FAMILY_PLANNING_SERVICE_RULES.filter((rule) => ['FP003_1', 'FP003_2', 'FP003_3'].includes(rule.code))
+            : definition.id === 'condom' ? FAMILY_PLANNING_SERVICE_RULES.filter((rule) => rule.code === 'FP003_4') : [];
+    const servicePairs = fpCodes.map((rule) => `${rule.label}: Diag ${rule.diagnosis} + ADP ${rule.code}${rule.procedure ? ` + ICD-9 ${rule.procedure}` : ''}; ${rule.amount} บาท${rule.annualLimit ? `; ไม่เกิน ${rule.annualLimit.maximum} ${rule.annualLimit.unit}` : ''}`);
+    const herbalPairs = definition.id === 'herb' ? HERBAL_MEDICATION_RULES.map((rule) => `${rule.symptom}: Diag ${rule.diagnosisCodes.join(' / ')} ↔ ${rule.medicines.join(' / ')} (ตารางจับคู่ของโรงพยาบาล เลือกตามการวินิจฉัยจริง)`) : [];
+    const diagnosisRequirements = [...new Set([
+        ...specific.requiredData,
+        ...(definition.conditions || []),
+        ...servicePairs,
+        ...herbalPairs,
+    ].filter((item) => /diag|รหัสโรค|โรคหลัก/i.test(item)))];
+    if (diagnosisRequirements.length === 0) diagnosisRequirements.push('กฎรายการนี้ยังไม่ระบุ Diag ตายตัว: บันทึกรหัสตามการวินิจฉัย/เหตุผลรับบริการจริง และตรวจรหัสที่ช่องทางรับเคลมกำหนดก่อนส่ง');
+    const additionalConditions: string[] = [];
+    if (definition.id === 'anc' || definition.id.startsWith('anc_') || definition.id === 'postnatal_supplements') additionalConditions.push('เพศหญิงตามข้อมูลผู้รับบริการที่โปรแกรมตรวจ');
+    if (definition.id === 'cacervix') additionalConditions.push('Diag Z12.4 หรือ Z01.4 ตามบริการจริง ต้องมีคู่กับ ADP 1B004 หรือ 1B005');
+    if (definition.id === 'postnatal_care') additionalConditions.push('หน้ารายการนี้กรอง visit ที่มี Diag กลุ่ม U (แพทย์แผนไทย) ออก หากไม่พบ visit ให้ตรวจประเภทบริการก่อน');
+    const passConditions = [...new Set([...(definition.conditions || []), ...servicePairs, ...additionalConditions])];
     return {
         ...definition,
-        requiredData: [...BASE_REQUIRED_DATA, ...specific.requiredData],
-        automatedChecks: definition.conditions || [],
+        diagnosisRequirements,
+        requiredData: [...BASE_REQUIRED_DATA, ...specific.requiredData, ...servicePairs],
+        passConditions,
+        recordingSteps: [
+            'เปิด visit ใน HOSxP ให้ตรง HN/VN และวันบริการ ตรวจข้อมูลทะเบียน สิทธิ และการยืนยันตัวตน',
+            'ส่วนวินิจฉัย: ลง Diag หลัก/ร่วมตามเวชระเบียน พร้อมประเภทการวินิจฉัย; รหัสกลุ่ม เช่น Z34/Z35 ให้เลือกรหัสย่อยที่ตรงข้อมูลจริง',
+            'ส่วนบริการ: บันทึก Lab พร้อมผล ยาพร้อมจำนวน/วิธีใช้ และหัตถการพร้อมผู้ให้บริการตามรายการที่ต้องมีด้านบน',
+            ...(definition.id === 'knee'
+                ? ['งานแพทย์แผนไทย: บันทึกบริการและหัตถการทั้ง 4 รายการ เชื่อมผู้ให้บริการ ตรวจข้อมูลสำหรับส่ง 43 แฟ้ม']
+                : ['ส่วนค่าใช้จ่าย/ส่งออก: ตรวจรหัสบริการที่ผูก ADP หรือรหัสของระบบปลายทางให้ตรงชนิดบริการ จำนวน และราคา']),
+            `บันทึกส่งผ่าน ${definition.recordingSystem || definition.claimChannel || 'ช่องทางตามประกาศ'}${definition.claimChannelNote ? ` (${definition.claimChannelNote})` : ''}`,
+            'กลับหน้ากองทุน เลือกช่วงวันและโหลดข้อมูลใหม่ เปิดรายละเอียด VN แก้รายการที่ขาด แล้วตรวจหลักฐานและผลตอบรับหลังส่ง',
+        ],
         manualChecks: [...BASE_MANUAL_CHECKS, ...specific.manualChecks],
         commonErrors: [...BASE_COMMON_ERRORS, ...specific.commonErrors],
     };

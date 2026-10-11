@@ -4,23 +4,26 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/App.tsx"
-source_hash: "01ff6ff18d1fe02633fb5e9a765947ba130f9cab3ec877ae386acaac9065ed13"
+source_hash: "c5a009d12cdd9f638d969e6858a277fb3fdf95a3e563e4970fb2c510048cba6a"
 managed_by: "sync-ksp-vault"
 ---
 # App.tsx
 
 > Source: `src/App.tsx`
-> SHA-256: `01ff6ff18d1fe02633fb5e9a765947ba130f9cab3ec877ae386acaac9065ed13`
+> SHA-256: `c5a009d12cdd9f638d969e6858a277fb3fdf95a3e563e4970fb2c510048cba6a`
 
 ````tsx
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { LoginPage } from './pages/LoginPage';
-import { adminOnlyPages, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
+import { adminOnlyPages, menuLabelByPage, primaryNavItems, toolNavGroups, toolNavItems } from './config/menuDefinitions';
 import { changePassword, fetchMe, logout, type AuthSession } from './services/authService';
+import { checkSystemUpdateQuick, type QuickUpdateInfo } from './services/systemUpdateStatus';
 import { LocalAiAssistant } from './components/LocalAiAssistant';
+import { TableScrollNavigator } from './components/TableScrollNavigator';
 import type { AppPage } from './utils/navigationState';
-import businessRules from './config/business_rules.json';
+
 import './App.css';
+import './styles/mobile.css';
 
 const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
   loader: () => Promise<T>,
@@ -29,7 +32,9 @@ const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
 
 const StaffPage = lazyNamed(() => import('./pages/StaffPage'), 'StaffPage');
 const IPDPage = lazyNamed(() => import('./pages/IPDPage'), 'IPDPage');
+const IpdFdhExportPage = lazyNamed(() => import('./pages/IpdFdhExportPage'), 'IpdFdhExportPage');
 const IpdClaimMonitorPage = lazyNamed(() => import('./pages/IpdClaimMonitorPage'), 'IpdClaimMonitorPage');
+const CollaborationHubPage = lazy(() => import('./pages/CollaborationHubPage'));
 const AiReportWorkspacePage = lazyNamed(() => import('./pages/AiReportWorkspacePage'), 'AiReportWorkspacePage');
 const HospitalReportHubPage = lazyNamed(() => import('./pages/HospitalReportHubPage'), 'HospitalReportHubPage');
 const AdminDashboard = lazyNamed(() => import('./pages/AdminDashboard'), 'AdminDashboard');
@@ -39,11 +44,21 @@ const FdhClaimDetailImportPage = lazyNamed(() => import('./pages/FdhClaimDetailI
 const NhsoClosePage = lazyNamed(() => import('./pages/NhsoClosePage'), 'NhsoClosePage');
 const RepStmImportPage = lazyNamed(() => import('./pages/RepStmImportPage'), 'RepStmImportPage');
 const RepStmManagePage = lazyNamed(() => import('./pages/RepStmManagePage'), 'RepStmManagePage');
+const SssExportPage = lazyNamed(() => import('./pages/SssExportPage'), 'SssExportPage');
+const SssRepStmPage = lazyNamed(() => import('./pages/SssRepStmPage'), 'SssRepStmPage');
 const AuthenSyncPage = lazyNamed(() => import('./pages/AuthenSyncPage'), 'AuthenSyncPage');
 const ReceivablePage = lazyNamed(() => import('./pages/ReceivablePage'), 'ReceivablePage');
+const ReceivableSettlementPage = lazyNamed(() => import('./pages/ReceivableSettlementPage'), 'ReceivableSettlementPage');
 const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewPage'), 'InsuranceOverviewPage');
+const ExecutiveMonitorPage = lazyNamed(() => import('./pages/ExecutiveMonitorPage'), 'ExecutiveMonitorPage');
+const AccountingRevenueBudgetPage = lazyNamed(() => import('./pages/AccountingRevenueBudgetPage'), 'AccountingRevenueBudgetPage');
+const SmtBudgetReconcilePage = lazyNamed(() => import('./pages/SmtBudgetReconcilePage'), 'SmtBudgetReconcilePage');
 const UcOutsideCupPage = lazyNamed(() => import('./pages/UcOutsideCupPage'), 'UcOutsideCupPage');
+const DentalAuditPage = lazyNamed(() => import('./pages/DentalAuditPage'), 'DentalAuditPage');
+const KtbApproveCodeImportPage = lazyNamed(() => import('./pages/KtbApproveCodeImportPage'), 'KtbApproveCodeImportPage');
 const VisitReconciliationPage = lazy(() => import('./pages/VisitReconciliationPage'));
+const StmZeroAuditPage = lazy(() => import('./pages/StmZeroAuditPage'));
+const RepSheetZeroAuditPage = lazy(() => import('./pages/RepSheetZeroAuditPage'));
 const RepDailySummaryPage = lazy(() => import('./pages/RepDailySummaryPage'));
 const PpfsBenchmarkPage = lazy(() => import('./pages/PpfsBenchmarkPage'));
 const PpfsVisitMatchPage = lazy(() => import('./pages/PpfsVisitMatchPage'));
@@ -59,12 +74,17 @@ const RevenueOpportunityPage = lazyNamed(() => import('./pages/RevenueOpportunit
 const MophDmhtClaimPage = lazyNamed(() => import('./pages/MophDmhtClaimPage'), 'MophDmhtClaimPage');
 const MophVaccineClaimPage = lazyNamed(() => import('./pages/MophVaccineClaimPage'), 'MophVaccineClaimPage');
 const GuidePage = lazyNamed(() => import('./pages/GuidePage'), 'GuidePage');
+const Icd9LookupPage = lazyNamed(() => import('./pages/Icd9LookupPage'), 'Icd9LookupPage');
 const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage');
 const MemberAdminPage = lazyNamed(() => import('./pages/MemberAdminPage'), 'MemberAdminPage');
+const AnnualHealthCheckupReportPage = lazyNamed(() => import('./pages/AnnualHealthCheckupReportPage'), 'AnnualHealthCheckupReportPage');
+const OfficialReceivablePage = lazyNamed(() => import('./pages/OfficialReceivablePage'), 'OfficialReceivablePage');
+const ReceivableStandardReportPage = lazyNamed(() => import('./pages/ReceivableStandardReportPage'), 'ReceivableStandardReportPage');
 
 function App() {
   const [requestedPage, setCurrentPage] = useState<AppPage>('staff');
   const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
@@ -74,13 +94,51 @@ function App() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
-  const siteSettings = (businessRules as { site_settings?: { hospital_name?: string; nhso_region?: string } }).site_settings || {};
+  const [siteSettings, setSiteSettings] = useState<{ hospital_name?: string; nhso_region?: string }>({});
+  useEffect(() => {
+    let active = true;
+    if (authSession) fetch('/api/config/app-settings').then(response => response.json()).then(result => {
+      if (active && result.success) setSiteSettings(result.data || {});
+    }).catch(() => { if (active) setSiteSettings({}); });
+    else setSiteSettings({});
+    return () => { active = false; };
+  }, [authSession]);
+
+  const [updateInfo, setUpdateInfo] = useState<QuickUpdateInfo | null>(null);
+  useEffect(() => {
+    if (!authSession) {
+      setUpdateInfo(null);
+      return;
+    }
+    let active = true;
+    const checkUpdate = async (refresh = false) => {
+      try {
+        const result = await checkSystemUpdateQuick(refresh);
+        if (active) setUpdateInfo(result);
+      } catch {
+        // silent check error
+      }
+    };
+
+    void checkUpdate(false);
+    const timer = window.setInterval(() => void checkUpdate(false), 10 * 60 * 1000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [authSession]);
+
   const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
   const regionLabel = siteSettings.nhso_region ? `เขต ${siteSettings.nhso_region}` : '';
   const isAdmin = Boolean(authSession?.user.is_admin);
-  const allowedPageSet = useMemo(() => new Set<AppPage>(isAdmin
+  const allowedPageSet = useMemo(() => {
+    const pages = new Set<AppPage>(isAdmin
     ? [...primaryNavItems, ...toolNavItems].map((item) => item.page).concat(adminOnlyPages)
-    : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page))), [authSession, isAdmin]);
+    : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page)));
+    // Same read workspace as the former reconciliation tab.
+    if (pages.has('reconciliation')) { pages.add('stmZeroAudit'); pages.add('repSheetZeroAudit'); }
+    return pages;
+  }, [authSession, isAdmin]);
   const hasAnyAllowedPage = allowedPageSet.size > 0;
   const visiblePrimaryNavItems = primaryNavItems.filter((item) => allowedPageSet.has(item.page));
   const visibleToolNavGroups = toolNavGroups
@@ -93,6 +151,20 @@ function App() {
       .then((session) => setAuthSession(session))
       .finally(() => setAuthLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMenuOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -141,6 +213,7 @@ function App() {
     if (!canOpenPage(page)) return;
     setCurrentPage(page);
     setOpenNavGroup(null);
+    setMobileMenuOpen(false);
   };
 
   const handleLogout = async () => {
@@ -210,6 +283,18 @@ function App() {
     );
   }
 
+  const mobilePagePriority: AppPage[] = ['collaboration', 'staff', 'ipd', 'ipdClaimMonitor'];
+  const mobilePageRank = new Map(mobilePagePriority.map((page, index) => [page, index]));
+  const mobileCandidates = [
+    ...toolNavItems.filter((item) => item.page === 'collaboration' && allowedPageSet.has(item.page)),
+    ...visiblePrimaryNavItems,
+  ];
+  const mobilePrimaryItems = [...mobileCandidates]
+    .sort((left, right) => (mobilePageRank.get(left.page) ?? 99) - (mobilePageRank.get(right.page) ?? 99))
+    .slice(0, 4);
+  const mobilePrimaryPageSet = new Set(mobilePrimaryItems.map((item) => item.page));
+  const mobileMoreActive = Boolean(currentPage && !mobilePrimaryPageSet.has(currentPage));
+
   return (
     <div className="app-shell">
       <nav className="navbar">
@@ -228,24 +313,62 @@ function App() {
               <div>{authSession.user.group_name || (authSession.user.is_admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน')}</div>
             </div>
             <div className="navbar-time navbar-meta-card">
-              <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>ระบบตรวจสอบเบิกจ่าย v1.0</div>
+              <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>ระบบตรวจสอบเบิกจ่าย v1.0.2</div>
               <div>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</div>
               <div>{new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
             </div>
+            {updateInfo?.available && (
+              <button
+                type="button"
+                className="nav-update-badge"
+                onClick={() => {
+                  window.sessionStorage.setItem('settings_target_tab', 'update');
+                  goToPage('settings');
+                }}
+                title={`มีอัปเดตใหม่ (${updateInfo.behind} รายการ) — คลิกเพื่อไปยังหน้าอัปเดตระบบ`}
+              >
+                <span className="update-pulse-dot" />
+                <span>มีอัปเดตใหม่ ({updateInfo.behind})</span>
+              </button>
+            )}
+            <a
+              href="/manual_system_overview.html"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="nav-btn nav-icon-btn"
+              title="คู่มือการใช้งานระบบ (เปิดคู่มือ HTML / ดาวน์โหลด PDF)"
+              style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <span style={{ fontSize: '1.25rem' }}>📖</span>
+            </a>
             <button className="nav-btn nav-icon-btn" onClick={() => setPasswordDialogOpen(true)} title="เปลี่ยนรหัสผ่าน">
               <span style={{ fontSize: '1.15rem' }}>🔑</span>
             </button>
             {canOpenPage('settings') && (
               <button
                 className={`nav-btn nav-icon-btn ${currentPage === 'settings' ? 'active' : ''}`}
-                onClick={() => goToPage('settings')}
-                title="ตั้งค่าระบบ"
+                onClick={() => {
+                  if (updateInfo?.available) window.sessionStorage.setItem('settings_target_tab', 'update');
+                  goToPage('settings');
+                }}
+                title={updateInfo?.available ? `ตั้งค่าระบบ — มีอัปเดตใหม่ (${updateInfo.behind} รายการ)` : 'ตั้งค่าระบบ'}
               >
                 <span style={{ fontSize: '1.4rem' }}>⚙️</span>
+                {updateInfo?.available && <span className="nav-icon-badge-dot" />}
               </button>
             )}
             <button className="nav-btn nav-icon-btn" onClick={handleLogout} title="ออกจากระบบ">
               <span style={{ fontSize: '1.15rem' }}>⏻</span>
+            </button>
+            <button
+              className="nav-btn nav-icon-btn mobile-menu-toggle"
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="เปิดเมนูทั้งหมด"
+              aria-expanded={mobileMenuOpen}
+            >
+              <span aria-hidden="true">☰</span>
+              {updateInfo?.available && <span className="nav-icon-badge-dot" />}
             </button>
           </div>
         </div>
@@ -312,34 +435,137 @@ function App() {
         </div>
       </nav>
 
+      {mobileMenuOpen && (
+        <div className="mobile-nav-layer">
+          <button
+            className="mobile-nav-backdrop"
+            type="button"
+            aria-label="ปิดเมนู"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <aside className="mobile-nav-drawer" aria-label="เมนูหลัก">
+            <header className="mobile-nav-header">
+              <div className="mobile-nav-brand">
+                <span className="mobile-nav-brand-icon">🏥</span>
+                <div>
+                  <strong>FDH Checker</strong>
+                  <span>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</span>
+                </div>
+              </div>
+              <button type="button" onClick={() => setMobileMenuOpen(false)} aria-label="ปิดเมนู">✕</button>
+            </header>
+
+            <div className="mobile-nav-profile">
+              <span className="mobile-nav-avatar" aria-hidden="true">👤</span>
+              <div>
+                <strong>{authSession.user.display_name || authSession.user.username}</strong>
+                <span>{authSession.user.group_name || (authSession.user.is_admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน')}</span>
+              </div>
+            </div>
+
+            <div className="mobile-nav-scroll">
+              <section className="mobile-nav-section">
+                <h2>งานประจำ</h2>
+                <div className="mobile-nav-grid">
+                  {visiblePrimaryNavItems.map((item) => (
+                    <button
+                      key={item.page}
+                      type="button"
+                      className={currentPage === item.page ? 'active' : ''}
+                      onClick={() => goToPage(item.page)}
+                    >
+                      <span aria-hidden="true">{item.icon}</span>
+                      <b>{item.label}</b>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {visibleToolNavGroups.map((group) => (
+                <section className="mobile-nav-section" key={group.label}>
+                  <h2><span aria-hidden="true">{group.icon}</span>{group.label}</h2>
+                  <div className="mobile-nav-list">
+                    {group.pages.map((page) => {
+                      const item = toolNavItemByPage.get(page);
+                      if (!item) return null;
+                      return (
+                        <button
+                          key={item.page}
+                          type="button"
+                          className={currentPage === item.page ? 'active' : ''}
+                          onClick={() => goToPage(item.page)}
+                        >
+                          <span aria-hidden="true">{item.icon}</span>
+                          <b>{item.label}</b>
+                          <span aria-hidden="true">›</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            <footer className="mobile-nav-actions">
+              <button type="button" onClick={() => { setMobileMenuOpen(false); setPasswordDialogOpen(true); }}>🔑 เปลี่ยนรหัสผ่าน</button>
+              {canOpenPage('settings') && (
+                <button type="button" onClick={() => {
+                  if (updateInfo?.available) window.sessionStorage.setItem('settings_target_tab', 'update');
+                  setMobileMenuOpen(false);
+                  goToPage('settings');
+                }}>
+                  ⚙️ ตั้งค่าระบบ {updateInfo?.available ? `🔔 (มีอัปเดตใหม่ ${updateInfo.behind})` : ''}
+                </button>
+              )}
+              <button type="button" className="is-danger" onClick={() => void handleLogout()}>⏻ ออกจากระบบ</button>
+            </footer>
+          </aside>
+        </div>
+      )}
+
       <div className="app-main">
         <Suspense fallback={<div className="page-loading" role="status">กำลังโหลดหน้าจอ...</div>}>
         {currentPage === 'staff' && <StaffPage />}
         {currentPage === 'ipd' && <IPDPage />}
+        {currentPage === 'ipdExport' && <IpdFdhExportPage />}
         {currentPage === 'ipdClaimMonitor' && <IpdClaimMonitorPage />}
+        {currentPage === 'collaboration' && <CollaborationHubPage currentUser={authSession.user} />}
         {currentPage === 'aiReports' && <AiReportWorkspacePage />}
         {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
+        {currentPage === 'annualCheckupReport' && <AnnualHealthCheckupReportPage />}
+        {currentPage === 'officialReceivable' && <OfficialReceivablePage />}
+        {currentPage === 'receivableStandardReport' && <ReceivableStandardReportPage />}
         {currentPage === 'fdh' && <FDHCheckerPage />}
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
         {currentPage === 'fdhClaimDetail' && <FdhClaimDetailImportPage />}
         {currentPage === 'nhsoClose' && <NhsoClosePage />}
         {currentPage === 'repstm' && <RepStmImportPage />}
         {currentPage === 'repstmManage' && <RepStmManagePage />}
+        {currentPage === 'sssExport' && <SssExportPage />}
+        {currentPage === 'sssRepStm' && <SssRepStmPage />}
         {currentPage === 'authenSync' && <AuthenSyncPage />}
         {currentPage === 'receivable' && <ReceivablePage />}
+        {currentPage === 'receivableSettlement' && <ReceivableSettlementPage />}
         {currentPage === 'insuranceOverview' && <InsuranceOverviewPage />}
+        {currentPage === 'executiveMonitor' && <ExecutiveMonitorPage />}
+        {currentPage === 'accountingRevenueBudget' && <AccountingRevenueBudgetPage />}
+        {currentPage === 'smtBudget' && <SmtBudgetReconcilePage />}
         {currentPage === 'ucOutsideCup' && <UcOutsideCupPage />}
+        {currentPage === 'dentalAudit' && <DentalAuditPage />}
+        {currentPage === 'ktbApproveCode' && <KtbApproveCodeImportPage />}
         {currentPage === 'reconciliation' && <VisitReconciliationPage />}
+        {currentPage === 'stmZeroAudit' && <StmZeroAuditPage />}
+        {currentPage === 'repSheetZeroAudit' && <RepSheetZeroAuditPage />}
         {currentPage === 'repDailySummary' && <RepDailySummaryPage />}
         {currentPage === 'ppfsBenchmark' && <PpfsBenchmarkPage />}
         {currentPage === 'ppfsVisitMatch' && <PpfsVisitMatchPage />}
         {currentPage === 'repDeny' && <RepDenyPage />}
         {currentPage === 'admin' && <AdminDashboard />}
-        {currentPage === 'specific' && <SpecificFundPage />}
-        {currentPage === 'fundFdh' && <SpecificFundPage channelView="fdh" />}
-        {currentPage === 'fund43' && <SpecificFundPage channelView="43" />}
-        {currentPage === 'fundKtb' && <SpecificFundPage channelView="ktb" />}
-        {currentPage === 'fundOther' && <SpecificFundPage channelView="other" />}
+        {currentPage === 'specific' && <SpecificFundPage allowedFundIds={authSession.user.fund_permissions} />}
+        {currentPage === 'fundFdh' && <SpecificFundPage channelView="fdh" allowedFundIds={authSession.user.fund_permissions} />}
+        {currentPage === 'fund43' && <SpecificFundPage channelView="43" allowedFundIds={authSession.user.fund_permissions} />}
+        {currentPage === 'fundKtb' && <SpecificFundPage channelView="ktb" allowedFundIds={authSession.user.fund_permissions} />}
+        {currentPage === 'fundOther' && <SpecificFundPage channelView="other" allowedFundIds={authSession.user.fund_permissions} />}
         {currentPage === 'monitor' && <SpecialMonitorPage />}
         {currentPage === 'fsMonitor' && <FsMonitorPage />}
         {currentPage === 'revenueOpportunity' && <RevenueOpportunityPage />}
@@ -350,10 +576,34 @@ function App() {
         {currentPage === 'rejectTracking' && <RejectedClaimTrackingPage />}
         {currentPage === 'uuc1Tracking' && <Uuc1TrackingPage />}
         {currentPage === 'guide' && <GuidePage />}
+        {currentPage === 'icd9Lookup' && <Icd9LookupPage />}
         {currentPage === 'settings' && <SettingsPage />}
         {currentPage === 'memberAdmin' && <MemberAdminPage />}
         </Suspense>
       </div>
+      <nav className="mobile-bottom-nav" aria-label="เมนูลัด">
+        {mobilePrimaryItems.map((item) => (
+          <button
+            key={item.page}
+            type="button"
+            className={currentPage === item.page ? 'active' : ''}
+            onClick={() => goToPage(item.page)}
+            aria-current={currentPage === item.page ? 'page' : undefined}
+          >
+            <span aria-hidden="true">{item.icon}</span>
+            <b>{item.label}</b>
+          </button>
+        ))}
+        <button
+          type="button"
+          className={mobileMoreActive ? 'active' : ''}
+          onClick={() => setMobileMenuOpen(true)}
+          aria-label={`เมนูทั้งหมด หน้าปัจจุบัน ${currentPage ? menuLabelByPage[currentPage] || '' : ''}`}
+        >
+          <span aria-hidden="true">☰</span>
+          <b>เมนู</b>
+        </button>
+      </nav>
       {passwordDialogOpen && (
         <div className="password-dialog-backdrop" role="presentation" onMouseDown={closePasswordDialog}>
           <section className="password-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -378,7 +628,10 @@ function App() {
           </section>
         </div>
       )}
-      {currentPage !== 'aiReports' && <LocalAiAssistant />}
+      {!mobileMenuOpen && currentPage !== 'aiReports' && (
+        <LocalAiAssistant avoidBottomActionBar={currentPage === 'fdh' || currentPage === 'ipdExport'} />
+      )}
+      {!mobileMenuOpen && <TableScrollNavigator />}
     </div>
   );
 }

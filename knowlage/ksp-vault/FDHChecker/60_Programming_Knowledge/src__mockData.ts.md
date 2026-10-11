@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/mockData.ts"
-source_hash: "ac056a6b0fdc091374cbc26e72a3dbb296793d73b4829a1ddd7515c2d8cf8e43"
+source_hash: "3f42bc24344c8170cbb4e7e550c95971a0d887e9889679963f18f958454ab0c3"
 managed_by: "sync-ksp-vault"
 ---
 # mockData.ts
 
 > Source: `src/mockData.ts`
-> SHA-256: `ac056a6b0fdc091374cbc26e72a3dbb296793d73b4829a1ddd7515c2d8cf8e43`
+> SHA-256: `3f42bc24344c8170cbb4e7e550c95971a0d887e9889679963f18f958454ab0c3`
 
 ````typescript
 // ข้อมูล mockup สำหรับรายการตรวจสอบกองทุน HOSxP
@@ -63,6 +63,7 @@ export interface CheckRecord {
   id: number;
   hn: string;
   vn?: string;
+  an?: string;
   patientName: string;
   fund: string;
   serviceDate: string;

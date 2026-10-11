@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/RepStmVisitModal.tsx"
-source_hash: "3271bb54e304976d13f23bcf9b9b576d23efded7de753de7339e80c8c57c3a5a"
+source_hash: "3163a9984870065fdcb411d1037a0f641a54279e00e728dcb715167d9ffa37b4"
 managed_by: "sync-ksp-vault"
 ---
 # RepStmVisitModal.tsx
 
 > Source: `src/components/RepStmVisitModal.tsx`
-> SHA-256: `3271bb54e304976d13f23bcf9b9b576d23efded7de753de7339e80c8c57c3a5a`
+> SHA-256: `3163a9984870065fdcb411d1037a0f641a54279e00e728dcb715167d9ffa37b4`
 
 ````tsx
 import { useEffect, useState } from 'react';
@@ -134,7 +134,7 @@ const splitCodes = (value: unknown) => String(value ?? '')
 
 const getErrorExplanation = (row: Record<string, unknown>, code: string, notes: CodeNotes, catalog: Record<string, RepErrorCatalogEntry>) => {
   const normalizedCode = code.replace(/\s+/g, '');
-  const catalogCode = catalog[normalizedCode] ? normalizedCode : /^C\d+$/.test(normalizedCode) ? normalizedCode.slice(1) : normalizedCode;
+  const catalogCode = catalog[normalizedCode] ? normalizedCode : /^C\d+(?:-\d+)?$/.test(normalizedCode) ? normalizedCode.slice(1) : normalizedCode;
   const specific = notes[code] || notes[normalizedCode] || notes[catalogCode];
   const catalogEntry = catalog[catalogCode];
   if (specific) return { description: specific, guide: catalogEntry?.guide || '', type: catalogEntry?.type || 'บันทึกของหน่วยงาน' };

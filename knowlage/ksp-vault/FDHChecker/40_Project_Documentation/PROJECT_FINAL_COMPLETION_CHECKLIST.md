@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PROJECT_FINAL_COMPLETION_CHECKLIST.md"
-source_hash: "dd53210e7404d6515a866f6e587027726738d752ae691300eb93f380ec61891f"
+source_hash: "e6934c8a8940b6f409cd02acdbd39d2383433b9d83ec64938401b27f78ef5240"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ KIDNEY MONITOR PROJECT - FINAL COMPLETION CHECKLIST

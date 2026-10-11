@@ -139,6 +139,7 @@ import { receivableReportRouter } from './routes/receivableReportRoutes.js';
 import { officialReceivableRouter } from './routes/officialReceivableRoutes.js';
 import { receivableSettlementRouter } from './routes/receivableSettlementRoutes.js';
 import { smtBudgetRouter } from './routes/smtBudgetRoutes.js';
+import { hsubRouter } from './routes/hsubRoutes.js';
 import { executiveMonitorRouter } from './routes/executiveMonitorRoutes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, resetSystemUpdateLock, startDirectSystemUpdate, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
@@ -152,6 +153,11 @@ import {
   uploadFdhFiles,
   validateFdhData,
 } from './fdhExport.js';
+import {
+  buildFdsV3PayloadFrom16Files,
+  validateFdsV3Payload,
+  generateFdsV3TransactionId,
+} from './fdsV3ExportService.js';
 import { analyzeRepstmArchive } from './repstmArchive.js';
 import {
   normalizeRepstmSearchFilters,
@@ -511,7 +517,11 @@ const getDefaultFdhApiConfig = () => ({
   upload16Url: 'https://fdh.moph.go.th/api/v2/data_hub/16_files',
   preScreenUrl: 'https://fdh.moph.go.th/api/v1/auth/open_api/fda/file',
   username: '',
-  password: ''
+  password: '',
+  hisSecret: '',
+  hisSourceKey: '',
+  fdsUatUrl: 'https://uat-fdh.inet.co.th/fdh_api/v1/dataset/import',
+  fdsPrdUrl: 'https://fdh.inet.co.th/fdh_api/v1/dataset/import',
 });
 
 const getDefaultNhsoAuthenConfig = () => ({
@@ -637,6 +647,8 @@ const buildFdhApiSettingsPayload = async (incoming: Record<string, unknown>) => 
     ...incoming,
     environment,
     password: preserveSecret(incoming.password, current.password),
+    hisSecret: preserveSecret(incoming.hisSecret, current.hisSecret),
+    hisSourceKey: preserveSecret(incoming.hisSourceKey, current.hisSourceKey),
     hcode: resolvedHospitalCode || String(incoming.hcode || ''),
   } as Record<string, unknown>;
   const requireHttps = environment === 'prd';
@@ -644,6 +656,8 @@ const buildFdhApiSettingsPayload = async (incoming: Record<string, unknown>) => 
   merged.apiBaseUrl = validateConfiguredUrl(merged.apiBaseUrl, 'API Base URL', requireHttps);
   merged.upload16Url = validateConfiguredUrl(merged.upload16Url, 'URL ส่งข้อมูล 16 แฟ้ม', requireHttps);
   merged.preScreenUrl = validateConfiguredUrl(merged.preScreenUrl, 'URL PreScreen', requireHttps);
+  if (merged.fdsUatUrl) merged.fdsUatUrl = validateConfiguredUrl(merged.fdsUatUrl, 'URL FDS v3 UAT', false);
+  if (merged.fdsPrdUrl) merged.fdsPrdUrl = validateConfiguredUrl(merged.fdsPrdUrl, 'URL FDS v3 Production', true);
   merged.username = String(merged.username || '').trim().slice(0, 191);
   return merged;
 };
@@ -1102,6 +1116,7 @@ app.use('/api/receivables/reports', receivableReportRouter);
 app.use('/api/official-receivable', officialReceivableRouter);
 app.use('/api/receivables/settlement', receivableSettlementRouter);
 app.use('/api/smt-budget', smtBudgetRouter);
+app.use('/api/hsub', hsubRouter);
 app.use('/api/executive-monitor', executiveMonitorRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
@@ -2849,6 +2864,89 @@ app.post('/api/fdh/export-zip', async (req, res) => {
   } catch (error) {
     console.error('Error exporting FDH ZIP:', error);
     res.status(400).json({ success: false, error: (error as Error).message });
+  }
+});
+
+// FDS v3 (Financial Data Set ปีงบ 2569) Preview & Validation API
+app.post('/api/fdh/v3/preview', async (req, res) => {
+  try {
+    const prepared = await prepareFdhExport(req.body || {});
+    const config = await getResolvedFdhApiConfig();
+    const hospitalName = String((businessRules as Record<string, unknown>)?.site_settings && typeof (businessRules as Record<string, unknown>).site_settings === 'object'
+      ? ((businessRules as Record<string, unknown>).site_settings as Record<string, unknown>).hospital_name || 'โรงพยาบาล'
+      : 'โรงพยาบาล');
+    const payload = buildFdsV3PayloadFrom16Files(prepared.data, config, hospitalName);
+    const validation = validateFdsV3Payload(payload);
+    res.json({
+      success: true,
+      payload,
+      validation,
+    });
+  } catch (error) {
+    console.error('Error previewing FDS v3:', error);
+    res.status(400).json({ success: false, error: (error as Error).message });
+  }
+});
+
+// FDS v3 (Financial Data Set ปีงบ 2569) Export JSON File API
+app.post('/api/fdh/v3/export-json', async (req, res) => {
+  try {
+    const prepared = await prepareFdhExport(req.body || {});
+    const config = await getResolvedFdhApiConfig();
+    const hospitalName = String((businessRules as Record<string, unknown>)?.site_settings && typeof (businessRules as Record<string, unknown>).site_settings === 'object'
+      ? ((businessRules as Record<string, unknown>).site_settings as Record<string, unknown>).hospital_name || 'โรงพยาบาล'
+      : 'โรงพยาบาล');
+    const payload = buildFdsV3PayloadFrom16Files(prepared.data, config, hospitalName);
+    const jsonContent = JSON.stringify(payload, null, 2);
+    const filename = `FDS_v3_${payload.hcode}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+
+    if (prepared.vns && prepared.vns.length > 0) {
+      void recordFdhExportSend({
+        vns: prepared.vns,
+        patientType: prepared.patientType || 'OPD',
+        note: 'ส่งออก FDS v3 (JSON)',
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+    res.send(Buffer.from(jsonContent, 'utf8'));
+  } catch (error) {
+    console.error('Error exporting FDS v3 JSON:', error);
+    res.status(400).json({ success: false, error: (error as Error).message });
+  }
+});
+
+// Test connection to MOPH FDS UAT API
+app.post('/api/settings/fds-v3/test-connection', async (_req, res) => {
+  try {
+    const config = await getResolvedFdhApiConfig();
+    const targetUrl = String(config.fdsUatUrl || 'https://uat-fdh.inet.co.th/fdh_api/v1/dataset/import');
+    const startTime = Date.now();
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const responseTimeMs = Date.now() - startTime;
+    // Status 400, 401, or 422 indicates the endpoint is up and processing JSON payloads
+    if ([200, 400, 401, 403, 422].includes(response.status)) {
+      res.json({
+        success: true,
+        message: `เชื่อมต่อไปยัง FDS v3 UAT (${targetUrl}) สำเร็จ (HTTP ${response.status})`,
+        data: { responseTimeMs, status: response.status },
+      });
+    } else {
+      res.status(502).json({
+        success: false,
+        error: `FDS v3 UAT ตอบกลับด้วยสถานะ HTTP ${response.status}`,
+        data: { responseTimeMs },
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ FDS v3 UAT';
+    res.status(504).json({ success: false, error: message });
   }
 });
 
@@ -5266,7 +5364,7 @@ app.get('/api/config/fdh-api-settings', async (req, res) => {
     const resolvedConfig = await getResolvedFdhApiConfig();
     res.json({
       success: true,
-      data: maskConfigSecrets(resolvedConfig, ['password']),
+      data: maskConfigSecrets(resolvedConfig, ['password', 'hisSecret', 'hisSourceKey']),
       source: config ? 'database' : 'default'
     });
   } catch (error) {

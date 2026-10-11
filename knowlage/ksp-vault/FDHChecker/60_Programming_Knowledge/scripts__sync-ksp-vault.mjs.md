@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "scripts/sync-ksp-vault.mjs"
-source_hash: "eac7ba77dd471ad8b8a38208539fc8ab20bff5a1c41ddcfd29d8ce4567df7470"
+source_hash: "6a568c7c5d7cb7a117e3edeb3b308838fd7f5618e2ae02ee22bafeac99008bdc"
 managed_by: "sync-ksp-vault"
 ---
 # sync-ksp-vault.mjs
 
 > Source: `scripts/sync-ksp-vault.mjs`
-> SHA-256: `eac7ba77dd471ad8b8a38208539fc8ab20bff5a1c41ddcfd29d8ce4567df7470`
+> SHA-256: `6a568c7c5d7cb7a117e3edeb3b308838fd7f5618e2ae02ee22bafeac99008bdc`
 
 ````javascript
 import crypto from 'node:crypto';

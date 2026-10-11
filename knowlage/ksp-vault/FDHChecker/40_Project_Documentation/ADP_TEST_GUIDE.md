@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "ADP_TEST_GUIDE.md"
-source_hash: "f439ead17cfd9df9c9a59bd1f37b2e3f6b68c8f013145f863fa8f1902e3be853"
+source_hash: "b000878b612f2312af9138a37b6ad854a5375f47ea3e570ffb3165b760140bc1"
 managed_by: "sync-ksp-vault"
 ---
 # 🧪 ADP Implementation Test Guide

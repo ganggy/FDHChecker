@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "VISIT_PTTYPE_AUTH_CODE_INTEGRATION.md"
-source_hash: "fb833cd9ea50dac95486220572a693f481bbe03c4cc596d1840de71150a2e9ff"
+source_hash: "f94ed12569a175d8bc6f595dd0bb6173209d3eee4c59ec3d1e330738b7ea5184"
 managed_by: "sync-ksp-vault"
 ---
 # Visit_PTType & Auth_Code Integration 🔐

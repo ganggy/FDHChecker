@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/NhsoClosePage.tsx"
-source_hash: "e1f65d4b0b6a229322610f648b57b7dd44c60772e42fe522571d18e8d674a53c"
+source_hash: "b6f808f25da63d8a3169be88c982a993ba724dfeeccd61bd6b68efa72b53dde2"
 managed_by: "sync-ksp-vault"
 ---
 # NhsoClosePage.tsx
 
 > Source: `src/pages/NhsoClosePage.tsx`
-> SHA-256: `e1f65d4b0b6a229322610f648b57b7dd44c60772e42fe522571d18e8d674a53c`
+> SHA-256: `b6f808f25da63d8a3169be88c982a993ba724dfeeccd61bd6b68efa72b53dde2`
 
 ````tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -24,6 +24,28 @@ interface NhsoCloseSettings {
   claimServiceCode?: string;
   recorderPid?: string;
   maxDays?: number;
+  autoCloseEnabled?: boolean;
+  autoCloseDelayMinutes?: number;
+  autoCloseIntervalMinutes?: number;
+}
+
+interface NhsoAutoCloseStatusState {
+  enabled: boolean;
+  delayMinutes: number;
+  intervalMinutes: number;
+  isRunning: boolean;
+  isSchedulerActive: boolean;
+  lastRunAt: string | null;
+  lastSummary: {
+    total: number;
+    submitted: number;
+    skipped: number;
+    errors: number;
+    timestamp: string;
+    triggeredBy: string;
+  } | null;
+  lastError: string | null;
+  todayCount: number;
 }
 
 interface CloseCandidateRow {
@@ -44,6 +66,7 @@ interface CloseCandidateRow {
   close_code?: string;
   authencode_endpoint?: string;
   close_status?: string;
+  visit_outcome?: string;
   source_id?: string;
   invno?: string;
   can_close?: number;
@@ -88,6 +111,9 @@ const defaultSettings: NhsoCloseSettings = {
   claimServiceCode: 'PG0060001',
   recorderPid: '',
   maxDays: 4,
+  autoCloseEnabled: false,
+  autoCloseDelayMinutes: 15,
+  autoCloseIntervalMinutes: 3,
 };
 
 const bangkokDateTimeFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -146,6 +172,8 @@ export const NhsoClosePage: React.FC = () => {
   const [autoSyncStatus, setAutoSyncStatus] = useState<'checking' | 'success' | 'warning'>('checking');
   const [autoSyncMessage, setAutoSyncMessage] = useState('กำลังเตรียมตรวจสอบสถานะปิดสิทธิ UCS/LGO/WEL...');
   const [autoSyncSummary, setAutoSyncSummary] = useState<Record<string, number> | null>(null);
+  const [autoCloseStatus, setAutoCloseStatus] = useState<NhsoAutoCloseStatusState | null>(null);
+  const [runningAutoCycle, setRunningAutoCycle] = useState(false);
   const initialLoadStarted = useRef(false);
   const filtersReady = useRef(false);
   const parseHistoryDetail = (row: CloseStatusDetailSource) => {
@@ -170,6 +198,18 @@ export const NhsoClosePage: React.FC = () => {
     return '';
   };
 
+  const loadAutoCloseStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/nhso/close/auto-status');
+      const json = await res.json();
+      if (json?.success) {
+        setAutoCloseStatus(json.data);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const loadSettingsAndHistory = async () => {
     const [settingsRes, historyRes] = await Promise.all([
       fetch('/api/config/nhso-close-settings'),
@@ -184,6 +224,7 @@ export const NhsoClosePage: React.FC = () => {
     if (historyJson?.success) {
       setHistory(historyJson.data || []);
     }
+    await loadAutoCloseStatus();
   };
 
   const loadCandidates = useCallback(async () => {
@@ -251,6 +292,13 @@ export const NhsoClosePage: React.FC = () => {
   }, [endDate, loadCandidates, startDate]);
 
   useEffect(() => {
+    const interval = setInterval(() => {
+      void loadAutoCloseStatus();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [loadAutoCloseStatus]);
+
+  useEffect(() => {
     if (!filtersReady.current) return;
     void loadCandidates();
   }, [loadCandidates]);
@@ -267,11 +315,34 @@ export const NhsoClosePage: React.FC = () => {
       });
       const json = await response.json();
       if (!response.ok || !json.success) throw new Error(json.error || 'บันทึกค่าปิดสิทธิไม่สำเร็จ');
+      if (json.data) {
+        setSettings((prev) => ({ ...prev, ...json.data }));
+      }
+      await loadAutoCloseStatus();
       setSuccess('บันทึกค่าการปิดสิทธิ NHSO เรียบร้อยแล้ว');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'บันทึกค่าการปิดสิทธิไม่สำเร็จ');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTriggerAutoCloseNow = async () => {
+    try {
+      setRunningAutoCycle(true);
+      setError(null);
+      setSuccess(null);
+      const res = await fetch('/api/nhso/close/auto-run', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'ประมวลผลรอบปิดสิทธิ์อัตโนมัติไม่สำเร็จ');
+      }
+      setSuccess(json.message || `ประมวลผลเสร็จสิ้น: ปิดสิทธิ์สำเร็จ ${json.data?.submittedCount || 0} รายการ`);
+      await Promise.all([loadAutoCloseStatus(), loadCandidates(), loadSettingsAndHistory()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการสั่งประมวลผลรอบปิดสิทธิ์อัตโนมัติ');
+    } finally {
+      setRunningAutoCycle(false);
     }
   };
 
@@ -411,7 +482,30 @@ export const NhsoClosePage: React.FC = () => {
               </div>
             </div>
             <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontWeight: 700, marginBottom: 8 }}>ภาพรวมรายการ</div>
+              <div style={{ fontWeight: 700, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>ปิดสิทธิ์อัตโนมัติ (Auto-Close)</span>
+                <span className={`badge ${autoCloseStatus?.enabled ? 'badge-success' : 'badge-secondary'}`}>
+                  {autoCloseStatus?.enabled ? '🟢 เปิดทำงาน' : '⚪ ปิดอยู่'}
+                </span>
+              </div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8 }}>
+                <div>สำเร็จวันนี้: <strong style={{ color: 'var(--primary)' }}>{autoCloseStatus?.todayCount ?? 0}</strong> รายการ</div>
+                <div>หน่วงเวลา: <strong>{autoCloseStatus?.delayMinutes ?? settings.autoCloseDelayMinutes ?? 15} นาที</strong>หลังกลับบ้าน</div>
+                <div>ความถี่: ตรวจทุก <strong>{autoCloseStatus?.intervalMinutes ?? settings.autoCloseIntervalMinutes ?? 3} นาที</strong></div>
+                {autoCloseStatus?.lastRunAt && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    รอบล่าสุด: {new Date(autoCloseStatus.lastRunAt).toLocaleTimeString('th-TH')}
+                  </div>
+                )}
+                {autoCloseStatus?.lastError && (
+                  <div style={{ fontSize: 11, color: 'var(--danger)', wordBreak: 'break-word' }}>
+                    ⚠️ {autoCloseStatus.lastError}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>ภาพรวมรายการ OPD</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <span className="badge badge-info">ทั้งหมด {rows.length}</span>
                 <span className="badge badge-warning">ต้องปิดสิทธิ {pendingCount}</span>
@@ -430,6 +524,82 @@ export const NhsoClosePage: React.FC = () => {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* แถบตั้งค่าระบบปิดสิทธิ์อัตโนมัติ */}
+          <div className="card" style={{ padding: 16, marginBottom: 16, border: '1px solid var(--border-color, #e2e8f0)', background: 'var(--surface-card, #fff)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>⚡ ระบบส่งปิดสิทธิ์อัตโนมัติ OPD (Auto-Close Service)</span>
+                  {autoCloseStatus?.isRunning && <span className="badge badge-warning">กำลังประมวลผล...</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  ระบบเบื้องหลัง (Background Worker) จะสแกนค้นหาผู้ป่วย OPD ที่แพทย์หรือห้องยา/การเงินบันทึกสถานะ 'กลับบ้าน' เกินเวลาที่กำหนด แล้วปิดสิทธิ์ให้อัตโนมัติ (ไม่ต้องใช้ AI / ประหยัดทรัพยากร)
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleTriggerAutoCloseNow}
+                  disabled={runningAutoCycle || saving || submitting}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  {runningAutoCycle ? '⏳ กำลังประมวลผลรอบนี้...' : '⚡ ประมวลผลรอบนี้ทันที (Run Now)'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, alignItems: 'center' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={settings.autoCloseEnabled ?? false}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, autoCloseEnabled: e.target.checked }))}
+                  style={{ width: 18, height: 18, cursor: 'pointer' }}
+                />
+                <span style={{ fontWeight: 600, fontSize: 14 }}>เปิดทำงานอัตโนมัติ (Auto-Close)</span>
+              </label>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: 12, marginBottom: 4 }}>หน่วงเวลาหลังกลับบ้าน (นาที)</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={settings.autoCloseDelayMinutes ?? 15}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, autoCloseDelayMinutes: Math.max(1, Number(e.target.value) || 15) }))}
+                  placeholder="เช่น 15"
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: 12, marginBottom: 4 }}>ความถี่ในการสแกนตรวจ (นาที)</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={settings.autoCloseIntervalMinutes ?? 3}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, autoCloseIntervalMinutes: Math.max(1, Number(e.target.value) || 3) }))}
+                  placeholder="เช่น 3"
+                />
+              </div>
+
+              <div>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleSaveSettings}
+                  disabled={saving || submitting}
+                  style={{ width: '100%' }}
+                >
+                  {saving ? 'กำลังบันทึก...' : '💾 บันทึกค่าระบบอัตโนมัติ'}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -585,6 +755,7 @@ export const NhsoClosePage: React.FC = () => {
                   <th>วันที่รับบริการ</th>
                   <th>เวลารับบริการ</th>
                   <th>สิทธิ</th>
+                  <th>สถานะคนไข้</th>
                   <th>ปิดสิทธิ (EP)</th>
                   <th>สถานะปิดสิทธิ</th>
                   <th>ยอดรวม</th>
@@ -595,6 +766,7 @@ export const NhsoClosePage: React.FC = () => {
               <tbody>
                 {rows.length > 0 ? rows.map((row) => {
                   const disabled = Number(row.can_close || 0) !== 1;
+                  const isDischargedHome = String(row.visit_outcome || '').trim() === 'กลับบ้าน';
                   const isSelected = selectedVns.includes(row.vn);
                   const visitDateTime = splitDateTime(row.vst_datetime);
                   const serviceDate = row.service_date || visitDateTime.date;
@@ -602,7 +774,9 @@ export const NhsoClosePage: React.FC = () => {
                   return (
                     <tr key={row.vn} className={`${isSelected ? 'row-selected' : ''} ${disabled ? 'row-muted' : ''}`}>
                       <td className="table-index-cell nhso-select-cell">
-                        <input type="checkbox" checked={isSelected} disabled={disabled} onChange={() => toggleSelection(row.vn)} />
+                        {isDischargedHome && !disabled
+                          ? <input type="checkbox" checked={isSelected} onChange={() => toggleSelection(row.vn)} aria-label={`เลือกปิดสิทธิ VN ${row.vn}`} />
+                          : <span title={isDischargedHome ? 'รายการนี้ปิดสิทธิแล้ว' : 'ต้องมีสถานะคนไข้เป็นกลับบ้านก่อนจึงจะปิดสิทธิ์ได้'}>-</span>}
                       </td>
                       <td className="table-cell-nowrap workflow-id-cell">{row.vn}</td>
                       <td className="table-cell-nowrap workflow-id-cell">{row.hn || '-'}</td>
@@ -615,6 +789,11 @@ export const NhsoClosePage: React.FC = () => {
                       <td className="nhso-right-cell">
                         <div className="nhso-maininscl">{row.maininscl || '-'}</div>
                         <div className="nhso-subtext">{row.pttypename || '-'}</div>
+                      </td>
+                      <td className="table-cell-nowrap">
+                        <span className={`badge ${isDischargedHome ? 'badge-success' : 'badge-warning'}`}>
+                          {row.visit_outcome || 'ไม่ระบุ'}
+                        </span>
                       </td>
                       <td className="table-cell-nowrap workflow-code-cell">{row.close_code || '-'}</td>
                       <td className="table-cell-nowrap">
@@ -629,7 +808,7 @@ export const NhsoClosePage: React.FC = () => {
                   );
                 }) : (
                   <tr>
-                    <td colSpan={12} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                    <td colSpan={13} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                       {loading ? 'กำลังโหลดรายการ...' : 'ไม่พบรายการตามตัวกรองที่เลือก'}
                     </td>
                   </tr>

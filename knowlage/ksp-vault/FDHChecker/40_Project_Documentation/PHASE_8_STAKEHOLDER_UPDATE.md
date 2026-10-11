@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PHASE_8_STAKEHOLDER_UPDATE.md"
-source_hash: "6ea808242dc7a149bd57d2f16ce8d27f5d3c99a22c6fb8871a18259e2004ef86"
+source_hash: "fc8353243a2be19f6fcddf2d5471cce004b7ab2e0f870cdcad4198bc9bfb0556"
 managed_by: "sync-ksp-vault"
 ---
 

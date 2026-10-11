@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PHASE_8_RESEARCH_COMPLETE_INDEX.md"
-source_hash: "a6c320498d7e03775e47a8e8a871431a159afa0c0b4291c893dd0f71fdcbe15d"
+source_hash: "ad0efca01e4160011aca63255976a14f114aa9be82f7ff935a865cc796c321ff"
 managed_by: "sync-ksp-vault"
 ---
 

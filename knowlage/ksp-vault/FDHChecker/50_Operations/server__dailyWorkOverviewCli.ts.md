@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/dailyWorkOverviewCli.ts"
-source_hash: "318c36b7fbff154b6a22329219d49df9afb59e17d21c51deb0b5abbdd7cea93f"
+source_hash: "6811178c5899de0c40b9dd20ae1211dbf275ace321b0898fd6f1fa3e518f71fa"
 managed_by: "sync-ksp-vault"
 ---
 # dailyWorkOverviewCli.ts
 
 > Source: `server/dailyWorkOverviewCli.ts`
-> SHA-256: `318c36b7fbff154b6a22329219d49df9afb59e17d21c51deb0b5abbdd7cea93f`
+> SHA-256: `6811178c5899de0c40b9dd20ae1211dbf275ace321b0898fd6f1fa3e518f71fa`
 
 ````typescript
 import 'dotenv/config';

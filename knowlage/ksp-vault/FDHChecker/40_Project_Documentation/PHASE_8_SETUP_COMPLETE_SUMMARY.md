@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PHASE_8_SETUP_COMPLETE_SUMMARY.md"
-source_hash: "f47210e48f479d1b482f458ec3274432122d550ea501b4e9fffd129ca5d40731"
+source_hash: "a2bb3611d1c9dbe0aa046e2640d94ec0fa7794701e5d2c0cb5737093fab134fa"
 managed_by: "sync-ksp-vault"
 ---
 # ✨ PHASE 8 SETUP COMPLETE - SUMMARY

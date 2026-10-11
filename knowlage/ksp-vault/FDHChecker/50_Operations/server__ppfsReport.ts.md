@@ -4,18 +4,19 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/ppfsReport.ts"
-source_hash: "07f231e79757dcfc9dfedbc3c19a56d4f2ec2469bbab533ef8e7a9355d04942d"
+source_hash: "38bcd2944bf3dbc80b3d9a3fbcdb8cd14d7626b37885aa1d39d01a92819e051b"
 managed_by: "sync-ksp-vault"
 ---
 # ppfsReport.ts
 
 > Source: `server/ppfsReport.ts`
-> SHA-256: `07f231e79757dcfc9dfedbc3c19a56d4f2ec2469bbab533ef8e7a9355d04942d`
+> SHA-256: `38bcd2944bf3dbc80b3d9a3fbcdb8cd14d7626b37885aa1d39d01a92819e051b`
 
 ````typescript
+import type { HospitalConnection } from './hospitalDatabase.js';
 import type mysql from 'mysql2/promise';
-import businessRules from './config/business_rules.json';
-import { ensureRepstmTables, getRepstmConnection } from './db.js';
+import { readHospitalIdentity } from './siteProfile.js';
+import { ensureRepstmTables, getRepstmConnection, getUTFConnection, getAppSetting } from './db.js';
 import { fetchWithTimeout } from './httpClient.js';
 
 type PpfsMetric = 'SUM_PAID' | 'CNT_VISIT' | 'CNT_PID';
@@ -207,30 +208,13 @@ const parsePivotRows = (html: string): PpfsPivotRow[] => {
   return rows;
 };
 
-const getDefaultHcode = () => {
-  const rules = businessRules as any;
-  return toText(rules?.site_settings?.hospital_code || rules?.hospital?.hcode || '11101') || '11101';
-};
-
-const getHospitalInfo = (html: string) => {
-  const title = stripTags(html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || '');
-  const rules = businessRules as any;
-  return {
-    title,
-    hospital_name: toText(rules?.site_settings?.hospital_name) || title.replace(/^PPFS\s*\|\s*/i, ''),
-    hcode: getDefaultHcode(),
-    region: toText(rules?.site_settings?.nhso_region),
-    province: toText(rules?.site_settings?.province),
-  };
-};
-
 const getFiscalRange = (thaiFiscalYear: number) => ({
   start: `${thaiFiscalYear - 544}-10-01`,
   end: `${thaiFiscalYear - 543}-09-30`,
 });
 
 const getLocalStmSummary = async (): Promise<PpfsLocalYearRow[]> => {
-  let connection: mysql.PoolConnection | null = null;
+  let connection: HospitalConnection | null = null;
   try {
     await ensureRepstmTables();
     connection = await getRepstmConnection();
@@ -284,7 +268,13 @@ const withTimeout = async <T,>(promise: Promise<T>, ms: number, fallback: T): Pr
 };
 
 export const getPpfsNhsoReport = async (options: { hcode?: string; metric?: string }) => {
-  const hcode = toText(options.hcode || getDefaultHcode()) || '11101';
+  const connection = await getUTFConnection();
+  let identity;
+  try { identity = await readHospitalIdentity(connection); }
+  finally { connection.release(); }
+  const settings = await getAppSetting<Record<string, unknown>>('site_settings');
+  const hcode = toText(options.hcode || identity.hospital_code);
+  if (!/^\d{5}$/.test(hcode)) throw new Error('ไม่พบรหัสหน่วยบริการใน opdconfig');
   const metric = (toText(options.metric || 'SUM_PAID').toUpperCase() as PpfsMetric);
   const safeMetric: PpfsMetric = metric in PPFS_METRICS ? metric : 'SUM_PAID';
   const url = `https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=${encodeURIComponent(hcode)}&metric=${encodeURIComponent(safeMetric)}`;
@@ -337,7 +327,11 @@ export const getPpfsNhsoReport = async (options: { hcode?: string; metric?: stri
     hcode,
     metric: safeMetric,
     metric_label: PPFS_METRICS[safeMetric],
-    hospital: getHospitalInfo(html),
+    hospital: {
+      title: stripTags(html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || ''),
+      hospital_name: hcode === identity.hospital_code ? identity.hospital_name : stripTags(html.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || '').replace(/^PPFS\s*\|\s*/i, ''),
+      hcode, region: toText(settings?.nhso_region), province: toText(settings?.province),
+    },
     kpi_cards: parseKpiCards(html),
     year_summary: yearSummary,
     pgroup_yearly: pgroupRows,

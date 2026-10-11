@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SERVICE_DATE_COLUMN_FIX_COMPLETE.md"
-source_hash: "157154dc7e0957946729796ae927048e16016cdb96bfc0d27764dc916a52ff13"
+source_hash: "9589eb6294071a1084ca8a94e81eb09042bc9f5b1f99986c059b3aed423b38a1"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ SERVICE DATE COLUMN BUG FIX - COMPLETE

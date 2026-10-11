@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "DIALYSIS_SERVICE_COST_BREAKDOWN.md"
-source_hash: "9431c7e472cb3128707fbfe688bcdef3bdc7e4d2ffeb84ba060e7b98ba8eac92"
+source_hash: "8c3bdb594ae9974e211f357fdd25ff233f38d862c3693e042a2722fe29e3006b"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ DIALYSIS SERVICE COST BREAKDOWN - COMPLETE

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/test2.mjs"
-source_hash: "46f9414ae095135ec85389b1a5c369a726445ebc2f18a873ae19fac777e88c09"
+source_hash: "14250ac3eed84f3907ea6d65092e5ca47e6d1ea8deb15984706872b76ce077a1"
 managed_by: "sync-ksp-vault"
 ---
 # test2.mjs
 
 > Source: `server/test2.mjs`
-> SHA-256: `46f9414ae095135ec85389b1a5c369a726445ebc2f18a873ae19fac777e88c09`
+> SHA-256: `14250ac3eed84f3907ea6d65092e5ca47e6d1ea8deb15984706872b76ce077a1`
 
 ````javascript
 import mysql from 'mysql2/promise';

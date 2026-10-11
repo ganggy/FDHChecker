@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/utils/fdhClaimProgress.ts"
-source_hash: "8d144e12ba15897add27b32b1a5d17bfa4ec4bc0fb71b35d744e28f59ebe7f52"
+source_hash: "8b19e9d5fd838fc01c1a5333fa8fb00834411d191a38bda569c61246a645f888"
 managed_by: "sync-ksp-vault"
 ---
 # fdhClaimProgress.ts
 
 > Source: `src/utils/fdhClaimProgress.ts`
-> SHA-256: `8d144e12ba15897add27b32b1a5d17bfa4ec4bc0fb71b35d744e28f59ebe7f52`
+> SHA-256: `8b19e9d5fd838fc01c1a5333fa8fb00834411d191a38bda569c61246a645f888`
 
 ````typescript
 export type FdhClaimProgressStage =
@@ -42,6 +42,13 @@ export interface FdhClaimProgress {
 }
 
 type FdhTrackingRow = Record<string, unknown>;
+type FdhSubmissionStatusRow = {
+    fdh_error_code?: unknown;
+    fdh_status_label?: unknown;
+    fdh_claim_detail_status?: unknown;
+    fdh_reservation_status?: unknown;
+    fdh_claim_status_message?: unknown;
+};
 
 const hasValue = (value: unknown) => String(value ?? '').trim() !== '';
 const flag = (value: unknown) => value === true || value === 1 || value === '1' || value === 'Y' || value === 'y';
@@ -49,10 +56,24 @@ const flag = (value: unknown) => value === true || value === 1 || value === '1' 
 export const isMissingFdhStatus = (value: unknown) => {
     const normalized = String(value ?? '').trim().toLowerCase();
     return normalized === ''
+        || normalized.includes('unclaimed')
         || normalized.includes('ไม่พบ')
+        || normalized.includes('ไม่มีรายการ')
         || normalized.includes('ยังไม่ส่ง')
         || normalized.includes('not found')
         || normalized.includes('no data');
+};
+
+export const isFailedFdhSubmission = (row: FdhSubmissionStatusRow) => {
+    if (hasValue(row.fdh_error_code)) return true;
+    const statusText = [
+        row.fdh_status_label,
+        row.fdh_claim_detail_status,
+        row.fdh_reservation_status,
+        row.fdh_claim_status_message,
+    ].map((value) => String(value ?? '').trim().toLowerCase()).filter(Boolean).join(' ');
+
+    return /ประมวลผลไม่ผ่าน|ไม่ผ่าน|reject(?:ed)?|fail(?:ed|ure)?|\berror\b|den(?:y|ied)/i.test(statusText);
 };
 
 /**

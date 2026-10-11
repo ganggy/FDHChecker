@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/InsuranceOverviewPage.tsx"
-source_hash: "a26d983d064980f3130e05d9a2008fbdaa63172008ff202629e08cdee15f4bb6"
+source_hash: "d738bac143d0a93c518a4db71af5c509a54ca3a4042bd4b84323ebe17664d3b3"
 managed_by: "sync-ksp-vault"
 ---
 # InsuranceOverviewPage.tsx
 
 > Source: `src/pages/InsuranceOverviewPage.tsx`
-> SHA-256: `a26d983d064980f3130e05d9a2008fbdaa63172008ff202629e08cdee15f4bb6`
+> SHA-256: `d738bac143d0a93c518a4db71af5c509a54ca3a4042bd4b84323ebe17664d3b3`
 
 ````tsx
 import { useEffect, useMemo, useState } from 'react';

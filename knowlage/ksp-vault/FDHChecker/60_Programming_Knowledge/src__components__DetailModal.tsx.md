@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/DetailModal.tsx"
-source_hash: "e6f7926c0fc3eacc46b45abdb5b6174855a5d6f4c498f5f47478127633cf2034"
+source_hash: "d6e5a008623b6086d726c9717c77185ea2ea3202a4d5f1a52d9d4fe297b7f80a"
 managed_by: "sync-ksp-vault"
 ---
 # DetailModal.tsx
 
 > Source: `src/components/DetailModal.tsx`
-> SHA-256: `e6f7926c0fc3eacc46b45abdb5b6174855a5d6f4c498f5f47478127633cf2034`
+> SHA-256: `d6e5a008623b6086d726c9717c77185ea2ea3202a4d5f1a52d9d4fe297b7f80a`
 
 ````tsx
 import React, { useState, useEffect } from 'react';
@@ -71,7 +71,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
   const [prescriptions, setPrescriptions] = useState<PrescriptionItem[]>([]);
   const [services, setServices] = useState<ServiceADPItem[]>([]);
   const [receiptData, setReceiptData] = useState<ReceiptResponse | null>(null);
-  const [diagsData, setDiagsData] = useState<{ diagnoses: any[], procedures: any[] }>({ diagnoses: [], procedures: [] });
+  const [diagsData, setDiagsData] = useState<{ diagnoses: any[], procedures: any[], warnings?: string[] }>({ diagnoses: [], procedures: [] });
   const [loadingPrescriptions, setLoadingPrescriptions] = useState(false);
   const [loadingServices, setLoadingServices] = useState(false);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
@@ -101,13 +101,13 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
   }, [record]);
 
   useEffect(() => {
-    if (!record?.vn) return;
+    if (!record?.vn && !record?.an) return;
     let mounted = true;
 
     const loadReceiptData = async () => {
       if (mounted) setLoadingReceipt(true);
       try {
-        const data = await fetchReceiptData(record.vn!);
+        const data = await fetchReceiptData(record.vn || record.an || '', record.an);
         if (mounted) { setReceiptData(data); setReceiptError(null); }
       } catch {
         if (mounted) { setReceiptError('ไม่สามารถโหลดข้อมูลใบเสร็จได้'); setReceiptData(null); }
@@ -119,7 +119,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
     const loadPrescriptions = async () => {
       if (mounted) setLoadingPrescriptions(true);
       try {
-        const data = await fetchPrescriptionData(record.vn!);
+        const data = await fetchPrescriptionData(record.vn || record.an || '', record.an);
         if (mounted) { setPrescriptions(data || []); setPrescriptionError(null); }
       } catch {
         if (mounted) { setPrescriptionError('ไม่สามารถโหลดข้อมูลยาได้'); setPrescriptions([]); }
@@ -131,7 +131,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
     const loadServices = async () => {
       if (mounted) setLoadingServices(true);
       try {
-        const data = await fetchServiceADPData(record.vn!);
+        const data = await fetchServiceADPData(record.vn || record.an || '', record.an);
         if (mounted) { setServices(data || []); setServiceError(null); }
       } catch {
         if (mounted) { setServiceError('ไม่สามารถโหลดข้อมูลค่าบริการได้'); setServices([]); }
@@ -143,7 +143,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
     const loadDiags = async () => {
       if (mounted) setLoadingDiags(true);
       try {
-        const res = await fetchDiagsAndProceduresData(record.vn!);
+        const res = await fetchDiagsAndProceduresData(record.vn || record.an || '', record.an);
         if (mounted) {
           setDiagsData(res.data || { diagnoses: [], procedures: [] });
           setDiagsError(null);
@@ -164,7 +164,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
     loadServices();
 
     return () => { mounted = false; };
-  }, [record?.vn]);
+  }, [record?.vn, record?.an]);
 
   if (!record) return null;
 
@@ -196,7 +196,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
         <div className="modal-body">
           {/* Patient Info */}
           <div className="section">
-            <div className="info-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+            <div className="info-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: '10px' }}>
               <div className="info-item">
                 <span className="info-label">ชื่อผู้ป่วย</span>
                 <span className="info-value">{record.patientName}</span>
@@ -255,6 +255,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                   <span>กำลังโหลดข้อมูลวินิจฉัยและหัตถการ...</span>
                 </div>
               )}
+              {diagsData.warnings?.map(warning => <div className="alert alert-warning" key={warning}>{warning}</div>)}
               {diagsError && <div className="alert alert-danger">{diagsError}</div>}
 
               {!loadingDiags && !diagsError && (
@@ -269,8 +270,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                         <table className="data-table detail-modal-table detail-modal-table--diagnoses">
                           <thead>
                             <tr>
-                              <th style={{ width: 80 }}>Type</th>
-                              <th style={{ width: 100 }}>ICD-10</th>
+                              <th style={{ width: '80px', textAlign: 'center' }}>Type</th>
+                              <th style={{ width: '100px' }}>ICD-10</th>
                               <th>Description</th>
                             </tr>
                           </thead>
@@ -304,15 +305,44 @@ export const DetailModal: React.FC<DetailModalProps> = ({ record, onClose }) => 
                         <table className="data-table detail-modal-table detail-modal-table--procedures">
                           <thead>
                             <tr>
-                              <th style={{ width: 100 }}>ICD-9-CM</th>
+                              <th style={{ width: '120px' }}>รหัสหัตถการ</th>
                               <th>Description</th>
+                              <th style={{ width: '120px', textAlign: 'center' }}>แหล่งข้อมูล</th>
                             </tr>
                           </thead>
                           <tbody>
                             {diagsData.procedures.map((item, idx) => (
                               <tr key={'proc-' + idx}>
-                                <td style={{ fontWeight: 600, fontFamily: 'monospace' }}>{item.code}</td>
-                                <td>{item.name || '-'}</td>
+                                <td>
+                                  {item.code ? (
+                                    <span className="badge badge-primary" style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700 }}>
+                                      {item.code}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--text-muted)' }}>-</span>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 500 }}>{item.name || '-'}</div>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <span
+                                    className="badge"
+                                    style={{
+                                      background: item.type === 'ผู้ป่วยใน' ? 'rgba(59, 130, 246, 0.15)' :
+                                                  item.type === 'ห้องผ่าตัด (OR)' ? 'rgba(239, 68, 68, 0.15)' :
+                                                  item.type === 'ทันตกรรม' ? 'rgba(16, 185, 129, 0.15)' :
+                                                  item.type === 'แพทย์แผนไทย' ? 'rgba(245, 158, 11, 0.15)' : 'var(--surface-2)',
+                                      color: item.type === 'ผู้ป่วยใน' ? 'var(--primary)' :
+                                             item.type === 'ห้องผ่าตัด (OR)' ? '#dc2626' :
+                                             item.type === 'ทันตกรรม' ? 'var(--teal)' :
+                                             item.type === 'แพทย์แผนไทย' ? '#d97706' : 'var(--text-secondary)',
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    {item.type || '-'}
+                                  </span>
+                                </td>
                               </tr>
                             ))}
                           </tbody>

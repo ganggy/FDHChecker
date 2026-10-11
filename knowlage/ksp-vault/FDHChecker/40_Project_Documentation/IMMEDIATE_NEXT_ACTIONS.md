@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "IMMEDIATE_NEXT_ACTIONS.md"
-source_hash: "ccb6572d3fc19e78c65519a3b52f31f88f8eb9c75aab77d530c845ffbaff08c9"
+source_hash: "3abfbd887ad16f513e58644db9d5fea2cc86286988ac2eea689e42c244fd2237"
 managed_by: "sync-ksp-vault"
 ---
 # 🎯 NEXT ACTIONS - What To Do Now

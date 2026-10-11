@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PHASE_8_NHSO_STANDARDS_INTEGRATION.md"
-source_hash: "4d5acefa3592819a75dcfec7827e59fe44d3784026f9af9af0087c0c8d4a7aff"
+source_hash: "3b2b767c213d1dcb331990cc1d7a947f42b270b257acc85b380f7ffbb4f3cda6"
 managed_by: "sync-ksp-vault"
 ---
 # 🏥 PHASE 8: NHSO STANDARDS INTEGRATION

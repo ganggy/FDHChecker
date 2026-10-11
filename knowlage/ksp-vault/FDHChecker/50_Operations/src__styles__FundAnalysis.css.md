@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/styles/FundAnalysis.css"
-source_hash: "75bc2343e1e992cda9f8f77934271e8456681f76347c15e358a8f412ae1e5bf9"
+source_hash: "00634b2d40f77ec90823e708a5041def794efd2cbdc58671987120e0ead2227c"
 managed_by: "sync-ksp-vault"
 ---
 # FundAnalysis.css
 
 > Source: `src/styles/FundAnalysis.css`
-> SHA-256: `75bc2343e1e992cda9f8f77934271e8456681f76347c15e358a8f412ae1e5bf9`
+> SHA-256: `00634b2d40f77ec90823e708a5041def794efd2cbdc58671987120e0ead2227c`
 
 ````css
 .fund-analysis-container {

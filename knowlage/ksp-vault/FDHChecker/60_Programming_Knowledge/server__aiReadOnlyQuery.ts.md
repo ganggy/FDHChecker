@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiReadOnlyQuery.ts"
-source_hash: "359719201b8e3e91209477c74cc75827f42272ab48fc11a05ed7fa290483ef1b"
+source_hash: "4b3c496f98a330002fda6ba55f3a908668b1d64d35413feb60e6f6e71c80f372"
 managed_by: "sync-ksp-vault"
 ---
 # aiReadOnlyQuery.ts
 
 > Source: `server/aiReadOnlyQuery.ts`
-> SHA-256: `359719201b8e3e91209477c74cc75827f42272ab48fc11a05ed7fa290483ef1b`
+> SHA-256: `4b3c496f98a330002fda6ba55f3a908668b1d64d35413feb60e6f6e71c80f372`
 
 ````typescript
 import { getUTFConnection } from './db.js';

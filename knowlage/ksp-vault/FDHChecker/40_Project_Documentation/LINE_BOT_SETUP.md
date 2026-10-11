@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "LINE_BOT_SETUP.md"
-source_hash: "1ee56c221d7d34b890c534e921ed7ec15260f4bd91007aa832b3724118560dcd"
+source_hash: "73618eb11bb4b4ff19a95a7908d7ea38d10de8ac3c39061e8b23f134994ed789"
 managed_by: "sync-ksp-vault"
 ---
 # LINE Knowledge Bot Setup

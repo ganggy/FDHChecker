@@ -4,24 +4,23 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/SpecialMonitorPage.tsx"
-source_hash: "fee318fe28a12d1b3037e7ebb48bcd87e21508245d2c705cb2f03bd1a09cb641"
+source_hash: "31a23b23dec1e77ab3653cd5a218cbfd20eaa80de2826ca7e32b313b566b43d0"
 managed_by: "sync-ksp-vault"
 ---
 # SpecialMonitorPage.tsx
 
 > Source: `src/pages/SpecialMonitorPage.tsx`
-> SHA-256: `fee318fe28a12d1b3037e7ebb48bcd87e21508245d2c705cb2f03bd1a09cb641`
+> SHA-256: `31a23b23dec1e77ab3653cd5a218cbfd20eaa80de2826ca7e32b313b566b43d0`
 
 ````tsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { DetailModal } from '../components/DetailModal';
 import { DetailKidneyModal } from '../components/DetailKidneyModal';
 import { OpReferMonitorPanel } from '../components/OpReferMonitorPanel';
-import type { CheckRecord } from '../mockData';
 import type { KidneyMonitorRecord } from '../mockKidneyData';
 import businessRules from '../config/business_rules.json';
 import { formatLocalDateInput } from '../utils/dateUtils';
+import './SpecialMonitorPage.css';
 
 interface MonitorAnalysis {
     right: string;
@@ -95,32 +94,94 @@ interface KidneyMonitorMeta {
     excludedWithoutEvidence?: number;
     trackingSummary?: KidneyTrackingSummary;
     trackingIssues?: KidneyTrackingIssueSummary;
+    repstmSummary?: {
+        totalVisits: number;
+        repVisits: number;
+        pendingRep: number;
+        stmVisits: number;
+        pendingStm: number;
+        zeroAmountVisits: number;
+        matchedVisits: number;
+        differentVisits: number;
+        errorVisits: number;
+        repAmount: number;
+        stmPaidAmount: number;
+        amountDiff: number;
+    };
 }
 
-const RIGHT_LABEL_MAP: Record<string, string> = {
-    all: 'ทั้งหมด',
-    ucs: 'UCS + SSS',
-    ofc_lgo: 'OFC + LGO',
-    uc: 'UC - EPO จริง',
+const CLAIM_TRACKING_LABELS = {
+    NO_REP: { label: 'ยังไม่มี REP', color: '#92400e', background: '#fef3c7' },
+    WAITING_STM: { label: 'พบ REP · รอ STM', color: '#1d4ed8', background: '#dbeafe' },
+    WAITING_PAYMENT: { label: 'พบ REP · รอยอดชดเชย', color: '#b45309', background: '#fef3c7' },
+    MATCHED: { label: 'REP/STM ตรง', color: '#166534', background: '#dcfce7' },
+    AMOUNT_DIFFERENT: { label: 'REP/STM ยอดต่าง', color: '#b91c1c', background: '#fee2e2' },
+    REP_ERROR: { label: 'REP/STM มี Error', color: '#9a3412', background: '#ffedd5' },
+} as const;
+
+export type ClaimCategoryKey = 'all' | 'ucs' | 'ofc' | 'lgo' | 'sss' | 'other';
+
+const RIGHT_LABEL_MAP: Record<ClaimCategoryKey, string> = {
+    all: 'ทุกกลุ่มสิทธิ',
+    ucs: 'บัตรทอง (UCS)',
+    ofc: 'ข้าราชการ (OFC)',
+    lgo: 'อปท. (LGO)',
+    sss: 'ประกันสังคม (SSS)',
+    other: 'สิทธิอื่นๆ',
 };
 
-const CATEGORY_LABEL_MAP: Record<string, string> = {
-    all: 'ทั้งหมด',
-    service: 'หน่วยไต (ค่าบริการ)',
-    drug: 'ยา + แลป + บริการ',
+const CLAIM_CATEGORY_CONFIG: Record<
+    Exclude<ClaimCategoryKey, 'all'>,
+    { label: string; short: string; code: string; color: string; background: string; border: string }
+> = {
+    ucs: { label: 'บัตรทอง', short: 'UCS', code: 'UCS', color: '#059669', background: '#ecfdf5', border: '#10b981' },
+    ofc: { label: 'ข้าราชการ', short: 'OFC', code: 'OFC', color: '#7c3aed', background: '#f5f3ff', border: '#8b5cf6' },
+    lgo: { label: 'อปท.', short: 'LGO', code: 'LGO', color: '#d97706', background: '#fffbeb', border: '#f59e0b' },
+    sss: { label: 'ประกันสังคม', short: 'SSS', code: 'SSS', color: '#0284c7', background: '#f0f9ff', border: '#0ea5e9' },
+    other: { label: 'สิทธิอื่นๆ', short: 'OTHER', code: 'OTHER', color: '#64748b', background: '#f8fafc', border: '#94a3b8' },
 };
 
-export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, setActiveMonitor] = useState('kidney');
-    const [filterRight, setFilterRight] = useState('all');
+export const getVisitClaimCategory = (item: MonitorItem): Exclude<ClaimCategoryKey, 'all'> => {
+    const code = String(item.hipdataCode || item.hipdata_code || '').trim().toUpperCase();
+    const rightName = String(item.insuranceType || item.pttypeName || '').trim().toLowerCase();
+    const group = String(item.insuranceGroup || '').trim().toUpperCase();
+
+    if (code === 'LGO' || /อปท|ท้องถิ่น/.test(rightName)) return 'lgo';
+    if (code === 'OFC' || /ข้าราชการ|ส่วนราชการ|cscd|เบิกตรง|เบิกหน่วยงาน/.test(rightName)) return 'ofc';
+    if (code === 'SSS' || /ประกันสังคม/.test(rightName)) return 'sss';
+    if (['UCS', 'UC', 'WEL'].includes(code) || /บัตรทอง|สุขภาพ|สปสช|ผู้สูงอายุ|ผู้พิการ|ผู้มีรายได้น้อย|ทหารผ่านศึก|อสม/.test(rightName)) return 'ucs';
+
+    if (group === 'UC-EPO') return 'ucs';
+    if (group === 'OFC+LGO') {
+        return (/อปท|ท้องถิ่น/.test(rightName)) ? 'lgo' : 'ofc';
+    }
+    if (group === 'UCS+SSS') {
+        return (/ประกันสังคม/.test(rightName)) ? 'sss' : 'ucs';
+    }
+    return 'other';
+};
+
+type StmView = 'all' | 'received' | 'waiting' | 'no-rep';
+
+const STM_VIEW_LABELS: Record<StmView, string> = {
+    all: 'ทุกรายการ',
+    received: 'ได้รับ STM',
+    waiting: 'รอ STM',
+    'no-rep': 'ยังไม่มี REP',
+};
+
+export const SpecialMonitorPage: React.FC = () => {
+    const [activeMonitor, setActiveMonitor] = useState('kidney');
+    const [filterRight, setFilterRight] = useState<ClaimCategoryKey>('all');
     const [filterPatientRight, setFilterPatientRight] = useState('all');
-    const [filterCategory, setFilterCategory] = useState('all');
+    const [stmView, setStmView] = useState<StmView>('all');
+    const [searchText, setSearchText] = useState('');
     const [startDate, setStartDate] = useState(() => formatLocalDateInput());
     const [endDate, setEndDate] = useState(() => formatLocalDateInput());
     const [allKidneyData, setAllKidneyData] = useState<MonitorItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [dataMeta, setDataMeta] = useState<KidneyMonitorMeta | null>(null);
-    const [selectedRecord, setSelectedRecord] = useState<CheckRecord | null>(null);
     const [selectedKidneyRecord, setSelectedKidneyRecord] = useState<KidneyMonitorRecord | null>(null);
     const siteSettings = businessRules.site_settings as {
         hospital_name?: string;
@@ -164,9 +225,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 `/api/hosxp/kidney-monitor?startDate=${startDate}&endDate=${endDate}`
             );
             const json = await res.json();
-            console.log('✅ API Response:', json);
             if (json.success && json.data) {
-                console.log(`📊 Loaded ${json.data.length} kidney monitor records from database`);
                 if (json.meta) {
                     setDataMeta(json.meta);
                     if (json.meta.truncated) {
@@ -276,33 +335,17 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
 
     const filteredData = useMemo(() => {
         return (Array.isArray(allKidneyData) ? allKidneyData : []).filter((item) => {
-            const analysis = getAnalysis(item);
             // Filter by active monitor type
             if (activeMonitor === 'kidney') {
                 // Backend returns only department 060 visits with dialysis evidence.
                 if (!('insuranceGroup' in item && 'dialysisFee' in item)) return false;
             }
 
-            // Check if this is a kidney monitor record with insuranceGroup
-            if ('insuranceGroup' in item) {
-                const kidneyRecord = item as unknown as KidneyMonitorRecord;
-                // Only apply filter if not 'all'
-                if (filterRight !== 'all') {
-                    if (filterRight === 'ucs' && kidneyRecord.insuranceGroup !== 'UCS+SSS') return false;
-                    if (filterRight === 'ofc_lgo' && kidneyRecord.insuranceGroup !== 'OFC+LGO') return false;
-                    if (filterRight === 'uc' && kidneyRecord.insuranceGroup !== 'UC-EPO') return false;
-                }
-            } else {
-                // Old logic for non-kidney records (apply only if not 'all')
-                if (filterRight !== 'all') {
-                    if (filterRight === 'ucs' && analysis.right !== 'UCS + SSS') return false;
-                    if (filterRight === 'ofc_lgo' && analysis.right !== 'OFC + LGO') return false;
-                    if (filterRight === 'uc' && analysis.right !== 'UC (EPO จริง)') return false;
-                }
+            // Filter by claim group (ucs, ofc, lgo, sss, other)
+            if (filterRight !== 'all') {
+                const category = getVisitClaimCategory(item);
+                if (category !== filterRight) return false;
             }
-
-            if (filterCategory === 'service' && analysis.category !== 'dialysis') return false;
-            if (filterCategory === 'drug' && analysis.category !== 'epo_real') return false;
 
             if (filterPatientRight !== 'all') {
                 const patientRight = 'insuranceType' in item
@@ -311,9 +354,32 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 if (patientRight !== filterPatientRight) return false;
             }
 
-            return true; // Keep item if it passes all filters
+            return true;
         });
-    }, [allKidneyData, activeMonitor, filterRight, filterCategory, filterPatientRight, getAnalysis]);
+    }, [allKidneyData, activeMonitor, filterRight, filterPatientRight]);
+
+    const stmCounts = useMemo(() => {
+        const records = filteredData as KidneyMonitorRecord[];
+        return {
+            all: records.length,
+            received: records.filter((row) => row.stmFound).length,
+            waiting: records.filter((row) => row.repFound && !row.stmFound).length,
+            'no-rep': records.filter((row) => !row.repFound && !row.stmFound).length,
+        };
+    }, [filteredData]);
+
+    const visibleData = useMemo(() => {
+        const query = searchText.trim().toLocaleLowerCase('th');
+        return filteredData.filter((item) => {
+            const row = item as KidneyMonitorRecord;
+            if (stmView === 'received' && !row.stmFound) return false;
+            if (stmView === 'waiting' && (!row.repFound || row.stmFound)) return false;
+            if (stmView === 'no-rep' && (row.repFound || row.stmFound)) return false;
+            if (!query) return true;
+            return [row.hn, row.vn, row.patientName, ...(row.repNos || []), ...(row.stmNos || [])]
+                .some((value) => String(value || '').toLocaleLowerCase('th').includes(query));
+        });
+    }, [filteredData, searchText, stmView]);
 
     const patientRightOptions = useMemo(() => {
         const set = new Set<string>();
@@ -326,11 +392,93 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
         return Array.from(set).sort((a, b) => a.localeCompare(b, 'th'));
     }, [allKidneyData]);
 
+    // สรุปยอดรวมแยกตามกลุ่มสิทธิ 5 กลุ่ม (UCS, OFC, LGO, SSS, OTHER) + ภาพรวม
+    const rightSummaries = useMemo(() => {
+        const list = (Array.isArray(allKidneyData) ? allKidneyData : []).filter((item) => {
+            if (activeMonitor === 'kidney') {
+                return 'insuranceGroup' in item && 'dialysisFee' in item;
+            }
+            return true;
+        });
+
+        const initialCategory = () => ({
+            count: 0,
+            revenue: 0,
+            costTotal: 0,
+            profit: 0,
+            repAmount: 0,
+            stmPaidAmount: 0,
+            repCount: 0,
+            stmCount: 0,
+        });
+
+        const byCat: Record<Exclude<ClaimCategoryKey, 'all'>, ReturnType<typeof initialCategory>> = {
+            ucs: initialCategory(),
+            ofc: initialCategory(),
+            lgo: initialCategory(),
+            sss: initialCategory(),
+            other: initialCategory(),
+        };
+
+        const overall = initialCategory();
+
+        list.forEach((item) => {
+            const cat = getVisitClaimCategory(item);
+            const row = item as KidneyMonitorRecord;
+            const rev = Number(row.revenue ?? item.revenue ?? 0);
+            const cost = Number(row.costTotal ?? item.costTotal ?? 0);
+            const prof = Number(row.profit ?? item.profit ?? (rev - cost));
+            const rep = Number(row.repAmount ?? 0);
+            const stm = Number(row.stmPaidAmount ?? 0);
+
+            byCat[cat].count += 1;
+            byCat[cat].revenue += rev;
+            byCat[cat].costTotal += cost;
+            byCat[cat].profit += prof;
+            byCat[cat].repAmount += rep;
+            byCat[cat].stmPaidAmount += stm;
+            if (row.repFound) byCat[cat].repCount += 1;
+            if (row.stmFound) byCat[cat].stmCount += 1;
+
+            overall.count += 1;
+            overall.revenue += rev;
+            overall.costTotal += cost;
+            overall.profit += prof;
+            overall.repAmount += rep;
+            overall.stmPaidAmount += stm;
+            if (row.repFound) overall.repCount += 1;
+            if (row.stmFound) overall.stmCount += 1;
+        });
+
+        return { byCat, overall };
+    }, [allKidneyData, activeMonitor]);
+
+    const currentFilteredSummary = useMemo(() => {
+        let count = 0;
+        let revenue = 0;
+        let costTotal = 0;
+        let profit = 0;
+        let repAmount = 0;
+        let stmPaidAmount = 0;
+
+        visibleData.forEach((item) => {
+            const row = item as KidneyMonitorRecord;
+            count += 1;
+            revenue += Number(row.revenue ?? item.revenue ?? 0);
+            costTotal += Number(row.costTotal ?? item.costTotal ?? 0);
+            profit += Number(row.profit ?? item.profit ?? 0);
+            repAmount += Number(row.repAmount ?? 0);
+            stmPaidAmount += Number(row.stmPaidAmount ?? 0);
+        });
+
+        return { count, revenue, costTotal, profit, repAmount, stmPaidAmount };
+    }, [visibleData]);
+
     const handleExportExcel = useCallback(() => {
-        if (!filteredData.length) return;
+        if (!visibleData.length) return;
 
         const workbook = XLSX.utils.book_new();
-        const rows = filteredData.map((item, index) => {
+        const rows = visibleData.map((item, index) => {
             const analysis = getAnalysis(item);
             const isKidneyRecord = 'insuranceType' in item && 'dialysisFee' in item;
             const kidneyRecord = isKidneyRecord ? (item as unknown as KidneyMonitorRecord) : null;
@@ -341,16 +489,19 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
             const groupValue = isKidneyRecord && kidneyRecord
                 ? kidneyRecord.insuranceGroup
                 : analysis.category || '-';
+            const claimCat = getVisitClaimCategory(item);
+            const claimCatLabel = CLAIM_CATEGORY_CONFIG[claimCat]?.label || claimCat;
 
             return {
                 ลำดับ: index + 1,
                 VN: item.vn || kidneyRecord?.vn || '-',
                 HN: item.hn || kidneyRecord?.hn || '-',
                 ชื่อผู้ป่วย: item.ptname || kidneyRecord?.patientName || '-',
+                กลุ่มสิทธิหลัก: claimCatLabel,
                 สิทธิการรักษา: rightValue,
-                กลุ่มสิทธิ: groupValue,
+                กลุ่มสิทธิ_เดิม: groupValue,
                 วันที่รับบริการ: dateValue || '-',
-                รายรับ: Number(
+                ยอดเงิน_Visit: Number(
                     isKidneyRecord && kidneyRecord
                         ? kidneyRecord.revenue
                         : item.revenue ?? analysis.totalCost ?? analysis.totalAmount ?? 0
@@ -366,6 +517,13 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                         : item.profit ?? analysis.profit ?? 0
                 ),
                 สถานะ: analysis.error ? analysis.error : (analysis.category || 'ปกติ'),
+                สถานะ_REP_STM: kidneyRecord?.claimTrackingStatus ? CLAIM_TRACKING_LABELS[kidneyRecord.claimTrackingStatus].label : '-',
+                เลข_REP: kidneyRecord?.repNos?.join(', ') || '-',
+                ยอด_REP: Number(kidneyRecord?.repAmount || 0),
+                เลข_STM: kidneyRecord?.stmNos?.join(', ') || '-',
+                ยอดจ่าย_STM: Number(kidneyRecord?.stmPaidAmount || 0),
+                ผลต่าง_REP_STM: Number(kidneyRecord?.repStmDiff || 0),
+                Error_REP_STM: kidneyRecord?.repStmErrors?.join(', ') || '',
                 หมายเหตุ: analysis.epoDetail || '',
             };
         });
@@ -377,8 +535,17 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
             { wch: 12 },
             { wch: 28 },
             { wch: 18 },
+            { wch: 18 },
             { wch: 14 },
             { wch: 14 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 20 },
+            { wch: 18 },
+            { wch: 18 },
+            { wch: 14 },
+            { wch: 18 },
             { wch: 14 },
             { wch: 14 },
             { wch: 24 },
@@ -387,19 +554,18 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
         XLSX.utils.book_append_sheet(workbook, worksheet, 'SpecialMonitor');
 
         const safeRight = RIGHT_LABEL_MAP[filterRight] || filterRight;
-        const safeCategory = CATEGORY_LABEL_MAP[filterCategory] || filterCategory;
         const filename = [
             'special-monitor',
             activeMonitor,
             safeRight.replace(/\s+/g, '_'),
             (filterPatientRight === 'all' ? 'all_patient_rights' : filterPatientRight.replace(/\s+/g, '_')),
-            safeCategory.replace(/\s+/g, '_'),
+            stmView,
             startDate,
             endDate,
         ].join('_');
 
         XLSX.writeFile(workbook, `${filename}.xlsx`);
-    }, [activeMonitor, endDate, filterCategory, filterRight, filterPatientRight, filteredData, getAnalysis, startDate]);
+    }, [activeMonitor, endDate, filterRight, filterPatientRight, visibleData, getAnalysis, startDate, stmView]);
 
     // Calculate category summary by insurance type
     const calculateCategorySummary = (insuranceType: 'UCS+SSS' | 'OFC+LGO' | 'UC-EPO') => {
@@ -549,7 +715,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
         <div style={{ padding: '20px', width: '100%', maxWidth: 'var(--content-max)', margin: '0 auto' }}>            {/* Header */}
             <div style={{ marginBottom: '30px' }}>
                 <h1 style={{ fontSize: '28px', fontWeight: 800, marginBottom: '10px' }}>
-                    📊 รายการมอนิเตอร์พิเศษ (เวอร์ชันแก้ไขแล้ว)
+                    📊 รายการมอนิเตอร์พิเศษ
                 </h1>
                 <p style={{ color: '#666', fontSize: '14px' }}>
                     ตรวจสอบการเบิกจ่ายสำหรับกลุ่มผู้ป่วยพิเศษ
@@ -559,125 +725,26 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 </p>
             </div>
 
-            {/* Monitor Category Menu */}            <div
-                style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                    gap: '20px',
-                    marginBottom: '40px',
-                }}
-            >
-                {monitorCategories.map((category) => {
-                    const isActive = activeMonitor === category.id;
-                    const categoryColors: Record<string, { gradient: string; accent: string; light: string }> = {
-                        kidney: {
-                            gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                            accent: '#667eea',
-                            light: '#f0f4ff'
-                        },
-                        chronic: {
-                            gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                            accent: '#f5576c',
-                            light: '#ffe5ec'
-                        },
-                        special: {
-                            gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-                            accent: '#00f2fe',
-                            light: '#e0f7ff'
-                        }
-                    };
-
-                    const colors = categoryColors[category.id] || categoryColors.kidney;
-
-                    return (
-                        <div
-                            key={category.id}
-                            onClick={() => setActiveMonitor(category.id)}
-                            style={{
-                                padding: isActive ? '24px' : '20px',
-                                background: isActive ? colors.gradient : '#ffffff',
-                                border: isActive ? 'none' : `1px solid #e0e0e0`,
-                                borderRadius: '16px',
-                                cursor: 'pointer',
-                                transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                                boxShadow: isActive
-                                    ? `0 8px 24px ${colors.accent}40, 0 0 1px ${colors.accent}80`
-                                    : '0 2px 8px rgba(0, 0, 0, 0.08)',
-                                transform: isActive ? 'translateY(-4px) scale(1.02)' : 'translateY(0) scale(1)',
-                                position: 'relative',
-                                overflow: 'hidden',
-                            }}
-                            onMouseEnter={(e) => {
-                                const el = e.currentTarget as HTMLElement;
-                                if (!isActive) {
-                                    el.style.boxShadow = '0 8px 16px rgba(0, 0, 0, 0.12)';
-                                    el.style.transform = 'translateY(-2px) scale(1.01)';
-                                    el.style.borderColor = colors.accent;
-                                    el.style.background = colors.light;
-                                }
-                            }}
-                            onMouseLeave={(e) => {
-                                const el = e.currentTarget as HTMLElement;
-                                if (!isActive) {
-                                    el.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                                    el.style.transform = 'translateY(0) scale(1)';
-                                    el.style.borderColor = '#e0e0e0';
-                                    el.style.background = '#ffffff';
-                                }
-                            }}
-                        >
-                            {/* Decorative background element */}
-                            <div
-                                style={{
-                                    position: 'absolute',
-                                    top: '-50px',
-                                    right: '-50px',
-                                    width: '150px',
-                                    height: '150px',
-                                    background: isActive ? 'rgba(255, 255, 255, 0.1)' : `${colors.accent}10`,
-                                    borderRadius: '50%',
-                                    pointerEvents: 'none',
-                                    transition: 'all 0.4s ease'
-                                }}
-                            />
-
-                            {/* Content */}
-                            <div style={{ position: 'relative', zIndex: 1 }}>
-                                <div style={{
-                                    fontSize: '48px',
-                                    marginBottom: '16px',
-                                    display: 'inline-block',
-                                    transition: 'transform 0.3s ease'
-                                }}>
-                                    {category.icon}
-                                </div>
-                                <div style={{
-                                    fontSize: '18px',
-                                    fontWeight: 700,
-                                    marginBottom: '12px',
-                                    color: isActive ? '#ffffff' : '#1a1a1a',
-                                    transition: 'color 0.3s ease'
-                                }}>
-                                    {category.name}
-                                </div>
-                                <div style={{
-                                    fontSize: '13px',
-                                    color: isActive ? 'rgba(255, 255, 255, 0.9)' : '#666666',
-                                    lineHeight: '1.6',
-                                    transition: 'color 0.3s ease'
-                                }}>
-                                    {category.description}
-                                </div>
-                            </div>
-                        </div>
-                    );
-                })}
-            </div>
+            <nav className="special-monitor-nav" aria-label="ประเภทมอนิเตอร์">
+                {monitorCategories.map((category) => (
+                    <button
+                        key={category.id}
+                        type="button"
+                        className={activeMonitor === category.id ? 'special-monitor-nav-item active' : 'special-monitor-nav-item'}
+                        aria-current={activeMonitor === category.id ? 'page' : undefined}
+                        onClick={() => setActiveMonitor(category.id)}
+                    >
+                        <span aria-hidden="true">{category.icon}</span> {category.name}
+                    </button>
+                ))}
+            </nav>
 
             {/* Dialysis Service Summary Section - shown for kidney monitor */}
             {activeMonitor === 'kidney' && (
                 <>
                     {dataMeta?.trackingSummary && (
+                        <details className="special-monitor-details">
+                            <summary>สรุป Session ตามสิทธิ์ · {dataMeta.trackingSummary.totalSessions.toLocaleString('th-TH')} visit</summary>
                         <div
                             style={{
                                 background: 'white',
@@ -764,7 +831,18 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                                 </div>
                             )}
                         </div>
+                        </details>
                     )}
+                    {dataMeta?.repstmSummary && (
+                        <div className="special-monitor-amounts">
+                            <span>ยอดรวมทั้งช่วงวันที่</span>
+                            <span>REP <strong>฿{dataMeta.repstmSummary.repAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></span>
+                            <span>STM จ่ายรวม <strong>฿{dataMeta.repstmSummary.stmPaidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></span>
+                            <span>ผลต่าง <strong>฿{dataMeta.repstmSummary.amountDiff.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong></span>
+                        </div>
+                    )}
+                    <details className="special-monitor-details">
+                        <summary>ดูรายละเอียดรายรับ ต้นทุน และกำไรตามสิทธิ์</summary>
                     <div
                         style={{
                             background: 'white',
@@ -1033,6 +1111,7 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                         )}
 
                     </div>
+                    </details>
                 </>
                 )}
 
@@ -1049,105 +1128,146 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 />
             )}
 
-            {/* Filter Controls */}
             {activeMonitor === 'kidney' && (
-                <div
-                    style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                        gap: '15px',
-                        marginBottom: '20px',
-                        padding: '15px',
-                        background: '#f5f5f5',
-                        borderRadius: '8px',
-                    }}
-                >
-                    <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>📅 วันเริ่มต้น:</label>
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }}
-                        />
+                <section className="special-monitor-workspace" aria-label="รายการติดตาม STM">
+                    <div className="special-monitor-workspace-head">
+                        <div>
+                            <h2>รายการติดตาม STM</h2>
+                            <p>แสดง visit หน่วยไตที่จับคู่ข้อมูล REP/STM ได้ในช่วงวันที่เลือก · ไฟล์นำเข้าที่ยังจับคู่ไม่ได้ดูได้ในหน้านำเข้า/ตรวจสอบ</p>
+                        </div>
+                        <div className="special-monitor-actions">
+                            <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'repstm' } }))}>ดูไฟล์นำเข้า REP/STM</button>
+                            <button type="button" onClick={() => void fetchMonitorData()}>รีโหลด</button>
+                            <button type="button" onClick={handleExportExcel} disabled={visibleData.length === 0}>ส่งออก Excel ({visibleData.length})</button>
+                        </div>
                     </div>
 
-                    <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>📅 วันสิ้นสุด:</label>
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }}
-                        />
+                    {/* สรุปยอดรวมแยกตามกลุ่มสิทธิการรักษา (UCS, OFC, LGO, SSS, OTHER) */}
+                    <div style={{ marginTop: '16px', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '13px', fontWeight: 700, color: '#334155' }}>
+                                💳 สรุปยอดรวมแยกตามกลุ่มสิทธิ ({allKidneyData.length.toLocaleString('th-TH')} visit ทั้งหมดในช่วงวันที่)
+                            </div>
+                            {filterRight !== 'all' && (
+                                <button
+                                    type="button"
+                                    onClick={() => setFilterRight('all')}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#2563eb',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        textDecoration: 'underline'
+                                    }}
+                                >
+                                    ล้างตัวกรองสิทธิ (แสดงทั้งหมด)
+                                </button>
+                            )}
+                        </div>
+                        <div className="special-monitor-summary-grid">
+                            {(['ucs', 'ofc', 'lgo', 'sss', 'other'] as const).map((catKey) => {
+                                const conf = CLAIM_CATEGORY_CONFIG[catKey];
+                                const sum = rightSummaries.byCat[catKey];
+                                const isSelected = filterRight === catKey;
+                                return (
+                                    <div
+                                        key={catKey}
+                                        role="button"
+                                        tabIndex={0}
+                                        className={`special-monitor-summary-card ${isSelected ? 'active' : ''}`}
+                                        style={{
+                                            borderLeft: `4px solid ${conf.border}`,
+                                            background: isSelected ? conf.background : '#ffffff',
+                                        }}
+                                        onClick={() => setFilterRight((prev) => prev === catKey ? 'all' : catKey)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                setFilterRight((prev) => prev === catKey ? 'all' : catKey);
+                                            }
+                                        }}
+                                        title={`คลิกเพื่อกรองเฉพาะกลุ่ม ${conf.label}`}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                            <span style={{ fontSize: '12px', fontWeight: 700, color: conf.color }}>
+                                                {conf.label} ({conf.code})
+                                            </span>
+                                            <span style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', background: '#f1f5f9', padding: '1px 6px', borderRadius: '4px' }}>
+                                                {sum.count.toLocaleString('th-TH')} visit
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>
+                                            ฿{sum.revenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>ได้รับ STM:</span>
+                                                <strong style={{ color: '#166534' }}>฿{sum.stmPaidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <span>รอชดเชย REP:</span>
+                                                <strong style={{ color: '#2563eb' }}>฿{sum.repAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #e2e8f0', paddingTop: '3px', marginTop: '2px' }}>
+                                                <span>กำไรสุทธิ:</span>
+                                                <strong style={{ color: sum.profit >= 0 ? '#166534' : '#b91c1c' }}>
+                                                    ฿{sum.profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                                </strong>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
 
-                    <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>🏷️ กลุ่มสิทธิ์ (เดิม):</label>
-                        <select
-                            value={filterRight}
-                            onChange={(e) => setFilterRight(e.target.value)}
-                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }}
-                        >
-                            <option value="all">ทั้งหมด</option>
-                            <option value="ucs">UCS + SSS (1,500)</option>
-                            <option value="ofc_lgo">OFC + LGO (2,000)</option>
-                            <option value="uc">UC - EPO จริง (180)</option>
-                        </select>
+                    <div className="special-monitor-filters">
+                        <label>เริ่มวันที่<input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></label>
+                        <label>ถึงวันที่<input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} /></label>
+                        <label>กลุ่มสิทธิ์
+                            <select value={filterRight} onChange={(e) => setFilterRight(e.target.value as ClaimCategoryKey)}>
+                                <option value="all">ทุกกลุ่มสิทธิ์ ({rightSummaries.overall.count.toLocaleString('th-TH')} visit · ฿{rightSummaries.overall.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="ucs">บัตรทอง (UCS) - {rightSummaries.byCat.ucs.count} visit (฿{rightSummaries.byCat.ucs.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="ofc">ข้าราชการ (OFC) - {rightSummaries.byCat.ofc.count} visit (฿{rightSummaries.byCat.ofc.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="lgo">อปท. (LGO) - {rightSummaries.byCat.lgo.count} visit (฿{rightSummaries.byCat.lgo.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="sss">ประกันสังคม (SSS) - {rightSummaries.byCat.sss.count} visit (฿{rightSummaries.byCat.sss.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                                <option value="other">สิทธิอื่นๆ (Other) - {rightSummaries.byCat.other.count} visit (฿{rightSummaries.byCat.other.revenue.toLocaleString('th-TH', { minimumFractionDigits: 0 })})</option>
+                            </select>
+                        </label>
+                        <label>สิทธิ์คนไข้
+                            <select value={filterPatientRight} onChange={(e) => setFilterPatientRight(e.target.value)}>
+                                <option value="all">ทุกสิทธิ์</option>
+                                {patientRightOptions.map((right) => <option key={right} value={right}>{right}</option>)}
+                            </select>
+                        </label>
+                        <label className="special-monitor-search">ค้นหา HN / VN / ชื่อ / เลข REP หรือ STM
+                            <input type="search" value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="พิมพ์คำค้น" />
+                        </label>
                     </div>
 
-                    <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>🧾 สิทธิ์คนไข้:</label>
-                        <select
-                            value={filterPatientRight}
-                            onChange={(e) => setFilterPatientRight(e.target.value)}
-                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }}
-                        >
-                            <option value="all">ทั้งหมด</option>
-                            {patientRightOptions.map((right) => (
-                                <option key={right} value={right}>{right}</option>
-                            ))}
-                        </select>
+                    <div className="special-monitor-status-tabs" role="group" aria-label="สถานะ STM">
+                        {(Object.keys(STM_VIEW_LABELS) as StmView[]).map((view) => (
+                            <button
+                                key={view}
+                                type="button"
+                                className={stmView === view ? 'active' : ''}
+                                aria-pressed={stmView === view}
+                                onClick={() => setStmView(view)}
+                            >
+                                {STM_VIEW_LABELS[view]} <strong>{stmCounts[view].toLocaleString('th-TH')}</strong>
+                            </button>
+                        ))}
                     </div>
-
-                    <div>
-                        <label style={{ fontSize: '12px', fontWeight: 600, display: 'block', marginBottom: '5px' }}>📦 หมวดบริการ:</label>
-                        <select
-                            value={filterCategory}
-                            onChange={(e) => setFilterCategory(e.target.value)}
-                            style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '14px' }}
-                        >
-                            <option value="all">ทั้งหมด</option>
-                            <option value="service">หน่วยไต (ค่าบริการ)</option>
-                            <option value="drug">ยา + แลป + บริการ</option>
-                        </select>
-                    </div>
-
-                    <div style={{ alignSelf: 'flex-end' }}>
-                        <button
-                            onClick={() => void fetchMonitorData()}
-                            style={{ width: '100%', padding: '8px', background: '#2196f3', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 600, cursor: 'pointer', marginBottom: '8px' }}
-                        >
-                            🔄 รีโหลด
-                        </button>
-                        <button
-                            onClick={handleExportExcel}
-                            disabled={filteredData.length === 0}
-                            style={{
-                                width: '100%',
-                                padding: '8px',
-                                background: filteredData.length === 0 ? '#cfd8dc' : '#43a047',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '4px',
-                                fontWeight: 600,
-                                cursor: filteredData.length === 0 ? 'not-allowed' : 'pointer',
-                            }}
-                        >
-                            📥 Excel
-                        </button>
-                    </div>
-                </div>
+                    <p className="special-monitor-result-count">
+                        แสดง {visibleData.length.toLocaleString('th-TH')} จาก {stmCounts[stmView].toLocaleString('th-TH')} visit ในกลุ่มนี้{searchText.trim() ? ' หลังค้นหา' : ''}
+                        {' · '}ยอดเงินรวม <strong>฿{currentFilteredSummary.revenue.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                        {' · '}ชดเชย STM <strong>฿{currentFilteredSummary.stmPaidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                        {' · '}รอ REP <strong>฿{currentFilteredSummary.repAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong>
+                        {' · '}คลิกรายการเพื่อดูรายละเอียด
+                    </p>
+                </section>
             )}
 
             {/* Error & Loading */}
@@ -1155,7 +1275,9 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 <div style={{ padding: '15px', background: '#ffebee', color: '#c62828', borderRadius: '4px', marginBottom: '20px' }}>
                     ⚠️ {error}
                 </div>
-            )}            {loading && (
+            )}
+
+            {loading && (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>⏳ กำลังโหลดข้อมูล...</div>
             )}
 
@@ -1173,153 +1295,72 @@ export const SpecialMonitorPage: React.FC = () => {    const [activeMonitor, set
                 </div>
             )}
 
-            {/* Record Count Info */}
-            {!loading && dataMeta && !dataMeta.truncated && dataMeta.total > 0 && (
-                <div style={{ padding: '8px 14px', background: '#e8f5e9', color: '#2e7d32', borderRadius: '6px', marginBottom: '12px', fontSize: '13px', border: '1px solid #a5d6a7' }}>
-                    ✅ โหลดครบ <strong>{dataMeta.returned.toLocaleString()}</strong> รายการ (ทั้งหมด {dataMeta.total.toLocaleString()} รายการ)
-                </div>
-            )}{/* Data Table */}            {activeMonitor === 'kidney' && !loading && filteredData.length > 0 && (
-                <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', borderRadius: '8px', overflow: 'hidden' }}>                        <thead>                            <tr style={{ background: '#1976d2', color: 'white' }}>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, minWidth: '80px' }}>HN</th>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, minWidth: '150px' }}>ชื่อ-สกุล</th>
-                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '120px', backgroundColor: '#1565c0' }}>📅 วันที่</th>
-                        <th style={{ padding: '12px', textAlign: 'left', fontWeight: 600, minWidth: '140px' }}>สิทธิ์</th>
-                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>กลุ่ม</th>
-                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '130px' }}>หลักฐานฟอกไต</th>
-                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>รายรับ (Revenue)</th>
-                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '120px' }}>จ่ายหน่วยไต (Cost)</th>
-                        <th style={{ padding: '12px', textAlign: 'center', fontWeight: 600, minWidth: '100px' }}>กำไร รพ.</th>
-                    </tr>
-                    </thead><tbody>                            {filteredData.map((item, idx) => {
-                                const analysis = getAnalysis(item);
-                                const isKidneyRecord = 'insuranceType' in item && 'dialysisFee' in item;
-                                const kidneyRecord = isKidneyRecord ? (item as unknown as KidneyMonitorRecord) : null;
-
-                                // Use actual values from kidney record if available
-                                const displayCost = isKidneyRecord && kidneyRecord
-                                    ? (kidneyRecord.revenue as number)
-                                    : (analysis.totalCost || analysis.totalAmount || 0);
-                                const displayPayment = isKidneyRecord && kidneyRecord
-                                    ? (kidneyRecord.costTotal as number)
-                                    : (analysis.epoPayment || analysis.totalAmount || 0);
-                                const displayProfit = isKidneyRecord && kidneyRecord
-                                    ? (kidneyRecord.profit as number)
-                                    : (analysis.profit || 0);
-
-                                const hn = isKidneyRecord && kidneyRecord ? kidneyRecord.hn : item.hn || '-';
-                                const ptname = isKidneyRecord && kidneyRecord ? kidneyRecord.patientName : item.ptname || '-';
-
+            {activeMonitor === 'kidney' && !loading && visibleData.length > 0 && (
+                <div className="special-monitor-table-wrap">
+                    <table className="special-monitor-table">
+                        <thead><tr>
+                            <th>visit / ผู้ป่วย</th>
+                            <th>สิทธิ์</th>
+                            <th>ยอดเงิน Visit</th>
+                            <th>REP</th>
+                            <th>STM</th>
+                            <th>ตรวจสอบ</th>
+                        </tr></thead>
+                        <tbody>
+                            {visibleData.map((item, index) => {
+                                const row = item as KidneyMonitorRecord;
+                                const status = row.claimTrackingStatus ? CLAIM_TRACKING_LABELS[row.claimTrackingStatus] : null;
+                                const claimCat = getVisitClaimCategory(row);
+                                const claimConfig = CLAIM_CATEGORY_CONFIG[claimCat];
                                 return (
-                                    <tr
-                                        key={idx}
-                                        onClick={() => {
-                                            if (isKidneyRecord && kidneyRecord) {
-                                                try {
-                                                    setSelectedKidneyRecord(kidneyRecord);
-                                                } catch (err) {
-                                                    console.error('Error setting kidney record:', err);
-                                                }
-                                            } else {
-                                                const record: CheckRecord = {
-                                                    id: idx,
-                                                    vn: item.vn || '',
-                                                    hn: item.hn || '',
-                                                    patientName: item.ptname || '',
-                                                    fund: item.hipdata_code || item.fund || '',
-                                                    serviceDate: item.serviceDate || formatLocalDateInput(),
-                                                    serviceType: 'OPD',
-                                                    vstdate: item.serviceDate || formatLocalDateInput(),
-                                                    status: 'completed',
-                                                    issues: [],
-                                                    price: analysis.totalCost || analysis.totalAmount || 0,
-                                                    main_diag: item.main_diag || '',
-                                                    hipdata_code: item.hipdata_code || '',
-                                                    ...item as any,
-                                                };
-                                                setSelectedRecord(record);
-                                            }
-                                        }}
-                                        style={{
-                                            borderBottom: '1px solid #eee',
-                                            background: idx % 2 === 0 ? 'white' : '#f9f9f9',
-                                            transition: 'background-color 0.2s',
-                                            cursor: 'pointer',
-                                        }} onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = '#f0f0f0'; }}
-                                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = idx % 2 === 0 ? 'white' : '#f9f9f9'; }}
-                                    >
-                                        <td style={{ padding: '12px', minWidth: '80px' }}>{hn}</td>
-                                        <td style={{ padding: '12px', minWidth: '150px' }}>{ptname}</td>
-                                        <td style={{ padding: '12px', textAlign: 'center', fontSize: '12px', color: '#1565c0', fontWeight: 600, minWidth: '120px', backgroundColor: '#f0f7ff', borderRadius: '4px' }}>
-                                            {(() => {
-                                                const dateValue = isKidneyRecord && kidneyRecord ? kidneyRecord.serviceDate : item.serviceDate;
-                                                return dateValue || '-';
-                                            })()}
-                                        </td>
-                                        <td style={{ padding: '12px', fontWeight: 600, minWidth: '140px' }}>
-                                            <div style={{ display: 'inline-block', padding: '4px 8px', background: analysis.right === 'UCS + SSS' || analysis.right === 'UCS+SSS' ? '#e3f2fd' : analysis.right === 'OFC + LGO' || analysis.right === 'OFC+LGO' ? '#f3e5f5' : '#fff3e0', color: analysis.right === 'UCS + SSS' || analysis.right === 'UCS+SSS' ? '#2196f3' : analysis.right === 'OFC + LGO' || analysis.right === 'OFC+LGO' ? '#9c27b0' : '#ff9800', borderRadius: '4px', fontSize: '11px', maxWidth: '200px', wordWrap: 'break-word' }}>
-                                                {/* Show insurance type name, or group if not available */}
-                                                {isKidneyRecord && kidneyRecord ? kidneyRecord.insuranceType : analysis.right}
+                                    <tr key={`${row.vn || row.hn}-${row.serviceDate}-${index}`} role="button" aria-label={`ดูรายละเอียด visit ${row.vn || row.hn}`} onClick={() => setSelectedKidneyRecord(row)} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedKidneyRecord(row); } }}>
+                                        <td><strong>{row.patientName || '-'}</strong><small>{row.serviceDate || '-'} · HN {row.hn || '-'} · VN {row.vn || '-'}</small></td>
+                                        <td>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span
+                                                    className="special-monitor-right-badge"
+                                                    style={{
+                                                        color: claimConfig.color,
+                                                        background: claimConfig.background,
+                                                        borderColor: claimConfig.border,
+                                                    }}
+                                                >
+                                                    {claimConfig.short}
+                                                </span>
+                                                <strong>{row.insuranceGroup || '-'}</strong>
                                             </div>
-                                        </td>                                        <td style={{ padding: '12px', textAlign: 'center', fontSize: '11px', fontWeight: 700, minWidth: '100px' }}>
-                                            <span style={{ padding: '2px 6px', background: '#f5f5f5', borderRadius: '4px', border: '1px solid #ddd' }}>
-                                                {(() => {
-                                                    const displayValue = isKidneyRecord && kidneyRecord ? kidneyRecord.insuranceGroup : analysis.right;
-                                                    return displayValue;
-                                                })()}
-                                            </span>
+                                            <small>{row.insuranceType || '-'}</small>
                                         </td>
-                                        <td style={{ padding: '12px', textAlign: 'center', minWidth: '130px' }}>
-                                            <span style={{
-                                                display: 'inline-block',
-                                                padding: '3px 7px',
-                                                borderRadius: '999px',
-                                                fontSize: '10px',
-                                                fontWeight: 700,
-                                                color: item.hasDialysisEvidence === false ? '#92400e' : '#166534',
-                                                background: item.hasDialysisEvidence === false ? '#fef3c7' : '#dcfce7',
-                                            }}>
-                                                {item.hasDialysisEvidence === false ? '⚠️ ต้องตรวจสอบ' : '✓ ครบ'}
-                                            </span>
+                                        <td>
+                                            <strong style={{ color: '#0f172a', fontSize: '14px' }}>
+                                                ฿{Number(row.revenue || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                            </strong>
+                                            <small style={{ color: '#64748b' }}>
+                                                ทุน ฿{Number(row.costTotal || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                                <span style={{ color: Number(row.profit || 0) >= 0 ? '#166534' : '#b91c1c', marginLeft: 4, fontWeight: 600 }}>
+                                                    · กำไร ฿{Number(row.profit || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                                </span>
+                                            </small>
                                         </td>
-                                        <td style={{ padding: '12px', textAlign: 'center', fontWeight: 800, color: '#1976d2', minWidth: '100px' }}>
-                                            ฿{displayCost.toLocaleString()}
-                                        </td>
-                                        <td style={{ padding: '12px', textAlign: 'center', minWidth: '120px' }}>
-                                            <div style={{ fontWeight: 800, color: '#d32f2f' }}>฿{displayPayment.toLocaleString()}</div>
-                                            {isKidneyRecord && kidneyRecord && (
-                                                <div style={{ fontSize: '9px', color: '#666', fontWeight: 600 }}>
-                                                    (หน่วยไต: ฿{dialysisFixed.toLocaleString()})
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td style={{ padding: '12px', textAlign: 'center', minWidth: '100px' }}>
-                                            <div style={{
-                                                fontWeight: 800,
-                                                color: displayProfit > 0 ? '#2e7d32' : '#c62828',
-                                                background: displayProfit > 0 ? '#e8f5e9' : '#ffebee',
-                                                padding: '4px 8px',
-                                                borderRadius: '6px',
-                                                display: 'inline-block'
-                                            }}>
-                                                ฿{displayProfit.toLocaleString()}
-                                            </div>
+                                        <td>{row.repFound ? <><strong>฿{Number(row.repAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong><small>{row.repNos?.length ? `เลข ${row.repNos.join(', ')}` : 'พบ REP'}</small></> : <span className="special-monitor-muted">ยังไม่มี REP</span>}</td>
+                                        <td>{row.stmFound ? <><span className="special-monitor-pill received">ได้รับ STM</span><strong>฿{Number(row.stmPaidAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</strong><small>{row.stmNos?.length ? `เลข ${row.stmNos.join(', ')}` : 'พบรายการ STM ที่จับคู่แล้ว'}</small></> : <span className="special-monitor-pill waiting">{row.repFound ? 'รอ STM' : 'รอ REP'}</span>}</td>
+                                        <td>
+                                            {status && <span className="special-monitor-pill" style={{ color: status.color, background: status.background }}>{status.label}</span>}
+                                            {row.hasDialysisEvidence === false && <small className="special-monitor-warning">หลักฐานฟอกไตไม่ครบ</small>}
+                                            {row.stmFound && row.repFound && Math.abs(Number(row.repStmDiff || 0)) > 0.01 && <small className="special-monitor-warning">ผลต่าง ฿{Number(row.repStmDiff).toLocaleString('th-TH', { minimumFractionDigits: 2 })}</small>}
                                         </td>
                                     </tr>
                                 );
                             })}
                         </tbody>
-                    </table>                </div>
-            )}
-
-            {filteredData.length === 0 && activeMonitor === 'kidney' && (
-                <div style={{ textAlign: 'center', padding: '40px', color: '#999', fontSize: '16px' }}>
-                    📭 ไม่มีข้อมูลตรงตามเงื่อนไขที่คัดกรอง
+                    </table>
                 </div>
+            )}
+            {!loading && !error && activeMonitor === 'kidney' && visibleData.length === 0 && (
+                <div className="special-monitor-empty">ไม่พบ visit ตามตัวกรองนี้ ลองเปลี่ยนช่วงวันที่หรือสถานะ STM</div>
             )}
 
             {/* Detail Modal */}
-            <DetailModal record={selectedRecord} onClose={() => setSelectedRecord(null)} />
             <DetailKidneyModal record={selectedKidneyRecord} onClose={() => setSelectedKidneyRecord(null)} />
         </div>
     );

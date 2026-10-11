@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/DetailKidneyModal.tsx"
-source_hash: "0f5134e522762af6357026f76eb889b32e0c752c6abf213f559f3bc2a489672d"
+source_hash: "b3856c08e977b9af7275fc87fe87042258b0e4a7683482bdb760116ff0b6a5d6"
 managed_by: "sync-ksp-vault"
 ---
 # DetailKidneyModal.tsx
 
 > Source: `src/components/DetailKidneyModal.tsx`
-> SHA-256: `0f5134e522762af6357026f76eb889b32e0c752c6abf213f559f3bc2a489672d`
+> SHA-256: `b3856c08e977b9af7275fc87fe87042258b0e4a7683482bdb760116ff0b6a5d6`
 
 ````tsx
 import React, { useState } from 'react';

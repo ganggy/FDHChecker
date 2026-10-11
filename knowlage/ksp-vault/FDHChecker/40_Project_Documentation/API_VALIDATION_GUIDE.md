@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "API_VALIDATION_GUIDE.md"
-source_hash: "3ad5b909c0c1b18e95cf46e804da92bd9715c691874f24764a205f20a4235d83"
+source_hash: "6938cb95994752776a40986486a0624cde48824ab3930cddb9c59559fa9e8957"
 managed_by: "sync-ksp-vault"
 ---
 # ฟีเจอร์ที่เพิ่มเติม - การตรวจสอบข้อมูลขั้นสูง

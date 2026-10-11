@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiCapabilityHelp.ts"
-source_hash: "1157cdf5beb5b90556d625ae7c4458a4c2879ec2014842cad056599701731b93"
+source_hash: "55023904648713f59d5d596c8ad0d56b8ed9b15a092079d890fe608ba019ef22"
 managed_by: "sync-ksp-vault"
 ---
 # aiCapabilityHelp.ts
 
 > Source: `server/aiCapabilityHelp.ts`
-> SHA-256: `1157cdf5beb5b90556d625ae7c4458a4c2879ec2014842cad056599701731b93`
+> SHA-256: `55023904648713f59d5d596c8ad0d56b8ed9b15a092079d890fe608ba019ef22`
 
 ````typescript
 export type AiCapabilityTopic = 'all' | 'word' | 'excel' | 'csv' | 'json';

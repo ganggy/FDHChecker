@@ -4,15 +4,17 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/opdPreAuditRules.ts"
-source_hash: "4f3bf62cb86b0fbd1a253b220c9cf405399c523a4ceb8c24696e278277ab8225"
+source_hash: "1d59b87348b2b936199ee6495c7723577272c04ba4a200b34ff9d2f89f0df3af"
 managed_by: "sync-ksp-vault"
 ---
 # opdPreAuditRules.ts
 
 > Source: `server/opdPreAuditRules.ts`
-> SHA-256: `4f3bf62cb86b0fbd1a253b220c9cf405399c523a4ceb8c24696e278277ab8225`
+> SHA-256: `1d59b87348b2b936199ee6495c7723577272c04ba4a200b34ff9d2f89f0df3af`
 
 ````typescript
+import { findThaiMedSameDayConflict, suggestCombinedThaiMedCode, THAI_MED_CATALOG } from '../src/utils/thaiTraditionalMedicineRules.js';
+
 export type OpdPreAuditSeverity = 'blocking' | 'warning';
 
 export interface OpdPreAuditIssue {
@@ -21,8 +23,39 @@ export interface OpdPreAuditIssue {
   severity: OpdPreAuditSeverity;
 }
 
+export interface OpdPreAuditResult {
+  status: 'clear' | 'review' | 'blocking';
+  findingCount: number;
+  blockingCount: number;
+  reviewCount: number;
+  findings: OpdPreAuditIssue[];
+}
+
 const enabled = (value: unknown) => value === true || value === 1 || value === '1' || value === 'Y' || value === 'y';
 const count = (value: unknown) => Number(value ?? 0) || 0;
+const normalizeDiagnosisCode = (value: unknown) => String(value ?? '')
+  .trim()
+  .toUpperCase()
+  .replace(/[^A-Z0-9]/g, '');
+
+const diagnosisCodes = (row: Record<string, unknown>) => {
+  const values = [
+    row.diagnosis_codes,
+    row.main_diag,
+    row.pdx,
+    row.dx0,
+    row.dx1,
+    row.dx2,
+    row.dx3,
+    row.dx4,
+    row.dx5,
+  ];
+
+  return Array.from(new Set(values
+    .flatMap((value) => Array.isArray(value) ? value : String(value ?? '').split(/[\s,;|]+/))
+    .map(normalizeDiagnosisCode)
+    .filter(Boolean)));
+};
 
 /**
  * Rules that can be evaluated from structured HOSxP data. Evidence that only
@@ -30,7 +63,12 @@ const count = (value: unknown) => Number(value ?? 0) || 0;
  * of automatic pass/fail decisions and must remain a manual audit item.
  */
 export const evaluateOpdPreAudit = (row: Record<string, unknown>): OpdPreAuditIssue[] => {
-  if (row.an) return [];
+  const serviceType = String(row.serviceType ?? '').trim().toUpperCase();
+  const isIpd = Boolean(String(row.an ?? '').trim())
+    || serviceType === 'IPD'
+    || serviceType === 'IP'
+    || serviceType.includes('ผู้ป่วยใน');
+  if (isIpd) return [];
 
   const issues: OpdPreAuditIssue[] = [];
   if (!enabled(row.has_provider)) {
@@ -61,7 +99,55 @@ export const evaluateOpdPreAudit = (row: Record<string, unknown>): OpdPreAuditIs
     issues.push({ code: 'OPD-DRU01', message: 'พบรายการยาที่จำนวนจ่ายเป็นศูนย์หรือติดลบ', severity: 'blocking' });
   }
 
+  const incompleteInjuryCodes = diagnosisCodes(row).filter((code) => code.startsWith('S') && code.length < 5);
+  if (incompleteInjuryCodes.length > 0) {
+    issues.push({
+      code: 'OPD-DX01',
+      message: `รหัสวินิจฉัยกลุ่ม S ต้องมีอย่างน้อย 5 หลักหลังตัดจุด: ${incompleteInjuryCodes.join(', ')}`,
+      severity: 'warning',
+    });
+  }
+
+  const rawTmCodes = Array.isArray(row.thai_med_codes)
+    ? (row.thai_med_codes as string[])
+    : String(row.thai_med_codes ?? '').split(/[\s,;|]+/);
+  const tmConflicts = findThaiMedSameDayConflict(rawTmCodes);
+  const hipdataCode = String(row.hipdata_code ?? row.INSCL ?? '').trim().toUpperCase();
+  const fundText = `${row.fund ?? ''} ${row.pttypeName ?? ''} ${row.hipdata_desc ?? ''}`.toLowerCase();
+  const isOfcLgo = hipdataCode === 'OFC' || hipdataCode === 'LGO' || hipdataCode === 'CSCD'
+    || /\b(ofc|lgo|cscd)\b|ข้าราชการ|เบิกตรง|เบิกจ่ายตรง|อปท|องค์กรปกครองส่วนท้องถิ่น/.test(fundText);
+  if (isOfcLgo && tmConflicts.length > 1) {
+    const suggested = suggestCombinedThaiMedCode(tmConflicts);
+    const suggestionText = suggested ? ` (แนะนำปรับเป็นรหัสรวม ${suggested}: ${THAI_MED_CATALOG[suggested]?.name})` : '';
+    issues.push({
+      code: 'OPD-TM01',
+      message: `พบการเบิกรหัสนวด/ประคบสมุนไพร (${tmConflicts.join(', ')}) ในวันเดียวกันเกิน 1 รหัส สิทธิ OFC/LGO เบิกได้เพียงรหัสเดียวตามหนังสือ กค 0422.2/ว 447 (REP 853)${suggestionText}`,
+      severity: 'blocking',
+    });
+  }
+
   return issues;
+};
+
+export const buildOpdPreAuditResult = (row: Record<string, unknown>): OpdPreAuditResult | null => {
+  const serviceType = String(row.serviceType ?? '').trim().toUpperCase();
+  const isIpd = Boolean(String(row.an ?? '').trim())
+    || serviceType === 'IPD'
+    || serviceType === 'IP'
+    || serviceType.includes('ผู้ป่วยใน');
+  if (isIpd) return null;
+
+  const findings = evaluateOpdPreAudit(row);
+  const blockingCount = findings.filter((issue) => issue.severity === 'blocking').length;
+  const reviewCount = findings.filter((issue) => issue.severity === 'warning').length;
+
+  return {
+    status: blockingCount > 0 ? 'blocking' : reviewCount > 0 ? 'review' : 'clear',
+    findingCount: findings.length,
+    blockingCount,
+    reviewCount,
+    findings,
+  };
 };
 
 export const formatOpdPreAuditIssue = (issue: OpdPreAuditIssue) => `${issue.code}: ${issue.message}`;

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/PreSubmitValidatorPage.tsx"
-source_hash: "ee5135f790001adbbb3cfa635c7cdb6c640b87fef204ddc69c6af8ad30be274e"
+source_hash: "6889bf678d2c0d71ace3a1bab3f2c28f99a0faf0f1fda8a01862479dc51b236d"
 managed_by: "sync-ksp-vault"
 ---
 # PreSubmitValidatorPage.tsx
 
 > Source: `src/pages/PreSubmitValidatorPage.tsx`
-> SHA-256: `ee5135f790001adbbb3cfa635c7cdb6c640b87fef204ddc69c6af8ad30be274e`
+> SHA-256: `6889bf678d2c0d71ace3a1bab3f2c28f99a0faf0f1fda8a01862479dc51b236d`
 
 ````tsx
 import { useState } from 'react';
@@ -48,6 +48,14 @@ const ISSUE_FILE_MAP: Record<string, string[]> = {
   'OPD-CHG04': ['CHT'],
   'OPD-CHG05': ['MR', 'CHT'],
   'OPD-DRU01': ['DRU'],
+  'ER-AUTHEN-UNLINKED': ['INS', 'OPD'],
+  'ER-NUMERIC-DX': ['ODX'],
+  'ER-DENTAL-MISSING-DTMAIN': ['ODX', 'ADP'],
+  'ER-MISSING-PDX': ['ODX'],
+  'ER-HERB-MISSING-DX': ['DRU', 'ODX'],
+  'ER-PALLIATIVE-MORPHINE-MISSING-DX': ['DRU', 'ODX'],
+  'ER-853': ['ADP'],
+  'OPD-TM01': ['ADP'],
 };
 
 const FILE_LABELS: Record<string, string> = {
@@ -93,9 +101,17 @@ const ISSUE_LABELS: Record<string, string> = {
   'OPD-CHG04': 'ค่าเตียงสังเกตอาการชนกับ 55020/55021',
   'OPD-CHG05': 'หัตถการไม่พบผู้ตรวจแต่เบิกค่าบริการ OPD',
   'OPD-DRU01': 'จำนวนยาที่จ่ายเป็นศูนย์หรือติดลบ',
+  'ER-AUTHEN-UNLINKED': 'พบรหัส Authen ในระบบแต่ยังไม่ได้ผูกเข้ากับ Visit (ผูก Auto ได้)',
+  'ER-NUMERIC-DX': 'พบรหัสหัตถการตัวเลขตกค้างในตารางวินิจฉัยโรค (ลบ/ย้าย Auto ได้)',
+  'ER-DENTAL-MISSING-DTMAIN': 'มีรหัสโรคทันตกรรมแต่ขาดข้อมูลหัตถการใน dtmain (สร้าง Auto ได้)',
+  'ER-MISSING-PDX': 'มีการลงรหัสโรคแต่ขาดรหัสโรคหลัก diagtype=1 (ตั้งค่า Auto ได้)',
+  'ER-HERB-MISSING-DX': 'มีการสั่งยาสมุนไพรแต่ขาดรหัสวินิจฉัยตามข้อบ่งใช้ (เติม Auto ได้)',
+  'ER-PALLIATIVE-MORPHINE-MISSING-DX': 'มีการสั่งจ่ายยากลุ่มมอร์ฟีนแต่ขาดรหัสวินิจฉัย Z51.5 / Z71.8 (เติม Auto ได้)',
+  'ER-853': 'เบิกรหัสนวด/ประคบสมุนไพรซ้ำในวันเดียวกันเกิน 1 รหัส (กค 0422.2/ว 447)',
+  'OPD-TM01': 'เบิกรหัสนวด/ประคบสมุนไพรซ้ำในวันเดียวกันเกิน 1 รหัส (กค 0422.2/ว 447)',
 };
 
-const OPD_BLOCKING_CODES = new Set(['OPD-LAB01', 'OPD-CHG01', 'OPD-CHG03', 'OPD-CHG04', 'OPD-CHG05', 'OPD-DRU01']);
+const OPD_BLOCKING_CODES = new Set(['OPD-LAB01', 'OPD-CHG01', 'OPD-CHG03', 'OPD-CHG04', 'OPD-CHG05', 'OPD-DRU01', 'OPD-TM01', 'ER-853']);
 const extractIssueCode = (issue: string) => issue.split(':')[0]?.trim() || issue.trim();
 const isCritical = (issue: string) => {
   const code = extractIssueCode(issue);
@@ -114,6 +130,8 @@ interface VisitRow {
   status?: string;
   isPotentialClaim?: boolean;
   isBillable?: boolean;
+  can_auto_fix?: boolean;
+  auto_fix_actions?: string[];
 }
 
 interface FileSummary {
@@ -121,7 +139,7 @@ interface FileSummary {
   label: string;
   critical: number;
   warning: number;
-  visits: Array<{ vn: string; hn: string; patient_name?: string; vstdate?: string; issue: string; isCritical: boolean }>;
+  visits: Array<{ vn: string; hn: string; patient_name?: string; vstdate?: string; issue: string; isCritical: boolean; can_auto_fix?: boolean }>;
 }
 
 function buildFileSummary(visits: VisitRow[]): FileSummary[] {
@@ -146,6 +164,7 @@ function buildFileSummary(visits: VisitRow[]): FileSummary[] {
           vstdate: v.vstdate || v.serviceDate,
           issue: issueCode,
           isCritical: isCritical(issueCode),
+          can_auto_fix: Boolean(v.can_auto_fix),
         };
         fileMap[f].visits.push(entry);
         if (isCritical(issueCode)) {
@@ -168,11 +187,15 @@ export default function PreSubmitValidatorPage() {
   const [visits, setVisits] = useState<VisitRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
+  const [fixingVn, setFixingVn] = useState<string | null>(null);
+  const [batchFixing, setBatchFixing] = useState(false);
+  const [fixAlert, setFixAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const totalVisits = visits.length;
   const withIssues = visits.filter((v) => (v.issues || []).length > 0).length;
   const blocking = visits.filter((v) => (v.issues || []).some(isCritical)).length;
   const ready = visits.filter((v) => (v.issues || []).length === 0).length;
+  const autoFixableVisits = visits.filter((v) => Boolean(v.can_auto_fix));
 
   const fileSummaries = buildFileSummary(visits);
 
@@ -180,6 +203,7 @@ export default function PreSubmitValidatorPage() {
     if (!startDate || !endDate) return;
     setLoading(true);
     setError('');
+    setFixAlert(null);
     try {
       const params = new URLSearchParams({ startDate, endDate, limit: '500' });
       const resp = await fetch(`/api/hosxp/eligible-visits?${params}`);
@@ -192,6 +216,47 @@ export default function PreSubmitValidatorPage() {
       setError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSingleAutoFix = async (vn: string) => {
+    setFixingVn(vn);
+    setFixAlert(null);
+    try {
+      const res = await fetch('/api/hosxp/auto-fix-visit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vn, fixType: 'ALL' }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขอัตโนมัติไม่สำเร็จ');
+      setFixAlert({ type: 'success', message: `แก้ไขอัตโนมัติสำหรับ VN ${vn} สำเร็จ: ${json.data.message}` });
+      await handleLoad();
+    } catch (err) {
+      setFixAlert({ type: 'error', message: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไข' });
+    } finally {
+      setFixingVn(null);
+    }
+  };
+
+  const handleBatchAutoFix = async () => {
+    if (!autoFixableVisits.length) return;
+    setBatchFixing(true);
+    setFixAlert(null);
+    try {
+      const res = await fetch('/api/hosxp/batch-auto-fix-visits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vns: autoFixableVisits.map((v) => v.vn) }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขแบบกลุ่มไม่สำเร็จ');
+      setFixAlert({ type: 'success', message: `แก้ไขอัตโนมัติเรียบร้อย: สำเร็จ ${json.data.fixedCount} จาก ${json.data.total} รายการ` });
+      await handleLoad();
+    } catch (err) {
+      setFixAlert({ type: 'error', message: err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการแก้ไขแบบกลุ่ม' });
+    } finally {
+      setBatchFixing(false);
     }
   };
 
@@ -236,6 +301,12 @@ export default function PreSubmitValidatorPage() {
         </div>
       )}
 
+      {fixAlert && (
+        <div className={`alert ${fixAlert.type === 'success' ? 'alert-success' : 'alert-danger'}`} style={{ marginTop: 12 }}>
+          {fixAlert.message}
+        </div>
+      )}
+
       {loaded && (
         <>
           <div className="workflow-summary-grid">
@@ -256,6 +327,27 @@ export default function PreSubmitValidatorPage() {
               <div className="workflow-stat__label">ควรตรวจสอบ (ER2xx)</div>
             </div>
           </div>
+
+          {autoFixableVisits.length > 0 && (
+            <div className="card" style={{ marginTop: 16, marginBottom: 16, border: '1px solid #6366f1', background: 'rgba(99, 102, 241, 0.05)', borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div>
+                <strong style={{ color: '#4f46e5', display: 'flex', alignItems: 'center', gap: 6, fontSize: 15 }}>
+                  ⚡ พบ {autoFixableVisits.length} รายการที่สามารถแก้ไขข้อมูลใน HOSxP ได้อัตโนมัติ
+                </strong>
+                <div style={{ fontSize: 13, color: '#4b5563', marginTop: 4 }}>
+                  (เช่น ผูกรหัส Authen ที่ค้นพบ, เคลียร์รหัสหัตถการตัวเลขที่ค้างในตารางโรค, เพิ่มบันทึกตรวจทันตกรรม dtmain, ตั้งค่ารหัสโรคหลัก)
+                </div>
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={handleBatchAutoFix}
+                disabled={batchFixing || fixingVn !== null}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {batchFixing ? '⏳ กำลังประมวลผลแก้ไข...' : `⚡ แก้ไขอัตโนมัติทั้งหมด (${autoFixableVisits.length} รายการ)`}
+              </button>
+            </div>
+          )}
 
           {fileSummaries.length === 0 ? (
             <div className="workflow-empty">
@@ -296,6 +388,7 @@ export default function PreSubmitValidatorPage() {
                               <th>รหัส</th>
                               <th>ปัญหา</th>
                               <th>ประเภท</th>
+                              <th>จัดการ</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -312,6 +405,21 @@ export default function PreSubmitValidatorPage() {
                                     <span className="badge badge-danger">ห้ามส่ง</span>
                                   ) : (
                                     <span className="badge badge-warning">ควรตรวจสอบ</span>
+                                  )}
+                                </td>
+                                <td>
+                                  {row.can_auto_fix ? (
+                                    <button
+                                      className="btn btn-sm btn-outline-primary"
+                                      onClick={() => handleSingleAutoFix(row.vn)}
+                                      disabled={fixingVn === row.vn || batchFixing}
+                                      style={{ padding: '2px 8px', fontSize: 12, whiteSpace: 'nowrap' }}
+                                      title="แก้ไขข้อมูล HOSxP อัตโนมัติ"
+                                    >
+                                      {fixingVn === row.vn ? '⏳ แก้...' : '⚡ แก้ไข Auto'}
+                                    </button>
+                                  ) : (
+                                    <span style={{ color: '#9ca3af', fontSize: 12 }}>-</span>
                                   )}
                                 </td>
                               </tr>

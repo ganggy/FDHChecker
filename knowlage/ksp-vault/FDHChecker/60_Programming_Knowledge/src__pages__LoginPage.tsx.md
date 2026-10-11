@@ -4,17 +4,24 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/LoginPage.tsx"
-source_hash: "d66c34e2a3015eae9a8b347cd5614d52d728259a4edbe46277fa813bed75e67b"
+source_hash: "b5f875c2667b0c4ea3eaf7bfb1549edeb066f0b081d174cc0ef6393a062d253e"
 managed_by: "sync-ksp-vault"
 ---
 # LoginPage.tsx
 
 > Source: `src/pages/LoginPage.tsx`
-> SHA-256: `d66c34e2a3015eae9a8b347cd5614d52d728259a4edbe46277fa813bed75e67b`
+> SHA-256: `b5f875c2667b0c4ea3eaf7bfb1549edeb066f0b081d174cc0ef6393a062d253e`
 
 ````tsx
 import { useState } from 'react';
 import { login, register, type AuthSession } from '../services/authService';
+import {
+  clearSavedApiBaseUrl,
+  getEffectiveApiBaseUrl,
+  getSavedApiBaseUrl,
+  isNativeApp,
+  saveApiBaseUrl,
+} from '../services/apiEndpointService';
 
 type Props = {
   onAuthenticated: (session: AuthSession) => void;
@@ -29,6 +36,47 @@ export const LoginPage = ({ onAuthenticated }: Props) => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [serverPanelOpen, setServerPanelOpen] = useState(() => isNativeApp() && !getEffectiveApiBaseUrl());
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => getEffectiveApiBaseUrl());
+  const [serverTesting, setServerTesting] = useState(false);
+  const [serverMessage, setServerMessage] = useState('');
+  const [serverError, setServerError] = useState('');
+
+  const effectiveApiBaseUrl = getEffectiveApiBaseUrl();
+  const serverLabel = effectiveApiBaseUrl
+    ? effectiveApiBaseUrl.replace(/^https?:\/\//, '')
+    : isNativeApp()
+      ? 'ยังไม่ได้ตั้งค่า'
+      : 'เซิร์ฟเวอร์เดียวกับหน้าเว็บ';
+
+  const handleServerTest = async () => {
+    setServerError('');
+    setServerMessage('');
+    setServerTesting(true);
+    try {
+      const normalized = saveApiBaseUrl(apiBaseUrl);
+      if (isNativeApp() && !normalized) {
+        throw new Error('กรุณากรอก HTTPS URL ของ FDH Checker API');
+      }
+      setApiBaseUrl(normalized);
+      const response = await fetch('/api/health', { cache: 'no-store' });
+      if (!response.ok) throw new Error(`เซิร์ฟเวอร์ตอบกลับ ${response.status}`);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) throw new Error('ปลายทางนี้ไม่ใช่ FDH Checker API');
+      setServerMessage('เชื่อมต่อเซิร์ฟเวอร์สำเร็จ');
+    } catch (err) {
+      setServerError(err instanceof Error ? err.message : 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์');
+    } finally {
+      setServerTesting(false);
+    }
+  };
+
+  const handleClearServer = () => {
+    clearSavedApiBaseUrl();
+    setApiBaseUrl('');
+    setServerMessage('');
+    setServerError('');
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -67,6 +115,43 @@ export const LoginPage = ({ onAuthenticated }: Props) => {
           </div>
         </div>
 
+        <div className={`auth-server-status ${effectiveApiBaseUrl || !isNativeApp() ? 'is-ready' : 'is-missing'}`}>
+          <span className="auth-server-dot" aria-hidden="true" />
+          <div>
+            <small>เซิร์ฟเวอร์ FDH</small>
+            <strong>{serverLabel}</strong>
+          </div>
+          <button type="button" onClick={() => setServerPanelOpen((open) => !open)}>
+            {serverPanelOpen ? 'ปิด' : 'ตั้งค่า'}
+          </button>
+        </div>
+
+        {serverPanelOpen && (
+          <div className="auth-server-panel">
+            <label>
+              HTTPS URL ของ API
+              <input
+                type="url"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                value={apiBaseUrl}
+                onChange={(event) => setApiBaseUrl(event.target.value)}
+                placeholder="https://fdh-api.example.go.th"
+              />
+            </label>
+            <p>กรอกเฉพาะโดเมน ไม่ต้องต่อท้าย <code>/api</code></p>
+            {serverError && <div className="auth-alert auth-alert--error">{serverError}</div>}
+            {serverMessage && <div className="auth-alert auth-alert--success">{serverMessage}</div>}
+            <div className="auth-server-actions">
+              {getSavedApiBaseUrl() && <button type="button" onClick={handleClearServer}>ล้างค่า</button>}
+              <button type="button" className="is-primary" onClick={() => void handleServerTest()} disabled={serverTesting}>
+                {serverTesting ? 'กำลังทดสอบ…' : 'บันทึกและทดสอบ'}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="auth-tabs">
           <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>เข้าสู่ระบบ</button>
           <button type="button" className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')}>สมัครสมาชิก</button>
@@ -81,7 +166,16 @@ export const LoginPage = ({ onAuthenticated }: Props) => {
           )}
           <label>
             Username
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
+            <input
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              inputMode="text"
+              required
+            />
           </label>
           <label>
             Password

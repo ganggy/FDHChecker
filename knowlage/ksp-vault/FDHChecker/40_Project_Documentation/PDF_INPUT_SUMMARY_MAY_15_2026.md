@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "PDF_INPUT_SUMMARY_MAY_15_2026.md"
-source_hash: "2e3dc9e93788d2b2a1516e5ce0007092b70b9d382bb1c57d41e4fabc5600c450"
+source_hash: "2926bd063013c506138310d28d72e5fb442eab1c84e4bcf3bd1f8c03858b917f"
 managed_by: "sync-ksp-vault"
 ---
 # PDF Input Summary (May 15, 2026)

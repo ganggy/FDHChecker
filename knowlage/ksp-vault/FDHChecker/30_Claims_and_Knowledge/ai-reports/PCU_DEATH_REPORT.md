@@ -4,7 +4,7 @@ project: FDHChecker
 type: "domain-knowledge"
 category: "claims"
 source: "knowlage/ai-reports/PCU_DEATH_REPORT.md"
-source_hash: "e507bc8ee6ba2a7080b673375690f2303dcc73f245718323dd2f6329d97f63f7"
+source_hash: "20af623732519b1bf1928bc62655eab63d7be65bafd1302a698dd0b3b987c86c"
 managed_by: "sync-ksp-vault"
 ---
 # FDH AI Report Template: ผู้เสียชีวิตในเขต PCU โรงพยาบาล

@@ -4,16 +4,18 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/fdhExport.ts"
-source_hash: "336444b22cd485d56222e945efe4af42c21aa6db59044be1441b4af89d704c79"
+source_hash: "63e08e9dd830c144abc6a52aa207086db925440db900ee79fd7319b4ff27397d"
 managed_by: "sync-ksp-vault"
 ---
 # fdhExport.ts
 
 > Source: `server/fdhExport.ts`
-> SHA-256: `336444b22cd485d56222e945efe4af42c21aa6db59044be1441b4af89d704c79`
+> SHA-256: `63e08e9dd830c144abc6a52aa207086db925440db900ee79fd7319b4ff27397d`
 
 ````typescript
 import iconv from 'iconv-lite';
+import { hasApproveCode, isLgoRight, isOfcLgoRight } from '../src/utils/ofcApproveCode.js';
+import { THAI_MED_CATALOG, isThaiMedSameDayCode, type ThaiMedSameDayCode } from '../src/utils/thaiTraditionalMedicineRules.js';
 
 export const FDH_FILE_CODES = [
   'INS', 'PAT', 'OPD', 'ORF', 'ODX', 'OOP', 'IPD', 'IRF',
@@ -22,8 +24,15 @@ export const FDH_FILE_CODES = [
 
 export type FdhFileCode = typeof FDH_FILE_CODES[number];
 export type FdhExportProfile = 'standard' | 'fwf-migrants';
+export type FdhPatientType = 'ALL' | 'OPD' | 'IPD';
 export type FdhRow = Record<string, unknown>;
 export type FdhExportData = Record<FdhFileCode, FdhRow[]>;
+
+export interface FdhOopConsolidationResult {
+  rows: FdhRow[];
+  duplicateGroups: number;
+  mergedRows: number;
+}
 
 export interface FdhValidationIssue {
   severity: 'error' | 'warning';
@@ -85,14 +94,97 @@ export const normalizePipeValue = (value: unknown): string => {
     .trim();
 };
 
+const FDH_FIELD_LENGTH_LIMITS: Partial<Record<FdhFileCode, Record<string, number>>> = {
+  OPD: { DETAIL: 255 },
+};
+
+/**
+ * จำกัดความยาวเฉพาะข้อมูลที่ส่งออก โดยไม่แก้ข้อความต้นฉบับใน HOSxP
+ * FDH ตรวจ OPD.DETAIL ที่ความยาวสูงสุด 255 ตัวอักษร
+ */
+export const normalizeFdhFieldValue = (file: FdhFileCode, field: string, value: unknown): string => {
+  const normalized = normalizePipeValue(value);
+  const maximumLength = FDH_FIELD_LENGTH_LIMITS[file]?.[field];
+  if (!maximumLength) return normalized;
+  return Array.from(normalized).slice(0, maximumLength).join('');
+};
+
+const projectFdhFieldValue = (file: FdhFileCode, field: string, value: unknown): unknown => (
+  FDH_FIELD_LENGTH_LIMITS[file]?.[field]
+    ? normalizeFdhFieldValue(file, field, value)
+    : value ?? ''
+);
+
 export const projectFdhData = (data: Partial<FdhExportData>, profile: FdhExportProfile): FdhExportData => {
   const layouts = getFdhLayouts(profile);
   return Object.fromEntries(FDH_FILE_CODES.map((file) => [
     file,
     (Array.isArray(data[file]) ? data[file] : []).map((row) => Object.fromEntries(
-      layouts[file].map((field) => [field, row?.[field] ?? '']),
+      layouts[file].map((field) => [field, projectFdhFieldValue(file, field, row?.[field])]),
     )),
   ])) as FdhExportData;
+};
+
+export const consolidateFdhOopRows = (input: FdhRow[]): FdhOopConsolidationResult => {
+  const selected = new Map<string, { row: FdhRow; priority: number; occurrences: number }>();
+
+  input.forEach((sourceRow, index) => {
+    const { _SOURCE_PRIORITY: rawPriority, ...row } = sourceRow;
+    const naturalKeyParts = ['HN', 'SEQ', 'OPER'].map((field) => normalizePipeValue(row[field]));
+    const hasNaturalKey = naturalKeyParts.every(Boolean);
+    const key = hasNaturalKey ? naturalKeyParts.join('|') : `__invalid_row_${index}`;
+    const priority = Number.isFinite(Number(rawPriority)) ? Number(rawPriority) : 0;
+    const current = selected.get(key);
+
+    if (!current) {
+      selected.set(key, { row, priority, occurrences: 1 });
+      return;
+    }
+
+    current.occurrences += 1;
+    const currentProvider = normalizePipeValue(current.row.DROPID);
+    const candidateProvider = normalizePipeValue(row.DROPID);
+    if (priority > current.priority || (priority === current.priority && !currentProvider && candidateProvider)) {
+      current.row = row;
+      current.priority = priority;
+    }
+  });
+
+  let duplicateGroups = 0;
+  let mergedRows = 0;
+  selected.forEach((entry) => {
+    if (entry.occurrences > 1) {
+      duplicateGroups += 1;
+      mergedRows += entry.occurrences - 1;
+    }
+  });
+
+  return {
+    rows: [...selected.values()].map((entry) => entry.row),
+    duplicateGroups,
+    mergedRows,
+  };
+};
+
+export const scopeFdhData = (input: Partial<FdhExportData>, patientType: FdhPatientType): FdhExportData => {
+  const data = Object.fromEntries(FDH_FILE_CODES.map((file) => [file, Array.isArray(input[file]) ? input[file]! : []])) as FdhExportData;
+  if (patientType === 'IPD') {
+    return { ...data, OPD: [], ORF: [], ODX: [], OOP: [] };
+  }
+  if (patientType === 'OPD') {
+    const clearAn = (rows: FdhRow[]) => rows.map((r) => ('AN' in r ? { ...r, AN: '' } : r));
+    return {
+      ...data,
+      IPD: [], IRF: [], IDX: [], IOP: [], LVD: [],
+      INS: clearAn(data.INS),
+      CHT: clearAn(data.CHT),
+      CHA: clearAn(data.CHA),
+      AER: clearAn(data.AER),
+      ADP: clearAn(data.ADP),
+      DRU: clearAn(data.DRU),
+    };
+  }
+  return data;
 };
 
 export const serializeFdhFile = (
@@ -104,7 +196,7 @@ export const serializeFdhFile = (
   const columns = getFdhLayouts(profile)[file];
   const rows = Array.isArray(data[file]) ? data[file]! : [];
   const header = includeHeader ? columns.join('|') : '';
-  const body = rows.map((row) => columns.map((column) => normalizePipeValue(row?.[column])).join('|')).join('\r\n');
+  const body = rows.map((row) => columns.map((column) => normalizeFdhFieldValue(file, column, row?.[column])).join('|')).join('\r\n');
   if (!body) return header;
   return includeHeader ? `${header}\r\n${body}` : body;
 };
@@ -236,7 +328,12 @@ export const validateFdhData = (
   data.INS.forEach((row, index) => {
     const hn = value(row, 'HN');
     const inscl = value(row, 'INSCL').toUpperCase();
-    if (profile === 'standard' && ['UCS', 'WEL', 'OFC', 'LGO'].includes(inscl) && !value(row, 'PERMITNO')) {
+    const original = input.INS?.[index];
+    const isLgo = isLgoRight({ hipdata_code: inscl });
+    if (!isLgo && (original?._requiresApproveCode === true || (profile === 'standard' && isOfcLgoRight({ hipdata_code: inscl }))) && !hasApproveCode(row.PERMITNO)) {
+      add({ code: 'OFC_APPROVE_REQUIRED', file: 'INS', row: index + 1, field: 'PERMITNO', key: keyOf(row, ['HN', 'SEQ']), message: `INS แถว ${index + 1}: OFC รอ Approve code กรุณานำเข้าและบันทึกรหัสก่อนส่งออก` });
+    }
+    if (profile === 'standard' && ['UCS', 'WEL'].includes(inscl) && !value(row, 'PERMITNO')) {
       add({
         code: 'PERMITNO_REQUIRED',
         file: 'INS',
@@ -273,6 +370,7 @@ export const validateFdhData = (
   });
   const opdByKey = new Map(data.OPD.map((row) => [keyOf(row, ['HN', 'SEQ']), row]));
   data.AER.forEach((row, index) => {
+    if (value(row, 'AN')) return;
     const optype = value(opdByKey.get(keyOf(row, ['HN', 'SEQ'])) || {}, 'OPTYPE');
     const ucae = value(row, 'UCAE');
     if (!['0', '1', '2', '3'].includes(optype)) {
@@ -349,6 +447,63 @@ export const validateFdhData = (
       });
     }
   });
+
+  if (profile === 'standard') {
+    // กรมบัญชีกลาง ว 447 (12 พ.ย. 58): สิทธิ LGO/OFC ใน 1 วัน เบิกรหัส 58101, 58102, 58130, 58131, 58201 ได้เพียงรหัสเดียว (REP 853)
+    const hnInsclMap = new Map<string, string>();
+    data.INS.forEach((ins) => {
+      const hn = value(ins, 'HN');
+      const inscl = value(ins, 'INSCL').toUpperCase();
+      if (hn && inscl) hnInsclMap.set(hn, inscl);
+    });
+
+    const thaiMedByHnDate = new Map<string, Array<{ code: ThaiMedSameDayCode; rowIndex: number }>>();
+    data.ADP.forEach((row, index) => {
+      const hn = value(row, 'HN');
+      const inscl = hnInsclMap.get(hn) || '';
+      const isOfcLgo = isOfcLgoRight({ hipdata_code: inscl });
+      if (!isOfcLgo) return;
+
+      const code = value(row, 'CODE');
+      if (isThaiMedSameDayCode(code)) {
+        const dateOpd = value(row, 'DATEOPD') || value(row, 'SEQ');
+        const key = `${hn}:${dateOpd}`;
+        const list = thaiMedByHnDate.get(key) || [];
+        list.push({ code, rowIndex: index + 1 });
+        thaiMedByHnDate.set(key, list);
+
+        const standard = THAI_MED_CATALOG[code];
+        const rate = money(row.RATE);
+        if (standard && rate > 0 && Math.abs(rate - standard.rate) > 0.01) {
+          add({
+            code: 'THAI_MED_RATE_MISMATCH',
+            file: 'ADP',
+            row: index + 1,
+            field: 'RATE',
+            message: `ADP แถว ${index + 1}: รหัส ${code} (${standard.name}) อัตราเบิกคือ ${standard.rate.toFixed(2)} บาท (ปัจจุบันระบุ ${rate.toFixed(2)}) ตามหนังสือ กค 0422.2/ว 447`,
+          }, 'warning');
+        }
+      }
+    });
+
+    for (const [key, entries] of thaiMedByHnDate.entries()) {
+      const distinctCodes = Array.from(new Set(entries.map((e) => e.code)));
+      if (distinctCodes.length > 1) {
+        const [hn, dateOpd] = key.split(':');
+        const inscl = hnInsclMap.get(hn) || 'OFC/LGO';
+        entries.forEach((entry) => {
+          add({
+            code: 'THAI_MED_SAME_DAY_LIMIT',
+            file: 'ADP',
+            row: entry.rowIndex,
+            field: 'CODE',
+            key,
+            message: `ADP แถว ${entry.rowIndex}: HN ${hn} วันที่ ${dateOpd || 'เดียวกัน'} สิทธิ ${inscl} มีการเบิกรหัสนวด/ประคบสมุนไพร (${distinctCodes.join(', ')}) ในวันเดียวกันเกิน 1 รหัส — กรมบัญชีกลางกำหนดให้เบิกได้เพียงรหัสเดียวตามหนังสือ กค 0422.2/ว 447 (REP 853)`,
+          });
+        });
+      }
+    }
+  }
   data.DRU.forEach((row, index) => {
     if (money(row.DRUGPRIC) <= 0) add({ code: 'DRUG_PRICE', file: 'DRU', row: index + 1, field: 'DRUGPRIC', message: 'DRUGPRIC ต้องมากกว่า 0' });
     if (!['1', '2', '3', '4'].includes(value(row, 'USE_STATUS'))) add({ code: 'DRUG_USE_STATUS', file: 'DRU', row: index + 1, field: 'USE_STATUS', message: 'DRU.USE_STATUS ต้องเป็น 1, 2, 3 หรือ 4' });

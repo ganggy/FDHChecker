@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "DETAILMODAL_DOUBLECLICK_FIX.md"
-source_hash: "0a3a154f708820d9574a0e924c12622002a31dc0641f22e9cf50f7c2ee18cdf8"
+source_hash: "4dffbc2c9223205606d375a9754aab9d7b859094964bf02fc63f9013c6987a04"
 managed_by: "sync-ksp-vault"
 ---
 # DetailModal Double-Click Fix 🔧

@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "VERIFY_SERVICE_DATE_NOW.md"
-source_hash: "982db295e47a3a5edb6725692f129847ba21c06b5857ffd8d011e8008ed8e3c4"
+source_hash: "591dab782eb67749614c0000c2aa89cf87a5a0cd2099ed58fb8ebcde23ae2bfb"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ Service Date Bug Fix - Verification Instructions

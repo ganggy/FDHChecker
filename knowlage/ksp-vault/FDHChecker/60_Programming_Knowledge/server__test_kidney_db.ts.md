@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/test_kidney_db.ts"
-source_hash: "c15ff9b5a01d9587bf0414a23f6712580e55a084a1f29c8d9e9d825c37e4c330"
+source_hash: "441556f8c3c07b8ceda2f9d9c3835a7b12b37af7ddbcbe224d5048f0d75720d1"
 managed_by: "sync-ksp-vault"
 ---
 # test_kidney_db.ts
 
 > Source: `server/test_kidney_db.ts`
-> SHA-256: `c15ff9b5a01d9587bf0414a23f6712580e55a084a1f29c8d9e9d825c37e4c330`
+> SHA-256: `441556f8c3c07b8ceda2f9d9c3835a7b12b37af7ddbcbe224d5048f0d75720d1`
 
 ````typescript
 import { getUTFConnection } from './db';

@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SERVICE_DATE_COLUMN_VISUAL_GUIDE.md"
-source_hash: "4b2e0e65e83ecd5c63cbadfadd1440ed0d9cb3c654f13854d2b258b0e65517c9"
+source_hash: "a3b3c3203023302e437aeb45f546fc4cc8fb3ab4cc97793f5a567ebdf53918ad"
 managed_by: "sync-ksp-vault"
 ---
 # Service Date Column - Visual Guide

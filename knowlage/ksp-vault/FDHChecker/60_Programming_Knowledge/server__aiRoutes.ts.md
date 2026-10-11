@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiRoutes.ts"
-source_hash: "fc613e6f8d080085b78e6fee676270136962d01e5aecd53d7639b83e42f1f4c5"
+source_hash: "0ff7e35ee3240669a2c2c6df80781673cf229d067ea988ce0d4940e918f5571a"
 managed_by: "sync-ksp-vault"
 ---
 # aiRoutes.ts
 
 > Source: `server/aiRoutes.ts`
-> SHA-256: `fc613e6f8d080085b78e6fee676270136962d01e5aecd53d7639b83e42f1f4c5`
+> SHA-256: `0ff7e35ee3240669a2c2c6df80781673cf229d067ea988ce0d4940e918f5571a`
 
 ````typescript
 import { Router, type NextFunction, type Request, type Response } from 'express';

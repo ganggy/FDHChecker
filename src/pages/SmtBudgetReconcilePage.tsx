@@ -374,6 +374,18 @@ export const SmtBudgetReconcilePage: React.FC = () => {
               📥 ส่งออก Excel
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'hsubPayment' } }));
+            }}
+            className="smt-btn-export"
+            style={{ background: '#f0fdf4', borderColor: '#86efac', color: '#166534', fontWeight: 600 }}
+            title="เปิดหน้ารายงานพึงจ่าย รพ.สต. ในเครือข่าย CUP"
+          >
+            🏥 ดูพึงจ่าย รพ.สต. (H-Sub)
+          </button>
         </div>
       </div>
 

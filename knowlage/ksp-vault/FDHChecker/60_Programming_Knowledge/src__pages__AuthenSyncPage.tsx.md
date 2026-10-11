@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/AuthenSyncPage.tsx"
-source_hash: "411e876ffdd4e13fe334df70ddbb5530a548e227beb473445c8c09e3763ff3de"
+source_hash: "6f03356c538334e0ba5e2d573aff8c3d04f48a4f692e3d8a6d55a47b151ae5d2"
 managed_by: "sync-ksp-vault"
 ---
 # AuthenSyncPage.tsx
 
 > Source: `src/pages/AuthenSyncPage.tsx`
-> SHA-256: `411e876ffdd4e13fe334df70ddbb5530a548e227beb473445c8c09e3763ff3de`
+> SHA-256: `6f03356c538334e0ba5e2d573aff8c3d04f48a4f692e3d8a6d55a47b151ae5d2`
 
 ````tsx
 import React, { useEffect, useState } from 'react';

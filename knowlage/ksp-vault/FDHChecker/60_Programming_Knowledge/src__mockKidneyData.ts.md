@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/mockKidneyData.ts"
-source_hash: "90fa1b6f3a0102ef69c5d94923e5c474d09b73202286a0a01c56b2ffcf467ee6"
+source_hash: "a744a7e400355fcaf733ed21245d5b4761644794f19249974ee5baab862eb94a"
 managed_by: "sync-ksp-vault"
 ---
 # mockKidneyData.ts
 
 > Source: `src/mockKidneyData.ts`
-> SHA-256: `90fa1b6f3a0102ef69c5d94923e5c474d09b73202286a0a01c56b2ffcf467ee6`
+> SHA-256: `a744a7e400355fcaf733ed21245d5b4761644794f19249974ee5baab862eb94a`
 
 ````typescript
 // Kidney Monitor Mock Data for Testing
@@ -18,7 +18,7 @@ export interface KidneyMonitorRecord {
   hn: string;
   vn: string;
   patientName: string;
-  insuranceType: 'UCS+SSS' | 'OFC+LGO' | 'UC-EPO';
+  insuranceType: string;
   hipdata_code: string;
   serviceDate: string;  dialysisFee: number;
   dialysisCost: number;
@@ -33,6 +33,19 @@ export interface KidneyMonitorRecord {
   profit: number;
   profitMargin: number;
   insuranceGroup: string;
+  hasDialysisEvidence?: boolean;
+  claimTrackingStatus?: 'NO_REP' | 'WAITING_STM' | 'WAITING_PAYMENT' | 'MATCHED' | 'AMOUNT_DIFFERENT' | 'REP_ERROR';
+  repFound?: boolean;
+  repCount?: number;
+  repAmount?: number;
+  repNos?: string[];
+  stmFound?: boolean;
+  stmCount?: number;
+  stmAmount?: number;
+  stmPaidAmount?: number;
+  stmNos?: string[];
+  repStmDiff?: number;
+  repStmErrors?: string[];
   drugs?: Array<{
     drugName: string;
     qty: number;

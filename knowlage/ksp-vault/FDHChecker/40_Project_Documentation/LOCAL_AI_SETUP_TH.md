@@ -4,17 +4,17 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "LOCAL_AI_SETUP_TH.md"
-source_hash: "0f1bd0e35650ca43c6efdb113dfe9e8bd4fe103d36105c04432aecd4e1970c77"
+source_hash: "ee737910d09d82c27b348114f4111561240261b36e5d16f2704d7c6a2a2f1719"
 managed_by: "sync-ksp-vault"
 ---
 # FDHChecker Local AI (Ollama)
 
-ระบบตั้งค่าให้ใช้ `qwen3:4b-instruct` ผ่าน Ollama เป็นค่าเริ่มต้น เพราะตอบเร็วกว่าและเหมาะกับ RAM 16 GB Backend ปิด thinking trace เพื่อไม่ให้สิ้นเปลือง token กับกระบวนการคิด ข้อมูลคำถามและรายงานจึงประมวลผลในเครื่อง ไม่ต้องส่งไป OpenAI API
+ระบบใช้ Local AI 2 โมเดลผ่าน Ollama: `fdh-qwen3:4b` สำหรับสนทนา/สรุปผล และ `bge-m3` สำหรับสร้าง embedding เพื่อค้น Vault แบบ semantic + keyword โดย `fdh-qwen3:4b` สร้างจาก `qwen3:4b-instruct` เพื่อให้ตอบลงช่อง content โดยไม่ส่ง thinking trace ออกมา ข้อมูลยังคงประมวลผลในเครื่องและไม่ส่งไป OpenAI API
 
 ## เริ่มใช้งาน
 
 ```bash
-ollama pull qwen3:4b-instruct
+npm run ai:models:setup
 ollama ps
 npm run server
 npm run dev
@@ -73,7 +73,8 @@ curl http://localhost:3506/api/ai/status
 ```dotenv
 AI_PROVIDER=ollama
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen3:4b-instruct
+OLLAMA_MODEL=fdh-qwen3:4b
+OLLAMA_EMBED_MODEL=bge-m3
 OLLAMA_CONTEXT_LENGTH=8192
 OLLAMA_MAX_TOKENS=1200
 OLLAMA_KEEP_ALIVE=30m

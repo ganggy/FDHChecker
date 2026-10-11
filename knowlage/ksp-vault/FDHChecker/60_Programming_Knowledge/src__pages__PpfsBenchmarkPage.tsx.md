@@ -4,19 +4,18 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/PpfsBenchmarkPage.tsx"
-source_hash: "80c3116926bf7d4355ca7247f24a681fd24df8cf5ef47fa5f77bda93908fb594"
+source_hash: "57721664898bb96f78c2174ee75820931c4b389a2a59cc8c604c2263ff00ad94"
 managed_by: "sync-ksp-vault"
 ---
 # PpfsBenchmarkPage.tsx
 
 > Source: `src/pages/PpfsBenchmarkPage.tsx`
-> SHA-256: `80c3116926bf7d4355ca7247f24a681fd24df8cf5ef47fa5f77bda93908fb594`
+> SHA-256: `57721664898bb96f78c2174ee75820931c4b389a2a59cc8c604c2263ff00ad94`
 
 ````tsx
 import { useEffect, useMemo, useState } from 'react';
 import type React from 'react';
 import * as XLSX from 'xlsx';
-import businessRules from '../config/business_rules.json';
 import {
   fetchPpfsNhsoReport,
   type PpfsMetric,
@@ -29,11 +28,6 @@ const metricOptions: Array<{ value: PpfsMetric; label: string; short: string }> 
   { value: 'CNT_VISIT', label: 'จำนวนครั้งบริการ', short: 'ครั้ง' },
   { value: 'CNT_PID', label: 'ผู้รับบริการ (คน)', short: 'คน' },
 ];
-
-const getDefaultHcode = () => {
-  const rules = businessRules as { site_settings?: { hospital_code?: string }; hospital?: { hcode?: string } };
-  return rules.site_settings?.hospital_code || rules.hospital?.hcode || '11101';
-};
 
 const toNumber = (value: unknown) => {
   const n = Number(value ?? 0);
@@ -144,7 +138,7 @@ const MiniBars = ({ row, metric }: { row: { paid_2567: number; paid_2568: number
 };
 
 export const PpfsBenchmarkPage = () => {
-  const [hcode, setHcode] = useState(getDefaultHcode());
+  const [hcode, setHcode] = useState('');
   const [metric, setMetric] = useState<PpfsMetric>('SUM_PAID');
   const [report, setReport] = useState<PpfsNhsoReport | null>(null);
   const [search, setSearch] = useState('');
@@ -157,6 +151,7 @@ export const PpfsBenchmarkPage = () => {
     try {
       const data = await fetchPpfsNhsoReport({ hcode, metric });
       setReport(data);
+      setHcode(data.hcode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'โหลดข้อมูล PPFS ไม่สำเร็จ');
     } finally {
@@ -211,7 +206,7 @@ export const PpfsBenchmarkPage = () => {
         </div>
         <div className="workflow-hero__meta">
           <span className="workflow-badge">HCODE {report?.hcode || hcode}</span>
-          <span className="workflow-badge">{report?.hospital.hospital_name || 'โรงพยาบาลโคกศรีสุพรรณ'}</span>
+          <span className="workflow-badge">{report?.hospital.hospital_name || 'หน่วยบริการ'}</span>
           <span className="workflow-badge">ดึงล่าสุด {formatDateTime(report?.fetched_at)}</span>
         </div>
       </section>
@@ -220,7 +215,7 @@ export const PpfsBenchmarkPage = () => {
         <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) minmax(180px, 260px) minmax(180px, 1fr) auto auto', gap: 12, alignItems: 'end' }}>
           <div className="form-group">
             <label className="form-label">HCODE</label>
-            <input className="form-control" value={hcode} onChange={(event) => setHcode(event.target.value)} />
+            <input className="form-control" value={hcode} placeholder="ใช้ HCODE จาก opdconfig" onChange={(event) => setHcode(event.target.value)} />
           </div>
           <div className="form-group">
             <label className="form-label">Metric จาก NHSO</label>

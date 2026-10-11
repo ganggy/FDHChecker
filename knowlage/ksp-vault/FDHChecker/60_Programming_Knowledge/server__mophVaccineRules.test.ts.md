@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/mophVaccineRules.test.ts"
-source_hash: "9da4bb6f438849bef5b3155caf7ac4c9fe1e0fa9b0ba900c24dd6c84de199531"
+source_hash: "f762c4b8643f74a5afd1dd90325fda9b03b079d1564806043a8c4ae05ccf2008"
 managed_by: "sync-ksp-vault"
 ---
 # mophVaccineRules.test.ts
 
 > Source: `server/mophVaccineRules.test.ts`
-> SHA-256: `9da4bb6f438849bef5b3155caf7ac4c9fe1e0fa9b0ba900c24dd6c84de199531`
+> SHA-256: `f762c4b8643f74a5afd1dd90325fda9b03b079d1564806043a8c4ae05ccf2008`
 
 ````typescript
 import assert from 'node:assert';

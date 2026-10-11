@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/ErrorBoundary.tsx"
-source_hash: "df12f9b7ecba788c3c96469f8ed7022a19fd2d6b16c748aa7f2da1c4b39d67e5"
+source_hash: "468351f2b4713a57b63eb43cdc89b90375f40db525543db1470fa211d27a8cba"
 managed_by: "sync-ksp-vault"
 ---
 # ErrorBoundary.tsx
 
 > Source: `src/ErrorBoundary.tsx`
-> SHA-256: `df12f9b7ecba788c3c96469f8ed7022a19fd2d6b16c748aa7f2da1c4b39d67e5`
+> SHA-256: `468351f2b4713a57b63eb43cdc89b90375f40db525543db1470fa211d27a8cba`
 
 ````tsx
 import React from 'react';

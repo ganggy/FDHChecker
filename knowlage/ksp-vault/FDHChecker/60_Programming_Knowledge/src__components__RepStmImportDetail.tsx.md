@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/RepStmImportDetail.tsx"
-source_hash: "fa7ec37bb44593576ab9ae6c12547b60460202af1e06c97dab355fb93b12139a"
+source_hash: "bb0192b89f4d12dd9b1aa1b27b564aff5acf2d6a86caea27fdde610c2833f065"
 managed_by: "sync-ksp-vault"
 ---
 # RepStmImportDetail.tsx
 
 > Source: `src/components/RepStmImportDetail.tsx`
-> SHA-256: `fa7ec37bb44593576ab9ae6c12547b60460202af1e06c97dab355fb93b12139a`
+> SHA-256: `bb0192b89f4d12dd9b1aa1b27b564aff5acf2d6a86caea27fdde610c2833f065`
 
 ````tsx
 import React, { useEffect, useMemo, useState } from 'react';
@@ -41,6 +41,7 @@ const SUMMARY_LABELS: Record<string, string> = {
   hospitalName: 'หน่วยบริการ',
   accountingPeriod: 'งวดบัญชี',
   statementNo: 'เลขที่เอกสาร',
+  responseNo: 'เลขที่ตอบรับ CHI',
   detailDocument: 'เอกสารรายละเอียด',
   dateStart: 'เริ่มงวด',
   dateEnd: 'สิ้นสุดงวด',
@@ -50,12 +51,20 @@ const SUMMARY_LABELS: Record<string, string> = {
   fundName: 'ชื่อกองทุน',
   description: 'ประเภทบริการ',
   rowCount: 'จำนวนรายการ',
+  patientCount: 'จำนวนผู้ป่วย',
+  acceptedCount: 'ตรวจผ่าน',
+  rejectedCount: 'ตรวจไม่ผ่าน',
+  csmbsCount: 'กรมบัญชีกลาง',
+  sssCount: 'ประกันสังคม',
+  submissionPeriods: 'งวดส่งของ รพ.',
   totalAmount: 'ยอดรวม',
 };
 
 const formatSummaryValue = (key: string, value: unknown) => {
   if (key === 'totalAmount') return Number(value || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (key === 'rowCount') return Number(value || 0).toLocaleString('th-TH');
+  if (['rowCount', 'patientCount', 'acceptedCount', 'rejectedCount', 'csmbsCount', 'sssCount'].includes(key)) {
+    return Number(value || 0).toLocaleString('th-TH');
+  }
   return String(value ?? '-');
 };
 
@@ -123,7 +132,9 @@ export const RepStmImportDetail: React.FC<RepStmImportDetailProps> = ({
             {summaries.map((summary, index) => (
               <article className="repstm-detail-summary-card" key={`${String(summary.entryName || 'summary')}-${index}`}>
                 <div className="repstm-detail-summary-title">
-                  {summary.documentKind === 'summary' ? 'เอกสารสรุป' : 'เอกสารรายละเอียด'}
+                  {summary.documentKind === 'summary'
+                    ? 'เอกสารสรุป'
+                    : summary.documentKind === 'chi-hd-rep' ? 'REP ไต CHI' : 'เอกสารรายละเอียด'}
                   <small>{String(summary.entryName || '')}</small>
                 </div>
                 <div className="repstm-detail-summary-fields">

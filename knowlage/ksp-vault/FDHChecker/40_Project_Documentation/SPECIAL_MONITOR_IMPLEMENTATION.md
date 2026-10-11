@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SPECIAL_MONITOR_IMPLEMENTATION.md"
-source_hash: "d77d4cf07d747683ba909405b93cb044e7f9c72b43e7ed291243603c28d9cf6f"
+source_hash: "90ba370a2fe63871f29558ca05595ea813919bafefda6eb29dc6a12794a98adb"
 managed_by: "sync-ksp-vault"
 ---
 # Special Monitor Page Implementation - COMPLETE ✅

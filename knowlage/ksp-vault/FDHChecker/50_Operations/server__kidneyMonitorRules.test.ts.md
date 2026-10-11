@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/kidneyMonitorRules.test.ts"
-source_hash: "7672d4b4f3345db8c7d28d57b23157625cc98bccc3cff2b07e6873b36537a5e1"
+source_hash: "bb7157c7c33e8f3447a39518e606d3444b20cab197b41defb3441498edcf98f1"
 managed_by: "sync-ksp-vault"
 ---
 # kidneyMonitorRules.test.ts
 
 > Source: `server/kidneyMonitorRules.test.ts`
-> SHA-256: `7672d4b4f3345db8c7d28d57b23157625cc98bccc3cff2b07e6873b36537a5e1`
+> SHA-256: `bb7157c7c33e8f3447a39518e606d3444b20cab197b41defb3441498edcf98f1`
 
 ````typescript
 import assert from 'node:assert';

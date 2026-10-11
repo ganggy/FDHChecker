@@ -4,17 +4,18 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/dailyWorkOverview.ts"
-source_hash: "5e7cbb8272114b6c09473a4b500785b9c18ef8aef875a82c44e8b69811b3a1a3"
+source_hash: "b6d8dd4a6e97411d7a275324333106a8606a8e6ee472f94d4510c47b38f56c83"
 managed_by: "sync-ksp-vault"
 ---
 # dailyWorkOverview.ts
 
 > Source: `server/dailyWorkOverview.ts`
-> SHA-256: `5e7cbb8272114b6c09473a4b500785b9c18ef8aef875a82c44e8b69811b3a1a3`
+> SHA-256: `b6d8dd4a6e97411d7a275324333106a8606a8e6ee472f94d4510c47b38f56c83`
 
 ````typescript
 import { ensureNhsoClosePrivilegeTable, getAppSetting, getUTFConnection, setAppSetting } from './db.js';
 import { pushLineMessages, type LineMessage } from './lineMessaging.js';
+import { publishCollaborationBotMessages } from './collaboration.js';
 
 export type DailyWorkVisit = {
   vn: string;
@@ -181,6 +182,17 @@ export const sendDailyWorkOverviewToLine = async (
   for (let index = 0; index < messages.length; index += 5) {
     const batch: LineMessage[] = messages.slice(index, index + 5).map((value) => ({ type: 'text', text: value.slice(0, 5000) }));
     await pushLineMessages(targetId, batch, accessToken);
+  }
+  try {
+    await publishCollaborationBotMessages({
+      botKey: 'daily-overview',
+      senderName: text(process.env.LINE_OVERVIEW_BOT_DISPLAY_NAME) || 'พี่นุชหมายเลขสอง',
+      reportDate: overview.reportDate,
+      messages,
+      metadata: { reportType: 'daily_overview', mirroredFrom: 'line' },
+    });
+  } catch (error) {
+    console.warn('Unable to mirror daily overview to collaboration chat:', error instanceof Error ? error.message : String(error));
   }
   return messages.length;
 };

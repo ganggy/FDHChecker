@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "QUICK_BUG_FIX_SUMMARY.md"
-source_hash: "1ff4fd5dfb871a6529f1df02ab63ae77a3e2c323852f12ea43f6b258d496b5ac"
+source_hash: "d0d3a1989cf9582e3ddef63ee2f1057fbe556a503dbd5bf4a38ccea63bec2339"
 managed_by: "sync-ksp-vault"
 ---
 # 🐛 BUG FIX SUMMARY - Service Date Column Missing

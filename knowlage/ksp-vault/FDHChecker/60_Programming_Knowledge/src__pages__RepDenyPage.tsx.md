@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/RepDenyPage.tsx"
-source_hash: "c076b20b6961f60d42b797b2141f47984727398c31490591cfdb9d3188a3892c"
+source_hash: "c5ceec121d00f0a34baf8fa1735bb30c8db35027adbbdbe964056085ea3ab6aa"
 managed_by: "sync-ksp-vault"
 ---
 # RepDenyPage.tsx
 
 > Source: `src/pages/RepDenyPage.tsx`
-> SHA-256: `c076b20b6961f60d42b797b2141f47984727398c31490591cfdb9d3188a3892c`
+> SHA-256: `c5ceec121d00f0a34baf8fa1735bb30c8db35027adbbdbe964056085ea3ab6aa`
 
 ````tsx
 import React, { useEffect, useMemo, useState } from 'react';
@@ -182,7 +182,7 @@ const splitCodes = (value?: string) =>
 
 const findCatalogEntry = (catalog: Record<string, RepErrorCatalogEntry>, code: string) => {
   const normalized = code.toUpperCase().replace(/\s+/g, '');
-  return catalog[normalized] || (/^C\d+$/.test(normalized) ? catalog[normalized.slice(1)] : undefined);
+  return catalog[normalized] || (/^C\d+(?:-\d+)?$/.test(normalized) ? catalog[normalized.slice(1)] : undefined);
 };
 
 const getCategory = (code: string): Exclude<RepCategory, 'all'> => {
@@ -213,6 +213,93 @@ const getDisplayDate = (value?: string) => (value ? String(value).replace('T', '
 
 const getGuideForCategory = (category: Exclude<RepCategory, 'all'>): RepGuide => DEFAULT_GUIDE[category];
 
+type TrackingFilter = 'unresolved' | 'urgent_sla' | 'expired_sla' | 'resolved' | 'cancelled' | 'all';
+
+const calculateAppealSla = (dateStr?: string) => {
+  if (!dateStr) return null;
+  const issueDate = new Date(dateStr);
+  if (isNaN(issueDate.getTime())) return null;
+  const now = new Date();
+  const diffTime = issueDate.getTime() + 60 * 24 * 60 * 60 * 1000 - now.getTime();
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
+
+const renderAppealSlaBadge = (dateStr?: string) => {
+  const days = calculateAppealSla(dateStr);
+  if (days === null) return <span style={{ color: '#94a3b8' }}>-</span>;
+  if (days < 0) {
+    return (
+      <span
+        style={{
+          background: '#f1f5f9',
+          color: '#64748b',
+          padding: '2px 8px',
+          borderRadius: 6,
+          fontSize: '0.78rem',
+          fontWeight: 600,
+          whiteSpace: 'nowrap',
+        }}
+        title={`ส่งมาเกิน 60 วันแล้ว (${Math.abs(days)} วันก่อน)`}
+      >
+        ❌ ขาดอายุความ
+      </span>
+    );
+  }
+  if (days <= 10) {
+    return (
+      <span
+        style={{
+          background: '#fee2e2',
+          color: '#b91c1c',
+          padding: '2px 8px',
+          borderRadius: 6,
+          fontSize: '0.78rem',
+          fontWeight: 800,
+          whiteSpace: 'nowrap',
+          border: '1px solid #f87171',
+        }}
+        title="ด่วนมาก! ต้องยื่นอุทธรณ์ภายใน 10 วันนี้"
+      >
+        🔴 ด่วน! เหลือ {days} วัน
+      </span>
+    );
+  }
+  if (days <= 30) {
+    return (
+      <span
+        style={{
+          background: '#fef3c7',
+          color: '#b45309',
+          padding: '2px 8px',
+          borderRadius: 6,
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          whiteSpace: 'nowrap',
+        }}
+        title="เฝ้าระวัง: เหลือเวลาอุทธรณ์ไม่ถึง 1 เดือน"
+      >
+        🟡 เหลือ {days} วัน
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{
+        background: '#dcfce7',
+        color: '#15803d',
+        padding: '2px 8px',
+        borderRadius: 6,
+        fontSize: '0.78rem',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+      title="อยู่ในกรอบเวลาอุทธรณ์ 60 วัน"
+    >
+      🟢 เหลือ {days} วัน
+    </span>
+  );
+};
+
 export const RepDenyPage: React.FC = () => {
   const [rows, setRows] = useState<RepRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -220,7 +307,7 @@ export const RepDenyPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<RepCategory>('all');
-  const [trackingStatus, setTrackingStatus] = useState<TrackingStatus | 'all'>('unresolved');
+  const [trackingStatus, setTrackingStatus] = useState<TrackingFilter>('unresolved');
   const [selectedCode, setSelectedCode] = useState<string>('all');
   const [notes, setNotes] = useState<RepDenyNotes>({});
   const [notesDraft, setNotesDraft] = useState('');
@@ -364,7 +451,19 @@ export const RepDenyPage: React.FC = () => {
   const selectedCatalogEntry = selectedSummary ? findCatalogEntry(errorCatalog, selectedSummary.code) : undefined;
 
   const visibleRows = useMemo(() => {
-    const statusRows = trackingStatus === 'all' ? trackingItems : trackingItems.filter((item) => item.status === trackingStatus);
+    const statusRows = trackingItems.filter((item) => {
+      if (trackingStatus === 'all') return true;
+      if (trackingStatus === 'urgent_sla') {
+        const sla = calculateAppealSla(item.latest.senddate || item.latest.created_at);
+        return item.status === 'unresolved' && sla !== null && sla >= 0 && sla <= 15;
+      }
+      if (trackingStatus === 'expired_sla') {
+        const sla = calculateAppealSla(item.latest.senddate || item.latest.created_at);
+        return item.status === 'unresolved' && sla !== null && sla < 0;
+      }
+      return item.status === trackingStatus;
+    });
+
     const baseRows = selectedCode === 'all'
       ? statusRows
       : statusRows.filter((item) => item.attempts.some((row) => (
@@ -489,8 +588,10 @@ export const RepDenyPage: React.FC = () => {
             </div>
             <div className="form-group">
               <label className="form-label">สถานะการติดตาม</label>
-              <select className="form-control" value={trackingStatus} onChange={(e) => setTrackingStatus(e.target.value as TrackingStatus | 'all')}>
-                <option value="unresolved">ยังแก้ไม่สำเร็จ</option>
+              <select className="form-control" value={trackingStatus} onChange={(e) => setTrackingStatus(e.target.value as TrackingFilter)}>
+                <option value="unresolved">ยังแก้ไม่สำเร็จ (ทั้งหมด)</option>
+                <option value="urgent_sla">🔴 เร่งด่วน! เหลือเวลา &le; 15 วัน</option>
+                <option value="expired_sla">⚠️ ขาดอายุความแล้ว (&gt; 60 วัน)</option>
                 <option value="resolved">แก้ไขสำเร็จ</option>
                 <option value="cancelled">ยกเลิกการเบิก</option>
                 <option value="all">ทุกสถานะ</option>
@@ -662,6 +763,7 @@ export const RepDenyPage: React.FC = () => {
                 <thead>
                   <tr>
                     <th>สถานะล่าสุด</th>
+                    <th>อายุความอุทธรณ์ (60 วัน)</th>
                     <th>REP</th>
                     <th>จำนวนครั้ง</th>
                     <th>VN / AN</th>
@@ -689,6 +791,9 @@ export const RepDenyPage: React.FC = () => {
                           <span className={`badge ${item.status === 'resolved' ? 'badge-success' : item.status === 'cancelled' ? 'badge-secondary' : 'badge-danger'}`}>
                             {item.status === 'resolved' ? 'แก้สำเร็จ' : item.status === 'cancelled' ? 'ยกเลิกเบิก' : 'ยังไม่สำเร็จ'}
                           </span>
+                        </td>
+                        <td className="table-cell-nowrap">
+                          {renderAppealSlaBadge(row.senddate || row.created_at)}
                         </td>
                         <td className="workflow-id-cell">
                           <div className="table-cell-nowrap">{row.rep_no || '-'}</div>

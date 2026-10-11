@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "QUICK_AUTH_CODE_REFERENCE.md"
-source_hash: "b4b7023442f5730f84fe4b919c335a7e531a97db17f08c88851ab857175085d5"
+source_hash: "2acacba41e564948a1dd56f25205c0fc5c821e1939a8b0abe59f2f0af664d895"
 managed_by: "sync-ksp-vault"
 ---
 # 🔐 Auth_Code & Visit_PTType - Quick Reference

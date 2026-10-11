@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "FUND_VALIDATION_QUICK_REFERENCE.md"
-source_hash: "bd3e3a564e87e3de5086b224e550969e62d11277f01879a446e8a09967ea827f"
+source_hash: "318ea38fee8fe4c39f3a5ec715205885fd4ed5e23ce7f0b664d2379e9bd815d1"
 managed_by: "sync-ksp-vault"
 ---
 # ⚡ Quick Reference - Fund Validation Rules

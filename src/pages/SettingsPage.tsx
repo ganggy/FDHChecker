@@ -73,6 +73,10 @@ interface FdhApiSettings {
     preScreenUrl?: string;
     username?: string;
     password?: string;
+    hisSecret?: string;
+    hisSourceKey?: string;
+    fdsUatUrl?: string;
+    fdsPrdUrl?: string;
 }
 
 interface SettingsMeta {
@@ -182,11 +186,15 @@ export const SettingsPage: React.FC = () => {
     const [appSettingsSource, setAppSettingsSource] = useState<'database' | 'empty' | 'unknown'>('unknown');
     const [fdhApiSettings, setFdhApiSettings] = useState<FdhApiSettings | null>(null);
     const [fdhPasswordConfigured, setFdhPasswordConfigured] = useState(false);
+    const [fdsSecretConfigured, setFdsSecretConfigured] = useState(false);
+    const [fdsSourceKeyConfigured, setFdsSourceKeyConfigured] = useState(false);
     const [settingsMeta, setSettingsMeta] = useState<SettingsMeta | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [testingFdhConnection, setTestingFdhConnection] = useState(false);
     const [fdhConnectionTest, setFdhConnectionTest] = useState<FdhConnectionTestState | null>(null);
+    const [testingFdsUat, setTestingFdsUat] = useState(false);
+    const [fdsUatTestResult, setFdsUatTestResult] = useState<{ type: 'success' | 'error'; message: string; responseTimeMs?: number } | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -219,7 +227,14 @@ export const SettingsPage: React.FC = () => {
             setAppSettings(appData.data || null);
             setAppSettingsSource(appData.source || 'unknown');
             setFdhPasswordConfigured(fdhApiData.data?.password === SECRET_PLACEHOLDER);
-            setFdhApiSettings(fdhApiData.data ? { ...fdhApiData.data, password: '' } : null);
+            setFdsSecretConfigured(fdhApiData.data?.hisSecret === SECRET_PLACEHOLDER);
+            setFdsSourceKeyConfigured(fdhApiData.data?.hisSourceKey === SECRET_PLACEHOLDER);
+            setFdhApiSettings(fdhApiData.data ? {
+                ...fdhApiData.data,
+                password: '',
+                hisSecret: '',
+                hisSourceKey: '',
+            } : null);
             setSettingsMeta(statusData.data || null);
             setIsDirty(false);
         } catch (error) {
@@ -354,6 +369,30 @@ export const SettingsPage: React.FC = () => {
             });
         } finally {
             setTestingFdhConnection(false);
+        }
+    };
+
+    const handleTestFdsUatConnection = async () => {
+        try {
+            setTestingFdsUat(true);
+            setFdsUatTestResult(null);
+            const response = await fetch('/api/settings/fds-v3/test-connection', { method: 'POST' });
+            const result = await readJsonResponse<{
+                message?: string;
+                data?: { responseTimeMs?: number; status?: number };
+            }>(response, 'การทดสอบการเชื่อมต่อ FDS v3 UAT');
+            setFdsUatTestResult({
+                type: 'success',
+                message: result.message || 'เชื่อมต่อ FDS v3 UAT สำเร็จ',
+                responseTimeMs: result.data?.responseTimeMs,
+            });
+        } catch (error) {
+            setFdsUatTestResult({
+                type: 'error',
+                message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการทดสอบเชื่อมต่อ FDS v3 UAT',
+            });
+        } finally {
+            setTestingFdsUat(false);
         }
     };
 
@@ -745,6 +784,81 @@ export const SettingsPage: React.FC = () => {
                                 )}
                             </div>
                         )}
+
+                        <div className="card" style={{ marginTop: 24, padding: 20, border: '1px solid #c7d2fe', background: '#f8faff', borderRadius: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                <span style={{ fontSize: '1.25rem' }}>✨</span>
+                                <h4 style={{ margin: 0, color: '#3730a3', fontSize: 16 }}>
+                                    ชุดข้อมูล FDS v3.0.0 (Financial Data Set — เตรียมปีงบ 2569)
+                                </h4>
+                                <span className="status-badge" style={{ background: '#e0e7ff', color: '#3730a3', fontSize: 11, padding: '2px 8px', borderRadius: 99 }}>
+                                    โครงสร้างใหม่ (Clearing House)
+                                </span>
+                            </div>
+                            <p style={{ color: '#4b5563', fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
+                                กำหนดค่าเตรียมความพร้อมสำหรับการส่งเบิกด้วย JSON Schema v3.0.0.59 ผ่านระบบ MOPH Single Clearing House (สปสช., ประกันสังคม, กรมบัญชีกลาง, และกองทุนเฉพาะทาง) เพื่อให้สามารถทดสอบส่งเข้า UAT ได้ล่วงหน้า
+                            </p>
+                            <div className="settings-grid">
+                                <div className="form-group">
+                                    <label>Token หน่วยบริการ สปสช. (hisSecret)</label>
+                                    <input
+                                        type="password"
+                                        value={mergedFdhApiSettings.hisSecret || ''}
+                                        autoComplete="off"
+                                        placeholder={fdsSecretConfigured ? 'ตั้ง hisSecret ไว้แล้ว — เว้นว่างเพื่อใช้ค่าเดิม' : 'Token จากระบบ NewAuthenCode (client_secret)'}
+                                        onChange={(e) => setFdhSetting('hisSecret', e.target.value)}
+                                    />
+                                    <small>{fdsSecretConfigured ? '✅ มี Token บันทึกในระบบแล้ว' : '⚠️ ระบุ client_secret จาก NewAuthenCode'}</small>
+                                </div>
+                                <div className="form-group">
+                                    <label>Key ขึ้นทะเบียน NHSO Digital Platform (hisSourceKey)</label>
+                                    <input
+                                        type="password"
+                                        value={mergedFdhApiSettings.hisSourceKey || ''}
+                                        autoComplete="off"
+                                        placeholder={fdsSourceKeyConfigured ? 'ตั้ง hisSourceKey ไว้แล้ว — เว้นว่างเพื่อใช้ค่าเดิม' : 'x-sourceid-key จาก NHSO Digital Platform'}
+                                        onChange={(e) => setFdhSetting('hisSourceKey', e.target.value)}
+                                    />
+                                    <small>{fdsSourceKeyConfigured ? '✅ มี Key บันทึกในระบบแล้ว' : '⚠️ ระบุ Key การขึ้นทะเบียน NHSO DP'}</small>
+                                </div>
+                                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                    <label>URL ส่งข้อมูล FDS v3 (UAT Endpoint)</label>
+                                    <input
+                                        type="url"
+                                        value={mergedFdhApiSettings.fdsUatUrl || 'https://uat-fdh.inet.co.th/fdh_api/v1/dataset/import'}
+                                        onChange={(e) => setFdhSetting('fdsUatUrl', e.target.value)}
+                                    />
+                                    <small style={{ color: '#6b7280' }}>Default UAT: https://uat-fdh.inet.co.th/fdh_api/v1/dataset/import</small>
+                                </div>
+                            </div>
+                            <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                                <div style={{ fontSize: 13, color: '#4b5563' }}>
+                                    ทดสอบยิง Ping ตรวจสอบสถานะ Server ปลายทางของ FDS v3 UAT
+                                </div>
+                                <button
+                                    type="button"
+                                    className="secondary-btn"
+                                    onClick={() => void handleTestFdsUatConnection()}
+                                    disabled={testingFdsUat}
+                                    style={{ borderColor: '#818cf8', color: '#4338ca', fontWeight: 600 }}
+                                >
+                                    {testingFdsUat ? 'กำลังทดสอบ...' : '🧪 ทดสอบเชื่อมต่อ FDS v3 UAT'}
+                                </button>
+                            </div>
+                            {fdsUatTestResult && (
+                                <div
+                                    className={`fdh-test-result is-${fdsUatTestResult.type}`}
+                                    style={{ marginTop: 12 }}
+                                    role="alert"
+                                >
+                                    <strong>{fdsUatTestResult.type === 'success' ? '✅ สำเร็จ' : '❌ ไม่สำเร็จ'}</strong>
+                                    <span>{fdsUatTestResult.message}</span>
+                                    {fdsUatTestResult.responseTimeMs != null && (
+                                        <small>ใช้เวลา {fdsUatTestResult.responseTimeMs.toLocaleString('th-TH')} มิลลิวินาที</small>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 

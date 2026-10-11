@@ -4,20 +4,27 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/SettingsPage.tsx"
-source_hash: "1b7f8f38ee62355bb3f0acbd2d32e39b9b580d5623d868e0c30b497b8851ca18"
+source_hash: "c0350110435176b1019ef0c2db9977ce90c013f654c74d5ad2b33c2970ac544f"
 managed_by: "sync-ksp-vault"
 ---
 # SettingsPage.tsx
 
 > Source: `src/pages/SettingsPage.tsx`
-> SHA-256: `1b7f8f38ee62355bb3f0acbd2d32e39b9b580d5623d868e0c30b497b8851ca18`
+> SHA-256: `c0350110435176b1019ef0c2db9977ce90c013f654c74d5ad2b33c2970ac544f`
 
 ````tsx
+import { ReceivableMappingSettings } from '../components/ReceivableMappingSettings';
+import { HospitalScopeSettings } from '../components/HospitalScopeSettings';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import '../styles/Settings.css';
 import defaultRules from '../config/business_rules.json';
 import { FUND_DEFINITIONS } from '../config/fundDefinitions';
 import { formatLocalDateStamp } from '../utils/dateUtils';
+import { IpdLosSettings } from '../components/IpdLosSettings';
+import { HospitalDatabaseSettings } from '../components/HospitalDatabaseSettings';
+import { HospitalReadinessPanel } from '../components/HospitalReadinessPanel';
+import { HospitalMasterDataEditor } from '../components/HospitalMasterDataEditor';
+import { SystemUpdatePanel } from '../components/SystemUpdatePanel';
 
 interface Config {
     costs: {
@@ -37,6 +44,9 @@ interface Config {
         [key: string]: string;
     };
     site_settings?: {
+        uc_walkin_pttypes?: string[];
+        uc_walkin_icode?: string;
+        pcu_village_ids?: string[];
         hospital_name?: string;
         hospital_code?: string;
         nhso_region?: string;
@@ -78,6 +88,10 @@ interface FdhApiSettings {
     preScreenUrl?: string;
     username?: string;
     password?: string;
+    hisSecret?: string;
+    hisSourceKey?: string;
+    fdsUatUrl?: string;
+    fdsPrdUrl?: string;
 }
 
 interface SettingsMeta {
@@ -124,14 +138,14 @@ const FALLBACK_FUND_DEFINITIONS = [
     { id: 'postnatal_supplements', name: 'เสริมธาตุเหล็กหลังคลอด', description: 'ยาเสริมธาตุเหล็กหลังคลอด' },
     { id: 'fluoride', name: 'เคลือบฟลูออไรด์', description: 'ทันตกรรมป้องกันฟันผุ' },
     { id: 'fp', name: 'วางแผนครอบครัว', description: 'บริการคุมกำเนิดและวางแผนครอบครัว' },
-    { id: 'contraceptive_pill', name: 'ยาคุมกำเนิด', description: 'ยาคุมชนิดเม็ด' },
+    { id: 'contraceptive_pill', name: 'ยาเม็ดคุมกำเนิด', description: 'FP003_1/FP003_2/FP003_3 · Z304' },
     { id: 'condom', name: 'ยาฉีดคุมกำเนิด', description: 'ADP FP003_4 อัตรา 60 บาท' },
     { id: 'cacervix', name: 'คัดกรองมะเร็งปากมดลูก', description: 'Pap smear / Cervix screening' },
     { id: 'er_emergency', name: 'ฉุกเฉิน (ER)', description: 'ผู้ป่วยฉุกเฉินและนอกเขต' },
     { id: 'fpg_screening', name: 'คัดกรองเบาหวาน', description: 'FPG / เบาหวาน' },
     { id: 'cholesterol_screening', name: 'คัดกรองหัวใจหลอดเลือด', description: 'Total Cholesterol และ HDL อายุ 45-70 ปี' },
     { id: 'anemia_screening', name: 'คัดกรองโลหิตจาง', description: 'CBC / Hb-Hct + Z130/Z138 + 13001' },
-    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab Treponema/Syphilis' },
+    { id: 'syphilis_screening_male', name: 'คัดกรองซิฟิลิส (ชาย)', description: 'ประชาชนทั่วไปเพศชาย + Lab/บริการ 36003 หรือ 36006' },
     { id: 'iron_supplement', name: 'เสริมธาตุเหล็ก', description: 'ยาเสริมธาตุเหล็ก' },
     { id: 'ferrokid_child', name: 'เสริมธาตุเหล็กเด็ก (Ferrokid)', description: 'กองทุนเด็ก 6-12 เดือน (PP-B FS)' },
     { id: 'mental_health_counselling', name: 'ปรึกษาสุขภาพจิต', description: 'อายุ 12 ปีขึ้นไป + ST-5/9Q + counselling' },
@@ -163,7 +177,22 @@ const getGuaranteedFundDefinitions = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'fdh' | 'db' | 'advanced'>('hospital');
+    const [activeTab, setActiveTab] = useState<'hospital' | 'lab' | 'ipdLos' | 'fdh' | 'db' | 'advanced' | 'connection' | 'update' | 'readiness' | 'masterData'>(() => {
+        const target = window.sessionStorage.getItem('settings_target_tab');
+        if (target === 'update') {
+            window.sessionStorage.removeItem('settings_target_tab');
+            return 'update';
+        }
+        if (target === 'readiness') {
+            window.sessionStorage.removeItem('settings_target_tab');
+            return 'readiness';
+        }
+        if (target === 'masterData') {
+            window.sessionStorage.removeItem('settings_target_tab');
+            return 'masterData';
+        }
+        return 'hospital';
+    });
     const [frontendConfig, setFrontendConfig] = useState<Config | null>(null);
     const [backendConfig, setBackendConfig] = useState<any | null>(null);
     const [frontendSource, setFrontendSource] = useState<'database' | 'file' | 'unknown'>('unknown');
@@ -172,11 +201,15 @@ export const SettingsPage: React.FC = () => {
     const [appSettingsSource, setAppSettingsSource] = useState<'database' | 'empty' | 'unknown'>('unknown');
     const [fdhApiSettings, setFdhApiSettings] = useState<FdhApiSettings | null>(null);
     const [fdhPasswordConfigured, setFdhPasswordConfigured] = useState(false);
+    const [fdsSecretConfigured, setFdsSecretConfigured] = useState(false);
+    const [fdsSourceKeyConfigured, setFdsSourceKeyConfigured] = useState(false);
     const [settingsMeta, setSettingsMeta] = useState<SettingsMeta | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [testingFdhConnection, setTestingFdhConnection] = useState(false);
     const [fdhConnectionTest, setFdhConnectionTest] = useState<FdhConnectionTestState | null>(null);
+    const [testingFdsUat, setTestingFdsUat] = useState(false);
+    const [fdsUatTestResult, setFdsUatTestResult] = useState<{ type: 'success' | 'error'; message: string; responseTimeMs?: number } | null>(null);
     const [isDirty, setIsDirty] = useState(false);
     const [loadError, setLoadError] = useState('');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -209,7 +242,14 @@ export const SettingsPage: React.FC = () => {
             setAppSettings(appData.data || null);
             setAppSettingsSource(appData.source || 'unknown');
             setFdhPasswordConfigured(fdhApiData.data?.password === SECRET_PLACEHOLDER);
-            setFdhApiSettings(fdhApiData.data ? { ...fdhApiData.data, password: '' } : null);
+            setFdsSecretConfigured(fdhApiData.data?.hisSecret === SECRET_PLACEHOLDER);
+            setFdsSourceKeyConfigured(fdhApiData.data?.hisSourceKey === SECRET_PLACEHOLDER);
+            setFdhApiSettings(fdhApiData.data ? {
+                ...fdhApiData.data,
+                password: '',
+                hisSecret: '',
+                hisSourceKey: '',
+            } : null);
             setSettingsMeta(statusData.data || null);
             setIsDirty(false);
         } catch (error) {
@@ -225,6 +265,19 @@ export const SettingsPage: React.FC = () => {
     useEffect(() => {
         void fetchConfigs();
     }, [fetchConfigs]);
+
+    useEffect(() => {
+        const checkTargetTab = () => {
+            const target = window.sessionStorage.getItem('settings_target_tab');
+            if (target) {
+                window.sessionStorage.removeItem('settings_target_tab');
+                setActiveTab(target as any);
+            }
+        };
+        checkTargetTab();
+        window.addEventListener('fdh:navigate', checkTargetTab);
+        return () => window.removeEventListener('fdh:navigate', checkTargetTab);
+    }, []);
 
     useEffect(() => {
         const warnBeforeLeave = (event: BeforeUnloadEvent) => {
@@ -334,6 +387,30 @@ export const SettingsPage: React.FC = () => {
         }
     };
 
+    const handleTestFdsUatConnection = async () => {
+        try {
+            setTestingFdsUat(true);
+            setFdsUatTestResult(null);
+            const response = await fetch('/api/settings/fds-v3/test-connection', { method: 'POST' });
+            const result = await readJsonResponse<{
+                message?: string;
+                data?: { responseTimeMs?: number; status?: number };
+            }>(response, 'การทดสอบการเชื่อมต่อ FDS v3 UAT');
+            setFdsUatTestResult({
+                type: 'success',
+                message: result.message || 'เชื่อมต่อ FDS v3 UAT สำเร็จ',
+                responseTimeMs: result.data?.responseTimeMs,
+            });
+        } catch (error) {
+            setFdsUatTestResult({
+                type: 'error',
+                message: error instanceof Error ? error.message : 'เกิดข้อผิดพลาดในการทดสอบเชื่อมต่อ FDS v3 UAT',
+            });
+        } finally {
+            setTestingFdsUat(false);
+        }
+    };
+
     const exportAppSettings = () => {
         const payload = {
             site_settings: appSettings || frontendConfig?.site_settings || {},
@@ -436,6 +513,27 @@ export const SettingsPage: React.FC = () => {
                     </div>
                 </div>
                 <div className="settings-header-actions">
+                    {activeTab === 'advanced' && (
+                        <div className="settings-transfer-actions">
+                            <button className="tab-btn" type="button" onClick={exportAppSettings}>⬇️ Export JSON</button>
+                            <button className="tab-btn" type="button" onClick={() => appImportRef.current?.click()}>⬆️ Import JSON</button>
+                            <input
+                                ref={appImportRef}
+                                type="file"
+                                accept="application/json"
+                                style={{ display: 'none' }}
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                        void importAppSettings(file).catch((error) => {
+                                            showToast(`❌ ${error instanceof Error ? error.message : 'ไม่สามารถอ่านไฟล์ได้'}`, 'error');
+                                        });
+                                    }
+                                    e.currentTarget.value = '';
+                                }}
+                            />
+                        </div>
+                    )}
                     <button className="secondary-btn" type="button" onClick={() => void fetchConfigs()} disabled={loading || saving}>
                         ↻ โหลดค่าล่าสุด
                     </button>
@@ -446,27 +544,6 @@ export const SettingsPage: React.FC = () => {
                     >
                         {saving ? 'กำลังบันทึก...' : '💾 บันทึกการเปลี่ยนแปลง'}
                     </button>
-                    {activeTab === 'advanced' && (
-                        <div className="settings-transfer-actions">
-                        <button className="tab-btn" onClick={exportAppSettings}>⬇️ Export JSON</button>
-                        <button className="tab-btn" onClick={() => appImportRef.current?.click()}>⬆️ Import JSON</button>
-                        <input
-                            ref={appImportRef}
-                            type="file"
-                            accept="application/json"
-                            style={{ display: 'none' }}
-                            onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                    void importAppSettings(file).catch((error) => {
-                                        showToast(`❌ ${error instanceof Error ? error.message : 'ไม่สามารถอ่านไฟล์ได้'}`, 'error');
-                                    });
-                                }
-                                e.currentTarget.value = '';
-                            }}
-                        />
-                        </div>
-                    )}
                 </div>
             </div>
 
@@ -477,27 +554,61 @@ export const SettingsPage: React.FC = () => {
                 </div>
             )}
 
-            <div className="settings-tabs">
-                <button className={`tab-btn ${activeTab === 'hospital' ? 'active' : ''}`} onClick={() => setActiveTab('hospital')}>🏥 หน่วยบริการ</button>
-                <button className={`tab-btn ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>💰 ต้นทุนและกฎ</button>
-                <button className={`tab-btn ${activeTab === 'db' ? 'active' : ''}`} onClick={() => setActiveTab('db')}>📋 กองทุนและเอกสาร</button>
-                <button className={`tab-btn ${activeTab === 'fdh' ? 'active' : ''}`} onClick={() => setActiveTab('fdh')}>🔐 เชื่อมต่อ FDH</button>
-                <button className={`tab-btn ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>🛠️ ขั้นสูง</button>
+            <div className="settings-tab-groups" role="tablist">
+                <div className="settings-tab-cluster">
+                    <span className="settings-tab-cluster-label">🔌 การเชื่อมต่อและระบบ</span>
+                    <div className="settings-tab-cluster-buttons">
+                        <button type="button" className={`tab-btn ${activeTab === 'readiness' ? 'active' : ''}`} onClick={() => setActiveTab('readiness')}>🩺 ตรวจความพร้อมระบบ</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'masterData' ? 'active' : ''}`} onClick={() => setActiveTab('masterData')}>✏️ เติมรหัส Master Data</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'connection' ? 'active' : ''}`} onClick={() => setActiveTab('connection')}>🗄️ ฐานข้อมูล HOSxP</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'fdh' ? 'active' : ''}`} onClick={() => setActiveTab('fdh')}>🔐 เชื่อมต่อ FDH</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'update' ? 'active' : ''}`} onClick={() => setActiveTab('update')}>🔄 อัปเดตระบบ</button>
+                    </div>
+                </div>
+
+                <div className="settings-tab-cluster">
+                    <span className="settings-tab-cluster-label">🏥 ข้อมูลหน่วยบริการและเอกสาร</span>
+                    <div className="settings-tab-cluster-buttons">
+                        <button type="button" className={`tab-btn ${activeTab === 'hospital' ? 'active' : ''}`} onClick={() => setActiveTab('hospital')}>🏥 ขอบเขตบริการ / WALKIN</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'db' ? 'active' : ''}`} onClick={() => setActiveTab('db')}>📋 ผู้ลงนามและกองทุน</button>
+                    </div>
+                </div>
+
+                <div className="settings-tab-cluster">
+                    <span className="settings-tab-cluster-label">⚖️ กฎเกณฑ์และมาตรฐาน</span>
+                    <div className="settings-tab-cluster-buttons">
+                        <button type="button" className={`tab-btn ${activeTab === 'lab' ? 'active' : ''}`} onClick={() => setActiveTab('lab')}>💰 ต้นทุนและกฎ Lab</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'ipdLos' ? 'active' : ''}`} onClick={() => setActiveTab('ipdLos')}>🛏️ ICD-10 / LOS</button>
+                        <button type="button" className={`tab-btn ${activeTab === 'advanced' ? 'active' : ''}`} onClick={() => setActiveTab('advanced')}>🛠️ บัญชีและข้อมูลขั้นสูง</button>
+                    </div>
+                </div>
             </div>
 
             <div className="settings-card">
+                {activeTab === 'readiness' && <HospitalReadinessPanel onNavigateTab={(tab) => setActiveTab(tab as any)} />}
+                {activeTab === 'masterData' && <HospitalMasterDataEditor />}
+                {activeTab === 'connection' && <HospitalDatabaseSettings />}
+                {activeTab === 'ipdLos' && <IpdLosSettings />}
+                {activeTab === 'update' && <SystemUpdatePanel />}
+
                 {activeTab === 'hospital' && frontendConfig && (
                     <div className="settings-section">
                         <h3>🏥 ข้อมูลหน่วยบริการ</h3>
-                        <p className="settings-section-description">ข้อมูลกลางที่ใช้ในหัวรายงาน การเชื่อมต่อ FDH และการอ้างอิงภายในระบบ</p>
+                        <p className="settings-section-description">ชื่อและรหัสหน่วยบริการอ่านจาก opdconfig ของ HIS ที่เชื่อมต่อ</p>
                         <div className="settings-grid">
                             <div className="form-group">
                                 <label>ชื่อหน่วยบริการ</label>
-                                <input type="text" value={mergedSiteSettings?.hospital_name || ''} onChange={(e) => setSiteSetting(['hospital_name'], e.target.value)} />
+                                <input
+                                    type="text"
+                                    value={mergedSiteSettings?.hospital_name || ''}
+                                    onChange={(e) => setSiteSetting(['hospital_name'], e.target.value)}
+                                    placeholder="ชื่อโรงพยาบาล (หากเว้นว่างจะดึงจาก opdconfig อัตโนมัติ)"
+                                />
+                                <small>ใช้แสดงเป็นหัวเอกสารและรายงานบัญชีลูกหนี้ หากเว้นว่างจะดึงจาก opdconfig</small>
                             </div>
                             <div className="form-group">
                                 <label>รหัสหน่วยบริการ (HCODE)</label>
-                                <input type="text" inputMode="numeric" maxLength={5} value={mergedSiteSettings?.hospital_code || ''} onChange={(e) => setSiteSetting(['hospital_code'], e.target.value.replace(/\D/g, '').slice(0, 5))} />
+                                <input type="text" inputMode="numeric" maxLength={5} value={mergedSiteSettings?.hospital_code || ''} readOnly />
                                 <small>ต้องเป็นตัวเลข 5 หลัก และจะใช้ร่วมกับ FDH API</small>
                             </div>
                             <div className="form-group">
@@ -511,6 +622,8 @@ export const SettingsPage: React.FC = () => {
                         </div>
                     </div>
                 )}
+
+                {activeTab === 'hospital' && <HospitalScopeSettings settings={mergedSiteSettings || {}} onChange={setSiteSetting} />}
 
                 {activeTab === 'lab' && (
                     <div className="settings-section">
@@ -686,6 +799,81 @@ export const SettingsPage: React.FC = () => {
                                 )}
                             </div>
                         )}
+
+                        <div className="card" style={{ marginTop: 24, padding: 20, border: '1px solid #c7d2fe', background: '#f8faff', borderRadius: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                <span style={{ fontSize: '1.25rem' }}>✨</span>
+                                <h4 style={{ margin: 0, color: '#3730a3', fontSize: 16 }}>
+                                    ชุดข้อมูล FDS v3.0.0 (Financial Data Set — เตรียมปีงบ 2569)
+                                </h4>
+                                <span className="status-badge" style={{ background: '#e0e7ff', color: '#3730a3', fontSize: 11, padding: '2px 8px', borderRadius: 99 }}>
+                                    โครงสร้างใหม่ (Clearing House)
+                                </span>
+                            </div>
+                            <p style={{ color: '#4b5563', fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
+                                กำหนดค่าเตรียมความพร้อมสำหรับการส่งเบิกด้วย JSON Schema v3.0.0.59 ผ่านระบบ MOPH Single Clearing House (สปสช., ประกันสังคม, กรมบัญชีกลาง, และกองทุนเฉพาะทาง) เพื่อให้สามารถทดสอบส่งเข้า UAT ได้ล่วงหน้า
+                            </p>
+                            <div className="settings-grid">
+                                <div className="form-group">
+                                    <label>Token หน่วยบริการ สปสช. (hisSecret)</label>
+                                    <input
+                                        type="password"
+                                        value={mergedFdhApiSettings.hisSecret || ''}
+                                        autoComplete="off"
+                                        placeholder={fdsSecretConfigured ? 'ตั้ง hisSecret ไว้แล้ว — เว้นว่างเพื่อใช้ค่าเดิม' : 'Token จากระบบ NewAuthenCode (client_secret)'}
+                                        onChange={(e) => setFdhSetting('hisSecret', e.target.value)}
+                                    />
+                                    <small>{fdsSecretConfigured ? '✅ มี Token บันทึกในระบบแล้ว' : '⚠️ ระบุ client_secret จาก NewAuthenCode'}</small>
+                                </div>
+                                <div className="form-group">
+                                    <label>Key ขึ้นทะเบียน NHSO Digital Platform (hisSourceKey)</label>
+                                    <input
+                                        type="password"
+                                        value={mergedFdhApiSettings.hisSourceKey || ''}
+                                        autoComplete="off"
+                                        placeholder={fdsSourceKeyConfigured ? 'ตั้ง hisSourceKey ไว้แล้ว — เว้นว่างเพื่อใช้ค่าเดิม' : 'x-sourceid-key จาก NHSO Digital Platform'}
+                                        onChange={(e) => setFdhSetting('hisSourceKey', e.target.value)}
+                                    />
+                                    <small>{fdsSourceKeyConfigured ? '✅ มี Key บันทึกในระบบแล้ว' : '⚠️ ระบุ Key การขึ้นทะเบียน NHSO DP'}</small>
+                                </div>
+                                <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                                    <label>URL ส่งข้อมูล FDS v3 (UAT Endpoint)</label>
+                                    <input
+                                        type="url"
+                                        value={mergedFdhApiSettings.fdsUatUrl || 'https://uat-fdh.inet.co.th/fdh_api/v1/dataset/import'}
+                                        onChange={(e) => setFdhSetting('fdsUatUrl', e.target.value)}
+                                    />
+                                    <small style={{ color: '#6b7280' }}>Default UAT: https://uat-fdh.inet.co.th/fdh_api/v1/dataset/import</small>
+                                </div>
+                            </div>
+                            <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                                <div style={{ fontSize: 13, color: '#4b5563' }}>
+                                    ทดสอบยิง Ping ตรวจสอบสถานะ Server ปลายทางของ FDS v3 UAT
+                                </div>
+                                <button
+                                    type="button"
+                                    className="secondary-btn"
+                                    onClick={() => void handleTestFdsUatConnection()}
+                                    disabled={testingFdsUat}
+                                    style={{ borderColor: '#818cf8', color: '#4338ca', fontWeight: 600 }}
+                                >
+                                    {testingFdsUat ? 'กำลังทดสอบ...' : '🧪 ทดสอบเชื่อมต่อ FDS v3 UAT'}
+                                </button>
+                            </div>
+                            {fdsUatTestResult && (
+                                <div
+                                    className={`fdh-test-result is-${fdsUatTestResult.type}`}
+                                    style={{ marginTop: 12 }}
+                                    role="alert"
+                                >
+                                    <strong>{fdsUatTestResult.type === 'success' ? '✅ สำเร็จ' : '❌ ไม่สำเร็จ'}</strong>
+                                    <span>{fdsUatTestResult.message}</span>
+                                    {fdsUatTestResult.responseTimeMs != null && (
+                                        <small>ใช้เวลา {fdsUatTestResult.responseTimeMs.toLocaleString('th-TH')} มิลลิวินาที</small>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 
@@ -811,10 +999,14 @@ export const SettingsPage: React.FC = () => {
 
                 {activeTab === 'advanced' && (
                     <div className="settings-section">
-                        <h3>🛠️ ข้อมูลขั้นสูง</h3>
-                        <p className="settings-section-description">
-                            ใช้สำหรับสำรอง/ย้ายค่า และตรวจสอบกฎระบบเท่านั้น การแก้กฎรหัสยา บริการ หรือวินิจฉัยควรผ่านการทดสอบและออกรุ่นโปรแกรม
-                        </p>
+                        <ReceivableMappingSettings />
+
+                        <div style={{ marginTop: 40, paddingTop: 28, borderTop: '1px solid var(--border-color)' }}>
+                            <h3>🛠️ ข้อมูลขั้นสูง (JSON กฎระบบ)</h3>
+                            <p className="settings-section-description">
+                                ใช้สำหรับสำรอง/ย้ายค่า และตรวจสอบกฎระบบเท่านั้น การแก้กฎรหัสยา บริการ หรือวินิจฉัยควรผ่านการทดสอบและออกรุ่นโปรแกรม
+                            </p>
+                        </div>
                         <div className="settings-advanced-grid">
                             <details>
                                 <summary>💊 รหัสยาและ ADP</summary>

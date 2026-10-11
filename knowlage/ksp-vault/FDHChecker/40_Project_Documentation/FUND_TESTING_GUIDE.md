@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "FUND_TESTING_GUIDE.md"
-source_hash: "c40f17d2df5bd848ee8c0d57c9d42f13ed51137c63fbc8b03702b0a405635978"
+source_hash: "e861e3184394dc121e4874dc0cc685d466ecdada951dfbcadecb44a26ce898e5"
 managed_by: "sync-ksp-vault"
 ---
 # 🧪 FUND TESTING GUIDE - Complete Verification

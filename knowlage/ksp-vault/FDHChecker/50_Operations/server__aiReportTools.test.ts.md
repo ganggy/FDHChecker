@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/aiReportTools.test.ts"
-source_hash: "6b8f49bd96b1b967250120c222142428e5627c4215e0eed97d1e6a53674c9f02"
+source_hash: "95916091b36ca0c812eb8aea86aeeeb8bf65d080a5eec1c6bfb8e5d3e112a067"
 managed_by: "sync-ksp-vault"
 ---
 # aiReportTools.test.ts
 
 > Source: `server/aiReportTools.test.ts`
-> SHA-256: `6b8f49bd96b1b967250120c222142428e5627c4215e0eed97d1e6a53674c9f02`
+> SHA-256: `95916091b36ca0c812eb8aea86aeeeb8bf65d080a5eec1c6bfb8e5d3e112a067`
 
 ````typescript
 import assert from 'node:assert/strict';
@@ -87,6 +87,13 @@ test('recognizes patient-topic follow-ups without guessing a patient', () => {
   assert.deepEqual(parsePatientTopicFollowup('แล้วยาล่าสุดล่ะ'), { topic: 'medications' });
   assert.deepEqual(parsePatientTopicFollowup('ขอวันนัดเป็น Excel'), { topic: 'appointments', format: 'xlsx' });
   assert.equal(parsePatientTopicFollowup('ผล lab คืออะไร'), null);
+});
+
+test('does not mistake a diagnosis cohort report for a patient follow-up', () => {
+  assert.equal(
+    parsePatientTopicFollowup('ขอรายชื่อ วันที่รับบริการ โรค ของคนไข้ที่ diag ตั้งแต่ O240 ถึง O249 ปีงบประมาณ 2569 เป็น excel'),
+    null,
+  );
 });
 
 test('recognizes a natural Thai patient-name visit-count question', () => {

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/StaffPage.tsx"
-source_hash: "9e343234c134998ae30b7eadfb6c428998d534eb2858a5d3a2c79cb853f624c6"
+source_hash: "6fa0c58ab5c6231648956029002c97ac130edd9924ec72b17552ef4a60d31dba"
 managed_by: "sync-ksp-vault"
 ---
 # StaffPage.tsx
 
 > Source: `src/pages/StaffPage.tsx`
-> SHA-256: `9e343234c134998ae30b7eadfb6c428998d534eb2858a5d3a2c79cb853f624c6`
+> SHA-256: `6fa0c58ab5c6231648956029002c97ac130edd9924ec72b17552ef4a60d31dba`
 
 ````tsx
 import React, { useState } from 'react';
@@ -75,7 +75,7 @@ export const StaffPage: React.FC = () => {
   }, [todayStr]);
 
   // ดึงข้อมูลทั้งหมดตามช่วงวันที่ (ไม่กรอง fund ฝั่ง server)
-  const { data, totalFromDB, loading, error } = useHOSxPData({
+  const { data, totalFromDB, loading, error, refresh } = useHOSxPData({
     startDate: startDate || undefined,
     endDate: endDate || undefined,
   });
@@ -351,6 +351,10 @@ export const StaffPage: React.FC = () => {
                 className="form-control"
               />
             </div>
+
+            <button className="btn btn-primary" type="button" onClick={refresh} disabled={loading}>
+              {loading ? 'กำลังประมวลผล...' : '🔄 ดึงข้อมูลใหม่'}
+            </button>
           </div>
         </div>
       </div>
@@ -405,7 +409,7 @@ export const StaffPage: React.FC = () => {
       {loading && (
         <div className="loading-container">
           <div className="spinner" />
-          <span>กำลังโหลดข้อมูล...</span>
+          <span>กำลังโหลดข้อมูลและประมวลผล OPD Pre-audit...</span>
         </div>
       )}
 

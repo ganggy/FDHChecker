@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/services/authService.ts"
-source_hash: "ac3c8af016270de9a8f970e830f5106ab4b2cfdbe624d4e2468026a900a8eda2"
+source_hash: "89107960b98c652697ef9967db2b3cc9a1fc23ec3992ebd3d4083e90dc8c4533"
 managed_by: "sync-ksp-vault"
 ---
 # authService.ts
 
 > Source: `src/services/authService.ts`
-> SHA-256: `ac3c8af016270de9a8f970e830f5106ab4b2cfdbe624d4e2468026a900a8eda2`
+> SHA-256: `89107960b98c652697ef9967db2b3cc9a1fc23ec3992ebd3d4083e90dc8c4533`
 
 ````typescript
 import type { AppPage } from '../utils/navigationState';
@@ -28,6 +28,7 @@ export type AuthUser = {
   is_active: boolean;
   is_admin: boolean;
   menu_permissions: AppPage[];
+  fund_permissions: string[] | null;
   last_login_at: string | null;
 };
 
@@ -127,9 +128,35 @@ export const fetchMemberAdminData = async () => {
   return data.data;
 };
 
+export const createMember = async (payload: {
+  username: string;
+  password: string;
+  displayName?: string;
+  groupId?: number | null;
+  isAdmin?: boolean;
+  fundPermissions?: string[] | null;
+}) => {
+  const data = await jsonOrThrow<{ success: true; user: MemberUser | null }>(
+    await fetch('/api/admin/members', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    })
+  );
+  return data.user;
+};
+
 export const updateMember = async (
   userId: number,
-  payload: { approved?: boolean; isActive?: boolean; isAdmin?: boolean; groupId?: number | null; displayName?: string }
+  payload: {
+    approved?: boolean;
+    isActive?: boolean;
+    isAdmin?: boolean;
+    groupId?: number | null;
+    displayName?: string;
+    fundPermissions?: string[] | null;
+    password?: string;
+  }
 ) => {
   const data = await jsonOrThrow<{ success: true; user: MemberUser | null }>(
     await fetch(`/api/admin/members/${userId}`, {
@@ -139,6 +166,16 @@ export const updateMember = async (
     })
   );
   return data.user;
+};
+
+export const resetMemberPassword = async (userId: number, newPassword: string) => {
+  return jsonOrThrow<{ success: true; message: string; user: MemberUser | null }>(
+    await fetch(`/api/admin/members/${userId}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ password: newPassword }),
+    })
+  );
 };
 
 export const saveGroup = async (payload: {
@@ -156,5 +193,37 @@ export const saveGroup = async (payload: {
   );
   return data.data;
 };
+
+export type LoginLockItem = {
+  ip: string;
+  hostname?: string;
+  deviceInfo?: string;
+  userAgent?: string;
+  count: number;
+  max: number;
+  isLocked: boolean;
+  resetAt: number;
+  remainingSeconds: number;
+  lastAttemptAt?: string;
+  lastUsername?: string;
+};
+
+export const fetchLoginLocks = async (): Promise<LoginLockItem[]> => {
+  const data = await jsonOrThrow<{ success: true; data: LoginLockItem[] }>(
+    await fetch('/api/admin/login-locks', { headers: authHeaders() })
+  );
+  return data.data || [];
+};
+
+export const unlockLoginLock = async (payload: { ip?: string; all?: boolean }) => {
+  return jsonOrThrow<{ success: true; message: string }>(
+    await fetch('/api/admin/login-locks/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    })
+  );
+};
+
 
 ````

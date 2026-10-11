@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "TABLE_FORMAT_UPDATE_SUMMARY.md"
-source_hash: "d10d194bd6db72369c646458fe2b0d66ac59f70b022a3c45f70064c6cbd24280"
+source_hash: "d4c505b0c1fa03ed1c6b1207ae3c01db34dd586e28e20facfa89af65482ad268"
 managed_by: "sync-ksp-vault"
 ---
 # Table Format Update - Complete Summary

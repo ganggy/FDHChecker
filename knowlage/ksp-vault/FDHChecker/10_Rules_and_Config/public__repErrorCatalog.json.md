@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "rules-and-config"
 source: "public/repErrorCatalog.json"
-source_hash: "7e668a56104b4907884103e69e790c848712252ce07cebf1c4614db68c6cdf32"
+source_hash: "fbbfcdeb3d4048878c14b3f275ca5da77fe31907c11a4db261ff805755e7e5ce"
 managed_by: "sync-ksp-vault"
 ---
 # repErrorCatalog.json
 
 > Source: `public/repErrorCatalog.json`
-> SHA-256: `7e668a56104b4907884103e69e790c848712252ce07cebf1c4614db68c6cdf32`
+> SHA-256: `fbbfcdeb3d4048878c14b3f275ca5da77fe31907c11a4db261ff805755e7e5ce`
 
 ````json
 {

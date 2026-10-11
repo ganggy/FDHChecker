@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/duplicateAppointmentAlert.ts"
-source_hash: "2ef30ac65a63390e23fe930dd87fc1bff27eb17f54b7594dc2ff15ed2b2108b3"
+source_hash: "5c2e2b77493865b9fc62bdb3b5f963763df655626b14d3ca6ff7c7c351a02bf8"
 managed_by: "sync-ksp-vault"
 ---
 # duplicateAppointmentAlert.ts
 
 > Source: `server/duplicateAppointmentAlert.ts`
-> SHA-256: `2ef30ac65a63390e23fe930dd87fc1bff27eb17f54b7594dc2ff15ed2b2108b3`
+> SHA-256: `5c2e2b77493865b9fc62bdb3b5f963763df655626b14d3ca6ff7c7c351a02bf8`
 
 ````typescript
 import { getAppSetting, getUTFConnection, setAppSetting } from './db.js';

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "scripts/setup-ai-key.mjs"
-source_hash: "e91810739a1a591f35fd0f4e3f1f7f51ce15f5a40816dde44ba00158d6d9bffb"
+source_hash: "21b07235019c46216fad8ce55d6b5cc1e8e680685f0192e81aee97b0bd0d97f6"
 managed_by: "sync-ksp-vault"
 ---
 # setup-ai-key.mjs
 
 > Source: `scripts/setup-ai-key.mjs`
-> SHA-256: `e91810739a1a591f35fd0f4e3f1f7f51ce15f5a40816dde44ba00158d6d9bffb`
+> SHA-256: `21b07235019c46216fad8ce55d6b5cc1e8e680685f0192e81aee97b0bd0d97f6`
 
 ````javascript
 import crypto from 'node:crypto';

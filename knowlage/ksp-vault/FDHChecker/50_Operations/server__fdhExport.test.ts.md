@@ -4,27 +4,47 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/fdhExport.test.ts"
-source_hash: "eceacf885c31b1f295536f6f2524247cb7448433c9a998f024f2e8f7b69a17d0"
+source_hash: "0f94e14a033a9c4ab9343f808a044f01930cbe37a9a854e7613232857f3b9375"
 managed_by: "sync-ksp-vault"
 ---
 # fdhExport.test.ts
 
 > Source: `server/fdhExport.test.ts`
-> SHA-256: `eceacf885c31b1f295536f6f2524247cb7448433c9a998f024f2e8f7b69a17d0`
+> SHA-256: `0f94e14a033a9c4ab9343f808a044f01930cbe37a9a854e7613232857f3b9375`
 
 ````typescript
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { isWaitingOfcApprove } from '../src/utils/ofcApproveCode.js';
 import {
   getFdhLayouts,
   projectFdhData,
+  scopeFdhData,
   serializeFdhFile,
   buildFdhFiles,
+  consolidateFdhOopRows,
   selectFdhUploadFiles,
   uploadFdhFiles,
   validateFdhData,
   type FdhExportData,
 } from './fdhExport.js';
+
+test('OOP consolidation prefers specialist sources and keeps different procedures', () => {
+  const result = consolidateFdhOopRows([
+    { HN: '0001', SEQ: 'VN1', OPER: '8959', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0001', SEQ: 'VN1', OPER: '8959', DROPID: 'OPER_DOCTOR', _SOURCE_PRIORITY: 2 },
+    { HN: '0001', SEQ: 'VN1', OPER: '8952', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0002', SEQ: 'VN2', OPER: '9654', DROPID: 'VISIT_DOCTOR', _SOURCE_PRIORITY: 1 },
+    { HN: '0002', SEQ: 'VN2', OPER: '9654', DROPID: 'DENTIST', _SOURCE_PRIORITY: 3 },
+  ]);
+
+  assert.equal(result.rows.length, 3);
+  assert.equal(result.duplicateGroups, 2);
+  assert.equal(result.mergedRows, 2);
+  assert.equal(result.rows.find((row) => row.OPER === '8959')?.DROPID, 'OPER_DOCTOR');
+  assert.equal(result.rows.find((row) => row.OPER === '9654')?.DROPID, 'DENTIST');
+  assert.equal(result.rows.every((row) => !('_SOURCE_PRIORITY' in row)), true);
+});
 
 const emptyData = (): FdhExportData => ({
   INS: [], PAT: [], OPD: [], ORF: [], ODX: [], OOP: [], IPD: [], IRF: [],
@@ -38,6 +58,44 @@ const validFwfData = (): FdhExportData => ({
   OPD: [{ HN: '0001', CLINIC: '00100', DATEOPD: '20260720', TIMEOPD: '0900', SEQ: 'VN1', UUC: '1', TYPEIN: '1' }],
   CHT: [{ HN: '0001', AN: '', DATE: '20260720', TOTAL: 100, PAID: 0, PTTYPE: '37', PERSON_ID: '1234567890123', SEQ: 'VN1', INVOICE_NO: 'INV1' }],
   CHA: [{ HN: '0001', AN: '', DATE: '20260720', CHRGITEM: '01', AMOUNT: 100, PERSON_ID: '1234567890123', SEQ: 'VN1' }],
+});
+
+const validIpdData = (): FdhExportData => ({
+  ...emptyData(),
+  INS: [{ HN: '0002', INSCL: 'UCS', CID: '1234567890123', DATEIN: '20260801', HOSPMAIN: '11101', HOSPSUB: '11101', PERMITNO: 'EP123', AN: 'AN001', SEQ: 'VN2' }],
+  PAT: [{ HCODE: '11101', HN: '0002', DOB: '19800101', SEX: '2', MARRIAGE: '1', OCCUPA: '999', NATION: '099', PERSON_ID: '1234567890123', NAMEPAT: 'IPD TEST,MS', TITLE: 'MS', FNAME: 'IPD', LNAME: 'TEST', IDTYPE: '1' }],
+  IPD: [{ HN: '0002', AN: 'AN001', DATEADM: '20260801', TIMEADM: '0900', DATEDSC: '20260803', TIMEDSC: '1200', DISCHS: '1', DISCHT: '1', WARDDSC: '01', DEPT: '01', UUC: '1', SVCTYPE: 'IMP' }],
+  IDX: [{ AN: 'AN001', DIAG: 'J189', DXTYPE: '1', DRDX: 'DOC1' }],
+  CHT: [{ HN: '0002', AN: 'AN001', DATE: '20260803', TOTAL: 1000, PAID: 0, PTTYPE: '37', PERSON_ID: '1234567890123', SEQ: 'VN2', INVOICE_NO: 'IPD-INV1' }],
+  CHA: [{ HN: '0002', AN: 'AN001', DATE: '20260803', CHRGITEM: '01', AMOUNT: 1000, PERSON_ID: '1234567890123', SEQ: 'VN2' }],
+});
+
+test('OFC export queue uses approval codes rather than a generic ready flag while LGO does not require approval code', () => {
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'OFC', approve_code: '' }), true);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'LGO', approve_code: '' }), false);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'LGO', approve_code: '034843' }), false);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'LGO', fund: 'เบิกจ่ายตรง อปท.', approve_code: '' }), false);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'A1', authen_code: 'EP123' }), true);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'LOCAL', fund: 'เบิกจ่ายตรงข้าราชการ', approve_code: '' }), true);
+  assert.equal(isWaitingOfcApprove({ hipdata_code: 'UCS', authen_code: 'PP123' }), false);
+});
+
+test('LGO export permits absent approve code and absent close right in standard profile', () => {
+  const data = validIpdData();
+  data.INS[0].INSCL = 'LGO';
+  data.INS[0].PERMITNO = '';
+  delete data.INS[0]._requiresApproveCode;
+  const result = validateFdhData(data, 'standard', '11101');
+  assert.equal(result.errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), false);
+  assert.equal(result.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
+});
+
+test('raw OFC right metadata prevents FWF profile from bypassing approval and is never serialized', () => {
+  const data = validFwfData();
+  data.INS[0]._requiresApproveCode = true;
+  data.INS[0].PERMITNO = '';
+  assert.equal(validateFdhData(data, 'fwf-migrants', '11101').errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true);
+  assert.equal('_requiresApproveCode' in projectFdhData(data, 'fwf-migrants').INS[0], false);
 });
 
 test('FWF Migrants INS layout uses HCODE and current ADP/DRU fields', () => {
@@ -57,6 +115,18 @@ test('pipe serialization strips delimiters and line breaks', () => {
   assert.equal(output.includes('\nNEXT\r\n'), false);
 });
 
+test('OPD DETAIL is limited to the 255 characters accepted by FDH', () => {
+  const data = validFwfData();
+  data.OPD[0].DETAIL = 'อ'.repeat(279);
+
+  const projected = projectFdhData(data, 'standard');
+  assert.equal(Array.from(String(projected.OPD[0].DETAIL)).length, 255);
+
+  const output = serializeFdhFile(data, 'OPD', 'standard', false);
+  const detailIndex = getFdhLayouts('standard').OPD.indexOf('DETAIL');
+  assert.equal(Array.from(output.split('|')[detailIndex]).length, 255);
+});
+
 test('preflight accepts a linked and balanced minimal FWF claim', () => {
   const data = validFwfData();
   data.INS[0].PERMITNO = '';
@@ -65,11 +135,67 @@ test('preflight accepts a linked and balanced minimal FWF claim', () => {
   assert.equal(result.totalRows, 5);
 });
 
+test('preflight accepts a linked and balanced minimal IPD claim', () => {
+  const data = validIpdData();
+  const result = validateFdhData(projectFdhData(data, 'standard'), 'standard', '11101');
+  assert.equal(result.valid, true, JSON.stringify(result.errors));
+  assert.equal(result.counts.IPD, 1);
+  assert.equal(result.counts.OPD, 0);
+  assert.equal(result.totalRows, 6);
+});
+
+test('IPD export scope excludes OPD-specific files without dropping shared claim files', () => {
+  const data = validIpdData();
+  data.OPD = [{ HN: '0002', SEQ: 'VN2' }];
+  data.ODX = [{ HN: '0002', SEQ: 'VN2', DIAG: 'J189' }];
+  const scoped = scopeFdhData(data, 'IPD');
+  assert.equal(scoped.OPD.length, 0);
+  assert.equal(scoped.ODX.length, 0);
+  assert.equal(scoped.IPD.length, 1);
+  assert.equal(scoped.CHT.length, 1);
+  assert.equal(scoped.CHA.length, 1);
+});
+
+test('IPD AER rows are not subjected to OPD OPTYPE validation', () => {
+  const data = validIpdData();
+  data.AER = [{ HN: '0002', AN: 'AN001', DATEOPD: '20260801', SEQ: 'VN2' }];
+  const result = validateFdhData(data, 'standard', '11101');
+  assert.equal(result.errors.some((issue) => issue.code === 'AER_OPTYPE_INVALID'), false);
+});
+
 test('PERMITNO is conditional by fund and remains required for UCS', () => {
   const data = validFwfData();
   data.INS[0] = { ...data.INS[0], INSCL: 'UCS', DATEIN: '20260720', PERMITNO: '' };
   const result = validateFdhData(projectFdhData(data, 'standard'), 'standard', '11101');
   assert.equal(result.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), true);
+});
+
+test('OFC requires an approval code separately from NHSO PERMITNO checks while LGO does not', () => {
+  const dataOfc = validFwfData();
+  dataOfc.INS[0] = { ...dataOfc.INS[0], INSCL: 'OFC', DATEIN: '20260720', PERMITNO: '' };
+  const resultOfc = validateFdhData(projectFdhData(dataOfc, 'standard'), 'standard', '11101');
+  assert.equal(resultOfc.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
+  assert.equal(resultOfc.errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true);
+
+  const dataLgo = validFwfData();
+  dataLgo.INS[0] = { ...dataLgo.INS[0], INSCL: 'LGO', DATEIN: '20260720', PERMITNO: '' };
+  const resultLgo = validateFdhData(projectFdhData(dataLgo, 'standard'), 'standard', '11101');
+  assert.equal(resultLgo.errors.some((issue) => issue.code === 'PERMITNO_REQUIRED'), false);
+  assert.equal(resultLgo.errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), false);
+});
+
+test('OFC approval gate rejects NHSO and placeholder codes and preserves leading zeroes', () => {
+  for (const permit of ['', ' ', 'EP123', 'PP123', '000000', '-']) {
+    const data = validIpdData();
+    data.INS[0].INSCL = 'OFC';
+    data.INS[0].PERMITNO = permit;
+    assert.equal(validateFdhData(data, 'standard', '11101').errors.some((issue) => issue.code === 'OFC_APPROVE_REQUIRED'), true, permit);
+  }
+  const approved = validIpdData();
+  approved.INS[0].INSCL = 'OFC';
+  approved.INS[0].PERMITNO = '034843';
+  assert.equal(validateFdhData(approved, 'standard', '11101').valid, true);
+  assert.equal(projectFdhData(approved, 'standard').INS[0].PERMITNO, '034843');
 });
 
 test('preflight rejects an AER row that is not refer, accident or emergency', () => {
@@ -130,5 +256,27 @@ test('API upload uses multipart type=txt and repeated file fields', async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('OPD export scope clears AN across INS, CHT, CHA, AER, ADP, DRU to prevent MOPH parser rejection', () => {
+  const data: FdhExportData = {
+    ...emptyData(),
+    INS: [{ HN: '0001', AN: '690001', SEQ: '691234567890', INSCL: 'UCS', CID: '1234567890123', DATEIN: '20260720', HOSPMAIN: '11101', HOSPSUB: '11101', PERMITNO: 'P1' }],
+    PAT: [{ HCODE: '11101', HN: '0001', DOB: '19900101', SEX: '1', MARRIAGE: '1', OCCUPA: '999', NATION: '099', PERSON_ID: '1234567890123', NAMEPAT: 'TEST,MR', TITLE: 'MR', FNAME: 'TEST', LNAME: 'PERSON', IDTYPE: '1' }],
+    OPD: [{ HN: '0001', CLINIC: '00100', DATEOPD: '20260720', TIMEOPD: '0900', SEQ: '691234567890', UUC: '1', TYPEIN: '1' }],
+    CHT: [{ HN: '0001', AN: '690001', DATE: '20260720', TOTAL: 100, PAID: 0, PTTYPE: '37', PERSON_ID: '1234567890123', SEQ: '691234567890', INVOICE_NO: 'INV1' }],
+    CHA: [{ HN: '0001', AN: '690001', DATE: '20260720', CHRGITEM: '01', AMOUNT: 100, PERSON_ID: '1234567890123', SEQ: '691234567890' }],
+    ADP: [{ HN: '0001', AN: '690001', DATEOPD: '20260720', TYPE: '1', CODE: '12003', QTY: 1, RATE: 100, SEQ: '691234567890', TOTAL: 100 }],
+    DRU: [{ HCODE: '11101', HN: '0001', AN: '690001', CLINIC: '00100', PERSON_ID: '1234567890123', DATE_SERV: '20260720', DID: 'D1', DIDNAME: 'DRUG1', AMOUNT: 1, DRUGPRIC: 50, UNIT: 'TAB', SEQ: '691234567890', USE_STATUS: '1', TOTAL: 50 }],
+  };
+
+  const scoped = scopeFdhData(data, 'OPD');
+  assert.equal(scoped.INS[0].AN, '');
+  assert.equal(scoped.CHT[0].AN, '');
+  assert.equal(scoped.CHA[0].AN, '');
+  assert.equal(scoped.ADP[0].AN, '');
+  assert.equal(scoped.DRU[0].AN, '');
+  assert.equal(scoped.INS[0].SEQ, '691234567890');
+});
+
 
 ````

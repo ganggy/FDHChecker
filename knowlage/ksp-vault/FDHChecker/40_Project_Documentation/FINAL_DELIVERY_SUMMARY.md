@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "FINAL_DELIVERY_SUMMARY.md"
-source_hash: "de2b2e9e6863bf0e9be9c122c8b9512f79b6b00d74700170158362bc6c6eea7a"
+source_hash: "3a79cd59a9b717ae346e324e40d98f6931089b3ffa5ec8bc64484aff228ad8ce"
 managed_by: "sync-ksp-vault"
 ---
 # 🎊 KIDNEY MONITOR SYSTEM - FINAL DELIVERY SUMMARY

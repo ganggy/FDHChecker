@@ -119,6 +119,7 @@ export const FDHCheckerPage: React.FC = () => {
     const [incomingTargetVns, setIncomingTargetVns] = useState<string[]>([]);
     const [exporting, setExporting] = useState(false);
     const [previewData, setPreviewData] = useState<any>(null);
+    const [previewExportRequest, setPreviewExportRequest] = useState<any>(null);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
     const [exportWithHeader, setExportWithHeader] = useState(true);
@@ -580,10 +581,12 @@ export const FDHCheckerPage: React.FC = () => {
 
         setIsLoadingPreview(true);
         try {
+            const payload = buildFdhPayload(vnsToPreview);
+            setPreviewExportRequest(payload);
             const response = await fetch('/api/fdh/view-data', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(buildFdhPayload(vnsToPreview))
+                body: JSON.stringify(payload)
             });
 
             const result = await response.json();
@@ -1658,6 +1661,7 @@ export const FDHCheckerPage: React.FC = () => {
                 isDownloading={exporting}
                 onSubmit={handleSubmitFdhApi}
                 isSubmitting={submitting}
+                exportRequest={previewExportRequest}
             />
         </div>
     );

@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "TABLE_DISPLAY_FIX.md"
-source_hash: "30066cfcbaa9ffd15b0b8c5674afc07ba5f146d40b7671296c9ba521dfff8cdd"
+source_hash: "4501a793fe328da619172bf403741eb12638c24cb39406c4e28ab3d9b3cf04b4"
 managed_by: "sync-ksp-vault"
 ---
 # Table Display Fix - ตารางแสดงไม่ครบ

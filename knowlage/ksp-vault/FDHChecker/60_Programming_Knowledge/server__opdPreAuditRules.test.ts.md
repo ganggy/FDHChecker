@@ -4,18 +4,18 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/opdPreAuditRules.test.ts"
-source_hash: "ed5a8cf9a6855ab525129277b4b1e1ddd2585aa6c43530a9b90a2e088d832403"
+source_hash: "2fa0b0b6ecd43a60c3eac77142acc0733c2680995a6d7063d07fbc8671dcb3bc"
 managed_by: "sync-ksp-vault"
 ---
 # opdPreAuditRules.test.ts
 
 > Source: `server/opdPreAuditRules.test.ts`
-> SHA-256: `ed5a8cf9a6855ab525129277b4b1e1ddd2585aa6c43530a9b90a2e088d832403`
+> SHA-256: `2fa0b0b6ecd43a60c3eac77142acc0733c2680995a6d7063d07fbc8671dcb3bc`
 
 ````typescript
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateOpdPreAudit } from './opdPreAuditRules.js';
+import { buildOpdPreAuditResult, evaluateOpdPreAudit } from './opdPreAuditRules.js';
 
 const codes = (row: Record<string, unknown>) => evaluateOpdPreAudit(row).map((issue) => issue.code);
 
@@ -35,8 +35,53 @@ test('OPD audit detects observation and OPD service fee collision', () => {
   assert.ok(codes({ has_provider: 1, has_clinical_note: 1, has_observation_charge: 1, has_55020: 1 }).includes('OPD-CHG04'));
 });
 
+test('OPD audit warns when any S diagnosis has fewer than five characters', () => {
+  const findings = evaluateOpdPreAudit({
+    has_provider: 1,
+    has_clinical_note: 1,
+    main_diag: 'S06.0',
+    diagnosis_codes: 'J189,S06.0,S0999',
+  });
+
+  assert.deepEqual(findings, [{
+    code: 'OPD-DX01',
+    message: 'รหัสวินิจฉัยกลุ่ม S ต้องมีอย่างน้อย 5 หลักหลังตัดจุด: S060',
+    severity: 'warning',
+  }]);
+});
+
+test('OPD audit accepts five-character S diagnoses after removing punctuation', () => {
+  assert.deepEqual(codes({
+    has_provider: 1,
+    has_clinical_note: 1,
+    diagnosis_codes: 'S06.00, S0999',
+  }), []);
+});
+
 test('IPD rows are outside OPD audit scope', () => {
   assert.deepEqual(codes({ an: '6600001' }), []);
+  assert.equal(buildOpdPreAuditResult({ serviceType: 'ผู้ป่วยใน' }), null);
+});
+
+test('OPD audit returns a summarized API result', () => {
+  assert.deepEqual(buildOpdPreAuditResult({
+    serviceType: 'ผู้ป่วยนอก',
+    has_provider: 1,
+    has_clinical_note: 1,
+    has_lab_order: 1,
+    has_lab_result: 1,
+  }), {
+    status: 'clear',
+    findingCount: 0,
+    blockingCount: 0,
+    reviewCount: 0,
+    findings: [],
+  });
+
+  const blocked = buildOpdPreAuditResult({ serviceType: 'OPD', has_lab_order: 1 });
+  assert.equal(blocked?.status, 'blocking');
+  assert.equal(blocked?.blockingCount, 1);
+  assert.equal(blocked?.reviewCount, 2);
 });
 
 ````

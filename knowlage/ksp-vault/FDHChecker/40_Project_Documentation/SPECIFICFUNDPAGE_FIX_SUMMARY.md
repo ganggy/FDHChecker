@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SPECIFICFUNDPAGE_FIX_SUMMARY.md"
-source_hash: "e9820c293652974e2c077d2722451db6b8ef4adbf02dbf8abe8ce7c7af8d4373"
+source_hash: "793c480d5082856536b8cd1a7d65ce26abcbd5a64b89cbcb0c2cd1286601a3c5"
 managed_by: "sync-ksp-vault"
 ---
 # SpecificFundPage.tsx JSX Structure Fix - Completion Summary

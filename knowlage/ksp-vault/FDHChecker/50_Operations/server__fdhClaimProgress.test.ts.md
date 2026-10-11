@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/fdhClaimProgress.test.ts"
-source_hash: "23b54abb858471dbb14503b19191f3134431f23b203f112606cfe417cfde375f"
+source_hash: "416903d09faa34ac694cf5179327d590db6d42e6f9bd7d02afb6fdb7fe1473c6"
 managed_by: "sync-ksp-vault"
 ---
 # fdhClaimProgress.test.ts
 
 > Source: `server/fdhClaimProgress.test.ts`
-> SHA-256: `23b54abb858471dbb14503b19191f3134431f23b203f112606cfe417cfde375f`
+> SHA-256: `416903d09faa34ac694cf5179327d590db6d42e6f9bd7d02afb6fdb7fe1473c6`
 
 ````typescript
 import assert from 'node:assert/strict';
@@ -18,6 +18,7 @@ import test from 'node:test';
 import {
   buildFdhClaimProgress,
   hasFdhSubmissionData,
+  isFailedFdhSubmission,
   isMissingFdhStatus,
 } from '../src/utils/fdhClaimProgress.js';
 
@@ -25,9 +26,19 @@ const ready = (row: Record<string, unknown>) => row.ready === true;
 
 test('explicit FDH not-found responses are not counted as submitted', () => {
   assert.equal(isMissingFdhStatus('ยังไม่พบข้อมูลใน FDH'), true);
+  assert.equal(isMissingFdhStatus('UNCLAIMED'), true);
+  assert.equal(isMissingFdhStatus('ไม่มีรายการนี้ส่งเข้ามาในระบบ'), true);
   assert.equal(hasFdhSubmissionData({ fdh_claim_status_message: 'ยังไม่พบข้อมูลใน FDH' }), false);
   assert.equal(hasFdhSubmissionData({ fdh_claim_status_message: 'ส่งข้อมูลสำเร็จ' }), true);
   assert.equal(hasFdhSubmissionData({ has_fdh_import: true }), true);
+});
+
+test('identifies only failed FDH statuses for the resend filter', () => {
+  assert.equal(isFailedFdhSubmission({ fdh_status_label: 'ประมวลผลไม่ผ่าน' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_claim_detail_status: 'REJECTED' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_error_code: 'E001' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_status_label: 'ประมวลผลผ่าน' }), false);
+  assert.equal(isFailedFdhSubmission({ fdh_status_label: 'UNCLAIMED' }), false);
 });
 
 test('FDH progress identifies records that are ready but not submitted', () => {

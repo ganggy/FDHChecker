@@ -4,18 +4,18 @@ project: FDHChecker
 type: "source-snapshot"
 category: "rules-and-config"
 source: "src/config/business_rules.json"
-source_hash: "4e388464cb0596986408867390b75b3257342fc5f722a38be0549e54c503f883"
+source_hash: "9801e57679688dfdca396bdfa436df342c61527bab698b7049eddbd17648de90"
 managed_by: "sync-ksp-vault"
 ---
 # business_rules.json
 
 > Source: `src/config/business_rules.json`
-> SHA-256: `4e388464cb0596986408867390b75b3257342fc5f722a38be0549e54c503f883`
+> SHA-256: `9801e57679688dfdca396bdfa436df342c61527bab698b7049eddbd17648de90`
 
 ````json
 {
     "hospital": {
-        "hcode": "11101"
+        "hcode": ""
     },
     "query_limits": {
         "default_limit": 1000,
@@ -45,10 +45,32 @@ managed_by: "sync-ksp-vault"
             "N185%",
             "Z49%"
         ],
+        "hd_dialysis": [
+            "N185",
+            "Z491"
+        ],
+        "pt_rehab": [
+            "Z501",
+            "Z508",
+            "Z509"
+        ],
+        "cataract": "^H25|^H26",
         "ncd_regex": "^(E1[0-4]|I1[0-5])",
         "dialysis_regex": "^(N185|Z49)"
     },
     "adp_codes": {
+        "hd": [
+            "58301",
+            "58302",
+            "58307"
+        ],
+        "pt": [
+            "55001",
+            "55002",
+            "55003",
+            "55004",
+            "55005"
+        ],
         "telmed": "TELMED",
         "drugp": "DRUGP",
         "anc": [
@@ -59,6 +81,17 @@ managed_by: "sync-ksp-vault"
             "30008",
             "30009"
         ],
+        "anc_dental_exam_procedures": [
+            "2330011",
+            "2330010"
+        ],
+        "anc_dental_exam_icd9": "8931",
+        "anc_dental_clean_procedures": [
+            "2387010",
+            "2277310",
+            "2287310"
+        ],
+        "anc_dental_clean_icd9": "9654",
         "cx_regex": "^1B004|^1B005",
         "fp_regex": "^FP",
         "pp_regex": "^Z39",
@@ -144,10 +177,10 @@ managed_by: "sync-ksp-vault"
         "er_emergency": "OP AE"
     },
     "site_settings": {
-        "hospital_name": "โรงพยาบาลโคกศรีสุพรรณ",
-        "hospital_code": "11101",
-        "nhso_region": "8",
-        "province": "สกลนคร",
+        "hospital_name": "",
+        "hospital_code": "",
+        "nhso_region": "",
+        "province": "",
         "lab_costs": {
             "default": {
                 "enabled": true,

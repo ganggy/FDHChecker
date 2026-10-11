@@ -4,7 +4,7 @@ project: FDHChecker
 type: "domain-knowledge"
 category: "claims"
 source: "knowlage/vault/CARDIOVASCULAR_SCREENING_2568.md"
-source_hash: "56d938350b85480acdc2f6c47518d53f604f9fc154d1695fb0ac3487a8de3201"
+source_hash: "1f2bac9eb2c6351beb3fd0cc080ea7c491bf7918b71fce09e39d084d0d38e3a0"
 managed_by: "sync-ksp-vault"
 ---
 # คัดกรองหัวใจและหลอดเลือด ปี 2568

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/RepStmImportPage.tsx"
-source_hash: "ebee2f3e163245e234f167be98792efe379840f50edf370e963f8deed092213c"
+source_hash: "b905cb7d36192f82d866ce1cc97a886cf5e9ffdc1719d4044b05cc6105e3e123"
 managed_by: "sync-ksp-vault"
 ---
 # RepStmImportPage.tsx
 
 > Source: `src/pages/RepStmImportPage.tsx`
-> SHA-256: `ebee2f3e163245e234f167be98792efe379840f50edf370e963f8deed092213c`
+> SHA-256: `b905cb7d36192f82d866ce1cc97a886cf5e9ffdc1719d4044b05cc6105e3e123`
 
 ````tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -24,9 +24,18 @@ import {
   preflightRepstmFiles,
 } from '../services/hosxpService';
 import { navigateFromDashboard } from '../utils/navigationState';
+import {
+  detectRepstmImportType,
+  detectTypeFromFileName,
+  detectTypeFromSheetName,
+  isDataSheetZero,
+  includeAuditSupplement,
+  type RepstmImportType,
+} from '../utils/repstmImportClassification';
 import { RepStmImportDetail } from '../components/RepStmImportDetail';
+import { collectRowHeaders, parseWorksheetRows } from '../utils/repstmWorksheetParsing';
 
-type ImportType = 'REP' | 'STM' | 'INV';
+type ImportType = RepstmImportType;
 
 interface ImportBatch {
   id: number;
@@ -112,31 +121,6 @@ interface EclaimPipelineState {
   message: string;
 }
 
-/** Sheet-name → ImportType map (from Auto4Rep.EXE analysis) */
-const SHEET_TYPE_MAP: Record<string, ImportType> = {
-  statement: 'STM', stm: 'STM',
-  eclaim: 'REP', repdata: 'REP', repeclaim: 'REP', individual: 'REP', detail: 'REP', rep: 'REP',
-  invoice: 'INV', inv: 'INV',
-};
-
-const detectTypeFromSheetName = (sheetName: string): ImportType | null => {
-  const normalized = sheetName.toLowerCase().replace(/[^a-z]/g, '');
-  for (const [key, type] of Object.entries(SHEET_TYPE_MAP)) {
-    if (normalized === key || normalized.startsWith(key)) return type;
-  }
-  return null;
-};
-
-const detectTypeFromFileName = (fileName: string): ImportType | null => {
-  const name = fileName.trim().toLowerCase();
-  // ไฟล์ผลตอบกลับจาก BMS/NHSO ใช้ชื่อ eclaim_* แต่มีข้อมูลระดับ visit แบบ REP
-  if (/^eclaim[_-]/.test(name)) return 'REP';
-  if (/(^|[_\s.-])inv(?=[_\s.-]|$)|invoice/.test(name)) return 'INV';
-  if (/cocdstm|(^|[_\s.-])stm(?=[_\s.-]|$)|statement/.test(name)) return 'STM';
-  if (/(^|[_\s.-])rep(?=[_\s.-]|$)|repdata/.test(name)) return 'REP';
-  return null;
-};
-
 const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
   String(file.period || file._period || ''),
   String(file.filename || file.fileName || file.name || ''),
@@ -145,27 +129,7 @@ const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
   String(index),
 ].join('|');
 
-const detectImportType = (fileName: string, headers: string[], rows: Record<string, unknown>[]): ImportType | null => {
-  const normalizedHeaders = headers.map((header) => normalizeHeaderCell(header).toLowerCase());
-  const firstRowKeys = Object.keys(rows[0] || {}).map((key) => normalizeHeaderCell(key).toLowerCase());
-  const bag = `${normalizedHeaders.join(' | ')} | ${firstRowKeys.join(' | ')}`;
-
-  // ใช้โครงสร้างข้อมูลภายในไฟล์ก่อนชื่อไฟล์ เพื่อไม่ให้ REP/INV ปะปนกัน
-  if (bag.includes('invoice') || bag.includes('เลขที่ใบแจ้งหนี้') || bag.includes('invoiceno')) {
-    return 'INV';
-  }
-
-  const repSignalCount = ['tran_id', 'hn', 'an', 'pid', 'ชื่อ - สกุล', 'วันเข้ารักษา', 'ชดเชยสุทธิ', 'พึงรับ']
-    .filter((signal) => bag.includes(signal)).length;
-  if (repSignalCount >= 3) return 'REP';
-
-  if (bag.includes('statement') || bag.includes('stmt_period') || bag.includes('stm_period') || bag.includes('hospcode')) {
-    return 'STM';
-  }
-
-  // ชื่อไฟล์เป็น fallback เมื่อหัวตารางไม่มีสัญญาณเฉพาะเพียงพอ
-  return detectTypeFromFileName(fileName);
-};
+const detectImportType = detectRepstmImportType;
 
 const yieldToBrowser = () => new Promise<void>((resolve) => {
   window.requestAnimationFrame(() => resolve());
@@ -196,147 +160,6 @@ const statusColorMap: Record<QueueStatus, string> = {
   success: 'linear-gradient(90deg, #16a34a, #22c55e)',
   duplicate: 'linear-gradient(90deg, #64748b, #94a3b8)',
   error: 'linear-gradient(90deg, #ef4444, #f97316)',
-};
-
-const normalizeHeaderCell = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
-
-const collectRowHeaders = (rows: Record<string, unknown>[], preferred: string[] = []) => {
-  const seen = new Set<string>();
-  const headers: string[] = [];
-  [...preferred, ...rows.slice(0, 100).flatMap((row) => Object.keys(row))].forEach((header) => {
-    const normalized = String(header || '').trim();
-    if (normalized && !seen.has(normalized)) {
-      seen.add(normalized);
-      headers.push(normalized);
-    }
-  });
-  return headers;
-};
-
-const isLikelyHeaderRow = (row: unknown[], hintType?: ImportType | null) => {
-  const cells = row.map(normalizeHeaderCell).filter(Boolean);
-  if (cells.length < 3) return false;
-  const joined = cells.join(' | ').toUpperCase();
-
-  // REP header signals
-  const repSignals = ['HN', 'AN', 'PID', 'TRAN_ID', 'ชื่อ - สกุล', 'ประเภทผู้ป่วย', 'วันเข้ารักษา', 'ชดเชยสุทธิ'];
-  if (repSignals.filter((s) => joined.includes(s.toUpperCase())).length >= 3) return true;
-
-  // STM header signals (STMT_PERIOD / PERIOD / HOSPCODE from Auto4Rep.EXE)
-  if (hintType !== 'INV') {
-    const stmSignals = ['PERIOD', 'STMT_PERIOD', 'HOSPCODE', 'HCODE', 'INCOME', 'MONEY', 'CLAIMTYPE', 'PAIDTYPE', 'REP_INCOME', 'REP_MONEY', 'ECLAIM_MONEY'];
-    if (stmSignals.filter((s) => joined.includes(s)).length >= 3) return true;
-  }
-
-  // INV header signals
-  if (hintType !== 'STM') {
-    const invSignals = ['INVOICE', 'INVOICENO', 'PERIOD', 'INCOME', 'MONEY', 'HOSPCODE', 'ECLAIM_MONEY'];
-    if (invSignals.filter((s) => joined.includes(s)).length >= 3) return true;
-  }
-
-  return false;
-};
-
-const buildHeadersFromRows = (headerRow: unknown[], nextRow?: unknown[]) => {
-  return headerRow.map((cell, index) => {
-    const primary = normalizeHeaderCell(cell);
-    const secondary = normalizeHeaderCell(nextRow?.[index]);
-    if (primary && secondary) return `${primary} ${secondary}`.trim();
-    return primary || secondary || `column_${index + 1}`;
-  });
-};
-
-const isLikelyDataRecord = (row: Record<string, unknown>, hintType?: ImportType | null) => {
-  const keys = Object.keys(row);
-  const normalized = Object.fromEntries(
-    keys.map((key) => [key.trim().toLowerCase(), normalizeHeaderCell(row[key])])
-  ) as Record<string, string>;
-
-  if (hintType === 'STM') {
-    // STM rows: must have a 6-digit period (YYYYMM) or numeric income/money values
-    const hasPeriod = Object.values(normalized).some((v) => /^\d{6}$/.test(v));
-    const hasNumericField = Object.values(normalized).some((v) => /^\d+(\.\d+)?$/.test(v) && Number(v) > 0);
-    const filledCount = Object.values(normalized).filter(Boolean).length;
-    return (hasPeriod || hasNumericField) && filledCount >= 2;
-  }
-
-  if (hintType === 'INV') {
-    // INV rows: invoice number or period, plus a few filled cells
-    const hasInvoice = !!(normalized['invoiceno'] || normalized['invoice_no'] || normalized['invoice no'] || normalized['invoice'] || normalized['เลขที่ใบแจ้งหนี้']);
-    const hasPeriod = Object.values(normalized).some((v) => /^\d{6}$/.test(v));
-    const filledCount = Object.values(normalized).filter(Boolean).length;
-    const patientSignals = [normalized['tran_id'], normalized['hn'], normalized['an'], normalized['pid'], normalized['ชื่อ - สกุล'], normalized['วันเข้ารักษา']]
-      .filter(Boolean).length;
-    const hasNetAmount = Object.entries(normalized).some(([field, value]) =>
-      /ชดเชยสุทธิ|ยอดรับสุทธิ|ยอดเงิน|paid|amount/i.test(field)
-      && Number(value.replace(/,/g, '')) !== 0
-      && Number.isFinite(Number(value.replace(/,/g, '')))
-    );
-    return (hasInvoice || hasPeriod || patientSignals >= 3 || hasNetAmount) && filledCount >= 3;
-  }
-
-  // REP - original logic
-  const hasTranId = !!(normalized['tran_id'] || normalized['tran_id pp\\n(รับจาก สปสช.)']);
-  const hasHn = !!normalized['hn'];
-  const hasPid = !!normalized['pid'];
-  const hasPatientName = !!normalized['ชื่อ - สกุล'];
-  const hasPatientType = !!normalized['ประเภทผู้ป่วย'];
-  const hasAdmitDate = !!normalized['วันเข้ารักษา'];
-
-  const signalCount = [hasTranId, hasHn, hasPid, hasPatientName, hasPatientType, hasAdmitDate].filter(Boolean).length;
-  return signalCount >= 3;
-};
-
-const parseWorksheetRows = (worksheet: XLSX.WorkSheet, hintType?: ImportType | null) => {
-  const grid = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
-    header: 1,
-    defval: '',
-    raw: false,
-    blankrows: false,
-  });
-
-  if (grid.length === 0) {
-    return { headers: [] as string[], rows: [] as Record<string, unknown>[] };
-  }
-
-  const headerIndex = grid.findIndex((row) => Array.isArray(row) && isLikelyHeaderRow(row, hintType));
-  const resolvedHeaderIndex = headerIndex >= 0 ? headerIndex : 0;
-  const headerRow = Array.isArray(grid[resolvedHeaderIndex]) ? grid[resolvedHeaderIndex] : [];
-  const nextRow = Array.isArray(grid[resolvedHeaderIndex + 1]) ? grid[resolvedHeaderIndex + 1] : [];
-  const singleHeaders = buildHeadersFromRows(headerRow);
-  const singleRecord = Object.fromEntries(singleHeaders.map((header, index) => [header, nextRow[index] ?? '']));
-  const nextRowIsData = isLikelyDataRecord(singleRecord, hintType);
-  const headersWithIndexes = nextRowIsData
-    ? singleHeaders
-    : buildHeadersFromRows(headerRow, nextRow);
-  const dataStartIndex = resolvedHeaderIndex + (nextRowIsData ? 1 : 2);
-  const dataRows = grid
-    .slice(dataStartIndex)
-    .filter((row) => Array.isArray(row) && row.some((cell) => normalizeHeaderCell(cell)));
-  const populatedColumns = new Array(headersWithIndexes.length).fill(false);
-  for (const row of dataRows) {
-    if (!Array.isArray(row)) continue;
-    const width = Math.min(row.length, headersWithIndexes.length);
-    for (let index = 0; index < width; index += 1) {
-      if (!populatedColumns[index] && normalizeHeaderCell(row[index])) {
-        populatedColumns[index] = true;
-      }
-    }
-  }
-  const activeColumnIndexes = headersWithIndexes
-    .map((header, index) => ({ header, index }))
-    .filter(({ header, index }) => header && !header.startsWith('column_') && populatedColumns[index]);
-
-  const headers = activeColumnIndexes.map(({ header }) => header);
-
-  const rows = dataRows
-    .map((row) => {
-      const values = Array.isArray(row) ? row : [];
-      return Object.fromEntries(activeColumnIndexes.map(({ header, index }) => [header, values[index] ?? '']));
-    })
-    .filter((row) => isLikelyDataRecord(row, hintType));
-
-  return { headers, rows };
 };
 
 interface ParsedSheet {
@@ -388,6 +211,7 @@ const readWorkbook = async (
   }
 
   const isSupplementarySheet = (sheetName: string, hintType: ImportType | null) => {
+    if (isDataSheetZero(sheetName)) return true;
     const compact = sheetName.toLowerCase().replace(/\s+/g, ' ').trim();
     if (/^data\b/.test(compact)) return true;
     if (hintType === 'STM' && (compact.includes('อุทธรณ์') || compact.includes('ผู้พิการ d1'))) return true;
@@ -406,9 +230,7 @@ const readWorkbook = async (
     return false;
   });
   if (primaryResults.length > 0) {
-    return includeSubfiles
-      ? [...primaryResults, ...classifiedResults.filter((item) => item.isSubfile)]
-      : primaryResults;
+    return [...primaryResults, ...classifiedResults.filter(item => item.isSubfile && includeAuditSupplement(item.sheetName, item.hintType, includeSubfiles))];
   }
 
   // Fallback: try first sheet without a hint if nothing matched
@@ -420,7 +242,7 @@ const readWorkbook = async (
     }
   }
 
-  return results;
+  return classifiedResults.length ? classifiedResults : results;
 };
 
 const readImportSource = async (
@@ -475,7 +297,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimOpen, setEclaimOpen] = useState(false);
   const [eclaimStartDate, setEclaimStartDate] = useState(firstOfMonth);
   const [eclaimEndDate, setEclaimEndDate] = useState(todayStr);
-  const [eclaimFileType, setEclaimFileType] = useState<'STM' | 'INV' | 'ALL'>('ALL');
+  const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
   const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
   const [eclaimBrowserReady, setEclaimBrowserReady] = useState(false);
   const [eclaimBrowserAlive, setEclaimBrowserAlive] = useState(false);
@@ -863,7 +685,7 @@ export const RepStmImportPage: React.FC = () => {
     const selectedFiles = Array.from(files).filter((file) => /\.(xlsx|xls|csv|zip)$/i.test(file.name));
     if (selectedFiles.length === 0) {
       const receivedNames = Array.from(files).map((file) => file.name).filter(Boolean).join(', ');
-      setError(`รูปแบบไฟล์ยังไม่รองรับ ต้องเป็น Excel, CSV หรือ ZIP/XML จากระบบจ่ายเงิน${receivedNames ? ` (${receivedNames})` : ''}`);
+      setError(`รูปแบบไฟล์ยังไม่รองรับ ต้องเป็น Excel, CSV หรือ ZIP ที่มี BIL+DBF/XML จากระบบจ่ายเงิน${receivedNames ? ` (${receivedNames})` : ''}`);
       return [];
     }
     const initialQueue: ImportQueueItem[] = selectedFiles.map((file, index) => ({
@@ -937,7 +759,8 @@ export const RepStmImportPage: React.FC = () => {
       const preflight = preflightByName.get(queueItem.file.name.toLowerCase());
       const expectedType = detectTypeFromFileName(queueItem.file.name);
       const preflightTypeMatches = !expectedType || !preflight?.dataType || preflight.dataType === expectedType;
-      if (preflight && preflightTypeMatches && ['exact', 'name_match', 'content_match'].includes(preflight.status)) {
+      // Read REP workbooks even when the primary sheet exists: an older import may lack Data Sheet 0.
+      if (expectedType !== 'REP' && preflight && preflightTypeMatches && ['exact', 'name_match', 'content_match'].includes(preflight.status)) {
         const reason = preflight.status === 'name_match'
           ? 'พบชื่อไฟล์นี้ในประวัติเดิม'
           : preflight.status === 'content_match'
@@ -1005,9 +828,14 @@ export const RepStmImportPage: React.FC = () => {
 
         if (parsedSheets.length === 1) {
           const { sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName } = parsedSheets[0];
-          const detectedType = isSubfile
-            ? hintType || detectImportType(queueItem.fileName, headers, rows)
-            : detectImportType(queueItem.fileName, headers, rows) || hintType;
+          // Server-side archive importers know the source schema exactly. Keep their
+          // declared type authoritative; generic column detection sees invoice fields
+          // inside STM and would otherwise misclassify CHI STM ZIPs as INV.
+          const detectedType = importerId && hintType
+            ? hintType
+            : isSubfile
+              ? hintType || detectImportType(queueItem.fileName, headers, rows)
+              : detectImportType(queueItem.fileName, headers, rows) || hintType;
           const parsedItem: ImportQueueItem = {
             ...queueItem,
             sheetName,
@@ -1038,9 +866,11 @@ export const RepStmImportPage: React.FC = () => {
         } else {
           // Multiple relevant sheets – expand one file into multiple queue items
           const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName }, i) => {
-            const detectedType = isSubfile
-              ? hintType || detectImportType(queueItem.fileName, headers, rows)
-              : detectImportType(queueItem.fileName, headers, rows) || hintType;
+            const detectedType = importerId && hintType
+              ? hintType
+              : isSubfile
+                ? hintType || detectImportType(queueItem.fileName, headers, rows)
+                : detectImportType(queueItem.fileName, headers, rows) || hintType;
             return {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,
@@ -1119,6 +949,7 @@ export const RepStmImportPage: React.FC = () => {
           updateQueueItem(item.id, (current) => ({
             ...current,
             status: 'error',
+            progress: 100,
             message: 'ไม่สามารถระบุประเภทไฟล์ได้',
           }));
           failedCount += 1;
@@ -1155,6 +986,7 @@ export const RepStmImportPage: React.FC = () => {
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'duplicate',
+              progress: 100,
               message: result.message || `ไฟล์ ${item.detectedType} นี้ถูกนำเข้าแล้ว`,
             }));
           } else {
@@ -1165,6 +997,7 @@ export const RepStmImportPage: React.FC = () => {
             updateQueueItem(item.id, (current) => ({
               ...current,
               status: 'success',
+              progress: 100,
               message: result.message || `นำเข้า ${item.detectedType} สำเร็จ ${Number(result.rowCount || 0).toLocaleString()} แถว`,
             }));
           }
@@ -1174,6 +1007,7 @@ export const RepStmImportPage: React.FC = () => {
           updateQueueItem(item.id, (current) => ({
             ...current,
             status: 'error',
+            progress: 100,
             message: err instanceof Error ? err.message : 'นำเข้าไม่สำเร็จ',
           }));
         }
@@ -1223,7 +1057,7 @@ export const RepStmImportPage: React.FC = () => {
           <div className="alert alert-info repstm-alert" style={{ marginBottom: 16 }}>
             <span>ℹ️</span>
             <span>
-              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
+              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV, <code>REP ไต CHI</code> จาก ZIP ที่มี BIL+DBF และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
             </span>
           </div>
 
@@ -1280,7 +1114,7 @@ export const RepStmImportPage: React.FC = () => {
               }}
             />
             <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\REP</code>
+              ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง BIL+DBF/XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\FDH_STAT</code>
             </div>
             <label className="repstm-subfile-option">
               <input
@@ -1293,7 +1127,7 @@ export const RepStmImportPage: React.FC = () => {
               />
               <span>
                 <strong>รวม Sub file / ชีตข้อมูลประกอบ</strong>
-                <small>เช่น Data Drug, Data Instrument, Data sheet 0, ข้อมูลอุทธรณ์ และผู้พิการ D1 — เก็บเพื่อตรวจสอบ แต่ไม่นำยอดไปบวกซ้ำกับไฟล์หลัก</small>
+                <small>เช่น Data Drug, Data Instrument, ข้อมูลอุทธรณ์ และผู้พิการ D1 — Data Sheet 0 ใน REP จะเก็บอัตโนมัติ แม้ไม่เลือกช่องนี้ และไม่บวกยอดซ้ำกับไฟล์หลัก</small>
               </span>
             </label>
           </div>
@@ -1328,6 +1162,17 @@ export const RepStmImportPage: React.FC = () => {
             >
               เปิดหน้าตรวจ C/Deny
             </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => navigateFromDashboard('reconciliation', { source: 'dashboard', contextLabel: 'จากหน้ารับ REP/STM' })}
+              disabled={importing}
+            >
+              เปิดหน้ากระทบยอด visit
+            </button>
+            <button className="btn btn-secondary" onClick={() => navigateFromDashboard('stmZeroAudit', {})} disabled={importing}>
+              🔎 ตรวจ STM 0
+            </button>
+            <button className="btn btn-secondary" onClick={() => navigateFromDashboard('repSheetZeroAudit', {})} disabled={importing}>📄 ตรวจ REP Data Sheet 0</button>
           </div>
         </div>
       </div>
@@ -1408,6 +1253,7 @@ export const RepStmImportPage: React.FC = () => {
                 <label className="form-label">ประเภทไฟล์</label>
                 <select className="form-control" value={eclaimFileType} onChange={(e) => setEclaimFileType(e.target.value as typeof eclaimFileType)}>
                   <option value="ALL">ทุกประเภท</option>
+                  <option value="REP">REP</option>
                   <option value="STM">STM</option>
                   <option value="INV">INV</option>
                 </select>

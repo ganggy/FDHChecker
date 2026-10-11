@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/kspVaultManager.ts"
-source_hash: "9c6af8c7ac8793b893726964e1f2b552c590703ff8d1702dd2b482e182596822"
+source_hash: "df6a261f522a0c891f0e97dc5fb8278f7501170210c688141856c8b1ae1a5d8f"
 managed_by: "sync-ksp-vault"
 ---
 # kspVaultManager.ts
 
 > Source: `server/kspVaultManager.ts`
-> SHA-256: `9c6af8c7ac8793b893726964e1f2b552c590703ff8d1702dd2b482e182596822`
+> SHA-256: `df6a261f522a0c891f0e97dc5fb8278f7501170210c688141856c8b1ae1a5d8f`
 
 ````typescript
 import crypto from 'crypto';

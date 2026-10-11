@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "ACTION_REQUIRED_CHECK_BROWSER.md"
-source_hash: "f00541c7a49b2a2b3059c9c5d6d03a774f16c4ddd907fd9ea288f6f3c8bffb33"
+source_hash: "6e5df0692b9a8ebfe0120e3934d3012f08d528445a874940e1230eb9acb05272"
 managed_by: "sync-ksp-vault"
 ---
 # 🎉 SERVICE DATE COLUMN FIX - COMPLETE!

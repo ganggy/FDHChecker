@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "MENU_DISPLAY_FIX.md"
-source_hash: "9fbf78da6b1c9a9b5f7abb9f1b4c946c49c7a28f39b1c247a27514905e474e33"
+source_hash: "17b93c2834ba39c01274135fbd8b9296969ba24cbd550283b8340820e00dd897"
 managed_by: "sync-ksp-vault"
 ---
 # SpecificFundPage.tsx - Menu Display Fix

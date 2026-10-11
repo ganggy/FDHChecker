@@ -636,6 +636,74 @@ export const ensureSmtBudgetTransferSchema = async (connection: any): Promise<vo
   }
 };
 
+export const HSUB_IMPORT_BATCH_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS hsub_import_batch (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    filename VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NULL,
+    report_date DATETIME NULL,
+    total_records INT NOT NULL DEFAULT 0,
+    total_claim DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    total_paid DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    hcodes VARCHAR(255) NULL,
+    reps TEXT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_hsub_batch_filename (filename)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const HSUB_PAYMENT_ITEM_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS hsub_payment_item (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    batch_id BIGINT NOT NULL,
+    filename VARCHAR(255) NOT NULL,
+    rep VARCHAR(50) NOT NULL,
+    item_no INT NULL,
+    tran_id VARCHAR(50) NOT NULL,
+    hn VARCHAR(50) NULL,
+    an VARCHAR(50) NULL,
+    pid VARCHAR(20) NULL,
+    patient_name VARCHAR(255) NULL,
+    service_date DATETIME NULL,
+    discharge_date DATETIME NULL,
+    maininscl VARCHAR(50) NULL,
+    projcode VARCHAR(50) NULL,
+    hcode VARCHAR(20) NOT NULL,
+    hcode_paid VARCHAR(20) NULL,
+    claim_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    ip_net DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    op_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    ip_calc DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    ip_paid DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    hc_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    hc_drug DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    ae_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    ae_drug DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    inst_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    dmis_calc DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    dmis_paid DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    dmis_drug DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    palliative_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    dmishd_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    pp_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    fs_amt DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    total_paid DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+    section_type VARCHAR(20) NOT NULL DEFAULT 'normal',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_hsub_item (tran_id, rep, hcode),
+    INDEX idx_hsub_rep (rep),
+    INDEX idx_hsub_hcode (hcode),
+    INDEX idx_hsub_service_date (service_date),
+    INDEX idx_hsub_batch (batch_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const ensureHsubPaymentSchema = async (connection: any): Promise<void> => {
+  await connection.query(HSUB_IMPORT_BATCH_TABLE_SQL);
+  await connection.query(HSUB_PAYMENT_ITEM_TABLE_SQL);
+};
 
 export const ensureFdhClaimStatusSchema = async (connection: any): Promise<void> => {
   if (activeHospitalDatabaseConfig.type === 'postgresql') {
@@ -744,6 +812,7 @@ const ensureRepstmTablesUncached = async () => {
     await connection.query(RECEIVABLE_SETTLEMENT_ITEM_TABLE_SQL);
     await connection.query(MOPHCLAIM_SEND_TABLE_SQL);
     await ensureSmtBudgetTransferSchema(connection);
+    await ensureHsubPaymentSchema(connection);
 
     const repSeqColumnTables = ['rep_data', 'rep_data_verify'];
     for (const tableName of repSeqColumnTables) {

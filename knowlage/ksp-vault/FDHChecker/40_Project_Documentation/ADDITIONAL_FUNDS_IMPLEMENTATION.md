@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "ADDITIONAL_FUNDS_IMPLEMENTATION.md"
-source_hash: "e5162753993d47d2e7ec1f531e92c14c17767f1816410ef2d4fadfac30bc1ebb"
+source_hash: "fa206685566a356b8da29d9ac1674e3f806c5ef83d5f9d245f4990a9504eec69"
 managed_by: "sync-ksp-vault"
 ---
 # Additional Funds Implementation - ตรวจสอบเงื่อนไขรายกองทุนเพิ่มเติม

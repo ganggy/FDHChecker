@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "NHSO_RATES_EXTRACTION_WORKBOOK.md"
-source_hash: "5ec35854a6bcdafd806ed4da3599a1ad149eefb5cf97c3797bb76dfc7723d89c"
+source_hash: "417d6492149dbee32405ecc04ca93dece5e8222d328d498f67f4dc8136152ce4"
 managed_by: "sync-ksp-vault"
 ---
 # 📊 NHSO RATES EXTRACTION WORKBOOK

@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/components/FundSummaryBar.tsx"
-source_hash: "6c950b7c9398b417bf19c9488fca8c6b14c57d1e4c2a5b3365db5c2f48cdb6e2"
+source_hash: "e99cbd289ee3436de467eb3f513ec3f49fb846d620d84f18c876322198b980f8"
 managed_by: "sync-ksp-vault"
 ---
 # FundSummaryBar.tsx
 
 > Source: `src/components/FundSummaryBar.tsx`
-> SHA-256: `6c950b7c9398b417bf19c9488fca8c6b14c57d1e4c2a5b3365db5c2f48cdb6e2`
+> SHA-256: `e99cbd289ee3436de467eb3f513ec3f49fb846d620d84f18c876322198b980f8`
 
 ````tsx
 import React, { useMemo } from 'react';

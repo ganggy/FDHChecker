@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "DATABASE_TABLE_CONNECTION_AUDIT.md"
-source_hash: "c98a76c74b62bdced054c7a90747bb31a2a1cadd787c117215d1b83389e5d352"
+source_hash: "394e2100d3a6f641b2326b68cc1f8f2dfa18071fe4d9014ace00aa37863aefbc"
 managed_by: "sync-ksp-vault"
 ---
 # การตรวจสอบการเชื่อมตาราง HOSxP 🔍

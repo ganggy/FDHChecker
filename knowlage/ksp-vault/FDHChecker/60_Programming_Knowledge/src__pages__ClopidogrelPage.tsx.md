@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/pages/ClopidogrelPage.tsx"
-source_hash: "3f2304b3aa12c4f5d974256ce18ca069b63ea82f3a10e905981f58563b737966"
+source_hash: "aa914281df0d593a5eb787e1887b2e00b86baa51114b11892529ce1abedf4dee"
 managed_by: "sync-ksp-vault"
 ---
 # ClopidogrelPage.tsx
 
 > Source: `src/pages/ClopidogrelPage.tsx`
-> SHA-256: `3f2304b3aa12c4f5d974256ce18ca069b63ea82f3a10e905981f58563b737966`
+> SHA-256: `aa914281df0d593a5eb787e1887b2e00b86baa51114b11892529ce1abedf4dee`
 
 ````tsx
 import { useState } from 'react';

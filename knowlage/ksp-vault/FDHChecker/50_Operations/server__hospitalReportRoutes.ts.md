@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/hospitalReportRoutes.ts"
-source_hash: "3ce29d861927c9338bbec0ee5456a7e493d81117c12b9b41acdd44e92ae6cdd1"
+source_hash: "59485229ee60794a5f8a8ee2cb3f477c3fde8d1c441c1d44c44c2a6ba1d88290"
 managed_by: "sync-ksp-vault"
 ---
 # hospitalReportRoutes.ts
 
 > Source: `server/hospitalReportRoutes.ts`
-> SHA-256: `3ce29d861927c9338bbec0ee5456a7e493d81117c12b9b41acdd44e92ae6cdd1`
+> SHA-256: `59485229ee60794a5f8a8ee2cb3f477c3fde8d1c441c1d44c44c2a6ba1d88290`
 
 ````typescript
 import { Router } from 'express';

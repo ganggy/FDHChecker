@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "VALE_PDF_QUICK_REFERENCE.md"
-source_hash: "4fe8492f70027bd03b13513f4dea89c3efa3b395e33a4efede06dae5891faf96"
+source_hash: "b98abd6b363341bf510c2b52c7cb94d618c9d9d23d487f910106967a6334b59d"
 managed_by: "sync-ksp-vault"
 ---
 # Vale PDF Quick Reference

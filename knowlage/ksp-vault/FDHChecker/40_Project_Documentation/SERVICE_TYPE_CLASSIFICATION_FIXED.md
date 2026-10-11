@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SERVICE_TYPE_CLASSIFICATION_FIXED.md"
-source_hash: "18d85712e7da57e18dbe3a44742e2b7556d4fe10845d3e8a4372fe71b1528c98"
+source_hash: "69fe8d44b206b81299af4183e9579b9567726d9542cc117091d6816139a1fe9b"
 managed_by: "sync-ksp-vault"
 ---
 # Service Type Classification - Fixed Successfully ✅

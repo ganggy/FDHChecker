@@ -1,957 +1,971 @@
 {
   "schema": 1,
   "project": "FDHChecker",
-  "generatedAt": "2026-08-05T04:22:41.278Z",
+  "generatedAt": "2026-10-10T07:16:44.852Z",
   "counts": {
-    "project-document": 143,
-    "domain-knowledge": 7,
+    "project-document": 145,
+    "domain-knowledge": 10,
     "rule-catalog": 1,
     "data-catalog": 1,
     "query-catalog": 1,
-    "source-snapshot": 176
+    "source-snapshot": 358
   },
   "files": [
     {
       "output": "40_Project_Documentation/00_START_HERE_MARCH_21_2026.md",
-      "sha256": "0d6e9d2ab29743e001d53152899908296388abf79e3c70ad33fc8766b563a173",
+      "sha256": "aeba0f4d9386da3a32dc14c48881a89d0b9fee59d82c1c498bb7b75a0de626da",
       "bytes": 8184,
       "type": "project-document",
       "source": "00_START_HERE_MARCH_21_2026.md"
     },
     {
       "output": "40_Project_Documentation/ACCOMPLISHMENT_SUMMARY.md",
-      "sha256": "05843b29ad9833232ea277aa9be857ebcd681cf04b402850e01c823e9b8bec2f",
+      "sha256": "ab711b618292c9a36662e7dc2626e8ebff36175b4090e4d5d2058a6f5c234545",
       "bytes": 10816,
       "type": "project-document",
       "source": "ACCOMPLISHMENT_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/ACTION_REQUIRED_CHECK_BROWSER.md",
-      "sha256": "987e7ff0848a11970ed12609fb0c91416ad02cac59f766c4f37a617851d20a2e",
+      "sha256": "342827cda2037ea40c458421829f689a6e71acf92ec190931ab6012659f949e8",
       "bytes": 3599,
       "type": "project-document",
       "source": "ACTION_REQUIRED_CHECK_BROWSER.md"
     },
     {
       "output": "40_Project_Documentation/ADDITIONAL_FUNDS_IMPLEMENTATION.md",
-      "sha256": "462093316b1d22e9f02e3874d30990b25968c583766e0386c024e4fdff3e1fad",
+      "sha256": "b88c85b2965f6ca6ef3f2aebe52b022ceab2ea79b5f2b9b476f9ab423a05b4e0",
       "bytes": 8110,
       "type": "project-document",
       "source": "ADDITIONAL_FUNDS_IMPLEMENTATION.md"
     },
     {
       "output": "40_Project_Documentation/ADP_CODE_INTEGRATION.md",
-      "sha256": "23badcb278f5b2c7ed2a6cadefa36921c3308a4485e588576f8d537ae5ae7f00",
+      "sha256": "b57c5ceda2250aa186c6f11c97ba4cf73f1a299cc78c26dcb4e949e71f3179d6",
       "bytes": 5227,
       "type": "project-document",
       "source": "ADP_CODE_INTEGRATION.md"
     },
     {
       "output": "40_Project_Documentation/ADP_FINAL_IMPLEMENTATION.md",
-      "sha256": "8ba02189507b06a9f108d3b09915d29878703184c727d4acc2e85ae8d7c8cf1a",
+      "sha256": "ba6bbed72cda5c79253394e0e6843a7d5c4034ffdde9473a5f668d975dce65dc",
       "bytes": 7105,
       "type": "project-document",
       "source": "ADP_FINAL_IMPLEMENTATION.md"
     },
     {
       "output": "40_Project_Documentation/ADP_TEST_GUIDE.md",
-      "sha256": "f912c3d3b30cf17f7399d88f15665d46c65a178a10d3bb9eb43a76bfbb7624c2",
+      "sha256": "7038fc4d4c07713122405320d6f6bb39b1d63617fa9ff44ed86463cb189b54db",
       "bytes": 8025,
       "type": "project-document",
       "source": "ADP_TEST_GUIDE.md"
     },
     {
+      "output": "40_Project_Documentation/AGENTS.md",
+      "sha256": "1be6aed29872ed819caf0781b6ecd459b365774b0830ff9a34b7495def869648",
+      "bytes": 2858,
+      "type": "project-document",
+      "source": "AGENTS.md"
+    },
+    {
       "output": "40_Project_Documentation/API_VALIDATION_GUIDE.md",
-      "sha256": "4e7e46859be66e28efd9c0e244dde4e0418c580e570b6ca2eab3a39fe1e5b3a8",
+      "sha256": "3d47b074a1ac5f23bb390fb046d0a0d57b0e93e00e6c1b032c93dfa098a4b3a1",
       "bytes": 6870,
       "type": "project-document",
       "source": "API_VALIDATION_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/API_VERIFICATION_COMPLETE.md",
-      "sha256": "9a33f65e1abc812d81a23d7edb3fac9a005650fc20dc44392ddb8bad4994e21c",
+      "sha256": "335e27c4ca3593ccea70ea20ce77011f325d7be16cec5ac385e444ed96cc95e2",
       "bytes": 3039,
       "type": "project-document",
       "source": "API_VERIFICATION_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/BACKLOG.md",
-      "sha256": "40b9905f4770ff875fb3e47277df157a7bddc5852b8052ebaa8bda90f5f48bca",
-      "bytes": 8624,
+      "sha256": "36422edabf9987a41e1f3e057d5c7694807ebfb286427d9f9e5ac109d94ec177",
+      "bytes": 4980,
       "type": "project-document",
       "source": "BACKLOG.md"
     },
     {
       "output": "40_Project_Documentation/BACKUP_COMPLETE.md",
-      "sha256": "b12d830e1eafe497d661df2c3bb20711e92951b15db3cef8b2c310c15d433703",
+      "sha256": "fa2010657aa499eadfd6e5df684f51697cca4f9d3bf3329eabadc5f34e53fca5",
       "bytes": 10406,
       "type": "project-document",
       "source": "BACKUP_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/BACKUP_RESTORATION_GUIDE.md",
-      "sha256": "6e7a4418bb67fb38a1124bb09998c6279d482938b7da6debf4b182015d5ef18c",
+      "sha256": "06b57e27ca03bf44c1484dcf52d9f1228d2f7aa8fe2f98e06accb372245c9555",
       "bytes": 6913,
       "type": "project-document",
       "source": "BACKUP_RESTORATION_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/BACKUP_SUMMARY_MARCH_21_2026.md",
-      "sha256": "ac792e0dbf912739ee9822efa93a4c1fe105901b2a16d7c37050807b330d4c25",
+      "sha256": "5af4dec14051211d4588567f765fdb754981cfe7655f92d1d4fc6617ab364bc1",
       "bytes": 3716,
       "type": "project-document",
       "source": "BACKUP_SUMMARY_MARCH_21_2026.md"
     },
     {
       "output": "40_Project_Documentation/BUG_FIX_SERVICE_DATE_COLUMN.md",
-      "sha256": "0f5639882f913663338b2a463f7d4464b011a085a02b37c6881ab70d04aca270",
+      "sha256": "4a11f45fa7262920b5c81f447c96635626f878b8913873d4a8f7570704b6f6b1",
       "bytes": 4659,
       "type": "project-document",
       "source": "BUG_FIX_SERVICE_DATE_COLUMN.md"
     },
     {
       "output": "40_Project_Documentation/CHANGELOG.md",
-      "sha256": "9158a93cd0b724d349906b4f462533c1d7be61a040c44e078f95ae6369161a84",
-      "bytes": 7567,
+      "sha256": "86d6b16b229398833b8a89ef7b2cce6d0c5aad991d72b39a71b5365a7dc934aa",
+      "bytes": 8515,
       "type": "project-document",
       "source": "CHANGELOG.md"
     },
     {
       "output": "40_Project_Documentation/COMPLETE_KIDNEY_MONITOR_FIX_REPORT.md",
-      "sha256": "2b1ce032cbec7a58dee50d5f4b11c4ec048dc47ec1accca08ed7f3ee1e33a1be",
+      "sha256": "0658d76ee9092864c17f2d12de28a13a0d9f2f8f2a0a2ee42d3813cf286398ea",
       "bytes": 9790,
       "type": "project-document",
       "source": "COMPLETE_KIDNEY_MONITOR_FIX_REPORT.md"
     },
     {
       "output": "40_Project_Documentation/CONTINUATION_SUMMARY.md",
-      "sha256": "ac3ebf10d6e101023684e074e7a2db28e266a09fa2ef29b8ff7670ea0bd230b9",
+      "sha256": "7980ef9be7d9018a5bcf4d7ebdda330ecc4de074095be64bf51b88e6943b6037",
       "bytes": 14086,
       "type": "project-document",
       "source": "CONTINUATION_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/DATABASE_RELATIONSHIPS_KIDNEY_MONITOR.md",
-      "sha256": "5614abdb067304a5436fcea28bfd1b179831fabd85b76508628685a2302d1ecc",
+      "sha256": "a86f324590ee12d5432001623982d2039511e5387f7f0e31b6bdc92175164cf4",
       "bytes": 7292,
       "type": "project-document",
       "source": "DATABASE_RELATIONSHIPS_KIDNEY_MONITOR.md"
     },
     {
       "output": "40_Project_Documentation/DATABASE_TABLE_CONNECTION_AUDIT.md",
-      "sha256": "d0fefdfce2a4e5744c04b3d6d460578499fceee486ddac9bd1c02c5daef47628",
+      "sha256": "bcbdec9d92d68f3a51062f085af6153e80615849ccf413a7a4497e72443747b2",
       "bytes": 11820,
       "type": "project-document",
       "source": "DATABASE_TABLE_CONNECTION_AUDIT.md"
     },
     {
       "output": "40_Project_Documentation/DELIVERY_SUMMARY.md",
-      "sha256": "096219390a4173833f3fda3b3f83f3df884f7b0060f415f34971c788940dd357",
+      "sha256": "3d1265967d8fda05fc01a9b718694befb0da5624a61785dec6f9c40714953648",
       "bytes": 8799,
       "type": "project-document",
       "source": "DELIVERY_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/DEPLOYMENT_READY_CHECKLIST.md",
-      "sha256": "a094c437e10e54045e887340208a689020607b6623dc063a6e788efba54da94c",
+      "sha256": "dbfd6ae94547f9352649a4ce12201cab9f3c4e52f212b7e6ee4226f46744351d",
       "bytes": 9734,
       "type": "project-document",
       "source": "DEPLOYMENT_READY_CHECKLIST.md"
     },
     {
       "output": "40_Project_Documentation/DETAILMODAL_DOUBLECLICK_FIX.md",
-      "sha256": "033efcf9f70ecd12ce201df9ca8a85cff393863bb12686afb073c3fae3d13f0b",
+      "sha256": "86501f3d05fd222fc2a2595e7d35465fef0999178ae050bb95941e70054a9d7f",
       "bytes": 5757,
       "type": "project-document",
       "source": "DETAILMODAL_DOUBLECLICK_FIX.md"
     },
     {
       "output": "40_Project_Documentation/DIALYSIS_SERVICE_COST_BREAKDOWN.md",
-      "sha256": "5fc3e09ba8b4db02c6bdcb44f0111c6e5aaff10cc229d9471bed82ca9d08477c",
+      "sha256": "2ab437bdbec2c71bc575cd6bbfc79543a27273ae54a3b3c48df5145a3b26b1cb",
       "bytes": 5197,
       "type": "project-document",
       "source": "DIALYSIS_SERVICE_COST_BREAKDOWN.md"
     },
     {
       "output": "40_Project_Documentation/DIALYSIS_SUMMARY_CARDS_IMPLEMENTATION.md",
-      "sha256": "067cdb56c3adf87136bb26e760c637f73913275520fee493dfaf63eca8dbfbfc",
+      "sha256": "b170d288f87f58e704415d82269143376d7ae88feb0a4d5e3c40107e9fab5e4b",
       "bytes": 9014,
       "type": "project-document",
       "source": "DIALYSIS_SUMMARY_CARDS_IMPLEMENTATION.md"
     },
     {
       "output": "40_Project_Documentation/DOCUMENTATION_FILES_CREATED_MARCH_23.md",
-      "sha256": "fe6ee6fe7937186cef0026ca6a122f21420df26ef57eda552e230c238937edbf",
+      "sha256": "94ccd70cfdda5a4c072bae8b9e0b2cdd917d8918ace92e1988bb8928e60c21a2",
       "bytes": 11396,
       "type": "project-document",
       "source": "DOCUMENTATION_FILES_CREATED_MARCH_23.md"
     },
     {
       "output": "40_Project_Documentation/DOCUMENTATION_INDEX.md",
-      "sha256": "e50de169489f93a66225f52420fe10b1507abd388ab72dccd00d938e8cb29c7c",
+      "sha256": "cf596d8d161c56f6a005988e243bd2f081cb6cb39e717eef5d864c9d1320b2a6",
       "bytes": 7352,
       "type": "project-document",
       "source": "DOCUMENTATION_INDEX.md"
     },
     {
       "output": "40_Project_Documentation/DOCUMENTATION_INDEX_FINAL.md",
-      "sha256": "0e52c624bca370f1c6361c699004bbabbbaf28f0abbdb3d8d6da0490dae1d921",
+      "sha256": "e902d13d47ec2e2ca1aa14dd10a067613380371e43624baceedfb2c91212d839",
       "bytes": 10605,
       "type": "project-document",
       "source": "DOCUMENTATION_INDEX_FINAL.md"
     },
     {
       "output": "40_Project_Documentation/DOCUMENTATION_INDEX_MARCH_27.md",
-      "sha256": "a6925fa0fb980e34e77f77fb7700bc9d17af1231e532a8ec4b0da713fa305bc9",
+      "sha256": "5608f5f4f3a2526f928ca8c34c02ca077559412f547f238eb36b93e5ee8b6e3c",
       "bytes": 14504,
       "type": "project-document",
       "source": "DOCUMENTATION_INDEX_MARCH_27.md"
     },
     {
       "output": "40_Project_Documentation/DOCUMENTATION_INDEX_SERVICE_DATE_FIX.md",
-      "sha256": "d148def9e8398c7850972847c7fef5a95f846950bd021620cbae1cf21feb7da4",
+      "sha256": "820c25a14a353d0c34df2275d2e5fb79b70ad8b3820bdc88adf633c9122c24f4",
       "bytes": 10427,
       "type": "project-document",
       "source": "DOCUMENTATION_INDEX_SERVICE_DATE_FIX.md"
     },
     {
       "output": "40_Project_Documentation/EXACT_CHANGES_MADE.md",
-      "sha256": "50d0531bece6b0eb6dacc109959a54afb3e71ac3817c3287b2b96edf9711b95d",
+      "sha256": "6ffb130e2abe20f406d64fffd09beb6e356eca21ac8739bdd733f6290bbedaa8",
       "bytes": 11699,
       "type": "project-document",
       "source": "EXACT_CHANGES_MADE.md"
     },
     {
       "output": "40_Project_Documentation/FDH_EXPORT_ERROR_FIX.md",
-      "sha256": "e3444445346e942aa0bc0922015fb4d92b0191b7a4fb962e335c9a1445a1a960",
+      "sha256": "7b070fc82b0fd2eb892342a934a47513912ced4c48e15e32cc27db80ef460303",
       "bytes": 2693,
       "type": "project-document",
       "source": "FDH_EXPORT_ERROR_FIX.md"
     },
     {
       "output": "40_Project_Documentation/FDH_EXPORT_FIX_REPORT.md",
-      "sha256": "f977dfb991914b3907a273dd31ffbda3d39ef41c0a7ca944ef9673511cc26e4a",
+      "sha256": "ebca2838a59a63e5a42e9407dbfccd331af62e3bc26bfc6746dcab24fcee5620",
       "bytes": 4557,
       "type": "project-document",
       "source": "FDH_EXPORT_FIX_REPORT.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_COMPLETION_CHECKLIST.md",
-      "sha256": "e5235326cb45e7efd48c78f830b2ba9ab3e8538e975f285d5a674f70bbc26fb3",
+      "sha256": "5c47af92e143995094d2e876646f46fde6eeb18686c8c995a02b48592bc5edd4",
       "bytes": 10998,
       "type": "project-document",
       "source": "FINAL_COMPLETION_CHECKLIST.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_DELIVERY_SUMMARY.md",
-      "sha256": "9207c372e5ca1e150227728d2fc2bf3b79be6d647185cea55f4fd74d60081809",
+      "sha256": "922f9420832740e445d5fcc7a2767880245a4b17a24e620f4bcdb5fdc3df5179",
       "bytes": 10556,
       "type": "project-document",
       "source": "FINAL_DELIVERY_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_DEPLOYMENT_CHECKLIST.md",
-      "sha256": "0d8ffd51b7ccfb0a00c24f9927900ab7a7132abfa8267883f9b0757b843c3956",
+      "sha256": "090b4f45af3a33fe91a0032d8c5c54fd1942dd168740e983c05adfb240cbf814",
       "bytes": 9368,
       "type": "project-document",
       "source": "FINAL_DEPLOYMENT_CHECKLIST.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_IMPLEMENTATION_REPORT.md",
-      "sha256": "586cd82cc2e758a9fae8c91d506bb7f79fa3255ce3d353d9df593c563a5402ec",
+      "sha256": "9885ff301f6396896eb6c5b1c2632271884fbb86004d463c029e045eb8d9b588",
       "bytes": 14733,
       "type": "project-document",
       "source": "FINAL_IMPLEMENTATION_REPORT.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_PROJECT_STATUS.md",
-      "sha256": "ed91001026308612ed31f6862d9b8b170809758e326ab2c2f99315550312bd7c",
+      "sha256": "6d95d38ffb7a88489354197515fb2bd189329e1344f3932d85f9554fd4595676",
       "bytes": 9384,
       "type": "project-document",
       "source": "FINAL_PROJECT_STATUS.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_PROJECT_SUMMARY.md",
-      "sha256": "8d8bdcdf64773f9580fc7785e504b561be1fbc2c7c1372d815c40bca09437c46",
+      "sha256": "ebcae26b1c9745184d943ddf93a9d46baaa96ceb9b4660964ce994a1a5da87c5",
       "bytes": 8290,
       "type": "project-document",
       "source": "FINAL_PROJECT_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_REPORT_MARCH_21.md",
-      "sha256": "044d4025bc286821618f9dadc84e7e60425637cc6ae23643311c104a3c0cac39",
+      "sha256": "07ca2cdd52ee35d38bfb05f211f75097d6e33c998c9edceb970dd18b016634cb",
       "bytes": 9177,
       "type": "project-document",
       "source": "FINAL_REPORT_MARCH_21.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_SERVICE_DATE_FIX_COMPLETION_SUMMARY.md",
-      "sha256": "e670d2374efa4b087ffa9711f50a8e1ad87c682a19c9b6825d918a1f5766bbfb",
+      "sha256": "a62e105264f5dfacd4c1bd965fe6f28b678d96fab509d92abe4a61d68f4fca3e",
       "bytes": 12466,
       "type": "project-document",
       "source": "FINAL_SERVICE_DATE_FIX_COMPLETION_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_SERVICE_DATE_FIX_REPORT.md",
-      "sha256": "515b9642f0420c100324d6345fd246dd51aa80076b541468952137f80d53c1f5",
+      "sha256": "041c4d0c623910ba6e95d98369ddd90265b2b636d138a6cf860692b209bbc433",
       "bytes": 12839,
       "type": "project-document",
       "source": "FINAL_SERVICE_DATE_FIX_REPORT.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_STATUS_REPORT.md",
-      "sha256": "f76c6b13734b8691e0af2ee485a6f16967b12729b1157e8e90c04c1da676d5dc",
+      "sha256": "bdffa8e05ee008dd006828e45b0905842ca54b35b4467d91b249bd448ad7fa2c",
       "bytes": 8460,
       "type": "project-document",
       "source": "FINAL_STATUS_REPORT.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_STATUS_SERVICE_DATE.md",
-      "sha256": "3c6da3b42cd8e5fe5e64cc086c3697c105c35e8cae8537f3d22e29e418eb322e",
+      "sha256": "1f63f42b754f1598b700709dc74029245eb9dcf71f2a5b6fefd727210f47a43f",
       "bytes": 8284,
       "type": "project-document",
       "source": "FINAL_STATUS_SERVICE_DATE.md"
     },
     {
       "output": "40_Project_Documentation/FINAL_SUMMARY.md",
-      "sha256": "e1ee32185eff3d7fc5111ec25fb8f7dc78c744b41f6258c7303070f998e3473e",
+      "sha256": "e11d4c4c76dab78a578f66e994138f529e4597b9633a09a053dd19415c7cb688",
       "bytes": 10036,
       "type": "project-document",
       "source": "FINAL_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/FIX_SUMMARY.md",
-      "sha256": "6ba8ebd9b35bda4b8970b5f05f221e4426e2134421dcf685fc1f379a792536c7",
+      "sha256": "408ad564a0cb0bf21f9840de8b90504d6e00030e258e25a19de1307579f4c041",
       "bytes": 2472,
       "type": "project-document",
       "source": "FIX_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/FP_CHANGES_SUMMARY.md",
-      "sha256": "56322e06587c4d125accfe428b0d176b7f5f9fe5aaf7d4719c57347a1f80c7b8",
+      "sha256": "9c7ca8c3efbd469894971aaf24d2fe244754ba43f34557cd245b678ece123e8e",
       "bytes": 3162,
       "type": "project-document",
       "source": "FP_CHANGES_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/FUND_ANALYSIS_COMPLETE.md",
-      "sha256": "87a3ceb4c985085215aeeb8050e63097efc2d57758344313dc745025961035b8",
+      "sha256": "74648de1a9d911b43144e3664216e5ac91ca61a3b4183b63565079f27ace4dd9",
       "bytes": 5241,
       "type": "project-document",
       "source": "FUND_ANALYSIS_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/FUND_ANALYSIS_IMPLEMENTATION.md",
-      "sha256": "5ec9bb932afe64b175d897b2bc2fdeaaee0ba9a048a6350f2638e1db38863e54",
+      "sha256": "7924cd5234b5ea2376b2f5028e6bebb92919cc87f8bb039caa7850adbc2dbab5",
       "bytes": 11539,
       "type": "project-document",
       "source": "FUND_ANALYSIS_IMPLEMENTATION.md"
     },
     {
       "output": "40_Project_Documentation/FUND_ANALYSIS_STATUS.md",
-      "sha256": "6ad25ee4a60b9b0f65ae91f0ae9b3929c2ebc184525231cb2060dcba7d504ebb",
+      "sha256": "8cd99d0e66e55cf713ba6df6649cec26a26b7cc1d28e5fa09d970d5393f6a700",
       "bytes": 11324,
       "type": "project-document",
       "source": "FUND_ANALYSIS_STATUS.md"
     },
     {
       "output": "40_Project_Documentation/FUND_TESTING_GUIDE.md",
-      "sha256": "c47167e5d061cce1b2441c49d6667f69c9724f95fc514f485639d13ad3d887d2",
+      "sha256": "6f9714226d44ed0c945f4258466c5e8180f25b3467eac48d5621bcf2f0bfe3c1",
       "bytes": 5208,
       "type": "project-document",
       "source": "FUND_TESTING_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/FUND_VALIDATION_QUICK_REFERENCE.md",
-      "sha256": "6b9d3b8839095ecce7e708ca8780c40b20cac81f03467bf65a1218055d0d68be",
+      "sha256": "acef15daf2c98ab3cb981c9da8861122931bfd5cd2353eb8928cc64536c8f8b8",
       "bytes": 11823,
       "type": "project-document",
       "source": "FUND_VALIDATION_QUICK_REFERENCE.md"
     },
     {
       "output": "40_Project_Documentation/HOSXP_TABLE_CONNECTION_EXAMPLES.md",
-      "sha256": "978b672e79abf6dac3d8c166cd78f08eae33c8d204b580e675a6cc65acf00c9c",
+      "sha256": "1caeb71c97d81ea0d5e0c2170e20c05f0449816fb9a9770d8710dbd04804ba9a",
       "bytes": 15497,
       "type": "project-document",
       "source": "HOSXP_TABLE_CONNECTION_EXAMPLES.md"
     },
     {
       "output": "40_Project_Documentation/HOW_TO_RUN_TH.md",
-      "sha256": "68b443ee540566aa3073898468fb5018c9703e435b6656debd69ad6f7c6050b6",
+      "sha256": "f879aa641ef520ea7eeae1c8fc2c384685ff1e4b70fe3d95b9045ac75a15e547",
       "bytes": 8567,
       "type": "project-document",
       "source": "HOW_TO_RUN_TH.md"
     },
     {
       "output": "40_Project_Documentation/IMMEDIATE_NEXT_ACTIONS.md",
-      "sha256": "d521d51ccbabeaaf7c0a201eedf99804c2ac10985828803ed0dbf368e28ee01d",
+      "sha256": "5bbe1f176ca8fac89e5b25ea2e13074184138573c81b4754d6608d37307a75b1",
       "bytes": 8331,
       "type": "project-document",
       "source": "IMMEDIATE_NEXT_ACTIONS.md"
     },
     {
       "output": "40_Project_Documentation/IMPLEMENTATION_COMPLETE.md",
-      "sha256": "6947faa9c9438c8c25df0adad8f9ea702ee2739263148772ab6faf2ad5a3b079",
+      "sha256": "90d93cf201e37466319de1734c5e006fb4ea9110d4d2c5a45a1310ea663de6a7",
       "bytes": 9144,
       "type": "project-document",
       "source": "IMPLEMENTATION_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/KIDNEY_MONITOR_DISPLAY_FIXED.md",
-      "sha256": "0bd6fcb2c0b5676c96c579585ab06bc61bea0e6e4e191202d5cbd1b1f75383da",
+      "sha256": "082bf8c6e2d094ca334cd2e3ea75428d484ea5a5802eeea1f3427648930f5f64",
       "bytes": 2569,
       "type": "project-document",
       "source": "KIDNEY_MONITOR_DISPLAY_FIXED.md"
     },
     {
       "output": "40_Project_Documentation/KIDNEY_MONITOR_FIX_VERIFICATION.md",
-      "sha256": "9ca3e75d8b15996d54a940cd1982ecfa488285f26a50a649b03d430019797635",
+      "sha256": "b9a33ca1ca14a13b7ff3be9dd5935850d14d41424d0e3334623f4748fc021b35",
       "bytes": 5238,
       "type": "project-document",
       "source": "KIDNEY_MONITOR_FIX_VERIFICATION.md"
     },
     {
       "output": "40_Project_Documentation/KIDNEY_MONITOR_LAB_NAMES_FIXED.md",
-      "sha256": "90ada3b74d26c92110fa406c8a213f87304c96141d34b79f9d49e7808e33c1bd",
+      "sha256": "e7e389dc18e50e1d260325dc516d2fd4e8e7a8b0132d5a3f83961cfd4d16e6c4",
       "bytes": 5390,
       "type": "project-document",
       "source": "KIDNEY_MONITOR_LAB_NAMES_FIXED.md"
     },
     {
       "output": "40_Project_Documentation/LINE_BOT_SETUP.md",
-      "sha256": "03eed6321d9deffbb4d29e2f66763cfce7b962d540a37cb7073b7345aba24ccb",
+      "sha256": "284b19f61f0f5a8f05d68654402c249634aacae41581698d78e73c697441876f",
       "bytes": 3472,
       "type": "project-document",
       "source": "LINE_BOT_SETUP.md"
     },
     {
       "output": "40_Project_Documentation/LOCAL_AI_SETUP_TH.md",
-      "sha256": "0b628021065c8c89af42f66201c66f9b8720f813c624752e2d4ab3842abf9f44",
-      "bytes": 15921,
+      "sha256": "9bea489a6ddeab957188c89c03ad48f14f998edf4a334a8b1947fa4d6cc38e6b",
+      "bytes": 15966,
       "type": "project-document",
       "source": "LOCAL_AI_SETUP_TH.md"
     },
     {
       "output": "40_Project_Documentation/MARCH_21_SERVICE_DATE_BUG_FIX_COMPLETE.md",
-      "sha256": "991240f900b76ab994adb0031c955ee63e6f8c4af0832862d5746ff6860b3368",
+      "sha256": "e2fdf7b9a6d383bbb73ff021d186f92d0c00443dd5e7c089247155cd53263f3c",
       "bytes": 9742,
       "type": "project-document",
       "source": "MARCH_21_SERVICE_DATE_BUG_FIX_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/MASTER_INDEX_MARCH_21.md",
-      "sha256": "2c7fc7416914ccd1e286055320d1cbd9bd42fff242038a59503cfa1f64075ea8",
+      "sha256": "c59ff73455b945deb87d77d73924d614cc70558c1b54216a869d122d6d0f7267",
       "bytes": 13189,
       "type": "project-document",
       "source": "MASTER_INDEX_MARCH_21.md"
     },
     {
       "output": "40_Project_Documentation/MASTER_PROJECT_INDEX_MARCH_23.md",
-      "sha256": "e16514cbcc45e15d2ca27e58d1f885705eec9d1d66b5c1b73eda879ce115c7ff",
+      "sha256": "afb67e61222d5170dbce0a94e92bacb26f792a3f1063395c61315a79da8fe583",
       "bytes": 12350,
       "type": "project-document",
       "source": "MASTER_PROJECT_INDEX_MARCH_23.md"
     },
     {
       "output": "40_Project_Documentation/MENU_DISPLAY_FIX.md",
-      "sha256": "18264acb91c821c5b38c5482da4acb67d970b848077012617e5b48746d9b27b9",
+      "sha256": "07aed0c5932ef9c62251f216b593cde700d8ad1ec7b9e4457ee02e7108257deb",
       "bytes": 4006,
       "type": "project-document",
       "source": "MENU_DISPLAY_FIX.md"
     },
     {
+      "output": "40_Project_Documentation/MOBILE_APP_GUIDE.md",
+      "sha256": "6d684cb219714021e99452d4c7a5b3484b76e4210d633e9ecd45105ecddc696f",
+      "bytes": 6877,
+      "type": "project-document",
+      "source": "MOBILE_APP_GUIDE.md"
+    },
+    {
       "output": "40_Project_Documentation/MOCK_DATA_FIX.md",
-      "sha256": "3e343909ff4e879bcf289581378934e0db24098a07ca5d000981302941bc1b93",
+      "sha256": "4a2ddf94de879f197fdb17e307cc8d6f589322fc53158f20c132c4c89a1ea675",
       "bytes": 5183,
       "type": "project-document",
       "source": "MOCK_DATA_FIX.md"
     },
     {
       "output": "40_Project_Documentation/MODAL_DOUBLE_LAYER_FIX.md",
-      "sha256": "e8ac433f5347b647655508f51f253ab45a1baaedc3b218af4ac4d36086b58342",
+      "sha256": "471645153485f147a8b69e17ba0ef71871035710f6b77b682e73f5d2bc1a3b0c",
       "bytes": 6977,
       "type": "project-document",
       "source": "MODAL_DOUBLE_LAYER_FIX.md"
     },
     {
       "output": "40_Project_Documentation/NHSO_PAYMENT_STANDARDS_EXTRACTION_GUIDE.md",
-      "sha256": "aa51b33b659090cedd5899eb2bda963a229627761137a2f9e76bb878ff9fe2cf",
+      "sha256": "35f410d4cd017f2102cd822838577a76e00fcbe29b677577091cece41abdd34c",
       "bytes": 11316,
       "type": "project-document",
       "source": "NHSO_PAYMENT_STANDARDS_EXTRACTION_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/NHSO_RATES_EXTRACTION_WORKBOOK.md",
-      "sha256": "2ff658eff35b35f50340e4055c4b9fa1442ae3214b9dba3986a8bb386ed4b783",
+      "sha256": "e56f02463bd4e29d27dd96361395e27b0684d3886865e5e0f8df3f1dd9211865",
       "bytes": 18789,
       "type": "project-document",
       "source": "NHSO_RATES_EXTRACTION_WORKBOOK.md"
     },
     {
       "output": "40_Project_Documentation/NHSO_RATES_IMPLEMENTATION_TECHNICAL_GUIDE.md",
-      "sha256": "37d80a7b8a088cc9bc7ec23ba52160a7b40aa88836a0fdea855e6d180e039374",
+      "sha256": "1f857d323e6c6a651945863f02cbbd03f22934da14751bfb76f36e87da5920e1",
       "bytes": 18487,
       "type": "project-document",
       "source": "NHSO_RATES_IMPLEMENTATION_TECHNICAL_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/OPITEMRECE_INTEGRATION_SUCCESS.md",
-      "sha256": "46c6fd45f1058809b0ebc13c9666f17d5935041f82d15d1f4a4df04abb4f5f21",
+      "sha256": "447148b8c3247a66478287c924631f8a012dcf96887c1e574881e3f904543c1e",
       "bytes": 7930,
       "type": "project-document",
       "source": "OPITEMRECE_INTEGRATION_SUCCESS.md"
     },
     {
       "output": "40_Project_Documentation/PDF_INPUT_SUMMARY_MAY_15_2026.md",
-      "sha256": "f3387758f54f33a4e06c4472debd9ec805c424bb60be8791b4ce98ad8c13f9c0",
+      "sha256": "daec370d063258143e9803d12bdcd1dd24e095bcbb620d0621033ce6e602ba37",
       "bytes": 1833,
       "type": "project-document",
       "source": "PDF_INPUT_SUMMARY_MAY_15_2026.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_7_DIALYSIS_SUMMARY_COMPLETE.md",
-      "sha256": "2b8afc3f934b56edff7446f42d0e67b0502cacd161d88f8c7cc7399fbfbf6289",
+      "sha256": "80f1af73b1ceea95552e553e273c5940ae6531cedaaa3408bf9d2f31437bc627",
       "bytes": 13766,
       "type": "project-document",
       "source": "PHASE_7_DIALYSIS_SUMMARY_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_DELIVERY_REPORT.md",
-      "sha256": "e422bc551278b1fe7217dc2e1e8746f0316b6f2b51e91d5a12f8d63cd69a8997",
+      "sha256": "5f40d59c7ceb2858b153897a5d0350696e1fd6fd966c4eeebe03d8ee89d2dc16",
       "bytes": 14385,
       "type": "project-document",
       "source": "PHASE_8_DELIVERY_REPORT.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_DOCUMENTATION_INDEX.md",
-      "sha256": "02950530f25027303427e77e4a99f4ea783c14d2016e7138854064586d99559c",
+      "sha256": "18a2adc5d4a2f14baab145ca62d596e032692a0e15b51530de2e600e01ddc423",
       "bytes": 19927,
       "type": "project-document",
       "source": "PHASE_8_DOCUMENTATION_INDEX.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_FINAL_SUMMARY.md",
-      "sha256": "62b8fa5bf39aba7e10bf26e94ba17ea3dabc23254276addb98d2cde8c6098ac4",
+      "sha256": "0b9954f7c10a6d009c32410ebd2b243e8bdeaec4da4dd903870ad9fc5c996b55",
       "bytes": 13426,
       "type": "project-document",
       "source": "PHASE_8_FINAL_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_IMPLEMENTATION_QUICK_REFERENCE.md",
-      "sha256": "815b9413417ab3da64269a7db29d10ab31d7a850886303f821651069a808b6de",
+      "sha256": "3808db241d659b8ec66d3014008d9d3a9fd9df119a4b7635251bc7f8e423d30b",
       "bytes": 9321,
       "type": "project-document",
       "source": "PHASE_8_IMPLEMENTATION_QUICK_REFERENCE.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_NAVIGATION_GUIDE.md",
-      "sha256": "c9284c3d43b26904a9e6447a3d1837e7ebc0f1dc4513fe160618bd630e0cd126",
+      "sha256": "e5882daa07479aa6a0ad57998afe44acb1c022ac4135924ea6bf1545103f3e5f",
       "bytes": 12030,
       "type": "project-document",
       "source": "PHASE_8_NAVIGATION_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_NHSO_RESEARCH_FINDINGS.md",
-      "sha256": "95eea213ce883beb758360de75e2f95cd03101d04f6cebe9dd736eaead55f77b",
+      "sha256": "c265a7b7cc95bd76ea2311ae2e31f66a241268f973263c85b865dfa9821cea2b",
       "bytes": 16260,
       "type": "project-document",
       "source": "PHASE_8_NHSO_RESEARCH_FINDINGS.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_NHSO_STANDARDS_DOCUMENTATION_SUMMARY.md",
-      "sha256": "692565f8e95a3f6767788287b794ceae93f6ece6eebd4e7db7823c95fbfab207",
+      "sha256": "ba0194bb309de2e0dc54c0712a97211fbfc26af704e661af4f3a2c10798bc74a",
       "bytes": 14331,
       "type": "project-document",
       "source": "PHASE_8_NHSO_STANDARDS_DOCUMENTATION_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_NHSO_STANDARDS_INTEGRATION.md",
-      "sha256": "d08c3085db0aee250f135081f26b3edb3caa574e73a0a789ed6d4fbcf20ba999",
+      "sha256": "ef6f92c381f9a825897f0e936f45cc0bb828db9d0c4972404aa8143fb76e01ae",
       "bytes": 14212,
       "type": "project-document",
       "source": "PHASE_8_NHSO_STANDARDS_INTEGRATION.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_PROJECT_STATUS_UPDATE.md",
-      "sha256": "a645563cc28dba72eefe5b1c7ab84082e5fce7e861a04e4b46578b60e09d1d91",
+      "sha256": "9f735b36d0e3eba43673d606effe4e3d8f81353847160656dd668532a86957d3",
       "bytes": 15656,
       "type": "project-document",
       "source": "PHASE_8_PROJECT_STATUS_UPDATE.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_QUICK_START_GUIDE.md",
-      "sha256": "2d88ce121e7519f2011feba8b119a3845898f8d27e67a8e4a21c1f2115fc2e6a",
+      "sha256": "a6d5746c197db8b08e3c146f1a0749e3973f85a30baa83a3e196f4df2387ab6d",
       "bytes": 11209,
       "type": "project-document",
       "source": "PHASE_8_QUICK_START_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_RESEARCH_COMPLETE_INDEX.md",
-      "sha256": "ac2f55da4e152a3fa2fcf2628bad0fbabd9f61a83f4cd9568275f688fc1ff2d2",
+      "sha256": "74f1680dc65257d74bcbc10523fa40d701fce39df666f8a9ed6bc5ce25fd609a",
       "bytes": 11481,
       "type": "project-document",
       "source": "PHASE_8_RESEARCH_COMPLETE_INDEX.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_RESEARCH_COMPLETE_STATUS.md",
-      "sha256": "32e8e28107523631ad52a20e55c0fc1fb45d9a2fd3187bdccd059978e0a18c54",
+      "sha256": "1bcece2b9ae569631655e7e0b86518b46446e13fcf579e9ff742ea443c1953ce",
       "bytes": 11559,
       "type": "project-document",
       "source": "PHASE_8_RESEARCH_COMPLETE_STATUS.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_RESEARCH_COMPLETION_REPORT.md",
-      "sha256": "25bb8121668060f3bca1cb709bdd2e8e3c7f489223f1e4c4f85ba6b6cb9d5b5b",
+      "sha256": "d8a336c8354e39a3e8f7e4e35bcb169f9d253311e0d1b97d691c60ff2ae81f5d",
       "bytes": 15070,
       "type": "project-document",
       "source": "PHASE_8_RESEARCH_COMPLETION_REPORT.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_RESEARCH_DELIVERABLES.md",
-      "sha256": "78837dad8b73e86af62ed0b8dd49d1d5a7880e7780d671f1859b20f3acdcdb74",
+      "sha256": "f5de016a07cb60b11f318d3bc3f2cbc2b78753034757765fd4cee55193ba44c0",
       "bytes": 12081,
       "type": "project-document",
       "source": "PHASE_8_RESEARCH_DELIVERABLES.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_SETUP_COMPLETE_SUMMARY.md",
-      "sha256": "c3ebdc20f17af7c00c71f8bad985045a1ee888af1f2286cfe2d526505e3b4ec0",
+      "sha256": "c6326646d173909fe4306ca1b10b60b5a15618b32c35caa6a20bc9f6d227c48f",
       "bytes": 11884,
       "type": "project-document",
       "source": "PHASE_8_SETUP_COMPLETE_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/PHASE_8_STAKEHOLDER_UPDATE.md",
-      "sha256": "f43f08833e539c41bcd740566ddc6382d10ea68a77b7299bcafdfaa820948ad7",
+      "sha256": "c3bf38d6fed4ed2f0a651a416aeba22a75c536febc9dd06c7184dc8d0c96ba7d",
       "bytes": 12597,
       "type": "project-document",
       "source": "PHASE_8_STAKEHOLDER_UPDATE.md"
     },
     {
       "output": "40_Project_Documentation/PRESCRIPTION_FEATURE_COMPLETE.md",
-      "sha256": "43f501f7aa94bc48dde5e1f121c3313998ea07bb5de62541f5d9ccb12f605a54",
+      "sha256": "291a64b0853a695e57ef0a17fecd80e5a8af904c748eee8b2efca6e1c9f48485",
       "bytes": 6878,
       "type": "project-document",
       "source": "PRESCRIPTION_FEATURE_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/PROJECT_COMPLETION.md",
-      "sha256": "984b9a9b48bea4846aafd52f0145c56aac99d155cde716431ec9991a3ca24c93",
+      "sha256": "2791fda6fe5f37b1dc91a09625ce535aadab16c0976f4cf3e636d0a64b77a2af",
       "bytes": 9954,
       "type": "project-document",
       "source": "PROJECT_COMPLETION.md"
     },
     {
       "output": "40_Project_Documentation/PROJECT_COMPLETION_REPORT.md",
-      "sha256": "5766588f3e66e661492904378a4814c3ea2e04080fa1e3fb8fc3a8881ccdfb18",
+      "sha256": "17cc7a9303f924d96d96c231bc15d1dc955e788d91196c63db408b1fdf476e06",
       "bytes": 14778,
       "type": "project-document",
       "source": "PROJECT_COMPLETION_REPORT.md"
     },
     {
       "output": "40_Project_Documentation/PROJECT_COMPLETION_VISUAL_SUMMARY.md",
-      "sha256": "5d43c6a827dfe7aa5eb2e11807e8762dee0930c23092102bbc4a0b8303989a51",
+      "sha256": "9490a7f6ca1fad94dc14cad4b99d250eb436aa7c8d433cb5351b78957de3b9c0",
       "bytes": 19977,
       "type": "project-document",
       "source": "PROJECT_COMPLETION_VISUAL_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/PROJECT_FINAL_COMPLETION_CHECKLIST.md",
-      "sha256": "75e4ccf328396b4358bb96f49958f4e99c0f4735efa7ec05366a63b5bac61f65",
+      "sha256": "5a368071b1d66494a9870fa74d50e2847d9c87f7b80c42f42a47cfa6e8ac986f",
       "bytes": 13075,
       "type": "project-document",
       "source": "PROJECT_FINAL_COMPLETION_CHECKLIST.md"
     },
     {
       "output": "40_Project_Documentation/PROJECT_STATUS_MARCH_21_FINAL.md",
-      "sha256": "f1c4420c0460f9142ca1a2a39744a252bc4bd9c0187ed866cfd83c71b074f77e",
+      "sha256": "2c9524f90cb70193804036c4cd65e498e4f0cc9cebd286a5c0ae23eda16c8c96",
       "bytes": 11502,
       "type": "project-document",
       "source": "PROJECT_STATUS_MARCH_21_FINAL.md"
     },
     {
       "output": "40_Project_Documentation/PROJECT_SUMMARY.md",
-      "sha256": "d46e40a00e406bfef181487a20602f7ce5f828e99f26b3e1c2372a4e29f34468",
+      "sha256": "724d7924c9e315bcb694207dbec04bba5c5c496c5753ba5f8961a4610a9a3d5e",
       "bytes": 11145,
       "type": "project-document",
       "source": "PROJECT_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/QUICKSTART.md",
-      "sha256": "9115efa72ca1cc66081df746dd514270f20db559134b6da6899e218038384bc4",
+      "sha256": "906de74f00c537c0ff47162f5df7a306687b35d621dd6cdc0fcaf8a4cec4708a",
       "bytes": 7569,
       "type": "project-document",
       "source": "QUICKSTART.md"
     },
     {
       "output": "40_Project_Documentation/QUICK_AUTH_CODE_REFERENCE.md",
-      "sha256": "ec215abf797729353175d600d231b1361ad0a9b2d632afc2320dd8d3200a3db3",
+      "sha256": "9970abcde6332e50c1d4885a4da95fd1d6fd945830e9c7b113bbcab21f6a37b4",
       "bytes": 7374,
       "type": "project-document",
       "source": "QUICK_AUTH_CODE_REFERENCE.md"
     },
     {
       "output": "40_Project_Documentation/QUICK_BUG_FIX_SUMMARY.md",
-      "sha256": "2791a8cdc0e9bde036503fc9cecee78191339b9b86261d7c9fc9816f8f5d7e3a",
+      "sha256": "b4b694f986a210fc640b7b10555d68f540ad2861edbae5fcaf768b1119da5cf1",
       "bytes": 3335,
       "type": "project-document",
       "source": "QUICK_BUG_FIX_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/QUICK_REFERENCE_FINAL.md",
-      "sha256": "c5b2cff55588c1e4bf5ee62e9d2d2e3ee1928eba93ad0e7a253ff5b64f674957",
+      "sha256": "d201aff324674981734f717c203ee8f62dbdf73734866532350a6aa70d642f7f",
       "bytes": 10355,
       "type": "project-document",
       "source": "QUICK_REFERENCE_FINAL.md"
     },
     {
       "output": "40_Project_Documentation/QUICK_REFERENCE_LAB_NAMES_FIX.md",
-      "sha256": "9d40ea0051e4cd9ae3609faabc9cf884e887f530453507b990517f2495dda944",
+      "sha256": "983cb60d765543966d3e0fd4f3fb14d4e487dd2f016220d851574f781c7a1e7c",
       "bytes": 4325,
       "type": "project-document",
       "source": "QUICK_REFERENCE_LAB_NAMES_FIX.md"
     },
     {
       "output": "40_Project_Documentation/QUICK_REFERENCE_SERVICE_DATE.md",
-      "sha256": "af5865294161cca597e566111a5f704a9dee6571c9a5ab97bf16877dc0290162",
+      "sha256": "959bd26524892b3d9a00e29d81edbf294cb8e9012e8d4010b7a5e54089ce12fb",
       "bytes": 4278,
       "type": "project-document",
       "source": "QUICK_REFERENCE_SERVICE_DATE.md"
     },
     {
       "output": "40_Project_Documentation/QUICK_REFERENCE_TABLE_CONNECTIONS.md",
-      "sha256": "8a77410173377491cdd23ace50bc4c1b7868ed4e882b81ad65ef7af91556445a",
+      "sha256": "e1f48dd3753730c1842c05114f3abfd4378af6c66559d2bd68d43f32c99735b4",
       "bytes": 8676,
       "type": "project-document",
       "source": "QUICK_REFERENCE_TABLE_CONNECTIONS.md"
     },
     {
       "output": "40_Project_Documentation/QUICK_START.md",
-      "sha256": "65507543df30ea8ef366f9ae6a9f9530595a0cd7f98da4ed7954ca57d7fe25d8",
-      "bytes": 1342,
+      "sha256": "c208278c32f210e97be84aa174f67bfc3b933cb2162aed8202decc60de4ad1d5",
+      "bytes": 2180,
       "type": "project-document",
       "source": "QUICK_START.md"
     },
     {
       "output": "40_Project_Documentation/README.md",
-      "sha256": "bb3758fcf0808b0399c2f3fd68dbab443739b6aac74a3cd6c7ad8e2279bb4522",
-      "bytes": 5657,
+      "sha256": "849a2be24c624c1cb1c29a430747f9136949e7c8810d37356bc6f81d88374964",
+      "bytes": 21026,
       "type": "project-document",
       "source": "README.md"
     },
     {
       "output": "40_Project_Documentation/REAL_DATABASE_IMPLEMENTATION.md",
-      "sha256": "d0d6d5feacdcd0f1cf11d7d69d5e5d94e0e7f605022641d4829eaaf4860d9b21",
+      "sha256": "0b6fd9180c0ac43fe8d861fe751672b2f0e7217bca2d38df0b139ca780f1de3e",
       "bytes": 6845,
       "type": "project-document",
       "source": "REAL_DATABASE_IMPLEMENTATION.md"
     },
     {
       "output": "40_Project_Documentation/RUN_INSTRUCTIONS.md",
-      "sha256": "d90eb3f79d8f76490081f97e7961952007fd25a5e1bbdf98a3cff6ca52c85497",
+      "sha256": "e2567f54ae4e5fe5a25cf0085e5bba7ec1b6d4fab87998727f0d130c11a75b04",
       "bytes": 5942,
       "type": "project-document",
       "source": "RUN_INSTRUCTIONS.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_DATE_BUG_FIX_SUMMARY.md",
-      "sha256": "c77a0c51d33f60a178b3b330efaf5d27c57ad96a9deb08b867e8b37943a3ee55",
+      "sha256": "3d1d47c40adf2d4c2e96308db1a6eae7fdf491ca1a4ffde44561da2e5e6acd67",
       "bytes": 7046,
       "type": "project-document",
       "source": "SERVICE_DATE_BUG_FIX_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_DATE_COLUMN_FIX_COMPLETE.md",
-      "sha256": "dc9da5f42e46407832d406813363440150a85a50b9b949fb235f1905a4af503c",
+      "sha256": "6016f0689ef60ee2080f63b199270230f2450d7f9edfc4a6c864ca4e1ccd702c",
       "bytes": 7426,
       "type": "project-document",
       "source": "SERVICE_DATE_COLUMN_FIX_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_DATE_COLUMN_VISUAL_GUIDE.md",
-      "sha256": "4f9f909d2b799a8ad4baf9e043616f53574941a5f54d023faf0b91ade04697f6",
+      "sha256": "96728e52d3305b4b97f5a5adc2602b4e2482a05452631af4fff318d66989fb43",
       "bytes": 5937,
       "type": "project-document",
       "source": "SERVICE_DATE_COLUMN_VISUAL_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_DATE_DOCUMENTATION_INDEX.md",
-      "sha256": "88dfc9944aabb63e3fadf4101dc7e108488efd9530db679a19d4e51d4674a536",
+      "sha256": "295dbcb37b9c5000e99d6e2c9ebaf5e14a132bd76c63b4f4edd7c300e86aa0f5",
       "bytes": 6021,
       "type": "project-document",
       "source": "SERVICE_DATE_DOCUMENTATION_INDEX.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_DATE_FINAL_VERIFICATION.md",
-      "sha256": "7a8a49a4a29e9240c5814b6ba2e7d3515cdd133ffd53f5b9e2e4e11bc7cea5a2",
+      "sha256": "2530fac15e5b550e2f0a75f604741e50b908d0e74db6deb537e1fa9c2e9e9b88",
       "bytes": 4550,
       "type": "project-document",
       "source": "SERVICE_DATE_FINAL_VERIFICATION.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_DATE_FIX_DEBUGGING.md",
-      "sha256": "5246f39a7cd72aaa821cbc5c4f42a1ae69498583aa190cb9c26d886b39f90e5e",
+      "sha256": "16cd59255b9c7e8a00d7a02bf44b667970f38aa68b018aa0080264d01831a420",
       "bytes": 3917,
       "type": "project-document",
       "source": "SERVICE_DATE_FIX_DEBUGGING.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_DATE_FIX_VERIFICATION.md",
-      "sha256": "2cec9d57d53151c61a8f231c6e2042e188495fa85a73b702440f2f4e645f1a84",
+      "sha256": "fbfdc7a6123286ab2126c38af4101cccfdf7a74e37314d4b97a6472cb94261f2",
       "bytes": 9367,
       "type": "project-document",
       "source": "SERVICE_DATE_FIX_VERIFICATION.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_DATE_READY_FOR_DEPLOYMENT.md",
-      "sha256": "8639d1060d4cbf852f1f8e5ba658dd88f0cc19e55020984f786aa39a169310db",
+      "sha256": "a136a9885608d056a1ec8f10ea7521545cb00ab39610d06c2a81231c8073f1d7",
       "bytes": 4585,
       "type": "project-document",
       "source": "SERVICE_DATE_READY_FOR_DEPLOYMENT.md"
     },
     {
       "output": "40_Project_Documentation/SERVICE_TYPE_CLASSIFICATION_FIXED.md",
-      "sha256": "c5b21083f63eb790973a1cfef46b0947547829672ca4c1787831772a17cec9ee",
+      "sha256": "049061ed7bd3bc6a25ff2694fbdd8c2bbe4921e95235a5d10812490147e756f4",
       "bytes": 8156,
       "type": "project-document",
       "source": "SERVICE_TYPE_CLASSIFICATION_FIXED.md"
     },
     {
       "output": "40_Project_Documentation/SPECIAL_MONITOR_COMPLETE.md",
-      "sha256": "fa2296bcc0594890d7a5353c2a31fdeaa9bd38f953534cb897ccf4fcc21c04eb",
+      "sha256": "249257e69b82845e9d1bc2ab4fc5134afd89098673e901aded5a98e9585703d8",
       "bytes": 14304,
       "type": "project-document",
       "source": "SPECIAL_MONITOR_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/SPECIAL_MONITOR_DEPLOYMENT.md",
-      "sha256": "1a67774717388cf1af4e384c82aa57b7bb8ede91414ed693501b77e1b0ef971d",
+      "sha256": "39ec0bf0f4f6d4fa2fd47762f4b64f97cb87b39ea8e6af37bc9003843308aed1",
       "bytes": 12362,
       "type": "project-document",
       "source": "SPECIAL_MONITOR_DEPLOYMENT.md"
     },
     {
       "output": "40_Project_Documentation/SPECIAL_MONITOR_IMPLEMENTATION.md",
-      "sha256": "31971635e9fe28d26767ebd8d8419f74e09fee00407b8649b62aa11ae00d0b21",
+      "sha256": "19c16b9c2c79ced8177ed5cfb309d0d63809b8bcf1d31772cda2e179f6dfdba1",
       "bytes": 9553,
       "type": "project-document",
       "source": "SPECIAL_MONITOR_IMPLEMENTATION.md"
     },
     {
       "output": "40_Project_Documentation/SPECIAL_MONITOR_INDEX.md",
-      "sha256": "9812029c72b37ca365232ca9cfc98838afcaf6ddb5d63b17e49acf3c152bace9",
+      "sha256": "bcebd378c7ddf02561acba2c8da2d8b978d119b2d5bd1ae0c1e33cfd8e26fc62",
       "bytes": 12979,
       "type": "project-document",
       "source": "SPECIAL_MONITOR_INDEX.md"
     },
     {
       "output": "40_Project_Documentation/SPECIAL_MONITOR_QUICK_REFERENCE.md",
-      "sha256": "bc5501b5263cd43cbfe925a30365c80480ae0d458fdcb5049a0d5c321c522bfe",
+      "sha256": "2e66006aac4433b65852a457cd8fd960675b1226259fcf54bd3c96cc14beecfc",
       "bytes": 8449,
       "type": "project-document",
       "source": "SPECIAL_MONITOR_QUICK_REFERENCE.md"
     },
     {
       "output": "40_Project_Documentation/SPECIAL_MONITOR_TEST_GUIDE.md",
-      "sha256": "f30f3079d6c5030e146177bd2865070f94875817807a89b865bc9950b8f4a6f1",
+      "sha256": "5ea3832c1f515006c54a8212974c8cbfe9daaf02be62ca79b10c148b22d65f8b",
       "bytes": 13921,
       "type": "project-document",
       "source": "SPECIAL_MONITOR_TEST_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/SPECIFICFUNDPAGE_FIX_SUMMARY.md",
-      "sha256": "cb0359b35006e41daaac14c0afe38f8e574220de9537f223d6291088ed3ca69b",
+      "sha256": "daaebe4dca790a1ddd29aa1dfde75241e3e19c9db433847a8f663755833ad44b",
       "bytes": 4986,
       "type": "project-document",
       "source": "SPECIFICFUNDPAGE_FIX_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/SPECIFIC_FUND_PAGE_COMPLETE_GUIDE.md",
-      "sha256": "c8c500dca5835ea09439e5da6eb119d85ac4fcbde0c68ef5d1f62a0d6cdfd6ae",
+      "sha256": "0580cdd478da09630108351beb43d5b7b38fe3521c1132152f751bf216186cae",
       "bytes": 21376,
       "type": "project-document",
       "source": "SPECIFIC_FUND_PAGE_COMPLETE_GUIDE.md"
     },
     {
       "output": "40_Project_Documentation/STAFF_PAGE_UPDATE.md",
-      "sha256": "d2889ec84a9e637633d59eae6757b9e7546afedb82c63003e707e0481cee6dac",
+      "sha256": "43f546e1869927b7088eb6909214de5d37f052b2578d2e1f162b9c0ca982da83",
       "bytes": 5915,
       "type": "project-document",
       "source": "STAFF_PAGE_UPDATE.md"
     },
     {
       "output": "40_Project_Documentation/START_HERE.md",
-      "sha256": "9a233374605b8b9384a150fd0a2d76f955b6dae523a7983e95ceabef6bfd56cd",
+      "sha256": "450c7b776a1cfc47aebf485b118fadd8053e33a98ac6ea226ec11e9ac83c9b0e",
       "bytes": 8159,
       "type": "project-document",
       "source": "START_HERE.md"
     },
     {
       "output": "40_Project_Documentation/START_HERE_COMPLETION.md",
-      "sha256": "91b7680082c039762b651328828f70a089b1c95a4b5fd5086737a45771ac54c4",
+      "sha256": "19b2630d47e3e65300ec4b829d7f97dc9b685be78377de5858ba999780e2c644",
       "bytes": 12449,
       "type": "project-document",
       "source": "START_HERE_COMPLETION.md"
     },
     {
       "output": "40_Project_Documentation/STATUS_UPDATE_MARCH_21_COMPLETE.md",
-      "sha256": "00720057f0205fad104df836b8630b55c0fd01c8b0c1c3fc326eefa9c4957b77",
+      "sha256": "b1fac3f4aae2a9dd9dc5a7edb9345c39450a64e70034430c9df9d654328b384d",
       "bytes": 3054,
       "type": "project-document",
       "source": "STATUS_UPDATE_MARCH_21_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/SYSTEM_RUNNING.md",
-      "sha256": "cfa13cd0905a3ae44aaa9d010819e3ccda893338151f2e77c49140006018d1c6",
+      "sha256": "1be89fc9252f1d30eb5ea643ea53fa6fd4c1b20169a708d54ceadc85aef2fc3d",
       "bytes": 9719,
       "type": "project-document",
       "source": "SYSTEM_RUNNING.md"
     },
     {
       "output": "40_Project_Documentation/S_DRUGITEMS_INTEGRATION_FIXED.md",
-      "sha256": "ac608148a8c57b734f76fc61f737777c0b0d62d3d4359b6d38002d84dc3bc3da",
+      "sha256": "199e719ce5861307b40336b2793c6c73b645a1a8ef0ec4acbe73bcfab6015fcf",
       "bytes": 7358,
       "type": "project-document",
       "source": "S_DRUGITEMS_INTEGRATION_FIXED.md"
     },
     {
       "output": "40_Project_Documentation/TABLE_CONNECTION_SUMMARY.md",
-      "sha256": "cc8e4bb4e212ebea5fee1964fafc1d1c8235c4f0a2a76103e960a892bad221f4",
+      "sha256": "4ee7361adaf847c3e969b40837f1595a9d5e49c4d39530707292eeb95a1718da",
       "bytes": 13511,
       "type": "project-document",
       "source": "TABLE_CONNECTION_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/TABLE_DISPLAY_FIX.md",
-      "sha256": "153ff67aab4bab140aff69582fdeaeb485d81e7281952a9f000e71594e9bbdb5",
+      "sha256": "0b85ac358b4582460fd70b7d00aaac50e33a3338a29b1563b13605fd6f5f998e",
       "bytes": 5129,
       "type": "project-document",
       "source": "TABLE_DISPLAY_FIX.md"
     },
     {
       "output": "40_Project_Documentation/TABLE_FORMAT_UPDATE_SUMMARY.md",
-      "sha256": "322d5e9cb34b23a0eb8e1ac3022d4585cc22c9a4bf43935eaa6f107d79c1e152",
+      "sha256": "21fc07c65a361e8db0104c848c90d276c46ae91a6c484a747424abbbf008c2b8",
       "bytes": 5470,
       "type": "project-document",
       "source": "TABLE_FORMAT_UPDATE_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/TABLE_REVERT_SUMMARY.md",
-      "sha256": "63c97dd88f39944fa27ee4f05ef544a9b4e81390823c6d72ffe44ff13e2cc237",
+      "sha256": "8e1e414283f6ad9cca8a3067bc364fb8f2edce602cbacd8fb882e328d41dfc06",
       "bytes": 3632,
       "type": "project-document",
       "source": "TABLE_REVERT_SUMMARY.md"
     },
     {
       "output": "40_Project_Documentation/TESTING_GUIDE_PHASE_1.md",
-      "sha256": "0c6d9dba5e0de30660437fd1b2cbe49be5331aa0d57078602554ab553666ba84",
+      "sha256": "3bc1de1a206ba0bca9d82ff290af9839ad96dd8abe8d43f5e99febb1a2831847",
       "bytes": 5625,
       "type": "project-document",
       "source": "TESTING_GUIDE_PHASE_1.md"
     },
     {
       "output": "40_Project_Documentation/TODAY_MARCH_21_COMPLETION_SUMMARY.md",
-      "sha256": "40647f8b5324bbce3545c55a80e621851f2588dbc04db208277eb7aadb32a765",
+      "sha256": "4ae3671e1a99b708c8cec3387fb5b6e3629f6710e4f1dfe68c663266f3049a87",
       "bytes": 10410,
       "type": "project-document",
       "source": "TODAY_MARCH_21_COMPLETION_SUMMARY.md"
@@ -965,42 +979,42 @@
     },
     {
       "output": "40_Project_Documentation/VALE_PDF_QUICK_REFERENCE.md",
-      "sha256": "aceaa613f29d7048004abc4c1108cb1cd8397adf61d0b865b81e8cda036013d7",
+      "sha256": "b62c8a419b4b778fe57aed88e11c41200779b222b7ca2041dc31e5e088be3ef5",
       "bytes": 4632,
       "type": "project-document",
       "source": "VALE_PDF_QUICK_REFERENCE.md"
     },
     {
       "output": "40_Project_Documentation/VERIFICATION.md",
-      "sha256": "e8ccded4232b418609079875a9edf89b0c9f841ce5ad3080bc5f45d4e9ef53d7",
+      "sha256": "48ef8bbb895408f9b0cc0430b9e50d5ce84434ec39c3578b64c7e4d87a99b0e9",
       "bytes": 8435,
       "type": "project-document",
       "source": "VERIFICATION.md"
     },
     {
       "output": "40_Project_Documentation/VERIFICATION_COMPLETE.md",
-      "sha256": "d9fafc4f74234539e9b9e1a41c5cfee6ee6e36750102424075a7d36f38f24de7",
+      "sha256": "5404b49555ff17047dbcd74699585361376442c514aa7512889d4cf5f471a8ff",
       "bytes": 4234,
       "type": "project-document",
       "source": "VERIFICATION_COMPLETE.md"
     },
     {
       "output": "40_Project_Documentation/VERIFY_SERVICE_DATE_NOW.md",
-      "sha256": "c83867c0350861e21b6a6d24f3cb8154dca2726bc3dd123472d8a19df638c280",
+      "sha256": "3a57177c4d174870ebae224514b5adcd0c33809f431d6488fd9048c9ec4f7179",
       "bytes": 3677,
       "type": "project-document",
       "source": "VERIFY_SERVICE_DATE_NOW.md"
     },
     {
       "output": "40_Project_Documentation/VISIT_PTTYPE_AUTH_CODE_INTEGRATION.md",
-      "sha256": "bfe007803029ea534aff54d8187fbb8ea9029700063138bcbcd119b8a8096335",
+      "sha256": "dfcdd97f04b7baf36758037213b754d41af14ba2b33e632ba0e21235a274d3cb",
       "bytes": 13569,
       "type": "project-document",
       "source": "VISIT_PTTYPE_AUTH_CODE_INTEGRATION.md"
     },
     {
       "output": "40_Project_Documentation/WORK_COMPLETE_SUMMARY.md",
-      "sha256": "9a81c3540a6655814fcb9cc616dbd3e311e28239ff0c9be36ce0af34cb217735",
+      "sha256": "38c380d6db998d857293987fd2ac5505894ad6e4145794d8f64d3f01ac36217f",
       "bytes": 12190,
       "type": "project-document",
       "source": "WORK_COMPLETE_SUMMARY.md"
@@ -1014,1241 +1028,2424 @@
     },
     {
       "output": "30_Claims_and_Knowledge/CLAIM_CHANNEL_CLASSIFICATION.md",
-      "sha256": "755c14aa495276f77ff0635481d73f8e4770a73cf580fbf68509ca1e9189e4a6",
+      "sha256": "69058cedf085d315bed3b04b37b6c44af3a69c8b11286e94db220902742da808",
       "bytes": 5432,
       "type": "domain-knowledge",
       "source": "knowlage/CLAIM_CHANNEL_CLASSIFICATION.md"
     },
     {
       "output": "30_Claims_and_Knowledge/PPFS_2569_UPDATE_NOTES.md",
-      "sha256": "015aeae45a8661708f51670232106fb0fc41b051f0e0c0d66721b96cfe6b8df5",
+      "sha256": "aeff194a1e45252fd66598a414d8af53b1b8f0d67cc3cf57d096c9e5dc5e6e8c",
       "bytes": 7815,
       "type": "domain-knowledge",
       "source": "knowlage/PPFS_2569_UPDATE_NOTES.md"
     },
     {
       "output": "30_Claims_and_Knowledge/ai-reports/PCU_DEATH_REPORT.md",
-      "sha256": "8c080d5b2db3430dd55c8fb03625653e468ab9a8cd771becb537db9f16cf4fe2",
+      "sha256": "f9b899d367e201aa2d98362fb7ae1641212e2533ef1bb35c330977e3bae01af3",
       "bytes": 2827,
       "type": "domain-knowledge",
       "source": "knowlage/ai-reports/PCU_DEATH_REPORT.md"
     },
     {
       "output": "30_Claims_and_Knowledge/extracted/0_รวมประกาศการจ_ายฯ 76 ฉบ_บ_010369_removed FS list print 943 pages_V2.txt",
-      "sha256": "d0d6f66b3cf67cd9676ea6bbea4a263e042f6432bce06e7275a2c7a39e4df926",
+      "sha256": "db35f95bc711e282fd206eb94b827d6918050e4332bbf0622f04f0b35dd3230a",
       "bytes": 2201260,
       "type": "domain-knowledge",
       "source": "knowlage/extracted/0_รวมประกาศการจ_ายฯ 76 ฉบ_บ_010369_removed FS list print 943 pages_V2.txt"
     },
     {
       "output": "30_Claims_and_Knowledge/extracted/1.2.3.หล_กเกณฑ_และเง__อนไขบร_การ_ PP_ส__งท__เปล.txt",
-      "sha256": "61e86a529dba906f52a1eca116c337a6697db1d13a0c54c2e1f9f5b2b5490a42",
+      "sha256": "74d90b64083d1cbbd97914b761aea5b45c58e5052010d82500ee5bc51e33c111",
       "bytes": 159192,
       "type": "domain-knowledge",
       "source": "knowlage/extracted/1.2.3.หล_กเกณฑ_และเง__อนไขบร_การ_ PP_ส__งท__เปล.txt"
     },
     {
       "output": "30_Claims_and_Knowledge/vault/CARDIOVASCULAR_SCREENING_2568.md",
-      "sha256": "e79e7d802a103ffb26bc5d23638c71faa5019a30f5344d138beb8b5e80a242c2",
+      "sha256": "224761c01ead1fd93af88a70d586c45149374349dced18e28fab40644704c82c",
       "bytes": 1482,
       "type": "domain-knowledge",
       "source": "knowlage/vault/CARDIOVASCULAR_SCREENING_2568.md"
     },
     {
+      "output": "30_Claims_and_Knowledge/vault/FDS_V3_IMPLEMENTATION_AND_GAP_ANALYSIS.md",
+      "sha256": "40823c0ad3fd315fe02f5c737811872661f656055d37dca138738f97e6a4bdb8",
+      "bytes": 10919,
+      "type": "domain-knowledge",
+      "source": "knowlage/vault/FDS_V3_IMPLEMENTATION_AND_GAP_ANALYSIS.md"
+    },
+    {
+      "output": "30_Claims_and_Knowledge/vault/MOPH_FDH_MANUAL_V3.md",
+      "sha256": "367389f813798b36631a779de0494f9ae9f62d0997efc69fb3ccf61b8cdc2ba5",
+      "bytes": 291652,
+      "type": "domain-knowledge",
+      "source": "knowlage/vault/MOPH_FDH_MANUAL_V3.md"
+    },
+    {
+      "output": "30_Claims_and_Knowledge/vault/MOPH_FDS_DATASET_V3_REVISION_2569.md",
+      "sha256": "2f6d20203711c3e125a887709baaf01450c0a75f7c8970b63fedcde20dadc225",
+      "bytes": 30374,
+      "type": "domain-knowledge",
+      "source": "knowlage/vault/MOPH_FDS_DATASET_V3_REVISION_2569.md"
+    },
+    {
       "output": "30_Claims_and_Knowledge/vault/REP_ERROR_CODE_CATALOG.md",
-      "sha256": "2426e35ee97b46ff7c4d42dce6c88eb56e8d4a45b156a8d7fa65b6f82947b289",
+      "sha256": "a09c9ef8b07a9bba8b7efb8c786ee738bbbae4b7408ebea9edd8770ba0d80dd6",
       "bytes": 592123,
       "type": "domain-knowledge",
       "source": "knowlage/vault/REP_ERROR_CODE_CATALOG.md"
     },
     {
       "output": "10_Rules_and_Config/Business Rules Overview.md",
-      "sha256": "94074f1c5722b84ecc4432fe295d16b5dfb3601fd5caf03eae5ae9d348108974",
-      "bytes": 4265,
+      "sha256": "758af972a9ad29e1ccfe0466a352149ae70bc96d3f564fce4df6905f2d34ba80",
+      "bytes": 4380,
       "type": "rule-catalog",
       "source": "server/config/business_rules.json"
     },
     {
       "output": "20_Data_Model/HOSxP Semantic Catalog.md",
-      "sha256": "9f3776af4b2b911dbe17fa8541c7b8fcb25373d40a99caa9c9d5ca3b3a9be183",
-      "bytes": 3990,
+      "sha256": "dc29b8b1e6a4c04d6faf637fa8bbd99a901c054a9491e76e79b833857ab9257e",
+      "bytes": 4319,
       "type": "data-catalog",
       "source": "server/aiHosxpCatalog.ts"
     },
     {
       "output": "20_Data_Model/FDHChecker Read-only Query Catalog.md",
-      "sha256": "8bd7a8613819d53c3803ab299dedd0380bfd59524071cb44cd25fd60e211da20",
-      "bytes": 70389,
+      "sha256": "f6319f36c48c13d09f3cc9275da10b085563957da8b98ea0fc9bdd894b0927bb",
+      "bytes": 105869,
       "type": "query-catalog",
       "source": "server/**/*.ts",
-      "queries": 73
+      "queries": 124
+    },
+    {
+      "output": "10_Rules_and_Config/src__config__aiPromptExamples.ts.md",
+      "sha256": "0a0265589a8f971ff4bedc170095a33abe144c3a33523eafaef11a6f3753841e",
+      "bytes": 3062,
+      "type": "source-snapshot",
+      "source": "src/config/aiPromptExamples.ts"
     },
     {
       "output": "10_Rules_and_Config/src__config__business_rules.json.md",
-      "sha256": "bee01e8c4ed7d4c0b0559177efa2f4a356a100a14e0ce92d40bc90f235cfed4c",
-      "bytes": 6269,
+      "sha256": "09ede9a5ae1e60928ba84ff3afa5f7ba9f2bde51e1a02166b5c421abe6e00a79",
+      "bytes": 6894,
       "type": "source-snapshot",
       "source": "src/config/business_rules.json"
     },
     {
       "output": "10_Rules_and_Config/src__config__fundDefinitions.ts.md",
-      "sha256": "435ad3dfa27d6bb5f7d1477626335668c553f2e100cd60cb149f635602ab874b",
-      "bytes": 24485,
+      "sha256": "e84cc3a7f7ba11b68b17ee71ae62de80dd2861683a02095c1bc68413d26efc2f",
+      "bytes": 40618,
       "type": "source-snapshot",
       "source": "src/config/fundDefinitions.ts"
     },
     {
       "output": "10_Rules_and_Config/src__config__fundOperationalGuideCatalog.ts.md",
-      "sha256": "aca1e183fee4e71ca2dec5356a91852999ca067839d63118fa78b1f553093294",
-      "bytes": 27771,
+      "sha256": "76f07188dd8c750430eea6724b539e356f52261187bec1d52efe722180102bcd",
+      "bytes": 34115,
       "type": "source-snapshot",
       "source": "src/config/fundOperationalGuideCatalog.ts"
     },
     {
       "output": "10_Rules_and_Config/src__config__fundRuleCatalog.ts.md",
-      "sha256": "e23c4e612e37f97aee5004a3be447d9dd43f1db801fce252ca175b299c632110",
+      "sha256": "45a40836abb68b7ceb4c51ef720ca701193cff479772eea28a59df4d8b93be55",
       "bytes": 4993,
       "type": "source-snapshot",
       "source": "src/config/fundRuleCatalog.ts"
     },
     {
       "output": "10_Rules_and_Config/src__config__menuDefinitions.ts.md",
-      "sha256": "0c27eb9fd2eb2b620e5786b24c11d09d68384eb837d1cb6913a7406f40029100",
-      "bytes": 5113,
+      "sha256": "5ab4a8be1283a14733c9984d74c5354bda6099d8b15587720bc781c389f09ded",
+      "bytes": 10514,
       "type": "source-snapshot",
       "source": "src/config/menuDefinitions.ts"
     },
     {
       "output": "10_Rules_and_Config/src__config__palliativeDiagnosisCatalog.ts.md",
-      "sha256": "6bcde8702527ad16c351feb97fd5acce52bce6f908ea9a051bcd675eec81f680",
+      "sha256": "ae7df8b2e49673ca97555cf8d16b1d479c61ed90a416bd313d3809d3c8086a82",
       "bytes": 7937,
       "type": "source-snapshot",
       "source": "src/config/palliativeDiagnosisCatalog.ts"
     },
     {
       "output": "10_Rules_and_Config/server__config__business_rules.json.md",
-      "sha256": "b87f5192d007fe2566f91cd92d298003a6805b7bc54f1ec25d5ad9164fbbdde3",
-      "bytes": 6275,
+      "sha256": "86a1f22da860305fb06e3a3cc439bfdc793b25263c368d63fe47c6b1c2a35acb",
+      "bytes": 6480,
       "type": "source-snapshot",
       "source": "server/config/business_rules.json"
     },
     {
       "output": "10_Rules_and_Config/public__repErrorCatalog.json.md",
-      "sha256": "0fee4e6404e72f6954c30ead92f3cd363925aafa6eee779f15ece8edf9129810",
+      "sha256": "1f6ca2910f7b1682d0f57af25850ce776d67eee354eeab0832ad3a3ad083a582",
       "bytes": 647036,
       "type": "source-snapshot",
       "source": "public/repErrorCatalog.json"
     },
     {
+      "output": "50_Operations/server__accountingRevenueReport.test.ts.md",
+      "sha256": "2eb8bf92df086e8da5650488b6b42e8459e9bf3e326c069eda8c1741ae64a5ab",
+      "bytes": 1813,
+      "type": "source-snapshot",
+      "source": "server/accountingRevenueReport.test.ts"
+    },
+    {
+      "output": "50_Operations/server__accountingRevenueReport.ts.md",
+      "sha256": "0fd03dc83fb8aa8047f9b62b745346c2fb07cce2005d022064b9c92cc9cd73d1",
+      "bytes": 11724,
+      "type": "source-snapshot",
+      "source": "server/accountingRevenueReport.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__accountingRevenueRoutes.ts.md",
+      "sha256": "caf77afce579d7f681925c407465685f738c33817370545c7424318d9f19d688",
+      "bytes": 1456,
+      "type": "source-snapshot",
+      "source": "server/accountingRevenueRoutes.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__aiAuth.test.ts.md",
-      "sha256": "3061f6b74564c0d84358676958b6f47afc18627f9cd61d0ecde6571bc8a8abad",
-      "bytes": 1434,
+      "sha256": "235a4b426c611f791b6b4da6c6275b39f3bbd9b25770a81012ebbdf8c5e52c44",
+      "bytes": 2089,
       "type": "source-snapshot",
       "source": "server/aiAuth.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiAuth.ts.md",
-      "sha256": "1a5c751cbc82267e60b85cdbeac3543cd22c86c7ca4d7e950a6c4efc8c732aa7",
-      "bytes": 8679,
+      "sha256": "461a8e957612f36b7f49ffa0420be7d55da0431a1e9fb0d549153a8b5291703d",
+      "bytes": 9098,
       "type": "source-snapshot",
       "source": "server/aiAuth.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiCapabilityHelp.test.ts.md",
-      "sha256": "e3456b0ecf6a1b3cbe6c0a5f84cf4a0b7a40ca3895ec2beb7d7e2519e5a30798",
+      "sha256": "2d61da92869e28398dc3161d3fe19e31233db3f47d2d6d0c9df51c74509484b9",
       "bytes": 1670,
       "type": "source-snapshot",
       "source": "server/aiCapabilityHelp.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiCapabilityHelp.ts.md",
-      "sha256": "c6e2f3125db7c0e7db0a55766e6eb762eb4f07bba80e241b04df0d4cd6d72e23",
+      "sha256": "657399d81e1a72aed0a76147c23adb8f89bc6402305b4bb0f91032e9a8c5b781",
       "bytes": 3560,
       "type": "source-snapshot",
       "source": "server/aiCapabilityHelp.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiConversation.test.ts.md",
-      "sha256": "92be671291365dcbffbd528704be404aee2f079d8965d432798a3afa833c3238",
-      "bytes": 3406,
+      "sha256": "08467958624f41ecc827f0bf39a508893018ac877e7d5c429edb7164d02644da",
+      "bytes": 5672,
       "type": "source-snapshot",
       "source": "server/aiConversation.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiConversationalAgent.ts.md",
-      "sha256": "ab22f50dd23118458645895e6defcc05b6a39fb8ab5fc5edb686babbc86add84",
-      "bytes": 23542,
+      "sha256": "32982d0d86fd748a36ecbbd593c86da7ee48244829aa926f62303417ade0f9b5",
+      "bytes": 30896,
       "type": "source-snapshot",
       "source": "server/aiConversationalAgent.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiErrorTools.test.ts.md",
-      "sha256": "5128537de8e7d44233444f0460e68c1d5203ce8d5bd89d8a77f2234498497de4",
-      "bytes": 1140,
+      "sha256": "f11e2d561976716acf1fe2ed8272760fc85671633f77636e5a803afeb931386a",
+      "bytes": 1793,
       "type": "source-snapshot",
       "source": "server/aiErrorTools.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiErrorTools.ts.md",
-      "sha256": "450825d5d460f2113a77b0f98e387548847cb1abebbfa4b8ff22410e926e94c1",
-      "bytes": 4867,
+      "sha256": "4a2888e910454b29c433e0bd10ca29f32d31fc89c420b2e46afeb580ff23e873",
+      "bytes": 5291,
       "type": "source-snapshot",
       "source": "server/aiErrorTools.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiHosxpCatalog.ts.md",
-      "sha256": "620d89f0af192ae05cb0ee3f66c1b6d4e82efd5db4f244163eab7bc6b19010a3",
-      "bytes": 4698,
+      "sha256": "ff32b7a365b85ebfc5d99e13207fa26e508bead06b1b7f219b2997944477f399",
+      "bytes": 5027,
       "type": "source-snapshot",
       "source": "server/aiHosxpCatalog.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiLearningStore.test.ts.md",
-      "sha256": "e374fb81226dc5360e78a22ed536807dc6e0a79cf1eb502f0f0776f29f4a9cb5",
+      "sha256": "06a18b9ed088ce37410c22b6748fd6575469188e874e437ccae993a17adbe286",
       "bytes": 1662,
       "type": "source-snapshot",
       "source": "server/aiLearningStore.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiLearningStore.ts.md",
-      "sha256": "6e81e18c593e8777d2024cb8aaeba8951005df9c1a8971b1935ac3af7eb36913",
+      "sha256": "7a2a9f1a691ce38ac63b7eecb6a54d2b3de47d07e69142c87df5a7bc87e693ed",
       "bytes": 13216,
       "type": "source-snapshot",
       "source": "server/aiLearningStore.ts"
     },
     {
       "output": "50_Operations/server__aiOperationalTools.test.ts.md",
-      "sha256": "c46b1d8292063868a856e08aceb6085a11067e1caff96c075d6f3cd999dfafb5",
+      "sha256": "ab3f60155a77d3397a12f47853be5fdd3919f0311d25c325b165bc2e39cfe2df",
       "bytes": 3695,
       "type": "source-snapshot",
       "source": "server/aiOperationalTools.test.ts"
     },
     {
       "output": "50_Operations/server__aiOperationalTools.ts.md",
-      "sha256": "942188bcbdbcfb77f0b686b543f3864df2f28009ef4c2ced8694eb31287ff755",
+      "sha256": "2afca7c9293830b175f14fd5e9d291b919334f6bae47f88768459b559f01d85c",
       "bytes": 22760,
       "type": "source-snapshot",
       "source": "server/aiOperationalTools.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiReadOnlyQuery.test.ts.md",
-      "sha256": "d339e7ae54019042db75f455b0ba389469a9a9082b05f824b02bd5834218aa32",
+      "sha256": "8230881f13f6d878bb61cf75100d4f081e69c80e47bd87387d6a0c9a6aef6eef",
       "bytes": 2318,
       "type": "source-snapshot",
       "source": "server/aiReadOnlyQuery.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiReadOnlyQuery.ts.md",
-      "sha256": "b6c8e869dd849ca587cdbe3e4e91cabc3ec778c8f72c052f4d02d682c2a38376",
+      "sha256": "c05da029a67bc96df4c913a6af07e8161d6ea7341a3b8053bb12fb2c23921b07",
       "bytes": 5894,
       "type": "source-snapshot",
       "source": "server/aiReadOnlyQuery.ts"
     },
     {
       "output": "50_Operations/server__aiReportExport.ts.md",
-      "sha256": "0da03bb00c18b2140e7bc5451cd4fd6d022d27c918dd6a5489d14d0207709016",
+      "sha256": "c0f5d93a5ea322f1892348ae0f0eb545a07d8aca709f4c32919e2b51cf3185c6",
       "bytes": 10527,
       "type": "source-snapshot",
       "source": "server/aiReportExport.ts"
     },
     {
       "output": "50_Operations/server__aiReportTools.test.ts.md",
-      "sha256": "d95f90c16347de6cf9080be2a9574f099bc1cf1935a2648e109c8e23a79d7951",
-      "bytes": 5104,
+      "sha256": "45ac8164e684a7bb7fe21ae1ab7ac92224e08b6e52cc4d318cc2585930470226",
+      "bytes": 5477,
       "type": "source-snapshot",
       "source": "server/aiReportTools.test.ts"
     },
     {
       "output": "50_Operations/server__aiReportTools.ts.md",
-      "sha256": "cce9ae1ef578629a8b53fd339db58eea9ae4879a60ce2603402b310329c69350",
-      "bytes": 41360,
+      "sha256": "6ce219c641d9b7b423bfbb0cbf82aad2ec2562b4ad5a246131de2f4c690fb22d",
+      "bytes": 41957,
       "type": "source-snapshot",
       "source": "server/aiReportTools.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiRoutes.ts.md",
-      "sha256": "a89987f3850fc1e57b296dd0448e36b4aa3d39ef807d239064500d404ee47595",
+      "sha256": "442548e6dc23f7f2aecfd19fe24632aff0bc4e876b5f2937a4428ed0355b6a62",
       "bytes": 19296,
       "type": "source-snapshot",
       "source": "server/aiRoutes.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiService.test.ts.md",
-      "sha256": "0fa0de779009a1d43d5e9f67a6122db2f9911580c655d8684c21abc27956101a",
+      "sha256": "661aab1fd84fa772cdb3a9ecb71d0de5296325331e85cc59f1850e8137a23459",
       "bytes": 2058,
       "type": "source-snapshot",
       "source": "server/aiService.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiService.ts.md",
-      "sha256": "22058c5dbc4c12d602c9d88e11547345e51fff312a8b5774c575ac14ac7c2251",
-      "bytes": 16203,
+      "sha256": "bf7461e53cb2f6795c2615dae5d3650412da67059cecde8bc25fd0f9e263da8f",
+      "bytes": 18420,
       "type": "source-snapshot",
       "source": "server/aiService.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiVaultAgent.test.ts.md",
-      "sha256": "cbe3a9eab82406161883f47206208003cc5e2d5690d648d61aab6b2cb78fb83e",
+      "sha256": "bb577cfc8eff74d17ee347b7d687710a7975bd06c89f51760acb38c8fbff3ffe",
       "bytes": 2536,
       "type": "source-snapshot",
       "source": "server/aiVaultAgent.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__aiVaultAgent.ts.md",
-      "sha256": "9101de9d1a302b718722b6c40c44364761995376f8aa0888eaeea345910c2094",
+      "sha256": "aa6d620d9f4ef28b3989b511ec33fdc0bc97955d198efeb3b1319175c9452b8e",
       "bytes": 3464,
       "type": "source-snapshot",
       "source": "server/aiVaultAgent.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__ancDentalCompletion.test.ts.md",
+      "sha256": "0321ae9359983b536081a1b5b0a750e6cb0d51d736be7b27bf11012aad1f33c7",
+      "bytes": 3242,
+      "type": "source-snapshot",
+      "source": "server/ancDentalCompletion.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ancDentalCompletion.ts.md",
+      "sha256": "7998233fe289dc5bbc51e00135423c08e3a60640f8ea30c7eb4984a051e458ba",
+      "bytes": 15760,
+      "type": "source-snapshot",
+      "source": "server/ancDentalCompletion.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__annualHealthCheckup.ts.md",
+      "sha256": "f71e8c306ec7c518b1eef006dbd0a58cfb83b607f99e48f15270f614ffbca0ff",
+      "bytes": 18399,
+      "type": "source-snapshot",
+      "source": "server/annualHealthCheckup.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__apiPagePermissions.test.ts.md",
+      "sha256": "485d1c207b013cd657ea8a7dbb0fb1eb8bfd1397a089e062a38f60431603442b",
+      "bytes": 2317,
+      "type": "source-snapshot",
+      "source": "server/apiPagePermissions.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__apiPagePermissions.ts.md",
+      "sha256": "a6c64d49788f9ed8fa18a82a1182bb69b2680b3dd3aef5a2ca034cf01039f2bb",
+      "bytes": 5937,
+      "type": "source-snapshot",
+      "source": "server/apiPagePermissions.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__billingUtils.test.ts.md",
+      "sha256": "2dedecf9db852ae1a9057af98ffc6e1fa02f975e82a826797a964023e5c5e5cf",
+      "bytes": 10074,
+      "type": "source-snapshot",
+      "source": "server/billingUtils.test.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__cacheManager.ts.md",
-      "sha256": "58cf860045bc96a06c39f0979d9efbb1bf6b9f7db249acea9b374ae63f47cd0d",
+      "sha256": "0094a0b13d37b6edb9346b2ce7330cacc64d79271c52f7bfae240b3eeb2de98d",
       "bytes": 5145,
       "type": "source-snapshot",
       "source": "server/cacheManager.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__collaboration.test.ts.md",
+      "sha256": "db3dc8de79fea0e5d432c62105c55fef2870a16b61d6d2175cce73b41e952632",
+      "bytes": 1611,
+      "type": "source-snapshot",
+      "source": "server/collaboration.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__collaboration.ts.md",
+      "sha256": "d25c575eb6cb3023be46091d85557cb4f5138a2afe13030909ae4e9bb9e92380",
+      "bytes": 22828,
+      "type": "source-snapshot",
+      "source": "server/collaboration.ts"
+    },
+    {
+      "output": "50_Operations/server__collaborationReports.ts.md",
+      "sha256": "0839ab2ed98bf7ad3b8a33a9e629315b0aabd027df5166be5751cbe4d0502e60",
+      "bytes": 4178,
+      "type": "source-snapshot",
+      "source": "server/collaborationReports.ts"
+    },
+    {
       "output": "50_Operations/server__dailyWorkOverview.test.ts.md",
-      "sha256": "5dfc9637d211173548bbe1b0af0a45a8aaa0e4d7217211e71140e986543d5ba8",
+      "sha256": "04e661f6142e06403225163fa5380da383546b27dcf11b313dec32870a67e04c",
       "bytes": 2823,
       "type": "source-snapshot",
       "source": "server/dailyWorkOverview.test.ts"
     },
     {
       "output": "50_Operations/server__dailyWorkOverview.ts.md",
-      "sha256": "46219c83fc9e802b6d023b5664684c2658756a475cce1241faecb581c11fe1a4",
-      "bytes": 9573,
+      "sha256": "104af1d4bfa541f84e9a4bb05b99337ef2c043c11d4de84e7dea7d516399bad7",
+      "bytes": 10140,
       "type": "source-snapshot",
       "source": "server/dailyWorkOverview.ts"
     },
     {
       "output": "50_Operations/server__dailyWorkOverviewCli.ts.md",
-      "sha256": "b89d5095072c785d5428f9821170c36e3853a963c179f90feb0250d014f60893",
+      "sha256": "316deea66adb090a27710a954760f732039e270acfdd6f880856344bd5f73b7b",
       "bytes": 1849,
       "type": "source-snapshot",
       "source": "server/dailyWorkOverviewCli.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__db.ts.md",
-      "sha256": "8dbb21d74d65ab27ccbdf5c4c693fa153f7b3ca8fd54e5956363bc79ac72c183",
-      "bytes": 616507,
+      "sha256": "e3792b8547accd89c3039d3a0aec70bf48ea3d81990dce3b91ed2e064f0cf0ca",
+      "bytes": 1132,
       "type": "source-snapshot",
       "source": "server/db.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__db__connection.ts.md",
+      "sha256": "f2253404c8abcbc19072fb69796cc237a34b3765d602abc8572b996e62ae7880",
+      "bytes": 1822,
+      "type": "source-snapshot",
+      "source": "server/db/connection.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__db__schema.ts.md",
+      "sha256": "0b0a9dfdf7a0ed15e88465eb04411fa943f0b2ff689e3a5051974b9fe85f873a",
+      "bytes": 46396,
+      "type": "source-snapshot",
+      "source": "server/db/schema.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__debug_count.mjs.md",
-      "sha256": "9cb52c58bea5eb243336b450156f157a80bf11edb7d0877c1985accb56c6036c",
+      "sha256": "97b5bac68004fc1c982bbd1a5ec649716adee0fd0d6f82ba62934854046a8d6b",
       "bytes": 1026,
       "type": "source-snapshot",
       "source": "server/debug_count.mjs"
     },
     {
       "output": "60_Programming_Knowledge/server__debug_hosxp.mjs.md",
-      "sha256": "bf44cc35afbbd561fb3277bdfd61dca8ba0bdb7f060fe85b4871bad9825ab343",
+      "sha256": "5a525f691fbe42da2d180f6b936c1fbdce490ff0690cbc3040326ecac9872b78",
       "bytes": 1358,
       "type": "source-snapshot",
       "source": "server/debug_hosxp.mjs"
     },
     {
+      "output": "60_Programming_Knowledge/server__dentalAudit.test.ts.md",
+      "sha256": "f64086b1ae26b9e7c86a17cff1285906e12564059475bb9b21c2158b53a9fa6b",
+      "bytes": 6748,
+      "type": "source-snapshot",
+      "source": "server/dentalAudit.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__dentalAudit.ts.md",
+      "sha256": "75e3bb0c02538ccc1fe6c9f3a8c22311f6de675449aa5ff89c14978ba94f1178",
+      "bytes": 65074,
+      "type": "source-snapshot",
+      "source": "server/dentalAudit.ts"
+    },
+    {
       "output": "50_Operations/server__duplicateAppointmentAlert.test.ts.md",
-      "sha256": "c628f5a3e6fcbdaad97c8f9e03ba237d34d4feddf495e86584602b4659f4bb97",
+      "sha256": "e5c01d11751b4d44f18ad583ba74b4d620d681e42bd9c84e1e5b3c4fd91fdfd1",
       "bytes": 3407,
       "type": "source-snapshot",
       "source": "server/duplicateAppointmentAlert.test.ts"
     },
     {
       "output": "50_Operations/server__duplicateAppointmentAlert.ts.md",
-      "sha256": "4fa1c17ab857440530c3e680e1af6c52e69c1a213bbb66afb648895873ac7f49",
+      "sha256": "101bac822012d6a9eb0bd44bc28066ca4f46fbd86330ef69d1ca5dec874f19c2",
       "bytes": 8216,
       "type": "source-snapshot",
       "source": "server/duplicateAppointmentAlert.ts"
     },
     {
       "output": "50_Operations/server__duplicateAppointmentAlertCli.ts.md",
-      "sha256": "7ad394c973f999291ecbe8815a41a06c74f1cc2be3a66f8620f617a4c47343ae",
+      "sha256": "c8e852e5426f5cb70cc78d1416efbc1ea105c9791b1b21dafc682f85182309a8",
       "bytes": 2206,
       "type": "source-snapshot",
       "source": "server/duplicateAppointmentAlertCli.ts"
     },
     {
+      "output": "50_Operations/server__executiveMonitor.test.ts.md",
+      "sha256": "5ac805a19049609175ca1f3a9d3a1ff9f31cab1d458967596f70488cb7d8a4da",
+      "bytes": 11630,
+      "type": "source-snapshot",
+      "source": "server/executiveMonitor.test.ts"
+    },
+    {
+      "output": "50_Operations/server__executiveMonitorService.ts.md",
+      "sha256": "a781839a9f102894e031b0f3711bb1863321831941e3047ea1d6b7c312c74d51",
+      "bytes": 68176,
+      "type": "source-snapshot",
+      "source": "server/executiveMonitorService.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__familyPlanningRules.test.ts.md",
+      "sha256": "5076a7928fe953ad1b86d70fffeb8a188371f7ef728823e86b18471b96b652cc",
+      "bytes": 2082,
+      "type": "source-snapshot",
+      "source": "server/familyPlanningRules.test.ts"
+    },
+    {
+      "output": "50_Operations/server__fdhClaimDetailMerge.ts.md",
+      "sha256": "25f67ae0d01aea0f5ec1b541877dec50742050bea9b536c0b5c6abb81b9896e0",
+      "bytes": 2003,
+      "type": "source-snapshot",
+      "source": "server/fdhClaimDetailMerge.ts"
+    },
+    {
       "output": "50_Operations/server__fdhClaimProgress.test.ts.md",
-      "sha256": "f98b1df18dde9ea44ba5d0f2facc7c011919207cf36f0af31cbfc6e467c18572",
-      "bytes": 2796,
+      "sha256": "494d64cd72582a5ee032f93c7f67df8e5348fb667a11db2107860abd7259ea78",
+      "bytes": 3552,
       "type": "source-snapshot",
       "source": "server/fdhClaimProgress.test.ts"
     },
     {
       "output": "50_Operations/server__fdhExport.test.ts.md",
-      "sha256": "a1467b6da0978884fe3e50cc258c92f287361ab83b569b01889156dd0271d934",
-      "bytes": 5631,
+      "sha256": "a99c551747abde3cc6b063e1d00dd14596f9ab5845c132cb49370d57267bcfb3",
+      "bytes": 14431,
       "type": "source-snapshot",
       "source": "server/fdhExport.test.ts"
     },
     {
       "output": "50_Operations/server__fdhExport.ts.md",
-      "sha256": "acd1189a88ad3d58051a6b77ae546b293834b872536424f1e668c5ab3ba2ed40",
-      "bytes": 21888,
+      "sha256": "15820369ee0283c84a3c85811e8e2ff76b296e0c5d2f3014e340fa5d4da3d9d8",
+      "bytes": 28845,
       "type": "source-snapshot",
       "source": "server/fdhExport.ts"
     },
     {
+      "output": "50_Operations/server__fdhIndividual16Import.test.ts.md",
+      "sha256": "fe4ae0891283cfd51115eb44f3ddc3d2a6e756959447761e5084d7e267d77e14",
+      "bytes": 6563,
+      "type": "source-snapshot",
+      "source": "server/fdhIndividual16Import.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__fdsV3ExportService.test.ts.md",
+      "sha256": "106a2967619c0b93d5e72439c8d9d92b178e6af1b2778b0d1cef45fe5267ba89",
+      "bytes": 3237,
+      "type": "source-snapshot",
+      "source": "server/fdsV3ExportService.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__fdsV3ExportService.ts.md",
+      "sha256": "2f7558e62a91eafa473286aabd5bd10c5dece26c92b9c628adad4076e3244b3a",
+      "bytes": 21390,
+      "type": "source-snapshot",
+      "source": "server/fdsV3ExportService.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__force_opd_columns_fix.ts.md",
-      "sha256": "3418c818d60198ff167dff29ce20d998f1b37c2ba1df7aa6349c3cb5e3f30c92",
+      "sha256": "ed3480aa629c011c622c18152a6c56d53fdb044fb017c2870d3c96f4f9f2b8aa",
       "bytes": 2886,
       "type": "source-snapshot",
       "source": "server/force_opd_columns_fix.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__fsRateRules.test.ts.md",
-      "sha256": "df6e6965164ea79b9ae8897dfe1f1513dc98c52901fd2a5cd4771013fee9d512",
+      "sha256": "54a231d71bda36377979a5b7f2b43e94d290960dd6db1abf16c8a0bfef5fb645",
       "bytes": 2018,
       "type": "source-snapshot",
       "source": "server/fsRateRules.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__fsRateRules.ts.md",
-      "sha256": "a85b7f47060c3d68e3ab6c77f1a14c974ac94c5a7ce11a8e313d4cc25b468f6f",
+      "sha256": "0838924ca4c17c03f07a491095e09f2e8da8016879a18d75c98746d402167e49",
       "bytes": 4804,
       "type": "source-snapshot",
       "source": "server/fsRateRules.ts"
     },
     {
+      "output": "50_Operations/server__fundEligibility.ts.md",
+      "sha256": "369e0a928d6f8fec3bb32c7ee4f61d56e8850d13d666279c32163c34111b1e4f",
+      "bytes": 6316,
+      "type": "source-snapshot",
+      "source": "server/fundEligibility.ts"
+    },
+    {
       "output": "50_Operations/server__fundErrorReport.test.ts.md",
-      "sha256": "144243d5dd50576803ab41ee8e1a1a7b500a2e78120039aa7ad92926190e50f4",
-      "bytes": 9527,
+      "sha256": "d5e4946f92da6f6eddf93951d13d9204a51fea2e78b5ba70cc21c63bd29de3d1",
+      "bytes": 11393,
       "type": "source-snapshot",
       "source": "server/fundErrorReport.test.ts"
     },
     {
       "output": "50_Operations/server__fundErrorReport.ts.md",
-      "sha256": "a6dda79b56157bd0d45447e12a85a1d41100f56908189c17789e96099c49b90d",
-      "bytes": 23863,
+      "sha256": "aebe65a6da18b63a6bf6235e4e5c93e0b8ff46d9e0b30b1a9b903967fbd7498a",
+      "bytes": 29963,
       "type": "source-snapshot",
       "source": "server/fundErrorReport.ts"
     },
     {
       "output": "50_Operations/server__fundErrorReportCli.ts.md",
-      "sha256": "3eb7dbf5fa900eec794af3421a64ad6cb6965b37d08810223dcfd5f36adc0951",
+      "sha256": "eba5258e66de8ba58c192cf294b502b33ed057844aed8b6c1bf592ea2f8b882c",
       "bytes": 1583,
       "type": "source-snapshot",
       "source": "server/fundErrorReportCli.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__herbalDiagnosisCompletion.test.ts.md",
+      "sha256": "4e51dd5008088dd0d6a567913b9e5de1119afb25e5486266a82a31433ec6cda3",
+      "bytes": 1988,
+      "type": "source-snapshot",
+      "source": "server/herbalDiagnosisCompletion.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__herbalDiagnosisCompletion.ts.md",
+      "sha256": "e5f68991cdef49af1ba407aca56af7a7cd3326cb1896d130c115e0625b2d4725",
+      "bytes": 9558,
+      "type": "source-snapshot",
+      "source": "server/herbalDiagnosisCompletion.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__herbalMedicationRules.test.ts.md",
+      "sha256": "5fa0b39637d4f6bd698d32cd02f425ca8a8867961bb87a27b2aafca91b7902d6",
+      "bytes": 3538,
+      "type": "source-snapshot",
+      "source": "server/herbalMedicationRules.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__hospitalDatabase.ts.md",
+      "sha256": "77c12c4c3de754ecf62727f1a880024dd1ba6284fe301a89139cf0c46caac9cd",
+      "bytes": 10016,
+      "type": "source-snapshot",
+      "source": "server/hospitalDatabase.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__hospitalDatabaseConfig.test.ts.md",
+      "sha256": "0e1a2383e14f5ec2855051015e078eee3e83d05cd13805b4575533967a81da78",
+      "bytes": 3464,
+      "type": "source-snapshot",
+      "source": "server/hospitalDatabaseConfig.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__hospitalDatabaseConfig.ts.md",
+      "sha256": "650ec4cfc2ab938fa9fa8a804e732e36178a98e9d30a6e9d0abc79afa453159c",
+      "bytes": 5566,
+      "type": "source-snapshot",
+      "source": "server/hospitalDatabaseConfig.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__hospitalDatabaseContext.ts.md",
+      "sha256": "a1626c31e8c6ef75cedfdabee2c3ed8334603c7bffc3b5ad013954d614d3bb2b",
+      "bytes": 1525,
+      "type": "source-snapshot",
+      "source": "server/hospitalDatabaseContext.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__hospitalDiagnostics.test.ts.md",
+      "sha256": "4f2463d321ad64785bd2adae15f7921c3271736c58567ae103d6f1236edee125",
+      "bytes": 4519,
+      "type": "source-snapshot",
+      "source": "server/hospitalDiagnostics.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__hospitalDiagnostics.ts.md",
+      "sha256": "87bfbbc10384cac8c47e4a8c72a431ad4d3606f3a014bd2181f138fa111c4cca",
+      "bytes": 18556,
+      "type": "source-snapshot",
+      "source": "server/hospitalDiagnostics.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__hospitalMasterData.test.ts.md",
+      "sha256": "59825e5511b2199957a912e5bba42ed7c74d1233e5e6dcc58b8a087f6704faf7",
+      "bytes": 3943,
+      "type": "source-snapshot",
+      "source": "server/hospitalMasterData.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__hospitalMasterData.ts.md",
+      "sha256": "837ec47bf3971408fa849901f9122fafaa5eb625a7a7be7ce3072b6941b5700c",
+      "bytes": 20671,
+      "type": "source-snapshot",
+      "source": "server/hospitalMasterData.ts"
+    },
+    {
       "output": "50_Operations/server__hospitalReportRoutes.ts.md",
-      "sha256": "9da41d62b524b54c1b7b8d943ba3daa037388680254528347253131e77bcdd7a",
+      "sha256": "562bc373feabe2aea53dbe50e377c66aca3b0016c8230c5e72a6240604b13b81",
       "bytes": 1053,
       "type": "source-snapshot",
       "source": "server/hospitalReportRoutes.ts"
     },
     {
       "output": "50_Operations/server__hospitalReportTools.test.ts.md",
-      "sha256": "aed223595cc900e449fb66bba579528ac25a9e8cc12ab59d40712573bfe0125c",
-      "bytes": 4335,
+      "sha256": "0c0a145f91a09ebc6e14f700e0148eab6fcf3a24d2c7d6b94fa6ad05e306c881",
+      "bytes": 5888,
       "type": "source-snapshot",
       "source": "server/hospitalReportTools.test.ts"
     },
     {
       "output": "50_Operations/server__hospitalReportTools.ts.md",
-      "sha256": "35de28e0f8133836e2c3534f713f4a2ca0fbc184d8660ff5cdfa5b62ebf04656",
-      "bytes": 27196,
+      "sha256": "09640217d8e46f9a945101b47ee0a282596e63d8956f15a081e1dba329506a27",
+      "bytes": 72731,
       "type": "source-snapshot",
       "source": "server/hospitalReportTools.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__hospitalSchema.ts.md",
+      "sha256": "220615cf0b9627770d782c869ed73c89e4eadd90011c6bd6f85722db316f95e7",
+      "bytes": 1448,
+      "type": "source-snapshot",
+      "source": "server/hospitalSchema.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__httpClient.ts.md",
-      "sha256": "996ed11173bbaad0233ff3eddfb7bdebfa5496b7cd01e67772d74d1edea03bdd",
+      "sha256": "da8580bee7bc9725003ef257ad02744c28cc4475184f8616d6176a14082d76f5",
       "bytes": 998,
       "type": "source-snapshot",
       "source": "server/httpClient.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__icd9Service.test.ts.md",
+      "sha256": "a2ac55d1bdf9642ff127f7a16952515a0dc960fa726124b301466f8f01716f90",
+      "bytes": 2065,
+      "type": "source-snapshot",
+      "source": "server/icd9Service.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__icd9Service.ts.md",
+      "sha256": "deb4ce95f24f1f3d9f18ffc8c64714d37dad253ac5b44545d9caf2aa2d278219",
+      "bytes": 11578,
+      "type": "source-snapshot",
+      "source": "server/icd9Service.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__index.ts.md",
-      "sha256": "24584ebe0998539960e1fb67e85d9a56c1a9d8ec034f0b6f3430cdaeb5804ee1",
-      "bytes": 228919,
+      "sha256": "cb8694c0a2cd59ed8cb187d690f95d8e5c99448aba33ffe861f6afdffd6de4a1",
+      "bytes": 312510,
       "type": "source-snapshot",
       "source": "server/index.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__ipdAuditService.test.ts.md",
+      "sha256": "d49d8ddc5206dd2883b7ea1c802c7b72ba145c668e66fe8bf61c40808c6f26a9",
+      "bytes": 2104,
+      "type": "source-snapshot",
+      "source": "server/ipdAuditService.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ipdAuditService.ts.md",
+      "sha256": "888b5e026a1c7900ae464369eaece1fd80850a2f367f56c6c9418e9246021b9a",
+      "bytes": 2152,
+      "type": "source-snapshot",
+      "source": "server/ipdAuditService.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ipdLosRules.test.ts.md",
+      "sha256": "e477dd994d424d1804f69f3511024ecb19000d30132aace24f9bd00510dbc6f8",
+      "bytes": 2437,
+      "type": "source-snapshot",
+      "source": "server/ipdLosRules.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ipdLosRules.ts.md",
+      "sha256": "9401cd07c7b6676cf524b3b5622836d088c9668560d146747b1668c644af7cd1",
+      "bytes": 9419,
+      "type": "source-snapshot",
+      "source": "server/ipdLosRules.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ipdMonthlyAccounting.ts.md",
+      "sha256": "d47b0448d27bf7660dadac09f2d18cc50ee5e6e63e3cacf2d403a2c410c85958",
+      "bytes": 1817,
+      "type": "source-snapshot",
+      "source": "server/ipdMonthlyAccounting.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__ipdPreAuditRules.test.ts.md",
-      "sha256": "b81e1c4ae738160930ef764112992046fa2ac61af8d9e5b763c8d3c2bfe81dc3",
-      "bytes": 3162,
+      "sha256": "83af145441ee0372e7b4904451052818d4eacad5f34b173c3acb9f376b480620",
+      "bytes": 7335,
       "type": "source-snapshot",
       "source": "server/ipdPreAuditRules.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__ipdPreAuditRules.ts.md",
-      "sha256": "c17746d9f4b610044f29bf3abc623d504cb26f8e21f428201e20e58dee6ee9cd",
-      "bytes": 14304,
+      "sha256": "0cc6b56d3b25bc120849ef901df57f94075dc608ad1c199865c512e1a319702c",
+      "bytes": 27700,
       "type": "source-snapshot",
       "source": "server/ipdPreAuditRules.ts"
     },
     {
       "output": "50_Operations/server__kidneyMonitorRules.test.ts.md",
-      "sha256": "125b3ef3eca0ed9d3416eea90f4309c684f853f5d4ab71692fbf173d38b15173",
+      "sha256": "882fe3ae27cb1fe71004adac255c79ad357935c40acdc536552114ce02c706ba",
       "bytes": 5007,
       "type": "source-snapshot",
       "source": "server/kidneyMonitorRules.test.ts"
     },
     {
       "output": "50_Operations/server__kidneyMonitorRules.ts.md",
-      "sha256": "b1f24a82f1e149dc1aa49299ec200caf68e4980beb9d361bff3b9c95dbcb5e72",
+      "sha256": "7df986140884434280bba8b84813a9878493ce35279740fbc073aba5c8372278",
       "bytes": 6980,
       "type": "source-snapshot",
       "source": "server/kidneyMonitorRules.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__kidneyRepStmTracking.test.ts.md",
+      "sha256": "49d206efef2219454432e5b841604a62e5327da37675189963243a3f74e97a9b",
+      "bytes": 3367,
+      "type": "source-snapshot",
+      "source": "server/kidneyRepStmTracking.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__kidneyRepStmTracking.ts.md",
+      "sha256": "aca4675fb33390f91971887cffc2fbe100e051a83a45b937da2297a6b62ffa64",
+      "bytes": 7252,
+      "type": "source-snapshot",
+      "source": "server/kidneyRepStmTracking.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__kneeOpppCompletion.test.ts.md",
+      "sha256": "8a4aaff7df1b49f5ff990f8fcf716599976631dc4e985607df9baba1cf2d042b",
+      "bytes": 4308,
+      "type": "source-snapshot",
+      "source": "server/kneeOpppCompletion.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__kneeOpppCompletion.ts.md",
+      "sha256": "53bb2a642de142dbb43e77f84efdb9f33ba6f5cc2836dd7ce32384305c99c82d",
+      "bytes": 24029,
+      "type": "source-snapshot",
+      "source": "server/kneeOpppCompletion.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__kspVaultManager.ts.md",
-      "sha256": "a5aec84e5a0a468aeaff433fa9b9bf572c60a14ac8c477988b698f68df212d6b",
+      "sha256": "a9203a07804b18d0055db32c0732149bf3ee4cdc521f94addc8663d300cbd8f6",
       "bytes": 5238,
       "type": "source-snapshot",
       "source": "server/kspVaultManager.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__ktbApproveCode.test.ts.md",
+      "sha256": "94e65c591fd827973e95fe6cba79b2dae319aede66d2f9b527890bc1a3ea9d98",
+      "bytes": 6314,
+      "type": "source-snapshot",
+      "source": "server/ktbApproveCode.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ktbApproveCode.ts.md",
+      "sha256": "c27687ac778b047a7ef29802975ba652ad4a7863f45e48d01bbc8ce9aaeb481e",
+      "bytes": 15036,
+      "type": "source-snapshot",
+      "source": "server/ktbApproveCode.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__lineBot.test.ts.md",
-      "sha256": "9926fa7db7c208c60534270c33334fde24e6bdad66e03b05c0887e766892c9d3",
+      "sha256": "eab84908d5ce8b53c4f31ddb7a1195278b75eb6ea2ae5d459fa85d5dbfa270ba",
       "bytes": 2430,
       "type": "source-snapshot",
       "source": "server/lineBot.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__lineBot.ts.md",
-      "sha256": "d8fa7a3a2beb4bdd28df8c38fffe925b49dc588c45baba00a7697e91b1c8d268",
+      "sha256": "cc6e58cf83eea7935a5c4d7610c1e6082c97d3dc5bf07461f722e6d2beaa7717",
       "bytes": 8260,
       "type": "source-snapshot",
       "source": "server/lineBot.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__lineMessaging.test.ts.md",
-      "sha256": "fb9872332dd60ee691c3171868d4a9fceb7b1a298bc4d2222c755f86658ccd00",
+      "sha256": "b9a3763b169a02d299c27b7d642d54e4cbd83eba2c0f40df6ba27ed5d3069f2a",
       "bytes": 2934,
       "type": "source-snapshot",
       "source": "server/lineMessaging.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__lineMessaging.ts.md",
-      "sha256": "86335b03d7199f5f46afc4d3e6626af2eaf69c478be8712c3234c628873a9c13",
+      "sha256": "c56dfa7df1dd7046a6a91997414a464c9fb29a6c0f1c1d1761b4d5e6f5b7670f",
       "bytes": 8344,
       "type": "source-snapshot",
       "source": "server/lineMessaging.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__lineTest.ts.md",
-      "sha256": "2f24b05395423e244eec3c941bbbde0c2d491e2dc817c4bbb4a3df45fa288a99",
+      "sha256": "e4a28de1f295277f42520935f1069748bec029e2a0f757d2bc989e2ed7be638d",
       "bytes": 1360,
       "type": "source-snapshot",
       "source": "server/lineTest.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__loadEnv.ts.md",
+      "sha256": "fa1f88d705eb3f115982e1060276466c656a213ca3f23d2b9c7a84660e2e391f",
+      "bytes": 638,
+      "type": "source-snapshot",
+      "source": "server/loadEnv.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__models__fdsV3Types.ts.md",
+      "sha256": "370f481b90910cbc0f00a54eba6081023274fb09d45fda2b70ac6bc284fa547a",
+      "bytes": 8728,
+      "type": "source-snapshot",
+      "source": "server/models/fdsV3Types.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__mophVaccineRules.test.ts.md",
-      "sha256": "9fe1a6bb2b8c57728cbc221ef9673c0782f2a571be492ee3b4786ab0cd3bb599",
+      "sha256": "9da0c22f1d40e0f2e8a497103c72f0d153d9bfb866be7a3cfeee75c7cb7faf02",
       "bytes": 2066,
       "type": "source-snapshot",
       "source": "server/mophVaccineRules.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__mophVaccineRules.ts.md",
-      "sha256": "01e318197ab8083c4533363a94b71f16dc8aceb88ebdf84b2fa0b51ca985b7ab",
+      "sha256": "9328e465847bef49075edd2cb2d86a6cf4a1b76dc0bbe9e46b4f59674b8694b8",
       "bytes": 2844,
       "type": "source-snapshot",
       "source": "server/mophVaccineRules.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__nhsoAutoCloseService.ts.md",
+      "sha256": "6cf430b8ec5aaeb6c470005b813f5e545e0f95232d5784f1d41acc04e45954bd",
+      "bytes": 13294,
+      "type": "source-snapshot",
+      "source": "server/nhsoAutoCloseService.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__officialReceivableConstants.ts.md",
+      "sha256": "4612c2d8883d1dee3943fb6c6fbbb0342cf948bb6fa89fa68560f24e991c1f47",
+      "bytes": 12193,
+      "type": "source-snapshot",
+      "source": "server/officialReceivableConstants.ts"
+    },
+    {
+      "output": "50_Operations/server__officialReceivableReport.test.ts.md",
+      "sha256": "71ee9899cae0800de7b433f2adda60ecf4987c1dc5fe53ae9f4ef6e2c7278f78",
+      "bytes": 8059,
+      "type": "source-snapshot",
+      "source": "server/officialReceivableReport.test.ts"
+    },
+    {
+      "output": "50_Operations/server__officialReceivableReportService.ts.md",
+      "sha256": "edb04daa2e76e55442c1da1fd0f3cf55e721e1941124e565ca2b687682e76d16",
+      "bytes": 59583,
+      "type": "source-snapshot",
+      "source": "server/officialReceivableReportService.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__opdPreAuditRules.test.ts.md",
-      "sha256": "64dd7faae6b2bd9c99d092026777e1b2412c351520e3407fc4d8c8bd1788dd85",
-      "bytes": 1528,
+      "sha256": "154a89832f3b03cf45a1a99582cafca173d740ce60ed2716be3dd9ba5ffc2fbb",
+      "bytes": 2944,
       "type": "source-snapshot",
       "source": "server/opdPreAuditRules.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__opdPreAuditRules.ts.md",
-      "sha256": "c83ebbe21924aa9f2f33d8ad961edb582281d862c095d772e95e6959a4f497c3",
-      "bytes": 3598,
+      "sha256": "fadf88b8ff0f9030b9a870fe72d0856698560d0eefd9cfeeceb53c431f5e33d0",
+      "bytes": 7347,
       "type": "source-snapshot",
       "source": "server/opdPreAuditRules.ts"
     },
     {
+      "output": "50_Operations/server__paccountReportMapping.test.ts.md",
+      "sha256": "a0cc233cb1775e9d9cb3e1ddd9fc99e6aac0e3242f331af4a9b86b313b7ba225",
+      "bytes": 1173,
+      "type": "source-snapshot",
+      "source": "server/paccountReportMapping.test.ts"
+    },
+    {
+      "output": "50_Operations/server__paccountReportMapping.ts.md",
+      "sha256": "00c72b21cd661a00275c45fbf5349530170390bdaedb2ee7c7a3fb58fea0f2fb",
+      "bytes": 3947,
+      "type": "source-snapshot",
+      "source": "server/paccountReportMapping.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__palliativeCareReview.test.ts.md",
+      "sha256": "0cce5ac59229ff6ddf4d4a4418f436b0578e45768e22e3e565a667f367c6cda1",
+      "bytes": 6595,
+      "type": "source-snapshot",
+      "source": "server/palliativeCareReview.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__postgresSql.test.ts.md",
+      "sha256": "51e3acb14310911c35a99cc3a7db79d29bccc4d710e20674bf7cfb29378e63a7",
+      "bytes": 10959,
+      "type": "source-snapshot",
+      "source": "server/postgresSql.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__postgresSql.ts.md",
+      "sha256": "a93ffda3542073fe8efeadaa9206697d4318086bb9016c5fbf9b068bed8903b6",
+      "bytes": 16041,
+      "type": "source-snapshot",
+      "source": "server/postgresSql.ts"
+    },
+    {
       "output": "50_Operations/server__ppfsReport.ts.md",
-      "sha256": "6d8e5106a565e43a7a8921607b37b4aecff68e8cb79324658926f39c6ace6752",
-      "bytes": 12783,
+      "sha256": "37fd26cf8403c3892a30f5df637bdd78d1f51eefc8486478a3a47abc5800354f",
+      "bytes": 12959,
       "type": "source-snapshot",
       "source": "server/ppfsReport.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__rateLimiter.test.ts.md",
+      "sha256": "6c30be89aaafc420ef42f42b4313c69b02bbccc59ae21b3405727c798f85a1fb",
+      "bytes": 4060,
+      "type": "source-snapshot",
+      "source": "server/rateLimiter.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__rateLimiter.ts.md",
+      "sha256": "a1f971f9ddba2d6f9299db04928941099a644ad880faefbb90ee09a7098489a1",
+      "bytes": 6344,
+      "type": "source-snapshot",
+      "source": "server/rateLimiter.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__receivableMapping.ts.md",
-      "sha256": "44fc32d3eef534da7bcf4ca4083b173bc93140071a1133382cd87eff51b7937d",
-      "bytes": 28916,
+      "sha256": "a2a9fa956bc7245350248df064a4d683a54386127aba296f52ece6206405171d",
+      "bytes": 30577,
       "type": "source-snapshot",
       "source": "server/receivableMapping.ts"
     },
     {
+      "output": "50_Operations/server__receivableReportService.test.ts.md",
+      "sha256": "0d0b8bb2fc76c1449cf2c2e58e8b4956f7e06bbf700822d45471860509807d49",
+      "bytes": 2384,
+      "type": "source-snapshot",
+      "source": "server/receivableReportService.test.ts"
+    },
+    {
+      "output": "50_Operations/server__receivableReportService.ts.md",
+      "sha256": "38b10163609f7f8ea29cdd4ac51c26fd5b3e79825f3584f534851879f23ecb8a",
+      "bytes": 34107,
+      "type": "source-snapshot",
+      "source": "server/receivableReportService.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__receivableSettlement.test.ts.md",
+      "sha256": "3106f1c412acaeb87d81ed17de1a5b814277123d7635bfb0250030e4884c5cf1",
+      "bytes": 10491,
+      "type": "source-snapshot",
+      "source": "server/receivableSettlement.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__receivableSettlementMatching.test.ts.md",
+      "sha256": "71f55af58170c21cb01191a0531d68a19d8ba509f570de3b22d46a53987aa59c",
+      "bytes": 2044,
+      "type": "source-snapshot",
+      "source": "server/receivableSettlementMatching.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__receivableSettlementService.ts.md",
+      "sha256": "e99186648ad272f3c7b259b24665509ebc8bbc75607a03ee43491f257dca257c",
+      "bytes": 28075,
+      "type": "source-snapshot",
+      "source": "server/receivableSettlementService.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repSheetZeroAutoFix.test.ts.md",
+      "sha256": "449bb6f49148709e209e5dfd20001c3adf8883cdce7364f5b4da377d5ab51964",
+      "bytes": 1995,
+      "type": "source-snapshot",
+      "source": "server/repSheetZeroAutoFix.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repSheetZeroAutoFix.ts.md",
+      "sha256": "02b62b6ac53bb69656e70da2751d82d6da286bbd59be39abdcd58d6a15068a62",
+      "bytes": 26781,
+      "type": "source-snapshot",
+      "source": "server/repSheetZeroAutoFix.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__repair_repstm_historical.ts.md",
-      "sha256": "1e313411f8c19731fafd6a240f097f8cac107f457078d4d838a347724d20ad95",
+      "sha256": "c3c54cfa54ca5c947a96acf20a30e9e513d4a52d889d7a0651cb1894a85a3ec0",
       "bytes": 8034,
       "type": "source-snapshot",
       "source": "server/repair_repstm_historical.ts"
     },
     {
+      "output": "50_Operations/server__repositories__claims.repository.ts.md",
+      "sha256": "c4f08b15832ca4751df7131f4799e0505bd2146df82834e973448ed7290f4e58",
+      "bytes": 186205,
+      "type": "source-snapshot",
+      "source": "server/repositories/claims.repository.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repositories__clinical.repository.ts.md",
+      "sha256": "a687fa71227f3f916a28feb6c1c56bad94156e8ef75d0e9e3cb319c45e13ed2f",
+      "bytes": 210823,
+      "type": "source-snapshot",
+      "source": "server/repositories/clinical.repository.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repositories__clinicalRules.ts.md",
+      "sha256": "8b67ea59aedd5d83db49357ddc5eb524f4cb70096dc511671ceb33161231f0b1",
+      "bytes": 13714,
+      "type": "source-snapshot",
+      "source": "server/repositories/clinicalRules.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repositories__receivables.repository.ts.md",
+      "sha256": "96e1961f1d0376cd1ebd93f308c9960f35e4813936663160421750ecf62facc0",
+      "bytes": 255674,
+      "type": "source-snapshot",
+      "source": "server/repositories/receivables.repository.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repositories__stmZero.repository.ts.md",
+      "sha256": "55ac51696dbf904f2b374e1c7cc7eef35e33ebf4ded412efdfa1d5b81add3631",
+      "bytes": 25337,
+      "type": "source-snapshot",
+      "source": "server/repositories/stmZero.repository.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repositories__system.repository.ts.md",
+      "sha256": "43a7d92edab9558119e45060094aebf4575cfcec7bd4095ae2557da5e8856210",
+      "bytes": 35045,
+      "type": "source-snapshot",
+      "source": "server/repositories/system.repository.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__repstmArchive.test.ts.md",
-      "sha256": "74c66b37e85664df513312222056c5125f0d7cd8dae6e8275359d5223572cf5f",
-      "bytes": 2192,
+      "sha256": "8f2090022d226f4b086b9207443874111b8d0c9d32754e441ea9aecdaa7be999",
+      "bytes": 14538,
       "type": "source-snapshot",
       "source": "server/repstmArchive.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__repstmArchive.ts.md",
-      "sha256": "238a2a88200fd4bdff71ac41fe9252cccea0c6d7a43f52db3078dc854307e755",
-      "bytes": 9400,
+      "sha256": "61bce7427e5cd93806dbc89e32bc01b4aaa3a6cbbdd8a50750c6f97daec05633",
+      "bytes": 48424,
       "type": "source-snapshot",
       "source": "server/repstmArchive.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__repstmConfig.ts.md",
+      "sha256": "e618489eb093d249b7217b7e96232a1d8040452b4b8a71390cb5ef20064c335a",
+      "bytes": 898,
+      "type": "source-snapshot",
+      "source": "server/repstmConfig.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repstmImportClassification.test.ts.md",
+      "sha256": "52aebe7550ec9a84b821dfc7aba9c6b30a7d2aaf2a6b007168560c5bfa38359d",
+      "bytes": 7919,
+      "type": "source-snapshot",
+      "source": "server/repstmImportClassification.test.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__repstmManagement.test.ts.md",
-      "sha256": "3fb7575c79669d969f29d0efe6fc1aba692213b87560033c042ece8b67c538c4",
+      "sha256": "95be4b22974613274d31c8cfb7fe15e023f7e5d7bd72e3d350ab4e3a4897c62c",
       "bytes": 1387,
       "type": "source-snapshot",
       "source": "server/repstmManagement.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__repstmManagement.ts.md",
-      "sha256": "78f56275bde3621c65aeddac81e79216c189c6b3d99f98d1dbc84913fe5c329d",
+      "sha256": "c75d8aae59c79adfcb0bc558baae990655f9b201c426d1c42698620382c931ea",
       "bytes": 2472,
       "type": "source-snapshot",
       "source": "server/repstmManagement.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__repstmVisitKeys.test.ts.md",
+      "sha256": "821f00642fb8762bcf1bfe27e7aa1e40f574fb6ff0bb9ae84f2eb4a2344c6386",
+      "bytes": 1315,
+      "type": "source-snapshot",
+      "source": "server/repstmVisitKeys.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__repstmVisitKeys.ts.md",
+      "sha256": "8369e94042fc8d1d1ed04f154c18e8e94ae06e6b58ae1d4362f8967ad7a43b70",
+      "bytes": 1329,
+      "type": "source-snapshot",
+      "source": "server/repstmVisitKeys.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__requestSafety.test.ts.md",
-      "sha256": "b41b60f6f94f998d6059780e2cefe8a6bf9a73b8dd103d68b07d4690ef4d2010",
+      "sha256": "5b947cfad865a8c7f960f77e9f0ba9ba41826718dd531befb03d266602299ada",
       "bytes": 1906,
       "type": "source-snapshot",
       "source": "server/requestSafety.test.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__requestSafety.ts.md",
-      "sha256": "c7e5b29f2f882f98d13954d8dc01e6cab0dc8d0fe08ebc8b1c1769708900e05f",
-      "bytes": 5585,
+      "sha256": "9147cb6592bceefc4e15de2edde31b90875e9d160b24fb64858fc32231d58aeb",
+      "bytes": 5849,
       "type": "source-snapshot",
       "source": "server/requestSafety.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__reset_repstm_data.ts.md",
-      "sha256": "875fd300075f52976a27d8f4c98261b426158ec519fec3f6bce69cd9c7319c94",
+      "sha256": "5fbaf18d15cc65dbd7a462a737471fb00eebfa9c983cb77fa154707cac419ccd",
       "bytes": 2021,
       "type": "source-snapshot",
       "source": "server/reset_repstm_data.ts"
     },
     {
       "output": "50_Operations/server__revenueOpportunityMonitor.test.ts.md",
-      "sha256": "3ce338527083be57299293576505416fd6ae2ed10c3f81656f7021d5310f3cef",
+      "sha256": "beadba59916eff41f8b6bb6101000a967718bc147ccead3669db1af676fd5c07",
       "bytes": 12840,
       "type": "source-snapshot",
       "source": "server/revenueOpportunityMonitor.test.ts"
     },
     {
       "output": "50_Operations/server__revenueOpportunityMonitor.ts.md",
-      "sha256": "17ad8b2252e1cae0ca60bcac043b3a8fb585ee688312d48a73bd4bf5aa9c9404",
+      "sha256": "f5bb52283aaecf9b7c31627ca61c6b441f161ee3075a049cb12f2edf2a3b1f35",
       "bytes": 29131,
       "type": "source-snapshot",
       "source": "server/revenueOpportunityMonitor.ts"
     },
     {
       "output": "50_Operations/server__routes__claimTrackingRoutes.ts.md",
-      "sha256": "612cf831fa9c57251a99658555759ee8d431aa834dcb438a54e2b02c3fc337a5",
+      "sha256": "3141234db0db9c79432d5be39f28a64c336a6e58a2acc256305e51a18ab1483d",
       "bytes": 5335,
       "type": "source-snapshot",
       "source": "server/routes/claimTrackingRoutes.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__routes__collaborationRoutes.ts.md",
+      "sha256": "621c5475cdd78eb86ea7c63ba8886ec564ffc5e9a7ed42dd6ba33ca42ab4638f",
+      "bytes": 7667,
+      "type": "source-snapshot",
+      "source": "server/routes/collaborationRoutes.ts"
+    },
+    {
+      "output": "50_Operations/server__routes__executiveMonitorRoutes.ts.md",
+      "sha256": "81bd53be12bfe7df14b80604002e962e75705e8d7c2732404b7a4ab02d66344b",
+      "bytes": 2573,
+      "type": "source-snapshot",
+      "source": "server/routes/executiveMonitorRoutes.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__healthRoutes.test.ts.md",
+      "sha256": "9111272f23312710d80171d5dfc8bd02594dd3eb2d52fd564daddd9672ff926e",
+      "bytes": 2080,
+      "type": "source-snapshot",
+      "source": "server/routes/healthRoutes.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__healthRoutes.ts.md",
+      "sha256": "365bf8380cdf1b067afb79baa9ac1d6ca8db1711cacfd6c7ce54dda1322cb82d",
+      "bytes": 1800,
+      "type": "source-snapshot",
+      "source": "server/routes/healthRoutes.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__hospitalDatabaseRoutes.test.ts.md",
+      "sha256": "b491aaeb32d8f4a0f687f6c382b0fef9fb62b050926724105ec1497c5217a7bb",
+      "bytes": 4835,
+      "type": "source-snapshot",
+      "source": "server/routes/hospitalDatabaseRoutes.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__hospitalDatabaseRoutes.ts.md",
+      "sha256": "d1cd6e0172bf6d3bbaaaac105d21036572b4ff0057fed22704ceae7c138b1895",
+      "bytes": 3003,
+      "type": "source-snapshot",
+      "source": "server/routes/hospitalDatabaseRoutes.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__icd9Routes.ts.md",
+      "sha256": "038d9a416a260867d72fe4153c11343e370ccc5aa8ae889ab76f2c61ce7d7fc3",
+      "bytes": 4824,
+      "type": "source-snapshot",
+      "source": "server/routes/icd9Routes.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__officialReceivableRoutes.ts.md",
+      "sha256": "c76c5749c26bb01618816ea3f3358e1b37cbcd62ccbc0b2d1108a14f803d1348",
+      "bytes": 7857,
+      "type": "source-snapshot",
+      "source": "server/routes/officialReceivableRoutes.ts"
+    },
+    {
+      "output": "50_Operations/server__routes__receivableReportRoutes.ts.md",
+      "sha256": "ce8f9af92cd765c4b0223725ee9251578fb98625e1f8e0a61ba347556791171c",
+      "bytes": 14253,
+      "type": "source-snapshot",
+      "source": "server/routes/receivableReportRoutes.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__receivableSettlementRoutes.ts.md",
+      "sha256": "88b4038a88ca77b385bdb38d2b629acd9834d4ec50796097eaa50ec948f09245",
+      "bytes": 4144,
+      "type": "source-snapshot",
+      "source": "server/routes/receivableSettlementRoutes.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__smtBudgetRoutes.ts.md",
+      "sha256": "537ca17cee0f7c6228dde456e3b2628b797f75ac726f8b4911112cf0aeeeef69",
+      "bytes": 2262,
+      "type": "source-snapshot",
+      "source": "server/routes/smtBudgetRoutes.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__routes__sssRoutes.ts.md",
+      "sha256": "57218f3e46818573d4387448a1f6462905064da8a8996d40013e522e87dd1d43",
+      "bytes": 8189,
+      "type": "source-snapshot",
+      "source": "server/routes/sssRoutes.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__sitePortability.test.ts.md",
+      "sha256": "4aa80740d6eb45927abcc3010f80052df1dafac6de3d0eff1dac4be024b886b6",
+      "bytes": 9392,
+      "type": "source-snapshot",
+      "source": "server/sitePortability.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__siteProfile.ts.md",
+      "sha256": "6b7c7b6820264b6712d5212659b7789fdaa9c0274d2c7b349eb93d1b561f3fd4",
+      "bytes": 2071,
+      "type": "source-snapshot",
+      "source": "server/siteProfile.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__smtBudget.test.ts.md",
+      "sha256": "f5406f2200ab71db00ea3cad230d8eb471f9e35acd592a4a51edacbe634f0f32",
+      "bytes": 2276,
+      "type": "source-snapshot",
+      "source": "server/smtBudget.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__smtBudgetService.ts.md",
+      "sha256": "73d879f8598fa6b77cff317112288267e0658ec73c608c2dd63f2299b34adbd7",
+      "bytes": 15927,
+      "type": "source-snapshot",
+      "source": "server/smtBudgetService.ts"
+    },
+    {
+      "output": "50_Operations/server__specificFundRules.ts.md",
+      "sha256": "0b6652244616fe8c623636b0ec1989a5a6085d5d400bffd559b7d10c338a92a1",
+      "bytes": 670,
+      "type": "source-snapshot",
+      "source": "server/specificFundRules.ts"
+    },
+    {
+      "output": "50_Operations/server__sssClaim.test.ts.md",
+      "sha256": "34ba786f065baa44f4b9171af9f69e40f96c0b33bb555ffd7e1a173155d11e6a",
+      "bytes": 1832,
+      "type": "source-snapshot",
+      "source": "server/sssClaim.test.ts"
+    },
+    {
+      "output": "50_Operations/server__sssClaim.ts.md",
+      "sha256": "00bbadcc7642eaf5de8deaab572405d1ff2db5fb673f4177cdd0ba6c2d815a0c",
+      "bytes": 22222,
+      "type": "source-snapshot",
+      "source": "server/sssClaim.ts"
+    },
+    {
+      "output": "50_Operations/server__sssIpdClaim.test.ts.md",
+      "sha256": "0425a03e8f8444a47b75f4af3df2110509404d036d2031aac2da0e62528d769d",
+      "bytes": 2648,
+      "type": "source-snapshot",
+      "source": "server/sssIpdClaim.test.ts"
+    },
+    {
+      "output": "50_Operations/server__sssIpdClaim.ts.md",
+      "sha256": "70a003065f4a451f96193209fd3240de3f7a38475cc828a9cc3c91dd3c5e1b4c",
+      "bytes": 21039,
+      "type": "source-snapshot",
+      "source": "server/sssIpdClaim.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__stmEncounterIdentity.ts.md",
+      "sha256": "74225dbaac22bc875a91e274e72bca942ef1f7c1eddf1de56b905f9b2eedf4ad",
+      "bytes": 6646,
+      "type": "source-snapshot",
+      "source": "server/stmEncounterIdentity.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__stmZeroAudit.test.ts.md",
+      "sha256": "e2e7f4956392d30ffbccb8676da20a3b68fe41fd6a97a7ff8851ab3c1906d0c2",
+      "bytes": 9155,
+      "type": "source-snapshot",
+      "source": "server/stmZeroAudit.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__syphilisScreeningRules.test.ts.md",
+      "sha256": "177c902f1ab7feb204f53202950bd64d3a2f1e583e517036a3bddd11306aae8c",
+      "bytes": 1465,
+      "type": "source-snapshot",
+      "source": "server/syphilisScreeningRules.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__systemUpdate.test.ts.md",
+      "sha256": "c7213d1dd692545ca27ecd4b81c48ef7e6299019f295598ff4418ef0e44c40e1",
+      "bytes": 5224,
+      "type": "source-snapshot",
+      "source": "server/systemUpdate.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__systemUpdate.ts.md",
+      "sha256": "a31f445bd666e9fcfc0bb4059b77d3192b3c1e86ea54b997bb6f281d782f9630",
+      "bytes": 29889,
+      "type": "source-snapshot",
+      "source": "server/systemUpdate.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__systemUpdateStatus.test.ts.md",
+      "sha256": "766e3fdf6db130d4cd51d557f4f1ee64aab2771d08d461ba9ed0390ec340c4bf",
+      "bytes": 2013,
+      "type": "source-snapshot",
+      "source": "server/systemUpdateStatus.test.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__test2.mjs.md",
-      "sha256": "851cc788fc8bad3fc21964132c2529f1359cc19a98d62cf1157e9ac1cf5d7f73",
+      "sha256": "4184461e9e7a59e52b856f60e3155ef810e135ca36c54fb2ac9211150c343374",
       "bytes": 1438,
       "type": "source-snapshot",
       "source": "server/test2.mjs"
     },
     {
       "output": "60_Programming_Knowledge/server__test3.mjs.md",
-      "sha256": "4228e2290bc430084095dc6fb701d7d5636195a0b6b7551e7f3c88e21fe9d829",
+      "sha256": "4697af6ba17a4df93516c65b62b0a1f8a6e66801cfd4973582b171dcfc837ce2",
       "bytes": 2569,
       "type": "source-snapshot",
       "source": "server/test3.mjs"
     },
     {
       "output": "60_Programming_Knowledge/server__test4.mjs.md",
-      "sha256": "a86aef1e41d7b0031ab8bc816d483fc706793d79c6863a5993931cc43169abe4",
+      "sha256": "7bec9f09eea632bbfe09f95a3a06a4e744d878c5e95170a80553a7a925eaab07",
       "bytes": 925,
       "type": "source-snapshot",
       "source": "server/test4.mjs"
     },
     {
       "output": "60_Programming_Knowledge/server__test_audit_table.mjs.md",
-      "sha256": "b8b80535c29feb868451b1225cedfe9dc1ae0a6855b7366587d0a5fa3a908038",
+      "sha256": "bb85dddeb078cc3c64ccd7d0ac7020cd813a8fe9fd4eebdf2c705231e0edd0e9",
       "bytes": 1624,
       "type": "source-snapshot",
       "source": "server/test_audit_table.mjs"
     },
     {
       "output": "60_Programming_Knowledge/server__test_chart.mjs.md",
-      "sha256": "8cd877d53210f2fe99fe6247f3dc14c2478b7e93601ef333507cc4b755fcfab0",
+      "sha256": "0f69ff965a749ed7fce5dcdb438d7ffaadc0dcb2b2a493478b522fb76d142c07",
       "bytes": 1579,
       "type": "source-snapshot",
       "source": "server/test_chart.mjs"
     },
     {
       "output": "60_Programming_Knowledge/server__test_ipd.mjs.md",
-      "sha256": "2c409b9d798f8db09e4c4face9ad653aba98923b68a5cadf05e4d1593311d763",
+      "sha256": "8b0f018a98e92a3d6d5abf74ce20803b961b56e3447a30ed2f3b74173b5fd1a9",
       "bytes": 1430,
       "type": "source-snapshot",
       "source": "server/test_ipd.mjs"
     },
     {
       "output": "60_Programming_Knowledge/server__test_kidney_db.ts.md",
-      "sha256": "64899a9e593976d9fcd6ae3cb0e4ed06026fe0dc8c45cee48a45028505d88949",
+      "sha256": "e608ffd02e1d6c00a5d901e084d0471e42bc454b8c8767f97a07b0a3b1b62c77",
       "bytes": 2795,
       "type": "source-snapshot",
       "source": "server/test_kidney_db.ts"
     },
     {
       "output": "60_Programming_Knowledge/server__test_labs.mjs.md",
-      "sha256": "274cbb8437b1240218c0a7b407517a7a7dc3822b4de73b84cdfc739243c0aabb",
+      "sha256": "c444a9091b3da1d0289541b5cefd928fcd4ae9b5d33a104a68dc43a7bddf83d5",
       "bytes": 1940,
       "type": "source-snapshot",
       "source": "server/test_labs.mjs"
     },
     {
+      "output": "60_Programming_Knowledge/server__thaiTraditionalMedicineRules.test.ts.md",
+      "sha256": "20258dc6daa2e75b27580831c3fe3aed6a7a947674b9aff946ac045a553f556f",
+      "bytes": 6328,
+      "type": "source-snapshot",
+      "source": "server/thaiTraditionalMedicineRules.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ucOutsideCupWalkin.test.ts.md",
+      "sha256": "9799b7c42cb689a8667b0610aa3718969bebadeb910a41154d676bae25b96407",
+      "bytes": 14823,
+      "type": "source-snapshot",
+      "source": "server/ucOutsideCupWalkin.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ucOutsideCupWalkin.ts.md",
+      "sha256": "3df4fa6daa24c163d3fe7fa34dacf3172ea94401d7fa22b3c452438c25eb0aaa",
+      "bytes": 82854,
+      "type": "source-snapshot",
+      "source": "server/ucOutsideCupWalkin.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ucWalkinAutoBatchService.test.ts.md",
+      "sha256": "0744021908a5598ef5ac3849f88cb98eec6194d240293ab461831d0242837862",
+      "bytes": 1123,
+      "type": "source-snapshot",
+      "source": "server/ucWalkinAutoBatchService.test.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__ucWalkinAutoBatchService.ts.md",
+      "sha256": "7beeb3888c2ab57fb676780dfc582f712b2c8fe1a5c7935d04fd8d80892bd200",
+      "bytes": 9250,
+      "type": "source-snapshot",
+      "source": "server/ucWalkinAutoBatchService.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__utils__dataNormalization.ts.md",
+      "sha256": "ec8d07e456f5c4537ee7793e82ea6fd81a7a5b9df6c0f3cd7a5ee55a7faf6b24",
+      "bytes": 4786,
+      "type": "source-snapshot",
+      "source": "server/utils/dataNormalization.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__utils__importColumnLookup.ts.md",
+      "sha256": "2730c4f4037c6437d52a136e9fce9993a398be3fa04e0e1d95ab3c063e568955",
+      "bytes": 1587,
+      "type": "source-snapshot",
+      "source": "server/utils/importColumnLookup.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/server__vaultKnowledge.test.ts.md",
+      "sha256": "3579526f9b2a233b1716667ed853a1fd7c042eeed546422175f9a703fec74588",
+      "bytes": 3143,
+      "type": "source-snapshot",
+      "source": "server/vaultKnowledge.test.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/server__vaultKnowledge.ts.md",
-      "sha256": "ded5b603fa8a75f45b5301121adeeaed8bd45ad12d00a740336150f1de7e225a",
-      "bytes": 8620,
+      "sha256": "b2c58eab7be1cb17fbe639401a1f832e529b8f1b0f67996c5ff69687eeb53dc0",
+      "bytes": 17043,
       "type": "source-snapshot",
       "source": "server/vaultKnowledge.ts"
     },
     {
+      "output": "60_Programming_Knowledge/server__visitDetails.ts.md",
+      "sha256": "4f915411e6db2d0978dc2caf5c5470cafc5bc782aa3abb4b26b35bf6f1ecf842",
+      "bytes": 10658,
+      "type": "source-snapshot",
+      "source": "server/visitDetails.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/src__App.css.md",
-      "sha256": "f8b5cfa7b0ff23884e6fd8fec5bd75433de1bcb20c7a7771e1818d534b3cd7aa",
-      "bytes": 77324,
+      "sha256": "391deeb31be3ccf937561351761cdc5c8199fc175c96359a33d41a3dd9094f44",
+      "bytes": 86507,
       "type": "source-snapshot",
       "source": "src/App.css"
     },
     {
       "output": "60_Programming_Knowledge/src__App.tsx.md",
-      "sha256": "be8acdb458a7e8dd87f3844cb09923a03f86407918f2dcbe084ee8975be36886",
-      "bytes": 20317,
+      "sha256": "cc8e0450fcef960b0af7b2da9fff3384fa1a81f6c9aae1c3ccf60a96d21f69c9",
+      "bytes": 33336,
       "type": "source-snapshot",
       "source": "src/App.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__ErrorBoundary.tsx.md",
-      "sha256": "af3a96c38151716c0f16ed6b7f806ed6ed9bb8909549e75da0ac18c440f8cb9b",
+      "sha256": "2e0574746ff315cac2db2572cd2496c82e5779e6e6bc87362325dfd5779a703f",
       "bytes": 1404,
       "type": "source-snapshot",
       "source": "src/ErrorBoundary.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__components__AiPromptExamples.css.md",
+      "sha256": "b9c93d6eabf22b9a5b1f51d60adca249505032cacc8443fbcdf44d93770e61ab",
+      "bytes": 1403,
+      "type": "source-snapshot",
+      "source": "src/components/AiPromptExamples.css"
+    },
+    {
       "output": "60_Programming_Knowledge/src__components__CheckTable.tsx.md",
-      "sha256": "e8458b89e914995c88f32e4eb5f2c267a9da95ee8e8c6e5992c9e711dc99fccc",
-      "bytes": 14675,
+      "sha256": "91b6d03535827027d8854d43c51b02ad70af54d88f416d709af4fbf387f3f8fc",
+      "bytes": 12234,
       "type": "source-snapshot",
       "source": "src/components/CheckTable.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__components__DashboardStats.tsx.md",
-      "sha256": "614fa2f7c6e2c903c90502045f65e6b0d65731db630041f7ef8328bd4acba732",
+      "sha256": "a98b2a6f9b54c55ca926197cd86052914ce911c2f05e07b742298fc9d0652c00",
       "bytes": 2559,
       "type": "source-snapshot",
       "source": "src/components/DashboardStats.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__components__DetailCategoryModal.tsx.md",
-      "sha256": "896c4f0b7c26eeee60530859e7805e0ab415650a90fb0ebba389b89a11feb95b",
+      "sha256": "92973f010a54f6360b9fe04fa2d19a20c3b3febe1a49b555481f339cd7ee60f4",
       "bytes": 18756,
       "type": "source-snapshot",
       "source": "src/components/DetailCategoryModal.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__components__DetailKidneyModal.tsx.md",
-      "sha256": "4b4c28e44c34ffed641edb9ff03d080a359b63a5ec836c8c6b389243fd5d377c",
+      "sha256": "e7564a40fb096e455794c10b720aea299b29d22e0d4a8c03cc681a77b4896cd1",
       "bytes": 19635,
       "type": "source-snapshot",
       "source": "src/components/DetailKidneyModal.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__components__DetailModal.tsx.md",
-      "sha256": "c9bab104ddaa7270498f94c86711617ea182b038c4799aee4b5899f0a6c13fe0",
-      "bytes": 34878,
+      "sha256": "c306243593c8d2c4684ad6fbd71817c13dffb23c053a61479fdad671a6930a3a",
+      "bytes": 37340,
       "type": "source-snapshot",
       "source": "src/components/DetailModal.tsx"
     },
     {
       "output": "50_Operations/src__components__FDHPreviewModal.tsx.md",
-      "sha256": "6bc7be1cf010057013330b18f55093d4b54e76ce11db991efa2d8786df380202",
-      "bytes": 9874,
+      "sha256": "6a5d0db5879c5415dc4cd620a7c1b771769a8eea9b32a90b25a4053724bbf36b",
+      "bytes": 27608,
       "type": "source-snapshot",
       "source": "src/components/FDHPreviewModal.tsx"
     },
     {
       "output": "50_Operations/src__components__FundEligibilityRules.tsx.md",
-      "sha256": "2afbde0088a0cf968b3023db025d164c7c2e6c462183bc055d22a0288da0228b",
+      "sha256": "9873223489dd5a40f0e1cba053566c42980643d1ff916f1acbbc961f11e9e670",
       "bytes": 9155,
       "type": "source-snapshot",
       "source": "src/components/FundEligibilityRules.tsx"
     },
     {
       "output": "50_Operations/src__components__FundMenu.tsx.md",
-      "sha256": "efe8f269290f6886bc07b6b9266c014a673324738e05a05703d40af850c17552",
+      "sha256": "95656928bed33cd3d833eb27e06b3dde343d8b0c7e58a1a373d023c8dccd4264",
       "bytes": 1581,
       "type": "source-snapshot",
       "source": "src/components/FundMenu.tsx"
     },
     {
       "output": "50_Operations/src__components__FundSummaryBar.tsx.md",
-      "sha256": "2add198290d344ee5f871ed337def799e55f8261460b019f0926c6ef5626e760",
+      "sha256": "4c2717a0b88e74243541b629781020ec7c6cc56816fc485ffd911d478a86f68b",
       "bytes": 16858,
       "type": "source-snapshot",
       "source": "src/components/FundSummaryBar.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__components__HospitalDatabaseSettings.tsx.md",
+      "sha256": "3eeb9c7dfd7635868751037f93f66301e74abe13bb3caa622a1a368cb299234d",
+      "bytes": 9107,
+      "type": "source-snapshot",
+      "source": "src/components/HospitalDatabaseSettings.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__components__HospitalMasterDataEditor.tsx.md",
+      "sha256": "63f890995ae8d3bb47a085c694490c2a5f18063358a1af635702709d41283011",
+      "bytes": 32191,
+      "type": "source-snapshot",
+      "source": "src/components/HospitalMasterDataEditor.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__components__HospitalReadinessPanel.tsx.md",
+      "sha256": "7ca82f614409f9a2f9e62d4a5547b70ce213fa09c5d11010c18e39e44adb857c",
+      "bytes": 23565,
+      "type": "source-snapshot",
+      "source": "src/components/HospitalReadinessPanel.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__components__HospitalScopeSettings.tsx.md",
+      "sha256": "2a8f54d9a48aded71caa980a45a38a63e9ec9caebef0f85b563b2445f3306d3a",
+      "bytes": 3595,
+      "type": "source-snapshot",
+      "source": "src/components/HospitalScopeSettings.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__components__IpdLosSettings.tsx.md",
+      "sha256": "d00f231ede0c6a241ea4a71f812b935b5efda484c67560735e382c11b9a83ff3",
+      "bytes": 10690,
+      "type": "source-snapshot",
+      "source": "src/components/IpdLosSettings.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__components__IssuesPanel.tsx.md",
-      "sha256": "cfd9381648d4a99cb688cde769a383a5936865278d7424bb977269fd0b16b987",
+      "sha256": "2df1551cf370e3e0827706ec08f73f7f996f87d71f471f2f0404ba4d4b86ba48",
       "bytes": 1843,
       "type": "source-snapshot",
       "source": "src/components/IssuesPanel.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__components__LocalAiAssistant.css.md",
-      "sha256": "32fb03bd67d8df0f6199c99afccc6c5672b55cc72161f2d4800b53f9964d6a04",
-      "bytes": 7133,
+      "sha256": "9deaae6d548f1d9e8e8694ce766b7c1a55597b7d773c2755f8e970caaac41859",
+      "bytes": 10346,
       "type": "source-snapshot",
       "source": "src/components/LocalAiAssistant.css"
     },
     {
       "output": "60_Programming_Knowledge/src__components__LocalAiAssistant.tsx.md",
-      "sha256": "f7a337edf4a68c122d6b14891e792495d4c8a04c49e15189695caa8287ed74f7",
-      "bytes": 19087,
+      "sha256": "1f5e36edb704d25d3c001fcab9945eacb38c86c7a91f98b54550cebd4b39069a",
+      "bytes": 22186,
       "type": "source-snapshot",
       "source": "src/components/LocalAiAssistant.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__components__Navbar.tsx.md",
-      "sha256": "e6abf56c415efcc4751a41864bfd8983460dafb35b9e78c35dd3495b4a1a2af3",
+      "sha256": "d30aaf8ccf572bdac59193aecdc43fad481fc4b9548943cbf8edf67d5d780c1e",
       "bytes": 2025,
       "type": "source-snapshot",
       "source": "src/components/Navbar.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__components__OfficialReceivableFormsModal.tsx.md",
+      "sha256": "83335fad6308a3b3100fd10ea98b10c21bf4c54e2e7c83f6bd923c20a819f2a5",
+      "bytes": 74705,
+      "type": "source-snapshot",
+      "source": "src/components/OfficialReceivableFormsModal.tsx"
+    },
+    {
       "output": "50_Operations/src__components__OpReferMonitorPanel.tsx.md",
-      "sha256": "7d59c2b37f4ca51291a2f0f3141a6648820b6a970e41fce663b85f6da03b79db",
+      "sha256": "a26d6876bbe46893f92a3790713d27ad52bde3c6c5cda554c28f5519173cf8b8",
       "bytes": 22936,
       "type": "source-snapshot",
       "source": "src/components/OpReferMonitorPanel.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__components__ReceivableMappingSettings.tsx.md",
+      "sha256": "413f588a5ef3ee362c02c6a5db813e1282a71f595d446417e93cd2e1415d9d93",
+      "bytes": 48245,
+      "type": "source-snapshot",
+      "source": "src/components/ReceivableMappingSettings.tsx"
+    },
+    {
+      "output": "50_Operations/src__components__ReceivableReportModal.tsx.md",
+      "sha256": "c4c432e662bd5eb4b7084f010522e2110c8414e25ddad6ad6b297506e1a8b7df",
+      "bytes": 45237,
+      "type": "source-snapshot",
+      "source": "src/components/ReceivableReportModal.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__components__RepStmImportDetail.tsx.md",
-      "sha256": "e8bf93124ea7bccb1ef4df8795de458c1f1bac6c2568bf751a22cc9652adf699",
-      "bytes": 8639,
+      "sha256": "d7e83567929c1e3c1d052d02f8f326cfc51cac82d8fc40acba246310dbb18694",
+      "bytes": 9208,
       "type": "source-snapshot",
       "source": "src/components/RepStmImportDetail.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__components__RepStmVisitModal.tsx.md",
-      "sha256": "8a88b3bd6807b3815fd35bb27dcb422e3f4c0435fcbfb5ff088d33bbdee4f859",
-      "bytes": 13604,
+      "sha256": "28c27bdcfb87e6da6ee708779d528089a73f8e6348a1eabd6c27dc1b8edd40bc",
+      "bytes": 13613,
       "type": "source-snapshot",
       "source": "src/components/RepStmVisitModal.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__components__StmZeroAuditPanel.css.md",
+      "sha256": "bb1b51c055e2d0ec7936e0970e0f7be077236ca33aa462b8c429df7c91fdf00e",
+      "bytes": 14538,
+      "type": "source-snapshot",
+      "source": "src/components/StmZeroAuditPanel.css"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__components__StmZeroAuditPanel.tsx.md",
+      "sha256": "932c53d2a0afa12dd3e071ab55eb952e4550bf042d72e1a3e0bc3f583215fd21",
+      "bytes": 71594,
+      "type": "source-snapshot",
+      "source": "src/components/StmZeroAuditPanel.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__components__SystemUpdatePanel.tsx.md",
+      "sha256": "5daa424fc02d5d259ebb35d83fba456c5ace6eed3f7fa16553de47bf6e31046f",
+      "bytes": 33720,
+      "type": "source-snapshot",
+      "source": "src/components/SystemUpdatePanel.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__components__TableScrollNavigator.tsx.md",
+      "sha256": "160a1ce6603d4cd21d45d7dc3e611be181731606c9b6c98bdc740d8726450b04",
+      "bytes": 4766,
+      "type": "source-snapshot",
+      "source": "src/components/TableScrollNavigator.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__config__aiPromptExamples.ts.md",
+      "sha256": "60dc13ceb978b8b198d14b9df23ee26d8a478fa28f0e7e0cf53ea5db589b77ed",
+      "bytes": 3057,
+      "type": "source-snapshot",
+      "source": "src/config/aiPromptExamples.ts"
+    },
+    {
       "output": "50_Operations/src__config__fundDefinitions.ts.md",
-      "sha256": "81a13661d7bcab41c1b555c87a21a834ed8129833afa339a0afb48edfae69d66",
-      "bytes": 24479,
+      "sha256": "bd1a59776926b05bf8487096d8ea44dbd2234e3824d5d135c2abf797fbe13d2c",
+      "bytes": 40612,
       "type": "source-snapshot",
       "source": "src/config/fundDefinitions.ts"
     },
     {
       "output": "50_Operations/src__config__fundOperationalGuideCatalog.ts.md",
-      "sha256": "74d5a64de68e39c6b6411b9ddaf7478e0207e4267df6b36f7dcf913b8575ec3b",
-      "bytes": 27765,
+      "sha256": "75fcb36443194c2cbaca9d8f34d04f6b2007480116da678eeb26eb8da77a02fc",
+      "bytes": 34109,
       "type": "source-snapshot",
       "source": "src/config/fundOperationalGuideCatalog.ts"
     },
     {
       "output": "50_Operations/src__config__fundRuleCatalog.ts.md",
-      "sha256": "47adc3a8f1195ff798a64fefbda45e24d06f89007ba093405aeef0cedfcaf6d9",
+      "sha256": "4fc3022f44f21bb8c644491cac476f5afff8c0000368470b0f81a778761d07af",
       "bytes": 4987,
       "type": "source-snapshot",
       "source": "src/config/fundRuleCatalog.ts"
     },
     {
       "output": "60_Programming_Knowledge/src__config__menuDefinitions.ts.md",
-      "sha256": "9c2df470383012e8e80a5ae27739286d8b7a81cb4c65e001f258b9a89c903e8d",
-      "bytes": 5108,
+      "sha256": "2b3e23ae731236206810c9e1b68848d16fd62eeda9c1892a29787a6aef0c339d",
+      "bytes": 10509,
       "type": "source-snapshot",
       "source": "src/config/menuDefinitions.ts"
     },
     {
       "output": "60_Programming_Knowledge/src__config__palliativeDiagnosisCatalog.ts.md",
-      "sha256": "2122b290ce42ee868fdb20f5e6264aafa6f97f32dc93f3b0dbc6ffc5eb003f27",
+      "sha256": "f61c91faa1aad3556039175643a853305c1b8208034b760700d9a6f3ad861666",
       "bytes": 7932,
       "type": "source-snapshot",
       "source": "src/config/palliativeDiagnosisCatalog.ts"
     },
     {
       "output": "60_Programming_Knowledge/src__hooks__useHOSxPData.ts.md",
-      "sha256": "6143a1c933d2b186310dec88b7fcfea06b27eed16ad15445a0a92b1f09c4bf9c",
-      "bytes": 3615,
+      "sha256": "12188f15e3daebd0cfe255977138340f88c86257682a200d94208f12bc9b21d0",
+      "bytes": 3757,
       "type": "source-snapshot",
       "source": "src/hooks/useHOSxPData.ts"
     },
     {
       "output": "60_Programming_Knowledge/src__index.css.md",
-      "sha256": "d7691842d2916456477595a1f410596c6396409fdf8cc101da6c7fdb1531905f",
-      "bytes": 91289,
+      "sha256": "1b7527350ab1d6b866237f327457a8e1cf4bc4c2816a7382b570e13bc35774db",
+      "bytes": 123128,
       "type": "source-snapshot",
       "source": "src/index.css"
     },
     {
       "output": "60_Programming_Knowledge/src__main.tsx.md",
-      "sha256": "11f9197e1ee0d22eee7fd61e66d1f86713a22d300ea40f87475d05c602c4cb23",
-      "bytes": 4608,
+      "sha256": "6f687870533e69d08c28de229e794c86e3ba34ec8d7a379ef53d82d11cc7e768",
+      "bytes": 4855,
       "type": "source-snapshot",
       "source": "src/main.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__mockData.ts.md",
-      "sha256": "848b126b532bed7b51bf7fa3df7b6975d9f0b807ca43e5f1aa4721fe2a8c6605",
-      "bytes": 11692,
+      "sha256": "33bf986b878684d6ae53f280736385dd04462815ba78257f6ad686ee406eaa5e",
+      "bytes": 11707,
       "type": "source-snapshot",
       "source": "src/mockData.ts"
     },
     {
       "output": "60_Programming_Knowledge/src__mockKidneyData.ts.md",
-      "sha256": "7db3c1f514cd503dd5d9681e241fc6a01263626067c21eff7312bfece16bf77b",
-      "bytes": 8298,
+      "sha256": "68f0d5df105d75966829fc500dd61d2e2dc8db9ba1bf6f63bb803bae6490dbc8",
+      "bytes": 8670,
       "type": "source-snapshot",
       "source": "src/mockKidneyData.ts"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__AccountingRevenueBudgetPage.css.md",
+      "sha256": "61a030f83d46b6f18c0bde342d9d8f2083fbdbb5edc6acf7d1c32f7f44e12d42",
+      "bytes": 4633,
+      "type": "source-snapshot",
+      "source": "src/pages/AccountingRevenueBudgetPage.css"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__AccountingRevenueBudgetPage.tsx.md",
+      "sha256": "47ce0fba0c722ad73080563393d926eb73f9f6430466d2ea9b3dfbda05eb1ebd",
+      "bytes": 12019,
+      "type": "source-snapshot",
+      "source": "src/pages/AccountingRevenueBudgetPage.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__pages__AdminDashboard.tsx.md",
-      "sha256": "d042cf8bb2e00b3d2652acf633f2cec2244882bfa984e7af5ff55b938982c9f3",
+      "sha256": "e383a319d1f6e1db54b90ee801eb5935b4ce7efbbb98f7ff89d73925f292c335",
       "bytes": 45382,
       "type": "source-snapshot",
       "source": "src/pages/AdminDashboard.tsx"
     },
     {
       "output": "50_Operations/src__pages__AiReportWorkspacePage.css.md",
-      "sha256": "2c49860f39a76a8f1e895c8f6fe2101a19761bcc604e288de77eb5ffa7186e9c",
+      "sha256": "656b646bd237e27b350701d57d54b8b23b1e698c0888e9665ad68dc8c770befa",
       "bytes": 9158,
       "type": "source-snapshot",
       "source": "src/pages/AiReportWorkspacePage.css"
     },
     {
       "output": "50_Operations/src__pages__AiReportWorkspacePage.tsx.md",
-      "sha256": "5b61aa43257f0e5acc9f529b89e882086dd7badf0695387db50b7d4b674ebf7d",
-      "bytes": 15803,
+      "sha256": "79a1d3aaef180f8128b56030940a513789e613bd230729ab67e29eacfe50c8f1",
+      "bytes": 18090,
       "type": "source-snapshot",
       "source": "src/pages/AiReportWorkspacePage.tsx"
     },
     {
+      "output": "50_Operations/src__pages__AnnualHealthCheckupReportPage.css.md",
+      "sha256": "cbcaa93de5266d9096d55b300ce951531047573b9747a45793a21845a8eb0715",
+      "bytes": 12741,
+      "type": "source-snapshot",
+      "source": "src/pages/AnnualHealthCheckupReportPage.css"
+    },
+    {
+      "output": "50_Operations/src__pages__AnnualHealthCheckupReportPage.tsx.md",
+      "sha256": "33cf659379bc84f6c1fdf375012d0f8bba266e2ac5a94ce966cfdf88a15ee37d",
+      "bytes": 35510,
+      "type": "source-snapshot",
+      "source": "src/pages/AnnualHealthCheckupReportPage.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__pages__AuthenSyncPage.tsx.md",
-      "sha256": "7e9935fe73ffb971b91a0de120315c64026e5b2d04e4a489ec4221b554ff4619",
+      "sha256": "13cdd2f993fca8eff2b2845050cefa23081b6864818d5ad6060a54f82327b5d8",
       "bytes": 12230,
       "type": "source-snapshot",
       "source": "src/pages/AuthenSyncPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__ClopidogrelPage.tsx.md",
-      "sha256": "38ca5a4e9c0df0a981acc0f427b24217ca16a5240d4dddd67b93248b9bd893f6",
+      "sha256": "74532d0c643cdac857b93942e1e8530bf0a46ff585eb110d18cf1d6d7fa48fbd",
       "bytes": 12297,
       "type": "source-snapshot",
       "source": "src/pages/ClopidogrelPage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__CollaborationHubPage.css.md",
+      "sha256": "2839e52800201f2aa2484abdce9e1c9505e3ccea27878b26600664fe2bf24934",
+      "bytes": 12427,
+      "type": "source-snapshot",
+      "source": "src/pages/CollaborationHubPage.css"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__CollaborationHubPage.tsx.md",
+      "sha256": "92841f995bbbbbf23bdfba023c5bd7c9ff47b09225d5057a05fce71fda786232",
+      "bytes": 22163,
+      "type": "source-snapshot",
+      "source": "src/pages/CollaborationHubPage.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__CollaborationPage.css.md",
+      "sha256": "5fd45c67a3791153ef57578743c8e1f125bb1e34b599ead94ab11033084a6b8c",
+      "bytes": 8325,
+      "type": "source-snapshot",
+      "source": "src/pages/CollaborationPage.css"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__CollaborationPage.tsx.md",
+      "sha256": "777487dda4b2a6ca4ab9f60107b653459d41f863be64de99903c194a8530163e",
+      "bytes": 16449,
+      "type": "source-snapshot",
+      "source": "src/pages/CollaborationPage.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__DentalAuditPage.tsx.md",
+      "sha256": "fb738df80b77ee08f5994227ae89141fb56f8a010abde39fa717a5bbba25c693",
+      "bytes": 64537,
+      "type": "source-snapshot",
+      "source": "src/pages/DentalAuditPage.tsx"
+    },
+    {
+      "output": "50_Operations/src__pages__ExecutiveMonitorPage.css.md",
+      "sha256": "044cfd3e0c0edd7d292de3cf60148571b56554ea9578ea58c5b656a69a23a8be",
+      "bytes": 16539,
+      "type": "source-snapshot",
+      "source": "src/pages/ExecutiveMonitorPage.css"
+    },
+    {
+      "output": "50_Operations/src__pages__ExecutiveMonitorPage.tsx.md",
+      "sha256": "9f9fbad94d45d3e40a9c4d5172aadf8213ab23cc5d094bd47f6aed0b33606947",
+      "bytes": 88232,
+      "type": "source-snapshot",
+      "source": "src/pages/ExecutiveMonitorPage.tsx"
+    },
+    {
       "output": "50_Operations/src__pages__FDHCheckerPage.tsx.md",
-      "sha256": "1411f88856af9b92a1c75e60ff406990f267d80e19d2dc8427751321bc4abf1b",
-      "bytes": 49794,
+      "sha256": "b015b788892529cc8c40a3256a33f2b5f939db79f907055e70171cec658d78c9",
+      "bytes": 104765,
       "type": "source-snapshot",
       "source": "src/pages/FDHCheckerPage.tsx"
     },
     {
       "output": "50_Operations/src__pages__FDHImportStatusPage.tsx.md",
-      "sha256": "eac940950137c953b9719c6cae8be16d6cc15376d9a98cf3fa0f2d38f6a3de80",
+      "sha256": "b8d61a3914d16b4d5bd4c368b0c7ce9182f12bff2d587db2b264796afbfd7a2e",
       "bytes": 23101,
       "type": "source-snapshot",
       "source": "src/pages/FDHImportStatusPage.tsx"
     },
     {
       "output": "50_Operations/src__pages__FdhClaimDetailImportPage.tsx.md",
-      "sha256": "b541282fb4b1e6cb3607e79bc663d214d43ebbcab8bca796dd8e13c56be0dcc6",
-      "bytes": 23083,
+      "sha256": "ead971d0eb7a566ec6a78bca2fd65da3178c6d321d1d71dc7f79fa10ecac97b1",
+      "bytes": 28575,
       "type": "source-snapshot",
       "source": "src/pages/FdhClaimDetailImportPage.tsx"
     },
     {
       "output": "50_Operations/src__pages__FsMonitorPage.tsx.md",
-      "sha256": "0632ccf1b5768bfc0038cb0d8fcd45ec93221c7609ebbed212fb57d5165f3b52",
+      "sha256": "ac87aba12b9846dd7db09222b1c931f66f6e96a773f183a3fb8eaf9e2ac3d43f",
       "bytes": 14096,
       "type": "source-snapshot",
       "source": "src/pages/FsMonitorPage.tsx"
     },
     {
       "output": "50_Operations/src__pages__FundAnalysisPage.tsx.md",
-      "sha256": "ba062d8f144caab53b4978bbce93c64ec5b5741bfa812631db9a91910a601e27",
+      "sha256": "834b3778a2d5e11b4360649b440ed99fc21e93bd444613899801a7ac293c86d9",
       "bytes": 12328,
       "type": "source-snapshot",
       "source": "src/pages/FundAnalysisPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__GuidePage.tsx.md",
-      "sha256": "81428328db7acf9b84279078a5765603e8a1cea77c4a079fbabd57ef83421b16",
-      "bytes": 54750,
+      "sha256": "bb14452bf5ec9a896d0149f2454422907696b217a652a43f92747ae94f070534",
+      "bytes": 60251,
       "type": "source-snapshot",
       "source": "src/pages/GuidePage.tsx"
     },
     {
       "output": "50_Operations/src__pages__HospitalReportHubPage.css.md",
-      "sha256": "3063a47a0c8b1acc62f65be243a9d3040c8da18f14a648fad82e068ce85a7ab1",
+      "sha256": "d4b1efa78b86042632ba956b9039d9ffdffec5f88a93643d5313451423c3a41f",
       "bytes": 8388,
       "type": "source-snapshot",
       "source": "src/pages/HospitalReportHubPage.css"
     },
     {
       "output": "50_Operations/src__pages__HospitalReportHubPage.tsx.md",
-      "sha256": "e5a7845c6beca05d6fa1bf41f47794dfd94a2b2c3fb6091fa36322fceeefc6ab",
-      "bytes": 18827,
+      "sha256": "afa29c4a7025443fa2c3031e1e0f1d1fc9e3e2d57d4629957328ca07132a074c",
+      "bytes": 25709,
       "type": "source-snapshot",
       "source": "src/pages/HospitalReportHubPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__IPDPage.tsx.md",
-      "sha256": "5b298aa0a8e9a55fd6e29a25459b501232cc36a8338824103dc4a87d305a7271",
-      "bytes": 66441,
+      "sha256": "69c21195ca8d1dcd684c74d12dd5d6022cd953a2cd0c83a9499ac5a2cc5188da",
+      "bytes": 83967,
       "type": "source-snapshot",
       "source": "src/pages/IPDPage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__Icd9LookupPage.tsx.md",
+      "sha256": "9df2a035430337bccb5c08244a96defcdd247ad0e7339344cf6da1dbf262ac18",
+      "bytes": 40150,
+      "type": "source-snapshot",
+      "source": "src/pages/Icd9LookupPage.tsx"
+    },
+    {
       "output": "50_Operations/src__pages__InsuranceOverviewPage.tsx.md",
-      "sha256": "23884f47194f57a464b233ab8686b088b8a83f6674f37e6eedd1c6ad4fbf11c5",
+      "sha256": "459f92ce5b10eead048b4aac434cb37654949a17faacb7661df263f15d0218b3",
       "bytes": 46380,
       "type": "source-snapshot",
       "source": "src/pages/InsuranceOverviewPage.tsx"
     },
     {
       "output": "50_Operations/src__pages__IpdClaimMonitorPage.tsx.md",
-      "sha256": "4ab524620cd1da999bf7dcebf02f0e491fbad15f90748123a5413d1a1ff94772",
-      "bytes": 27876,
+      "sha256": "7c401dc05c5e31eadcf96190933ea64429b4ebbcf3b311d4c97c6177a90f6a8d",
+      "bytes": 28924,
       "type": "source-snapshot",
       "source": "src/pages/IpdClaimMonitorPage.tsx"
     },
     {
+      "output": "50_Operations/src__pages__IpdFdhExportPage.tsx.md",
+      "sha256": "5b472f4e775bb62fad05271db70cecb1820a3fd08b560a88039380f98fb72acb",
+      "bytes": 30096,
+      "type": "source-snapshot",
+      "source": "src/pages/IpdFdhExportPage.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__IpdMonthlyAccounting.tsx.md",
+      "sha256": "9d43ad188c59c2fb4213ceb30efaab2a6fb1ad3c08503bd666c2c43f49b6ad2a",
+      "bytes": 4266,
+      "type": "source-snapshot",
+      "source": "src/pages/IpdMonthlyAccounting.tsx"
+    },
+    {
       "output": "50_Operations/src__pages__KidneyMonitorPage.tsx.md",
-      "sha256": "e9df7a21f9f8f5eab3ece0e02f5457cb4210cf9cf4d025ef9199adab434154a1",
+      "sha256": "a534e571b0f45b1a6f3ef0ba8f6f921de52e049c0677267dfa0a8f1644f6dee8",
       "bytes": 764,
       "type": "source-snapshot",
       "source": "src/pages/KidneyMonitorPage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__KtbApproveCodeImportPage.tsx.md",
+      "sha256": "a5b0666e45aecfeeb7178070327a2ccf49f56a5732b34a9f0d413b02948d0a3f",
+      "bytes": 37747,
+      "type": "source-snapshot",
+      "source": "src/pages/KtbApproveCodeImportPage.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__pages__LoginPage.tsx.md",
-      "sha256": "596e4ebb078cccae07021c4c17c4607637d254ca0d5c3f6220fbe0dfd562e027",
-      "bytes": 4305,
+      "sha256": "40ec1e9927b17433d721ba60d4488d90ac83ef58012999bd680de7a4d071b230",
+      "bytes": 8390,
       "type": "source-snapshot",
       "source": "src/pages/LoginPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__MemberAdminPage.tsx.md",
-      "sha256": "57a4c97b46b0329589f0a1bccc58b770fe1122146ed0f73116ada21b33ca9223",
-      "bytes": 9776,
+      "sha256": "9dc53e6672abc7d6d878c721722ec446b81465728e736e7844197a8927c25be0",
+      "bytes": 42521,
       "type": "source-snapshot",
       "source": "src/pages/MemberAdminPage.tsx"
     },
     {
       "output": "50_Operations/src__pages__MophDmhtClaimPage.tsx.md",
-      "sha256": "55052afb63b5147eaf9ee0af5107702da8e436e5ebba3a34baf8321412709913",
+      "sha256": "03c33bf35e32c8c3d64ee274bef19b47877629f9d597322a87472c1795606dca",
       "bytes": 17315,
       "type": "source-snapshot",
       "source": "src/pages/MophDmhtClaimPage.tsx"
     },
     {
       "output": "50_Operations/src__pages__MophVaccineClaimPage.tsx.md",
-      "sha256": "8c35e149193c737c67987e0bbb6d1d5d19a6f86efc4d71928c42fcb3737800c0",
+      "sha256": "ad681504ab19dba374c24741eeac1c62312ce0171d3a9ef6b98be23ff56483b8",
       "bytes": 21467,
       "type": "source-snapshot",
       "source": "src/pages/MophVaccineClaimPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__NhsoClosePage.tsx.md",
-      "sha256": "694e6395d2051822ee241f08638f77b008f5b0082ff08d7e187e1f3e242bb149",
-      "bytes": 34956,
+      "sha256": "370bdb005ceecbf0ce61d4123d19ef84ede0a2ab11fc9e9030a92edbd9d84638",
+      "bytes": 44767,
       "type": "source-snapshot",
       "source": "src/pages/NhsoClosePage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__OfficialReceivablePage.css.md",
+      "sha256": "ebb5af0e3df47a29e48e795a64605d909c51b51175555dfde8875253523e3de3",
+      "bytes": 11941,
+      "type": "source-snapshot",
+      "source": "src/pages/OfficialReceivablePage.css"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__OfficialReceivablePage.tsx.md",
+      "sha256": "d5285560f07593a2dfd35d7858ab151c9ee7dfb1819a95ec7614fb41fa653bbf",
+      "bytes": 63486,
+      "type": "source-snapshot",
+      "source": "src/pages/OfficialReceivablePage.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__pages__PpfsBenchmarkPage.tsx.md",
-      "sha256": "907c25900e457aa2d067fb988f287b7f2bd5d6992cf99ebbb69befbf4d75fda2",
-      "bytes": 21836,
+      "sha256": "08123519ebb082c0c2ff39c47b286909323c5a50cbfec733f85012a1e41519d1",
+      "bytes": 21581,
       "type": "source-snapshot",
       "source": "src/pages/PpfsBenchmarkPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__PpfsVisitMatchPage.tsx.md",
-      "sha256": "059673eb898b4b409436a222453e93688eabd8f4496b58ae32741fe7d3c511e5",
+      "sha256": "681c3f15ced51ca94c1f00ae4646fdc7d61ba151e49e1d9bdaeb961ea5a6ec71",
       "bytes": 16472,
       "type": "source-snapshot",
       "source": "src/pages/PpfsVisitMatchPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__PreSubmitValidatorPage.tsx.md",
-      "sha256": "0ce1fac555de5ac37b50425cc8a289546d0da941b39e83a25b2f8ae3fa88b041",
-      "bytes": 14828,
+      "sha256": "ae309f1a8a869470acee142dfb46af52c6de7fc77a7528293e236277e799bf05",
+      "bytes": 21986,
       "type": "source-snapshot",
       "source": "src/pages/PreSubmitValidatorPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__ReceivablePage.tsx.md",
-      "sha256": "9a155c9266339e09cb9476b361d184d7341bfe9534086a04de66f6940f8d7fe3",
-      "bytes": 31487,
+      "sha256": "dc0adc7c8b65e29ea6ff7a4ada637df02b9d9e7b900c2c5a133d76b5720f2d45",
+      "bytes": 49346,
       "type": "source-snapshot",
       "source": "src/pages/ReceivablePage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__ReceivableSettlementPage.css.md",
+      "sha256": "579d0d59e23c739c09fe6d658ab34155283e945a613b7df3d6d011c480edb181",
+      "bytes": 11289,
+      "type": "source-snapshot",
+      "source": "src/pages/ReceivableSettlementPage.css"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__ReceivableSettlementPage.tsx.md",
+      "sha256": "75922a62072bc558e26dfa552a63a23cbd46d8db1b1aa58621d4cb99d6a306f7",
+      "bytes": 61909,
+      "type": "source-snapshot",
+      "source": "src/pages/ReceivableSettlementPage.tsx"
+    },
+    {
+      "output": "50_Operations/src__pages__ReceivableStandardReportPage.css.md",
+      "sha256": "228807c5919ea14e64f3d47d5f3bf747064d2f1406135dbe69c94a0129dfd482",
+      "bytes": 10928,
+      "type": "source-snapshot",
+      "source": "src/pages/ReceivableStandardReportPage.css"
+    },
+    {
+      "output": "50_Operations/src__pages__ReceivableStandardReportPage.tsx.md",
+      "sha256": "f79c0fb782f1271ca0ef29b7c4bc472734aaf80f901a14df0d4adf94b53df9f4",
+      "bytes": 53571,
+      "type": "source-snapshot",
+      "source": "src/pages/ReceivableStandardReportPage.tsx"
+    },
+    {
       "output": "50_Operations/src__pages__RejectedClaimTrackingPage.tsx.md",
-      "sha256": "b3a8dbad61a5b1ad020f82f538b57aced0420e0b613154f45bcef04080c9daa9",
+      "sha256": "3c3588c741e4158b199abc568313b6b8447af3712bfde717e3e8b60a2ac295c3",
       "bytes": 17611,
       "type": "source-snapshot",
       "source": "src/pages/RejectedClaimTrackingPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__RepDailySummaryPage.tsx.md",
-      "sha256": "1250a6a669cf980f755503747abc9b086de193ef7d90053a09f2fc5a51ce93d5",
+      "sha256": "7ddcee17e784e207275c0922105f2bef4fa7cb047f0c1a5b8b85e8f05cad321a",
       "bytes": 27515,
       "type": "source-snapshot",
       "source": "src/pages/RepDailySummaryPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__RepDenyPage.tsx.md",
-      "sha256": "1f7e243dd811c1b33d5affa2dc4b90ad78af9d59d5695ce38192b776bdeca855",
-      "bytes": 36274,
+      "sha256": "34ed8b658ab514c67f19816a8632d5887d48adde22b8d1a63327dc8a21b84c6b",
+      "bytes": 39779,
       "type": "source-snapshot",
       "source": "src/pages/RepDenyPage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__RepSheetZeroAuditPage.tsx.md",
+      "sha256": "d0cc386ad8d21f6ac6690c46f94b0e1223c043f027f858178ba4bc2f73fa75bf",
+      "bytes": 630,
+      "type": "source-snapshot",
+      "source": "src/pages/RepSheetZeroAuditPage.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__pages__RepStmImportPage.tsx.md",
-      "sha256": "178009e1261d19e4339a46eab6aaf6ed6d6a270dfe0dca49eb3b555711f140dd",
-      "bytes": 93612,
+      "sha256": "6096c959b4b62ef779b367cd80fc646de67fa8aed4b86e74a942027186f89bf9",
+      "bytes": 86389,
       "type": "source-snapshot",
       "source": "src/pages/RepStmImportPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__RepStmManagePage.tsx.md",
-      "sha256": "337bacd72c3a359969e8aed6f40babfffad8dd9b174c65bf3260bd4d01f936d4",
+      "sha256": "9f921bcc64254cd68773582d9169606eb0b2ec4d2e0c39170922cbd3f173588b",
       "bytes": 14358,
       "type": "source-snapshot",
       "source": "src/pages/RepStmManagePage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__RevenueOpportunityPage.tsx.md",
-      "sha256": "2b3da30ab8dbf273ca0961f7b43fb20f34ec4eb66495ca37593a6ae0ecb24654",
+      "sha256": "c7f00fc9c5bf2982b44c887d65cc62ce77812335b4eff329ad53598e6d74110e",
       "bytes": 19206,
       "type": "source-snapshot",
       "source": "src/pages/RevenueOpportunityPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__SettingsPage.tsx.md",
-      "sha256": "b516df6cacfe9ac15e0457294efc0be035d8d1421b86033b4de6812f71453de7",
-      "bytes": 55464,
+      "sha256": "684ebeb8014b90f4a2f638dcf75bfe9e4c57dc5d0bcf7d4dda74d29ca107365a",
+      "bytes": 69224,
       "type": "source-snapshot",
       "source": "src/pages/SettingsPage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__SmtBudgetReconcilePage.css.md",
+      "sha256": "1fa441f5c063ac3e12446c075b2491b983f068773dc62e2394e5a4030cdd0d97",
+      "bytes": 11282,
+      "type": "source-snapshot",
+      "source": "src/pages/SmtBudgetReconcilePage.css"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__SmtBudgetReconcilePage.tsx.md",
+      "sha256": "df6aa3fbd59b09734c5e4711b559407131f79f7b311dee45f6335de68ca4932f",
+      "bytes": 45153,
+      "type": "source-snapshot",
+      "source": "src/pages/SmtBudgetReconcilePage.tsx"
+    },
+    {
+      "output": "50_Operations/src__pages__SpecialMonitorPage.css.md",
+      "sha256": "c634c3025c9b978efe3d94fb646f4f142945e6c9859f621d882c055c1b383a12",
+      "bytes": 6394,
+      "type": "source-snapshot",
+      "source": "src/pages/SpecialMonitorPage.css"
+    },
+    {
       "output": "50_Operations/src__pages__SpecialMonitorPage.tsx.md",
-      "sha256": "02b06a9107d0284bad472f9c0e8b73ace9e0af405f05eecceeddc54e25f68fac",
-      "bytes": 86455,
+      "sha256": "3aa67c6297e61095e8889c1a0c31b22ca6472584995b20b21129ce9d772a958f",
+      "bytes": 89727,
       "type": "source-snapshot",
       "source": "src/pages/SpecialMonitorPage.tsx"
     },
     {
       "output": "50_Operations/src__pages__SpecificFundPage.tsx.md",
-      "sha256": "b5b78cba4b522f02915d9043aa6f941fa66ca757d5513d9ee563133e34cb6f1b",
-      "bytes": 223785,
+      "sha256": "4d8379b1b983974e286cf35ca131bfa0b7de47204b28096c64d829e4c35f6657",
+      "bytes": 340808,
       "type": "source-snapshot",
       "source": "src/pages/SpecificFundPage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__SssExportPage.tsx.md",
+      "sha256": "bdf96a806e404257e8da1d813ff6a103750a8eafa234445e057fac66386e421f",
+      "bytes": 14482,
+      "type": "source-snapshot",
+      "source": "src/pages/SssExportPage.tsx"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__pages__SssRepStmPage.tsx.md",
+      "sha256": "aa281e30170b8ce1395b6a349443f1112e49b073c8327f8ff66079876db6daac",
+      "bytes": 13966,
+      "type": "source-snapshot",
+      "source": "src/pages/SssRepStmPage.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__pages__StaffPage.tsx.md",
-      "sha256": "0ea11b62367419063e86a0788e543e9534f09bf7ae374c8b1daf5d01ec30f972",
-      "bytes": 23011,
+      "sha256": "79d45b41a6e1787351a1316ab49706ce3eadaaaa94ebe2eccd581a4de3a85e94",
+      "bytes": 23310,
       "type": "source-snapshot",
       "source": "src/pages/StaffPage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__StmZeroAuditPage.tsx.md",
+      "sha256": "130b4e30cce52a943e7b9f36035ce36567653a65167301007e8f57d4eb05a29e",
+      "bytes": 588,
+      "type": "source-snapshot",
+      "source": "src/pages/StmZeroAuditPage.tsx"
+    },
+    {
       "output": "60_Programming_Knowledge/src__pages__TestPage.tsx.md",
-      "sha256": "bdbc090d0012ea6efdfda4beddecdca4ad6f026dd609d628d48cddb3d13dc70a",
+      "sha256": "8cf539500d159a72ffaed5da0dd387ab47af4b2bcaa85b330f54c0edaf62dfdb",
       "bytes": 609,
       "type": "source-snapshot",
       "source": "src/pages/TestPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__UcOutsideCupPage.tsx.md",
-      "sha256": "3cadf3bc04460c112ff6f12d4c203eb1e7cb670bc8da33522d5c849cdb3d7cb1",
-      "bytes": 17172,
+      "sha256": "f0aa41afdbb59e5b640326fc6e50a45334c44ad9ae41f57036f3428e83ac3dbf",
+      "bytes": 92893,
       "type": "source-snapshot",
       "source": "src/pages/UcOutsideCupPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__Uuc1TrackingPage.tsx.md",
-      "sha256": "cbf890a2d320ed44053b1f999eb59ab461ea090b6c39b95b810a864b2045bf33",
+      "sha256": "6eed940ff74bcd83b7ebe1022302c82d3ab2b11bb88acf4fda0c5f84f628d986",
       "bytes": 18006,
       "type": "source-snapshot",
       "source": "src/pages/Uuc1TrackingPage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__pages__VisitReconciliationPage.css.md",
+      "sha256": "14b962ffdb879169b4e435afaf1fe410dfc5adbf063a12b2087e27be340b9169",
+      "bytes": 9750,
+      "type": "source-snapshot",
+      "source": "src/pages/VisitReconciliationPage.css"
+    },
+    {
       "output": "60_Programming_Knowledge/src__pages__VisitReconciliationPage.tsx.md",
-      "sha256": "7bd46ee1c5484bf2e7a1c5e4a3b7dca8e45d1be54d649ff8b4c299c24179afcd",
-      "bytes": 25363,
+      "sha256": "65199da85c70a7db561deb82abaaf7529d7ddfded2384307f0101609384c4afc",
+      "bytes": 32934,
       "type": "source-snapshot",
       "source": "src/pages/VisitReconciliationPage.tsx"
     },
     {
       "output": "60_Programming_Knowledge/src__pages__WorkQueuePage.tsx.md",
-      "sha256": "0940a6de31d83d6047d2d71b43b5f77470e2a49a2ccc68a726621b99dab2693e",
+      "sha256": "59de7821636565cba2a951ccaaa9d60ae65d0634a3edae3b0c7f012c991964d8",
       "bytes": 16267,
       "type": "source-snapshot",
       "source": "src/pages/WorkQueuePage.tsx"
     },
     {
+      "output": "60_Programming_Knowledge/src__services__apiEndpointService.ts.md",
+      "sha256": "773b164e79c45528e69ea77f4c98ff491184a3b2222f213e3ff03cf6f785389b",
+      "bytes": 2152,
+      "type": "source-snapshot",
+      "source": "src/services/apiEndpointService.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/src__services__authService.ts.md",
-      "sha256": "03db25d3ee1940435e31af9f592282cf4da040c679a11ae13d00e8eb5ee6aa89",
-      "bytes": 4680,
+      "sha256": "b59c019b2d90b8c121d867be4c5f236316e71490a3b006bd94c1f07630a7315a",
+      "bytes": 6548,
       "type": "source-snapshot",
       "source": "src/services/authService.ts"
     },
     {
+      "output": "60_Programming_Knowledge/src__services__collaborationService.ts.md",
+      "sha256": "a481ceb2cba0518b69ef0d407eafb79a80d645e9e138eb5b570c77eebca33825",
+      "bytes": 4152,
+      "type": "source-snapshot",
+      "source": "src/services/collaborationService.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/src__services__hosxpService.ts.md",
-      "sha256": "26cbaf4f19abce8c98f328137f77f7f638b011ce99f9c3ef9db2c8e6ecfc8c9a",
-      "bytes": 45215,
+      "sha256": "ecde190873f4bc2516c6bab87a90fc67aa104d7f8f52b682f6151fc368811b4b",
+      "bytes": 59740,
       "type": "source-snapshot",
       "source": "src/services/hosxpService.ts"
     },
     {
       "output": "60_Programming_Knowledge/src__services__repErrorCatalogService.ts.md",
-      "sha256": "a8bc4748f5920a0bbeb3260b53647b11cb6d2608408c2bae2a6e5b6f7427df83",
-      "bytes": 1223,
+      "sha256": "bb66f8aab50f1d54308843bc8af32b74b8dc4b8569bfd3aa0cca078a5f06561b",
+      "bytes": 1220,
       "type": "source-snapshot",
       "source": "src/services/repErrorCatalogService.ts"
     },
     {
+      "output": "60_Programming_Knowledge/src__services__systemUpdateStatus.ts.md",
+      "sha256": "8b0615b41f5bba776574c2c002c37125e1649a094b1d61083a77f5b2bec5996c",
+      "bytes": 3709,
+      "type": "source-snapshot",
+      "source": "src/services/systemUpdateStatus.ts"
+    },
+    {
       "output": "50_Operations/src__styles__FundAnalysis.css.md",
-      "sha256": "fd5a43208ab3e9e040bcce3c6af9001767659f58913a29de4897c1b77d0a69b3",
+      "sha256": "0f83bfce15cb1507db5d1c65cda61e4e3fd65ab9557aaf046881a1f2a5ae4f5b",
       "bytes": 5789,
       "type": "source-snapshot",
       "source": "src/styles/FundAnalysis.css"
     },
     {
+      "output": "60_Programming_Knowledge/src__styles__ReceivableMappingSettings.css.md",
+      "sha256": "02229bb2480a6c8ae933c955b75d05921c836f5357a546303c9e4a6ec7d9f42a",
+      "bytes": 10178,
+      "type": "source-snapshot",
+      "source": "src/styles/ReceivableMappingSettings.css"
+    },
+    {
       "output": "60_Programming_Knowledge/src__styles__Settings.css.md",
-      "sha256": "f7029754470c20fe77d51224c228c38c5dedc9799d7dd2ae245709a4e7a4d38c",
-      "bytes": 10061,
+      "sha256": "c6979c033324ccddbe3de5b926501483d8b2afeee70ab9a02fc8908b8d88d117",
+      "bytes": 20521,
       "type": "source-snapshot",
       "source": "src/styles/Settings.css"
     },
     {
+      "output": "60_Programming_Knowledge/src__styles__mobile.css.md",
+      "sha256": "c9562a604c140e28cb51b5c3843eb330a7ffb62ff39c5a8e645a16996cb54647",
+      "bytes": 11245,
+      "type": "source-snapshot",
+      "source": "src/styles/mobile.css"
+    },
+    {
+      "output": "50_Operations/src__styles__receivableReport.css.md",
+      "sha256": "5241ff1abcc8c03887f54d0954c926343f7d74595490f5611f4b416d27b3cc81",
+      "bytes": 5384,
+      "type": "source-snapshot",
+      "source": "src/styles/receivableReport.css"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__ancDentalRules.ts.md",
+      "sha256": "8a12ebe25f1a30083fcd7d2850a61167caaddaf3d2546356c43690416abbf58a",
+      "bytes": 1430,
+      "type": "source-snapshot",
+      "source": "src/utils/ancDentalRules.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/src__utils__billingUtils.ts.md",
-      "sha256": "4d4ed355b8058baea16bbcc2e7df01b484044eb85f3adfac7302104c0ea6caf1",
-      "bytes": 37303,
+      "sha256": "049da183db5dc5928212e203f42b5ba86f60ceb4801d01aa5bddf7e55a306649",
+      "bytes": 44770,
       "type": "source-snapshot",
       "source": "src/utils/billingUtils.ts"
     },
@@ -2260,64 +3457,176 @@
       "source": "src/utils/dateUtils.ts"
     },
     {
+      "output": "60_Programming_Knowledge/src__utils__familyPlanningRules.ts.md",
+      "sha256": "fb83b725aee3acaf7bb9cb43970ca84ec26e7c4e096cd20e08bdc6f01211e855",
+      "bytes": 4476,
+      "type": "source-snapshot",
+      "source": "src/utils/familyPlanningRules.ts"
+    },
+    {
       "output": "50_Operations/src__utils__fdhClaimProgress.ts.md",
-      "sha256": "5a1f390f3affa42be49968d9b37736185663a3f61abffadadc55754db25db441",
-      "bytes": 6663,
+      "sha256": "aca50bf81bda2e27eae4973e4a8affb5619cb2ea8ce36cccc1aa941c2d9578b0",
+      "bytes": 7526,
       "type": "source-snapshot",
       "source": "src/utils/fdhClaimProgress.ts"
     },
     {
+      "output": "60_Programming_Knowledge/src__utils__herbalMedicationRules.ts.md",
+      "sha256": "15bccf686a030d00482cb9e49ed009817ec0e66dad84a709f6f52be3af2351ba",
+      "bytes": 9156,
+      "type": "source-snapshot",
+      "source": "src/utils/herbalMedicationRules.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/src__utils__navigationState.ts.md",
-      "sha256": "8e77763899ed323446223ee435a74e5086bf236f9966f4a09b3e484c52423a76",
-      "bytes": 2259,
+      "sha256": "a3c4742b81fa65176e700c24a8954dd852286582be08ddb16c333d9f5be6b0cc",
+      "bytes": 2659,
       "type": "source-snapshot",
       "source": "src/utils/navigationState.ts"
     },
     {
+      "output": "60_Programming_Knowledge/src__utils__ofcApproveCode.ts.md",
+      "sha256": "7c04cdf907fd80faa79e71d6e28128204aa4eb1d1041dbba4be23bf201eb0b57",
+      "bytes": 3181,
+      "type": "source-snapshot",
+      "source": "src/utils/ofcApproveCode.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__palliativeCareReview.ts.md",
+      "sha256": "9dff66098326579e06b4f55b4e2601d6af295d185514dbf490937637b53669be",
+      "bytes": 8279,
+      "type": "source-snapshot",
+      "source": "src/utils/palliativeCareReview.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__repSheetZeroAudit.ts.md",
+      "sha256": "8ef9ec9777aa530d232b4b389fdb2224654dfb538c21c298c1ac664ac3e815b6",
+      "bytes": 1846,
+      "type": "source-snapshot",
+      "source": "src/utils/repSheetZeroAudit.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__repstmImportClassification.ts.md",
+      "sha256": "e436b199f84c40e9142c4ce2bdbb134fc98c82abdcd473b4e6970c40034a1af9",
+      "bytes": 4112,
+      "type": "source-snapshot",
+      "source": "src/utils/repstmImportClassification.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__repstmWorksheetParsing.ts.md",
+      "sha256": "27e1fa2b54bf36b4aeab54374598895080663a8f919ef66fd427f5283974c9e2",
+      "bytes": 10820,
+      "type": "source-snapshot",
+      "source": "src/utils/repstmWorksheetParsing.ts"
+    },
+    {
+      "output": "50_Operations/src__utils__specificFundRules.ts.md",
+      "sha256": "1e13743546d2dfa7eb1bb401bbd83e60aa0464d27121fbbcda8089d45c73ce53",
+      "bytes": 1027,
+      "type": "source-snapshot",
+      "source": "src/utils/specificFundRules.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__stmZeroAudit.ts.md",
+      "sha256": "b8e5af72afbcb3d10defe2dcd2d8d859da547e8358a8911f9d18ce11ac3a9418",
+      "bytes": 6078,
+      "type": "source-snapshot",
+      "source": "src/utils/stmZeroAudit.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__syphilisScreeningRules.ts.md",
+      "sha256": "c8bf25e120934ff69ddbdda17aba67f32477505ac8ffb9ccb6435d2b6333918e",
+      "bytes": 1185,
+      "type": "source-snapshot",
+      "source": "src/utils/syphilisScreeningRules.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__thaiBahtText.ts.md",
+      "sha256": "f3db42e50c004908172d35c376e9c14f22a7666641890c48fa92b58fd180f338",
+      "bytes": 3437,
+      "type": "source-snapshot",
+      "source": "src/utils/thaiBahtText.ts"
+    },
+    {
+      "output": "60_Programming_Knowledge/src__utils__thaiTraditionalMedicineRules.ts.md",
+      "sha256": "b5b7ff84c3e6b8d0e6717142ae4da15f28855e265773268057655a4789083972",
+      "bytes": 6525,
+      "type": "source-snapshot",
+      "source": "src/utils/thaiTraditionalMedicineRules.ts"
+    },
+    {
       "output": "60_Programming_Knowledge/scripts__import_rep_error_catalog.mjs.md",
-      "sha256": "d0dd0f3a7a193b687fcd39400815d7f2f23b97f7192b6d0c7b1227ee43ad31f4",
-      "bytes": 2600,
+      "sha256": "e066bc926415480c79b8375a5e42a4547870547f2e1cf5bc8ca8b675fa5d3100",
+      "bytes": 2875,
       "type": "source-snapshot",
       "source": "scripts/import_rep_error_catalog.mjs"
     },
     {
       "output": "60_Programming_Knowledge/scripts__lib__query-catalog.mjs.md",
-      "sha256": "ed7eab756e808ddc09a859563a79c87b1f7aa5e90fd523385d0153c4b67db603",
+      "sha256": "f3681f6256ba906325c31cd2639bda86cef5f0c4c7234aa45ba1480be6c3fc0a",
       "bytes": 7873,
       "type": "source-snapshot",
       "source": "scripts/lib/query-catalog.mjs"
     },
     {
+      "output": "50_Operations/scripts__prepare_fdh_manual_v3.mjs.md",
+      "sha256": "dc689d6d7cfe02f836ff9e5d07b7b7241e9575886efe340c31ef10364933ddd9",
+      "bytes": 5645,
+      "type": "source-snapshot",
+      "source": "scripts/prepare_fdh_manual_v3.mjs"
+    },
+    {
       "output": "60_Programming_Knowledge/scripts__query-catalog.test.mjs.md",
-      "sha256": "910cc07ca30f4956f3c877f6906fd57dc7ade4991d9cdf82ef40c767c80e9eb6",
+      "sha256": "21755c92c9f201d316fbceb258e9d73eea59f827b6737f751f15a04ba6568b01",
       "bytes": 1723,
       "type": "source-snapshot",
       "source": "scripts/query-catalog.test.mjs"
     },
     {
+      "output": "60_Programming_Knowledge/scripts__render-system-manual.mjs.md",
+      "sha256": "029d3845a4b297e59b0ab7a5519f31499451862143893070d767d28aa19b8050",
+      "bytes": 2104,
+      "type": "source-snapshot",
+      "source": "scripts/render-system-manual.mjs"
+    },
+    {
+      "output": "60_Programming_Knowledge/scripts__rep-error-catalog.test.mjs.md",
+      "sha256": "f9d2be8fb9e432fd37618c322f7a96da0625523ccdb52a1d2310d797eeef4d86",
+      "bytes": 2428,
+      "type": "source-snapshot",
+      "source": "scripts/rep-error-catalog.test.mjs"
+    },
+    {
       "output": "60_Programming_Knowledge/scripts__setup-ai-key.mjs.md",
-      "sha256": "0b129455fce36495414162cd72bf125367552bf4b927bde3f148c2371db46e4d",
+      "sha256": "ae085a30183d679c44c6fbc838f581972da470abc8b749bdf0bf437b8a2bb817",
       "bytes": 1875,
       "type": "source-snapshot",
       "source": "scripts/setup-ai-key.mjs"
     },
     {
+      "output": "60_Programming_Knowledge/scripts__setup-local-ai-models.sh.md",
+      "sha256": "7ff84635ae90486fc0b103d028950aefe5aab2304ca9caa06b9fbc8cc43b6ab6",
+      "bytes": 1532,
+      "type": "source-snapshot",
+      "source": "scripts/setup-local-ai-models.sh"
+    },
+    {
       "output": "60_Programming_Knowledge/scripts__sync-ksp-vault.mjs.md",
-      "sha256": "d27fc314244c27e911dfcb64542b011fb263768309485a3fba40f89f446cbf0e",
+      "sha256": "9063f10e5d2dec53d9c5a537c510cb8f303dda308e727b4081a595f6eee5ccfc",
       "bytes": 14625,
       "type": "source-snapshot",
       "source": "scripts/sync-ksp-vault.mjs"
     },
     {
       "output": "60_Programming_Knowledge/scripts__tune-ollama-macos.sh.md",
-      "sha256": "ec03036f7b4e795ea95a9563aaf2a21218af0d27b7bdc237cbeb4afc7cceacff",
+      "sha256": "1c25f1f1aa765553ba5024e6207c1fadbd0ee176160257ba30bcb3cd9c0dae56",
       "bytes": 1253,
       "type": "source-snapshot",
       "source": "scripts/tune-ollama-macos.sh"
     },
     {
       "output": "00_Home/FDHChecker Knowledge Hub.md",
-      "sha256": "9d6e20b5d686465e1b8f9a7147a7c24d9124d14ce03120d1fc0f13358c6ce061",
+      "sha256": "3b7ab7ec29acbd3629f3b8a37efd2c5de622c591c241d7b821463740d7af9f62",
       "bytes": 1421,
       "type": "index",
       "source": "generated"

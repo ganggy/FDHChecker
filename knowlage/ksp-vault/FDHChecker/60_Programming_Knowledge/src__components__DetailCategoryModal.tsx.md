@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "src/components/DetailCategoryModal.tsx"
-source_hash: "a46c8e24eb79212e8cee38841ba03c4ae227d38ac01c9c160fbd2811b5e93bd5"
+source_hash: "c967229e0a067a37aa38bb7e8c90b2b03f172350b47723fd5c3b1555f6ffe981"
 managed_by: "sync-ksp-vault"
 ---
 # DetailCategoryModal.tsx
 
 > Source: `src/components/DetailCategoryModal.tsx`
-> SHA-256: `a46c8e24eb79212e8cee38841ba03c4ae227d38ac01c9c160fbd2811b5e93bd5`
+> SHA-256: `c967229e0a067a37aa38bb7e8c90b2b03f172350b47723fd5c3b1555f6ffe981`
 
 ````tsx
 import React from 'react';

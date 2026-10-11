@@ -4,17 +4,19 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "src/pages/AiReportWorkspacePage.tsx"
-source_hash: "61b03c3097b3d4cfe7f2257c95caf669ab1aed00124bfbe62073c2078d946bd8"
+source_hash: "f18c970535375e58a33b1edd0b78f03e40d9f0c1d5abde164a0b6256d949e183"
 managed_by: "sync-ksp-vault"
 ---
 # AiReportWorkspacePage.tsx
 
 > Source: `src/pages/AiReportWorkspacePage.tsx`
-> SHA-256: `61b03c3097b3d4cfe7f2257c95caf669ab1aed00124bfbe62073c2078d946bd8`
+> SHA-256: `f18c970535375e58a33b1edd0b78f03e40d9f0c1d5abde164a0b6256d949e183`
 
 ````tsx
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { AI_PROMPT_EXAMPLES, AI_PROMPT_TEMPLATE } from '../config/aiPromptExamples';
 import './AiReportWorkspacePage.css';
+import '../components/AiPromptExamples.css';
 
 type Attachment = { filename: string; mimeType: string; base64: string; size: number };
 type ReportColumn = { key: string; label: string };
@@ -46,6 +48,14 @@ const suggestedReports = [
   {
     icon: '💳', title: 'สัดส่วนสิทธิการรักษา', description: 'จำนวนคนและจำนวนครั้ง แยกตามสิทธิ',
     prompt: 'ขอรายงานสัดส่วนสิทธิการรักษาเดือนนี้ ออกเป็น Excel', ready: true,
+  },
+  {
+    icon: '🏘️', title: 'ผู้รับบริการแยกราย รพ.สต.', description: 'รายชื่อ จำนวน visit ค่าใช้จ่าย ประเภทบริการ และ Refer',
+    prompt: 'ขอข้อมูลคนไข้ที่มารับบริการเดือนนี้ แยกราย รพ.สต. พร้อมค่าใช้จ่าย จำนวน visit ประเภทบริการ และ refer ออกเป็น Excel', ready: true,
+  },
+  {
+    icon: '🧾', title: 'รายละเอียดบริการราย Visit', description: 'มาทำอะไร ค่ายา รายการยา Lab หัตถการ และ Refer',
+    prompt: 'ขอสรุปบริการราย visit แยก รพ.สต. ว่ามาทำอะไร ค่าใช้จ่ายเท่าไร มีค่ายา ยาอะไร Lab และบริการอื่นอะไรบ้าง ออกเป็น Excel', ready: true,
   },
 ];
 
@@ -86,13 +96,13 @@ export function AiReportWorkspacePage() {
   useEffect(() => {
     const load = async () => {
       let response = await fetch('/api/ai/status');
-      let payload = await response.json() as { ai?: { model?: string }; auth?: { authenticated?: boolean; trustedAutoLogin?: boolean } };
+      let payload = await response.json() as { ai?: { model?: string; embedModel?: string }; auth?: { authenticated?: boolean; trustedAutoLogin?: boolean } };
       if (!payload.auth?.authenticated && payload.auth?.trustedAutoLogin) {
         await fetch('/api/ai/session/auto', { method: 'POST' });
         response = await fetch('/api/ai/status');
         payload = await response.json();
       }
-      setModel(payload.ai?.model || 'Local AI');
+      setModel([payload.ai?.model, payload.ai?.embedModel].filter(Boolean).join(' + ') || 'Local AI');
       setAuthenticated(Boolean(payload.auth?.authenticated));
     };
     void load().catch(() => setAuthenticated(false));
@@ -201,6 +211,12 @@ export function AiReportWorkspacePage() {
               <div className="ai-report-orb">AI</div>
               <h2>วันนี้อยากได้รายงานอะไรครับ?</h2>
               <p>ระบุหัวข้อ ช่วงเวลา คอลัมน์ และไฟล์ที่ต้องการ ระบบจะค้น HOSxP แบบอ่านอย่างเดียว แสดงตัวอย่าง แล้วสร้างไฟล์ให้ดาวน์โหลด</p>
+              <div className="ai-report-prompt-guide">
+                <strong>Prompt ที่ควรมี</strong>
+                <span>1. ข้อมูลที่ต้องการ</span><span>2. ช่วงวันที่</span><span>3. เงื่อนไข</span>
+                <span>4. หน่วยนับ HN/VN/AN</span><span>5. คอลัมน์</span><span>6. Excel/Word/หน้าจอ</span>
+                <button type="button" onClick={() => { setQuestion(AI_PROMPT_TEMPLATE); textareaRef.current?.focus(); }}>ใช้แม่แบบ Prompt</button>
+              </div>
               <div className="ai-report-starter-grid">
                 {suggestedReports.map((report) => (
                   <button type="button" key={report.title} onClick={() => void send(report.prompt)} disabled={!authenticated}>
@@ -246,11 +262,13 @@ export function AiReportWorkspacePage() {
           {error && <div className="ai-report-error">{error}</div>}
           <form className="ai-report-composer" onSubmit={submit}>
             <textarea ref={textareaRef} value={question} onChange={(event) => setQuestion(event.target.value)} rows={3} maxLength={2000}
-              placeholder="เช่น ขอรายงานผู้เสียชีวิตในเขต PCU 3 ปีงบประมาณย้อนหลัง ออกเป็น Excel…"
+              placeholder="ระบุข้อมูล ช่วงวันที่ เงื่อนไข หน่วยนับ คอลัมน์ และรูปแบบไฟล์…"
               onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} disabled={loading || !authenticated} />
             <button type="submit" disabled={!question.trim() || loading || !authenticated}>➤</button>
           </form>
           <div className="ai-report-composer-meta"><span>Enter ส่ง · Shift+Enter ขึ้นบรรทัดใหม่</span><div>
+            <button type="button" disabled={loading} onClick={() => { setQuestion(AI_PROMPT_TEMPLATE); textareaRef.current?.focus(); }}>แม่แบบ</button>
+            <button type="button" disabled={loading} onClick={() => { setQuestion(AI_PROMPT_EXAMPLES[4].prompt); textareaRef.current?.focus(); }}>ตัวอย่าง</button>
             <button type="button" disabled={!latestReport || loading} onClick={() => void send('เอารายงานล่าสุดเป็น Excel')}>Excel</button>
             <button type="button" disabled={!latestReport || loading} onClick={() => void send('เอารายงานล่าสุดเป็น Word')}>Word</button>
           </div></div>

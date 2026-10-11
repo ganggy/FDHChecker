@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "SERVICE_DATE_FIX_VERIFICATION.md"
-source_hash: "613fd7c267031fa47bacf646be12c67f057b674e5fd6077a9d5e340928c62df6"
+source_hash: "a68e0b967d2a546cfe74a40cda1cec4b44f7829e5e37b2adfbd9c58b9d71dd46"
 managed_by: "sync-ksp-vault"
 ---
 # ✅ SERVICE DATE COLUMN FIX - VERIFICATION & TESTING

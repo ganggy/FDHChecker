@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/aiErrorTools.ts"
-source_hash: "0b6404bf669b7562ec74afd1efb79709a0b9d7b65803c7bf9c809bab15d120b7"
+source_hash: "d579aa925144f92e9a7de2707c4bffd5575ce6023bcef89bd6fa47d13e35bdc7"
 managed_by: "sync-ksp-vault"
 ---
 # aiErrorTools.ts
 
 > Source: `server/aiErrorTools.ts`
-> SHA-256: `0b6404bf669b7562ec74afd1efb79709a0b9d7b65803c7bf9c809bab15d120b7`
+> SHA-256: `d579aa925144f92e9a7de2707c4bffd5575ce6023bcef89bd6fa47d13e35bdc7`
 
 ````typescript
 import fs from 'node:fs';
@@ -40,15 +40,20 @@ export const loadErrorCatalog = (): ErrorCatalog => {
   return cachedCatalog;
 };
 
-const normalizeCode = (value: string) => value.trim().toUpperCase();
+const normalizeCode = (value: string) => value.trim().toUpperCase().replace(/^C(?=\d+(?:-\d+)?$)/, '');
 
 export const parseErrorAnalysisIntent = (question: string): ErrorAnalysisIntent | null => {
   const normalized = question.trim();
-  if (!/(?:error|err|รหัส|ข้อผิดพลาด|ผิดอะไร|แก้(?:ไข)?อย่างไร|แก้ยังไง|rep)/i.test(normalized)) return null;
+  const hasErrorLanguage = /(?:error|err|ข้อผิดพลาด|ผิดอะไร|แก้(?:ไข)?อย่างไร|แก้ยังไง|\brep\b)/i.test(normalized);
+  if (!hasErrorLanguage && !/รหัส/i.test(normalized)) return null;
   const vn = normalized.match(/\bvn\s*[:#-]?\s*(\d{6,20})\b/i)?.[1];
   const catalog = loadErrorCatalog();
-  const candidates = normalized.match(/\b(?:[a-z]{1,3}\d{2,4}|\d{3,4})\b/gi) || [];
+  const candidates = normalized.match(/\b(?:[a-z]{1,3}\d{2,4}|\d{3,4})(?:-\d+)?\b/gi) || [];
   const codes = [...new Set(candidates.map(normalizeCode).filter((code) => Boolean(catalog[code])))];
+  // The word "รหัส" also appears in clinical report requests such as
+  // "รหัสโรค ICD-10 O240-O249". Only claim this intent when the
+  // supplied code actually exists in the REP catalog, or error/VN context is explicit.
+  if (!hasErrorLanguage && !vn && !codes.length) return null;
   return { codes, ...(vn ? { vn } : {}) };
 };
 

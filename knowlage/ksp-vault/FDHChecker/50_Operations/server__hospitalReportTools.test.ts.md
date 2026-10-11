@@ -4,29 +4,30 @@ project: FDHChecker
 type: "source-snapshot"
 category: "operations"
 source: "server/hospitalReportTools.test.ts"
-source_hash: "031a7a41c60622fb2982432313a523491de7c3b7c7aa75d8b06d87cdac173e51"
+source_hash: "6613df13db7529f15ec8a6b585ffbe441981b47f8497846be34c11463aa6e8a9"
 managed_by: "sync-ksp-vault"
 ---
 # hospitalReportTools.test.ts
 
 > Source: `server/hospitalReportTools.test.ts`
-> SHA-256: `031a7a41c60622fb2982432313a523491de7c3b7c7aa75d8b06d87cdac173e51`
+> SHA-256: `6613df13db7529f15ec8a6b585ffbe441981b47f8497846be34c11463aa6e8a9`
 
 ````typescript
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   fiscalYearDateRange,
-  HOSPITAL_PCU_SCOPE,
   parseCommunityDeathReportIntent,
+  parseHospitalReportInstructionFilters,
   parseHospitalReportIntent,
   runHospitalReport,
 } from './hospitalReportTools.js';
 
-test('maps the hospital PCU villages from the confirmed area image', () => {
-  assert.equal(HOSPITAL_PCU_SCOPE.addressId, '471501');
-  assert.deepEqual(HOSPITAL_PCU_SCOPE.villages, [1, 2, 4, 5, 7, 8, 9, 10, 13, 14, 15, 16]);
-  assert.equal(HOSPITAL_PCU_SCOPE.villages.includes(3 as never), false);
+test('turns an explicit UC-only instruction into a real payer filter', () => {
+  assert.deepEqual(parseHospitalReportInstructionFilters('เอาเฉพาะสิทธิ์ uc'), { payerGroup: 'uc' });
+  assert.deepEqual(parseHospitalReportInstructionFilters('บัตรทองเท่านั้น'), { payerGroup: 'uc' });
+  assert.deepEqual(parseHospitalReportInstructionFilters('สรุปสำหรับประชุมเช้า'), { payerGroup: undefined });
+  assert.deepEqual(parseHospitalReportInstructionFilters('ไม่เอา UC'), { payerGroup: undefined });
 });
 
 test('uses the current and two prior Thai fiscal years for a three-year report', () => {
@@ -66,6 +67,12 @@ test('routes verified bed and payer templates without model-generated SQL', () =
   assert.deepEqual(parseHospitalReportIntent('รวมทุกตึก 30 เตียงตามการขึ้นทะเบียน และ 38 ตาม กบรส'), {
     reportId: 'bed-occupancy', registeredBeds: 30, operationalBeds: 38, aiSummary: true,
   });
+  assert.deepEqual(parseHospitalReportIntent('อยากได้ข้อมูลคนไข้แยกราย รพ.สต. ค่าใช้จ่าย visit และ refer เป็น Excel', new Date('2026-08-05T01:00:00Z')), {
+    reportId: 'pcu-patient-service', dateStart: '2026-08-01', dateEnd: '2026-08-31', format: 'xlsx', aiSummary: true,
+  });
+  assert.deepEqual(parseHospitalReportIntent('ขอสรุปบริการแยก รพ.สต. ว่ามาทำอะไร ค่ายา ยาอะไร lab และอื่นๆ เป็น Excel', new Date('2026-08-05T01:00:00Z')), {
+    reportId: 'pcu-visit-service-detail', dateStart: '2026-08-01', dateEnd: '2026-08-31', format: 'xlsx', aiSummary: true,
+  });
 });
 
 test('rejects patient reports without an exact identifier before querying HOSxP', async () => {
@@ -83,6 +90,14 @@ test('rejects reversed and oversized financial report date ranges', async () => 
   await assert.rejects(
     () => runHospitalReport({ reportId: 'cost-per-drg', dateStart: '2024-01-01', dateEnd: '2026-08-05' }),
     /ไม่เกิน 366 วัน/,
+  );
+  await assert.rejects(
+    () => runHospitalReport({ reportId: 'daily-service-summary', dateStart: '2026-08-05', dateEnd: '2026-08-01' }),
+    /วันที่เริ่มต้นต้องไม่เกิน/,
+  );
+  await assert.rejects(
+    () => runHospitalReport({ reportId: 'referral-report', dateStart: 'invalid', dateEnd: '2026-08-05' }),
+    /กรุณาระบุวันที่เริ่มต้นและสิ้นสุด/,
   );
 });
 

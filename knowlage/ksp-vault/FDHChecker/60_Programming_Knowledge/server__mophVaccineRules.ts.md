@@ -4,13 +4,13 @@ project: FDHChecker
 type: "source-snapshot"
 category: "programming"
 source: "server/mophVaccineRules.ts"
-source_hash: "cf5d51a6f6bd9c57a989d7b63f3e220ea31b5dd4b8ebdf44afe6ee23042d8659"
+source_hash: "9cb033a92be311b63f688b2e7f0ed174ba6eec8a90a75f3670e7a90338d47da4"
 managed_by: "sync-ksp-vault"
 ---
 # mophVaccineRules.ts
 
 > Source: `server/mophVaccineRules.ts`
-> SHA-256: `cf5d51a6f6bd9c57a989d7b63f3e220ea31b5dd4b8ebdf44afe6ee23042d8659`
+> SHA-256: `9cb033a92be311b63f688b2e7f0ed174ba6eec8a90a75f3670e7a90338d47da4`
 
 ````typescript
 export const AP_VACCINE_CODE = 'P41';

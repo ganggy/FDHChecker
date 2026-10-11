@@ -4,7 +4,7 @@ project: FDHChecker
 type: "project-document"
 category: "documentation"
 source: "STAFF_PAGE_UPDATE.md"
-source_hash: "1d9ff722d01bcdd0c4f9cf5778f50d6d53692749dad9b6fa43e9af9299f5d6ce"
+source_hash: "dde783058be5b6cde372ee23ef3b8f5dea265a0c5e0e359705e3e79c8cc2a215"
 managed_by: "sync-ksp-vault"
 ---
 # การแก้ไขหน้า Staff - การตรวจสอบข้อมูลแบบละเอียด

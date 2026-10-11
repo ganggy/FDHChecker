@@ -29,6 +29,24 @@ test('does not treat a generic empty Invoice column as INV', () => {
   assert.equal(detectRepstmImportType('download.xls', ['Invoice No.', 'TRAN_ID'], [{ 'Invoice No.': '', TRAN_ID: '1' }]), null);
 });
 
+test('classifies eclaim workbook with payment mode (จ่ายตามรอบ STM) as STM', () => {
+  const type = detectRepstmImportType(
+    'eclaim_11101_IP_25681002_181034841.xls',
+    ['REP No.', 'TRAN_ID', 'HN', 'AN', 'ชดเชยสุทธิ', 'รูปแบบการจ่าย'],
+    [{ 'REP No.': '681000011', TRAN_ID: '697645180', 'ชดเชยสุทธิ': 2695.38, 'รูปแบบการจ่าย': 'จ่ายตามรอบ STM' }],
+  );
+  assert.equal(type, 'STM');
+});
+
+test('classifies eclaim workbook from invoice path as STM when containing compensated amount', () => {
+  const type = detectRepstmImportType(
+    'D:/invoice/eclaim_11101_IPLGO_25691003_142811495.xls',
+    ['REP', 'TRAN_ID', 'HN', 'AN', 'ชดเชยสุทธิ', 'INVOICE NO'],
+    [{ REP: '691000018', TRAN_ID: '827200197', 'ชดเชยสุทธิ': 2533.07 }],
+  );
+  assert.equal(type, 'STM');
+});
+
 test('dialysis payment files are detected as STM and retain every visit row', () => {
   const dckdName = 'DCKD6931080031_11101_29 ก.ย. 2569.xlsx';
   const lgoName = 'LGO-HD69-M10_11101_29 ก.ย. 2569.xlsx';

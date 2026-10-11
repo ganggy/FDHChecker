@@ -53,15 +53,30 @@ export const detectRepstmImportType = (
   headers: string[],
   rows: Record<string, unknown>[],
 ): RepstmImportType | null => {
+  const normalizedHeaders = headers.map(normalizeHeader);
+  const firstRowKeys = Object.keys(rows[0] || {}).map(normalizeHeader);
+  const bag = `${normalizedHeaders.join(' | ')} | ${firstRowKeys.join(' | ')}`;
+
+  // 1. If rows explicitly specify an STM payment method (e.g. 'รูปแบบการจ่าย' has 'STM' or 'จ่ายตามรอบ' or 'จ่ายรายวัน'),
+  // or the file is sourced from an invoice/stm directory and has compensation columns, it is an STM payment statement.
+  const hasStmPaymentMode = rows.slice(0, 15).some((r) => {
+    const payType = String(r['รูปแบบการจ่าย'] || r['รูปแบบการจ่ายเงิน'] || '').trim();
+    return payType.includes('STM') || payType.includes('จ่ายตามรอบ') || payType.includes('จ่ายรายวัน');
+  });
+
+  const normalizedFileName = fileName.trim().toLowerCase();
+  const isInvoicePath = /(?:^|[\\/._-])(?:inv|invoice)(?:[\\/._-]|$)/i.test(normalizedFileName);
+  const hasCompensatedField = bag.includes('ชดเชยสุทธิ') || bag.includes('จ่ายชดเชย') || bag.includes('ยอดชดเชย');
+
+  if (hasStmPaymentMode || (isInvoicePath && hasCompensatedField)) {
+    return 'STM';
+  }
+
   const filenameType = detectTypeFromFileName(fileName);
 
   // These source names are authoritative. In particular, eclaim_* is a REP
   // response and must not become INV merely because it carries an Invoice field.
   if (filenameType) return filenameType;
-
-  const normalizedHeaders = headers.map(normalizeHeader);
-  const firstRowKeys = Object.keys(rows[0] || {}).map(normalizeHeader);
-  const bag = `${normalizedHeaders.join(' | ')} | ${firstRowKeys.join(' | ')}`;
 
   const repSignalCount = ['tran_id', 'hn', 'an', 'pid', 'ชื่อ - สกุล', 'วันเข้ารักษา', 'ชดเชยสุทธิ', 'พึงรับ']
     .filter((signal) => bag.includes(signal)).length;

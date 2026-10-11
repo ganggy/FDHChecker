@@ -436,6 +436,22 @@ export const RepStmImportPage: React.FC = () => {
     }));
   };
 
+  const changeAllQueueImporters = (importerType: ImportType) => {
+    setQueueItems((current) =>
+      current.map((item) => {
+        if (item.status === 'importing' || item.status === 'success') return item;
+        return {
+          ...item,
+          detectedType: importerType,
+          status: item.rows.length > 0 ? 'ready' : item.status,
+          message: item.rows.length > 0
+            ? `เลือกตัวนำเข้า ${importerType} โดยผู้ใช้ · ${item.rows.length.toLocaleString()} แถวพร้อมนำเข้า`
+            : item.message,
+        };
+      })
+    );
+  };
+
   const openQueueDetail = (item: ImportQueueItem) => {
     setDetailLoading(false);
     setDetailError(null);
@@ -819,8 +835,8 @@ export const RepStmImportPage: React.FC = () => {
           const detectedType = importerId && hintType
             ? hintType
             : isSubfile
-              ? hintType || detectImportType(queueItem.fileName, headers, rows)
-              : detectImportType(queueItem.fileName, headers, rows) || hintType;
+              ? hintType || detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows)
+              : detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows) || hintType;
           const parsedItem: ImportQueueItem = {
             ...queueItem,
             sheetName,
@@ -854,8 +870,8 @@ export const RepStmImportPage: React.FC = () => {
             const detectedType = importerId && hintType
               ? hintType
               : isSubfile
-                ? hintType || detectImportType(queueItem.fileName, headers, rows)
-                : detectImportType(queueItem.fileName, headers, rows) || hintType;
+                ? hintType || detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows)
+                : detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows) || hintType;
             return {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,
@@ -1442,16 +1458,51 @@ export const RepStmImportPage: React.FC = () => {
         </div>
         <div className="card-body" style={{ padding: 16 }}>
           <div className="repstm-progress-hero">
-            <div className="repstm-progress-top">
+            <div className="repstm-progress-top" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
               <div>
                 <div className="repstm-progress-label">ความคืบหน้ารวม</div>
                 <div className="repstm-progress-value">{overallProgress}%</div>
               </div>
-              <div className="repstm-chip-row">
+              <div className="repstm-chip-row" style={{ alignItems: 'center', gap: 8 }}>
                 <span className="badge badge-primary">REP {typeSummary.REP}</span>
                 <span className="badge badge-info">STM {typeSummary.STM}</span>
                 <span className="badge badge-warning">INV {typeSummary.INV}</span>
               </div>
+              {queueItems.length > 0 && (
+                <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>ปรับทั้งคิวเป็น:</span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 11, padding: '3px 10px', background: '#0284c7', color: '#fff', borderColor: '#0284c7' }}
+                    onClick={() => changeAllQueueImporters('STM')}
+                    disabled={importing}
+                    title="เปลี่ยนตัวนำเข้าของทุกไฟล์ในคิวเป็น STM"
+                  >
+                    ⚡ เป็น STM ทั้งหมด
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 11, padding: '3px 10px', background: '#2563eb', color: '#fff', borderColor: '#2563eb' }}
+                    onClick={() => changeAllQueueImporters('REP')}
+                    disabled={importing}
+                    title="เปลี่ยนตัวนำเข้าของทุกไฟล์ในคิวเป็น REP"
+                  >
+                    ⚡ เป็น REP ทั้งหมด
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 11, padding: '3px 10px', background: '#d97706', color: '#fff', borderColor: '#d97706' }}
+                    onClick={() => changeAllQueueImporters('INV')}
+                    disabled={importing}
+                    title="เปลี่ยนตัวนำเข้าของทุกไฟล์ในคิวเป็น INV"
+                  >
+                    ⚡ เป็น INV ทั้งหมด
+                  </button>
+                </div>
+              )}
             </div>
             <div className="repstm-progress-track">
               <div style={{

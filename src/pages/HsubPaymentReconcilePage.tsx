@@ -182,11 +182,11 @@ export const HsubPaymentReconcilePage: React.FC = () => {
   const processFiles = async (files: File[]) => {
     const excelFiles = files.filter((f) => {
       const name = f.name.toLowerCase();
-      return name.endsWith('.xls') || name.endsWith('.xlsx');
+      return name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.csv');
     });
 
     if (excelFiles.length === 0) {
-      setError('กรุณาเลือกไฟล์ Excel (.xls หรือ .xlsx)');
+      setError('กรุณาเลือกไฟล์ Excel หรือ CSV (.xls, .xlsx, .csv)');
       return;
     }
 
@@ -390,7 +390,7 @@ export const HsubPaymentReconcilePage: React.FC = () => {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".xls,.xlsx"
+            accept=".xls,.xlsx,.csv"
             style={{ display: 'none' }}
             onChange={handleFileInputChange}
           />
@@ -430,7 +430,7 @@ export const HsubPaymentReconcilePage: React.FC = () => {
         onClick={() => fileInputRef.current?.click()}
       >
         <div className="hsub-dropzone-icon">📥</div>
-        <div className="hsub-dropzone-text">ลากไฟล์ Excel (.xls, .xlsx) ของ รพ.สต. มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</div>
+        <div className="hsub-dropzone-text">ลากไฟล์ Excel / CSV (.xls, .xlsx, .csv) ของ รพ.สต. มาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</div>
         <div className="hsub-dropzone-hint">
           รองรับการเลือกทีละหลายไฟล์พร้อมกันจากโฟลเดอร์ <code>D:\hsub</code> หรือที่จัดเก็บในเครื่องของคุณ
         </div>

@@ -208,13 +208,17 @@ export async function importHsubRawData(
     let fileClaim = 0;
     let filePaid = 0;
 
-    for (let r = 7; r < data.length; r++) {
+    for (let r = 0; r < data.length; r++) {
       const row = data[r];
       if (!row || row.length === 0 || !row[0]) continue;
 
       const col0 = String(row[0]).trim();
-      if (col0 === 'ข้อมูลอุทธรณ์') {
+      if (col0.includes('อุทธรณ์')) {
         sectionType = 'appeal';
+        continue;
+      }
+      if (col0.includes('ปกติ')) {
+        sectionType = 'normal';
         continue;
       }
       if (col0 === 'REP' || col0.includes('รายงาน') || col0.includes('ลำดับ')) {

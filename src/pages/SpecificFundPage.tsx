@@ -3367,7 +3367,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                                             : '➕ เติม Z51.5'}
                                                                             </button>
                                                                         )}
-                                                                        {review.canMarkAsHomeVisit && (
+                                                                        {review.canMarkAsHomeVisit && !review.isMorphineDispensingOnly && (
                                                                             <button
                                                                                 type="button"
                                                                                 className="btn"
@@ -3415,8 +3415,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                                 {item.has_30001 === 'Y' && <span className="badge badge-primary">30001</span>}
                                                                 {item.has_cons01 === 'Y' && <span className="badge badge-primary">Cons01</span>}
                                                                 {item.has_eva001 === 'Y' && <span className="badge badge-primary">Eva001</span>}
-                                                                {(item.has_30001 !== 'Y' && item.has_cons01 !== 'Y' && item.has_eva001 !== 'Y') &&
-                                                                    <span className="badge badge-danger">✗ ไม่มี ADP</span>}
+                                                                {(item.has_30001 !== 'Y' && item.has_cons01 !== 'Y' && item.has_eva001 !== 'Y') && (
+                                                                    (() => {
+                                                                        const rev = getPalliativeReview(item);
+                                                                        return rev.isMorphineDispensingOnly ? (
+                                                                            <span className="badge" style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0' }} title="เคสจ่ายยากลุ่มมอร์ฟีนสมบูรณ์โดยไม่ต้องลงรหัส ADP">
+                                                                                ✓ ไม่ต้องลง ADP (มอร์ฟีน)
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="badge badge-danger">✗ ไม่มี ADP</span>
+                                                                        );
+                                                                    })()
+                                                                )}
                                                             </div>
                                                         </td>
                                                     </>

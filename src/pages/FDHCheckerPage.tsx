@@ -478,18 +478,20 @@ export const FDHCheckerPage: React.FC = () => {
         setPreviewValidation(null);
     };
 
-    const hasFdhSubmission = (item: EligibleVisit) => Boolean(
-        item.fdh_has_submission ||
-        item.fdh_claim_code ||
-        item.fdh_upload_uid ||
-        item.fdh_sent_at ||
-        item.fdh_error_code ||
-        !isMissingFdhStatus(
-            item.fdh_claim_detail_status ||
-            item.fdh_reservation_status ||
-            item.fdh_claim_status_message
-        )
-    );
+    const hasFdhSubmission = (item: EligibleVisit) => {
+        if (isFailedFdhSubmission(item)) return false;
+        return Boolean(
+            item.fdh_has_submission ||
+            item.fdh_claim_code ||
+            item.fdh_upload_uid ||
+            item.fdh_sent_at ||
+            !isMissingFdhStatus(
+                item.fdh_claim_detail_status ||
+                item.fdh_reservation_status ||
+                item.fdh_claim_status_message
+            )
+        );
+    };
 
     const isSelectableForExport = (item: EligibleVisit) => isReadyForExportFund(item)
         && matchesPttype(item)

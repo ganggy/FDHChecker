@@ -22,8 +22,12 @@ test('identifies only failed FDH statuses for the resend filter', () => {
   assert.equal(isFailedFdhSubmission({ fdh_status_label: 'ประมวลผลไม่ผ่าน' }), true);
   assert.equal(isFailedFdhSubmission({ fdh_claim_detail_status: 'REJECTED' }), true);
   assert.equal(isFailedFdhSubmission({ fdh_error_code: 'E001' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_status_label: 'ยืนยันตัวตนไม่สำเร็จ เนื่องจาก Token หมดอายุ' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_claim_status_message: 'ยืนยันตัวตนไม่สำเร็จ เนื่องจากไม่พบ Token' }), true);
+  assert.equal(isFailedFdhSubmission({ fdh_reservation_status: 'Token หมดอายุ' }), true);
   assert.equal(isFailedFdhSubmission({ fdh_status_label: 'ประมวลผลผ่าน' }), false);
   assert.equal(isFailedFdhSubmission({ fdh_status_label: 'UNCLAIMED' }), false);
+  assert.equal(hasFdhSubmissionData({ fdh_status_label: 'ยืนยันตัวตนไม่สำเร็จ เนื่องจาก Token หมดอายุ' }), false);
 });
 
 test('FDH progress identifies records that are ready but not submitted', () => {

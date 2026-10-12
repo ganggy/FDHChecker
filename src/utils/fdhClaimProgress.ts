@@ -46,7 +46,9 @@ export const isMissingFdhStatus = (value: unknown) => {
         || normalized.includes('ไม่มีรายการ')
         || normalized.includes('ยังไม่ส่ง')
         || normalized.includes('not found')
-        || normalized.includes('no data');
+        || normalized.includes('no data')
+        || normalized.includes('token')
+        || normalized.includes('ยืนยันตัวตนไม่สำเร็จ');
 };
 
 export const isFailedFdhSubmission = (row: FdhSubmissionStatusRow) => {
@@ -58,14 +60,17 @@ export const isFailedFdhSubmission = (row: FdhSubmissionStatusRow) => {
         row.fdh_claim_status_message,
     ].map((value) => String(value ?? '').trim().toLowerCase()).filter(Boolean).join(' ');
 
-    return /ประมวลผลไม่ผ่าน|ไม่ผ่าน|reject(?:ed)?|fail(?:ed|ure)?|\berror\b|den(?:y|ied)/i.test(statusText);
+    return /ประมวลผลไม่ผ่าน|ไม่ผ่าน|reject(?:ed)?|fail(?:ed|ure)?|\berror\b|den(?:y|ied)|token\s*หมดอายุ|token.*(?:expired|ไม่ถูกต้อง|ไม่พบ|ไม่สมบูรณ์)|invalid.*token|ยืนยันตัวตนไม่สำเร็จ/i.test(statusText);
 };
 
 /**
  * ClaimDetail imported from FDH is the strongest evidence. A non-empty status
- * from track_trans also counts, except explicit "not found" responses.
+ * from track_trans also counts, except explicit "not found" responses and failed/token-expired submissions.
  */
 export const hasFdhSubmissionData = (row: FdhTrackingRow) => {
+    if (isFailedFdhSubmission(row)) {
+        return false;
+    }
     if (flag(row.has_fdh_import) || hasValue(row.fdh_import_upload_uid) || hasValue(row.fdh_import_sent_at)) {
         return true;
     }

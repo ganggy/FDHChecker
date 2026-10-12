@@ -64,19 +64,22 @@ const firstDayOfCurrentMonth = () => {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
 };
 
-const hasFdhSubmission = (row: IpdExportRow) => Boolean(
-  row.fdh_transaction_uid
-  || row.fdh_claim_code
-  || row.fdh_upload_uid
-  || row.fdh_claim_detail_sent_at
-  || row.fdh_updated_at
-  || !isMissingFdhStatus(
-    row.fdh_claim_detail_status
-    || row.fdh_reservation_status
-    || row.fdh_claim_status_message
-    || row.fdh_status_label,
-  )
-);
+const hasFdhSubmission = (row: IpdExportRow) => {
+  if (isFailedFdhSubmission(row)) return false;
+  return Boolean(
+    row.fdh_transaction_uid
+    || row.fdh_claim_code
+    || row.fdh_upload_uid
+    || row.fdh_claim_detail_sent_at
+    || row.fdh_updated_at
+    || !isMissingFdhStatus(
+      row.fdh_claim_detail_status
+      || row.fdh_reservation_status
+      || row.fdh_claim_status_message
+      || row.fdh_status_label,
+    )
+  );
+};
 
 const fdhLabel = (row: IpdExportRow) => row.fdh_status_label
   || row.fdh_claim_detail_status

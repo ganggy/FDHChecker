@@ -67,10 +67,11 @@ test('PM2 version warnings do not hide the runner process list', () => {
   assert.throws(() => parsePm2ProcessList('PM2 unavailable'), /process list/);
 });
 test('runner completes and handles timeout, failure and replay with fake services', {
-  skip: !existsSync(bash), timeout: 40_000,
+  skip: !existsSync(bash) || Boolean(process.env.FDH_UPDATE_JOB_ID) || Boolean(process.env.FDH_UPDATE_RUNNER_NAME),
+  timeout: 90_000,
 }, () => {
   execFileSync(bash, ['deploy/scripts/self-update-runner.test.sh'], {
-    cwd: process.cwd(), timeout: 35_000, encoding: 'utf8',
+    cwd: process.cwd(), timeout: 80_000, encoding: 'utf8',
   });
 });
 

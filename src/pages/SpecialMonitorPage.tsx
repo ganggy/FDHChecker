@@ -126,7 +126,7 @@ const CLAIM_CATEGORY_CONFIG: Record<
     other: { label: 'สิทธิอื่นๆ', short: 'OTHER', code: 'OTHER', color: '#64748b', background: '#f8fafc', border: '#94a3b8' },
 };
 
-export const getVisitClaimCategory = (item: MonitorItem): Exclude<ClaimCategoryKey, 'all'> => {
+const getVisitClaimCategory = (item: MonitorItem): Exclude<ClaimCategoryKey, 'all'> => {
     const code = String(item.hipdataCode || item.hipdata_code || '').trim().toUpperCase();
     const rightName = String(item.insuranceType || item.pttypeName || '').trim().toLowerCase();
     const group = String(item.insuranceGroup || '').trim().toUpperCase();

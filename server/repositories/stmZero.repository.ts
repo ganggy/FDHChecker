@@ -276,7 +276,7 @@ export async function readStmZeroRows(startDate: string, endDate: string, source
       }
     } finally { hospital.release(); }
 
-    let resolutionMap = new Map<string, { status: string; reason: string; resolved_at: string; note: string }>();
+    const resolutionMap = new Map<string, { status: string; reason: string; resolved_at: string; note: string }>();
     try {
       await ensureRepSheetZeroResolutionTable(connection);
       const [resolutions] = await connection.query<RowDataPacket[]>(`

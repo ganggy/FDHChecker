@@ -902,8 +902,8 @@ export async function getExecutiveMonitorSummary(params: {
 
   // Preload HOSxP clinical data: dental registry, Thai medicine procedures, FDH claim status, and total hospital visits
   let dentalVnSet = new Set<string>();
-  let thaiMedVnMap = new Map<string, { opName: string; opType: 'นวด' | 'ประคบ' | 'อบ' | 'นวดพร้อมประคบ' | 'อื่นๆ' }>();
-  let fdhStatusMap = new Map<string, { fdhAmt: number; status: string }>();
+  const thaiMedVnMap = new Map<string, { opName: string; opType: 'นวด' | 'ประคบ' | 'อบ' | 'นวดพร้อมประคบ' | 'อื่นๆ' }>();
+  const fdhStatusMap = new Map<string, { fdhAmt: number; status: string }>();
   let hospitalVisits = { total: 0, opd: 0, ipd: 0 };
   try {
     const hosConn = await getUTFConnection();
@@ -1230,7 +1230,7 @@ export async function getExecutiveMonitorSummary(params: {
       let rawObj: any = null;
       if (row.raw_data) {
         if (typeof row.raw_data === 'string') {
-          try { rawObj = JSON.parse(row.raw_data); } catch {}
+          try { rawObj = JSON.parse(row.raw_data); } catch { /* ignore invalid json */ }
         } else if (typeof row.raw_data === 'object') {
           rawObj = row.raw_data;
         }

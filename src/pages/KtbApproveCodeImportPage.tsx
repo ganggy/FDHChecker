@@ -237,7 +237,7 @@ export function KtbApproveCodeImportPage() {
         skippedCount: json.data.skippedCount,
       });
 
-      // Update local match items status
+      // Update local match items status and recalculate KPI counts
       setMatchSummary((prev) => {
         if (!prev) return null;
         const nextItems = prev.items.map((item) => {
@@ -254,7 +254,20 @@ export function KtbApproveCodeImportPage() {
           }
           return item;
         });
-        return { ...prev, items: nextItems };
+
+        const readyToImportCount = nextItems.filter((i) => i.status === 'READY_TO_IMPORT').length;
+        const alreadySetCount = nextItems.filter((i) => i.status === 'ALREADY_SET').length;
+        const conflictCount = nextItems.filter((i) => i.status === 'CONFLICT').length;
+        const notFoundCount = nextItems.filter((i) => ['VISIT_NOT_FOUND', 'PATIENT_NOT_FOUND'].includes(i.status)).length;
+
+        return {
+          ...prev,
+          items: nextItems,
+          readyToImportCount,
+          alreadySetCount,
+          conflictCount,
+          notFoundCount,
+        };
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');

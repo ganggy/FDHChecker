@@ -41,6 +41,8 @@ const ISSUE_FILE_MAP: Record<string, string[]> = {
   'ER-PALLIATIVE-MORPHINE-MISSING-DX': ['DRU', 'ODX'],
   'ER-853': ['ADP'],
   'OPD-TM01': ['ADP'],
+  'OPD-DX01': ['ODX'],
+  'OPD-DX02': ['ODX'],
 };
 
 const FILE_LABELS: Record<string, string> = {
@@ -94,6 +96,8 @@ const ISSUE_LABELS: Record<string, string> = {
   'ER-PALLIATIVE-MORPHINE-MISSING-DX': 'มีการสั่งจ่ายยากลุ่มมอร์ฟีนแต่ขาดรหัสวินิจฉัย Z51.5 / Z71.8 (เติม Auto ได้)',
   'ER-853': 'เบิกรหัสนวด/ประคบสมุนไพรซ้ำในวันเดียวกันเกิน 1 รหัส (กค 0422.2/ว 447)',
   'OPD-TM01': 'เบิกรหัสนวด/ประคบสมุนไพรซ้ำในวันเดียวกันเกิน 1 รหัส (กค 0422.2/ว 447)',
+  'OPD-DX01': 'รหัสวินิจฉัยกลุ่ม S มีน้อยกว่า 5 หลัก',
+  'OPD-DX02': 'วินิจฉัยหลักบาดเจ็บ (S/T) ขาดรหัสสาเหตุภายนอก (V,W,X,Y) (C-232)',
 };
 
 const OPD_BLOCKING_CODES = new Set(['OPD-LAB01', 'OPD-CHG01', 'OPD-CHG03', 'OPD-CHG04', 'OPD-CHG05', 'OPD-DRU01', 'OPD-TM01', 'ER-853']);

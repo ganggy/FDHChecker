@@ -140,6 +140,7 @@ import { officialReceivableRouter } from './routes/officialReceivableRoutes.js';
 import { receivableSettlementRouter } from './routes/receivableSettlementRoutes.js';
 import { smtBudgetRouter } from './routes/smtBudgetRoutes.js';
 import { hsubRouter } from './routes/hsubRoutes.js';
+import { pcuHerbalRouter } from './routes/pcuHerbalRoutes.js';
 import { executiveMonitorRouter } from './routes/executiveMonitorRoutes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, resetSystemUpdateLock, startDirectSystemUpdate, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
@@ -1117,6 +1118,7 @@ app.use('/api/official-receivable', officialReceivableRouter);
 app.use('/api/receivables/settlement', receivableSettlementRouter);
 app.use('/api/smt-budget', smtBudgetRouter);
 app.use('/api/hsub', hsubRouter);
+app.use('/api/pcu-herbal', pcuHerbalRouter);
 app.use('/api/executive-monitor', executiveMonitorRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.

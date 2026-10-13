@@ -93,6 +93,18 @@ export const evaluateOpdPreAudit = (row: Record<string, unknown>): OpdPreAuditIs
     });
   }
 
+  const allDx = diagnosisCodes(row);
+  const primaryDx = normalizeDiagnosisCode(row.main_diag ?? row.pdx ?? row.dx0 ?? '');
+  const isInjuryPdx = primaryDx.startsWith('S') || primaryDx.startsWith('T');
+  const hasExternalCause = allDx.some((code) => /^[VWXY]/.test(code));
+  if (isInjuryPdx && !hasExternalCause) {
+    issues.push({
+      code: 'OPD-DX02',
+      message: `รหัสวินิจฉัยหลักกลุ่มบาดเจ็บ (${primaryDx}) ต้องมีรหัสสาเหตุภายนอก (V, W, X, Y) ร่วมด้วย (e-Claim C-232)`,
+      severity: 'warning',
+    });
+  }
+
   const rawTmCodes = Array.isArray(row.thai_med_codes)
     ? (row.thai_med_codes as string[])
     : String(row.thai_med_codes ?? '').split(/[\s,;|]+/);

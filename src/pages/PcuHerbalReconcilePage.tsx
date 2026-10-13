@@ -1,0 +1,747 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import * as XLSX from 'xlsx';
+import './PcuHerbalReconcilePage.css';
+
+export interface HerbalMasterItem {
+  id: number;
+  name: string;
+  size: string;
+  cost: number;
+  unitCost: number;
+  keywords: string[];
+}
+
+export interface PcuHerbalSummary {
+  pcu_code: string;
+  pcu_name: string;
+  host_ip: string;
+  is_online: boolean;
+  total_dispense_count: number;
+  total_dispensed_qty: number;
+  total_drug_cost: number;
+  total_charge_amt: number;
+  hsub_claim_amt: number;
+  hsub_hc_drug: number;
+  hsub_total_paid: number;
+  gross_profit: number;
+  payable_profit: number;
+  margin_percentage: number;
+  item_breakdown: Array<{
+    herbal_id: number;
+    herbal_name: string;
+    size: string;
+    cost_price: number;
+    dispense_count: number;
+    dispensed_qty: number;
+    total_cost: number;
+    total_charge: number;
+  }>;
+}
+
+export interface PcuHerbalResponse {
+  period: { startDate: string; endDate: string };
+  grand_total: {
+    total_dispense_count: number;
+    total_dispensed_qty: number;
+    total_drug_cost: number;
+    total_charge_amt: number;
+    hsub_claim_amt: number;
+    hsub_hc_drug: number;
+    hsub_total_paid: number;
+    gross_profit: number;
+    payable_profit: number;
+  };
+  pcus: PcuHerbalSummary[];
+  master_items: HerbalMasterItem[];
+}
+
+export interface DrillDownItem {
+  vn: string;
+  hn: string;
+  vstdate: string;
+  patient_name: string;
+  icode: string;
+  drug_name: string;
+  units: string;
+  qty: number;
+  unit_price: number;
+  sum_price: number;
+  herbal_master_name: string;
+  herbal_size: string;
+  unit_cost: number;
+  total_cost: number;
+  margin: number;
+}
+
+export const PcuHerbalReconcilePage: React.FC = () => {
+  const [data, setData] = useState<PcuHerbalResponse | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Filters
+  const [selectedHcode, setSelectedHcode] = useState<string>('all');
+  const [startDate, setStartDate] = useState<string>('2025-10-01');
+  const [endDate, setEndDate] = useState<string>('2026-10-31');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // Active Tab: 'summary' | 'master46' | 'drilldown'
+  const [activeTab, setActiveTab] = useState<'summary' | 'master46' | 'drilldown'>('summary');
+
+  // Connection status testing
+  const [testingConn, setTestingConn] = useState<boolean>(false);
+  const [connStatus, setConnStatus] = useState<Array<{ code: string; name: string; host: string; connected: boolean }> | null>(null);
+
+  // Drill down modal state
+  const [modalOpen, setModalOpen] = useState<boolean>(false);
+  const [modalTitle, setModalTitle] = useState<string>('');
+  const [modalHcode, setModalHcode] = useState<string>('05570');
+  const [modalHerbalId, setModalHerbalId] = useState<number | undefined>(undefined);
+  const [modalSearch, setModalSearch] = useState<string>('');
+  const [modalPage, setModalPage] = useState<number>(1);
+  const [modalLoading, setModalLoading] = useState<boolean>(false);
+  const [modalData, setModalData] = useState<{ total: number; totalPages: number; items: DrillDownItem[] } | null>(null);
+
+  // Load summary data
+  const loadSummary = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        startDate,
+        endDate,
+      });
+      if (selectedHcode !== 'all') {
+        params.append('hcode', selectedHcode);
+      }
+      const res = await fetch(`/api/pcu-herbal/summary?${params.toString()}`);
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'ไม่สามารถโหลดข้อมูลสรุปจ่ายยาสมุนไพรได้');
+      }
+      setData(json.data);
+    } catch (err: any) {
+      setError(err.message || 'เกิดข้อผิดพลาดในการโหลดข้อมูล');
+    } finally {
+      setLoading(false);
+    }
+  }, [startDate, endDate, selectedHcode]);
+
+  useEffect(() => {
+    loadSummary();
+  }, [loadSummary]);
+
+  // Test connections
+  const handleTestConnections = async () => {
+    setTestingConn(true);
+    try {
+      const res = await fetch('/api/pcu-herbal/test-connections', { method: 'POST' });
+      const json = await res.json();
+      if (json.success) {
+        setConnStatus(json.data);
+      }
+    } catch (err) {
+      console.error('Error testing connections:', err);
+    } finally {
+      setTestingConn(false);
+    }
+  };
+
+  // Load modal drill-down data
+  const loadDrillDown = useCallback(async (hcode: string, herbalId?: number, search = '', page = 1) => {
+    setModalLoading(true);
+    try {
+      const params = new URLSearchParams({
+        hcode,
+        startDate,
+        endDate,
+        page: String(page),
+        limit: '50',
+      });
+      if (herbalId) params.append('herbalId', String(herbalId));
+      if (search) params.append('search', search);
+
+      const res = await fetch(`/api/pcu-herbal/drill-down?${params.toString()}`);
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setModalData(json.data);
+      }
+    } catch (err) {
+      console.error('Error loading drill down:', err);
+    } finally {
+      setModalLoading(false);
+    }
+  }, [startDate, endDate]);
+
+  const openDrillDown = (hcode: string, title: string, herbalId?: number) => {
+    setModalHcode(hcode);
+    setModalHerbalId(herbalId);
+    setModalTitle(title);
+    setModalSearch('');
+    setModalPage(1);
+    setModalOpen(true);
+    loadDrillDown(hcode, herbalId, '', 1);
+  };
+
+  const handleModalSearchChange = (val: string) => {
+    setModalSearch(val);
+    setModalPage(1);
+    loadDrillDown(modalHcode, modalHerbalId, val, 1);
+  };
+
+  const handleModalPageChange = (newPage: number) => {
+    setModalPage(newPage);
+    loadDrillDown(modalHcode, modalHerbalId, modalSearch, newPage);
+  };
+
+  // Filter 46 items
+  const filteredMasterItems = useMemo(() => {
+    if (!data?.master_items) return [];
+    if (!searchTerm.trim()) return data.master_items;
+    const term = searchTerm.toLowerCase().trim();
+    return data.master_items.filter(item =>
+      item.name.toLowerCase().includes(term) ||
+      String(item.id).includes(term) ||
+      item.size.toLowerCase().includes(term)
+    );
+  }, [data?.master_items, searchTerm]);
+
+  // Aggregate master item stats across all or selected PCUs
+  const masterItemAggregates = useMemo(() => {
+    if (!data?.pcus || !data?.master_items) return new Map<number, { qty: number; cost: number; charge: number; count: number }>();
+    const map = new Map<number, { qty: number; cost: number; charge: number; count: number }>();
+
+    for (const item of data.master_items) {
+      map.set(item.id, { qty: 0, cost: 0, charge: 0, count: 0 });
+    }
+
+    const pcusToUse = selectedHcode === 'all'
+      ? data.pcus
+      : data.pcus.filter(p => p.pcu_code === selectedHcode);
+
+    for (const pcu of pcusToUse) {
+      for (const breakdown of pcu.item_breakdown) {
+        const current = map.get(breakdown.herbal_id) || { qty: 0, cost: 0, charge: 0, count: 0 };
+        current.qty += breakdown.dispensed_qty;
+        current.cost += breakdown.total_cost;
+        current.charge += breakdown.total_charge;
+        current.count += breakdown.dispense_count;
+        map.set(breakdown.herbal_id, current);
+      }
+    }
+    return map;
+  }, [data?.pcus, data?.master_items, selectedHcode]);
+
+  // Export to Excel
+  const handleExportExcel = () => {
+    if (!data) return;
+
+    // Sheet 1: PCU Summary
+    const pcuSheetData = data.pcus.map(p => ({
+      'รหัส รพ.สต.': p.pcu_code,
+      'ชื่อหน่วยบริการ': p.pcu_name,
+      'IP Host': p.host_ip,
+      'จำนวนครั้งจ่ายยา': p.total_dispense_count,
+      'ปริมาณยาที่จ่าย (หน่วย)': p.total_dispensed_qty,
+      'ยอดต้นทุนค่ายา (บาท)': p.total_drug_cost,
+      'ยอดเรียกเก็บ รพ.สต. (บาท)': p.total_charge_amt,
+      'ยอดส่งเบิก สปสช. (บาท)': p.hsub_claim_amt,
+      'ยอดชดเชยสมุนไพร สปสช. (บาท)': p.hsub_hc_drug,
+      'ยอดชดเชยรวม สปสช. (บาท)': p.hsub_total_paid,
+      'กำไรส่วนต่าง (บาท)': p.gross_profit,
+      'ส่วนแบ่งกำไรพึงจ่าย รพ.สต. (บาท)': p.payable_profit,
+      'อัตรากำไร (%)': p.margin_percentage,
+    }));
+
+    // Sheet 2: 46 Master Items
+    const masterSheetData = data.master_items.map(m => {
+      const agg = masterItemAggregates.get(m.id) || { qty: 0, cost: 0, charge: 0, count: 0 };
+      return {
+        'ลำดับ': m.id,
+        'รายการยาเวชภัณฑ์สมุนไพร': m.name,
+        'ขนาดบรรจุ': m.size,
+        'ราคาต้นทุนมาตรฐาน (บาท)': m.cost,
+        'ต้นทุนต่อหน่วย (บาท)': m.unitCost,
+        'จำนวนจ่ายจริง (หน่วย)': agg.qty,
+        'รวมต้นทุนจ่ายยา (บาท)': Math.round(agg.cost * 100) / 100,
+        'ยอดเรียกเก็บ รพ.สต. (บาท)': Math.round(agg.charge * 100) / 100,
+        'ส่วนต่างกำไรประมาณการ (บาท)': Math.round((agg.charge - agg.cost) * 100) / 100,
+      };
+    });
+
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(pcuSheetData);
+    const ws2 = XLSX.utils.json_to_sheet(masterSheetData);
+    XLSX.utils.book_append_sheet(wb, ws1, 'สรุปจัดสรรกำไร 5 รพ.สต.');
+    XLSX.utils.book_append_sheet(wb, ws2, 'เวชภัณฑ์สมุนไพร 46 รายการ');
+
+    XLSX.writeFile(wb, `PCU_Herbal_Profit_Reconciliation_${startDate}_to_${endDate}.xlsx`);
+  };
+
+  return (
+    <div className="pcu-herbal-page">
+      {/* Header */}
+      <div className="pcu-herbal-header">
+        <div className="pcu-herbal-title-group">
+          <h1>
+            <span>🌿</span> ตรวจสอบการจ่ายยาสมุนไพร & จัดสรรกำไร รพ.สต.
+          </h1>
+          <p>
+            เชื่อมต่อฐานข้อมูล HOSxP PCU ทั้ง 5 แห่ง ตรวจสอบยอดจ่ายยาสมุนไพร 46 รายการ เทียบกับยอดชดเชย H-Sub เพื่อคำนวณส่วนแบ่งกำไรที่ต้องจ่าย รพ.สต.
+          </p>
+        </div>
+        <div className="pcu-herbal-actions">
+          <button
+            className="btn-herbal btn-secondary-herbal"
+            onClick={handleTestConnections}
+            disabled={testingConn}
+          >
+            {testingConn ? '🔄 กำลังทดสอบ...' : '⚡ ทดสอบเชื่อมต่อ 5 รพ.สต.'}
+          </button>
+          <button
+            className="btn-herbal btn-export-herbal"
+            onClick={handleExportExcel}
+            disabled={!data}
+          >
+            📊 ส่งออก Excel
+          </button>
+        </div>
+      </div>
+
+      {/* Filter Card */}
+      <div className="pcu-herbal-filters-card">
+        <div className="filter-item">
+          <label>เลือก รพ.สต.</label>
+          <select value={selectedHcode} onChange={(e) => setSelectedHcode(e.target.value)}>
+            <option value="all">🏢 ทั้งหมด (5 รพ.สต.)</option>
+            <option value="05570">05570 รพ.สต.โพนค้อ (hospcu05570)</option>
+            <option value="05572">05572 รพ.สต.โคกนาดี (hospcu05572)</option>
+            <option value="05573">05573 รพ.สต.โพนทอง (hospcu05573)</option>
+            <option value="05571">05571 รพ.สต.ม่วงไข่ (hospcu05571)</option>
+            <option value="05569">05569 รพ.สต.ห้วยหีบ (hospcu05569)</option>
+          </select>
+        </div>
+        <div className="filter-item">
+          <label>วันที่เริ่มต้น</label>
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </div>
+        <div className="filter-item">
+          <label>วันที่สิ้นสุด</label>
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        </div>
+        <div className="filter-item" style={{ alignSelf: 'flex-end' }}>
+          <button className="btn-herbal btn-primary-herbal" onClick={loadSummary} disabled={loading}>
+            {loading ? '⏳ กำลังประมวลผล...' : '🔍 ประมวลผลข้อมูล'}
+          </button>
+        </div>
+      </div>
+
+      {/* PCU Connection Status Pills */}
+      <div className="pcu-status-bar">
+        {(connStatus || (data?.pcus.map(p => ({ code: p.pcu_code, name: p.pcu_name, host: p.host_ip, connected: p.is_online })) || [])).map(s => (
+          <div key={s.code} className="pcu-status-pill">
+            <span className={`status-dot ${s.connected ? 'online' : 'offline'}`} />
+            <strong>{s.code}</strong> {s.name} ({s.host}): {s.connected ? 'Online' : 'Offline'}
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <div style={{ padding: '1rem', background: '#fee2e2', border: '1px solid #f87171', borderRadius: '0.5rem', color: '#b91c1c', marginBottom: '1.5rem' }}>
+          ⚠️ <strong>ข้อผิดพลาด:</strong> {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="loading-box">
+          <div className="spinner" />
+          <p>กำลังเชื่อมต่อฐานข้อมูล HOSxP PCU ทั้ง 5 แห่ง และคำนวณยอดเงิน กรุณารอสักครู่...</p>
+        </div>
+      ) : data ? (
+        <>
+          {/* Top KPI Cards */}
+          <div className="kpi-cards-grid">
+            <div className="kpi-card blue">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">จำนวนครั้งจ่ายยาสมุนไพร</span>
+                <span className="kpi-card-icon">💊</span>
+              </div>
+              <div className="kpi-card-value">
+                {data.grand_total.total_dispense_count.toLocaleString()} ครั้ง
+              </div>
+              <div className="kpi-card-sub">
+                ปริมาณรวม: {data.grand_total.total_dispensed_qty.toLocaleString()} หน่วย
+              </div>
+            </div>
+
+            <div className="kpi-card amber">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">ต้นทุนค่ายา (46 รายการ)</span>
+                <span className="kpi-card-icon">🏷️</span>
+              </div>
+              <div className="kpi-card-value">
+                {data.grand_total.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+              </div>
+              <div className="kpi-card-sub">
+                ยอดเรียกเก็บ รพ.สต.: {data.grand_total.total_charge_amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+              </div>
+            </div>
+
+            <div className="kpi-card purple">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">ยอดชดเชยที่ได้รับ (H-Sub)</span>
+                <span className="kpi-card-icon">💰</span>
+              </div>
+              <div className="kpi-card-value">
+                {data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+              </div>
+              <div className="kpi-card-sub">
+                สมุนไพรเฉพาะ: {data.grand_total.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+              </div>
+            </div>
+
+            <div className="kpi-card green">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">กำไรส่วนต่างสุทธิ</span>
+                <span className="kpi-card-icon">📈</span>
+              </div>
+              <div className="kpi-card-value profit-text">
+                +{data.grand_total.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+              </div>
+              <div className="kpi-card-sub">
+                อัตรากำไร: {data.grand_total.hsub_total_paid > 0 ? ((data.grand_total.gross_profit / data.grand_total.hsub_total_paid) * 100).toFixed(1) : 0}%
+              </div>
+            </div>
+
+            <div className="kpi-card emerald">
+              <div className="kpi-card-header">
+                <span className="kpi-card-title">ยอดจัดสรรพึงจ่าย รพ.สต.</span>
+                <span className="kpi-card-icon">🤝</span>
+              </div>
+              <div className="kpi-card-value profit-text">
+                {data.grand_total.payable_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+              </div>
+              <div className="kpi-card-sub">
+                ส่วนแบ่งกำไรที่ต้องโอนให้ 5 รพ.สต.
+              </div>
+            </div>
+          </div>
+
+          {/* Navigation Tabs */}
+          <div className="pcu-herbal-tabs">
+            <button
+              className={`tab-btn ${activeTab === 'summary' ? 'active' : ''}`}
+              onClick={() => setActiveTab('summary')}
+            >
+              🏢 สรุปจัดสรรกำไร 5 รพ.สต.
+            </button>
+            <button
+              className={`tab-btn ${activeTab === 'master46' ? 'active' : ''}`}
+              onClick={() => setActiveTab('master46')}
+            >
+              🌿 เวชภัณฑ์สมุนไพร 46 รายการ
+            </button>
+          </div>
+
+          {/* TAB 1: Summary By PCU */}
+          {activeTab === 'summary' && (
+            <div className="pcu-table-card">
+              <div className="pcu-table-card-header">
+                <h3 className="pcu-table-card-title">
+                  <span>🏢</span> ตารางเปรียบเทียบยอดจ่ายยา ต้นทุน และส่วนแบ่งกำไรราย รพ.สต.
+                </h3>
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                  ฐานข้อมูลระบบ: HOSxP PCU (`hospcu055xx`) & H-Sub Statement
+                </span>
+              </div>
+              <div className="pcu-table-responsive">
+                <table className="pcu-table">
+                  <thead>
+                    <tr>
+                      <th>รหัส</th>
+                      <th>ชื่อ รพ.สต.</th>
+                      <th>ฐานข้อมูล</th>
+                      <th className="text-right">ครั้งที่จ่าย</th>
+                      <th className="text-right">ปริมาณยา (หน่วย)</th>
+                      <th className="text-right">ต้นทุนค่ายา (46 รายการ)</th>
+                      <th className="text-right">ยอดชดเชย สปสช. (H-Sub)</th>
+                      <th className="text-right">กำไรส่วนต่าง</th>
+                      <th className="text-right">ยอดพึงจ่าย รพ.สต.</th>
+                      <th className="text-center">อัตรากำไร</th>
+                      <th className="text-center">ดูรายละเอียด</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.pcus.map((pcu) => (
+                      <tr key={pcu.pcu_code}>
+                        <td>
+                          <span className="badge-pcu">{pcu.pcu_code}</span>
+                        </td>
+                        <td>
+                          <strong>{pcu.pcu_name}</strong>
+                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>IP: {pcu.host_ip}</div>
+                        </td>
+                        <td>
+                          <code style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '0.2rem 0.4rem', borderRadius: '4px' }}>
+                            hospcu{pcu.pcu_code}
+                          </code>
+                        </td>
+                        <td className="text-right">{pcu.total_dispense_count.toLocaleString()}</td>
+                        <td className="text-right">{pcu.total_dispensed_qty.toLocaleString()}</td>
+                        <td className="text-right">{pcu.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
+                        <td className="text-right" style={{ color: '#2563eb', fontWeight: 600 }}>
+                          {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                        <td className="text-right profit-text">
+                          +{pcu.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                        <td className="text-right" style={{ color: '#059669', fontWeight: 700, fontSize: '0.95rem' }}>
+                          {pcu.payable_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                        <td className="text-center">
+                          <span style={{ padding: '0.2rem 0.5rem', background: '#dcfce7', color: '#15803d', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600 }}>
+                            {pcu.margin_percentage}%
+                          </span>
+                        </td>
+                        <td className="text-center">
+                          <button
+                            className="btn-detail"
+                            onClick={() => openDrillDown(pcu.pcu_code, `${pcu.pcu_name} (${pcu.pcu_code})`)}
+                          >
+                            🔎 เจาะลึกคนไข้
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#f8fafc', fontWeight: 700, borderTop: '2px solid #cbd5e1' }}>
+                      <td colSpan={3}>รวมทั้งหมด 5 รพ.สต.</td>
+                      <td className="text-right">{data.grand_total.total_dispense_count.toLocaleString()}</td>
+                      <td className="text-right">{data.grand_total.total_dispensed_qty.toLocaleString()}</td>
+                      <td className="text-right">{data.grand_total.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
+                      <td className="text-right" style={{ color: '#2563eb' }}>{data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
+                      <td className="text-right profit-text">+{data.grand_total.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
+                      <td className="text-right" style={{ color: '#059669', fontSize: '1rem' }}>{data.grand_total.payable_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
+                      <td className="text-center">
+                        <span style={{ padding: '0.2rem 0.5rem', background: '#dcfce7', color: '#15803d', borderRadius: '9999px', fontSize: '0.75rem' }}>
+                          {data.grand_total.hsub_total_paid > 0 ? ((data.grand_total.gross_profit / data.grand_total.hsub_total_paid) * 100).toFixed(1) : 0}%
+                        </span>
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: Master 46 Items */}
+          {activeTab === 'master46' && (
+            <div className="pcu-table-card">
+              <div className="pcu-table-card-header">
+                <h3 className="pcu-table-card-title">
+                  <span>🌿</span> รายการยาเวชภัณฑ์สมุนไพร 46 รายการ (ราคาต้นทุนมาตรฐาน & ยอดจ่ายจริง)
+                </h3>
+                <div>
+                  <input
+                    type="text"
+                    placeholder="🔎 ค้นหาชื่อยา หรือลำดับ..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={{ padding: '0.4rem 0.8rem', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', width: '220px' }}
+                  />
+                </div>
+              </div>
+              <div className="pcu-table-responsive">
+                <table className="pcu-table">
+                  <thead>
+                    <tr>
+                      <th className="text-center" style={{ width: '60px' }}>ลำดับ</th>
+                      <th>รายการยา</th>
+                      <th>ขนาด</th>
+                      <th className="text-right">ราคาต้นทุน (บาท)</th>
+                      <th className="text-right">ต้นทุน/หน่วย (บาท)</th>
+                      <th className="text-right">จำนวนที่จ่ายจริง</th>
+                      <th className="text-right">รวมต้นทุนจ่ายยา</th>
+                      <th className="text-right">ยอดเรียกเก็บ รพ.สต.</th>
+                      <th className="text-right">ส่วนต่างกำไรประมาณการ</th>
+                      <th className="text-center">ดูประวัติการจ่าย</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredMasterItems.map((item) => {
+                      const agg = masterItemAggregates.get(item.id) || { qty: 0, cost: 0, charge: 0, count: 0 };
+                      const margin = agg.charge - agg.cost;
+                      return (
+                        <tr key={item.id}>
+                          <td className="text-center font-bold" style={{ color: '#64748b' }}>{item.id}</td>
+                          <td>
+                            <strong>{item.name}</strong>
+                          </td>
+                          <td>
+                            <span style={{ background: '#f1f5f9', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.8rem' }}>
+                              {item.size}
+                            </span>
+                          </td>
+                          <td className="text-right">{item.cost.toFixed(2)} ฿</td>
+                          <td className="text-right" style={{ color: '#64748b' }}>{item.unitCost.toFixed(2)} ฿</td>
+                          <td className="text-right" style={{ fontWeight: 600 }}>
+                            {agg.qty > 0 ? (
+                              <span>{agg.qty.toLocaleString()}</span>
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>0</span>
+                            )}
+                          </td>
+                          <td className="text-right">
+                            {agg.cost > 0 ? (
+                              <span>{agg.cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>0.00 ฿</span>
+                            )}
+                          </td>
+                          <td className="text-right">
+                            {agg.charge > 0 ? (
+                              <span>{agg.charge.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>0.00 ฿</span>
+                            )}
+                          </td>
+                          <td className="text-right">
+                            {margin > 0 ? (
+                              <span className="profit-text">+{margin.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            ) : margin < 0 ? (
+                              <span style={{ color: '#ef4444' }}>{margin.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</span>
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>0.00 ฿</span>
+                            )}
+                          </td>
+                          <td className="text-center">
+                            {agg.count > 0 ? (
+                              <button
+                                className="btn-detail"
+                                onClick={() => openDrillDown(selectedHcode === 'all' ? '05572' : selectedHcode, `${item.name} (ขนาด ${item.size})`, item.id)}
+                              >
+                                📋 {agg.count} Visit
+                              </button>
+                            ) : (
+                              <span style={{ color: '#cbd5e1', fontSize: '0.75rem' }}>ไม่มีจ่าย</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      ) : null}
+
+      {/* Drill Down Modal */}
+      {modalOpen && (
+        <div className="modal-overlay" onClick={() => setModalOpen(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>🔎 รายละเอียดการจ่ายยา: {modalTitle}</h3>
+              <button className="modal-close-btn" onClick={() => setModalOpen(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ marginBottom: '1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="🔎 ค้นหา ชื่อผู้ป่วย, HN, หรือ VN..."
+                  value={modalSearch}
+                  onChange={(e) => handleModalSearchChange(e.target.value)}
+                  style={{ flex: 1, padding: '0.5rem 0.8rem', border: '1px solid #cbd5e1', borderRadius: '6px' }}
+                />
+                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                  พบทั้งหมด {modalData?.total.toLocaleString() || 0} รายการ
+                </span>
+              </div>
+
+              {modalLoading ? (
+                <div className="loading-box">
+                  <div className="spinner" />
+                  <p>กำลังดึงข้อมูลรายละเอียด...</p>
+                </div>
+              ) : modalData?.items && modalData.items.length > 0 ? (
+                <div className="pcu-table-responsive">
+                  <table className="pcu-table">
+                    <thead>
+                      <tr>
+                        <th>วันที่</th>
+                        <th>VN</th>
+                        <th>HN</th>
+                        <th>ชื่อ-สกุลผู้ป่วย</th>
+                        <th>รายการยาที่จ่าย</th>
+                        <th>ขนาดมาตรฐาน</th>
+                        <th className="text-right">จำนวน</th>
+                        <th className="text-right">ต้นทุน (บาท)</th>
+                        <th className="text-right">เรียกเก็บ (บาท)</th>
+                        <th className="text-right">ส่วนต่างกำไร</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modalData.items.map((item, idx) => (
+                        <tr key={`${item.vn}-${item.icode}-${idx}`}>
+                          <td>{item.vstdate}</td>
+                          <td><code>{item.vn}</code></td>
+                          <td><code>{item.hn}</code></td>
+                          <td><strong>{item.patient_name}</strong></td>
+                          <td>
+                            {item.drug_name}
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block' }}>
+                              (รหัสแม่: {item.herbal_master_name})
+                            </span>
+                          </td>
+                          <td>{item.herbal_size}</td>
+                          <td className="text-right"><strong>{item.qty}</strong> {item.units}</td>
+                          <td className="text-right">{item.total_cost.toFixed(2)} ฿</td>
+                          <td className="text-right">{item.sum_price.toFixed(2)} ฿</td>
+                          <td className="text-right">
+                            <span className={item.margin >= 0 ? 'profit-text' : ''}>
+                              {item.margin >= 0 ? `+${item.margin.toFixed(2)}` : item.margin.toFixed(2)} ฿
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '3rem', color: '#64748b' }}>
+                  ไม่พบข้อมูลรายการจ่ายยาตามเงื่อนไขที่เลือก
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                หน้า {modalPage} จาก {modalData?.totalPages || 1}
+              </div>
+              <div className="pagination-controls">
+                <button
+                  className="btn-page"
+                  disabled={modalPage <= 1}
+                  onClick={() => handleModalPageChange(modalPage - 1)}
+                >
+                  ◀ ก่อนหน้า
+                </button>
+                <button
+                  className="btn-page"
+                  disabled={modalPage >= (modalData?.totalPages || 1)}
+                  onClick={() => handleModalPageChange(modalPage + 1)}
+                >
+                  ถัดไป ▶
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default PcuHerbalReconcilePage;

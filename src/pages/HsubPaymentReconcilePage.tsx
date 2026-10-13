@@ -552,6 +552,16 @@ export const HsubPaymentReconcilePage: React.FC = () => {
         >
           📋 รายการธุรกรรมรายบุคคล ({txTotal.toLocaleString()} รายการ)
         </button>
+        <button
+          className="hsub-tab-btn"
+          style={{ marginLeft: 'auto', background: '#ecfdf5', color: '#047857', borderColor: '#a7f3d0', fontWeight: 600 }}
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuHerbal' } }));
+          }}
+          title="ไปที่หน้าคำนวณและกระทบยอดจ่ายยาสมุนไพร 46 รายการ (รพ.สต.)"
+        >
+          🌿 จ่ายยาสมุนไพร 46 รายการ (รพ.สต.) ↗
+        </button>
       </div>
 
       {/* Filters Bar */}

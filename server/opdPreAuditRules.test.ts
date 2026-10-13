@@ -25,7 +25,7 @@ test('OPD audit warns when any S diagnosis has fewer than five characters', () =
     has_provider: 1,
     has_clinical_note: 1,
     main_diag: 'S06.0',
-    diagnosis_codes: 'J189,S06.0,S0999',
+    diagnosis_codes: 'J189,S06.0,S0999,W19',
   });
 
   assert.deepEqual(findings, [{
@@ -35,11 +35,26 @@ test('OPD audit warns when any S diagnosis has fewer than five characters', () =
   }]);
 });
 
+test('OPD audit warns when injury primary diagnosis lacks external cause (OPD-DX02 / e-Claim C-232)', () => {
+  const findings = evaluateOpdPreAudit({
+    has_provider: 1,
+    has_clinical_note: 1,
+    main_diag: 'S06.00',
+    diagnosis_codes: 'S06.00',
+  });
+
+  assert.deepEqual(findings, [{
+    code: 'OPD-DX02',
+    message: 'รหัสวินิจฉัยหลักกลุ่มบาดเจ็บ (S0600) ต้องมีรหัสสาเหตุภายนอก (V, W, X, Y) ร่วมด้วย (e-Claim C-232)',
+    severity: 'warning',
+  }]);
+});
+
 test('OPD audit accepts five-character S diagnoses after removing punctuation', () => {
   assert.deepEqual(codes({
     has_provider: 1,
     has_clinical_note: 1,
-    diagnosis_codes: 'S06.00, S0999',
+    diagnosis_codes: 'S06.00, S0999, W19',
   }), []);
 });
 

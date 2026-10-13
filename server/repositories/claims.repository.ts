@@ -3268,7 +3268,23 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         DATE_FORMAT(o.vstdate, '%Y%m%d') AS DATEOPD,
         DATE_FORMAT(o.vsttime, '%H%i') AS TIMEOPD,
         o.vn AS SEQ,
-        '1' AS UUC,
+        CASE
+          WHEN o.pttype = '93' THEN '2'
+          WHEN ro.vn IS NOT NULL AND (
+            o.hospmain = (SELECT hospitalcode FROM opdconfig LIMIT 1)
+            OR o.hospmain IS NULL
+            OR o.hospmain = ''
+            OR o.pttype IN ('71','72','73','74','75','76','77','80','81','82','87','88','89','98','11')
+          ) THEN '2'
+          WHEN EXISTS (
+            SELECT 1 FROM ovst o2
+            WHERE o2.hn = o.hn
+              AND o2.vstdate = o.vstdate
+              AND o2.vn <> o.vn
+              AND (o2.vsttime < o.vsttime OR (o2.vsttime = o.vsttime AND o2.vn < o.vn))
+          ) THEN '2'
+          ELSE '1'
+        END AS UUC,
         COALESCE(s.cc, '') AS DETAIL,
         NULLIF(s.temperature, 0) AS BTEMP,
         NULLIF(s.bps, 0) AS SBP,
@@ -3289,9 +3305,9 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       LEFT JOIN spclty sp ON sp.spclty = o.spclty
       LEFT JOIN ovstist oi ON oi.ovstist = o.ovstist
       LEFT JOIN ovstost oo ON oo.ovstost = o.ovstost
-      LEFT JOIN referin ri ON ri.vn = o.vn
-      LEFT JOIN referout ro ON ro.vn = o.vn
-      LEFT JOIN er_regist er ON er.vn = o.vn
+      LEFT JOIN (SELECT DISTINCT vn FROM referin) ri ON ri.vn = o.vn
+      LEFT JOIN (SELECT DISTINCT vn FROM referout) ro ON ro.vn = o.vn
+      LEFT JOIN (SELECT vn, MAX(er_pt_type) AS er_pt_type FROM er_regist GROUP BY vn) er ON er.vn = o.vn
       LEFT JOIN er_pt_type ept ON ept.er_pt_type = er.er_pt_type
       WHERE o.vn IN (?)
     `, [vns]);
@@ -3816,12 +3832,36 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         HCODE: hcode,
       };
     });
-    const normalizedOpd = (opd as Record<string, unknown>[]).map((row) => ({
-      ...row,
-      UUC: ['1', '2'].includes(String(uucByVn[String(row.SEQ || '')] || ''))
-        ? String(uucByVn[String(row.SEQ || '')])
-        : row.UUC,
-    }));
+    const seenSameDayHn = new Set<string>();
+    const seenOpdSeqs = new Set<string>();
+    const uniqueOpd = (opd as Record<string, unknown>[]).filter((row) => {
+      const seq = String(row.SEQ || '').trim();
+      if (!seq || seenOpdSeqs.has(seq)) return false;
+      seenOpdSeqs.add(seq);
+      return true;
+    });
+    const normalizedOpd = uniqueOpd.map((row) => {
+      const hn = String(row.HN || '').trim();
+      const dateOpd = String(row.DATEOPD || '').trim();
+      const seq = String(row.SEQ || '').trim();
+      const sameDayKey = hn + '_' + dateOpd;
+
+      let uuc = row.UUC;
+      if (['1', '2'].includes(String(uucByVn[seq] || ''))) {
+        uuc = String(uucByVn[seq]);
+      } else if (seenSameDayHn.has(sameDayKey)) {
+        uuc = '2';
+      }
+
+      if (uuc === '1') {
+        seenSameDayHn.add(sameDayKey);
+      }
+
+      return {
+        ...row,
+        UUC: uuc,
+      };
+    });
     const normalizedIpd = (ipd as Record<string, unknown>[]).map((row) => {
       const sourceVn = vns.find((vn) => String((ins as Record<string, unknown>[]).find((item) => String(item.AN || '') === String(row.AN || ''))?.SEQ || '') === vn);
       return {
@@ -3907,6 +3947,18 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         }
       }
     }
+    // 🚑 สิทธิ UC ในเขต (UUC=2) ที่ส่งต่อ (OP Refer) ไม่สามารถเบิกค่ารถ refer ได้ -> ตัดรายการค่ารถ refer (S1801 / TYPE 17) ออกจาก ADP
+    const opdUucMap = new Map<string, string>(normalizedOpd.map((r: any) => [String(r.SEQ || ''), String(r.UUC || '1')]));
+    const filteredAdp = normalizedAdp.filter((row) => {
+      const seq = String(row.SEQ || '');
+      const uuc = opdUucMap.get(seq);
+      const isReferAmbulance = String(row.CODE || '').toUpperCase() === 'S1801' || String(row.TYPE || '') === '17';
+      if (uuc === '2' && isReferAmbulance) {
+        return false;
+      }
+      return true;
+    });
+
     const leaveSequence = new Map<string, number>();
     const normalizedLvd = (lvd as Record<string, unknown>[]).map((row) => {
       const an = String(row.AN || '');
@@ -3929,7 +3981,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       CHT: cht as any[],
       CHA: cha as any[],
       AER: aer as any[],
-      ADP: normalizedAdp,
+      ADP: filteredAdp,
       LVD: normalizedLvd,
       DRU: dru as any[],
       _meta: {

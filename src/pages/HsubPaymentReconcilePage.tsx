@@ -87,6 +87,78 @@ interface HsubPaymentItem {
   section_type: 'normal' | 'appeal';
 }
 
+export interface PpfsHospitalItem {
+  hcode: string;
+  name: string;
+  isMotherHospital?: boolean;
+  trif_qty: number;
+  trif_paid: number;
+  folic_qty: number;
+  folic_paid: number;
+  url: string;
+  note?: string;
+}
+
+export const PPFS_MASTER_ITEMS: Record<string, PpfsHospitalItem> = {
+  '11101': {
+    hcode: '11101',
+    name: 'โรงพยาบาลโคกศรีสุพรรณ (รพ.แม่ข่าย CUP)',
+    isMotherHospital: true,
+    trif_qty: 133,
+    trif_paid: 17955.00,
+    folic_qty: 376,
+    folic_paid: 30080.00,
+    url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=11101&metric=SUM_PAID',
+    note: 'ยอดชดเชยของโรงพยาบาลแม่ข่ายเอง (แยกออกจาก 5 รพ.สต.)',
+  },
+  '05572': {
+    hcode: '05572',
+    name: 'รพ.สต.บ้านโคกนาดี',
+    trif_qty: 36,
+    trif_paid: 4860.00,
+    folic_qty: 2934,
+    folic_paid: 195920.00,
+    url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05572&metric=SUM_PAID',
+  },
+  '05570': {
+    hcode: '05570',
+    name: 'รพ.สต.บ้านโพนค้อ',
+    trif_qty: 4,
+    trif_paid: 540.00,
+    folic_qty: 0,
+    folic_paid: 0.00,
+    url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05570&metric=SUM_PAID',
+    note: 'รอบปี 68 ได้รับชดเชย Folic 9,360 บาท (117 ครั้ง)',
+  },
+  '05573': {
+    hcode: '05573',
+    name: 'รพ.สต.บ้านโพนทองวัฒนา',
+    trif_qty: 140,
+    trif_paid: 12960.00,
+    folic_qty: 267,
+    folic_paid: 21360.00,
+    url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05573&metric=SUM_PAID',
+  },
+  '05569': {
+    hcode: '05569',
+    name: 'รพ.สต.บ้านห้วยหีบรุ่งอรุณ',
+    trif_qty: 4,
+    trif_paid: 540.00,
+    folic_qty: 576,
+    folic_paid: 45760.00,
+    url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05569&metric=SUM_PAID',
+  },
+  '05571': {
+    hcode: '05571',
+    name: 'รพ.สต.บ้านม่วงไข่น้อย',
+    trif_qty: 58,
+    trif_paid: 7290.00,
+    folic_qty: 390,
+    folic_paid: 27040.00,
+    url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05571&metric=SUM_PAID',
+  },
+};
+
 export const HsubPaymentReconcilePage: React.FC = () => {
   const [summary, setSummary] = useState<HsubDashboardSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -106,8 +178,8 @@ export const HsubPaymentReconcilePage: React.FC = () => {
   const [showServerModal, setShowServerModal] = useState<boolean>(false);
   const [serverPath, setServerPath] = useState<string>('D:\\hsub');
 
-  // Tabs: 'hospitals' | 'ebudget' | 'transactions'
-  const [activeTab, setActiveTab] = useState<'hospitals' | 'ebudget' | 'transactions'>('hospitals');
+  // Tabs: 'hospitals' | 'settlement' | 'ebudget' | 'transactions'
+  const [activeTab, setActiveTab] = useState<'hospitals' | 'settlement' | 'ebudget' | 'transactions'>('hospitals');
 
   // Filters
   const [selectedHcode, setSelectedHcode] = useState<string>('all');
@@ -369,6 +441,198 @@ export const HsubPaymentReconcilePage: React.FC = () => {
     return summary.ebudget_matches.map((m) => m.rep);
   }, [summary]);
 
+  // Settlement rows combining H-Sub and PPFS MIS (5 PCUs)
+  const settlementRows = useMemo(() => {
+    const list = [
+      { code: '05572', name: 'รพ.สต.บ้านโคกนาดี' },
+      { code: '05570', name: 'รพ.สต.บ้านโพนค้อ' },
+      { code: '05573', name: 'รพ.สต.บ้านโพนทองวัฒนา' },
+      { code: '05569', name: 'รพ.สต.บ้านห้วยหีบรุ่งอรุณ' },
+      { code: '05571', name: 'รพ.สต.บ้านม่วงไข่น้อย' },
+    ];
+
+    return list.map((item) => {
+      const h = summary?.hospitals.find((x) => x.hcode === item.code);
+      const ppfs = PPFS_MASTER_ITEMS[item.code] || {
+        trif_qty: 0,
+        trif_paid: 0,
+        folic_qty: 0,
+        folic_paid: 0,
+        url: '',
+      };
+
+      const hsubHcDrug = h ? h.hc_drug_total : 0;
+      const hsubAeDrug = h ? h.ae_drug_total : 0;
+      const hsubDrugTotal = Math.round((hsubHcDrug + hsubAeDrug) * 100) / 100;
+      const hsubTotalPaid = h ? h.total_paid : 0;
+
+      const trifQty = ppfs.trif_qty;
+      const trifPaid = ppfs.trif_paid;
+      const trifCost = Math.round(trifQty * 30.0 * 100) / 100;
+      const trifMargin = Math.round((trifPaid - trifCost) * 100) / 100;
+
+      const folicQty = ppfs.folic_qty;
+      const folicPaid = ppfs.folic_paid;
+      const folicCost = Math.round(folicQty * 6.24 * 100) / 100;
+      const folicMargin = Math.round((folicPaid - folicCost) * 100) / 100;
+
+      const grossRevenue = Math.round((hsubDrugTotal + trifPaid + folicPaid) * 100) / 100;
+      const totalDeductedCost = Math.round((trifCost + folicCost) * 100) / 100;
+      const netPayable = Math.round((grossRevenue - totalDeductedCost) * 100) / 100;
+
+      return {
+        hcode: item.code,
+        name: h?.hospital_name || item.name,
+        isMotherHospital: false,
+        hsubHcDrug,
+        hsubAeDrug,
+        hsubDrugTotal,
+        hsubTotalPaid,
+        trifQty,
+        trifPaid,
+        trifCost,
+        trifMargin,
+        folicQty,
+        folicPaid,
+        folicCost,
+        folicMargin,
+        grossRevenue,
+        totalDeductedCost,
+        netPayable,
+        ppfsUrl: ppfs.url,
+      };
+    });
+  }, [summary]);
+
+  // Mother hospital 11101 row (รพ.โคกศรีสุพรรณ)
+  const motherHospitalRow = useMemo(() => {
+    const p = PPFS_MASTER_ITEMS['11101'];
+    const trifQty = p.trif_qty;
+    const trifPaid = p.trif_paid;
+    const trifCost = Math.round(trifQty * 30.0 * 100) / 100;
+    const trifMargin = Math.round((trifPaid - trifCost) * 100) / 100;
+
+    const folicQty = p.folic_qty;
+    const folicPaid = p.folic_paid;
+    const folicCost = Math.round(folicQty * 6.24 * 100) / 100;
+    const folicMargin = Math.round((folicPaid - folicCost) * 100) / 100;
+
+    const grossRevenue = Math.round((trifPaid + folicPaid) * 100) / 100;
+    const totalDeductedCost = Math.round((trifCost + folicCost) * 100) / 100;
+    const netPayable = Math.round((grossRevenue - totalDeductedCost) * 100) / 100;
+
+    return {
+      hcode: '11101',
+      name: p.name,
+      isMotherHospital: true,
+      hsubHcDrug: 0,
+      hsubAeDrug: 0,
+      hsubDrugTotal: 0,
+      hsubTotalPaid: 0,
+      trifQty,
+      trifPaid,
+      trifCost,
+      trifMargin,
+      folicQty,
+      folicPaid,
+      folicCost,
+      folicMargin,
+      grossRevenue,
+      totalDeductedCost,
+      netPayable,
+      ppfsUrl: p.url,
+      note: p.note,
+    };
+  }, []);
+
+  // Grand totals across 5 PCUs
+  const settlementGrandTotals = useMemo(() => {
+    return {
+      hsubHcDrug: Math.round(settlementRows.reduce((a, b) => a + b.hsubHcDrug, 0) * 100) / 100,
+      hsubAeDrug: Math.round(settlementRows.reduce((a, b) => a + b.hsubAeDrug, 0) * 100) / 100,
+      hsubDrugTotal: Math.round(settlementRows.reduce((a, b) => a + b.hsubDrugTotal, 0) * 100) / 100,
+      hsubTotalPaid: Math.round(settlementRows.reduce((a, b) => a + b.hsubTotalPaid, 0) * 100) / 100,
+      trifQty: settlementRows.reduce((a, b) => a + b.trifQty, 0),
+      trifPaid: Math.round(settlementRows.reduce((a, b) => a + b.trifPaid, 0) * 100) / 100,
+      trifCost: Math.round(settlementRows.reduce((a, b) => a + b.trifCost, 0) * 100) / 100,
+      trifMargin: Math.round(settlementRows.reduce((a, b) => a + b.trifMargin, 0) * 100) / 100,
+      folicQty: settlementRows.reduce((a, b) => a + b.folicQty, 0),
+      folicPaid: Math.round(settlementRows.reduce((a, b) => a + b.folicPaid, 0) * 100) / 100,
+      folicCost: Math.round(settlementRows.reduce((a, b) => a + b.folicCost, 0) * 100) / 100,
+      folicMargin: Math.round(settlementRows.reduce((a, b) => a + b.folicMargin, 0) * 100) / 100,
+      grossRevenue: Math.round(settlementRows.reduce((a, b) => a + b.grossRevenue, 0) * 100) / 100,
+      totalDeductedCost: Math.round(settlementRows.reduce((a, b) => a + b.totalDeductedCost, 0) * 100) / 100,
+      netPayable: Math.round(settlementRows.reduce((a, b) => a + b.netPayable, 0) * 100) / 100,
+    };
+  }, [settlementRows]);
+
+  // Export Settlement & Cross-Reconcile Excel
+  const handleExportSettlementExcel = () => {
+    const data = settlementRows.map((r, idx) => ({
+      'ลำดับ': idx + 1,
+      'รหัสหน่วยบริการ': r.hcode,
+      'ชื่อหน่วยบริการ': r.name,
+      'ชดเชยยา Home Care H-Sub (บาท)': r.hsubHcDrug,
+      'ชดเชยยาฉุกเฉิน AE H-Sub (บาท)': r.hsubAeDrug,
+      'รวมชดเชยยา H-Sub (บาท)': r.hsubDrugTotal,
+      'ชดเชย Triferdine (PPFS บาท)': r.trifPaid,
+      'ต้นทุน Triferdine ที่หัก (บาท)': r.trifCost,
+      'ส่วนต่าง Triferdine (บาท)': r.trifMargin,
+      'ชดเชย Folic (PPFS บาท)': r.folicPaid,
+      'ต้นทุน Folic ที่หัก (บาท)': r.folicCost,
+      'ส่วนต่าง Folic (บาท)': r.folicMargin,
+      'รวมยอดชดเชยรับเข้า (บาท)': r.grossRevenue,
+      'รวมต้นทุนที่หัก (บาท)': r.totalDeductedCost,
+      'ยอดสุทธิพึงจ่าย รพ.สต. (บาท)': r.netPayable,
+      'ลิงก์ PPFS MIS เขต 7': r.ppfsUrl,
+    }));
+
+    // Row for 5 PCUs Total
+    data.push({
+      'ลำดับ': '' as any,
+      'รหัสหน่วยบริการ': 'รวม CUP รพ.สต.',
+      'ชื่อหน่วยบริการ': '5 รพ.สต. ในเครือข่าย',
+      'ชดเชยยา Home Care H-Sub (บาท)': settlementGrandTotals.hsubHcDrug,
+      'ชดเชยยาฉุกเฉิน AE H-Sub (บาท)': settlementGrandTotals.hsubAeDrug,
+      'รวมชดเชยยา H-Sub (บาท)': settlementGrandTotals.hsubDrugTotal,
+      'ชดเชย Triferdine (PPFS บาท)': settlementGrandTotals.trifPaid,
+      'ต้นทุน Triferdine ที่หัก (บาท)': settlementGrandTotals.trifCost,
+      'ส่วนต่าง Triferdine (บาท)': settlementGrandTotals.trifMargin,
+      'ชดเชย Folic (PPFS บาท)': settlementGrandTotals.folicPaid,
+      'ต้นทุน Folic ที่หัก (บาท)': settlementGrandTotals.folicCost,
+      'ส่วนต่าง Folic (บาท)': settlementGrandTotals.folicMargin,
+      'รวมยอดชดเชยรับเข้า (บาท)': settlementGrandTotals.grossRevenue,
+      'รวมต้นทุนที่หัก (บาท)': settlementGrandTotals.totalDeductedCost,
+      'ยอดสุทธิพึงจ่าย รพ.สต. (บาท)': settlementGrandTotals.netPayable,
+      'ลิงก์ PPFS MIS เขต 7': '-',
+    } as any);
+
+    // Row for Mother Hospital 11101
+    data.push({
+      'ลำดับ': '*' as any,
+      'รหัสหน่วยบริการ': motherHospitalRow.hcode,
+      'ชื่อหน่วยบริการ': `${motherHospitalRow.name} [รพ.แม่ข่าย]`,
+      'ชดเชยยา Home Care H-Sub (บาท)': 0,
+      'ชดเชยยาฉุกเฉิน AE H-Sub (บาท)': 0,
+      'รวมชดเชยยา H-Sub (บาท)': 0,
+      'ชดเชย Triferdine (PPFS บาท)': motherHospitalRow.trifPaid,
+      'ต้นทุน Triferdine ที่หัก (บาท)': motherHospitalRow.trifCost,
+      'ส่วนต่าง Triferdine (บาท)': motherHospitalRow.trifMargin,
+      'ชดเชย Folic (PPFS บาท)': motherHospitalRow.folicPaid,
+      'ต้นทุน Folic ที่หัก (บาท)': motherHospitalRow.folicCost,
+      'ส่วนต่าง Folic (บาท)': motherHospitalRow.folicMargin,
+      'รวมยอดชดเชยรับเข้า (บาท)': motherHospitalRow.grossRevenue,
+      'รวมต้นทุนที่หัก (บาท)': motherHospitalRow.totalDeductedCost,
+      'ยอดสุทธิพึงจ่าย รพ.สต. (บาท)': motherHospitalRow.netPayable,
+      'ลิงก์ PPFS MIS เขต 7': motherHospitalRow.ppfsUrl,
+    } as any);
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'กระทบยอด PPFS และ H-Sub');
+    XLSX.writeFile(wb, `กระทบยอด_PPFS_Hsub_หักต้นทุน_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   const totalPages = Math.ceil(txTotal / txLimit);
 
   return (
@@ -541,6 +805,12 @@ export const HsubPaymentReconcilePage: React.FC = () => {
           🏥 สรุปจัดสรรตาม รพ.สต. ({summary?.hospitals.length || 0} แห่ง)
         </button>
         <button
+          className={`hsub-tab-btn ${activeTab === 'settlement' ? 'active' : ''}`}
+          onClick={() => setActiveTab('settlement')}
+        >
+          🔄 เทียบชดเชย PPFS (รพ.11101 + 5 รพ.สต.) & หักต้นทุน
+        </button>
+        <button
           className={`hsub-tab-btn ${activeTab === 'ebudget' ? 'active' : ''}`}
           onClick={() => setActiveTab('ebudget')}
         >
@@ -556,11 +826,11 @@ export const HsubPaymentReconcilePage: React.FC = () => {
           className="hsub-tab-btn"
           style={{ marginLeft: 'auto', background: '#ecfdf5', color: '#047857', borderColor: '#a7f3d0', fontWeight: 600 }}
           onClick={() => {
-            window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuHerbal' } }));
+            window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuPayout' } }));
           }}
-          title="ไปที่หน้าคำนวณและกระทบยอดจ่ายยาสมุนไพร 46 รายการ (รพ.สต.)"
+          title="ไปที่หน้าคำนวณและจำลองสั่งจ่ายเงิน รพ.สต."
         >
-          🌿 จ่ายยาสมุนไพร 46 รายการ (รพ.สต.) ↗
+          💳 คำนวณสั่งจ่าย รพ.สต. ↗
         </button>
       </div>
 
@@ -716,6 +986,284 @@ export const HsubPaymentReconcilePage: React.FC = () => {
                     ฿{summary?.total_paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td>100.0%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: PPFS & Drug Cost Settlement Reconcile */}
+      {activeTab === 'settlement' && (
+        <div className="hsub-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div>
+              <h2 className="hsub-card-title" style={{ margin: '0 0 0.25rem 0' }}>
+                <span>🔄</span> ตารางเปรียบเทียบชดเชย PPFS (รพ.11101 vs 5 รพ.สต.) & หักต้นทุนยา H-Sub
+              </h2>
+              <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                เทียบชดเชยยา Triferdine / Folic Acid จากระบบ PPFS MIS สปสช. เขต 7 ขอนแก่น และหักต้นทุนยาออกจากยอดชดเชย H-Sub เพื่อเตรียมจัดสรรจ่าย รพ.สต.
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="hsub-btn hsub-btn-export"
+                onClick={handleExportSettlementExcel}
+              >
+                📊 ส่งออก Excel ตารางนี้
+              </button>
+              <button
+                type="button"
+                className="hsub-btn"
+                style={{ background: '#0284c7', color: '#ffffff' }}
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuPayout' } }));
+                }}
+              >
+                💳 เปิดหน้าจำลองสั่งจ่ายเงิน (Payout) ↗
+              </button>
+            </div>
+          </div>
+
+          {/* Cards banner */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+            {/* Card 1: Hospital 11101 */}
+            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontWeight: 700, color: '#166534', fontSize: '0.95rem' }}>
+                  🏥 รพ.โคกศรีสุพรรณ (11101 - รพ.แม่ข่าย)
+                </span>
+                <span className="hsub-badge hsub-badge-green">MIS เขต 7</span>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: '#14532d', lineHeight: 1.6 }}>
+                <div>• Triferdine (PNC): <strong>133 ครั้ง | 17,955.00 ฿</strong> (ทุน ~3,990 ฿ | กำไร +13,965 ฿)</div>
+                <div>• Ferrofolic (Folic): <strong>376 ครั้ง | 30,080.00 ฿</strong> (ทุน ~2,346 ฿ | กำไร +27,734 ฿)</div>
+                <div style={{ borderTop: '1px dashed #86efac', marginTop: '0.4rem', paddingTop: '0.4rem', fontWeight: 700 }}>
+                  รวม PPFS รพ.แม่ข่าย: <span style={{ color: '#047857' }}>48,035.00 ฿</span> (กำไรส่วนต่าง +41,698.76 ฿)
+                </div>
+              </div>
+              <div style={{ marginTop: '0.6rem' }}>
+                <a
+                  href={motherHospitalRow.ppfsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: '0.8rem', color: '#15803d', textDecoration: 'underline', fontWeight: 600 }}
+                >
+                  🔗 ตรวจสอบหน้า PPFS MIS รพ.โคกศรีสุพรรณ ↗
+                </a>
+              </div>
+            </div>
+
+            {/* Card 2: 5 PCUs Revenue */}
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontWeight: 700, color: '#1e40af', fontSize: '0.95rem' }}>
+                  🏢 รวม 5 รพ.สต. ในเครือข่าย CUP
+                </span>
+                <span className="hsub-badge hsub-badge-blue">5 แห่ง</span>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: '#1e3a8a', lineHeight: 1.6 }}>
+                <div>• ชดเชยยา H-Sub (Home Care+AE): <strong>฿{settlementGrandTotals.hsubDrugTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div>• ชดเชย Triferdine (PPFS): <strong>242 ครั้ง | ฿{settlementGrandTotals.trifPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div>• ชดเชย Folic (PPFS): <strong>4,167 ครั้ง | ฿{settlementGrandTotals.folicPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div style={{ borderTop: '1px dashed #93c5fd', marginTop: '0.4rem', paddingTop: '0.4rem', fontWeight: 700 }}>
+                  รวมชดเชยรับเข้า: <span style={{ color: '#1d4ed8' }}>฿{settlementGrandTotals.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Deductions & Net */}
+            <div style={{ background: '#fefce8', border: '1px solid #fef08a', borderRadius: '10px', padding: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontWeight: 700, color: '#854d0e', fontSize: '0.95rem' }}>
+                  ⚖️ หักต้นทุนยา & ยอดสุทธิสั่งจ่าย
+                </span>
+                <span style={{ background: '#fef08a', color: '#854d0e', fontSize: '0.75rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '4px' }}>หักต้นทุน</span>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: '#713f12', lineHeight: 1.6 }}>
+                <div>• หักต้นทุน Folic (6.24 ฿/คอร์ส): <strong>-฿{settlementGrandTotals.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div>• หักต้นทุน Triferdine (~30 ฿/แผง): <strong>-฿{settlementGrandTotals.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div>• กำไรส่วนต่างเฉพาะ PPFS รวม: <strong style={{ color: '#16a34a' }}>+฿{(settlementGrandTotals.folicMargin + settlementGrandTotals.trifMargin).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div style={{ borderTop: '1px dashed #fde047', marginTop: '0.4rem', paddingTop: '0.4rem', fontWeight: 700 }}>
+                  ยอดสุทธิพึงจ่าย รพ.สต.: <span style={{ color: '#ca8a04' }}>฿{settlementGrandTotals.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Detailed Itemized Table */}
+          <div className="hsub-table-responsive">
+            <table className="hsub-table">
+              <thead>
+                <tr>
+                  <th>รหัส</th>
+                  <th>หน่วยบริการ</th>
+                  <th className="text-right">ชดเชยยา H-Sub</th>
+                  <th className="text-right">Triferdine ชดเชย</th>
+                  <th className="text-right">หักทุน Triferdine</th>
+                  <th className="text-right">กำไร Triferdine</th>
+                  <th className="text-right">Folic ชดเชย</th>
+                  <th className="text-right">หักทุน Folic</th>
+                  <th className="text-right">กำไร Folic</th>
+                  <th className="text-right" style={{ background: '#f8fafc' }}>รวมชดเชยรับเข้า</th>
+                  <th className="text-right" style={{ background: '#fffbeb' }}>รวมทุนที่หัก</th>
+                  <th className="text-right" style={{ background: '#ecfdf5', color: '#047857' }}>สุทธิพึงจ่าย รพ.สต.</th>
+                  <th className="text-center">PPFS MIS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {settlementRows.map((r) => (
+                  <tr key={r.hcode}>
+                    <td>
+                      <span className="hsub-badge hsub-badge-blue">{r.hcode}</span>
+                    </td>
+                    <td>
+                      <strong>{r.name}</strong>
+                    </td>
+                    <td className="text-right font-mono" style={{ color: '#0284c7' }}>
+                      {r.hsubDrugTotal > 0 ? `฿${r.hsubDrugTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'}
+                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                        HC: {r.hsubHcDrug.toLocaleString(undefined, { minimumFractionDigits: 2 })} | AE: {r.hsubAeDrug.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                    </td>
+                    <td className="text-right font-mono" style={{ color: '#4338ca' }}>
+                      ฿{r.trifPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{r.trifQty.toLocaleString()} ครั้ง</div>
+                    </td>
+                    <td className="text-right font-mono" style={{ color: '#b45309' }}>
+                      -฿{r.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-right font-mono font-bold" style={{ color: '#059669' }}>
+                      +฿{r.trifMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-right font-mono" style={{ color: '#0891b2' }}>
+                      ฿{r.folicPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{r.folicQty.toLocaleString()} ครั้ง</div>
+                    </td>
+                    <td className="text-right font-mono" style={{ color: '#b45309' }}>
+                      -฿{r.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-right font-mono font-bold" style={{ color: '#059669' }}>
+                      +฿{r.folicMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-right font-mono font-bold" style={{ background: '#f8fafc', color: '#1e40af' }}>
+                      ฿{r.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-right font-mono" style={{ background: '#fffbeb', color: '#dc2626' }}>
+                      -฿{r.totalDeductedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-right font-mono font-bold" style={{ background: '#ecfdf5', color: '#047857', fontSize: '1rem' }}>
+                      ฿{r.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-center">
+                      <a
+                        href={r.ppfsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: '0.75rem', color: '#2563eb', textDecoration: 'underline' }}
+                        title="เปิดดูรายงาน PPFS MIS สปสช. เขต 7"
+                      >
+                        🔗 MIS ↗
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                {/* Grand Total 5 PCUs */}
+                <tr style={{ background: '#f1f5f9', fontWeight: 700 }}>
+                  <td colSpan={2}>รวมทั้งสิ้น (CUP 5 รพ.สต.)</td>
+                  <td className="text-right" style={{ color: '#0284c7' }}>
+                    ฿{settlementGrandTotals.hsubDrugTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right" style={{ color: '#4338ca' }}>
+                    ฿{settlementGrandTotals.trifPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>{settlementGrandTotals.trifQty.toLocaleString()} ครั้ง</div>
+                  </td>
+                  <td className="text-right" style={{ color: '#b45309' }}>
+                    -฿{settlementGrandTotals.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right" style={{ color: '#059669' }}>
+                    +฿{settlementGrandTotals.trifMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right" style={{ color: '#0891b2' }}>
+                    ฿{settlementGrandTotals.folicPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>{settlementGrandTotals.folicQty.toLocaleString()} ครั้ง</div>
+                  </td>
+                  <td className="text-right" style={{ color: '#b45309' }}>
+                    -฿{settlementGrandTotals.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right" style={{ color: '#059669' }}>
+                    +฿{settlementGrandTotals.folicMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right" style={{ color: '#1e40af' }}>
+                    ฿{settlementGrandTotals.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right" style={{ color: '#dc2626' }}>
+                    -฿{settlementGrandTotals.totalDeductedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right" style={{ color: '#047857', fontSize: '1.05rem' }}>
+                    ฿{settlementGrandTotals.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-center">-</td>
+                </tr>
+
+                {/* Mother Hospital 11101 Separate Row */}
+                <tr style={{ background: '#f0fdf4', borderTop: '2px solid #86efac' }}>
+                  <td>
+                    <span className="hsub-badge hsub-badge-green" style={{ background: '#166534', color: '#fff' }}>
+                      {motherHospitalRow.hcode}
+                    </span>
+                  </td>
+                  <td>
+                    <strong style={{ color: '#166534' }}>{motherHospitalRow.name}</strong>
+                    <span style={{ marginLeft: '0.4rem', fontSize: '0.75rem', background: '#dcfce7', color: '#15803d', padding: '0.1rem 0.4rem', borderRadius: '4px', fontWeight: 600 }}>
+                      รพ.แม่ข่าย (ไม่ปะปนกับ รพ.สต.)
+                    </span>
+                  </td>
+                  <td className="text-right font-mono" style={{ color: '#64748b' }}>
+                    - <div style={{ fontSize: '0.7rem' }}>แยกส่วน รพ.</div>
+                  </td>
+                  <td className="text-right font-mono" style={{ color: '#4338ca' }}>
+                    ฿{motherHospitalRow.trifPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{motherHospitalRow.trifQty.toLocaleString()} ครั้ง</div>
+                  </td>
+                  <td className="text-right font-mono" style={{ color: '#b45309' }}>
+                    -฿{motherHospitalRow.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right font-mono font-bold" style={{ color: '#059669' }}>
+                    +฿{motherHospitalRow.trifMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right font-mono" style={{ color: '#0891b2' }}>
+                    ฿{motherHospitalRow.folicPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{motherHospitalRow.folicQty.toLocaleString()} ครั้ง</div>
+                  </td>
+                  <td className="text-right font-mono" style={{ color: '#b45309' }}>
+                    -฿{motherHospitalRow.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right font-mono font-bold" style={{ color: '#059669' }}>
+                    +฿{motherHospitalRow.folicMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right font-mono font-bold" style={{ color: '#1e40af' }}>
+                    ฿{motherHospitalRow.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right font-mono" style={{ color: '#dc2626' }}>
+                    -฿{motherHospitalRow.totalDeductedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right font-mono font-bold" style={{ color: '#047857' }}>
+                    ฿{motherHospitalRow.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-center">
+                    <a
+                      href={motherHospitalRow.ppfsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ fontSize: '0.75rem', color: '#16a34a', textDecoration: 'underline', fontWeight: 600 }}
+                    >
+                      🔗 MIS รพ. ↗
+                    </a>
+                  </td>
                 </tr>
               </tfoot>
             </table>

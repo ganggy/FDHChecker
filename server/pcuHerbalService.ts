@@ -182,7 +182,19 @@ export const PPFS_DRUG_REIMBURSEMENT_BY_PCU: Record<string, PpfsDrugReimbursemen
     total_ppfs_paid: 34320.00,
     ppfs_url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05573&metric=SUM_PAID',
   },
+  '11101': {
+    pcu_code: '11101',
+    triferdine_pnc_qty: 133,
+    triferdine_pnc_paid: 17955.00,
+    folic_qty: 376,
+    folic_paid: 30080.00,
+    total_ppfs_paid: 48035.00,
+    ppfs_url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=11101&metric=SUM_PAID',
+    note: 'โรงพยาบาลโคกศรีสุพรรณ (รพ.แม่ข่าย CUP)',
+  },
 };
+
+export const PPFS_HOSPITAL_11101: PpfsDrugReimbursement = PPFS_DRUG_REIMBURSEMENT_BY_PCU['11101'];
 
 export const TRIFERDINE_REIMBURSEMENT_BY_PCU: Record<string, number> = {
   '05569': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05569'].triferdine_pnc_paid,
@@ -190,6 +202,7 @@ export const TRIFERDINE_REIMBURSEMENT_BY_PCU: Record<string, number> = {
   '05571': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05571'].triferdine_pnc_paid,
   '05572': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05572'].triferdine_pnc_paid,
   '05573': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05573'].triferdine_pnc_paid,
+  '11101': PPFS_DRUG_REIMBURSEMENT_BY_PCU['11101'].triferdine_pnc_paid,
 };
 
 export const TRIFERDINE_MONTHLY_PRICES = [
@@ -704,6 +717,7 @@ export async function getPcuHerbalReconciliation(options: {
     period: { startDate, endDate },
     grand_total: grandTotal,
     pcus: results,
+    hospital_11101_ppfs: PPFS_HOSPITAL_11101,
     master_items: targetMasterList,
   };
 }

@@ -429,10 +429,19 @@ export const PcuPayoutPage: React.FC = () => {
             type="button"
             className="btn-payout btn-outline"
             onClick={() => {
+              window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'hsubReconcile' } }));
+            }}
+          >
+            📑 กระทบยอด H-Sub Statement
+          </button>
+          <button
+            type="button"
+            className="btn-payout btn-outline"
+            onClick={() => {
               window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuHerbal' } }));
             }}
           >
-            🌿 หน้าตรวจสอบการจ่ายยา (HOSxP)
+            🌿 ตรวจสอบจ่ายยา (HOSxP)
           </button>
           <button
             type="button"
@@ -450,8 +459,74 @@ export const PcuPayoutPage: React.FC = () => {
             onClick={handleExportExcel}
             disabled={loading || payoutRows.length === 0}
           >
-            📥 ส่งออก Excel ยอดสั่งจ่าย
+            📥 ส่งออก Excel
           </button>
+        </div>
+      </div>
+
+      {/* Hospital 11101 vs PCUs Benchmark Banner */}
+      <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '12px', padding: '1.25rem 1.5rem', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '1.2rem' }}>🏥</span>
+            <strong style={{ fontSize: '1.05rem', color: '#0f172a' }}>
+              ข้อมูลเปรียบเทียบชดเชย PPFS: รพ.โคกศรีสุพรรณ (11101 - รพ.แม่ข่าย) vs 5 รพ.สต. ลูกข่าย
+            </strong>
+          </div>
+          <a
+            href="https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=11101&metric=SUM_PAID"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: '0.85rem', color: '#0284c7', textDecoration: 'underline', fontWeight: 600 }}
+          >
+            🔗 ตรวจสอบรายงาน PPFS MIS รพ. 11101 (สปสช. เขต 7) ↗
+          </a>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+          {/* Box 1: Hospital 11101 */}
+          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '0.85rem 1rem' }}>
+            <div style={{ fontWeight: 700, color: '#166534', fontSize: '0.9rem', marginBottom: '0.35rem' }}>
+              ผลงานชดเชยส่วน รพ.โคกศรีสุพรรณ (11101)
+            </div>
+            <div style={{ fontSize: '0.825rem', color: '#14532d', lineHeight: 1.6 }}>
+              <div>• Triferdine (PNC): 133 ครั้ง | <strong>17,955.00 ฿</strong> (ทุน ~3,990 ฿ | กำไร +13,965 ฿)</div>
+              <div>• Ferrofolic (Folic): 376 ครั้ง | <strong>30,080.00 ฿</strong> (ทุน ~2,346 ฿ | กำไร +27,734 ฿)</div>
+              <div style={{ borderTop: '1px dashed #86efac', marginTop: '0.3rem', paddingTop: '0.3rem', fontWeight: 700 }}>
+                รวม PPFS รพ.แม่ข่าย: <span style={{ color: '#047857' }}>48,035.00 ฿</span> (กำไรส่วน รพ. +41,698.76 ฿)
+              </div>
+            </div>
+          </div>
+
+          {/* Box 2: 5 PCUs PPFS */}
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.85rem 1rem' }}>
+            <div style={{ fontWeight: 700, color: '#1e40af', fontSize: '0.9rem', marginBottom: '0.35rem' }}>
+              ผลงานชดเชยส่วน 5 รพ.สต. ลูกข่าย (05569 - 05573)
+            </div>
+            <div style={{ fontSize: '0.825rem', color: '#1e3a8a', lineHeight: 1.6 }}>
+              <div>• ชดเชยยา H-Sub (Home Care+AE): <strong>฿922,152.70</strong> (Statement สปสช.)</div>
+              <div>• PPFS Triferdine: 242 ครั้ง | <strong>฿26,190.00</strong> (ทุน ~7,260 ฿ | กำไร +18,930 ฿)</div>
+              <div>• PPFS Folic: 4,167 ครั้ง | <strong>฿290,080.00</strong> (ทุน ~26,002 ฿ | กำไร +264,078 ฿)</div>
+              <div style={{ borderTop: '1px dashed #93c5fd', marginTop: '0.3rem', paddingTop: '0.3rem', fontWeight: 700 }}>
+                รวมรับเข้า 5 รพ.สต.: <span style={{ color: '#1d4ed8' }}>฿1,238,422.70</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Box 3: Cost Deductions */}
+          <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '8px', padding: '0.85rem 1rem' }}>
+            <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.9rem', marginBottom: '0.35rem' }}>
+              การหักต้นทุนยาออกจากเงินชดเชยรับเข้า
+            </div>
+            <div style={{ fontSize: '0.825rem', color: '#78350f', lineHeight: 1.6 }}>
+              <div>• ต้นทุน Folic (0.12 ฿/เม็ด x 52): <strong>6.24 ฿/คอร์ส</strong> (หักรวม 26,002.08 ฿)</div>
+              <div>• ต้นทุน Triferdine 150 mg: <strong>~30.00 ฿/แผง</strong> (หักรวม 7,260.00 ฿)</div>
+              <div>• กำไรส่วนต่างจาก PPFS รวม 5 รพ.สต.: <strong style={{ color: '#16a34a' }}>+283,007.92 ฿</strong></div>
+              <div style={{ borderTop: '1px dashed #fde68a', marginTop: '0.3rem', paddingTop: '0.3rem', fontWeight: 700 }}>
+                เกณฑ์คำนวณ: <span style={{ color: '#b45309' }}>เลือกหักทุนจริง HOSxP หรือเหมาจ่าย % ด้านล่าง</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

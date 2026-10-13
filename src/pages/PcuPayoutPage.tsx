@@ -13,6 +13,10 @@ export interface PcuHerbalSummary {
   total_charge_amt: number;
   hsub_claim_amt: number;
   hsub_hc_drug: number;
+  hsub_ae_drug?: number;
+  hsub_dmis_drug?: number;
+  hsub_drug_paid?: number;
+  total_reimbursed?: number;
   hsub_total_paid: number;
   triferdine_reimbursed?: number;
   folic_reimbursed?: number;
@@ -41,6 +45,10 @@ export interface PcuHerbalResponse {
     total_charge_amt: number;
     hsub_claim_amt: number;
     hsub_hc_drug: number;
+    hsub_ae_drug?: number;
+    hsub_dmis_drug?: number;
+    hsub_drug_paid?: number;
+    total_reimbursed?: number;
     hsub_total_paid: number;
     gross_profit: number;
     payable_profit: number;
@@ -56,6 +64,10 @@ export interface PcuPayoutRow {
   dispensedQty: number;
   actualCost: number;
   grossReimbursed: number;
+  hsubClaimAmt: number;
+  hsubHcDrug: number;
+  hsubOtherDrug: number;
+  hsubDrugPaid: number;
   herbalReimbursed: number;
   triferdineReimbursed: number;
   folicReimbursed: number;
@@ -220,18 +232,13 @@ export const PcuPayoutPage: React.FC = () => {
     if (!data?.pcus) return [];
 
     return data.pcus.map((pcu) => {
-      let grossReimbursed = 0;
-      const herbalReimbursed = pcu.hsub_hc_drug > 0 ? pcu.hsub_hc_drug : pcu.total_charge_amt;
+      const grossReimbursed = pcu.hsub_total_paid || 0;
+      const herbalReimbursed = pcu.hsub_hc_drug || 0;
+      const otherDrugReimbursed = Math.round(((pcu.hsub_ae_drug || 0) + (pcu.hsub_dmis_drug || 0)) * 100) / 100;
+      const hsubDrugPaid = pcu.hsub_drug_paid || grossReimbursed;
+      const hsubClaimAmt = pcu.hsub_claim_amt || 0;
       const triferdineReimbursed = pcu.triferdine_reimbursed || 0;
       const folicReimbursed = pcu.folic_reimbursed || 0;
-
-      if (selectedCategory === 'herbal') {
-        grossReimbursed = herbalReimbursed;
-      } else if (selectedCategory === 'iron_folic') {
-        grossReimbursed = triferdineReimbursed + folicReimbursed;
-      } else {
-        grossReimbursed = pcu.hsub_total_paid > 0 ? pcu.hsub_total_paid : (herbalReimbursed + triferdineReimbursed + folicReimbursed);
-      }
 
       // Cost deduction
       let deductedCost = 0;
@@ -269,6 +276,10 @@ export const PcuPayoutPage: React.FC = () => {
         dispensedQty: pcu.total_dispensed_qty,
         actualCost: pcu.total_drug_cost,
         grossReimbursed,
+        hsubClaimAmt,
+        hsubHcDrug: herbalReimbursed,
+        hsubOtherDrug: otherDrugReimbursed,
+        hsubDrugPaid,
         herbalReimbursed,
         triferdineReimbursed,
         folicReimbursed,
@@ -557,10 +568,10 @@ export const PcuPayoutPage: React.FC = () => {
           {/* Grand Totals KPI Cards */}
           <div className="payout-kpi-grid">
             <div className="payout-kpi-card blue">
-              <div className="kpi-title">ยอดชดเชยรวม (Gross Inflow)</div>
+              <div className="kpi-title">รวมยอดค่ายาชดเชย (ตาม H-Sub)</div>
               <div className="kpi-value">{grandTotals.grossReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
               <div className="kpi-sub">
-                จ่ายยาทั้งหมด {grandTotals.dispenseCount.toLocaleString()} ครั้ง ({grandTotals.dispensedQty.toLocaleString()} หน่วย)
+                ข้อมูลนำเข้าจาก Statement สปสช. (จ่ายยา {grandTotals.dispenseCount.toLocaleString()} ครั้ง)
               </div>
             </div>
 
@@ -801,55 +812,42 @@ export const PcuPayoutPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {(selectedCategory === 'all' || selectedCategory === 'herbal') && (
+                  <tr>
+                    <td className="text-center">1</td>
+                    <td>
+                      <strong>เวชภัณฑ์ยาสมุนไพร (สปสช. H-Sub: hc_drug)</strong>
+                      <div className="voucher-item-sub">
+                        ชดเชยค่ายาสมุนไพรตามข้อมูลนำเข้า Statement สปสช. H-Sub
+                      </div>
+                    </td>
+                    <td className="text-right font-mono">{selectedVoucherRow.dispenseCount.toLocaleString()}</td>
+                    <td className="text-right font-mono">{selectedVoucherRow.hsubHcDrug.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                    <td className="text-right font-mono text-amber">
+                      {costDeductionMode === 'actual' ? `-${selectedVoucherRow.deductedCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : costDeductionMode === 'percent' ? `-${(Math.round(selectedVoucherRow.hsubHcDrug * (customCostPercent / 100) * 100) / 100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '0.00'}
+                    </td>
+                    <td className="text-right font-mono font-bold">
+                      {(costDeductionMode === 'actual' ? Math.max(0, selectedVoucherRow.hsubHcDrug - selectedVoucherRow.deductedCost) : costDeductionMode === 'percent' ? Math.max(0, selectedVoucherRow.hsubHcDrug * (1 - customCostPercent / 100)) : selectedVoucherRow.hsubHcDrug).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+
+                  {selectedVoucherRow.hsubOtherDrug > 0 && (
                     <tr>
-                      <td className="text-center">1</td>
+                      <td className="text-center">2</td>
                       <td>
-                        <strong>เวชภัณฑ์ยาสมุนไพร 46 รายการ (สปสช. H-Sub)</strong>
+                        <strong>เวชภัณฑ์ยาอื่นๆ ที่ชดเชย (สปสช. H-Sub: ae_drug + dmis_drug)</strong>
                         <div className="voucher-item-sub">
-                          จ่ายจากคลังยา รพ.สต. เพื่อทดแทนยาแผนปัจจุบัน
+                          ชดเชยค่ายาเพิ่มเติมตามข้อมูลนำเข้า Statement สปสช. H-Sub
                         </div>
                       </td>
-                      <td className="text-right font-mono">{selectedVoucherRow.dispenseCount.toLocaleString()}</td>
-                      <td className="text-right font-mono">{selectedVoucherRow.herbalReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                      <td className="text-right font-mono">-</td>
+                      <td className="text-right font-mono">{selectedVoucherRow.hsubOtherDrug.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
                       <td className="text-right font-mono text-amber">
-                        {costDeductionMode === 'actual' ? `-${selectedVoucherRow.actualCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : costDeductionMode === 'percent' ? `-${(Math.round(selectedVoucherRow.herbalReimbursed * (customCostPercent / 100) * 100) / 100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '0.00'}
+                        {costDeductionMode === 'percent' ? `-${(Math.round(selectedVoucherRow.hsubOtherDrug * (customCostPercent / 100) * 100) / 100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '0.00'}
                       </td>
                       <td className="text-right font-mono font-bold">
-                        {costDeductionMode === 'actual' ? Math.max(0, selectedVoucherRow.herbalReimbursed - selectedVoucherRow.actualCost).toLocaleString('th-TH', { minimumFractionDigits: 2 }) : costDeductionMode === 'percent' ? Math.max(0, selectedVoucherRow.herbalReimbursed * (1 - customCostPercent / 100)).toLocaleString('th-TH', { minimumFractionDigits: 2 }) : selectedVoucherRow.herbalReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                        {(costDeductionMode === 'percent' ? Math.max(0, selectedVoucherRow.hsubOtherDrug * (1 - customCostPercent / 100)) : selectedVoucherRow.hsubOtherDrug).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                       </td>
                     </tr>
-                  )}
-
-                  {(selectedCategory === 'all' || selectedCategory === 'iron_folic') && (
-                    <>
-                      <tr>
-                        <td className="text-center">2</td>
-                        <td>
-                          <strong>Triferdine 150 mg (ยาเสริมธาตุเหล็กหญิงตั้งครรภ์)</strong>
-                          <div className="voucher-item-sub">
-                            จัดสรรตามโควตาชดเชย รพ.สต. ประจำปีงบประมาณ 2569
-                          </div>
-                        </td>
-                        <td className="text-right font-mono">-</td>
-                        <td className="text-right font-mono">{selectedVoucherRow.triferdineReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                        <td className="text-right font-mono text-amber">-</td>
-                        <td className="text-right font-mono font-bold">{selectedVoucherRow.triferdineReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                      </tr>
-                      <tr>
-                        <td className="text-center">3</td>
-                        <td>
-                          <strong>Folic Acid (กรดโฟลิก 80 บาท/คอร์ส)</strong>
-                          <div className="voucher-item-sub">
-                            คอร์สละ 52 เม็ด (ต้นทุน 6.24 บาท/คอร์ส)
-                          </div>
-                        </td>
-                        <td className="text-right font-mono">-</td>
-                        <td className="text-right font-mono">{selectedVoucherRow.folicReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                        <td className="text-right font-mono text-amber">-</td>
-                        <td className="text-right font-mono font-bold">{selectedVoucherRow.folicReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                      </tr>
-                    </>
                   )}
 
                   {selectedVoucherRow.adminFeeDeducted > 0 && (

@@ -24,7 +24,11 @@ export interface PcuHerbalSummary {
   total_charge_amt: number;
   hsub_claim_amt: number;
   hsub_hc_drug: number;
+  hsub_ae_drug?: number;
+  hsub_dmis_drug?: number;
+  hsub_drug_paid?: number;
   hsub_total_paid: number;
+  total_reimbursed?: number;
   triferdine_reimbursed?: number;
   folic_reimbursed?: number;
   gross_profit: number;
@@ -52,7 +56,11 @@ export interface PcuHerbalResponse {
     total_charge_amt: number;
     hsub_claim_amt: number;
     hsub_hc_drug: number;
+    hsub_ae_drug?: number;
+    hsub_dmis_drug?: number;
+    hsub_drug_paid?: number;
     hsub_total_paid: number;
+    total_reimbursed?: number;
     gross_profit: number;
     payable_profit: number;
   };
@@ -495,10 +503,9 @@ export const PcuHerbalReconcilePage: React.FC = () => {
       'ยอดต้นทุนค่ายา (บาท)': p.total_drug_cost,
       'ยอดเรียกเก็บ รพ.สต. (บาท)': p.total_charge_amt,
       'ยอดส่งเบิก สปสช. (บาท)': p.hsub_claim_amt,
-      'ยอดชดเชยสมุนไพร สปสช. (บาท)': p.hsub_hc_drug,
-      'ยอดชดเชย Triferdine (บาท)': p.triferdine_reimbursed || 0,
-      'ยอดชดเชย Folic Acid (บาท)': p.folic_reimbursed || 0,
-      'ยอดชดเชยรวมทั้งหมด (บาท)': p.hsub_total_paid,
+      'ยอดชดเชยสมุนไพร hc_drug (บาท)': p.hsub_hc_drug,
+      'ยอดชดเชยยาอื่นๆ ae+dmis (บาท)': ((p.hsub_ae_drug || 0) + (p.hsub_dmis_drug || 0)),
+      'รวมยาทั้งหมดที่ได้รับชดเชย H-Sub (บาท)': p.hsub_total_paid,
       'กำไรส่วนต่าง (บาท)': p.gross_profit,
       'ส่วนแบ่งกำไรพึงจ่าย รพ.สต. (บาท)': p.payable_profit,
       'อัตรากำไร (%)': p.margin_percentage,
@@ -785,11 +792,9 @@ export const PcuHerbalReconcilePage: React.FC = () => {
             <div className="kpi-card purple">
               <div className="kpi-card-header">
                 <span className="kpi-card-title">
-                  {selectedCategory === 'iron_folic'
-                    ? 'ยอดชดเชยรวม (Triferdine + Folic)'
-                    : selectedCategory === 'herbal'
-                      ? 'ยอดชดเชยที่ได้รับ (H-Sub)'
-                      : 'รวมยอดชดเชยทั้งหมด'}
+                  {selectedCategory === 'herbal'
+                    ? 'ยอดชดเชยยาสมุนไพร (H-Sub)'
+                    : 'รวมยาทั้งหมดที่ได้รับชดเชย (ตามข้อมูลนำเข้า H-Sub)'}
                 </span>
                 <span className="kpi-card-icon">💰</span>
               </div>
@@ -797,11 +802,9 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                 {data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
               </div>
               <div className="kpi-card-sub">
-                {selectedCategory === 'iron_folic'
-                  ? 'Triferdine คงที่ 290,080฿ + Folic 80฿/คอร์ส'
-                  : selectedCategory === 'herbal'
-                    ? `สมุนไพรเฉพาะ: ${data.grand_total.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿`
-                    : 'รวม H-Sub + Triferdine + Folic Acid'}
+                {selectedCategory === 'herbal'
+                  ? `สมุนไพรเฉพาะ (hc_drug): ${data.grand_total.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿`
+                  : `สมุนไพร ${data.grand_total.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿ + ยาอื่นๆ ${((data.grand_total.hsub_ae_drug || 0) + (data.grand_total.hsub_dmis_drug || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿`}
               </div>
             </div>
 
@@ -881,22 +884,10 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                       <th className="text-right">ครั้งที่จ่าย</th>
                       <th className="text-right">ปริมาณยา (หน่วย)</th>
                       <th className="text-right">ต้นทุนค่ายา</th>
-                      {selectedCategory === 'iron_folic' ? (
-                        <>
-                          <th className="text-right">ชดเชย Triferdine</th>
-                          <th className="text-right">ชดเชย Folic (80฿/คอร์ส)</th>
-                          <th className="text-right">รวมยอดชดเชย</th>
-                        </>
-                      ) : selectedCategory === 'all' ? (
-                        <>
-                          <th className="text-right">ชดเชยสมุนไพร</th>
-                          <th className="text-right">ชดเชย Triferdine</th>
-                          <th className="text-right">ชดเชย Folic</th>
-                          <th className="text-right">รวมยอดชดเชย</th>
-                        </>
-                      ) : (
-                        <th className="text-right">ยอดชดเชย สปสช. (H-Sub)</th>
-                      )}
+                      <th className="text-right">ส่งเบิก สปสช. (claim_amt)</th>
+                      <th className="text-right">ชดเชยสมุนไพร (hc_drug)</th>
+                      <th className="text-right">ชดเชยยาอื่นๆ (ae + dmis)</th>
+                      <th className="text-right">รวมยาทั้งหมดที่ชดเชย (H-Sub)</th>
                       <th className="text-right">กำไรส่วนต่าง</th>
                       <th className="text-right">ยอดพึงจ่าย รพ.สต.</th>
                       <th className="text-center">อัตรากำไร</th>
@@ -921,38 +912,18 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                         <td className="text-right">{pcu.total_dispense_count.toLocaleString()}</td>
                         <td className="text-right">{pcu.total_dispensed_qty.toLocaleString()}</td>
                         <td className="text-right">{pcu.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
-                        {selectedCategory === 'iron_folic' ? (
-                          <>
-                            <td className="text-right" style={{ color: '#4338ca' }}>
-                              {(pcu.triferdine_reimbursed || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                            </td>
-                            <td className="text-right" style={{ color: '#0891b2' }}>
-                              {(pcu.folic_reimbursed || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                            </td>
-                            <td className="text-right" style={{ color: '#2563eb', fontWeight: 600 }}>
-                              {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                            </td>
-                          </>
-                        ) : selectedCategory === 'all' ? (
-                          <>
-                            <td className="text-right">
-                              {(pcu.hsub_claim_amt + pcu.hsub_hc_drug).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                            </td>
-                            <td className="text-right" style={{ color: '#4338ca' }}>
-                              {(pcu.triferdine_reimbursed || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                            </td>
-                            <td className="text-right" style={{ color: '#0891b2' }}>
-                              {(pcu.folic_reimbursed || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                            </td>
-                            <td className="text-right" style={{ color: '#2563eb', fontWeight: 600 }}>
-                              {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                            </td>
-                          </>
-                        ) : (
-                          <td className="text-right" style={{ color: '#2563eb', fontWeight: 600 }}>
-                            {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          </td>
-                        )}
+                        <td className="text-right" style={{ color: '#64748b' }}>
+                          {pcu.hsub_claim_amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                        <td className="text-right" style={{ color: '#0d9488', fontWeight: 600 }}>
+                          {pcu.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                        <td className="text-right" style={{ color: '#6366f1' }}>
+                          {((pcu.hsub_ae_drug || 0) + (pcu.hsub_dmis_drug || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                        <td className="text-right" style={{ color: '#2563eb', fontWeight: 700 }}>
+                          {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
                         <td className="text-right profit-text">
                           +{pcu.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                         </td>
@@ -981,36 +952,18 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                       <td className="text-right">{data.grand_total.total_dispense_count.toLocaleString()}</td>
                       <td className="text-right">{data.grand_total.total_dispensed_qty.toLocaleString()}</td>
                       <td className="text-right">{data.grand_total.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
-                      {selectedCategory === 'iron_folic' ? (
-                        <>
-                          <td className="text-right" style={{ color: '#4338ca' }}>
-                            {data.pcus.reduce((a, b) => a + (b.triferdine_reimbursed || 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          </td>
-                          <td className="text-right" style={{ color: '#0891b2' }}>
-                            {data.pcus.reduce((a, b) => a + (b.folic_reimbursed || 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          </td>
-                          <td className="text-right" style={{ color: '#2563eb' }}>
-                            {data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          </td>
-                        </>
-                      ) : selectedCategory === 'all' ? (
-                        <>
-                          <td className="text-right">
-                            {data.grand_total.hsub_claim_amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          </td>
-                          <td className="text-right" style={{ color: '#4338ca' }}>
-                            {data.pcus.reduce((a, b) => a + (b.triferdine_reimbursed || 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          </td>
-                          <td className="text-right" style={{ color: '#0891b2' }}>
-                            {data.pcus.reduce((a, b) => a + (b.folic_reimbursed || 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          </td>
-                          <td className="text-right" style={{ color: '#2563eb' }}>
-                            {data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          </td>
-                        </>
-                      ) : (
-                        <td className="text-right" style={{ color: '#2563eb' }}>{data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
-                      )}
+                      <td className="text-right" style={{ color: '#64748b' }}>
+                        {data.grand_total.hsub_claim_amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
+                      <td className="text-right" style={{ color: '#0d9488', fontWeight: 600 }}>
+                        {data.grand_total.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
+                      <td className="text-right" style={{ color: '#6366f1' }}>
+                        {((data.grand_total.hsub_ae_drug || 0) + (data.grand_total.hsub_dmis_drug || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
+                      <td className="text-right" style={{ color: '#2563eb', fontWeight: 700 }}>
+                        {data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
                       <td className="text-right profit-text">+{data.grand_total.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
                       <td className="text-right" style={{ color: '#059669', fontSize: '1rem' }}>{data.grand_total.payable_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
                       <td className="text-center">

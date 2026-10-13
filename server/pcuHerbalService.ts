@@ -351,7 +351,11 @@ export interface PcuHerbalSummary {
   total_charge_amt: number;
   hsub_claim_amt: number;
   hsub_hc_drug: number;
+  hsub_ae_drug: number;
+  hsub_dmis_drug: number;
+  hsub_drug_paid: number;
   hsub_total_paid: number;
+  total_reimbursed: number;
   triferdine_reimbursed?: number;
   folic_reimbursed?: number;
   gross_profit: number;
@@ -389,9 +393,17 @@ export async function getPcuHerbalReconciliation(options: {
       ? IRON_FOLIC_MASTER
       : ALL_DRUG_MASTER;
 
-  // 1. Fetch H-Sub amounts from hospital database
+  // 1. Fetch H-Sub amounts from hospital database (ข้อมูลนำเข้า H-Sub)
   const hospConn = await getHospitalConnection();
-  const hsubDataMap = new Map<string, { claim: number; hc_drug: number; total_paid: number; count: number }>();
+  const hsubDataMap = new Map<string, {
+    claim: number;
+    hc_drug: number;
+    ae_drug: number;
+    dmis_drug: number;
+    drug_paid: number;
+    total_paid: number;
+    count: number;
+  }>();
   try {
     const [hsubRows]: any = await hospConn.query(
       `SELECT 
@@ -399,6 +411,9 @@ export async function getPcuHerbalReconciliation(options: {
         COUNT(*) as cnt,
         SUM(COALESCE(claim_amt, 0)) as total_claim,
         SUM(COALESCE(hc_drug, 0)) as total_hc_drug,
+        SUM(COALESCE(ae_drug, 0)) as total_ae_drug,
+        SUM(COALESCE(dmis_drug, 0)) as total_dmis_drug,
+        SUM(COALESCE(hc_drug, 0) + COALESCE(ae_drug, 0) + COALESCE(dmis_drug, 0)) as total_drug_paid,
         SUM(COALESCE(total_paid, 0)) as total_paid
       FROM hsub_payment_item
       WHERE (? IS NULL OR service_date >= ?)
@@ -410,6 +425,9 @@ export async function getPcuHerbalReconciliation(options: {
       hsubDataMap.set(String(r.hcode), {
         claim: Number(r.total_claim || 0),
         hc_drug: Number(r.total_hc_drug || 0),
+        ae_drug: Number(r.total_ae_drug || 0),
+        dmis_drug: Number(r.total_dmis_drug || 0),
+        drug_paid: Number(r.total_drug_paid || 0),
         total_paid: Number(r.total_paid || 0),
         count: Number(r.cnt || 0),
       });
@@ -537,19 +555,23 @@ export async function getPcuHerbalReconciliation(options: {
       }
     }
 
-    const hsub = hsubDataMap.get(pcu.code) || { claim: 0, hc_drug: 0, total_paid: 0, count: 0 };
-    const herbalPaid = hsub.total_paid;
-    const triferdinePaid = TRIFERDINE_REIMBURSEMENT_BY_PCU[pcu.code] || 0;
-    const folicQty = itemMap.get(48)?.dispensed_qty || 0;
-    const folicPaid = Math.round((folicQty / 52) * 80 * 100) / 100;
+    const hsub = hsubDataMap.get(pcu.code) || {
+      claim: 0,
+      hc_drug: 0,
+      ae_drug: 0,
+      dmis_drug: 0,
+      drug_paid: 0,
+      total_paid: 0,
+      count: 0,
+    };
 
+    // ยอดชดเชยไม่ใช่ รวม H-Sub + Triferdine + Folic Acid
+    // แต่เป็นรวมยาทั้งหมดที่ได้รับชดเชย ตามข้อมูลนำเข้า hsub (hc_drug + ae_drug + dmis_drug)
     let totalPaid = 0;
     if (category === 'herbal') {
-      totalPaid = herbalPaid;
-    } else if (category === 'iron_folic') {
-      totalPaid = triferdinePaid + folicPaid;
+      totalPaid = hsub.hc_drug > 0 ? hsub.hc_drug : hsub.drug_paid;
     } else {
-      totalPaid = herbalPaid + triferdinePaid + folicPaid;
+      totalPaid = hsub.drug_paid > 0 ? hsub.drug_paid : hsub.total_paid;
     }
 
     const grossProfit = Math.max(0, totalPaid - totalDrugCost);
@@ -567,9 +589,13 @@ export async function getPcuHerbalReconciliation(options: {
       total_charge_amt: Math.round(totalChargeAmt * 100) / 100,
       hsub_claim_amt: hsub.claim,
       hsub_hc_drug: hsub.hc_drug,
-      hsub_total_paid: Math.round(totalPaid * 100) / 100,
-      triferdine_reimbursed: triferdinePaid,
-      folic_reimbursed: folicPaid,
+      hsub_ae_drug: hsub.ae_drug,
+      hsub_dmis_drug: hsub.dmis_drug,
+      hsub_drug_paid: hsub.drug_paid,
+      hsub_total_paid: hsub.total_paid,
+      total_reimbursed: Math.round(totalPaid * 100) / 100,
+      triferdine_reimbursed: TRIFERDINE_REIMBURSEMENT_BY_PCU[pcu.code] || 0,
+      folic_reimbursed: Math.round(((itemMap.get(48)?.dispensed_qty || 0) / 52) * 80 * 100) / 100,
       gross_profit: Math.round(grossProfit * 100) / 100,
       payable_profit: Math.round(payableProfit * 100) / 100,
       margin_percentage: Math.round(marginPct * 10) / 10,
@@ -585,7 +611,9 @@ export async function getPcuHerbalReconciliation(options: {
     total_charge_amt: Math.round(results.reduce((acc, r) => acc + r.total_charge_amt, 0) * 100) / 100,
     hsub_claim_amt: Math.round(results.reduce((acc, r) => acc + r.hsub_claim_amt, 0) * 100) / 100,
     hsub_hc_drug: Math.round(results.reduce((acc, r) => acc + r.hsub_hc_drug, 0) * 100) / 100,
+    hsub_drug_paid: Math.round(results.reduce((acc, r) => acc + r.hsub_drug_paid, 0) * 100) / 100,
     hsub_total_paid: Math.round(results.reduce((acc, r) => acc + r.hsub_total_paid, 0) * 100) / 100,
+    total_reimbursed: Math.round(results.reduce((acc, r) => acc + r.total_reimbursed, 0) * 100) / 100,
     gross_profit: Math.round(results.reduce((acc, r) => acc + r.gross_profit, 0) * 100) / 100,
     payable_profit: Math.round(results.reduce((acc, r) => acc + r.payable_profit, 0) * 100) / 100,
   };

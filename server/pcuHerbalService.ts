@@ -12,15 +12,27 @@ export interface PcuConfig {
   db: string;
 }
 
-export const PCU_CONFIGS: PcuConfig[] = [
+export interface PcuConfig {
+  code: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  db: string;
+  vpnNote?: string;
+}
+
+export const DEFAULT_PCU_CONFIGS: PcuConfig[] = [
   {
     code: '05570',
     name: 'รพ.สต.โพนค้อ',
     host: process.env.PCU_05570_HOST || '209.15.96.29',
     port: Number(process.env.PCU_05570_PORT) || 3306,
     user: process.env.PCU_05570_USER || 'root',
-    pass: process.env.PCU_05570_PASSWORD || '',
+    pass: process.env.PCU_05570_PASSWORD || 'XMQ5s%wJ#m',
     db: process.env.PCU_05570_DB || 'hospcu05570',
+    vpnNote: 'GDCC VPN pho4701.health',
   },
   {
     code: '05572',
@@ -28,8 +40,9 @@ export const PCU_CONFIGS: PcuConfig[] = [
     host: process.env.PCU_05572_HOST || '209.15.96.27',
     port: Number(process.env.PCU_05572_PORT) || 3306,
     user: process.env.PCU_05572_USER || 'root',
-    pass: process.env.PCU_05572_PASSWORD || '',
+    pass: process.env.PCU_05572_PASSWORD || 'L&wFK5?V#m',
     db: process.env.PCU_05572_DB || 'hospcu05572',
+    vpnNote: 'GDCC VPN pho4701.health',
   },
   {
     code: '05573',
@@ -37,8 +50,9 @@ export const PCU_CONFIGS: PcuConfig[] = [
     host: process.env.PCU_05573_HOST || '209.15.96.25',
     port: Number(process.env.PCU_05573_PORT) || 3306,
     user: process.env.PCU_05573_USER || 'root',
-    pass: process.env.PCU_05573_PASSWORD || '',
+    pass: process.env.PCU_05573_PASSWORD || 'H$Tt8X#5#m',
     db: process.env.PCU_05573_DB || 'hospcu05573',
+    vpnNote: 'GDCC VPN pho4701.health',
   },
   {
     code: '05571',
@@ -46,8 +60,9 @@ export const PCU_CONFIGS: PcuConfig[] = [
     host: process.env.PCU_05571_HOST || '202.139.215.221',
     port: Number(process.env.PCU_05571_PORT) || 3306,
     user: process.env.PCU_05571_USER || 'root',
-    pass: process.env.PCU_05571_PASSWORD || '',
+    pass: process.env.PCU_05571_PASSWORD || 'G7T?&qzV#m',
     db: process.env.PCU_05571_DB || 'hospcu05571',
+    vpnNote: 'GDCC VPN pho4701.health',
   },
   {
     code: '05569',
@@ -55,10 +70,47 @@ export const PCU_CONFIGS: PcuConfig[] = [
     host: process.env.PCU_05569_HOST || '202.139.215.223',
     port: Number(process.env.PCU_05569_PORT) || 3306,
     user: process.env.PCU_05569_USER || 'root',
-    pass: process.env.PCU_05569_PASSWORD || '',
+    pass: process.env.PCU_05569_PASSWORD || 'gHY+M9?5#m',
     db: process.env.PCU_05569_DB || 'hospcu05569',
+    vpnNote: 'GDCC VPN pho4701.health',
   },
 ];
+
+export const PCU_CONFIG_SETTING_KEY = 'pcu_herbal_connections_config';
+
+export async function getActivePcuConfigs(): Promise<PcuConfig[]> {
+  try {
+    const { getAppSetting } = await import('./repositories/system.repository.js');
+    const saved = await getAppSetting<PcuConfig[]>(PCU_CONFIG_SETTING_KEY);
+    if (saved && Array.isArray(saved) && saved.length > 0) {
+      return DEFAULT_PCU_CONFIGS.map(def => {
+        const found = saved.find(s => s.code === def.code);
+        if (!found) return def;
+        return {
+          code: def.code,
+          name: found.name || def.name,
+          host: found.host || def.host,
+          port: Number(found.port) || def.port,
+          user: found.user || def.user,
+          pass: found.pass !== undefined && found.pass !== '' ? found.pass : def.pass,
+          db: found.db || def.db,
+          vpnNote: found.vpnNote || def.vpnNote,
+        };
+      });
+    }
+  } catch (err) {
+    console.warn('[PcuHerbal] Failed to read pcu config from app_settings, falling back to defaults:', err);
+  }
+  return DEFAULT_PCU_CONFIGS;
+}
+
+export async function savePcuConfigs(configs: PcuConfig[]): Promise<void> {
+  const { setAppSetting } = await import('./repositories/system.repository.js');
+  await setAppSetting(PCU_CONFIG_SETTING_KEY, configs);
+  resetPcuPools();
+}
+
+export const PCU_CONFIGS = DEFAULT_PCU_CONFIGS;
 
 export interface HerbalMasterItem {
   id: number;
@@ -138,6 +190,83 @@ export function getPcuPool(pcu: PcuConfig): Pool {
   return poolCache.get(pcu.code)!;
 }
 
+export function resetPcuPools(): void {
+  for (const pool of poolCache.values()) {
+    pool.end().catch(() => undefined);
+  }
+  poolCache.clear();
+}
+
+export async function testSinglePcuConnection(pcu: PcuConfig): Promise<{
+  code: string;
+  name: string;
+  host: string;
+  port: number;
+  db: string;
+  user: string;
+  connected: boolean;
+  latencyMs: number;
+  error?: string;
+  diagnostics: string;
+}> {
+  const startTime = Date.now();
+  let conn: mysql.Connection | null = null;
+  try {
+    conn = await mysql.createConnection({
+      host: pcu.host,
+      port: Number(pcu.port) || 3306,
+      user: pcu.user || 'root',
+      password: pcu.pass || '',
+      database: pcu.db || `hospcu${pcu.code}`,
+      connectTimeout: 5000,
+    });
+    const [rows]: any = await conn.query('SELECT 1 as ok, DATABASE() as db, VERSION() as ver');
+    const latencyMs = Date.now() - startTime;
+    return {
+      code: pcu.code,
+      name: pcu.name,
+      host: pcu.host,
+      port: Number(pcu.port) || 3306,
+      db: pcu.db,
+      user: pcu.user,
+      connected: Boolean(rows?.[0]?.ok),
+      latencyMs,
+      diagnostics: `เชื่อมต่อสำเร็จ (${latencyMs}ms, MySQL ${rows?.[0]?.ver || ''})`,
+    };
+  } catch (err: any) {
+    const latencyMs = Date.now() - startTime;
+    let diag = 'ไม่สามารถเชื่อมต่อได้: ' + (err.message || 'Unknown error');
+    if (err.code === 'ETIMEDOUT' || err.message?.includes('ETIMEDOUT') || err.message?.includes('timeout')) {
+      diag = `ไม่สามารถเชื่อมต่อไปยัง IP ${pcu.host}:${pcu.port} ได้ภายในกำหนด (Timeout) — กรุณาตรวจสอบว่าเซิร์ฟเวอร์ต่อ VPN GDCC (pho4701.health) หรืออยู่ในวงเครือข่าย GDCC หรือไม่`;
+    } else if (err.code === 'ECONNREFUSED' || err.message?.includes('ECONNREFUSED')) {
+      diag = `การเชื่อมต่อถูกปฏิเสธ (Connection Refused) — ปลายทางปิดพอร์ต ${pcu.port} หรือ MySQL ไม่ได้เปิด bind-address รับ IP ภายนอก`;
+    } else if (err.code === 'ER_ACCESS_DENIED_ERROR' || err.errno === 1045 || err.message?.includes('Access denied')) {
+      diag = `รหัสผ่านหรือ Username ของ MySQL ไม่ถูกต้อง (Access Denied for user '${pcu.user}')`;
+    } else if (err.code === 'ER_BAD_DB_ERROR' || err.errno === 1049 || err.message?.includes('Unknown database')) {
+      diag = `ไม่พบชื่อฐานข้อมูล '${pcu.db}' บนเซิร์ฟเวอร์ปลายทาง`;
+    } else if (err.code === 'ENOTFOUND') {
+      diag = `ไม่พบ Host / IP '${pcu.host}' ในระบบเครือข่าย`;
+    }
+
+    return {
+      code: pcu.code,
+      name: pcu.name,
+      host: pcu.host,
+      port: Number(pcu.port) || 3306,
+      db: pcu.db,
+      user: pcu.user,
+      connected: false,
+      latencyMs,
+      error: err.message,
+      diagnostics: diag,
+    };
+  } finally {
+    if (conn) {
+      await conn.end().catch(() => undefined);
+    }
+  }
+}
+
 export async function getHospitalConnection() {
   return await mysql.createConnection({
     host: process.env.HOSXP_HOST || '127.0.0.1',
@@ -183,9 +312,10 @@ export async function getPcuHerbalReconciliation(options: {
 } = {}) {
   const { hcode, startDate = '2025-10-01', endDate = '2026-10-31' } = options;
 
+  const allPcus = await getActivePcuConfigs();
   const targetPcus = hcode && hcode !== 'all'
-    ? PCU_CONFIGS.filter(p => p.code === hcode)
-    : PCU_CONFIGS;
+    ? allPcus.filter(p => p.code === hcode)
+    : allPcus;
 
   // 1. Fetch H-Sub amounts from hospital database
   const hospConn = await getHospitalConnection();
@@ -381,7 +511,8 @@ export async function getPcuHerbalDrillDown(options: {
     limit = 50,
   } = options;
 
-  const pcu = PCU_CONFIGS.find(p => p.code === hcode);
+  const allPcus = await getActivePcuConfigs();
+  const pcu = allPcus.find(p => p.code === hcode);
   if (!pcu) throw new Error(`ไม่พบข้อมูล รพ.สต. รหัส ${hcode}`);
 
   const pool = getPcuPool(pcu);

@@ -3,19 +3,94 @@ import {
   getPcuHerbalReconciliation,
   getPcuHerbalDrillDown,
   HERBAL_MASTER_46,
-  PCU_CONFIGS,
-  getPcuPool,
+  getActivePcuConfigs,
+  savePcuConfigs,
+  DEFAULT_PCU_CONFIGS,
+  testSinglePcuConnection,
+  type PcuConfig,
 } from '../pcuHerbalService.js';
 
 export const pcuHerbalRouter = Router();
 
 // GET /api/pcu-herbal/master-items - รายการยาเวชภัณฑ์สมุนไพร 46 รายการ
-pcuHerbalRouter.get('/master-items', (_req, res) => {
+pcuHerbalRouter.get('/master-items', async (_req, res) => {
+  const pcus = await getActivePcuConfigs();
   return res.json({
     success: true,
     data: HERBAL_MASTER_46,
-    pcus: PCU_CONFIGS.map(p => ({ code: p.code, name: p.name, host: p.host })),
+    pcus: pcus.map(p => ({ code: p.code, name: p.name, host: p.host })),
   });
+});
+
+// GET /api/pcu-herbal/config - ดูค่าคอนฟิกการเชื่อมต่อ รพ.สต.
+pcuHerbalRouter.get('/config', async (_req, res) => {
+  try {
+    const configs = await getActivePcuConfigs();
+    return res.json({
+      success: true,
+      data: configs,
+      defaults: DEFAULT_PCU_CONFIGS,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถดึงการตั้งค่าได้',
+    });
+  }
+});
+
+// POST /api/pcu-herbal/config - บันทึกค่าคอนฟิกการเชื่อมต่อ รพ.สต.
+pcuHerbalRouter.post('/config', async (req, res) => {
+  try {
+    const { configs } = req.body as { configs: PcuConfig[] };
+    if (!Array.isArray(configs) || configs.length === 0) {
+      return res.status(400).json({ success: false, error: 'ข้อมูลการตั้งค่าไม่ถูกต้อง' });
+    }
+    await savePcuConfigs(configs);
+    return res.json({ success: true, message: 'บันทึกการตั้งค่าการเชื่อมต่อ รพ.สต. สำเร็จ' });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถบันทึกการตั้งค่าได้',
+    });
+  }
+});
+
+// POST /api/pcu-herbal/test-single - ทดสอบการเชื่อมต่อ รพ.สต. แห่งเดียว
+pcuHerbalRouter.post('/test-single', async (req, res) => {
+  try {
+    const config = req.body as PcuConfig;
+    if (!config || !config.host) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุข้อมูลการเชื่อมต่อ' });
+    }
+    const result = await testSinglePcuConnection(config);
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ทดสอบการเชื่อมต่อล้มเหลว',
+    });
+  }
+});
+
+// POST /api/pcu-herbal/test-connections - ทดสอบสถานะการเชื่อมต่อทั้งหมด
+pcuHerbalRouter.post('/test-connections', async (req, res) => {
+  try {
+    const targetConfigs: PcuConfig[] = (req.body?.configs && Array.isArray(req.body.configs) && req.body.configs.length > 0)
+      ? req.body.configs
+      : await getActivePcuConfigs();
+
+    const connectionStatuses = await Promise.all(
+      targetConfigs.map(pcu => testSinglePcuConnection(pcu))
+    );
+
+    return res.json({ success: true, data: connectionStatuses });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถทดสอบการเชื่อมต่อได้',
+    });
+  }
 });
 
 // GET /api/pcu-herbal/summary - สรุปการจ่ายยา เปรียบเทียบ H-Sub และส่วนแบ่งกำไร
@@ -64,32 +139,4 @@ pcuHerbalRouter.get('/drill-down', async (req, res) => {
       error: error instanceof Error ? error.message : 'ไม่สามารถดึงข้อมูลรายละเอียดจ่ายยาได้',
     });
   }
-});
-
-// POST /api/pcu-herbal/test-connections - ทดสอบสถานะการเชื่อมต่อ 5 รพ.สต.
-pcuHerbalRouter.post('/test-connections', async (_req, res) => {
-  const connectionStatuses: any[] = [];
-  for (const pcu of PCU_CONFIGS) {
-    try {
-      const pool = getPcuPool(pcu);
-      const [rows]: any = await pool.query('SELECT 1 as ok');
-      connectionStatuses.push({
-        code: pcu.code,
-        name: pcu.name,
-        host: pcu.host,
-        db: pcu.db,
-        connected: Boolean(rows?.[0]?.ok),
-      });
-    } catch (err: any) {
-      connectionStatuses.push({
-        code: pcu.code,
-        name: pcu.name,
-        host: pcu.host,
-        db: pcu.db,
-        connected: false,
-        error: err.message,
-      });
-    }
-  }
-  return res.json({ success: true, data: connectionStatuses });
 });

@@ -73,6 +73,30 @@ export interface DrillDownItem {
   margin: number;
 }
 
+export interface PcuConfigItem {
+  code: string;
+  name: string;
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+  db: string;
+  vpnNote?: string;
+}
+
+export interface PcuTestStatus {
+  code: string;
+  name: string;
+  host: string;
+  port: number;
+  db: string;
+  user: string;
+  connected: boolean;
+  latencyMs?: number;
+  error?: string;
+  diagnostics?: string;
+}
+
 export const PcuHerbalReconcilePage: React.FC = () => {
   const [data, setData] = useState<PcuHerbalResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -89,7 +113,16 @@ export const PcuHerbalReconcilePage: React.FC = () => {
 
   // Connection status testing
   const [testingConn, setTestingConn] = useState<boolean>(false);
-  const [connStatus, setConnStatus] = useState<Array<{ code: string; name: string; host: string; connected: boolean }> | null>(null);
+  const [connStatus, setConnStatus] = useState<PcuTestStatus[] | null>(null);
+
+  // Config Modal State
+  const [configModalOpen, setConfigModalOpen] = useState<boolean>(false);
+  const [pcuConfigs, setPcuConfigs] = useState<PcuConfigItem[]>([]);
+  const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
+  const [testResults, setTestResults] = useState<Record<string, PcuTestStatus>>({});
+  const [testingCode, setTestingCode] = useState<string | null>(null);
+  const [testingAllConfigs, setTestingAllConfigs] = useState<boolean>(false);
+  const [savingConfig, setSavingConfig] = useState<boolean>(false);
 
   // Drill down modal state
   const [modalOpen, setModalOpen] = useState<boolean>(false);
@@ -130,19 +163,122 @@ export const PcuHerbalReconcilePage: React.FC = () => {
     loadSummary();
   }, [loadSummary]);
 
-  // Test connections
+  // Test connections from header
   const handleTestConnections = async () => {
     setTestingConn(true);
     try {
       const res = await fetch('/api/pcu-herbal/test-connections', { method: 'POST' });
       const json = await res.json();
-      if (json.success) {
+      if (json.success && Array.isArray(json.data)) {
         setConnStatus(json.data);
       }
     } catch (err) {
       console.error('Error testing connections:', err);
     } finally {
       setTestingConn(false);
+    }
+  };
+
+  // Open config modal
+  const openConfigModal = async () => {
+    try {
+      const res = await fetch('/api/pcu-herbal/config');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setPcuConfigs(json.data);
+      }
+    } catch {
+      // ignore
+    }
+    setConfigModalOpen(true);
+  };
+
+  // Reset config to defaults
+  const handleResetDefaults = async () => {
+    try {
+      const res = await fetch('/api/pcu-herbal/config');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.defaults)) {
+        setPcuConfigs(json.defaults);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // Test single PCU
+  const handleTestSingle = async (pcu: PcuConfigItem) => {
+    setTestingCode(pcu.code);
+    try {
+      const res = await fetch('/api/pcu-herbal/test-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pcu),
+      });
+      const json = await res.json();
+      if (json.success && json.data) {
+        setTestResults(prev => ({ ...prev, [pcu.code]: json.data }));
+      }
+    } catch (err: any) {
+      setTestResults(prev => ({
+        ...prev,
+        [pcu.code]: {
+          code: pcu.code,
+          name: pcu.name,
+          host: pcu.host,
+          port: pcu.port,
+          db: pcu.db,
+          user: pcu.user,
+          connected: false,
+          diagnostics: 'เกิดข้อผิดพลาดในการเชื่อมต่อ: ' + err.message,
+        },
+      }));
+    } finally {
+      setTestingCode(null);
+    }
+  };
+
+  // Test all configs
+  const handleTestAllConfigs = async () => {
+    setTestingAllConfigs(true);
+    try {
+      const res = await fetch('/api/pcu-herbal/test-connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configs: pcuConfigs }),
+      });
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        const map: Record<string, PcuTestStatus> = {};
+        json.data.forEach((item: PcuTestStatus) => {
+          map[item.code] = item;
+        });
+        setTestResults(map);
+      }
+    } finally {
+      setTestingAllConfigs(false);
+    }
+  };
+
+  // Save configs
+  const handleSaveConfigs = async () => {
+    setSavingConfig(true);
+    try {
+      const res = await fetch('/api/pcu-herbal/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configs: pcuConfigs }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'บันทึกการตั้งค่าไม่สำเร็จ');
+      }
+      setConfigModalOpen(false);
+      loadSummary();
+    } catch (err: any) {
+      alert('บันทึกการตั้งค่าไม่สำเร็จ: ' + err.message);
+    } finally {
+      setSavingConfig(false);
     }
   };
 
@@ -291,6 +427,13 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         </div>
         <div className="pcu-herbal-actions">
           <button
+            className="btn-herbal btn-config-herbal"
+            onClick={openConfigModal}
+            title="ตั้งค่า Host, IP, Database, Username และ Password ของ รพ.สต. ทั้ง 5 แห่ง"
+          >
+            ⚙️ ตั้งค่าการเชื่อมต่อ รพ.สต.
+          </button>
+          <button
             className="btn-herbal btn-secondary-herbal"
             onClick={handleTestConnections}
             disabled={testingConn}
@@ -337,8 +480,23 @@ export const PcuHerbalReconcilePage: React.FC = () => {
 
       {/* PCU Connection Status Pills */}
       <div className="pcu-status-bar">
-        {(connStatus || (data?.pcus.map(p => ({ code: p.pcu_code, name: p.pcu_name, host: p.host_ip, connected: p.is_online })) || [])).map(s => (
-          <div key={s.code} className="pcu-status-pill">
+        {(connStatus || (data?.pcus.map(p => ({
+          code: p.pcu_code,
+          name: p.pcu_name,
+          host: p.host_ip,
+          port: 3306,
+          db: `hospcu${p.pcu_code}`,
+          user: 'root',
+          connected: p.is_online,
+          diagnostics: p.is_online ? 'ออนไลน์' : 'ออฟไลน์ (คลิกเพื่อดูรายละเอียดและตั้งค่าการเชื่อมต่อ)',
+        })) || [])).map(s => (
+          <div
+            key={s.code}
+            className="pcu-status-pill"
+            style={{ cursor: 'pointer' }}
+            onClick={openConfigModal}
+            title={s.diagnostics || (s.connected ? 'ออนไลน์' : 'ออฟไลน์ — คลิกเพื่อเปิดหน้าต่างตั้งค่าและทดสอบ')}
+          >
             <span className={`status-dot ${s.connected ? 'online' : 'offline'}`} />
             <strong>{s.code}</strong> {s.name} ({s.host}): {s.connected ? 'Online' : 'Offline'}
           </div>
@@ -734,6 +892,177 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                   onClick={() => handleModalPageChange(modalPage + 1)}
                 >
                   ถัดไป ▶
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PCU Connection Config & Diagnostic Modal */}
+      {configModalOpen && (
+        <div className="modal-backdrop" onClick={() => !savingConfig && setConfigModalOpen(false)}>
+          <div className="modal-dialog config-modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2>⚙️ ตั้งค่าและทดสอบการเชื่อมต่อฐานข้อมูล HOSxP รพ.สต. (5 แห่ง)</h2>
+                <p style={{ margin: '0.25rem 0 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                  กำหนด Host IP, Port, Username, Password และชื่อฐานข้อมูล MySQL ของ รพ.สต. ในเครือข่าย GDCC
+                </p>
+              </div>
+              <button
+                className="btn-close-modal"
+                disabled={savingConfig}
+                onClick={() => setConfigModalOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="vpn-guidance-box">
+                ℹ️ <strong>คำแนะนำเครือข่าย GDCC:</strong> หากทดสอบแล้วขึ้น <code>Timeout (ETIMEDOUT)</code> แปลว่าเครื่องเซิร์ฟเวอร์ยังไม่ได้เชื่อมต่อวงเครือข่าย GDCC ให้เชื่อมต่อ VPN <code>pho4701.health</code> หรือตรวจสอบ Routing จากเครื่องเซิร์ฟเวอร์ไปยัง IP รพ.สต.
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="pcu-config-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '130px' }}>รหัส / รพ.สต.</th>
+                      <th style={{ width: '140px' }}>Host / IP</th>
+                      <th style={{ width: '80px' }}>Port</th>
+                      <th style={{ width: '130px' }}>Database</th>
+                      <th style={{ width: '90px' }}>Username</th>
+                      <th style={{ width: '160px' }}>Password</th>
+                      <th style={{ width: '100px' }}>การทดสอบ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pcuConfigs.map((pcu, idx) => {
+                      const testRes = testResults[pcu.code];
+                      const isTestingThis = testingCode === pcu.code;
+                      const showPwd = showPasswords[pcu.code] || false;
+
+                      return (
+                        <React.Fragment key={pcu.code}>
+                          <tr>
+                            <td>
+                              <strong>{pcu.code}</strong>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{pcu.name}</div>
+                            </td>
+                            <td>
+                              <input
+                                className="pcu-config-input"
+                                value={pcu.host}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setPcuConfigs(prev => prev.map((item, i) => i === idx ? { ...item, host: val } : item));
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                className="pcu-config-input"
+                                type="number"
+                                value={pcu.port}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value) || 3306;
+                                  setPcuConfigs(prev => prev.map((item, i) => i === idx ? { ...item, port: val } : item));
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                className="pcu-config-input"
+                                value={pcu.db}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setPcuConfigs(prev => prev.map((item, i) => i === idx ? { ...item, db: val } : item));
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                className="pcu-config-input"
+                                value={pcu.user}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setPcuConfigs(prev => prev.map((item, i) => i === idx ? { ...item, user: val } : item));
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <div className="password-input-wrapper">
+                                <input
+                                  className="pcu-config-input"
+                                  type={showPwd ? 'text' : 'password'}
+                                  value={pcu.pass}
+                                  placeholder="รหัสผ่าน MySQL"
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setPcuConfigs(prev => prev.map((item, i) => i === idx ? { ...item, pass: val } : item));
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  className="btn-toggle-pwd"
+                                  onClick={() => setShowPasswords(prev => ({ ...prev, [pcu.code]: !showPwd }))}
+                                  title={showPwd ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                                >
+                                  {showPwd ? '🙈' : '👁️'}
+                                </button>
+                              </div>
+                            </td>
+                            <td>
+                              <button
+                                className="btn-test-single"
+                                disabled={isTestingThis}
+                                onClick={() => handleTestSingle(pcu)}
+                              >
+                                {isTestingThis ? '⏳' : '⚡ ทดสอบ'}
+                              </button>
+                            </td>
+                          </tr>
+                          {testRes && (
+                            <tr>
+                              <td colSpan={7} style={{ paddingTop: 0, paddingBottom: '0.6rem' }}>
+                                <div className={`diag-result-row ${testRes.connected ? 'success' : 'error'}`}>
+                                  {testRes.connected ? '🟢 ' : '🔴 '}
+                                  <strong>{testRes.connected ? 'เชื่อมต่อสำเร็จ' : 'เชื่อมต่อไม่สำเร็จ'}:</strong> {testRes.diagnostics || testRes.error}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                className="btn-herbal btn-reset-default"
+                onClick={handleResetDefaults}
+                disabled={savingConfig || testingAllConfigs}
+              >
+                🔄 โหลดค่าเริ่มต้น
+              </button>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  className="btn-herbal btn-secondary-herbal"
+                  onClick={handleTestAllConfigs}
+                  disabled={savingConfig || testingAllConfigs}
+                >
+                  {testingAllConfigs ? '⏳ กำลังทดสอบทั้งหมด...' : '⚡ ทดสอบทั้งหมด (5 แห่ง)'}
+                </button>
+                <button
+                  className="btn-herbal btn-primary-herbal"
+                  onClick={handleSaveConfigs}
+                  disabled={savingConfig}
+                >
+                  {savingConfig ? '⏳ กำลังบันทึก...' : '💾 บันทึกการตั้งค่า'}
                 </button>
               </div>
             </div>

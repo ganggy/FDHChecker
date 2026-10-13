@@ -612,6 +612,16 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         <div className="pcu-herbal-actions">
           <button
             className="btn-herbal"
+            style={{ background: '#0284c7', color: '#ffffff' }}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuCaseCost' } }));
+            }}
+            title="ไปที่หน้าดูจำนวน Case และราคาทุนการจ่ายยาแยกตาม รพ.สต."
+          >
+            📦 ดู Case & ราคาทุน รพ.สต.
+          </button>
+          <button
+            className="btn-herbal"
             style={{ background: '#7c3aed', color: '#ffffff' }}
             onClick={() => {
               window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuPayout' } }));

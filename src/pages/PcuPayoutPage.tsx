@@ -388,6 +388,16 @@ export const PcuPayoutPage: React.FC = () => {
           </button>
           <button
             type="button"
+            className="btn-payout"
+            style={{ background: '#0284c7', color: '#ffffff' }}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuCaseCost' } }));
+            }}
+          >
+            📦 ดู Case & ราคาทุน รพ.สต.
+          </button>
+          <button
+            type="button"
             className="btn-payout btn-primary"
             onClick={handleExportExcel}
             disabled={loading || payoutRows.length === 0}

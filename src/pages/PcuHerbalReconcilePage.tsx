@@ -9,6 +9,8 @@ export interface HerbalMasterItem {
   cost: number;
   unitCost: number;
   keywords: string[];
+  category?: 'herbal' | 'iron_folic';
+  monthlyRateNote?: string;
 }
 
 export interface PcuHerbalSummary {
@@ -23,6 +25,8 @@ export interface PcuHerbalSummary {
   hsub_claim_amt: number;
   hsub_hc_drug: number;
   hsub_total_paid: number;
+  triferdine_reimbursed?: number;
+  folic_reimbursed?: number;
   gross_profit: number;
   payable_profit: number;
   margin_percentage: number;
@@ -35,6 +39,7 @@ export interface PcuHerbalSummary {
     dispensed_qty: number;
     total_cost: number;
     total_charge: number;
+    category?: string;
   }>;
 }
 
@@ -68,6 +73,7 @@ export interface DrillDownItem {
   sum_price: number;
   herbal_master_name: string;
   herbal_size: string;
+  category?: string;
   unit_cost: number;
   total_cost: number;
   margin: number;
@@ -97,6 +103,21 @@ export interface PcuTestStatus {
   diagnostics?: string;
 }
 
+export const TRIFERDINE_PCU_ALLOCATION = [
+  { code: '05569', name: 'รพ.สต.บ้านห้วยหีบรุ่งอรุณ', amt: 45760.00 },
+  { code: '05571', name: 'รพ.สต.บ้านม่วงไข่น้อย', amt: 27040.00 },
+  { code: '05572', name: 'รพ.สต.บ้านโคกนาดี', amt: 195920.00 },
+  { code: '05573', name: 'รพ.สต.บ้านโพนทองวัฒนา', amt: 21360.00 },
+  { code: '05570', name: 'รพ.สต.บ้านโพนค้อ', amt: 0.00 },
+];
+
+export const TRIFERDINE_MONTHLY_TIERS = [
+  { month: 'ก.ย. 69 (2026-09)', priceBox: 38.52, priceTab: 1.2840 },
+  { month: 'ส.ค. 69 (2026-08)', priceBox: 38.52, priceTab: 1.2840 },
+  { month: 'ก.ค. 69 (2026-07)', priceBox: 38.52, priceTab: 1.2840 },
+  { month: 'ต.ค. 68 – มิ.ย. 69 (9 เดือน)', priceBox: 26.75, priceTab: 0.89167 },
+];
+
 export const PcuHerbalReconcilePage: React.FC = () => {
   const [data, setData] = useState<PcuHerbalResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -104,12 +125,13 @@ export const PcuHerbalReconcilePage: React.FC = () => {
 
   // Filters
   const [selectedHcode, setSelectedHcode] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | 'herbal' | 'iron_folic'>('all');
   const [startDate, setStartDate] = useState<string>('2025-10-01');
   const [endDate, setEndDate] = useState<string>('2026-10-31');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  // Active Tab: 'summary' | 'master46' | 'drilldown'
-  const [activeTab, setActiveTab] = useState<'summary' | 'master46' | 'drilldown'>('summary');
+  // Active Tab: 'summary' | 'master_items' | 'rates_info'
+  const [activeTab, setActiveTab] = useState<'summary' | 'master_items' | 'rates_info'>('summary');
 
   // Connection status testing
   const [testingConn, setTestingConn] = useState<boolean>(false);
@@ -142,6 +164,7 @@ export const PcuHerbalReconcilePage: React.FC = () => {
       const params = new URLSearchParams({
         startDate,
         endDate,
+        category: selectedCategory,
       });
       if (selectedHcode !== 'all') {
         params.append('hcode', selectedHcode);
@@ -149,7 +172,7 @@ export const PcuHerbalReconcilePage: React.FC = () => {
       const res = await fetch(`/api/pcu-herbal/summary?${params.toString()}`);
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || 'ไม่สามารถโหลดข้อมูลสรุปจ่ายยาสมุนไพรได้');
+        throw new Error(json.error || 'ไม่สามารถโหลดข้อมูลสรุปจ่ายยาได้');
       }
       setData(json.data);
     } catch (err: any) {
@@ -157,7 +180,7 @@ export const PcuHerbalReconcilePage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, selectedHcode]);
+  }, [startDate, endDate, selectedHcode, selectedCategory]);
 
   useEffect(() => {
     loadSummary();
@@ -290,6 +313,7 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         hcode,
         startDate,
         endDate,
+        category: selectedCategory,
         page: String(page),
         limit: '50',
       });
@@ -306,7 +330,7 @@ export const PcuHerbalReconcilePage: React.FC = () => {
     } finally {
       setModalLoading(false);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, selectedCategory]);
 
   const openDrillDown = (hcode: string, title: string, herbalId?: number) => {
     setModalHcode(hcode);
@@ -376,24 +400,28 @@ export const PcuHerbalReconcilePage: React.FC = () => {
       'รหัส รพ.สต.': p.pcu_code,
       'ชื่อหน่วยบริการ': p.pcu_name,
       'IP Host': p.host_ip,
+      'สถานะเชื่อมต่อ': p.is_online ? 'ออนไลน์' : 'ออฟไลน์',
       'จำนวนครั้งจ่ายยา': p.total_dispense_count,
       'ปริมาณยาที่จ่าย (หน่วย)': p.total_dispensed_qty,
       'ยอดต้นทุนค่ายา (บาท)': p.total_drug_cost,
       'ยอดเรียกเก็บ รพ.สต. (บาท)': p.total_charge_amt,
       'ยอดส่งเบิก สปสช. (บาท)': p.hsub_claim_amt,
       'ยอดชดเชยสมุนไพร สปสช. (บาท)': p.hsub_hc_drug,
-      'ยอดชดเชยรวม สปสช. (บาท)': p.hsub_total_paid,
+      'ยอดชดเชย Triferdine (บาท)': p.triferdine_reimbursed || 0,
+      'ยอดชดเชย Folic Acid (บาท)': p.folic_reimbursed || 0,
+      'ยอดชดเชยรวมทั้งหมด (บาท)': p.hsub_total_paid,
       'กำไรส่วนต่าง (บาท)': p.gross_profit,
       'ส่วนแบ่งกำไรพึงจ่าย รพ.สต. (บาท)': p.payable_profit,
       'อัตรากำไร (%)': p.margin_percentage,
     }));
 
-    // Sheet 2: 46 Master Items
+    // Sheet 2: Master Items
     const masterSheetData = data.master_items.map(m => {
       const agg = masterItemAggregates.get(m.id) || { qty: 0, cost: 0, charge: 0, count: 0 };
       return {
         'ลำดับ': m.id,
-        'รายการยาเวชภัณฑ์สมุนไพร': m.name,
+        'หมวดหมู่': m.category === 'iron_folic' ? 'Triferdine & Folic Acid' : 'เวชภัณฑ์สมุนไพร 46 รายการ',
+        'รายการยา': m.name,
         'ขนาดบรรจุ': m.size,
         'ราคาต้นทุนมาตรฐาน (บาท)': m.cost,
         'ต้นทุนต่อหน่วย (บาท)': m.unitCost,
@@ -401,16 +429,26 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         'รวมต้นทุนจ่ายยา (บาท)': Math.round(agg.cost * 100) / 100,
         'ยอดเรียกเก็บ รพ.สต. (บาท)': Math.round(agg.charge * 100) / 100,
         'ส่วนต่างกำไรประมาณการ (บาท)': Math.round((agg.charge - agg.cost) * 100) / 100,
+        'หมายเหตุอัตรา/เงื่อนไข': m.monthlyRateNote || '-',
       };
     });
+
+    // Sheet 3: เกณฑ์จัดสรร Triferdine
+    const triferdineSheetData = TRIFERDINE_PCU_ALLOCATION.map(item => ({
+      'รหัส รพ.สต.': item.code,
+      'ชื่อ รพ.สต.': item.name,
+      'ยอดชดเชยจัดสรร Triferdine (บาท)': item.amt,
+    }));
 
     const wb = XLSX.utils.book_new();
     const ws1 = XLSX.utils.json_to_sheet(pcuSheetData);
     const ws2 = XLSX.utils.json_to_sheet(masterSheetData);
+    const ws3 = XLSX.utils.json_to_sheet(triferdineSheetData);
     XLSX.utils.book_append_sheet(wb, ws1, 'สรุปจัดสรรกำไร 5 รพ.สต.');
-    XLSX.utils.book_append_sheet(wb, ws2, 'เวชภัณฑ์สมุนไพร 46 รายการ');
+    XLSX.utils.book_append_sheet(wb, ws2, 'รายการยาและเวชภัณฑ์');
+    XLSX.utils.book_append_sheet(wb, ws3, 'เกณฑ์ชดเชย Triferdine');
 
-    XLSX.writeFile(wb, `PCU_Herbal_Profit_Reconciliation_${startDate}_to_${endDate}.xlsx`);
+    XLSX.writeFile(wb, `PCU_Drug_Profit_Reconciliation_${selectedCategory}_${startDate}_to_${endDate}.xlsx`);
   };
 
   return (
@@ -419,10 +457,10 @@ export const PcuHerbalReconcilePage: React.FC = () => {
       <div className="pcu-herbal-header">
         <div className="pcu-herbal-title-group">
           <h1>
-            <span>🌿</span> ตรวจสอบการจ่ายยาสมุนไพร & จัดสรรกำไร รพ.สต.
+            <span>🌿</span> ตรวจสอบการจ่ายยา & จัดสรรกำไร รพ.สต. (สมุนไพร, Triferdine & Folic)
           </h1>
           <p>
-            เชื่อมต่อฐานข้อมูล HOSxP PCU ทั้ง 5 แห่ง ตรวจสอบยอดจ่ายยาสมุนไพร 46 รายการ เทียบกับยอดชดเชย H-Sub เพื่อคำนวณส่วนแบ่งกำไรที่ต้องจ่าย รพ.สต.
+            เชื่อมต่อฐานข้อมูล HOSxP PCU ทั้ง 5 แห่ง ตรวจสอบยอดจ่ายยาสมุนไพร 46 รายการ และ Triferdine/Folic Acid เทียบกับยอดชดเชยเพื่อคำนวณส่วนแบ่งกำไรที่ต้องจ่าย รพ.สต.
           </p>
         </div>
         <div className="pcu-herbal-actions">
@@ -478,6 +516,28 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         </div>
       </div>
 
+      {/* Category Filter Switcher */}
+      <div className="category-switcher-group">
+        <button
+          className={`category-btn ${selectedCategory === 'all' ? 'active' : ''}`}
+          onClick={() => setSelectedCategory('all')}
+        >
+          📊 รวมทุกหมวดหมู่ (สมุนไพร 46 รายการ + Triferdine + Folic)
+        </button>
+        <button
+          className={`category-btn ${selectedCategory === 'herbal' ? 'active' : ''}`}
+          onClick={() => setSelectedCategory('herbal')}
+        >
+          🌿 ยาสมุนไพร 46 รายการ (H-Sub)
+        </button>
+        <button
+          className={`category-btn ${selectedCategory === 'iron_folic' ? 'active' : ''}`}
+          onClick={() => setSelectedCategory('iron_folic')}
+        >
+          💊 Triferdine 150 mg & Folic Acid
+        </button>
+      </div>
+
       {/* PCU Connection Status Pills */}
       <div className="pcu-status-bar">
         {(connStatus || (data?.pcus.map(p => ({
@@ -520,7 +580,13 @@ export const PcuHerbalReconcilePage: React.FC = () => {
           <div className="kpi-cards-grid">
             <div className="kpi-card blue">
               <div className="kpi-card-header">
-                <span className="kpi-card-title">จำนวนครั้งจ่ายยาสมุนไพร</span>
+                <span className="kpi-card-title">
+                  {selectedCategory === 'iron_folic'
+                    ? 'จำนวนครั้งจ่ายยา Triferdine & Folic'
+                    : selectedCategory === 'herbal'
+                      ? 'จำนวนครั้งจ่ายยาสมุนไพร'
+                      : 'จำนวนครั้งจ่ายยารวมทั้งหมด'}
+                </span>
                 <span className="kpi-card-icon">💊</span>
               </div>
               <div className="kpi-card-value">
@@ -533,7 +599,13 @@ export const PcuHerbalReconcilePage: React.FC = () => {
 
             <div className="kpi-card amber">
               <div className="kpi-card-header">
-                <span className="kpi-card-title">ต้นทุนค่ายา (46 รายการ)</span>
+                <span className="kpi-card-title">
+                  {selectedCategory === 'iron_folic'
+                    ? 'ต้นทุนยา Triferdine & Folic'
+                    : selectedCategory === 'herbal'
+                      ? 'ต้นทุนค่ายา (46 รายการ)'
+                      : 'รวมต้นทุนค่ายาทั้งหมด'}
+                </span>
                 <span className="kpi-card-icon">🏷️</span>
               </div>
               <div className="kpi-card-value">
@@ -546,14 +618,24 @@ export const PcuHerbalReconcilePage: React.FC = () => {
 
             <div className="kpi-card purple">
               <div className="kpi-card-header">
-                <span className="kpi-card-title">ยอดชดเชยที่ได้รับ (H-Sub)</span>
+                <span className="kpi-card-title">
+                  {selectedCategory === 'iron_folic'
+                    ? 'ยอดชดเชยรวม (Triferdine + Folic)'
+                    : selectedCategory === 'herbal'
+                      ? 'ยอดชดเชยที่ได้รับ (H-Sub)'
+                      : 'รวมยอดชดเชยทั้งหมด'}
+                </span>
                 <span className="kpi-card-icon">💰</span>
               </div>
               <div className="kpi-card-value">
                 {data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
               </div>
               <div className="kpi-card-sub">
-                สมุนไพรเฉพาะ: {data.grand_total.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                {selectedCategory === 'iron_folic'
+                  ? 'Triferdine คงที่ 290,080฿ + Folic 80฿/คอร์ส'
+                  : selectedCategory === 'herbal'
+                    ? `สมุนไพรเฉพาะ: ${data.grand_total.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿`
+                    : 'รวม H-Sub + Triferdine + Folic Acid'}
               </div>
             </div>
 
@@ -593,10 +675,16 @@ export const PcuHerbalReconcilePage: React.FC = () => {
               🏢 สรุปจัดสรรกำไร 5 รพ.สต.
             </button>
             <button
-              className={`tab-btn ${activeTab === 'master46' ? 'active' : ''}`}
-              onClick={() => setActiveTab('master46')}
+              className={`tab-btn ${activeTab === 'master_items' ? 'active' : ''}`}
+              onClick={() => setActiveTab('master_items')}
             >
-              🌿 เวชภัณฑ์สมุนไพร 46 รายการ
+              📋 รายการยาและเวชภัณฑ์ ({filteredMasterItems.length} รายการ)
+            </button>
+            <button
+              className={`tab-btn ${activeTab === 'rates_info' ? 'active' : ''}`}
+              onClick={() => setActiveTab('rates_info')}
+            >
+              ℹ️ เกณฑ์ชดเชย Triferdine & Folic
             </button>
           </div>
 
@@ -608,7 +696,7 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                   <span>🏢</span> ตารางเปรียบเทียบยอดจ่ายยา ต้นทุน และส่วนแบ่งกำไรราย รพ.สต.
                 </h3>
                 <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                  ฐานข้อมูลระบบ: HOSxP PCU (`hospcu055xx`) & H-Sub Statement
+                  ฐานข้อมูลระบบ: HOSxP PCU (`hospcu055xx`) & อัตราชดเชยจัดสรร
                 </span>
               </div>
               <div className="pcu-table-responsive">
@@ -620,8 +708,23 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                       <th>ฐานข้อมูล</th>
                       <th className="text-right">ครั้งที่จ่าย</th>
                       <th className="text-right">ปริมาณยา (หน่วย)</th>
-                      <th className="text-right">ต้นทุนค่ายา (46 รายการ)</th>
-                      <th className="text-right">ยอดชดเชย สปสช. (H-Sub)</th>
+                      <th className="text-right">ต้นทุนค่ายา</th>
+                      {selectedCategory === 'iron_folic' ? (
+                        <>
+                          <th className="text-right">ชดเชย Triferdine</th>
+                          <th className="text-right">ชดเชย Folic (80฿/คอร์ส)</th>
+                          <th className="text-right">รวมยอดชดเชย</th>
+                        </>
+                      ) : selectedCategory === 'all' ? (
+                        <>
+                          <th className="text-right">ชดเชยสมุนไพร</th>
+                          <th className="text-right">ชดเชย Triferdine</th>
+                          <th className="text-right">ชดเชย Folic</th>
+                          <th className="text-right">รวมยอดชดเชย</th>
+                        </>
+                      ) : (
+                        <th className="text-right">ยอดชดเชย สปสช. (H-Sub)</th>
+                      )}
                       <th className="text-right">กำไรส่วนต่าง</th>
                       <th className="text-right">ยอดพึงจ่าย รพ.สต.</th>
                       <th className="text-center">อัตรากำไร</th>
@@ -646,9 +749,38 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                         <td className="text-right">{pcu.total_dispense_count.toLocaleString()}</td>
                         <td className="text-right">{pcu.total_dispensed_qty.toLocaleString()}</td>
                         <td className="text-right">{pcu.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
-                        <td className="text-right" style={{ color: '#2563eb', fontWeight: 600 }}>
-                          {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                        </td>
+                        {selectedCategory === 'iron_folic' ? (
+                          <>
+                            <td className="text-right" style={{ color: '#4338ca' }}>
+                              {(pcu.triferdine_reimbursed || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                            </td>
+                            <td className="text-right" style={{ color: '#0891b2' }}>
+                              {(pcu.folic_reimbursed || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                            </td>
+                            <td className="text-right" style={{ color: '#2563eb', fontWeight: 600 }}>
+                              {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                            </td>
+                          </>
+                        ) : selectedCategory === 'all' ? (
+                          <>
+                            <td className="text-right">
+                              {(pcu.hsub_claim_amt + pcu.hsub_hc_drug).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                            </td>
+                            <td className="text-right" style={{ color: '#4338ca' }}>
+                              {(pcu.triferdine_reimbursed || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                            </td>
+                            <td className="text-right" style={{ color: '#0891b2' }}>
+                              {(pcu.folic_reimbursed || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                            </td>
+                            <td className="text-right" style={{ color: '#2563eb', fontWeight: 600 }}>
+                              {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                            </td>
+                          </>
+                        ) : (
+                          <td className="text-right" style={{ color: '#2563eb', fontWeight: 600 }}>
+                            {pcu.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                        )}
                         <td className="text-right profit-text">
                           +{pcu.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                         </td>
@@ -677,7 +809,36 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                       <td className="text-right">{data.grand_total.total_dispense_count.toLocaleString()}</td>
                       <td className="text-right">{data.grand_total.total_dispensed_qty.toLocaleString()}</td>
                       <td className="text-right">{data.grand_total.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
-                      <td className="text-right" style={{ color: '#2563eb' }}>{data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
+                      {selectedCategory === 'iron_folic' ? (
+                        <>
+                          <td className="text-right" style={{ color: '#4338ca' }}>
+                            {data.pcus.reduce((a, b) => a + (b.triferdine_reimbursed || 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                          <td className="text-right" style={{ color: '#0891b2' }}>
+                            {data.pcus.reduce((a, b) => a + (b.folic_reimbursed || 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                          <td className="text-right" style={{ color: '#2563eb' }}>
+                            {data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                        </>
+                      ) : selectedCategory === 'all' ? (
+                        <>
+                          <td className="text-right">
+                            {data.grand_total.hsub_claim_amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                          <td className="text-right" style={{ color: '#4338ca' }}>
+                            {data.pcus.reduce((a, b) => a + (b.triferdine_reimbursed || 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                          <td className="text-right" style={{ color: '#0891b2' }}>
+                            {data.pcus.reduce((a, b) => a + (b.folic_reimbursed || 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                          <td className="text-right" style={{ color: '#2563eb' }}>
+                            {data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                        </>
+                      ) : (
+                        <td className="text-right" style={{ color: '#2563eb' }}>{data.grand_total.hsub_total_paid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
+                      )}
                       <td className="text-right profit-text">+{data.grand_total.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
                       <td className="text-right" style={{ color: '#059669', fontSize: '1rem' }}>{data.grand_total.payable_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
                       <td className="text-center">
@@ -693,12 +854,12 @@ export const PcuHerbalReconcilePage: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 2: Master 46 Items */}
-          {activeTab === 'master46' && (
+          {/* TAB 2: Master Items Catalog */}
+          {activeTab === 'master_items' && (
             <div className="pcu-table-card">
               <div className="pcu-table-card-header">
                 <h3 className="pcu-table-card-title">
-                  <span>🌿</span> รายการยาเวชภัณฑ์สมุนไพร 46 รายการ (ราคาต้นทุนมาตรฐาน & ยอดจ่ายจริง)
+                  <span>📋</span> รายการยาและเวชภัณฑ์ (ราคาต้นทุนมาตรฐาน & ยอดจ่ายจริง)
                 </h3>
                 <div>
                   <input
@@ -714,9 +875,10 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                 <table className="pcu-table">
                   <thead>
                     <tr>
-                      <th className="text-center" style={{ width: '60px' }}>ลำดับ</th>
+                      <th className="text-center" style={{ width: '50px' }}>ลำดับ</th>
+                      <th>หมวดหมู่</th>
                       <th>รายการยา</th>
-                      <th>ขนาด</th>
+                      <th>ขนาดบรรจุ</th>
                       <th className="text-right">ราคาต้นทุน (บาท)</th>
                       <th className="text-right">ต้นทุน/หน่วย (บาท)</th>
                       <th className="text-right">จำนวนที่จ่ายจริง</th>
@@ -734,7 +896,17 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                         <tr key={item.id}>
                           <td className="text-center font-bold" style={{ color: '#64748b' }}>{item.id}</td>
                           <td>
+                            <span className={`category-badge-pill ${item.category || 'herbal'}`}>
+                              {item.category === 'iron_folic' ? '💊 เหล็ก & โฟลิก' : '🌿 สมุนไพร'}
+                            </span>
+                          </td>
+                          <td>
                             <strong>{item.name}</strong>
+                            {item.monthlyRateNote && (
+                              <div style={{ fontSize: '0.75rem', color: '#6366f1', marginTop: '2px' }}>
+                                ℹ️ {item.monthlyRateNote}
+                              </div>
+                            )}
                           </td>
                           <td>
                             <span style={{ background: '#f1f5f9', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.8rem' }}>
@@ -742,7 +914,7 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                             </span>
                           </td>
                           <td className="text-right">{item.cost.toFixed(2)} ฿</td>
-                          <td className="text-right" style={{ color: '#64748b' }}>{item.unitCost.toFixed(2)} ฿</td>
+                          <td className="text-right" style={{ color: '#64748b' }}>{item.unitCost.toFixed(3)} ฿</td>
                           <td className="text-right" style={{ fontWeight: 600 }}>
                             {agg.qty > 0 ? (
                               <span>{agg.qty.toLocaleString()}</span>
@@ -790,6 +962,86 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                     })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: Rates & Compensation Rules Info */}
+          {activeTab === 'rates_info' && (
+            <div className="rates-info-grid">
+              <div className="rates-info-card">
+                <h4>💊 ยอดชดเชยจัดสรร Triferdine 150 mg (5 รพ.สต.)</h4>
+                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '0 0 1rem 0' }}>
+                  ยอดเงินจัดสรรคงที่สำหรับยา Triferdine ที่จัดสรรให้แต่ละ รพ.สต. เพื่อนำมาหักลบกับต้นทุนยาที่จ่ายจริง
+                </p>
+                <div className="pcu-table-responsive">
+                  <table className="pcu-table">
+                    <thead>
+                      <tr>
+                        <th>รหัส</th>
+                        <th>ชื่อ รพ.สต.</th>
+                        <th className="text-right">ยอดชดเชยจัดสรร (บาท)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {TRIFERDINE_PCU_ALLOCATION.map((item) => (
+                        <tr key={item.code}>
+                          <td><span className="badge-pcu">{item.code}</span></td>
+                          <td><strong>{item.name}</strong></td>
+                          <td className="text-right" style={{ fontWeight: 700, color: '#4338ca' }}>
+                            {item.amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#f8fafc', fontWeight: 700 }}>
+                        <td colSpan={2}>รวมยอดชดเชยจัดสรร Triferdine ทั้งหมด</td>
+                        <td className="text-right" style={{ color: '#4338ca', fontSize: '1.05rem' }}>
+                          {TRIFERDINE_PCU_ALLOCATION.reduce((a, b) => a + b.amt, 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rates-info-card">
+                <h4>📅 ราคาต้นทุน Triferdine 150 mg รายเดือน</h4>
+                <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '0 0 1rem 0' }}>
+                  ขนาดบรรจุกล่องละ 30 เม็ด (30's) คำนวณราคาต้นทุนตามเดือนที่คนไข้มารับบริการ (vstdate)
+                </p>
+                <div className="pcu-table-responsive">
+                  <table className="pcu-table">
+                    <thead>
+                      <tr>
+                        <th>ช่วงเดือน</th>
+                        <th className="text-right">ราคากล่อง (30's)</th>
+                        <th className="text-right">ต้นทุนต่อเม็ด</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {TRIFERDINE_MONTHLY_TIERS.map((tier) => (
+                        <tr key={tier.month}>
+                          <td><strong>{tier.month}</strong></td>
+                          <td className="text-right" style={{ fontWeight: 600 }}>{tier.priceBox.toFixed(2)} ฿</td>
+                          <td className="text-right" style={{ color: '#059669', fontWeight: 700 }}>{tier.priceTab.toFixed(5)} ฿</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ marginTop: '1.5rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+                  <h4 style={{ margin: '0 0 0.5rem 0' }}>🍃 เกณฑ์ชดเชย Folic Acid</h4>
+                  <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.875rem', color: '#334155', lineHeight: '1.8' }}>
+                    <li><strong>ราคาต้นทุน:</strong> 0.12 บาท / เม็ด</li>
+                    <li><strong>ขนาดคอร์ส:</strong> 1 คอร์ส = 52 เม็ด (ต้นทุนคอร์สละ 6.24 บาท)</li>
+                    <li><strong>ยอดชดเชย:</strong> 80.00 บาท / คอร์ส</li>
+                    <li><strong>สูตรคำนวณชดเชย:</strong> <code>(จำนวนเม็ดที่จ่าย / 52) × 80.00 บาท</code></li>
+                    <li><strong>กำไรส่วนต่าง:</strong> <code>80.00 - 6.24 = 73.76 บาท / คอร์ส</code></li>
+                  </ul>
+                </div>
               </div>
             </div>
           )}

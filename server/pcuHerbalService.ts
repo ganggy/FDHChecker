@@ -119,56 +119,118 @@ export interface HerbalMasterItem {
   cost: number;
   unitCost: number;
   keywords: string[];
+  category: 'herbal' | 'iron_folic';
+  monthlyRateNote?: string;
 }
 
-export const HERBAL_MASTER_46: HerbalMasterItem[] = [
-  { id: 1, name: 'ขมิ้นชัน', size: "100's", cost: 60.00, unitCost: 0.60, keywords: ['ขมิ้นชัน'] },
-  { id: 2, name: 'จันทร์ลีลา', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['จันทร์ลีลา', 'จันทลีลา'] },
-  { id: 3, name: 'เถาวัลย์เปรียง', size: "100's", cost: 80.00, unitCost: 0.80, keywords: ['เถาวัลย์เปรียง', 'เถาวัลย์'] },
-  { id: 4, name: 'พญายอ', size: '60ml', cost: 40.00, unitCost: 40.00, keywords: ['พญายอ', 'เสลดพังพอน(พญายอ)'] },
-  { id: 5, name: 'เพชรสังฆาต แคปซูล', size: "100's", cost: 80.00, unitCost: 0.80, keywords: ['เพชรสังฆาต'] },
-  { id: 6, name: 'ฟ้าทะลายโจร แคปซูล', size: "100's", cost: 60.00, unitCost: 0.60, keywords: ['ฟ้าทะลายโจร'] },
-  { id: 7, name: 'มะระขี้นก', size: "100's", cost: 80.00, unitCost: 0.80, keywords: ['มะระขี้นก'] },
-  { id: 8, name: 'ยาแก้ไอมะขามป้อม', size: '120 ml', cost: 18.00, unitCost: 18.00, keywords: ['มะขามป้อม'] },
-  { id: 9, name: 'ยาเขียวหอม', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['เขียวหอม'] },
-  { id: 10, name: 'ยาชุมเห็ดเทศ', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['ชุมเห็ดเทศ'] },
-  { id: 11, name: 'ยาทิงเจอร์ทองพันชั่ง', size: '60ml', cost: 40.00, unitCost: 40.00, keywords: ['ทองพันชั่ง'] },
-  { id: 12, name: 'ยาธรณีสัณฆาต', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ธรณีสัณฆาต', 'ธรณีสันฑะฆาต', 'ธรณีสัณฑะฆาต'] },
-  { id: 13, name: 'ยาธาตุอบเชย', size: 'ขวด', cost: 14.50, unitCost: 14.50, keywords: ['ธาตุอบเชย'] },
-  { id: 14, name: 'ยาบำรุงโลหิต', size: 'ซอง', cost: 25.00, unitCost: 25.00, keywords: ['บำรุงโลหิต'] },
-  { id: 15, name: 'ยาเบญจกูล', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['เบญจกูล'] },
-  { id: 16, name: 'ยาประคบ', size: '200g', cost: 45.00, unitCost: 45.00, keywords: ['ประคบ'] },
-  { id: 17, name: 'ยาประสะไพล', size: "100's", cost: 130.00, unitCost: 1.30, keywords: ['ประสะไพล'] },
-  { id: 18, name: 'ยารางจืด', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['รางจืด'] },
-  { id: 19, name: 'ยาสหัสธารา', size: "100's", cost: 100.00, unitCost: 1.00, keywords: ['สหัสธารา'] },
-  { id: 20, name: 'ยาหอมนวโกฐ', size: 'ซอง', cost: 30.00, unitCost: 30.00, keywords: ['หอมนวโกฐ', 'นวโกฐ'] },
-  { id: 21, name: 'ยาเหลืองปิดสมุทร', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['เหลืองปิดสมุทร'] },
-  { id: 22, name: 'ยาอมมะแว้ง', size: "20's", cost: 85.00, unitCost: 4.25, keywords: ['มะแว้ง'] },
-  { id: 23, name: 'เสลดพังพอน', size: '60ซีซี', cost: 40.00, unitCost: 40.00, keywords: ['เสลดพังพอน'] },
-  { id: 24, name: 'ห้าราก', size: "100's", cost: 120.00, unitCost: 1.20, keywords: ['ห้าราก'] },
-  { id: 25, name: 'โลชั่นนวดเท้า', size: 'กระปุก', cost: 50.00, unitCost: 50.00, keywords: ['นวดเท้า', 'โลชั่น'] },
-  { id: 26, name: 'ยากระเจี๊ยบแดง', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['กระเจี๊ยบแดง'] },
-  { id: 27, name: 'ยาแก้ลมอัมพฤกษ์', size: 'ห่อ(150G)', cost: 30.00, unitCost: 30.00, keywords: ['อัมพฤกษ์'] },
-  { id: 28, name: 'ยาขิง', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['ขิง'] },
-  { id: 29, name: 'ยาตรีผลา', size: "300's", cost: 300.00, unitCost: 1.00, keywords: ['ตรีผลา'] },
-  { id: 30, name: 'ยาธาตุบรรจบ', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ธาตุบรรจบ'] },
-  { id: 31, name: 'ยาประสะกระเพรา', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ประสะกระเพรา', 'ประสะกะเพรา'] },
-  { id: 32, name: 'ยาประสะจันทร์แดง', size: "50's", cost: 150.00, unitCost: 3.00, keywords: ['ประสะจันทร์แดง', 'ประสะจันทน์แดง'] },
-  { id: 33, name: 'ยาปราบชมพูทวีป', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ปราบชมพูทวีป'] },
-  { id: 34, name: 'ยาปลูกไฟธาตุ', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ปลูกไฟธาตุ'] },
-  { id: 35, name: 'ขี้ผึ้งสมุนไพร', size: 'ขวด', cost: 12.00, unitCost: 12.00, keywords: ['ขี้ผึ้งสมุนไพร', 'ขี้ผึ้ง'] },
-  { id: 36, name: 'ยาไฟประลัยกัลป์', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ไฟประลัยกัลป์'] },
-  { id: 37, name: 'ยาไฟห้ากอง', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ไฟห้ากอง'] },
-  { id: 38, name: 'ยามะขามแขก', size: "100's", cost: 75.00, unitCost: 0.75, keywords: ['มะขามแขก'] },
-  { id: 39, name: 'ยาเลือดงาม', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['เลือดงาม'] },
-  { id: 40, name: 'ชาชงหญ้าดอกขาว', size: 'ซอง', cost: 30.00, unitCost: 30.00, keywords: ['หญ้าดอกขาว'] },
-  { id: 41, name: 'ยาหญ้าหนวดแมว', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['หญ้าหนวดแมว'] },
-  { id: 42, name: 'ยาหอมอินทจักร์', size: 'ซอง', cost: 50.00, unitCost: 50.00, keywords: ['อินทจักร์', 'อินทจักร'] },
-  { id: 43, name: 'ยาอำมฤควาที', size: '15 g (ซอง)', cost: 30.00, unitCost: 30.00, keywords: ['อำมฤควาที', 'อัมฤควาที'] },
-  { id: 44, name: 'ยาแก้ลมแก้เส้น', size: "100's", cost: 350.00, unitCost: 3.50, keywords: ['แก้ลมแก้เส้น'] },
-  { id: 45, name: 'ยาศุขไสยาสน์', size: "100's", cost: 350.00, unitCost: 3.50, keywords: ['ศุขไสยาสน์', 'สุขไสยาสน์'] },
-  { id: 46, name: 'ครีมไพล', size: '35 g', cost: 35.00, unitCost: 35.00, keywords: ['ครีมไพล', 'cream pli'] },
+export const TRIFERDINE_REIMBURSEMENT_BY_PCU: Record<string, number> = {
+  '05569': 45760.00,
+  '05571': 27040.00,
+  '05572': 195920.00,
+  '05573': 21360.00,
+  '05570': 0.00,
+};
+
+export const TRIFERDINE_MONTHLY_PRICES = [
+  { month: '2026-09', monthTh: 'ก.ย. 69', price: 38.52, unitPrice: 38.52 / 30 },
+  { month: '2026-08', monthTh: 'ส.ค. 69', price: 38.52, unitPrice: 38.52 / 30 },
+  { month: '2026-07', monthTh: 'ก.ค. 69', price: 38.52, unitPrice: 38.52 / 30 },
+  { month: '2026-06', monthTh: 'มิ.ย. 69', price: 26.75, unitPrice: 26.75 / 30 },
+  { month: '2026-05', monthTh: 'พ.ค. 69', price: 26.75, unitPrice: 26.75 / 30 },
+  { month: '2026-04', monthTh: 'เม.ย. 69', price: 26.75, unitPrice: 26.75 / 30 },
+  { month: '2026-03', monthTh: 'มี.ค. 69', price: 26.75, unitPrice: 26.75 / 30 },
+  { month: '2026-02', monthTh: 'ก.พ. 69', price: 26.75, unitPrice: 26.75 / 30 },
+  { month: '2026-01', monthTh: 'ม.ค. 69', price: 26.75, unitPrice: 26.75 / 30 },
+  { month: '2025-12', monthTh: 'ธ.ค. 68', price: 26.75, unitPrice: 26.75 / 30 },
+  { month: '2025-11', monthTh: 'พ.ย. 68', price: 26.75, unitPrice: 26.75 / 30 },
+  { month: '2025-10', monthTh: 'ต.ค. 68', price: 26.75, unitPrice: 26.75 / 30 },
 ];
+
+export function getTriferdinePriceForDate(vstdate: string): { boxPrice: number; unitPrice: number } {
+  const d = (vstdate || '').slice(0, 10);
+  if (d >= '2026-07-01') {
+    return { boxPrice: 38.52, unitPrice: 38.52 / 30 };
+  }
+  return { boxPrice: 26.75, unitPrice: 26.75 / 30 };
+}
+
+export const FOLIC_CONFIG = {
+  unitCost: 0.12,
+  courseQty: 52,
+  courseReimbursement: 80.00,
+};
+
+export const ALL_DRUG_MASTER: HerbalMasterItem[] = [
+  { id: 1, name: 'ขมิ้นชัน', size: "100's", cost: 60.00, unitCost: 0.60, keywords: ['ขมิ้นชัน'], category: 'herbal' },
+  { id: 2, name: 'จันทร์ลีลา', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['จันทร์ลีลา', 'จันทลีลา'], category: 'herbal' },
+  { id: 3, name: 'เถาวัลย์เปรียง', size: "100's", cost: 80.00, unitCost: 0.80, keywords: ['เถาวัลย์เปรียง', 'เถาวัลย์'], category: 'herbal' },
+  { id: 4, name: 'พญายอ', size: '60ml', cost: 40.00, unitCost: 40.00, keywords: ['พญายอ', 'เสลดพังพอน(พญายอ)'], category: 'herbal' },
+  { id: 5, name: 'เพชรสังฆาต แคปซูล', size: "100's", cost: 80.00, unitCost: 0.80, keywords: ['เพชรสังฆาต'], category: 'herbal' },
+  { id: 6, name: 'ฟ้าทะลายโจร แคปซูล', size: "100's", cost: 60.00, unitCost: 0.60, keywords: ['ฟ้าทะลายโจร'], category: 'herbal' },
+  { id: 7, name: 'มะระขี้นก', size: "100's", cost: 80.00, unitCost: 0.80, keywords: ['มะระขี้นก'], category: 'herbal' },
+  { id: 8, name: 'ยาแก้ไอมะขามป้อม', size: '120 ml', cost: 18.00, unitCost: 18.00, keywords: ['มะขามป้อม'], category: 'herbal' },
+  { id: 9, name: 'ยาเขียวหอม', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['เขียวหอม'], category: 'herbal' },
+  { id: 10, name: 'ยาชุมเห็ดเทศ', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['ชุมเห็ดเทศ'], category: 'herbal' },
+  { id: 11, name: 'ยาทิงเจอร์ทองพันชั่ง', size: '60ml', cost: 40.00, unitCost: 40.00, keywords: ['ทองพันชั่ง'], category: 'herbal' },
+  { id: 12, name: 'ยาธรณีสัณฆาต', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ธรณีสัณฆาต', 'ธรณีสันฑะฆาต', 'ธรณีสัณฑะฆาต'], category: 'herbal' },
+  { id: 13, name: 'ยาธาตุอบเชย', size: 'ขวด', cost: 14.50, unitCost: 14.50, keywords: ['ธาตุอบเชย'], category: 'herbal' },
+  { id: 14, name: 'ยาบำรุงโลหิต', size: 'ซอง', cost: 25.00, unitCost: 25.00, keywords: ['บำรุงโลหิต'], category: 'herbal' },
+  { id: 15, name: 'ยาเบญจกูล', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['เบญจกูล'], category: 'herbal' },
+  { id: 16, name: 'ยาประคบ', size: '200g', cost: 45.00, unitCost: 45.00, keywords: ['ประคบ'], category: 'herbal' },
+  { id: 17, name: 'ยาประสะไพล', size: "100's", cost: 130.00, unitCost: 1.30, keywords: ['ประสะไพล'], category: 'herbal' },
+  { id: 18, name: 'ยารางจืด', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['รางจืด'], category: 'herbal' },
+  { id: 19, name: 'ยาสหัสธารา', size: "100's", cost: 100.00, unitCost: 1.00, keywords: ['สหัสธารา'], category: 'herbal' },
+  { id: 20, name: 'ยาหอมนวโกฐ', size: 'ซอง', cost: 30.00, unitCost: 30.00, keywords: ['หอมนวโกฐ', 'นวโกฐ'], category: 'herbal' },
+  { id: 21, name: 'ยาเหลืองปิดสมุทร', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['เหลืองปิดสมุทร'], category: 'herbal' },
+  { id: 22, name: 'ยาอมมะแว้ง', size: "20's", cost: 85.00, unitCost: 4.25, keywords: ['มะแว้ง'], category: 'herbal' },
+  { id: 23, name: 'เสลดพังพอน', size: '60ซีซี', cost: 40.00, unitCost: 40.00, keywords: ['เสลดพังพอน'], category: 'herbal' },
+  { id: 24, name: 'ห้าราก', size: "100's", cost: 120.00, unitCost: 1.20, keywords: ['ห้าราก'], category: 'herbal' },
+  { id: 25, name: 'โลชั่นนวดเท้า', size: 'กระปุก', cost: 50.00, unitCost: 50.00, keywords: ['นวดเท้า', 'โลชั่น'], category: 'herbal' },
+  { id: 26, name: 'ยากระเจี๊ยบแดง', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['กระเจี๊ยบแดง'], category: 'herbal' },
+  { id: 27, name: 'ยาแก้ลมอัมพฤกษ์', size: 'ห่อ(150G)', cost: 30.00, unitCost: 30.00, keywords: ['อัมพฤกษ์'], category: 'herbal' },
+  { id: 28, name: 'ยาขิง', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['ขิง'], category: 'herbal' },
+  { id: 29, name: 'ยาตรีผลา', size: "300's", cost: 300.00, unitCost: 1.00, keywords: ['ตรีผลา'], category: 'herbal' },
+  { id: 30, name: 'ยาธาตุบรรจบ', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ธาตุบรรจบ'], category: 'herbal' },
+  { id: 31, name: 'ยาประสะกระเพรา', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ประสะกระเพรา', 'ประสะกะเพรา'], category: 'herbal' },
+  { id: 32, name: 'ยาประสะจันทร์แดง', size: "50's", cost: 150.00, unitCost: 3.00, keywords: ['ประสะจันทร์แดง', 'ประสะจันทน์แดง'], category: 'herbal' },
+  { id: 33, name: 'ยาปราบชมพูทวีป', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ปราบชมพูทวีป'], category: 'herbal' },
+  { id: 34, name: 'ยาปลูกไฟธาตุ', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ปลูกไฟธาตุ'], category: 'herbal' },
+  { id: 35, name: 'ขี้ผึ้งสมุนไพร', size: 'ขวด', cost: 12.00, unitCost: 12.00, keywords: ['ขี้ผึ้งสมุนไพร', 'ขี้ผึ้ง'], category: 'herbal' },
+  { id: 36, name: 'ยาไฟประลัยกัลป์', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ไฟประลัยกัลป์'], category: 'herbal' },
+  { id: 37, name: 'ยาไฟห้ากอง', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['ไฟห้ากอง'], category: 'herbal' },
+  { id: 38, name: 'ยามะขามแขก', size: "100's", cost: 75.00, unitCost: 0.75, keywords: ['มะขามแขก'], category: 'herbal' },
+  { id: 39, name: 'ยาเลือดงาม', size: "100's", cost: 150.00, unitCost: 1.50, keywords: ['เลือดงาม'], category: 'herbal' },
+  { id: 40, name: 'ชาชงหญ้าดอกขาว', size: 'ซอง', cost: 30.00, unitCost: 30.00, keywords: ['หญ้าดอกขาว'], category: 'herbal' },
+  { id: 41, name: 'ยาหญ้าหนวดแมว', size: 'pack(15ซอง)', cost: 40.00, unitCost: 40.00, keywords: ['หญ้าหนวดแมว'], category: 'herbal' },
+  { id: 42, name: 'ยาหอมอินทจักร์', size: 'ซอง', cost: 50.00, unitCost: 50.00, keywords: ['อินทจักร์', 'อินทจักร'], category: 'herbal' },
+  { id: 43, name: 'ยาอำมฤควาที', size: '15 g (ซอง)', cost: 30.00, unitCost: 30.00, keywords: ['อำมฤควาที', 'อัมฤควาที'], category: 'herbal' },
+  { id: 44, name: 'ยาแก้ลมแก้เส้น', size: "100's", cost: 350.00, unitCost: 3.50, keywords: ['แก้ลมแก้เส้น'], category: 'herbal' },
+  { id: 45, name: 'ยาศุขไสยาสน์', size: "100's", cost: 350.00, unitCost: 3.50, keywords: ['ศุขไสยาสน์', 'สุขไสยาสน์'], category: 'herbal' },
+  { id: 46, name: 'ครีมไพล', size: '35 g', cost: 35.00, unitCost: 35.00, keywords: ['ครีมไพล', 'cream pli'], category: 'herbal' },
+  {
+    id: 47,
+    name: 'Triferdine 150 mg (TRIferdine)',
+    size: "30's",
+    cost: 26.75,
+    unitCost: 26.75 / 30,
+    keywords: ['trifer', 'triferdine', 'triferdin', 'ไตรเฟอร์'],
+    category: 'iron_folic',
+    monthlyRateNote: 'ต.ค.68-มิ.ย.69 = 26.75฿/30s | ก.ค.69-ก.ย.69 = 38.52฿/30s (ชดเชยคงที่ 5 รพ.สต.)',
+  },
+  {
+    id: 48,
+    name: 'Folic Acid (folic 5 mg)',
+    size: '52 เม็ด/คอร์ส',
+    cost: 6.24,
+    unitCost: 0.12,
+    keywords: ['folic', 'โฟลิก'],
+    category: 'iron_folic',
+    monthlyRateNote: 'ต้นทุน 0.12฿/เม็ด | 1 คอร์ส (52 เม็ด) ชดเชย 80.00฿',
+  },
+];
+
+export const HERBAL_MASTER_46 = ALL_DRUG_MASTER.filter(m => m.category === 'herbal');
+export const IRON_FOLIC_MASTER = ALL_DRUG_MASTER.filter(m => m.category === 'iron_folic');
 
 const poolCache = new Map<string, Pool>();
 
@@ -290,6 +352,8 @@ export interface PcuHerbalSummary {
   hsub_claim_amt: number;
   hsub_hc_drug: number;
   hsub_total_paid: number;
+  triferdine_reimbursed?: number;
+  folic_reimbursed?: number;
   gross_profit: number;
   payable_profit: number;
   margin_percentage: number;
@@ -302,6 +366,7 @@ export interface PcuHerbalSummary {
     dispensed_qty: number;
     total_cost: number;
     total_charge: number;
+    category?: string;
   }>;
 }
 
@@ -309,13 +374,20 @@ export async function getPcuHerbalReconciliation(options: {
   hcode?: string;
   startDate?: string;
   endDate?: string;
+  category?: 'all' | 'herbal' | 'iron_folic';
 } = {}) {
-  const { hcode, startDate = '2025-10-01', endDate = '2026-10-31' } = options;
+  const { hcode, startDate = '2025-10-01', endDate = '2026-10-31', category = 'all' } = options;
 
   const allPcus = await getActivePcuConfigs();
   const targetPcus = hcode && hcode !== 'all'
     ? allPcus.filter(p => p.code === hcode)
     : allPcus;
+
+  const targetMasterList = category === 'herbal'
+    ? HERBAL_MASTER_46
+    : category === 'iron_folic'
+      ? IRON_FOLIC_MASTER
+      : ALL_DRUG_MASTER;
 
   // 1. Fetch H-Sub amounts from hospital database
   const hospConn = await getHospitalConnection();
@@ -348,7 +420,7 @@ export async function getPcuHerbalReconciliation(options: {
     await hospConn.end();
   }
 
-  // 2. Query each PCU for herbal dispensing
+  // 2. Query each PCU for herbal & supplement dispensing
   const results: PcuHerbalSummary[] = [];
 
   for (const pcu of targetPcus) {
@@ -357,11 +429,10 @@ export async function getPcuHerbalReconciliation(options: {
     try {
       const pool = getPcuPool(pcu);
 
-      // Query drug dispensing matched with herbal items
-      // Match drugitems name with keywords
       const [rows]: any = await pool.query(
         `SELECT 
           o.icode, d.name as drug_name, d.units,
+          DATE_FORMAT(o.vstdate, '%Y-%m') as vst_month,
           COUNT(DISTINCT o.vn) as visit_count,
           SUM(o.qty) as total_qty,
           SUM(o.sum_price) as total_charge
@@ -380,9 +451,11 @@ export async function getPcuHerbalReconciliation(options: {
             d.name LIKE '%ตรีผลา%' OR d.name LIKE '%ธาตุบรรจบ%' OR d.name LIKE '%จันทร์ลีลา%' OR
             d.name LIKE '%ปราบชมพูทวีป%' OR d.name LIKE '%มะขามแขก%' OR d.name LIKE '%หญ้าดอกขาว%' OR
             d.name LIKE '%หญ้าหนวดแมว%' OR d.name LIKE '%อินทจักร์%' OR d.name LIKE '%อำมฤควาที%' OR
-            d.name LIKE '%ศุขไสยาสน์%' OR d.name LIKE '%แก้ลมแก้เส้น%' OR d.name LIKE '%ขี้ผึ้ง%'
+            d.name LIKE '%ศุขไสยาสน์%' OR d.name LIKE '%แก้ลมแก้เส้น%' OR d.name LIKE '%ขี้ผึ้ง%' OR
+            d.name LIKE '%trifer%' OR d.name LIKE '%ไตรเฟอร์%' OR
+            d.name LIKE '%folic%' OR d.name LIKE '%โฟลิก%'
           )
-        GROUP BY o.icode, d.name, d.units`,
+        GROUP BY o.icode, d.name, d.units, DATE_FORMAT(o.vstdate, '%Y-%m')`,
         [startDate, endDate]
       );
       dispenseRows = rows;
@@ -392,7 +465,7 @@ export async function getPcuHerbalReconciliation(options: {
       isOnline = false;
     }
 
-    // Map rows to 46 Master items
+    // Map rows to Master items
     const itemMap = new Map<number, {
       herbal_id: number;
       herbal_name: string;
@@ -402,9 +475,10 @@ export async function getPcuHerbalReconciliation(options: {
       dispensed_qty: number;
       total_cost: number;
       total_charge: number;
+      category?: string;
     }>();
 
-    for (const master of HERBAL_MASTER_46) {
+    for (const master of targetMasterList) {
       itemMap.set(master.id, {
         herbal_id: master.id,
         herbal_name: master.name,
@@ -414,6 +488,7 @@ export async function getPcuHerbalReconciliation(options: {
         dispensed_qty: 0,
         total_cost: 0,
         total_charge: 0,
+        category: master.category,
       });
     }
 
@@ -425,7 +500,7 @@ export async function getPcuHerbalReconciliation(options: {
     for (const row of dispenseRows) {
       const drugName = String(row.drug_name || '').toLowerCase();
       // Find matching master item
-      const master = HERBAL_MASTER_46.find(m => {
+      const master = targetMasterList.find(m => {
         return m.keywords.some(kw => drugName.includes(kw.toLowerCase()));
       });
 
@@ -433,7 +508,22 @@ export async function getPcuHerbalReconciliation(options: {
         const item = itemMap.get(master.id)!;
         const qty = Number(row.total_qty || 0);
         const charge = Number(row.total_charge || 0);
-        const cost = qty * master.unitCost;
+        let cost = 0;
+
+        if (master.id === 47) {
+          // Triferdine 150 mg:
+          // ก.ค.69 (2026-07) ถึง ก.ย.69 (2026-09) = 38.52 / 30 = 1.284 บาท/เม็ด
+          // ต.ค.68 ถึง มิ.ย.69 (2026-06) = 26.75 / 30 = 0.89167 บาท/เม็ด
+          const vstMonth = String(row.vst_month || '');
+          const unitRate = vstMonth >= '2026-07' ? (38.52 / 30) : (26.75 / 30);
+          cost = qty * unitRate;
+        } else if (master.id === 48) {
+          // Folic acid: 0.12 บาท / เม็ด
+          cost = qty * 0.12;
+        } else {
+          // Herbal standard unit cost
+          cost = qty * master.unitCost;
+        }
 
         item.dispense_count += Number(row.visit_count || 0);
         item.dispensed_qty += qty;
@@ -448,9 +538,23 @@ export async function getPcuHerbalReconciliation(options: {
     }
 
     const hsub = hsubDataMap.get(pcu.code) || { claim: 0, hc_drug: 0, total_paid: 0, count: 0 };
-    const grossProfit = Math.max(0, hsub.total_paid - totalDrugCost);
-    const payableProfit = grossProfit; // Default payable is the profit portion
-    const marginPct = hsub.total_paid > 0 ? (grossProfit / hsub.total_paid) * 100 : 0;
+    const herbalPaid = hsub.total_paid;
+    const triferdinePaid = TRIFERDINE_REIMBURSEMENT_BY_PCU[pcu.code] || 0;
+    const folicQty = itemMap.get(48)?.dispensed_qty || 0;
+    const folicPaid = Math.round((folicQty / 52) * 80 * 100) / 100;
+
+    let totalPaid = 0;
+    if (category === 'herbal') {
+      totalPaid = herbalPaid;
+    } else if (category === 'iron_folic') {
+      totalPaid = triferdinePaid + folicPaid;
+    } else {
+      totalPaid = herbalPaid + triferdinePaid + folicPaid;
+    }
+
+    const grossProfit = Math.max(0, totalPaid - totalDrugCost);
+    const payableProfit = grossProfit;
+    const marginPct = totalPaid > 0 ? (grossProfit / totalPaid) * 100 : 0;
 
     results.push({
       pcu_code: pcu.code,
@@ -463,7 +567,9 @@ export async function getPcuHerbalReconciliation(options: {
       total_charge_amt: Math.round(totalChargeAmt * 100) / 100,
       hsub_claim_amt: hsub.claim,
       hsub_hc_drug: hsub.hc_drug,
-      hsub_total_paid: hsub.total_paid,
+      hsub_total_paid: Math.round(totalPaid * 100) / 100,
+      triferdine_reimbursed: triferdinePaid,
+      folic_reimbursed: folicPaid,
       gross_profit: Math.round(grossProfit * 100) / 100,
       payable_profit: Math.round(payableProfit * 100) / 100,
       margin_percentage: Math.round(marginPct * 10) / 10,
@@ -488,13 +594,14 @@ export async function getPcuHerbalReconciliation(options: {
     period: { startDate, endDate },
     grand_total: grandTotal,
     pcus: results,
-    master_items: HERBAL_MASTER_46,
+    master_items: targetMasterList,
   };
 }
 
 export async function getPcuHerbalDrillDown(options: {
   hcode: string;
   herbalId?: number;
+  category?: 'all' | 'herbal' | 'iron_folic';
   startDate?: string;
   endDate?: string;
   search?: string;
@@ -504,6 +611,7 @@ export async function getPcuHerbalDrillDown(options: {
   const {
     hcode,
     herbalId,
+    category = 'all',
     startDate = '2025-10-01',
     endDate = '2026-10-31',
     search = '',
@@ -520,7 +628,7 @@ export async function getPcuHerbalDrillDown(options: {
 
   let keywordFilters: string[] = [];
   if (herbalId) {
-    const master = HERBAL_MASTER_46.find(m => m.id === herbalId);
+    const master = ALL_DRUG_MASTER.find(m => m.id === herbalId);
     if (master) {
       keywordFilters = master.keywords;
     }
@@ -537,8 +645,7 @@ export async function getPcuHerbalDrillDown(options: {
     whereClauses.push(`(${kwSql})`);
     queryParams.push(...keywordFilters.map(kw => `%${kw}%`));
   } else {
-    // General herbal filter
-    whereClauses.push(`(
+    const herbalSql = `(
       d.name LIKE '%ขมิ้น%' OR d.name LIKE '%ฟ้าทะลาย%' OR d.name LIKE '%เถาวัลย์%' OR 
       d.name LIKE '%ไพล%' OR d.name LIKE '%เพชรสังฆาต%' OR d.name LIKE '%มะระขี้นก%' OR 
       d.name LIKE '%มะขามป้อม%' OR d.name LIKE '%เขียวหอม%' OR d.name LIKE '%ชุมเห็ดเทศ%' OR 
@@ -551,7 +658,19 @@ export async function getPcuHerbalDrillDown(options: {
       d.name LIKE '%มะขามแขก%' OR d.name LIKE '%หญ้าดอกขาว%' OR d.name LIKE '%หญ้าหนวดแมว%' OR 
       d.name LIKE '%อินทจักร์%' OR d.name LIKE '%อำมฤควาที%' OR d.name LIKE '%ศุขไสยาสน์%' OR 
       d.name LIKE '%แก้ลมแก้เส้น%' OR d.name LIKE '%ขี้ผึ้ง%'
-    )`);
+    )`;
+    const ironFolicSql = `(
+      d.name LIKE '%trifer%' OR d.name LIKE '%ไตรเฟอร์%' OR 
+      d.name LIKE '%folic%' OR d.name LIKE '%โฟลิก%'
+    )`;
+
+    if (category === 'herbal') {
+      whereClauses.push(herbalSql);
+    } else if (category === 'iron_folic') {
+      whereClauses.push(ironFolicSql);
+    } else {
+      whereClauses.push(`(${herbalSql} OR ${ironFolicSql})`);
+    }
   }
 
   if (search.trim()) {
@@ -590,11 +709,27 @@ export async function getPcuHerbalDrillDown(options: {
     [...queryParams, limit, offset]
   );
 
-  // Calculate unit cost based on 46 master table
+  // Calculate unit cost based on master catalog
   const mappedRows = rows.map((r: any) => {
     const dName = String(r.drug_name || '').toLowerCase();
-    const master = HERBAL_MASTER_46.find(m => m.keywords.some(kw => dName.includes(kw.toLowerCase())));
-    const unitCost = master ? master.unitCost : 0;
+    const master = ALL_DRUG_MASTER.find(m => m.keywords.some(kw => dName.includes(kw.toLowerCase())));
+    let unitCost = 0;
+    const vstDateStr = String(r.vstdate || '');
+
+    if (master) {
+      if (master.id === 47) {
+        // Triferdine 150 mg:
+        // ก.ค.69 (2026-07) เป็นต้นไป = 38.52 / 30 = 1.284 บาท
+        // ก่อน ก.ค.69 (ต.ค.68 - มิ.ย.69) = 26.75 / 30 = 0.89167 บาท
+        unitCost = vstDateStr >= '2026-07-01' ? (38.52 / 30) : (26.75 / 30);
+      } else if (master.id === 48) {
+        // Folic acid: 0.12 บาท / เม็ด
+        unitCost = 0.12;
+      } else {
+        unitCost = master.unitCost;
+      }
+    }
+
     const totalCost = Math.round((Number(r.qty || 0) * unitCost) * 100) / 100;
     const charge = Number(r.sum_price || 0);
 
@@ -611,7 +746,8 @@ export async function getPcuHerbalDrillDown(options: {
       sum_price: charge,
       herbal_master_name: master?.name || r.drug_name,
       herbal_size: master?.size || '-',
-      unit_cost: unitCost,
+      category: master?.category || 'herbal',
+      unit_cost: Math.round(unitCost * 1000) / 1000,
       total_cost: totalCost,
       margin: Math.round((charge - totalCost) * 100) / 100,
     };

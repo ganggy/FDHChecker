@@ -3,6 +3,8 @@ import {
   getPcuHerbalReconciliation,
   getPcuHerbalDrillDown,
   HERBAL_MASTER_46,
+  IRON_FOLIC_MASTER,
+  ALL_DRUG_MASTER,
   getActivePcuConfigs,
   savePcuConfigs,
   DEFAULT_PCU_CONFIGS,
@@ -12,12 +14,19 @@ import {
 
 export const pcuHerbalRouter = Router();
 
-// GET /api/pcu-herbal/master-items - รายการยาเวชภัณฑ์สมุนไพร 46 รายการ
-pcuHerbalRouter.get('/master-items', async (_req, res) => {
+// GET /api/pcu-herbal/master-items - รายการยาเวชภัณฑ์สมุนไพร 46 รายการ และ Triferdine/Folic
+pcuHerbalRouter.get('/master-items', async (req, res) => {
+  const category = req.query.category as string | undefined;
   const pcus = await getActivePcuConfigs();
+  const data = category === 'herbal'
+    ? HERBAL_MASTER_46
+    : category === 'iron_folic'
+      ? IRON_FOLIC_MASTER
+      : ALL_DRUG_MASTER;
+
   return res.json({
     success: true,
-    data: HERBAL_MASTER_46,
+    data,
     pcus: pcus.map(p => ({ code: p.code, name: p.name, host: p.host })),
   });
 });
@@ -99,8 +108,9 @@ pcuHerbalRouter.get('/summary', async (req, res) => {
     const hcode = req.query.hcode ? String(req.query.hcode).trim() : undefined;
     const startDate = req.query.startDate ? String(req.query.startDate).trim() : '2025-10-01';
     const endDate = req.query.endDate ? String(req.query.endDate).trim() : '2026-10-31';
+    const category = (req.query.category as ('all' | 'herbal' | 'iron_folic')) || 'all';
 
-    const result = await getPcuHerbalReconciliation({ hcode, startDate, endDate });
+    const result = await getPcuHerbalReconciliation({ hcode, startDate, endDate, category });
     return res.json({ success: true, data: result });
   } catch (error) {
     console.error('[PcuHerbalRoutes] Error fetching summary:', error);
@@ -121,10 +131,12 @@ pcuHerbalRouter.get('/drill-down', async (req, res) => {
     const search = req.query.search ? String(req.query.search).trim() : '';
     const page = req.query.page ? Number(req.query.page) : 1;
     const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const category = (req.query.category as ('all' | 'herbal' | 'iron_folic')) || 'all';
 
     const result = await getPcuHerbalDrillDown({
       hcode,
       herbalId,
+      category,
       startDate,
       endDate,
       search,

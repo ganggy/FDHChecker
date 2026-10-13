@@ -1,0 +1,606 @@
+ <!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PPFS | รพ.สต.บ้านโพนค้อ</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;700&display=block" rel="stylesheet">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.10.12/css/dataTables.bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/buttons/1.2.2/css/buttons.bootstrap.min.css">
+
+  <style>
+    *,*::before,*::after{box-sizing:border-box;}
+    body{background:#f4f6f9;font-family:'Sarabun',sans-serif;font-size:13px;line-height:1.5;padding-bottom:60px;visibility:hidden;}
+    h1,h2,h3,h4,h5,h6{font-family:'Sarabun',sans-serif;}
+
+    /* Navbar */
+    .navbar-custom{background:#1a3c5e;border:none;border-radius:0;margin-bottom:0;}
+    .navbar-custom .navbar-brand{color:#fff !important;font-size:16px;font-weight:bold;}
+    .navbar-custom .navbar-nav>li>a{color:#cce0f5 !important;font-size:13px;padding-top:15px;padding-bottom:15px;}
+    .navbar-custom .navbar-nav>li>a:hover,.navbar-custom .navbar-nav>li.active>a{background:#2471a3 !important;color:#fff !important;}
+    .navbar-custom .navbar-toggle .icon-bar{background:#fff;}
+    .navbar-custom .navbar-toggle{border-color:#2471a3;}
+
+    /* Header bar */
+    .page-header-bar{background:#f4f6f9;padding:12px 20px;margin-bottom:0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+    .page-header-bar h4{margin:0;font-weight:bold;font-size:18px;}
+    .page-header-bar small{color:#666;font-size:12px;}
+
+    /* Selectors */
+    .header-selectors{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+    .selector-group{display:flex;align-items:center;gap:6px;white-space:nowrap;}
+    .selector-group label{margin:0;font-weight:bold;font-size:12px;color:#555;}
+    .selector-group select{height:32px;border:2px solid #888;border-radius:4px;padding:3px 8px;font-size:12px;font-family:'Sarabun',sans-serif;color:#333;cursor:pointer;background:#fff;}
+    .selector-group select:focus{outline:none;box-shadow:0 0 0 2px #aaa;}
+
+    /* KPI cards */
+    .kpi-wrap{display:flex;gap:12px;flex-wrap:wrap;margin:14px 15px 0 15px;}
+    .kpi-card{flex:1 1 160px;background:#fff;border-radius:10px;padding:14px 16px;box-shadow:0 2px 8px rgba(0,0,0,.1);border-top:4px solid #1a3c5e;position:relative;overflow:hidden;}
+    .kpi-card.yr-2567{border-top-color:#2471a3;}
+    .kpi-card.yr-2568{border-top-color:#e67e22;}
+    .kpi-card.yr-2569{border-top-color:#1e8449;}
+    .kpi-value{font-size:22px;font-weight:bold;line-height:1.2;}
+    .kpi-label{font-size:11px;color:#666;margin-top:2px;}
+    .kpi-yr{font-size:13px;font-weight:bold;margin-bottom:4px;}
+    .kpi-bg{position:absolute;right:-4px;bottom:-6px;font-size:52px;opacity:.06;}
+
+    /* Content panels */
+    .cpanel{background:#fff;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:16px;margin:14px 15px 0 15px;}
+    .section-title{font-size:13px;font-weight:bold;color:#1a3c5e;border-left:4px solid #2471a3;padding-left:8px;margin:0 0 12px 0;}
+
+    /* Table */
+    table.dataTable thead th{background:#1a3c5e;color:#fff;text-align:center;vertical-align:middle !important;font-size:12px;font-family:'Sarabun',sans-serif;border-right:1px solid #2c5282;white-space:nowrap;}
+    table.dataTable thead th.th-yr1{background:#2471a3 !important;}
+    table.dataTable thead th.th-yr2{background:#b7450a !important;}
+    table.dataTable thead th.th-yr3{background:#1a5c30 !important;}
+    table.dataTable tbody td{text-align:right;vertical-align:middle;font-size:12px;font-family:'Sarabun',sans-serif;}
+    table.dataTable tbody td.td-gname{text-align:left;font-weight:bold;background:#e8f4fd;}
+    table.dataTable tbody td.td-item{text-align:left;}
+    table.dataTable tbody tr:hover{background:#eaf4fb !important;}
+    .dt-buttons .btn{margin-right:4px;font-size:12px;}
+    #hcTable{visibility:hidden;}
+
+    /* Group merge via JS */
+    td.td-gname{
+      font-weight:bold;color:#1a3c5e;
+      vertical-align:top;text-align:left !important;
+    }
+    td.td-gname.gn-show{background:#e8f4fd;border-top:2px solid #2471a3 !important;}
+    td.td-gname.gn-hide{color:transparent;background:#f0f7ff;border-top:1px dashed #cce0f5 !important;font-size:0;}
+    tr.group-border-top td{border-top:2px solid #2471a3 !important;}
+
+    div.dt-length-search{display:flex !important;align-items:center;justify-content:flex-end;gap:16px;}
+    div.dt-length-search .dataTables_length,div.dt-length-search .dataTables_filter{float:none !important;}
+
+    /* Search input in navbar */
+    .navbar-custom input[type=number]::placeholder{color:#aaa;}
+    .navbar-custom input[type=number]:focus{outline:none;box-shadow:0 0 0 2px #2980b9;}
+    /* ซ่อนลูกศร spinner ของ input[type=number] */
+    .navbar-custom input[type=number]::-webkit-inner-spin-button,
+    .navbar-custom input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+    .navbar-custom input[type=number]{-moz-appearance:textfield;}
+
+    /* Footer */
+    .footer-bar{background:#1a3c5e;color:#cce0f5;font-size:12px;padding:7px 20px;text-align:center;margin-top:16px;}
+
+    @media(max-width:768px){
+      .cpanel{padding:10px;margin:10px 5px 0 5px;}
+      .kpi-wrap{margin:10px 5px 0 5px;}
+      .page-header-bar{flex-direction:column;align-items:flex-start;}
+    }
+  </style>
+</head>
+<body>
+<script>
+  document.fonts.ready.then(function(){document.body.style.visibility='visible';});
+  setTimeout(function(){document.body.style.visibility='visible';},2000);
+</script>
+
+<!-- Navbar -->
+<nav class="navbar navbar-custom navbar-static-top">
+  <div class="container-fluid">
+    <div class="navbar-header">
+      <a class="navbar-brand" href="index.php"> ระบบกำกับติดตาม PP Fee Schedule</a>
+    </div>
+    <!-- Search hcode in navbar -->
+    <div class="navbar-right" style="display:flex;align-items:center;gap:8px;padding:13px 15px;">
+      <form method="get" id="hcodeSearchForm" style="display:flex;align-items:center;gap:6px;margin:0;">
+        <label style="color:#cce0f5;font-size:13px;margin:0;white-space:nowrap;">
+          <span class="glyphicon glyphicon-hospital"></span> รหัสหน่วยบริการ:
+        </label>
+        <input type="number" name="hcode" id="hcodeInput"
+               value="05570"
+               placeholder="เช่น 10734"
+               min="1" maxlength="10"
+               style="height:30px;width:110px;border:1px solid #aaa;border-radius:4px;padding:3px 8px;font-size:13px;font-family:'Sarabun',sans-serif;">
+                <input type="hidden" name="metric" value="SUM_PAID">
+                <button type="submit"
+                style="height:30px;padding:0 12px;background:#2471a3;color:#fff;border:none;border-radius:4px;font-size:13px;font-family:'Sarabun',sans-serif;cursor:pointer;white-space:nowrap;">
+          <span class="glyphicon glyphicon-search"></span> ค้นหา
+        </button>
+      </form>
+    </div>
+  </div>
+</nav>
+
+<!-- Header bar -->
+<div class="page-header-bar">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <img src="nhso.png" style="height:44px;width:auto;" alt="NHSO">
+    <div>
+      <h4>
+        <a href="index.php" style="color:#aaa;font-weight:normal;font-size:13px;text-decoration:none;">PP Fee Schedule &rsaquo;</a>
+        รพ.สต.บ้านโพนค้อ        <small style="font-size:13px;color:#888;font-weight:normal;"> [05570] สกลนคร</small>
+      </h4>
+      <small>แสดง: <strong>จำนวนเงินที่จ่าย (บาท)</strong></small>
+    </div>
+  </div>
+  <form method="get" id="filterForm" class="header-selectors">
+    <input type="hidden" name="hcode" value="05570">
+    <div class="selector-group">
+      <label><span class="glyphicon glyphicon-stats"></span> การแสดงผล:</label>
+      <select name="metric" onchange="this.form.submit()">
+                  <option value="CNT_PID" >ผู้รับบริการ (คน)</option>
+                  <option value="CNT_VISIT" >จำนวนครั้งบริการ</option>
+                  <option value="SUM_PAID" selected>จำนวนเงินที่จ่าย (บาท)</option>
+              </select>
+    </div>
+  </form>
+</div>
+
+<!-- ===== KPI Cards (3 ใบ แสดงค่าตาม metric แยกปี) ===== -->
+<div class="kpi-wrap">
+    <div class="kpi-card yr-2567">
+    <div class="kpi-yr" style="color:#2471a3">ปี 2567</div>
+    <div class="kpi-value" style="color:#2471a3">532.8K</div>
+    <div class="kpi-label">จำนวนเงินที่จ่าย (บาท)</div>
+    <span class="glyphicon glyphicon-stats kpi-bg"></span>
+  </div>
+    <div class="kpi-card yr-2568">
+    <div class="kpi-yr" style="color:#e67e22">ปี 2568</div>
+    <div class="kpi-value" style="color:#e67e22">304.7K</div>
+    <div class="kpi-label">จำนวนเงินที่จ่าย (บาท)</div>
+    <span class="glyphicon glyphicon-stats kpi-bg"></span>
+  </div>
+    <div class="kpi-card yr-2569">
+    <div class="kpi-yr" style="color:#1e8449">ปี 2569</div>
+    <div class="kpi-value" style="color:#1e8449">33.2K</div>
+    <div class="kpi-label">จำนวนเงินที่จ่าย (บาท)</div>
+    <span class="glyphicon glyphicon-stats kpi-bg"></span>
+  </div>
+  </div>
+
+<!-- ===== แถว 1: Bar chart เต็มแถว ===== -->
+<div class="cpanel">
+  <div class="section-title">เปรียบเทียบจำนวนเงินที่จ่าย (บาท) แยก PGROUP รายปีงบประมาณ</div>
+  <div style="position:relative;height:260px;">
+    <canvas id="chartBar"></canvas>
+  </div>
+</div>
+
+<!-- ===== แถว 2: Line + Donut ===== -->
+<div class="row" style="margin:0 10px;">
+  <div class="col-md-8" style="padding:0 5px;">
+    <div class="cpanel" style="margin:14px 0 0 0;">
+      <div class="section-title">แนวโน้มรายเดือน แยก ACCESS_GROUP</div>
+      <div style="position:relative;height:250px;">
+        <canvas id="chartLine"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4" style="padding:0 5px;">
+    <div class="cpanel" style="margin:14px 0 0 0;">
+      <div class="section-title">สัดส่วน ACCESS_GROUP</div>
+      <div style="position:relative;height:250px;">
+        <canvas id="chartDonut"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== แถว 3: ตาราง pivot 3 ปี ===== -->
+<!-- หมายเหตุ: ไม่ใช้ rowspan เพราะ DataTable rebuild tbody ทำให้ cell ขาด
+     ใช้ CSS แสดง GROUP_NAME เฉพาะแถวแรกของกลุ่ม (group-first) แทน -->
+<div class="cpanel">
+  <div class="section-title">รายละเอียดรายการ — เปรียบเทียบ 3 ปีงบประมาณ</div>
+  <div class="table-responsive">
+    <table id="hcTable" class="table table-bordered table-hover" style="width:100%">
+      <thead>
+        <tr>
+          <th style="min-width:160px;">กลุ่มรายการ (GROUP_NAME)</th>
+          <th style="min-width:180px;">รายการ (ITEM_NAME)</th>
+          <th class="th-yr1">คน 2567</th><th class="th-yr1">ครั้ง 2567</th><th class="th-yr1">บาท 2567</th>
+          <th class="th-yr2">คน 2568</th><th class="th-yr2">ครั้ง 2568</th><th class="th-yr2">บาท 2568</th>
+          <th class="th-yr3">คน 2569</th><th class="th-yr3">ครั้ง 2569</th><th class="th-yr3">บาท 2569</th>
+        </tr>
+      </thead>
+      <tbody>
+                <tr data-group="1. บริการฝากครรภ์">
+          <td class="td-gname">1. บริการฝากครรภ์</td>
+          <td class="td-item">ค่าบริการดูแลการฝากครรภ์</td>
+          <td>162</td>
+          <td>264</td>
+          <td>92,880</td>
+          <td>111</td>
+          <td>132</td>
+          <td>43,200</td>
+          <td>18</td>
+          <td>26</td>
+          <td>9,360</td>
+        </tr>
+                <tr data-group="7.บริการตรวจหลังคลอด">
+          <td class="td-gname">7.บริการตรวจหลังคลอด</td>
+          <td class="td-item">ค่าบริการตรวจหลังคลอด (PNC: Postnatal care)</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>4</td>
+          <td>4</td>
+          <td>600</td>
+        </tr>
+                <tr data-group="7.บริการตรวจหลังคลอด">
+          <td class="td-gname">7.บริการตรวจหลังคลอด</td>
+          <td class="td-item">ค่ายา Triferdine (PNC: Postnatal care)</td>
+          <td>6</td>
+          <td>21</td>
+          <td>810</td>
+          <td>3</td>
+          <td>3</td>
+          <td>405</td>
+          <td>4</td>
+          <td>4</td>
+          <td>540</td>
+        </tr>
+                <tr data-group="8.บริการทดสอบการตั้งครรภ์">
+          <td class="td-gname">8.บริการทดสอบการตั้งครรภ์</td>
+          <td class="td-item">ค่าบริการทดสอบการตั้งครรภ์</td>
+          <td>36</td>
+          <td>36</td>
+          <td>2,700</td>
+          <td>24</td>
+          <td>24</td>
+          <td>1,800</td>
+          <td>64</td>
+          <td>64</td>
+          <td>4,800</td>
+        </tr>
+                <tr data-group="9.บริการวางแผนครอบครัวและการป้องกันตั้งครรภ์ไม่พึงประสงค์">
+          <td class="td-gname">9.บริการวางแผนครอบครัวและการป้องกันตั้งครรภ์ไม่พึงประสงค์</td>
+          <td class="td-item">ยาฉีดคุมกำเนิด</td>
+          <td>24</td>
+          <td>24</td>
+          <td>1,440</td>
+          <td>39</td>
+          <td>39</td>
+          <td>2,340</td>
+          <td>52</td>
+          <td>52</td>
+          <td>3,120</td>
+        </tr>
+                <tr data-group="9.บริการวางแผนครอบครัวและการป้องกันตั้งครรภ์ไม่พึงประสงค์">
+          <td class="td-gname">9.บริการวางแผนครอบครัวและการป้องกันตั้งครรภ์ไม่พึงประสงค์</td>
+          <td class="td-item">ยาเม็ดคุมกำเนิดฉุกเฉิน</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>3</td>
+          <td>3</td>
+          <td>150</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+                <tr data-group="9.บริการวางแผนครอบครัวและการป้องกันตั้งครรภ์ไม่พึงประสงค์">
+          <td class="td-gname">9.บริการวางแผนครอบครัวและการป้องกันตั้งครรภ์ไม่พึงประสงค์</td>
+          <td class="td-item">ยาเม็ดคุมกำเนิดชนิดฮอร์โมนรวม (COC)</td>
+          <td>309</td>
+          <td>348</td>
+          <td>13,920</td>
+          <td>213</td>
+          <td>273</td>
+          <td>10,920</td>
+          <td>137</td>
+          <td>162</td>
+          <td>6,480</td>
+        </tr>
+                <tr data-group="9.บริการวางแผนครอบครัวและการป้องกันตั้งครรภ์ไม่พึงประสงค์">
+          <td class="td-gname">9.บริการวางแผนครอบครัวและการป้องกันตั้งครรภ์ไม่พึงประสงค์</td>
+          <td class="td-item">ยาเม็ดคุมกำเนิดชนิดฮอร์โมนเดี่ยว (POP)</td>
+          <td>21</td>
+          <td>33</td>
+          <td>1,680</td>
+          <td>6</td>
+          <td>12</td>
+          <td>960</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+                <tr data-group="12.บริการคัดกรองมะเร็งปากมดลูก">
+          <td class="td-gname">12.บริการคัดกรองมะเร็งปากมดลูก</td>
+          <td class="td-item">ค่าบริการเก็บตัวอย่าง</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>56</td>
+          <td>56</td>
+          <td>2,800</td>
+        </tr>
+                <tr data-group="12.บริการคัดกรองมะเร็งปากมดลูก">
+          <td class="td-gname">12.บริการคัดกรองมะเร็งปากมดลูก</td>
+          <td class="td-item">ตรวจคัดกรองมะเร็งปากมดลูก ด้วยวิธี VIA ผลเป็นลบ</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>4</td>
+          <td>4</td>
+          <td>1,000</td>
+        </tr>
+                <tr data-group="15. บริการคัดกรองเบาหวานและไขมันในเลือด">
+          <td class="td-gname">15. บริการคัดกรองเบาหวานและไขมันในเลือด</td>
+          <td class="td-item">ค่าบริการเจาะเลือดจากหลอดเลือดดำ ภายหลังอดอาหาร 8 ชั่วโมง ส่งตรวจ Total Cholesterol หรือ HDL อายุ 45 - 70 ปี</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>213</td>
+          <td>213</td>
+          <td>33,600</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+                <tr data-group="15. บริการคัดกรองเบาหวานและไขมันในเลือด">
+          <td class="td-gname">15. บริการคัดกรองเบาหวานและไขมันในเลือด</td>
+          <td class="td-item">ค่าบริการเจาะเลือดจากหลอดเลือดดำ ภายหลังอดอาหาร 8 ชั่วโมง ส่งตรวจวัดระดับน้ำตาล (Fasting Plasma Glucose : FPG) สำหรับกลุ่มเสี่ยง อายุ 35-59 ปี</td>
+          <td>318</td>
+          <td>318</td>
+          <td>1,080</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>56</td>
+          <td>56</td>
+          <td>2,240</td>
+        </tr>
+                <tr data-group="18. บริการยาเม็ดเสริมธาตุเหล็กและกรดโฟลิค">
+          <td class="td-gname">18. บริการยาเม็ดเสริมธาตุเหล็กและกรดโฟลิค</td>
+          <td class="td-item">ค่าบริการยาเม็ดเสริมธาตุเหล็ก (Ferrofolic)</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>117</td>
+          <td>117</td>
+          <td>9,360</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+                <tr data-group="20. บริการคัดกรองมะเร็งลำไส้ใหญ่และลำไส้ตรง (Fit Test)">
+          <td class="td-gname">20. บริการคัดกรองมะเร็งลำไส้ใหญ่และลำไส้ตรง (Fit Test)</td>
+          <td class="td-item">ค่าบริการคัดกรองมะเร็งลำไส้ใหญ่และลำไส้ตรง</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>486</td>
+          <td>486</td>
+          <td>46,080</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+                <tr data-group="25.บริการให้วัคซีนป้องกันโรค">
+          <td class="td-gname">25.บริการให้วัคซีนป้องกันโรค</td>
+          <td class="td-item">ฉีดวัคซีนป้องกันโรคป้องกันโรคไข้หวัดใหญ่ตามฤดูกาล(7กลุ่มเสี่ยง)</td>
+          <td>540</td>
+          <td>1,620</td>
+          <td>10,800</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+          <td>112</td>
+          <td>112</td>
+          <td>2,240</td>
+        </tr>
+                <tr data-group="25.บริการให้วัคซีนป้องกันโรค">
+          <td class="td-gname">25.บริการให้วัคซีนป้องกันโรค</td>
+          <td class="td-item">บริการฉีดวัคซีนคอตีบ-บาดทะยัก (dT) ในผู้ใหญ่</td>
+          <td>21</td>
+          <td>21</td>
+          <td>420</td>
+          <td>9</td>
+          <td>9</td>
+          <td>180</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+                <tr data-group="25.บริการให้วัคซีนป้องกันโรค">
+          <td class="td-gname">25.บริการให้วัคซีนป้องกันโรค</td>
+          <td class="td-item">บริการฉีดวัคซีนพื้นฐานตามกาหนดการให้วัคซีนตามแผนงานสร้างเสริมภูมิคุ้มกันโรค (EPI) ของกระทรวงสาธารณสุข</td>
+          <td>567</td>
+          <td>651</td>
+          <td>13,020</td>
+          <td>675</td>
+          <td>1,104</td>
+          <td>22,080</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+                <tr data-group="-">
+          <td class="td-gname">-</td>
+          <td class="td-item">ค่าบริการคัดกรองและประเมินปัจจัยเสี่ยงต่อสุขภาพกาย/สุขภาพจิต อายุ 15-34 ปี</td>
+          <td>525</td>
+          <td>525</td>
+          <td>51,600</td>
+          <td>1,278</td>
+          <td>1,278</td>
+          <td>124,200</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+                <tr data-group="-">
+          <td class="td-gname">-</td>
+          <td class="td-item">ค่าบริการคัดกรองและประเมินปัจจัยเสี่ยงต่อสุขภาพกาย/สุขภาพจิต อายุ 35-59 ปี</td>
+          <td>2,292</td>
+          <td>2,292</td>
+          <td>342,450</td>
+          <td>81</td>
+          <td>81</td>
+          <td>9,450</td>
+          <td>0</td>
+          <td>0</td>
+          <td>0</td>
+        </tr>
+              </tbody>
+    </table>
+  </div>
+  <p style="color:#888;font-size:11px;margin-top:8px;">
+    * ข้อมูลจาก: VR_PPFS_ME_Y69 &nbsp;|&nbsp; HCODE: 05570  </p>
+</div>
+
+<!-- Footer -->
+<div class="footer-bar">
+  <span class="glyphicon glyphicon-time"></span> ประมวลผล: <strong>0.3 วินาที</strong>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <span class="glyphicon glyphicon-calendar"></span> วันที่ออกรายงาน: <strong>13/10/2026 06:44:03</strong>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  กลุ่มกำกับติดตามและประเมินผลระบบหลักประกันสุขภาพ สปสช.เขต 7 ขอนแก่น
+</div>
+
+<!-- Scripts -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.12/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.10.12/js/dataTables.bootstrap.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/1.2.2/js/dataTables.buttons.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/1.2.2/js/buttons.bootstrap.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/1.2.2/js/buttons.html5.min.js"></script>
+<script src="https://cdn.datatables.net/buttons/1.2.2/js/buttons.print.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/2.5.0/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+<script>
+const fmtNum = v => Number(v).toLocaleString('th-TH');
+
+// Group merge: ทำงานหลัง DataTable render/sort/page ทุกครั้ง
+function groupMerge() {
+  var prevGroup = null;
+  $('#hcTable tbody tr:visible').each(function() {
+    var $row   = $(this);
+    var group  = $row.attr('data-group') || '';
+    var $gnCell = $row.find('td.td-gname');
+
+    if (group !== prevGroup) {
+      // แถวแรกของกลุ่ม — แสดง
+      $gnCell.removeClass('gn-hide').addClass('gn-show');
+      $row.find('td').css('border-top', '2px solid #2471a3');
+      prevGroup = group;
+    } else {
+      // แถวถัดไป — ซ่อน GROUP_NAME
+      $gnCell.removeClass('gn-show').addClass('gn-hide');
+      $row.find('td').css('border-top', '');
+    }
+  });
+}
+
+// DataTable
+$(document).ready(function(){
+  $('#hcTable').DataTable({
+    dom: '<"row"<"col-sm-4"B><"col-sm-8 dt-length-search"lf>>rt<"row"<"col-sm-5"i><"col-sm-7"p>>',
+    buttons:[
+      {extend:'excelHtml5',text:'<i class="glyphicon glyphicon-download-alt"></i> Excel',
+       className:'btn btn-success btn-sm',
+       title:'PPFS-05570-รพ.สต.บ้านโพนค้อ'},
+      {extend:'csvHtml5',  text:'<i class="glyphicon glyphicon-list-alt"></i> CSV',
+       className:'btn btn-info btn-sm',
+       title:'PPFS-05570-รพ.สต.บ้านโพนค้อ'},
+      {extend:'print',     text:'<i class="glyphicon glyphicon-print"></i> Print',
+       className:'btn btn-default btn-sm'},
+    ],
+    paging:true, pageLength:25, ordering:true, searching:true, scrollX:true,
+    fixedColumns:{leftColumns:2},
+    language:{
+      search:"ค้นหา:", lengthMenu:"แสดง _MENU_ รายการ",
+      info:"แสดง _START_ ถึง _END_ จาก _TOTAL_ รายการ",
+      infoEmpty:"ไม่มีข้อมูล", zeroRecords:"ไม่พบข้อมูล",
+      paginate:{first:"หน้าแรก",last:"หน้าสุดท้าย",next:"ถัดไป",previous:"ก่อนหน้า"}
+    },
+    columnDefs:[
+      {className:"text-right", targets:"_all"},
+      {className:"text-left",  targets:[0,1]}
+    ],
+    initComplete: function(){ $('#hcTable').css('visibility','visible'); groupMerge(); },
+    drawCallback: function(){ groupMerge(); }
+  });
+});
+
+// Bar
+new Chart(document.getElementById('chartBar'),{
+  type:'bar',
+  data:{ labels:["ANC","ANC_HCG","CCS","DMLP","FIT_TEST","FOLIC","FP","SCR","TRIFERDINE","VACCIN"], datasets:[{"label":"2567","data":[92880,2700,0,1080,0,0,17040,394050,810,24240],"backgroundColor":"#2471a3","borderRadius":3},{"label":"2568","data":[43200,1800,0,33600,46080,9360,14370,133650,405,22260],"backgroundColor":"#e67e22","borderRadius":3},{"label":"2569","data":[9360,4800,3800,2240,0,0,9600,0,1140,2240],"backgroundColor":"#1e8449","borderRadius":3}] },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{
+      legend:{position:'top',labels:{font:{family:'Sarabun',size:11},boxWidth:12}},
+      tooltip:{mode:'index',intersect:false,callbacks:{label:ctx=>ctx.dataset.label+' : '+fmtNum(ctx.raw)}}
+    },
+    scales:{
+      x:{ticks:{font:{family:'Sarabun',size:10},maxRotation:40}},
+      y:{title:{display:true,text:"จำนวนเงินที่จ่าย (บาท)",font:{family:'Sarabun',size:11}},
+         ticks:{font:{family:'Sarabun',size:11},callback:fmtNum}}
+    }
+  }
+});
+
+// Line
+new Chart(document.getElementById('chartLine'),{
+  type:'line',
+  data:{ labels:["ต.ค. 2566","พ.ย. 2566","ธ.ค. 2566","ม.ค. 2567","ก.พ. 2567","มี.ค. 2567","เม.ย. 2567","พ.ค. 2567","มิ.ย. 2567","ก.ค. 2567","ส.ค. 2567","ก.ย. 2567","ต.ค. 2567","พ.ย. 2567","ธ.ค. 2567","ม.ค. 2568","ก.พ. 2568","มี.ค. 2568","เม.ย. 2568","พ.ค. 2568","มิ.ย. 2568","ก.ค. 2568","ส.ค. 2568","ก.ย. 2568","ต.ค. 2568","พ.ย. 2568","ธ.ค. 2568","ม.ค. 2569","ก.พ. 2569","มี.ค. 2569","เม.ย. 2569","พ.ค. 2569","ส.ค. 2569"], datasets:[{"label":"03_ยาเม็ดคุมกำเนิด COC","tension":0.3,"fill":false,"borderColor":"#2471a3","backgroundColor":"#2471a322","pointRadius":3,"data":[2280,960,1920,0,1440,1320,2280,960,1200,840,600,600,360,1440,480,120,0,3000,840,720,1320,480,360,1320,1120,480,800,480,800,800,1120,800,80]},{"label":"วัคซีนป้องกันโรคไข้หวัดใหญ่","tension":0.3,"fill":false,"borderColor":"#e67e22","backgroundColor":"#e67e2222","pointRadius":3,"data":[10800,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2240,0,0,0,0,0,0,0,0]},{"label":"01_การทดสอบการตั้งครรภ์ (Pregnancy test)","tension":0.3,"fill":false,"borderColor":"#1e8449","backgroundColor":"#1e844922","pointRadius":3,"data":[0,225,0,0,0,0,900,675,0,225,675,0,450,225,675,225,225,0,0,0,0,0,0,0,0,0,0,0,1500,1500,1500,300,0]},{"label":"01_บริการดูแลการฝากครรภ์","tension":0.3,"fill":false,"borderColor":"#8e44ad","backgroundColor":"#8e44ad22","pointRadius":3,"data":[0,5400,17280,0,8640,7560,12960,20520,4320,4320,11880,2160,6480,1080,3240,3240,9720,5400,4320,1080,5400,0,1080,0,0,1440,0,2880,0,1440,2880,0,720]},{"label":"02_บริการคัดกรอง อายุ 35-59 ปี","tension":0.3,"fill":false,"borderColor":"#c0392b","backgroundColor":"#c0392b22","pointRadius":3,"data":[0,85050,180000,58050,0,19350,0,0,0,0,0,0,0,0,0,0,0,9450,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"label":"05_ยาฉีดคุมกำเนิด","tension":0.3,"fill":false,"borderColor":"#16a085","backgroundColor":"#16a08522","pointRadius":3,"data":[0,180,180,0,0,180,180,180,180,0,180,180,180,180,180,180,0,540,360,180,180,0,0,360,240,480,480,240,0,720,720,240,0]},{"label":"ค่าบริการฉีดวัคซีนขั้นพื้นฐาน (EPI)","tension":0.3,"fill":false,"borderColor":"#d35400","backgroundColor":"#d3540022","pointRadius":3,"data":[0,2220,0,600,4380,1740,0,1500,1080,720,780,7140,0,0,0,2340,0,10560,0,0,0,0,2040,0,0,0,0,0,0,0,0,0,0]},{"label":"04_ยาเม็ดคุมกำเนิด POP","tension":0.3,"fill":false,"borderColor":"#27ae60","backgroundColor":"#27ae6022","pointRadius":3,"data":[0,0,0,1680,0,0,0,0,0,0,0,0,0,0,0,480,0,480,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"label":"03_เจาะเลือด ส่งตรวจวัดระดับน้ำตาล (FPG)","tension":0.3,"fill":false,"borderColor":"#f39c12","backgroundColor":"#f39c1222","pointRadius":3,"data":[0,0,0,0,1080,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2080,0,160,0,0]},{"label":"dT (คอตีบ-บาดทะยัก)","tension":0.3,"fill":false,"borderColor":"#2980b9","backgroundColor":"#2980b922","pointRadius":3,"data":[0,0,0,0,120,0,0,0,0,240,60,180,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"label":"02_ยาเสริมธาตุเหล็กหลังคลอด","tension":0.3,"fill":false,"borderColor":"#2471a3","backgroundColor":"#2471a322","pointRadius":3,"data":[0,0,0,0,0,405,0,0,0,0,405,0,0,0,0,0,0,0,0,0,0,0,0,405,0,540,0,0,0,0,0,0,0]},{"label":"01_บริการคัดกรอง อายุ 15-34 ปี","tension":0.3,"fill":false,"borderColor":"#e67e22","backgroundColor":"#e67e2222","pointRadius":3,"data":[0,0,0,0,0,0,0,51600,0,0,0,0,0,0,0,0,0,124200,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"label":"06_ยาเม็ดคุมกำเนิดฉุกเฉิน","tension":0.3,"fill":false,"borderColor":"#1e8449","backgroundColor":"#1e844922","pointRadius":3,"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,150,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"label":"04_เจาะเลือดTotal Cholesterol หรือ HDL","tension":0.3,"fill":false,"borderColor":"#8e44ad","backgroundColor":"#8e44ad22","pointRadius":3,"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,33600,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"label":"01_Fit Test","tension":0.3,"fill":false,"borderColor":"#c0392b","backgroundColor":"#c0392b22","pointRadius":3,"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,37500,8580,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"label":"01_ยาเม็ดเสริมธาตุเหล็ก (Ferrofolic)","tension":0.3,"fill":false,"borderColor":"#16a085","backgroundColor":"#16a08522","pointRadius":3,"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,240,0,9120,0,0,0,0,0,0,0,0,0,0,0,0]},{"label":"031_บริการเก็บตัวอย่าง","tension":0.3,"fill":false,"borderColor":"#d35400","backgroundColor":"#d3540022","pointRadius":3,"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2800,0,0,0,0,0,0,0,0]},{"label":"01_การตรวจหลังคลอด","tension":0.3,"fill":false,"borderColor":"#27ae60","backgroundColor":"#27ae6022","pointRadius":3,"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,600,0,0,0,0,0,0,0]},{"label":"02_คัดกรองมะเร็งปากมดลูกด้วยวิธี VIA","tension":0.3,"fill":false,"borderColor":"#f39c12","backgroundColor":"#f39c1222","pointRadius":3,"data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1000,0,0,0,0,0,0,0]}] },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{legend:{position:'bottom',labels:{font:{family:'Sarabun',size:11},boxWidth:12}}},
+    scales:{
+      x:{ticks:{font:{family:'Sarabun',size:10}}},
+      y:{ticks:{font:{family:'Sarabun',size:11},callback:fmtNum}}
+    }
+  }
+});
+
+// Donut
+new Chart(document.getElementById('chartDonut'),{
+  type:'doughnut',
+  data:{
+    labels:[{"name":"02_บริการคัดกรอง อายุ 35-59 ปี","value":351900},{"name":"01_บริการคัดกรอง อายุ 15-34 ปี","value":175800},{"name":"01_บริการดูแลการฝากครรภ์","value":145440},{"name":"01_Fit Test","value":46080},{"name":"ค่าบริการฉีดวัคซีนขั้นพื้นฐาน (EPI)","value":35100},{"name":"04_เจาะเลือดTotal Cholesterol หรือ HDL","value":33600},{"name":"03_ยาเม็ดคุมกำเนิด COC","value":31320},{"name":"วัคซีนป้องกันโรคไข้หวัดใหญ่","value":13040},{"name":"01_ยาเม็ดเสริมธาตุเหล็ก (Ferrofolic)","value":9360},{"name":"01_การทดสอบการตั้งครรภ์ (Pregnancy test)","value":9300},{"name":"05_ยาฉีดคุมกำเนิด","value":6900},{"name":"03_เจาะเลือด ส่งตรวจวัดระดับน้ำตาล (FPG)","value":3320},{"name":"031_บริการเก็บตัวอย่าง","value":2800},{"name":"04_ยาเม็ดคุมกำเนิด POP","value":2640},{"name":"02_ยาเสริมธาตุเหล็กหลังคลอด","value":1755},{"name":"02_คัดกรองมะเร็งปากมดลูกด้วยวิธี VIA","value":1000},{"name":"dT (คอตีบ-บาดทะยัก)","value":600},{"name":"01_การตรวจหลังคลอด","value":600},{"name":"06_ยาเม็ดคุมกำเนิดฉุกเฉิน","value":150}]?.map(d=>d.name),
+    datasets:[{
+      data:[{"name":"02_บริการคัดกรอง อายุ 35-59 ปี","value":351900},{"name":"01_บริการคัดกรอง อายุ 15-34 ปี","value":175800},{"name":"01_บริการดูแลการฝากครรภ์","value":145440},{"name":"01_Fit Test","value":46080},{"name":"ค่าบริการฉีดวัคซีนขั้นพื้นฐาน (EPI)","value":35100},{"name":"04_เจาะเลือดTotal Cholesterol หรือ HDL","value":33600},{"name":"03_ยาเม็ดคุมกำเนิด COC","value":31320},{"name":"วัคซีนป้องกันโรคไข้หวัดใหญ่","value":13040},{"name":"01_ยาเม็ดเสริมธาตุเหล็ก (Ferrofolic)","value":9360},{"name":"01_การทดสอบการตั้งครรภ์ (Pregnancy test)","value":9300},{"name":"05_ยาฉีดคุมกำเนิด","value":6900},{"name":"03_เจาะเลือด ส่งตรวจวัดระดับน้ำตาล (FPG)","value":3320},{"name":"031_บริการเก็บตัวอย่าง","value":2800},{"name":"04_ยาเม็ดคุมกำเนิด POP","value":2640},{"name":"02_ยาเสริมธาตุเหล็กหลังคลอด","value":1755},{"name":"02_คัดกรองมะเร็งปากมดลูกด้วยวิธี VIA","value":1000},{"name":"dT (คอตีบ-บาดทะยัก)","value":600},{"name":"01_การตรวจหลังคลอด","value":600},{"name":"06_ยาเม็ดคุมกำเนิดฉุกเฉิน","value":150}]?.map(d=>d.value),
+      backgroundColor:["#2471a3","#e67e22","#1e8449","#8e44ad","#c0392b","#16a085","#d35400","#27ae60","#f39c12","#2980b9","#2471a3","#e67e22","#1e8449","#8e44ad","#c0392b","#16a085","#d35400","#27ae60","#f39c12"],
+      borderWidth:2
+    }]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{
+      legend:{position:'bottom',labels:{font:{family:'Sarabun',size:11},boxWidth:12}},
+      tooltip:{callbacks:{label:ctx=>ctx.label+': '+fmtNum(ctx.raw)}}
+    }
+  }
+});
+</script>
+</body>
+</html>
+

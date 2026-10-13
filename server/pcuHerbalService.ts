@@ -123,12 +123,73 @@ export interface HerbalMasterItem {
   monthlyRateNote?: string;
 }
 
+export interface PpfsDrugReimbursement {
+  pcu_code: string;
+  triferdine_pnc_qty: number;
+  triferdine_pnc_paid: number;
+  folic_qty: number;
+  folic_paid: number;
+  total_ppfs_paid: number;
+  ppfs_url: string;
+  note?: string;
+}
+
+/** ข้อมูลชดเชย Triferdine & Folic จากระบบ PPFS MIS (สปสช. เขต 7 ขอนแก่น ปีงบประมาณ 2569) */
+export const PPFS_DRUG_REIMBURSEMENT_BY_PCU: Record<string, PpfsDrugReimbursement> = {
+  '05569': {
+    pcu_code: '05569',
+    triferdine_pnc_qty: 4,
+    triferdine_pnc_paid: 540.00,
+    folic_qty: 576,
+    folic_paid: 45760.00,
+    total_ppfs_paid: 46300.00,
+    ppfs_url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05569&metric=SUM_PAID',
+  },
+  '05570': {
+    pcu_code: '05570',
+    triferdine_pnc_qty: 4,
+    triferdine_pnc_paid: 540.00,
+    folic_qty: 0,
+    folic_paid: 0.00,
+    total_ppfs_paid: 540.00,
+    ppfs_url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05570&metric=SUM_PAID',
+    note: 'รอบปี 2568 ได้รับชดเชย Folic 9,360 บาท (117 ครั้ง), Triferdine 405 บาท (3 ครั้ง)',
+  },
+  '05571': {
+    pcu_code: '05571',
+    triferdine_pnc_qty: 58,
+    triferdine_pnc_paid: 7290.00,
+    folic_qty: 390,
+    folic_paid: 27040.00,
+    total_ppfs_paid: 34330.00,
+    ppfs_url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05571&metric=SUM_PAID',
+  },
+  '05572': {
+    pcu_code: '05572',
+    triferdine_pnc_qty: 36,
+    triferdine_pnc_paid: 4860.00,
+    folic_qty: 2934,
+    folic_paid: 195920.00,
+    total_ppfs_paid: 200780.00,
+    ppfs_url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05572&metric=SUM_PAID',
+  },
+  '05573': {
+    pcu_code: '05573',
+    triferdine_pnc_qty: 140,
+    triferdine_pnc_paid: 12960.00,
+    folic_qty: 267,
+    folic_paid: 21360.00,
+    total_ppfs_paid: 34320.00,
+    ppfs_url: 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=05573&metric=SUM_PAID',
+  },
+};
+
 export const TRIFERDINE_REIMBURSEMENT_BY_PCU: Record<string, number> = {
-  '05569': 45760.00,
-  '05571': 27040.00,
-  '05572': 195920.00,
-  '05573': 21360.00,
-  '05570': 0.00,
+  '05569': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05569'].triferdine_pnc_paid,
+  '05570': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05570'].triferdine_pnc_paid,
+  '05571': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05571'].triferdine_pnc_paid,
+  '05572': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05572'].triferdine_pnc_paid,
+  '05573': PPFS_DRUG_REIMBURSEMENT_BY_PCU['05573'].triferdine_pnc_paid,
 };
 
 export const TRIFERDINE_MONTHLY_PRICES = [
@@ -356,6 +417,11 @@ export interface PcuHerbalSummary {
   hsub_drug_paid: number;
   hsub_total_paid: number;
   total_reimbursed: number;
+  ppfs_triferdine_paid: number;
+  ppfs_folic_paid: number;
+  ppfs_total_paid: number;
+  ppfs_url: string;
+  total_revenue: number;
   triferdine_reimbursed?: number;
   folic_reimbursed?: number;
   gross_profit: number;
@@ -438,16 +504,13 @@ export async function getPcuHerbalReconciliation(options: {
     await hospConn.end();
   }
 
-  // 2. Query each PCU for herbal & supplement dispensing
-  const results: PcuHerbalSummary[] = [];
-
-  for (const pcu of targetPcus) {
+  // 2. Query each PCU in parallel with timeout
+  const querySinglePcu = async (pcu: PcuConfig): Promise<PcuHerbalSummary> => {
     let isOnline = false;
     let dispenseRows: any[] = [];
     try {
       const pool = getPcuPool(pcu);
-
-      const [rows]: any = await pool.query(
+      const queryPromise = pool.query(
         `SELECT 
           o.icode, d.name as drug_name, d.units,
           DATE_FORMAT(o.vstdate, '%Y-%m') as vst_month,
@@ -476,10 +539,11 @@ export async function getPcuHerbalReconciliation(options: {
         GROUP BY o.icode, d.name, d.units, DATE_FORMAT(o.vstdate, '%Y-%m')`,
         [startDate, endDate]
       );
-      dispenseRows = rows;
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500));
+      const [rows]: any = await Promise.race([queryPromise, timeoutPromise]);
+      dispenseRows = rows || [];
       isOnline = true;
     } catch (err: any) {
-      console.error(`[PcuHerbal] Error querying PCU ${pcu.code}:`, err.message);
       isOnline = false;
     }
 
@@ -517,7 +581,6 @@ export async function getPcuHerbalReconciliation(options: {
 
     for (const row of dispenseRows) {
       const drugName = String(row.drug_name || '').toLowerCase();
-      // Find matching master item
       const master = targetMasterList.find(m => {
         return m.keywords.some(kw => drugName.includes(kw.toLowerCase()));
       });
@@ -529,17 +592,12 @@ export async function getPcuHerbalReconciliation(options: {
         let cost = 0;
 
         if (master.id === 47) {
-          // Triferdine 150 mg:
-          // ก.ค.69 (2026-07) ถึง ก.ย.69 (2026-09) = 38.52 / 30 = 1.284 บาท/เม็ด
-          // ต.ค.68 ถึง มิ.ย.69 (2026-06) = 26.75 / 30 = 0.89167 บาท/เม็ด
           const vstMonth = String(row.vst_month || '');
           const unitRate = vstMonth >= '2026-07' ? (38.52 / 30) : (26.75 / 30);
           cost = qty * unitRate;
         } else if (master.id === 48) {
-          // Folic acid: 0.12 บาท / เม็ด
           cost = qty * 0.12;
         } else {
-          // Herbal standard unit cost
           cost = qty * master.unitCost;
         }
 
@@ -565,8 +623,6 @@ export async function getPcuHerbalReconciliation(options: {
       count: 0,
     };
 
-    // ยอดชดเชยไม่ใช่ รวม H-Sub + Triferdine + Folic Acid
-    // แต่เป็นรวมยาทั้งหมดที่ได้รับชดเชย ตามข้อมูลนำเข้า hsub (hc_drug + ae_drug + dmis_drug)
     let totalPaid = 0;
     if (category === 'herbal') {
       totalPaid = hsub.hc_drug > 0 ? hsub.hc_drug : hsub.drug_paid;
@@ -574,11 +630,26 @@ export async function getPcuHerbalReconciliation(options: {
       totalPaid = hsub.drug_paid > 0 ? hsub.drug_paid : hsub.total_paid;
     }
 
+    // ข้อมูลชดเชย PPFS (Triferdine PNC + Folic)
+    const ppfs = PPFS_DRUG_REIMBURSEMENT_BY_PCU[pcu.code] || {
+      pcu_code: pcu.code,
+      triferdine_pnc_qty: 0,
+      triferdine_pnc_paid: 0,
+      folic_qty: 0,
+      folic_paid: 0,
+      total_ppfs_paid: 0,
+      ppfs_url: `https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=${pcu.code}&metric=SUM_PAID`,
+    };
+    const ppfsTriferdinePaid = ppfs.triferdine_pnc_paid || 0;
+    const ppfsFolicPaid = ppfs.folic_paid || 0;
+    const ppfsTotalPaid = ppfs.total_ppfs_paid || (ppfsTriferdinePaid + ppfsFolicPaid);
+    const totalRevenue = Math.round((totalPaid + ppfsTotalPaid) * 100) / 100;
+
     const grossProfit = Math.max(0, totalPaid - totalDrugCost);
     const payableProfit = grossProfit;
     const marginPct = totalPaid > 0 ? (grossProfit / totalPaid) * 100 : 0;
 
-    results.push({
+    return {
       pcu_code: pcu.code,
       pcu_name: pcu.name,
       host_ip: pcu.host,
@@ -594,14 +665,21 @@ export async function getPcuHerbalReconciliation(options: {
       hsub_drug_paid: hsub.drug_paid,
       hsub_total_paid: hsub.total_paid,
       total_reimbursed: Math.round(totalPaid * 100) / 100,
-      triferdine_reimbursed: TRIFERDINE_REIMBURSEMENT_BY_PCU[pcu.code] || 0,
-      folic_reimbursed: Math.round(((itemMap.get(48)?.dispensed_qty || 0) / 52) * 80 * 100) / 100,
+      ppfs_triferdine_paid: ppfsTriferdinePaid,
+      ppfs_folic_paid: ppfsFolicPaid,
+      ppfs_total_paid: ppfsTotalPaid,
+      ppfs_url: ppfs.ppfs_url,
+      total_revenue: totalRevenue,
+      triferdine_reimbursed: ppfsTriferdinePaid,
+      folic_reimbursed: ppfsFolicPaid,
       gross_profit: Math.round(grossProfit * 100) / 100,
       payable_profit: Math.round(payableProfit * 100) / 100,
       margin_percentage: Math.round(marginPct * 10) / 10,
       item_breakdown: Array.from(itemMap.values()),
-    });
-  }
+    };
+  };
+
+  const results = await Promise.all(targetPcus.map(querySinglePcu));
 
   // Calculate grand totals across all PCUs
   const grandTotal = {
@@ -614,6 +692,10 @@ export async function getPcuHerbalReconciliation(options: {
     hsub_drug_paid: Math.round(results.reduce((acc, r) => acc + r.hsub_drug_paid, 0) * 100) / 100,
     hsub_total_paid: Math.round(results.reduce((acc, r) => acc + r.hsub_total_paid, 0) * 100) / 100,
     total_reimbursed: Math.round(results.reduce((acc, r) => acc + r.total_reimbursed, 0) * 100) / 100,
+    ppfs_triferdine_paid: Math.round(results.reduce((acc, r) => acc + (r.ppfs_triferdine_paid || 0), 0) * 100) / 100,
+    ppfs_folic_paid: Math.round(results.reduce((acc, r) => acc + (r.ppfs_folic_paid || 0), 0) * 100) / 100,
+    ppfs_total_paid: Math.round(results.reduce((acc, r) => acc + (r.ppfs_total_paid || 0), 0) * 100) / 100,
+    total_revenue: Math.round(results.reduce((acc, r) => acc + (r.total_revenue || 0), 0) * 100) / 100,
     gross_profit: Math.round(results.reduce((acc, r) => acc + r.gross_profit, 0) * 100) / 100,
     payable_profit: Math.round(results.reduce((acc, r) => acc + r.payable_profit, 0) * 100) / 100,
   };

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getPcuHerbalReconciliation,
   getPcuHerbalDrillDown,
+  getPcuHerbalDiagAudit,
   HERBAL_MASTER_46,
   IRON_FOLIC_MASTER,
   ALL_DRUG_MASTER,
@@ -152,3 +153,34 @@ pcuHerbalRouter.get('/drill-down', async (req, res) => {
     });
   }
 });
+
+// GET /api/pcu-herbal/diag-audit - ตรวจสอบความถูกต้องของการวินิจฉัย (ICD-10) กับยาที่จ่าย
+pcuHerbalRouter.get('/diag-audit', async (req, res) => {
+  try {
+    const hcode = req.query.hcode ? String(req.query.hcode).trim() : undefined;
+    const status = (req.query.status as ('all' | 'mismatch' | 'missing' | 'valid')) || 'all';
+    const startDate = req.query.startDate ? String(req.query.startDate).trim() : '2025-10-01';
+    const endDate = req.query.endDate ? String(req.query.endDate).trim() : '2026-10-31';
+    const search = req.query.search ? String(req.query.search).trim() : '';
+    const page = req.query.page ? Number(req.query.page) : 1;
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+
+    const result = await getPcuHerbalDiagAudit({
+      hcode,
+      statusFilter: status,
+      startDate,
+      endDate,
+      search,
+      page,
+      limit,
+    });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('[PcuHerbalRoutes] Error fetching diag audit:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถตรวจสอบการวินิจฉัยโรคได้',
+    });
+  }
+});
+

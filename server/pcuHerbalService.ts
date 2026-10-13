@@ -761,3 +761,320 @@ export async function getPcuHerbalDrillDown(options: {
     items: mappedRows,
   };
 }
+
+export interface HerbalAuditRule {
+  keywords: string[];
+  indication: string;
+  allowedPrefixes: string[];
+  recommendedCodes: string[];
+}
+
+export const HERBAL_AUDIT_RULES: HerbalAuditRule[] = [
+  {
+    keywords: ['ขมิ้นชัน', 'ธาตุอบเชย', 'ธาตุบรรจบ', 'เหลืองปิดสมุทร', 'ประสะกระเพรา', 'ปลูกไฟธาตุ', 'ไฟประลัยกัลป์', 'ไฟห้ากอง', 'เบญจกูล', 'ตรีผลา'],
+    indication: 'ทางเดินอาหาร / ท้องอืด ท้องเฟ้อ แน่นจุกเสียด',
+    allowedPrefixes: ['K30', 'K29', 'R10', 'K52', 'A09', 'U66', 'U69'],
+    recommendedCodes: ['K30 (ท้องอืด/แน่นจุกเสียด)', 'R101 (ปวดท้องส่วนบน/แน่นลิ้นปี่)', 'U6670 (กษัยจุกเสียด)'],
+  },
+  {
+    keywords: ['เถาวัลย์เปรียง', 'ไพล', 'สหัสธารา', 'ประคบ', 'นวดเท้า', 'ขี้ผึ้ง', 'แก้ลมแก้เส้น'],
+    indication: 'ระบบกล้ามเนื้อ ข้อ และกระดูก / ปวดเมื่อย',
+    allowedPrefixes: ['M79', 'M54', 'M25', 'M17', 'M19', 'M60', 'M62', 'M65', 'M70', 'M71', 'M72', 'M75', 'M77', 'U57', 'U75'],
+    recommendedCodes: ['M791 (Myalgia/ปวดกล้ามเนื้อ)', 'M545 (Low back pain/ปวดหลัง)', 'M255 (ปวดข้อ)', 'U7509 (ลมปลายไข้)'],
+  },
+  {
+    keywords: ['มะขามป้อม', 'มะแว้ง', 'ฟ้าทะลายโจร', 'ปราบชมพูทวีป', 'จันทร์ลีลา', 'ห้าราก', 'อำมฤควาที', 'เขียวหอม'],
+    indication: 'ระบบทางเดินหายใจ & ไข้ / ไอ หวัด เจ็บคอ',
+    allowedPrefixes: ['J00', 'J02', 'J03', 'J04', 'J06', 'J11', 'J20', 'R05', 'R50', 'U64', 'U56'],
+    recommendedCodes: ['J00 (หวัด/คออักเสบ)', 'J069 (ติดเชื้อทางเดินหายใจเฉียบพลัน)', 'R05 (ไอ)', 'U643 (ไอ)'],
+  },
+  {
+    keywords: ['เพชรสังฆาต'],
+    indication: 'ริดสีดวงทวารหนัก',
+    allowedPrefixes: ['I84', 'K64', 'U68'],
+    recommendedCodes: ['K640 (Hemorrhoids stage 1)', 'K649 (ริดสีดวงทวาร)', 'U680 (โรคริดสีดวงทวาร)'],
+  },
+  {
+    keywords: ['มะขามแขก', 'ชุมเห็ดเทศ'],
+    indication: 'ระบบทางเดินอาหาร / ท้องผูก',
+    allowedPrefixes: ['K59', 'U69'],
+    recommendedCodes: ['K590 (Constipation/ท้องผูก)', 'U6984 (อติสาระ/ท้องผูก)'],
+  },
+  {
+    keywords: ['ทองพันชั่ง', 'พญายอ', 'เสลดพังพอน'],
+    indication: 'โรคผิวหนัง ผื่นคัน น้ำกัดเท้า เริม งูสวัด',
+    allowedPrefixes: ['B35', 'B00', 'B02', 'L02', 'L08', 'L20', 'L23', 'L29', 'L30', 'U70'],
+    recommendedCodes: ['B353 (Tinea pedis/น้ำกัดเท้า)', 'L299 (Pruritus/คัน)', 'B029 (งูสวัด)'],
+  },
+  {
+    keywords: ['หญ้าดอกขาว'],
+    indication: 'ลดความอยากบุหรี่ / ทางเดินหายใจ',
+    allowedPrefixes: ['F17', 'Z720', 'J00', 'J06', 'R05'],
+    recommendedCodes: ['F171 (ติดบุหรี่/ใช้ยาสูบ)', 'Z720 (สูบบุหรี่)'],
+  },
+  {
+    keywords: ['หญ้าหนวดแมว'],
+    indication: 'ระบบทางเดินปัสสาวะ / ขับปัสสาวะ ขับนิ่วขนาดเล็ก',
+    allowedPrefixes: ['N20', 'N21', 'N30', 'R30', 'R39'],
+    recommendedCodes: ['N200 (Calculus of kidney/นิ่วไต)', 'R300 (Dysuria/ขัดเบา)'],
+  },
+  {
+    keywords: ['ชาชงขิง', 'นวโกฐ', 'อินทจักร์', 'บำรุงโลหิต'],
+    indication: 'วิงเวียน หน้ามืด คลื่นไส้ อาเจียน',
+    allowedPrefixes: ['R42', 'R11', 'R55', 'U61'],
+    recommendedCodes: ['R42 (วิงเวียนศีรษะ)', 'R11 (คลื่นไส้/อาเจียน)', 'U6131 (ลมวิงเวียน)'],
+  },
+  {
+    keywords: ['ศุขไสยาสน์', 'น้ำมันกัญชา'],
+    indication: 'นอนไม่หลับ / บรรเทาอาการเรื้อรัง',
+    allowedPrefixes: ['F51', 'G47', 'U75'],
+    recommendedCodes: ['G470 (Insomnia/นอนไม่หลับ)', 'F510 (นอนไม่หลับ)'],
+  },
+];
+
+export function auditHerbalPrescription(drugName: string, diags: string[]) {
+  const normDrug = String(drugName || '').toLowerCase();
+  const rule = HERBAL_AUDIT_RULES.find(r => r.keywords.some(kw => normDrug.includes(kw.toLowerCase())));
+  if (!rule) {
+    return {
+      status: 'valid' as const,
+      indication: 'ยาแพทย์แผนไทยทั่วไป',
+      reason: 'ไม่อยู่ในกลุ่มเสี่ยงตรวจสอบ',
+      recommended: [] as string[],
+    };
+  }
+
+  const cleanDiags = diags.map(d => d.replace(/[^A-Z0-9]/gi, '').toUpperCase()).filter(Boolean);
+  if (cleanDiags.length === 0) {
+    return {
+      status: 'missing' as const,
+      indication: rule.indication,
+      reason: 'ไม่ได้บันทึกรหัสวินิจฉัย (ไม่มี Diag/ICD-10)',
+      recommended: rule.recommendedCodes,
+    };
+  }
+
+  // Check if all diags are Z-codes (e.g. Z012, Z000)
+  const nonZDiags = cleanDiags.filter(d => !d.startsWith('Z'));
+  if (nonZDiags.length === 0) {
+    return {
+      status: 'missing' as const,
+      indication: rule.indication,
+      reason: `บันทึกเฉพาะรหัสตรวจสุขภาพ (${cleanDiags.join(', ')}) ไม่มีรหัสโรคที่รักษา`,
+      recommended: rule.recommendedCodes,
+    };
+  }
+
+  // Check match
+  const isMatch = cleanDiags.some(d => rule.allowedPrefixes.some(p => d.startsWith(p)));
+  if (isMatch) {
+    return {
+      status: 'valid' as const,
+      indication: rule.indication,
+      reason: 'รหัสโรคสัมพันธ์กับข้อบ่งใช้ยาถูกต้องตามเกณฑ์',
+      recommended: [] as string[],
+    };
+  }
+
+  return {
+    status: 'mismatch' as const,
+    indication: rule.indication,
+    reason: `ยาไม่สัมพันธ์กับโรค (บันทึกรหัส ${cleanDiags.slice(0, 3).join(', ')} แต่วิชาการกำหนดกลุ่ม ${rule.indication})`,
+    recommended: rule.recommendedCodes,
+  };
+}
+
+export interface PcuHerbalDiagAuditOptions {
+  hcode?: string;
+  startDate?: string;
+  endDate?: string;
+  statusFilter?: 'all' | 'mismatch' | 'missing' | 'valid';
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export async function getPcuHerbalDiagAudit(options: PcuHerbalDiagAuditOptions = {}) {
+  const {
+    hcode,
+    startDate = '2025-10-01',
+    endDate = '2026-10-31',
+    statusFilter = 'all',
+    search = '',
+    page = 1,
+    limit = 50,
+  } = options;
+
+  const allPcus = await getActivePcuConfigs();
+  const targetPcus = hcode && hcode !== 'all'
+    ? allPcus.filter(p => p.code === hcode)
+    : allPcus;
+
+  const pcuStats: Array<{
+    pcu_code: string;
+    pcu_name: string;
+    total_prescriptions: number;
+    valid_cnt: number;
+    mismatch_cnt: number;
+    missing_cnt: number;
+    error_rate_pct: number;
+    at_risk_value_baht: number;
+  }> = [];
+
+  const allAuditedItems: Array<{
+    vn: string;
+    hn: string;
+    vstdate: string;
+    patient_name: string;
+    pcu_code: string;
+    pcu_name: string;
+    drug_name: string;
+    qty: number;
+    sum_price: number;
+    pdx: string;
+    all_diags: string[];
+    audit_status: 'valid' | 'mismatch' | 'missing';
+    indication_group: string;
+    issue_reason: string;
+    recommended_diags: string[];
+  }> = [];
+
+  for (const pcu of targetPcus) {
+    try {
+      const pool = getPcuPool(pcu);
+      const [rows]: any = await pool.query(
+        `SELECT 
+          o.vn, o.hn, 
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as vstdate,
+          CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as pt_name,
+          d.name as drug_name,
+          o.qty, o.sum_price,
+          v.pdx,
+          GROUP_CONCAT(DISTINCT dx.icd10 SEPARATOR ',') as all_diags
+        FROM opitemrece o
+        JOIN drugitems d ON o.icode = d.icode
+        LEFT JOIN patient pt ON o.hn = pt.hn
+        LEFT JOIN vn_stat v ON o.vn = v.vn
+        LEFT JOIN ovstdiag dx ON o.vn = dx.vn
+        WHERE o.vstdate >= ? AND o.vstdate <= ?
+          AND (
+            d.name LIKE '%ขมิ้น%' OR d.name LIKE '%ฟ้าทะลาย%' OR d.name LIKE '%เถาวัลย์%' OR 
+            d.name LIKE '%ไพล%' OR d.name LIKE '%เพชรสังฆาต%' OR d.name LIKE '%มะระขี้นก%' OR 
+            d.name LIKE '%มะขามป้อม%' OR d.name LIKE '%เขียวหอม%' OR d.name LIKE '%ชุมเห็ดเทศ%' OR 
+            d.name LIKE '%ทองพันชั่ง%' OR d.name LIKE '%ธรณีสัณฆาต%' OR d.name LIKE '%ธาตุอบเชย%' OR 
+            d.name LIKE '%บำรุงโลหิต%' OR d.name LIKE '%เบญจกูล%' OR d.name LIKE '%ประคบ%' OR 
+            d.name LIKE '%รางจืด%' OR d.name LIKE '%สหัสธารา%' OR d.name LIKE '%นวโกฐ%' OR 
+            d.name LIKE '%เหลืองปิดสมุทร%' OR d.name LIKE '%มะแว้ง%' OR d.name LIKE '%เสลดพังพอน%' OR 
+            d.name LIKE '%ห้าราก%' OR d.name LIKE '%กระเจี๊ยบ%' OR d.name LIKE '%ตรีผลา%' OR 
+            d.name LIKE '%ธาตุบรรจบ%' OR d.name LIKE '%จันทร์ลีลา%' OR d.name LIKE '%ปราบชมพูทวีป%' OR 
+            d.name LIKE '%มะขามแขก%' OR d.name LIKE '%หญ้าดอกขาว%' OR d.name LIKE '%หญ้าหนวดแมว%' OR 
+            d.name LIKE '%อินทจักร์%' OR d.name LIKE '%อำมฤควาที%' OR d.name LIKE '%ศุขไสยาสน์%' OR 
+            d.name LIKE '%แก้ลมแก้เส้น%' OR d.name LIKE '%ขี้ผึ้ง%'
+          )
+        GROUP BY o.vn, o.hn, o.vstdate, pt.pname, pt.fname, pt.lname, d.name, o.qty, o.sum_price, v.pdx
+        ORDER BY o.vstdate DESC, o.vn DESC`,
+        [startDate, endDate]
+      );
+
+      let pcuValid = 0;
+      let pcuMismatch = 0;
+      let pcuMissing = 0;
+      let pcuRiskValue = 0;
+
+      for (const r of rows) {
+        const diags = String(r.all_diags || r.pdx || '').split(',').filter(Boolean);
+        const audit = auditHerbalPrescription(r.drug_name, diags);
+
+        if (audit.status === 'valid') {
+          pcuValid++;
+        } else if (audit.status === 'mismatch') {
+          pcuMismatch++;
+          pcuRiskValue += Number(r.sum_price || 0);
+        } else if (audit.status === 'missing') {
+          pcuMissing++;
+          pcuRiskValue += Number(r.sum_price || 0);
+        }
+
+        allAuditedItems.push({
+          vn: String(r.vn),
+          hn: String(r.hn),
+          vstdate: String(r.vstdate),
+          patient_name: String(r.pt_name || 'ไม่ระบุชื่อ').trim(),
+          pcu_code: pcu.code,
+          pcu_name: pcu.name,
+          drug_name: String(r.drug_name),
+          qty: Number(r.qty || 0),
+          sum_price: Math.round(Number(r.sum_price || 0) * 100) / 100,
+          pdx: String(r.pdx || '-'),
+          all_diags: diags,
+          audit_status: audit.status,
+          indication_group: audit.indication,
+          issue_reason: audit.reason,
+          recommended_diags: audit.recommended,
+        });
+      }
+
+      const totalPresc = rows.length;
+      pcuStats.push({
+        pcu_code: pcu.code,
+        pcu_name: pcu.name,
+        total_prescriptions: totalPresc,
+        valid_cnt: pcuValid,
+        mismatch_cnt: pcuMismatch,
+        missing_cnt: pcuMissing,
+        error_rate_pct: totalPresc > 0 ? Math.round(((pcuMismatch + pcuMissing) / totalPresc) * 1000) / 10 : 0,
+        at_risk_value_baht: Math.round(pcuRiskValue * 100) / 100,
+      });
+    } catch (err: any) {
+      console.warn(`[PcuHerbalDiagAudit] Error connecting to PCU ${pcu.code}:`, err.message);
+    }
+  }
+
+  // Filter items
+  let filtered = allAuditedItems;
+  if (statusFilter && statusFilter !== 'all') {
+    filtered = filtered.filter(i => i.audit_status === statusFilter);
+  }
+
+  if (search.trim()) {
+    const sTerm = search.toLowerCase().trim();
+    filtered = filtered.filter(i =>
+      i.patient_name.toLowerCase().includes(sTerm) ||
+      i.hn.includes(sTerm) ||
+      i.vn.includes(sTerm) ||
+      i.drug_name.toLowerCase().includes(sTerm) ||
+      i.pdx.toLowerCase().includes(sTerm) ||
+      i.all_diags.some(d => d.toLowerCase().includes(sTerm))
+    );
+  }
+
+  const grandTotalPrescriptions = pcuStats.reduce((a, b) => a + b.total_prescriptions, 0);
+  const grandValidCnt = pcuStats.reduce((a, b) => a + b.valid_cnt, 0);
+  const grandMismatchCnt = pcuStats.reduce((a, b) => a + b.mismatch_cnt, 0);
+  const grandMissingCnt = pcuStats.reduce((a, b) => a + b.missing_cnt, 0);
+  const grandRiskValue = Math.round(pcuStats.reduce((a, b) => a + b.at_risk_value_baht, 0) * 100) / 100;
+  const grandErrorRate = grandTotalPrescriptions > 0
+    ? Math.round(((grandMismatchCnt + grandMissingCnt) / grandTotalPrescriptions) * 1000) / 10
+    : 0;
+
+  const offset = (page - 1) * limit;
+  const paginatedItems = filtered.slice(offset, offset + limit);
+
+  return {
+    period: { startDate, endDate },
+    summary: {
+      total_prescriptions: grandTotalPrescriptions,
+      valid_cnt: grandValidCnt,
+      mismatch_cnt: grandMismatchCnt,
+      missing_cnt: grandMissingCnt,
+      error_rate_pct: grandErrorRate,
+      at_risk_value_baht: grandRiskValue,
+      pcu_breakdown: pcuStats,
+    },
+    total: filtered.length,
+    page,
+    limit,
+    totalPages: Math.ceil(filtered.length / limit),
+    items: paginatedItems,
+  };
+}

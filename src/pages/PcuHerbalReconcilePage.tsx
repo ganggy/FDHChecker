@@ -79,6 +79,53 @@ export interface DrillDownItem {
   margin: number;
 }
 
+export interface DiagAuditItem {
+  vn: string;
+  hn: string;
+  vstdate: string;
+  patient_name: string;
+  pcu_code: string;
+  pcu_name: string;
+  drug_name: string;
+  qty: number;
+  sum_price: number;
+  pdx: string;
+  all_diags: string[];
+  audit_status: 'valid' | 'mismatch' | 'missing';
+  indication_group: string;
+  issue_reason: string;
+  recommended_diags: string[];
+}
+
+export interface DiagAuditPcuBreakdown {
+  pcu_code: string;
+  pcu_name: string;
+  total_prescriptions: number;
+  valid_cnt: number;
+  mismatch_cnt: number;
+  missing_cnt: number;
+  error_rate_pct: number;
+  at_risk_value_baht: number;
+}
+
+export interface DiagAuditResponse {
+  period: { startDate: string; endDate: string };
+  summary: {
+    total_prescriptions: number;
+    valid_cnt: number;
+    mismatch_cnt: number;
+    missing_cnt: number;
+    error_rate_pct: number;
+    at_risk_value_baht: number;
+    pcu_breakdown: DiagAuditPcuBreakdown[];
+  };
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  items: DiagAuditItem[];
+}
+
 export interface PcuConfigItem {
   code: string;
   name: string;
@@ -130,8 +177,17 @@ export const PcuHerbalReconcilePage: React.FC = () => {
   const [endDate, setEndDate] = useState<string>('2026-10-31');
   const [searchTerm, setSearchTerm] = useState<string>('');
 
-  // Active Tab: 'summary' | 'master_items' | 'rates_info'
-  const [activeTab, setActiveTab] = useState<'summary' | 'master_items' | 'rates_info'>('summary');
+  // Active Tab: 'summary' | 'master_items' | 'diag_audit' | 'rates_info'
+  const [activeTab, setActiveTab] = useState<'summary' | 'master_items' | 'diag_audit' | 'rates_info'>('summary');
+
+  // Diagnosis Audit State
+  const [auditData, setAuditData] = useState<DiagAuditResponse | null>(null);
+  const [auditLoading, setAuditLoading] = useState<boolean>(false);
+  const [auditHcode, setAuditHcode] = useState<string>('all');
+  const [auditStatusFilter, setAuditStatusFilter] = useState<'all' | 'mismatch' | 'missing' | 'valid'>('mismatch');
+  const [auditSearch, setAuditSearch] = useState<string>('');
+  const [auditPage, setAuditPage] = useState<number>(1);
+  const [exportingAudit, setExportingAudit] = useState<boolean>(false);
 
   // Connection status testing
   const [testingConn, setTestingConn] = useState<boolean>(false);
@@ -185,6 +241,39 @@ export const PcuHerbalReconcilePage: React.FC = () => {
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
+
+  // Load diagnosis audit data
+  const loadDiagAudit = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const params = new URLSearchParams({
+        startDate,
+        endDate,
+        status: auditStatusFilter,
+        search: auditSearch,
+        page: String(auditPage),
+        limit: '50',
+      });
+      if (auditHcode !== 'all') {
+        params.append('hcode', auditHcode);
+      }
+      const res = await fetch(`/api/pcu-herbal/diag-audit?${params.toString()}`);
+      const json = await res.json();
+      if (json.success) {
+        setAuditData(json.data);
+      }
+    } catch (err) {
+      console.error('Error fetching diag audit:', err);
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [startDate, endDate, auditHcode, auditStatusFilter, auditSearch, auditPage]);
+
+  useEffect(() => {
+    if (activeTab === 'diag_audit') {
+      loadDiagAudit();
+    }
+  }, [activeTab, loadDiagAudit]);
 
   // Test connections from header
   const handleTestConnections = async () => {
@@ -451,6 +540,63 @@ export const PcuHerbalReconcilePage: React.FC = () => {
     XLSX.writeFile(wb, `PCU_Drug_Profit_Reconciliation_${selectedCategory}_${startDate}_to_${endDate}.xlsx`);
   };
 
+  // Export Diag Audit to Excel
+  const handleExportAuditExcel = async () => {
+    setExportingAudit(true);
+    try {
+      let exportItems = auditData?.items || [];
+      try {
+        const params = new URLSearchParams({
+          startDate,
+          endDate,
+          status: auditStatusFilter,
+          search: auditSearch,
+          page: '1',
+          limit: '10000',
+        });
+        if (auditHcode !== 'all') {
+          params.append('hcode', auditHcode);
+        }
+        const res = await fetch(`/api/pcu-herbal/diag-audit?${params.toString()}`);
+        const json = await res.json();
+        if (json.success && json.data.items) {
+          exportItems = json.data.items;
+        }
+      } catch (err) {
+        console.warn('Fallback to current page items for export', err);
+      }
+
+      const rows = exportItems.map((item, idx) => ({
+        'ลำดับ': idx + 1,
+        'วันที่รับบริการ': item.vstdate,
+        'รหัส รพ.สต.': item.pcu_code,
+        'ชื่อ รพ.สต.': item.pcu_name,
+        'VN': item.vn,
+        'HN': item.hn,
+        'ชื่อ-สกุล ผู้ป่วย': item.patient_name,
+        'รายการยา': item.drug_name,
+        'จำนวนที่จ่าย': item.qty,
+        'มูลค่า (บาท)': item.sum_price,
+        'PDX (รหัสโรคหลัก)': item.pdx,
+        'รหัสโรคทั้งหมด': item.all_diags.join(', '),
+        'สถานะการตรวจ': item.audit_status === 'valid' ? 'ถูกต้อง' : item.audit_status === 'mismatch' ? 'ยาไม่สัมพันธ์กับโรค (เสี่ยงติด C / ชดเชย 0 บาท)' : 'ไม่ระบุรหัสโรค/มีแต่รหัสตรวจสุขภาพ',
+        'กลุ่มข้อบ่งใช้ยา': item.indication_group,
+        'ปัญหา/สาเหตุ': item.issue_reason,
+        'รหัส ICD-10 แนะนำให้แก้ไข': item.recommended_diags.join(', '),
+      }));
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'ผลตรวจวินิจฉัยยาสมุนไพร');
+      XLSX.writeFile(wb, `PCU_Herbal_Diag_Audit_${auditHcode}_${auditStatusFilter}_${startDate}_to_${endDate}.xlsx`);
+    } catch (err) {
+      console.error('Export error:', err);
+    } finally {
+      setExportingAudit(false);
+    }
+  };
+
+
   return (
     <div className="pcu-herbal-page">
       {/* Header */}
@@ -685,6 +831,12 @@ export const PcuHerbalReconcilePage: React.FC = () => {
               onClick={() => setActiveTab('rates_info')}
             >
               ℹ️ เกณฑ์ชดเชย Triferdine & Folic
+            </button>
+            <button
+              className={`tab-btn ${activeTab === 'diag_audit' ? 'active' : ''}`}
+              onClick={() => setActiveTab('diag_audit')}
+            >
+              🔍 ตรวจสอบ Diag ผิด & ยาไม่สัมพันธ์กับโรค
             </button>
           </div>
 
@@ -1042,6 +1194,395 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                     <li><strong>กำไรส่วนต่าง:</strong> <code>80.00 - 6.24 = 73.76 บาท / คอร์ส</code></li>
                   </ul>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: Diagnosis & Indication Audit */}
+          {activeTab === 'diag_audit' && (
+            <div className="diag-audit-container">
+              {/* Educational Notice Banner */}
+              <div className="audit-alert-banner">
+                <div className="audit-alert-icon">💡</div>
+                <div className="audit-alert-content">
+                  <h4>ทำไม รพ.สต. จ่ายยาไปเยอะ แต่ยอดชดเชยไม่ขึ้นหรือได้ 0 บาท?</h4>
+                  <p>
+                    ตามระเบียบ e-Claim / H-Sub ของ สปสช. และกรมการแพทย์แผนไทย <strong>ยาสมุนไพรจำเป็นต้องมีรหัสการวินิจฉัยโรค (ICD-10 หรือ U-Code) ที่สัมพันธ์กับกลุ่มสรรพคุณของยา</strong>
+                    หากระบุรหัสโรคไม่ตรง เช่น <em>จ่ายครีมไพลแต่ลงฟันผุ (K020)</em> หรือ <em>จ่ายขมิ้นชันแต่ลงปวดกล้ามเนื้อ (M791)</em> หรือ <em>ไม่ระบุรหัสโรค (มีแต่รหัสตรวจสุขภาพ Z000)</em>
+                    ทาง สปสช. จะปฏิเสธการจ่ายชดเชยทันที (Denial / Rep 0 บาท) ทำให้ รพ.สต. สูญเสียโอกาสในการได้รับเงินชดเชย
+                  </p>
+                </div>
+              </div>
+
+              {/* KPI Cards for Audit */}
+              {auditData?.summary && (
+                <div className="kpi-cards-grid audit-kpi-grid">
+                  <div className="kpi-card blue">
+                    <div className="kpi-card-header">
+                      <span className="kpi-card-title">จำนวนครั้งจ่ายยาที่ตรวจสอบ</span>
+                      <span className="kpi-card-icon">📋</span>
+                    </div>
+                    <div className="kpi-card-value">
+                      {auditData.summary.total_prescriptions.toLocaleString()} ครั้ง
+                    </div>
+                    <div className="kpi-card-sub">
+                      ช่วง {startDate} ถึง {endDate}
+                    </div>
+                  </div>
+
+                  <div className="kpi-card rose">
+                    <div className="kpi-card-header">
+                      <span className="kpi-card-title">ยาไม่สัมพันธ์กับโรค (Mismatch)</span>
+                      <span className="kpi-card-icon">❌</span>
+                    </div>
+                    <div className="kpi-card-value" style={{ color: '#dc2626' }}>
+                      {auditData.summary.mismatch_cnt.toLocaleString()} ครั้ง
+                    </div>
+                    <div className="kpi-card-sub" style={{ color: '#991b1b' }}>
+                      ระบุรหัสโรคไม่ตรงกลุ่มสรรพคุณ
+                    </div>
+                  </div>
+
+                  <div className="kpi-card amber">
+                    <div className="kpi-card-header">
+                      <span className="kpi-card-title">ขาดรหัสโรค / มีแต่รหัส Z</span>
+                      <span className="kpi-card-icon">⚠️</span>
+                    </div>
+                    <div className="kpi-card-value" style={{ color: '#d97706' }}>
+                      {auditData.summary.missing_cnt.toLocaleString()} ครั้ง
+                    </div>
+                    <div className="kpi-card-sub">
+                      ไม่มี ICD-10 บ่งชี้ความเจ็บป่วย
+                    </div>
+                  </div>
+
+                  <div className="kpi-card purple">
+                    <div className="kpi-card-header">
+                      <span className="kpi-card-title">มูลค่าเงินที่เสี่ยงถูกตัด (ชดเชย 0 บาท)</span>
+                      <span className="kpi-card-icon">💸</span>
+                    </div>
+                    <div className="kpi-card-value" style={{ color: '#9333ea' }}>
+                      {auditData.summary.at_risk_value_baht.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    </div>
+                    <div className="kpi-card-sub">
+                      อัตราข้อผิดพลาดรวม: {auditData.summary.error_rate_pct}%
+                    </div>
+                  </div>
+
+                  <div className="kpi-card green">
+                    <div className="kpi-card-header">
+                      <span className="kpi-card-title">วินิจฉัยถูกต้องตามเกณฑ์</span>
+                      <span className="kpi-card-icon">✅</span>
+                    </div>
+                    <div className="kpi-card-value" style={{ color: '#16a34a' }}>
+                      {auditData.summary.valid_cnt.toLocaleString()} ครั้ง
+                    </div>
+                    <div className="kpi-card-sub" style={{ color: '#15803d' }}>
+                      {(100 - auditData.summary.error_rate_pct).toFixed(1)}% ผ่านเกณฑ์เบิกได้
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* PCU Comparison Breakdown Cards */}
+              {auditData?.summary?.pcu_breakdown && (
+                <div className="audit-pcu-breakdown-section">
+                  <div className="audit-section-header">
+                    <h4>🏢 อัตราข้อผิดพลาดและการสูญเสียชดเชยราย รพ.สต. (คลิกเพื่อกรองข้อมูล)</h4>
+                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                      เลือกคลิกที่การ์ด รพ.สต. เพื่อดูรายการที่ต้องแก้ไขของที่นั่นโดยเฉพาะ
+                    </span>
+                  </div>
+                  <div className="audit-pcu-cards">
+                    {auditData.summary.pcu_breakdown.map((pcu) => {
+                      const isSelected = auditHcode === pcu.pcu_code;
+                      return (
+                        <div
+                          key={pcu.pcu_code}
+                          className={`audit-pcu-card ${isSelected ? 'selected' : ''}`}
+                          onClick={() => {
+                            setAuditHcode(isSelected ? 'all' : pcu.pcu_code);
+                            setAuditPage(1);
+                          }}
+                        >
+                          <div className="audit-pcu-card-top">
+                            <span className="badge-pcu">{pcu.pcu_code}</span>
+                            <span className={`audit-badge-error-rate ${pcu.error_rate_pct > 10 ? 'high' : pcu.error_rate_pct > 5 ? 'med' : 'low'}`}>
+                              ผิด {pcu.error_rate_pct}%
+                            </span>
+                          </div>
+                          <div className="audit-pcu-card-name">{pcu.pcu_name}</div>
+                          <div className="audit-pcu-card-stats">
+                            <div>
+                              <span className="lbl">จ่ายทั้งหมด:</span>
+                              <strong>{pcu.total_prescriptions.toLocaleString()}</strong>
+                            </div>
+                            <div>
+                              <span className="lbl">ผิด/ไม่ตรง:</span>
+                              <strong style={{ color: '#dc2626' }}>{(pcu.mismatch_cnt + pcu.missing_cnt).toLocaleString()}</strong>
+                            </div>
+                            <div>
+                              <span className="lbl">เสี่ยงสูญเงิน:</span>
+                              <strong style={{ color: '#9333ea' }}>{pcu.at_risk_value_baht.toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿</strong>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Controls and Search Toolbar */}
+              <div className="audit-toolbar">
+                <div className="audit-filter-group">
+                  <div className="filter-pill-label">หน่วยบริการ:</div>
+                  <select
+                    className="pcu-select"
+                    value={auditHcode}
+                    onChange={(e) => {
+                      setAuditHcode(e.target.value);
+                      setAuditPage(1);
+                    }}
+                  >
+                    <option value="all">🏥 ทั้งหมด 5 รพ.สต.</option>
+                    {data?.pcus.map((p) => (
+                      <option key={p.pcu_code} value={p.pcu_code}>
+                        {p.pcu_code} - {p.pcu_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="audit-status-tabs">
+                  <button
+                    className={`audit-status-tab ${auditStatusFilter === 'mismatch' ? 'active rose' : ''}`}
+                    onClick={() => { setAuditStatusFilter('mismatch'); setAuditPage(1); }}
+                  >
+                    ❌ ยาไม่ตรงกับโรค ({auditData?.summary.mismatch_cnt || 0})
+                  </button>
+                  <button
+                    className={`audit-status-tab ${auditStatusFilter === 'missing' ? 'active amber' : ''}`}
+                    onClick={() => { setAuditStatusFilter('missing'); setAuditPage(1); }}
+                  >
+                    ⚠️ ขาดรหัสโรค ({auditData?.summary.missing_cnt || 0})
+                  </button>
+                  <button
+                    className={`audit-status-tab ${auditStatusFilter === 'valid' ? 'active green' : ''}`}
+                    onClick={() => { setAuditStatusFilter('valid'); setAuditPage(1); }}
+                  >
+                    ✅ วินิจฉัยถูกต้อง ({auditData?.summary.valid_cnt || 0})
+                  </button>
+                  <button
+                    className={`audit-status-tab ${auditStatusFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => { setAuditStatusFilter('all'); setAuditPage(1); }}
+                  >
+                    📋 ทั้งหมด ({auditData?.summary.total_prescriptions || 0})
+                  </button>
+                </div>
+
+                <div className="audit-search-box">
+                  <input
+                    type="text"
+                    placeholder="🔎 ค้นหา ชื่อผู้ป่วย, HN, VN, ชื่อยา, รหัสโรค..."
+                    value={auditSearch}
+                    onChange={(e) => {
+                      setAuditSearch(e.target.value);
+                      setAuditPage(1);
+                    }}
+                  />
+                  {auditSearch && (
+                    <button className="btn-clear-search" onClick={() => { setAuditSearch(''); setAuditPage(1); }}>
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="audit-actions">
+                  <button
+                    className="btn-herbal btn-export-herbal"
+                    onClick={handleExportAuditExcel}
+                    disabled={exportingAudit || !auditData?.items?.length}
+                    title="ดาวน์โหลดไฟล์ Excel รายการที่ต้องแก้ไขรหัสโรคเพื่อให้ รพ.สต. นำไปปรับปรุง"
+                  >
+                    {exportingAudit ? '⏳ กำลังสร้าง Excel...' : '📥 ส่งออก Excel รายการที่ต้องแก้ไข'}
+                  </button>
+                  <button
+                    className="btn-herbal btn-secondary-herbal"
+                    onClick={() => loadDiagAudit()}
+                    disabled={auditLoading}
+                    title="โหลดข้อมูลใหม่ล่าสุด"
+                  >
+                    {auditLoading ? '🔄 กำลังโหลด...' : '🔄 รีเฟรช'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Audit Results Table */}
+              <div className="pcu-table-card">
+                <div className="pcu-table-card-header">
+                  <h3 className="pcu-table-card-title">
+                    <span>🔍</span> ผลการตรวจสอบการสั่งใช้ยากับรหัสการวินิจฉัยโรค
+                    {auditHcode !== 'all' && (
+                      <span style={{ fontSize: '0.9rem', color: '#2563eb', fontWeight: 600, marginLeft: '0.5rem' }}>
+                        (เฉพาะ {auditData?.summary.pcu_breakdown.find(p => p.pcu_code === auditHcode)?.pcu_name || auditHcode})
+                      </span>
+                    )}
+                  </h3>
+                  <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                    พบทั้งหมด <strong>{auditData?.total.toLocaleString() || 0}</strong> รายการ | หน้า {auditPage} จาก {auditData?.totalPages || 1}
+                  </span>
+                </div>
+
+                {auditLoading ? (
+                  <div className="loading-box" style={{ padding: '3rem' }}>
+                    <div className="spinner" />
+                    <p>กำลังตรวจสอบการวินิจฉัยโรคตามหลักเกณฑ์ สปสช. กรุณารอสักครู่...</p>
+                  </div>
+                ) : auditData && auditData.items.length > 0 ? (
+                  <div className="pcu-table-responsive">
+                    <table className="pcu-table audit-table">
+                      <thead>
+                        <tr>
+                          <th>ว/ด/ป</th>
+                          <th>รพ.สต.</th>
+                          <th>VN / HN</th>
+                          <th>ชื่อ-สกุล ผู้ป่วย</th>
+                          <th>รายการยาที่จ่าย</th>
+                          <th className="text-right">จำนวน</th>
+                          <th className="text-right">มูลค่า (บาท)</th>
+                          <th>รหัสโรคที่บันทึก (PDX)</th>
+                          <th>สถานะ & ปัญหาที่พบ</th>
+                          <th>คำแนะนำรหัส ICD-10 ที่ถูกต้อง</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditData.items.map((item, idx) => (
+                          <tr key={`${item.vn}-${item.drug_name}-${idx}`}>
+                            <td>{item.vstdate}</td>
+                            <td>
+                              <span className="badge-pcu">{item.pcu_code}</span>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{item.pcu_name.replace('รพ.สต.บ้าน', '').replace('รพ.สต.', '')}</div>
+                            </td>
+                            <td>
+                              <code>{item.vn}</code>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>HN: {item.hn}</div>
+                            </td>
+                            <td><strong>{item.patient_name}</strong></td>
+                            <td>
+                              <span className="audit-drug-name">{item.drug_name}</span>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                                กลุ่ม: {item.indication_group}
+                              </div>
+                            </td>
+                            <td className="text-right font-mono">{item.qty}</td>
+                            <td className="text-right font-mono" style={{ fontWeight: 600 }}>
+                              {item.sum_price.toFixed(2)} ฿
+                            </td>
+                            <td>
+                              <div className="audit-diags-list">
+                                {item.all_diags.length > 0 ? (
+                                  item.all_diags.map((d) => (
+                                    <span
+                                      key={d}
+                                      className={`diag-badge ${d === item.pdx ? 'pdx' : ''}`}
+                                      title={d === item.pdx ? 'รหัสโรคหลัก (PDX)' : 'รหัสโรครอง'}
+                                    >
+                                      {d} {d === item.pdx && '★'}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>ไม่มีรหัสโรค</span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              {item.audit_status === 'valid' && (
+                                <span className="badge-status-audit valid">
+                                  ✅ ถูกต้องตามเกณฑ์
+                                </span>
+                              )}
+                              {item.audit_status === 'mismatch' && (
+                                <div>
+                                  <span className="badge-status-audit mismatch">
+                                    ❌ ยาไม่ตรงกับโรค
+                                  </span>
+                                  <div className="audit-reason-text">{item.issue_reason}</div>
+                                </div>
+                              )}
+                              {item.audit_status === 'missing' && (
+                                <div>
+                                  <span className="badge-status-audit missing">
+                                    ⚠️ ขาดรหัสโรค
+                                  </span>
+                                  <div className="audit-reason-text">{item.issue_reason}</div>
+                                </div>
+                              )}
+                            </td>
+                            <td>
+                              {item.recommended_diags.length > 0 ? (
+                                <div className="recommended-diags-box">
+                                  {item.recommended_diags.map((rec) => (
+                                    <span key={rec} className="recommended-chip" title="รหัส ICD-10 ที่กลุ่มยานี้สามารถเบิกชดเชยได้">
+                                      + {rec}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span style={{ color: '#16a34a' }}>ถูกต้องแล้ว</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-box" style={{ padding: '3rem', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🎉</div>
+                    <h4>ไม่พบรายการที่ตรงกับเงื่อนไข</h4>
+                    <p style={{ color: '#64748b' }}>
+                      ไม่มีรายการวินิจฉัยผิด หรือคำค้นหาไม่ตรงกับข้อมูลใดๆ
+                    </p>
+                  </div>
+                )}
+
+                {/* Pagination */}
+                {auditData && auditData.totalPages > 1 && (
+                  <div className="audit-pagination">
+                    <button
+                      className="pagination-btn"
+                      disabled={auditPage <= 1}
+                      onClick={() => setAuditPage(1)}
+                    >
+                      « หน้าแรก
+                    </button>
+                    <button
+                      className="pagination-btn"
+                      disabled={auditPage <= 1}
+                      onClick={() => setAuditPage(p => Math.max(1, p - 1))}
+                    >
+                      ‹ ก่อนหน้า
+                    </button>
+                    <span className="pagination-info">
+                      หน้า <strong>{auditPage}</strong> / {auditData.totalPages} (รวม {auditData.total.toLocaleString()} รายการ)
+                    </span>
+                    <button
+                      className="pagination-btn"
+                      disabled={auditPage >= auditData.totalPages}
+                      onClick={() => setAuditPage(p => Math.min(auditData.totalPages, p + 1))}
+                    >
+                      ถัดไป ›
+                    </button>
+                    <button
+                      className="pagination-btn"
+                      disabled={auditPage >= auditData.totalPages}
+                      onClick={() => setAuditPage(auditData.totalPages)}
+                    >
+                      หน้าสุดท้าย »
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}

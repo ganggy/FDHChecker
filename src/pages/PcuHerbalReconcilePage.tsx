@@ -29,6 +29,11 @@ export interface PcuHerbalSummary {
   hsub_drug_paid?: number;
   hsub_total_paid: number;
   total_reimbursed?: number;
+  ppfs_triferdine_paid?: number;
+  ppfs_folic_paid?: number;
+  ppfs_total_paid?: number;
+  ppfs_url?: string;
+  total_revenue?: number;
   triferdine_reimbursed?: number;
   folic_reimbursed?: number;
   gross_profit: number;
@@ -61,6 +66,10 @@ export interface PcuHerbalResponse {
     hsub_drug_paid?: number;
     hsub_total_paid: number;
     total_reimbursed?: number;
+    ppfs_triferdine_paid?: number;
+    ppfs_folic_paid?: number;
+    ppfs_total_paid?: number;
+    total_revenue?: number;
     gross_profit: number;
     payable_profit: number;
   };

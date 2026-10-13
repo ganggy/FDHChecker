@@ -18,6 +18,11 @@ export interface PcuHerbalSummary {
   hsub_drug_paid?: number;
   total_reimbursed?: number;
   hsub_total_paid: number;
+  ppfs_triferdine_paid?: number;
+  ppfs_folic_paid?: number;
+  ppfs_total_paid?: number;
+  ppfs_url?: string;
+  total_revenue?: number;
   triferdine_reimbursed?: number;
   folic_reimbursed?: number;
   gross_profit: number;
@@ -50,6 +55,10 @@ export interface PcuHerbalResponse {
     hsub_drug_paid?: number;
     total_reimbursed?: number;
     hsub_total_paid: number;
+    ppfs_triferdine_paid?: number;
+    ppfs_folic_paid?: number;
+    ppfs_total_paid?: number;
+    total_revenue?: number;
     gross_profit: number;
     payable_profit: number;
   };
@@ -68,6 +77,10 @@ export interface PcuPayoutRow {
   hsubHcDrug: number;
   hsubOtherDrug: number;
   hsubDrugPaid: number;
+  ppfsTriferdinePaid: number;
+  ppfsFolicPaid: number;
+  ppfsTotalPaid: number;
+  ppfsUrl: string;
   herbalReimbursed: number;
   triferdineReimbursed: number;
   folicReimbursed: number;
@@ -232,13 +245,25 @@ export const PcuPayoutPage: React.FC = () => {
     if (!data?.pcus) return [];
 
     return data.pcus.map((pcu) => {
-      const grossReimbursed = pcu.hsub_total_paid || 0;
+      const ppfsTriferdinePaid = pcu.ppfs_triferdine_paid || 0;
+      const ppfsFolicPaid = pcu.ppfs_folic_paid || 0;
+      const ppfsTotalPaid = pcu.ppfs_total_paid || (ppfsTriferdinePaid + ppfsFolicPaid);
+      const hsubDrugPaid = pcu.hsub_drug_paid || pcu.hsub_total_paid || 0;
+      const ppfsUrl = pcu.ppfs_url || `https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=${pcu.pcu_code}&metric=SUM_PAID`;
+
+      let grossReimbursed = 0;
+      if (selectedCategory === 'herbal') {
+        grossReimbursed = hsubDrugPaid;
+      } else if (selectedCategory === 'iron_folic') {
+        grossReimbursed = ppfsTotalPaid;
+      } else {
+        // all: H-Sub drug reimbursement + PPFS (Triferdine + Folic)
+        grossReimbursed = Math.round((hsubDrugPaid + ppfsTotalPaid) * 100) / 100;
+      }
+
       const herbalReimbursed = pcu.hsub_hc_drug || 0;
       const otherDrugReimbursed = Math.round(((pcu.hsub_ae_drug || 0) + (pcu.hsub_dmis_drug || 0)) * 100) / 100;
-      const hsubDrugPaid = pcu.hsub_drug_paid || grossReimbursed;
       const hsubClaimAmt = pcu.hsub_claim_amt || 0;
-      const triferdineReimbursed = pcu.triferdine_reimbursed || 0;
-      const folicReimbursed = pcu.folic_reimbursed || 0;
 
       // Cost deduction
       let deductedCost = 0;
@@ -280,9 +305,13 @@ export const PcuPayoutPage: React.FC = () => {
         hsubHcDrug: herbalReimbursed,
         hsubOtherDrug: otherDrugReimbursed,
         hsubDrugPaid,
+        ppfsTriferdinePaid,
+        ppfsFolicPaid,
+        ppfsTotalPaid,
+        ppfsUrl,
         herbalReimbursed,
-        triferdineReimbursed,
-        folicReimbursed,
+        triferdineReimbursed: ppfsTriferdinePaid,
+        folicReimbursed: ppfsFolicPaid,
         deductedCost,
         costDeductionLabel,
         grossMargin,
@@ -310,6 +339,10 @@ export const PcuPayoutPage: React.FC = () => {
       dispenseCount: payoutRows.reduce((a, b) => a + b.dispenseCount, 0),
       dispensedQty: payoutRows.reduce((a, b) => a + b.dispensedQty, 0),
       actualCost: Math.round(payoutRows.reduce((a, b) => a + b.actualCost, 0) * 100) / 100,
+      hsubDrugPaid: Math.round(payoutRows.reduce((a, b) => a + b.hsubDrugPaid, 0) * 100) / 100,
+      ppfsTriferdinePaid: Math.round(payoutRows.reduce((a, b) => a + b.ppfsTriferdinePaid, 0) * 100) / 100,
+      ppfsFolicPaid: Math.round(payoutRows.reduce((a, b) => a + b.ppfsFolicPaid, 0) * 100) / 100,
+      ppfsTotalPaid: Math.round(payoutRows.reduce((a, b) => a + b.ppfsTotalPaid, 0) * 100) / 100,
       grossReimbursed: Math.round(payoutRows.reduce((a, b) => a + b.grossReimbursed, 0) * 100) / 100,
       deductedCost: Math.round(payoutRows.reduce((a, b) => a + b.deductedCost, 0) * 100) / 100,
       grossMargin: Math.round(payoutRows.reduce((a, b) => a + b.grossMargin, 0) * 100) / 100,
@@ -325,9 +358,10 @@ export const PcuPayoutPage: React.FC = () => {
       'ลำดับ': idx + 1,
       'รหัส รพ.สต.': row.code,
       'ชื่อหน่วยบริการ': row.name,
-      'จำนวนครั้งจ่าย': row.dispenseCount,
-      'ปริมาณยา (หน่วย)': row.dispensedQty,
-      'ยอดชดเชยรวม (บาท)': row.grossReimbursed,
+      'ชดเชยยา H-Sub (บาท)': row.hsubDrugPaid,
+      'ชดเชย Triferdine PPFS (บาท)': row.ppfsTriferdinePaid,
+      'ชดเชย Folic PPFS (บาท)': row.ppfsFolicPaid,
+      'รวมยอดชดเชยรับเข้า (บาท)': row.grossReimbursed,
       'เกณฑ์หักต้นทุน': row.costDeductionLabel,
       'ต้นทุนที่หัก (บาท)': row.deductedCost,
       'กำไรส่วนต่าง (บาท)': row.grossMargin,
@@ -335,6 +369,7 @@ export const PcuPayoutPage: React.FC = () => {
       'หักเงินสำรอง Diag ผิด (บาท)': row.withheldAmount,
       'ยอดสุทธิพึงสั่งจ่าย รพ.สต. (บาท)': row.netPayable,
       'อัตราจ่ายสุทธิ (%)': `${row.effectiveRate}%`,
+      'ลิงก์ PPFS MIS': row.ppfsUrl,
     }));
 
     // Summary row
@@ -342,9 +377,10 @@ export const PcuPayoutPage: React.FC = () => {
       'ลำดับ': '' as any,
       'รหัส รพ.สต.': 'รวมทั้งหมด',
       'ชื่อหน่วยบริการ': '5 รพ.สต.',
-      'จำนวนครั้งจ่าย': grandTotals.dispenseCount,
-      'ปริมาณยา (หน่วย)': grandTotals.dispensedQty,
-      'ยอดชดเชยรวม (บาท)': grandTotals.grossReimbursed,
+      'ชดเชยยา H-Sub (บาท)': grandTotals.hsubDrugPaid,
+      'ชดเชย Triferdine PPFS (บาท)': grandTotals.ppfsTriferdinePaid,
+      'ชดเชย Folic PPFS (บาท)': grandTotals.ppfsFolicPaid,
+      'รวมยอดชดเชยรับเข้า (บาท)': grandTotals.grossReimbursed,
       'เกณฑ์หักต้นทุน': '-',
       'ต้นทุนที่หัก (บาท)': grandTotals.deductedCost,
       'กำไรส่วนต่าง (บาท)': grandTotals.grossMargin,
@@ -352,7 +388,8 @@ export const PcuPayoutPage: React.FC = () => {
       'หักเงินสำรอง Diag ผิด (บาท)': grandTotals.withheldAmount,
       'ยอดสุทธิพึงสั่งจ่าย รพ.สต. (บาท)': grandTotals.netPayable,
       'อัตราจ่ายสุทธิ (%)': `${grandTotals.grossReimbursed > 0 ? (Math.round((grandTotals.netPayable / grandTotals.grossReimbursed) * 1000) / 10) : 0}%`,
-    });
+      'ลิงก์ PPFS MIS': '-',
+    } as any);
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(sheetData);
@@ -627,15 +664,17 @@ export const PcuPayoutPage: React.FC = () => {
                   <tr>
                     <th>รหัส</th>
                     <th>ชื่อหน่วยบริการ รพ.สต.</th>
-                    <th className="text-right">ครั้งที่จ่าย</th>
-                    <th className="text-right">ยอดชดเชยรวม (1)</th>
+                    <th className="text-right">ชดเชยยา H-Sub</th>
+                    <th className="text-right">Triferdine (PPFS)</th>
+                    <th className="text-right">Folic (PPFS)</th>
+                    <th className="text-right">รวมรับเข้า (1)</th>
                     <th className="text-right">หัก: ต้นทุนยา (2)</th>
                     <th className="text-right">กำไรส่วนต่าง (3)</th>
                     {hospitalAdminFeePercent > 0 && <th className="text-right">หัก: ค่าบริหาร รพ.</th>}
                     {withholdMismatch && <th className="text-right">หัก: Diag ผิด</th>}
                     <th className="text-right highlight-col">ยอดสุทธิที่ต้องจ่าย (4)</th>
                     <th className="text-center">สัดส่วนจ่าย</th>
-                    <th className="text-center">เอกสารสั่งจ่าย</th>
+                    <th className="text-center">เอกสาร & ตรวจสอบ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -650,7 +689,15 @@ export const PcuPayoutPage: React.FC = () => {
                           IP: {row.host} | hospcu{row.code}
                         </div>
                       </td>
-                      <td className="text-right font-mono">{row.dispenseCount.toLocaleString()}</td>
+                      <td className="text-right font-mono" style={{ color: '#0284c7' }}>
+                        {row.hsubDrugPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
+                      <td className="text-right font-mono" style={{ color: '#4338ca' }}>
+                        {row.ppfsTriferdinePaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
+                      <td className="text-right font-mono" style={{ color: '#0891b2' }}>
+                        {row.ppfsFolicPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
                       <td className="text-right font-mono font-bold" style={{ color: '#1e40af' }}>
                         {row.grossReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                       </td>
@@ -678,14 +725,25 @@ export const PcuPayoutPage: React.FC = () => {
                         <span className="badge-rate">{row.effectiveRate}%</span>
                       </td>
                       <td className="text-center">
-                        <button
-                          type="button"
-                          className="btn-voucher-action"
-                          onClick={() => handleOpenVoucher(row.code)}
-                          title="เปิดและพิมพ์ใบสำคัญสั่งจ่ายเงินทางการ"
-                        >
-                          🖨️ พิมพ์ใบสำคัญจ่าย
-                        </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn-voucher-action"
+                            onClick={() => handleOpenVoucher(row.code)}
+                            title="เปิดและพิมพ์ใบสำคัญสั่งจ่ายเงินทางการ"
+                          >
+                            🖨️ ใบสำคัญจ่าย
+                          </button>
+                          <a
+                            href={row.ppfsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: '0.75rem', color: '#2563eb', textDecoration: 'underline' }}
+                            title="เปิดดูข้อมูลชดเชยในระบบ PPFS MIS ของ สปสช. เขต 7"
+                          >
+                            🔗 ดู PPFS MIS
+                          </a>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -693,10 +751,18 @@ export const PcuPayoutPage: React.FC = () => {
                 <tfoot>
                   <tr className="table-total-row">
                     <td colSpan={2}>
-                      <strong>รวมยอดสั่งจ่ายทั้ง 5 รพ.สต.</strong>
+                      <strong>รวมยอดทั้ง 5 รพ.สต.</strong>
                     </td>
-                    <td className="text-right font-mono">{grandTotals.dispenseCount.toLocaleString()}</td>
-                    <td className="text-right font-mono" style={{ color: '#1e40af' }}>
+                    <td className="text-right font-mono" style={{ color: '#0284c7' }}>
+                      {grandTotals.hsubDrugPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    </td>
+                    <td className="text-right font-mono" style={{ color: '#4338ca' }}>
+                      {grandTotals.ppfsTriferdinePaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    </td>
+                    <td className="text-right font-mono" style={{ color: '#0891b2' }}>
+                      {grandTotals.ppfsFolicPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    </td>
+                    <td className="text-right font-mono font-bold" style={{ color: '#1e40af' }}>
                       {grandTotals.grossReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                     </td>
                     <td className="text-right font-mono" style={{ color: '#b45309' }}>
@@ -847,6 +913,38 @@ export const PcuPayoutPage: React.FC = () => {
                       <td className="text-right font-mono font-bold">
                         {(costDeductionMode === 'percent' ? Math.max(0, selectedVoucherRow.hsubOtherDrug * (1 - customCostPercent / 100)) : selectedVoucherRow.hsubOtherDrug).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                       </td>
+                    </tr>
+                  )}
+
+                  {selectedVoucherRow.ppfsTriferdinePaid > 0 && (
+                    <tr>
+                      <td className="text-center">3</td>
+                      <td>
+                        <strong>ค่ายา Triferdine 150 mg (PNC: Postnatal care)</strong>
+                        <div className="voucher-item-sub">
+                          ชดเชยตามระบบกำกับติดตาม PP Fee Schedule สปสช. เขต 7 ขอนแก่น
+                        </div>
+                      </td>
+                      <td className="text-right font-mono">-</td>
+                      <td className="text-right font-mono">{selectedVoucherRow.ppfsTriferdinePaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                      <td className="text-right font-mono text-amber">-</td>
+                      <td className="text-right font-mono font-bold">{selectedVoucherRow.ppfsTriferdinePaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  )}
+
+                  {selectedVoucherRow.ppfsFolicPaid > 0 && (
+                    <tr>
+                      <td className="text-center">4</td>
+                      <td>
+                        <strong>ค่าบริการยาเม็ดเสริมธาตุเหล็กและกรดโฟลิค (Ferrofolic/Folic)</strong>
+                        <div className="voucher-item-sub">
+                          ชดเชยตามระบบกำกับติดตาม PP Fee Schedule สปสช. เขต 7 ขอนแก่น
+                        </div>
+                      </td>
+                      <td className="text-right font-mono">-</td>
+                      <td className="text-right font-mono">{selectedVoucherRow.ppfsFolicPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                      <td className="text-right font-mono text-amber">-</td>
+                      <td className="text-right font-mono font-bold">{selectedVoucherRow.ppfsFolicPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
                     </tr>
                   )}
 

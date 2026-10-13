@@ -611,6 +611,16 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         </div>
         <div className="pcu-herbal-actions">
           <button
+            className="btn-herbal"
+            style={{ background: '#7c3aed', color: '#ffffff' }}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'pcuPayout' } }));
+            }}
+            title="ไปที่หน้าคำนวณและจำลองการสั่งจ่ายเงินให้ รพ.สต. โดยหักต้นทุนคราวๆ"
+          >
+            💳 คำนวณจ่ายเงิน รพ.สต.
+          </button>
+          <button
             className="btn-herbal btn-config-herbal"
             onClick={openConfigModal}
             title="ตั้งค่า Host, IP, Database, Username และ Password ของ รพ.สต. ทั้ง 5 แห่ง"

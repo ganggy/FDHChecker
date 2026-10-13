@@ -65,6 +65,14 @@ export interface PcuHerbalResponse {
   pcus: PcuHerbalSummary[];
 }
 
+export const PPFS_COST_BY_PCU: Record<string, { trifCost: number; folicCost: number; totalCost: number }> = {
+  '05569': { trifCost: 120.00, folicCost: 3594.24, totalCost: 3714.24 },
+  '05570': { trifCost: 120.00, folicCost: 0.00, totalCost: 120.00 },
+  '05571': { trifCost: 1740.00, folicCost: 2433.60, totalCost: 4173.60 },
+  '05572': { trifCost: 1080.00, folicCost: 18308.16, totalCost: 19388.16 },
+  '05573': { trifCost: 4200.00, folicCost: 1666.08, totalCost: 5866.08 },
+};
+
 export interface PcuPayoutRow {
   code: string;
   name: string;
@@ -84,6 +92,10 @@ export interface PcuPayoutRow {
   herbalReimbursed: number;
   triferdineReimbursed: number;
   folicReimbursed: number;
+  ppfsTrifCost: number;
+  ppfsFolicCost: number;
+  ppfsTotalCost: number;
+  herbalCost: number;
   deductedCost: number;
   costDeductionLabel: string;
   grossMargin: number;
@@ -241,6 +253,7 @@ export const PcuPayoutPage: React.FC = () => {
   }, [loadData]);
 
   // Calculate simulated payout table rows
+  // Formula: hsub (1) - ทุน PPFS (2) - ทุนยา HOSxP (3) = ยอดจ่ายคืน รพ.สต. สุทธิ
   const payoutRows: PcuPayoutRow[] = useMemo(() => {
     if (!data?.pcus) return [];
 
@@ -251,34 +264,40 @@ export const PcuPayoutPage: React.FC = () => {
       const hsubDrugPaid = pcu.hsub_drug_paid || pcu.hsub_total_paid || 0;
       const ppfsUrl = pcu.ppfs_url || `https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=${pcu.pcu_code}&metric=SUM_PAID`;
 
-      let grossReimbursed = 0;
-      if (selectedCategory === 'herbal') {
-        grossReimbursed = hsubDrugPaid;
-      } else if (selectedCategory === 'iron_folic') {
-        grossReimbursed = ppfsTotalPaid;
+      // PPFS Cost (Triferdine PNC @ 30 ฿ + Ferrofolic @ 6.24 ฿)
+      const ppfsCost = PPFS_COST_BY_PCU[pcu.pcu_code] || { trifCost: 0, folicCost: 0, totalCost: 0 };
+      const ppfsTrifCost = ppfsCost.trifCost;
+      const ppfsFolicCost = ppfsCost.folicCost;
+      const ppfsTotalCost = ppfsCost.totalCost;
+
+      // Herbal drug cost from HOSxP PCU
+      let herbalCost = 0;
+      let costDeductionLabel = '';
+      if (costDeductionMode === 'actual') {
+        herbalCost = pcu.total_drug_cost || 0;
+        costDeductionLabel = 'ทุนจริง HOSxP + ทุน PPFS';
+      } else if (costDeductionMode === 'percent') {
+        herbalCost = Math.round(hsubDrugPaid * (customCostPercent / 100) * 100) / 100;
+        costDeductionLabel = `เหมาจ่าย ${customCostPercent}% + ทุน PPFS`;
       } else {
-        // all: H-Sub drug reimbursement + PPFS (Triferdine + Folic)
-        grossReimbursed = Math.round((hsubDrugPaid + ppfsTotalPaid) * 100) / 100;
+        herbalCost = 0;
+        costDeductionLabel = 'หักเฉพาะทุน PPFS';
+      }
+
+      // Starting reimbursement (1): H-Sub drug reimbursement
+      let grossReimbursed = hsubDrugPaid;
+      if (selectedCategory === 'iron_folic') {
+        grossReimbursed = ppfsTotalPaid;
       }
 
       const herbalReimbursed = pcu.hsub_hc_drug || 0;
       const otherDrugReimbursed = Math.round(((pcu.hsub_ae_drug || 0) + (pcu.hsub_dmis_drug || 0)) * 100) / 100;
       const hsubClaimAmt = pcu.hsub_claim_amt || 0;
 
-      // Cost deduction
-      let deductedCost = 0;
-      let costDeductionLabel = '';
-      if (costDeductionMode === 'actual') {
-        deductedCost = pcu.total_drug_cost;
-        costDeductionLabel = 'ทุนจริง HOSxP';
-      } else if (costDeductionMode === 'percent') {
-        deductedCost = Math.round(grossReimbursed * (customCostPercent / 100) * 100) / 100;
-        costDeductionLabel = `เหมาจ่าย ${customCostPercent}%`;
-      } else {
-        deductedCost = 0;
-        costDeductionLabel = 'ไม่หักทุน (0%)';
-      }
+      // Total deducted cost: ทุน PPFS (2) + ทุนยา HOSxP (3)
+      const deductedCost = Math.round((ppfsTotalCost + herbalCost) * 100) / 100;
 
+      // Net margin after deducting costs: (1) - (2) - (3)
       const grossMargin = Math.max(0, Math.round((grossReimbursed - deductedCost) * 100) / 100);
 
       // Hospital admin fee
@@ -288,7 +307,7 @@ export const PcuPayoutPage: React.FC = () => {
       const mismatchAtRisk = auditBreakdown[pcu.pcu_code] || 0;
       const withheldAmount = withholdMismatch ? mismatchAtRisk : 0;
 
-      // Net payable
+      // Net payable: hsub - ทุน PPFS - ทุนยา
       const basePayable = Math.round(grossMargin * (pcuProfitSharePercent / 100) * 100) / 100;
       const netPayable = Math.max(0, Math.round((basePayable - adminFeeDeducted - withheldAmount) * 100) / 100);
       const effectiveRate = grossReimbursed > 0 ? Math.round((netPayable / grossReimbursed) * 1000) / 10 : 0;
@@ -312,6 +331,10 @@ export const PcuPayoutPage: React.FC = () => {
         herbalReimbursed,
         triferdineReimbursed: ppfsTriferdinePaid,
         folicReimbursed: ppfsFolicPaid,
+        ppfsTrifCost,
+        ppfsFolicCost,
+        ppfsTotalCost,
+        herbalCost,
         deductedCost,
         costDeductionLabel,
         grossMargin,
@@ -343,6 +366,10 @@ export const PcuPayoutPage: React.FC = () => {
       ppfsTriferdinePaid: Math.round(payoutRows.reduce((a, b) => a + b.ppfsTriferdinePaid, 0) * 100) / 100,
       ppfsFolicPaid: Math.round(payoutRows.reduce((a, b) => a + b.ppfsFolicPaid, 0) * 100) / 100,
       ppfsTotalPaid: Math.round(payoutRows.reduce((a, b) => a + b.ppfsTotalPaid, 0) * 100) / 100,
+      ppfsTrifCost: Math.round(payoutRows.reduce((a, b) => a + b.ppfsTrifCost, 0) * 100) / 100,
+      ppfsFolicCost: Math.round(payoutRows.reduce((a, b) => a + b.ppfsFolicCost, 0) * 100) / 100,
+      ppfsTotalCost: Math.round(payoutRows.reduce((a, b) => a + b.ppfsTotalCost, 0) * 100) / 100,
+      herbalCost: Math.round(payoutRows.reduce((a, b) => a + b.herbalCost, 0) * 100) / 100,
       grossReimbursed: Math.round(payoutRows.reduce((a, b) => a + b.grossReimbursed, 0) * 100) / 100,
       deductedCost: Math.round(payoutRows.reduce((a, b) => a + b.deductedCost, 0) * 100) / 100,
       grossMargin: Math.round(payoutRows.reduce((a, b) => a + b.grossMargin, 0) * 100) / 100,
@@ -358,17 +385,17 @@ export const PcuPayoutPage: React.FC = () => {
       'ลำดับ': idx + 1,
       'รหัส รพ.สต.': row.code,
       'ชื่อหน่วยบริการ': row.name,
-      'ชดเชยยา H-Sub (บาท)': row.hsubDrugPaid,
-      'ชดเชย Triferdine PPFS (บาท)': row.ppfsTriferdinePaid,
-      'ชดเชย Folic PPFS (บาท)': row.ppfsFolicPaid,
-      'รวมยอดชดเชยรับเข้า (บาท)': row.grossReimbursed,
-      'เกณฑ์หักต้นทุน': row.costDeductionLabel,
-      'ต้นทุนที่หัก (บาท)': row.deductedCost,
-      'กำไรส่วนต่าง (บาท)': row.grossMargin,
+      'ชดเชยยา H-Sub (1) (บาท)': row.hsubDrugPaid,
+      'ทุน Triferdine (2.1) (บาท)': row.ppfsTrifCost,
+      'ทุน Folic (2.2) (บาท)': row.ppfsFolicCost,
+      'รวมทุน PPFS (2) (บาท)': row.ppfsTotalCost,
+      'ทุนยาสมุนไพร HOSxP (3) (บาท)': row.herbalCost,
+      'รวมต้นทุนที่หัก (2+3) (บาท)': row.deductedCost,
       'หักค่าบริหาร รพ.แม่ข่าย (บาท)': row.adminFeeDeducted,
       'หักเงินสำรอง Diag ผิด (บาท)': row.withheldAmount,
-      'ยอดสุทธิพึงสั่งจ่าย รพ.สต. (บาท)': row.netPayable,
+      'ยอดสุทธิพึงสั่งจ่าย รพ.สต. (1-2-3) (บาท)': row.netPayable,
       'อัตราจ่ายสุทธิ (%)': `${row.effectiveRate}%`,
+      'ชดเชย PPFS อ้างอิง (บาท)': row.ppfsTotalPaid,
       'ลิงก์ PPFS MIS': row.ppfsUrl,
     }));
 
@@ -377,17 +404,17 @@ export const PcuPayoutPage: React.FC = () => {
       'ลำดับ': '' as any,
       'รหัส รพ.สต.': 'รวมทั้งหมด',
       'ชื่อหน่วยบริการ': '5 รพ.สต.',
-      'ชดเชยยา H-Sub (บาท)': grandTotals.hsubDrugPaid,
-      'ชดเชย Triferdine PPFS (บาท)': grandTotals.ppfsTriferdinePaid,
-      'ชดเชย Folic PPFS (บาท)': grandTotals.ppfsFolicPaid,
-      'รวมยอดชดเชยรับเข้า (บาท)': grandTotals.grossReimbursed,
-      'เกณฑ์หักต้นทุน': '-',
-      'ต้นทุนที่หัก (บาท)': grandTotals.deductedCost,
-      'กำไรส่วนต่าง (บาท)': grandTotals.grossMargin,
+      'ชดเชยยา H-Sub (1) (บาท)': grandTotals.hsubDrugPaid,
+      'ทุน Triferdine (2.1) (บาท)': grandTotals.ppfsTrifCost,
+      'ทุน Folic (2.2) (บาท)': grandTotals.ppfsFolicCost,
+      'รวมทุน PPFS (2) (บาท)': grandTotals.ppfsTotalCost,
+      'ทุนยาสมุนไพร HOSxP (3) (บาท)': grandTotals.herbalCost,
+      'รวมต้นทุนที่หัก (2+3) (บาท)': grandTotals.deductedCost,
       'หักค่าบริหาร รพ.แม่ข่าย (บาท)': grandTotals.adminFeeDeducted,
       'หักเงินสำรอง Diag ผิด (บาท)': grandTotals.withheldAmount,
-      'ยอดสุทธิพึงสั่งจ่าย รพ.สต. (บาท)': grandTotals.netPayable,
+      'ยอดสุทธิพึงสั่งจ่าย รพ.สต. (1-2-3) (บาท)': grandTotals.netPayable,
       'อัตราจ่ายสุทธิ (%)': `${grandTotals.grossReimbursed > 0 ? (Math.round((grandTotals.netPayable / grandTotals.grossReimbursed) * 1000) / 10) : 0}%`,
+      'ชดเชย PPFS อ้างอิง (บาท)': grandTotals.ppfsTotalPaid,
       'ลิงก์ PPFS MIS': '-',
     } as any);
 
@@ -498,17 +525,17 @@ export const PcuPayoutPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Box 2: 5 PCUs PPFS */}
+          {/* Box 2: 5 PCUs H-Sub Base */}
           <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.85rem 1rem' }}>
             <div style={{ fontWeight: 700, color: '#1e40af', fontSize: '0.9rem', marginBottom: '0.35rem' }}>
-              ผลงานชดเชยส่วน 5 รพ.สต. ลูกข่าย (05569 - 05573)
+              ยอดตั้งต้นชดเชยค่ายา H-Sub 5 รพ.สต. (1)
             </div>
             <div style={{ fontSize: '0.825rem', color: '#1e3a8a', lineHeight: 1.6 }}>
-              <div>• ชดเชยยา H-Sub (Home Care+AE): <strong>฿922,152.70</strong> (Statement สปสช.)</div>
-              <div>• PPFS Triferdine: 242 ครั้ง | <strong>฿26,190.00</strong> (ทุน ~7,260 ฿ | กำไร +18,930 ฿)</div>
-              <div>• PPFS Folic: 4,167 ครั้ง | <strong>฿290,080.00</strong> (ทุน ~26,002 ฿ | กำไร +264,078 ฿)</div>
+              <div>• ชดเชยยา H-Sub (Home Care+AE): <strong>฿922,152.70</strong></div>
+              <div>• ชดเชย H-Sub รวมทุกหมวด: <strong>฿931,906.70</strong></div>
+              <div style={{ color: '#475569', fontSize: '0.78rem' }}>• PPFS ชดเชยอ้างอิง: ฿316,270.00 (Trif 26,190 + Folic 290,080)</div>
               <div style={{ borderTop: '1px dashed #93c5fd', marginTop: '0.3rem', paddingTop: '0.3rem', fontWeight: 700 }}>
-                รวมรับเข้า 5 รพ.สต.: <span style={{ color: '#1d4ed8' }}>฿1,238,422.70</span>
+                ยอดตั้งต้น H-Sub ค่ายา: <span style={{ color: '#1d4ed8' }}>฿922,152.70</span>
               </div>
             </div>
           </div>
@@ -516,17 +543,32 @@ export const PcuPayoutPage: React.FC = () => {
           {/* Box 3: Cost Deductions */}
           <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: '8px', padding: '0.85rem 1rem' }}>
             <div style={{ fontWeight: 700, color: '#92400e', fontSize: '0.9rem', marginBottom: '0.35rem' }}>
-              การหักต้นทุนยาออกจากเงินชดเชยรับเข้า
+              ต้นทุนยาที่ต้องนำมาหัก (2 + 3)
             </div>
             <div style={{ fontSize: '0.825rem', color: '#78350f', lineHeight: 1.6 }}>
-              <div>• ต้นทุน Folic (0.12 ฿/เม็ด x 52): <strong>6.24 ฿/คอร์ส</strong> (หักรวม 26,002.08 ฿)</div>
-              <div>• ต้นทุน Triferdine 150 mg: <strong>~30.00 ฿/แผง</strong> (หักรวม 7,260.00 ฿)</div>
-              <div>• กำไรส่วนต่างจาก PPFS รวม 5 รพ.สต.: <strong style={{ color: '#16a34a' }}>+283,007.92 ฿</strong></div>
+              <div>• ทุน PPFS Triferdine (2.1): <strong>7,260.00 ฿</strong> (242 ครั้ง @ 30 ฿)</div>
+              <div>• ทุน PPFS Ferrofolic (2.2): <strong>26,002.08 ฿</strong> (4,167 ครั้ง @ 6.24 ฿)</div>
+              <div>• รวมต้นทุน PPFS (2): <strong style={{ color: '#b45309' }}>-33,262.08 ฿</strong></div>
               <div style={{ borderTop: '1px dashed #fde68a', marginTop: '0.3rem', paddingTop: '0.3rem', fontWeight: 700 }}>
-                เกณฑ์คำนวณ: <span style={{ color: '#b45309' }}>เลือกหักทุนจริง HOSxP หรือเหมาจ่าย % ด้านล่าง</span>
+                • ทุนยาสมุนไพร HOSxP (3): <span style={{ color: '#c2410c' }}>ดึงจากคลังยา รพ.สต. แต่ละแห่ง</span>
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Formula Banner */}
+        <div style={{ background: '#ecfdf5', border: '1.5px solid #10b981', borderRadius: '8px', padding: '0.85rem 1.25rem', marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div>
+            <div style={{ fontWeight: 700, color: '#065f46', fontSize: '0.95rem' }}>
+              💡 สูตรคำนวณจ่ายเงิน: <span style={{ fontFamily: 'monospace', background: '#d1fae5', padding: '3px 8px', borderRadius: '4px', color: '#047857' }}>ชดเชยยา H-Sub (1) - ทุน PPFS (2) - ทุนยา HOSxP (3) = ยอดจ่ายคืน รพ.สต. สุทธิ</span>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: '#047857', marginTop: '0.2rem' }}>
+              ยอดชดเชยตั้งต้นจาก Statement H-Sub หักต้นทุนยา PPFS (33,262.08 ฿) และหักต้นทุนยาจาก HOSxP PCU
+            </div>
+          </div>
+          <span style={{ background: '#059669', color: '#fff', padding: '0.3rem 0.65rem', borderRadius: '4px', fontSize: '0.775rem', fontWeight: 600 }}>
+            รพ. 11101 แม่ข่าย แยกส่วน (ชดเชย PPFS 48,035 ฿)
+          </span>
         </div>
       </div>
 
@@ -680,41 +722,39 @@ export const PcuPayoutPage: React.FC = () => {
           {/* Grand Totals KPI Cards */}
           <div className="payout-kpi-grid">
             <div className="payout-kpi-card blue">
-              <div className="kpi-title">รวมยอดค่ายาชดเชย (ตาม H-Sub)</div>
-              <div className="kpi-value">{grandTotals.grossReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
+              <div className="kpi-title">ชดเชยยา H-Sub (1) [ตั้งต้น]</div>
+              <div className="kpi-value">{grandTotals.hsubDrugPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
               <div className="kpi-sub">
-                ข้อมูลนำเข้าจาก Statement สปสช. (จ่ายยา {grandTotals.dispenseCount.toLocaleString()} ครั้ง)
+                Home Care + AE Statement สปสช. ({grandTotals.dispenseCount.toLocaleString()} ครั้ง)
               </div>
             </div>
 
             <div className="payout-kpi-card amber">
-              <div className="kpi-title">หัก: ต้นทุนค่ายา ({costDeductionMode === 'actual' ? 'ทุนจริง' : costDeductionMode === 'percent' ? `เหมาจ่าย ${customCostPercent}%` : '0%'})</div>
-              <div className="kpi-value text-amber">-{grandTotals.deductedCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
+              <div className="kpi-title">หัก: รวมทุน PPFS (2)</div>
+              <div className="kpi-value text-amber">-{grandTotals.ppfsTotalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
               <div className="kpi-sub">
-                {costDeductionMode === 'actual' ? `ต้นทุนมาตรฐาน HOSxP` : `คำนวณหัก ${customCostPercent}% ของยอดชดเชย`}
+                Trif: -{grandTotals.ppfsTrifCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿ | Folic: -{grandTotals.ppfsFolicCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+              </div>
+            </div>
+
+            <div className="payout-kpi-card rose">
+              <div className="kpi-title">หัก: ทุนยา HOSxP (3)</div>
+              <div className="kpi-value text-red">-{grandTotals.herbalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
+              <div className="kpi-sub">
+                {costDeductionMode === 'actual' ? 'ต้นทุนจริงคลังยา HOSxP PCU' : costDeductionMode === 'percent' ? `เหมาจ่าย ${customCostPercent}%` : 'ไม่หัก'}
               </div>
             </div>
 
             <div className="payout-kpi-card purple">
-              <div className="kpi-title">กำไรส่วนต่างรวม (Gross Margin)</div>
-              <div className="kpi-value text-purple">{grandTotals.grossMargin.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
+              <div className="kpi-title">รวมต้นทุนที่หัก (2 + 3)</div>
+              <div className="kpi-value text-purple">-{grandTotals.deductedCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
               <div className="kpi-sub">
-                กำไรขั้นต้นก่อนหักค่าบริหาร
+                ทุน PPFS + ทุนยา HOSxP
               </div>
             </div>
 
-            {withholdMismatch && (
-              <div className="payout-kpi-card rose">
-                <div className="kpi-title">หัก: สำรองเคส Diag ผิด (Withheld)</div>
-                <div className="kpi-value text-red">-{grandTotals.withheldAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
-                <div className="kpi-sub">
-                  กันเงินไว้รอ รพ.สต. ปรับปรุงรหัสโรค
-                </div>
-              </div>
-            )}
-
             <div className="payout-kpi-card emerald highlight">
-              <div className="kpi-title">💵 ยอดสุทธิสั่งจ่าย 5 รพ.สต. (Net Payable)</div>
+              <div className="kpi-title">💵 ยอดสุทธิสั่งจ่าย 5 รพ.สต. (1 - 2 - 3)</div>
               <div className="kpi-value text-emerald">{grandTotals.netPayable.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
               <div className="kpi-sub">
                 {thaiBahtText(grandTotals.netPayable)}
@@ -726,7 +766,7 @@ export const PcuPayoutPage: React.FC = () => {
           <div className="payout-table-card">
             <div className="payout-table-card-header">
               <div className="table-title">
-                <span>🏢</span> ตารางสรุปยอดจัดสรรและสั่งจ่ายเงินราย รพ.สต.
+                <span>🏢</span> ตารางสรุปยอดจัดสรรและสั่งจ่ายเงินราย รพ.สต. (สูตร: H-Sub - ทุน PPFS - ทุนยา)
               </div>
               <div className="table-subtitle">
                 คลิกปุ่ม <strong>"🖨️ พิมพ์ใบสำคัญจ่าย"</strong> ของแต่ละแห่ง เพื่อเปิดเอกสารสำหรับผู้บริหารลงนาม
@@ -739,16 +779,18 @@ export const PcuPayoutPage: React.FC = () => {
                   <tr>
                     <th>รหัส</th>
                     <th>ชื่อหน่วยบริการ รพ.สต.</th>
-                    <th className="text-right">ชดเชยยา H-Sub</th>
-                    <th className="text-right">Triferdine (PPFS)</th>
-                    <th className="text-right">Folic (PPFS)</th>
-                    <th className="text-right">รวมรับเข้า (1)</th>
-                    <th className="text-right">หัก: ต้นทุนยา (2)</th>
-                    <th className="text-right">กำไรส่วนต่าง (3)</th>
-                    {hospitalAdminFeePercent > 0 && <th className="text-right">หัก: ค่าบริหาร รพ.</th>}
-                    {withholdMismatch && <th className="text-right">หัก: Diag ผิด</th>}
-                    <th className="text-right highlight-col">ยอดสุทธิที่ต้องจ่าย (4)</th>
-                    <th className="text-center">สัดส่วนจ่าย</th>
+                    <th className="text-right">ชดเชยยา H-Sub (1)</th>
+                    <th className="text-right">ทุน Triferdine (2.1)</th>
+                    <th className="text-right">ทุน Folic (2.2)</th>
+                    <th className="text-right" style={{ background: '#fef3c7', color: '#92400e' }}>รวมทุน PPFS (2)</th>
+                    <th className="text-right" style={{ background: '#ffedd5', color: '#9a3412' }}>ทุนยา HOSxP (3)</th>
+                    <th className="text-right" style={{ background: '#fee2e2', color: '#991b1b' }}>รวมทุนที่หัก (2+3)</th>
+                    {hospitalAdminFeePercent > 0 && <th className="text-right">หัก ค่าบริหาร รพ.</th>}
+                    {withholdMismatch && <th className="text-right">หัก Diag ผิด</th>}
+                    <th className="text-right highlight-col" style={{ background: '#ecfdf5', color: '#047857', fontWeight: 700 }}>
+                      ยอดจ่ายคืน รพ.สต. สุทธิ (1 - 2 - 3)
+                    </th>
+                    <th className="text-right" style={{ background: '#f8fafc', color: '#64748b' }}>ชดเชย PPFS (อ้างอิง)</th>
                     <th className="text-center">เอกสาร & ตรวจสอบ</th>
                   </tr>
                 </thead>
@@ -764,24 +806,27 @@ export const PcuPayoutPage: React.FC = () => {
                           IP: {row.host} | hospcu{row.code}
                         </div>
                       </td>
-                      <td className="text-right font-mono" style={{ color: '#0284c7' }}>
+                      <td className="text-right font-mono font-bold" style={{ color: '#0284c7' }}>
                         {row.hsubDrugPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                      </td>
-                      <td className="text-right font-mono" style={{ color: '#4338ca' }}>
-                        {row.ppfsTriferdinePaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                      </td>
-                      <td className="text-right font-mono" style={{ color: '#0891b2' }}>
-                        {row.ppfsFolicPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                      </td>
-                      <td className="text-right font-mono font-bold" style={{ color: '#1e40af' }}>
-                        {row.grossReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                          HC: {row.hsubHcDrug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </div>
                       </td>
                       <td className="text-right font-mono" style={{ color: '#b45309' }}>
-                        -{row.deductedCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{row.costDeductionLabel}</div>
+                        -{row.ppfsTrifCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                       </td>
-                      <td className="text-right font-mono" style={{ color: '#6b21a8' }}>
-                        {row.grossMargin.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      <td className="text-right font-mono" style={{ color: '#b45309' }}>
+                        -{row.ppfsFolicCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
+                      <td className="text-right font-mono font-bold" style={{ color: '#b45309', background: '#fffbeb' }}>
+                        -{row.ppfsTotalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
+                      <td className="text-right font-mono" style={{ color: '#c2410c', background: '#fff7ed' }}>
+                        -{row.herbalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      </td>
+                      <td className="text-right font-mono font-bold" style={{ color: '#dc2626', background: '#fef2f2' }}>
+                        -{row.deductedCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>{row.costDeductionLabel}</div>
                       </td>
                       {hospitalAdminFeePercent > 0 && (
                         <td className="text-right font-mono" style={{ color: '#991b1b' }}>
@@ -793,11 +838,12 @@ export const PcuPayoutPage: React.FC = () => {
                           {row.withheldAmount > 0 ? `-${row.withheldAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿` : '-'}
                         </td>
                       )}
-                      <td className="text-right font-mono font-bold highlight-col" style={{ color: '#047857', fontSize: '1.05rem' }}>
+                      <td className="text-right font-mono font-bold highlight-col" style={{ color: '#047857', fontSize: '1.05rem', background: '#ecfdf5' }}>
                         {row.netPayable.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                       </td>
-                      <td className="text-center">
-                        <span className="badge-rate">{row.effectiveRate}%</span>
+                      <td className="text-right font-mono" style={{ color: '#64748b', fontSize: '0.85rem' }}>
+                        {row.ppfsTotalPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>Trif: {row.ppfsTriferdinePaid.toLocaleString()} | Folic: {row.ppfsFolicPaid.toLocaleString()}</div>
                       </td>
                       <td className="text-center">
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', alignItems: 'center' }}>
@@ -828,23 +874,23 @@ export const PcuPayoutPage: React.FC = () => {
                     <td colSpan={2}>
                       <strong>รวมยอดทั้ง 5 รพ.สต.</strong>
                     </td>
-                    <td className="text-right font-mono" style={{ color: '#0284c7' }}>
+                    <td className="text-right font-mono font-bold" style={{ color: '#0284c7' }}>
                       {grandTotals.hsubDrugPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                     </td>
-                    <td className="text-right font-mono" style={{ color: '#4338ca' }}>
-                      {grandTotals.ppfsTriferdinePaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                    </td>
-                    <td className="text-right font-mono" style={{ color: '#0891b2' }}>
-                      {grandTotals.ppfsFolicPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                    </td>
-                    <td className="text-right font-mono font-bold" style={{ color: '#1e40af' }}>
-                      {grandTotals.grossReimbursed.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    <td className="text-right font-mono" style={{ color: '#b45309' }}>
+                      -{grandTotals.ppfsTrifCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                     </td>
                     <td className="text-right font-mono" style={{ color: '#b45309' }}>
-                      -{grandTotals.deductedCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                      -{grandTotals.ppfsFolicCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                     </td>
-                    <td className="text-right font-mono" style={{ color: '#6b21a8' }}>
-                      {grandTotals.grossMargin.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    <td className="text-right font-mono font-bold" style={{ color: '#b45309', background: '#fef3c7' }}>
+                      -{grandTotals.ppfsTotalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    </td>
+                    <td className="text-right font-mono" style={{ color: '#c2410c', background: '#ffedd5' }}>
+                      -{grandTotals.herbalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    </td>
+                    <td className="text-right font-mono font-bold" style={{ color: '#dc2626', background: '#fee2e2' }}>
+                      -{grandTotals.deductedCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                     </td>
                     {hospitalAdminFeePercent > 0 && (
                       <td className="text-right font-mono" style={{ color: '#991b1b' }}>
@@ -856,10 +902,13 @@ export const PcuPayoutPage: React.FC = () => {
                         -{grandTotals.withheldAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                       </td>
                     )}
-                    <td className="text-right font-mono highlight-col" style={{ color: '#047857', fontSize: '1.15rem' }}>
+                    <td className="text-right font-mono font-bold highlight-col" style={{ color: '#047857', fontSize: '1.15rem', background: '#ecfdf5' }}>
                       {grandTotals.netPayable.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                     </td>
-                    <td colSpan={2} className="text-center" style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                    <td className="text-right font-mono" style={{ color: '#64748b' }}>
+                      {grandTotals.ppfsTotalPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                    </td>
+                    <td className="text-center" style={{ fontSize: '0.8rem', color: '#64748b' }}>
                       {thaiBahtText(grandTotals.netPayable)}
                     </td>
                   </tr>
@@ -956,76 +1005,70 @@ export const PcuPayoutPage: React.FC = () => {
                   <tr>
                     <td className="text-center">1</td>
                     <td>
-                      <strong>เวชภัณฑ์ยาสมุนไพร (สปสช. H-Sub: hc_drug)</strong>
+                      <strong>ยอดชดเชยเวชภัณฑ์ยาตาม Statement สปสช. H-Sub (1)</strong>
                       <div className="voucher-item-sub">
-                        ชดเชยค่ายาสมุนไพรตามข้อมูลนำเข้า Statement สปสช. H-Sub
+                        ชดเชยค่ายา Home Care + AE ตามข้อมูลนำเข้า Statement สปสช.
                       </div>
                     </td>
                     <td className="text-right font-mono">{selectedVoucherRow.dispenseCount.toLocaleString()}</td>
-                    <td className="text-right font-mono">{selectedVoucherRow.hsubHcDrug.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                    <td className="text-right font-mono text-amber">
-                      {costDeductionMode === 'actual' ? `-${selectedVoucherRow.deductedCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : costDeductionMode === 'percent' ? `-${(Math.round(selectedVoucherRow.hsubHcDrug * (customCostPercent / 100) * 100) / 100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '0.00'}
-                    </td>
+                    <td className="text-right font-mono">{selectedVoucherRow.hsubDrugPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                    <td className="text-right font-mono text-amber">-</td>
                     <td className="text-right font-mono font-bold">
-                      {(costDeductionMode === 'actual' ? Math.max(0, selectedVoucherRow.hsubHcDrug - selectedVoucherRow.deductedCost) : costDeductionMode === 'percent' ? Math.max(0, selectedVoucherRow.hsubHcDrug * (1 - customCostPercent / 100)) : selectedVoucherRow.hsubHcDrug).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                      {selectedVoucherRow.hsubDrugPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                     </td>
                   </tr>
 
-                  {selectedVoucherRow.hsubOtherDrug > 0 && (
+                  {selectedVoucherRow.ppfsTrifCost > 0 && (
                     <tr>
                       <td className="text-center">2</td>
                       <td>
-                        <strong>เวชภัณฑ์ยาอื่นๆ ที่ชดเชย (สปสช. H-Sub: ae_drug + dmis_drug)</strong>
+                        <strong>หัก: ต้นทุนยา Triferdine 150 mg PPFS (2.1)</strong>
                         <div className="voucher-item-sub">
-                          ชดเชยค่ายาเพิ่มเติมตามข้อมูลนำเข้า Statement สปสช. H-Sub
+                          ต้นทุนเวชภัณฑ์คอร์สละ 30.00 บาท ตามผลงาน PPFS MIS เขต 7
                         </div>
                       </td>
                       <td className="text-right font-mono">-</td>
-                      <td className="text-right font-mono">{selectedVoucherRow.hsubOtherDrug.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                      <td className="text-right font-mono text-amber">
-                        {costDeductionMode === 'percent' ? `-${(Math.round(selectedVoucherRow.hsubOtherDrug * (customCostPercent / 100) * 100) / 100).toLocaleString('th-TH', { minimumFractionDigits: 2 })}` : '0.00'}
-                      </td>
-                      <td className="text-right font-mono font-bold">
-                        {(costDeductionMode === 'percent' ? Math.max(0, selectedVoucherRow.hsubOtherDrug * (1 - customCostPercent / 100)) : selectedVoucherRow.hsubOtherDrug).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                      </td>
+                      <td className="text-right font-mono">-</td>
+                      <td className="text-right font-mono text-amber">-{selectedVoucherRow.ppfsTrifCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                      <td className="text-right font-mono font-bold text-red">-{selectedVoucherRow.ppfsTrifCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
                     </tr>
                   )}
 
-                  {selectedVoucherRow.ppfsTriferdinePaid > 0 && (
+                  {selectedVoucherRow.ppfsFolicCost > 0 && (
                     <tr>
                       <td className="text-center">3</td>
                       <td>
-                        <strong>ค่ายา Triferdine 150 mg (PNC: Postnatal care)</strong>
+                        <strong>หัก: ต้นทุนยาเม็ด Ferrofolic / Folic Acid PPFS (2.2)</strong>
                         <div className="voucher-item-sub">
-                          ชดเชยตามระบบกำกับติดตาม PP Fee Schedule สปสช. เขต 7 ขอนแก่น
+                          ต้นทุนเวชภัณฑ์คอร์สละ 6.24 บาท (52 เม็ด @ 0.12 บาท) ตามผลงาน PPFS MIS เขต 7
                         </div>
                       </td>
                       <td className="text-right font-mono">-</td>
-                      <td className="text-right font-mono">{selectedVoucherRow.ppfsTriferdinePaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                      <td className="text-right font-mono text-amber">-</td>
-                      <td className="text-right font-mono font-bold">{selectedVoucherRow.ppfsTriferdinePaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                      <td className="text-right font-mono">-</td>
+                      <td className="text-right font-mono text-amber">-{selectedVoucherRow.ppfsFolicCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                      <td className="text-right font-mono font-bold text-red">-{selectedVoucherRow.ppfsFolicCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
                     </tr>
                   )}
 
-                  {selectedVoucherRow.ppfsFolicPaid > 0 && (
+                  {selectedVoucherRow.herbalCost > 0 && (
                     <tr>
                       <td className="text-center">4</td>
                       <td>
-                        <strong>ค่าบริการยาเม็ดเสริมธาตุเหล็กและกรดโฟลิค (Ferrofolic/Folic)</strong>
+                        <strong>หัก: ต้นทุนเวชภัณฑ์ยาสมุนไพรในคลังยา HOSxP PCU (3)</strong>
                         <div className="voucher-item-sub">
-                          ชดเชยตามระบบกำกับติดตาม PP Fee Schedule สปสช. เขต 7 ขอนแก่น
+                          {selectedVoucherRow.costDeductionLabel}
                         </div>
                       </td>
                       <td className="text-right font-mono">-</td>
-                      <td className="text-right font-mono">{selectedVoucherRow.ppfsFolicPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
-                      <td className="text-right font-mono text-amber">-</td>
-                      <td className="text-right font-mono font-bold">{selectedVoucherRow.ppfsFolicPaid.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                      <td className="text-right font-mono">-</td>
+                      <td className="text-right font-mono text-amber">-{selectedVoucherRow.herbalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
+                      <td className="text-right font-mono font-bold text-red">-{selectedVoucherRow.herbalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</td>
                     </tr>
                   )}
 
                   {selectedVoucherRow.adminFeeDeducted > 0 && (
                     <tr style={{ background: '#fef2f2' }}>
-                      <td className="text-center">4</td>
+                      <td className="text-center">5</td>
                       <td>
                         <strong>หัก: ค่าบริหารจัดการเครือข่าย รพ.แม่ข่าย ({hospitalAdminFeePercent}%)</strong>
                       </td>
@@ -1038,7 +1081,7 @@ export const PcuPayoutPage: React.FC = () => {
 
                   {selectedVoucherRow.withheldAmount > 0 && (
                     <tr style={{ background: '#fff1f2' }}>
-                      <td className="text-center">5</td>
+                      <td className="text-center">6</td>
                       <td>
                         <strong>หัก: เงินสำรองกรณีตรวจพบ Diag ไม่ตรงข้อบ่งใช้ยา (รอ รพ.สต. แก้ไข)</strong>
                         <div className="voucher-item-sub" style={{ color: '#be123c' }}>

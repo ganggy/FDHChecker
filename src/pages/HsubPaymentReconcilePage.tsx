@@ -192,6 +192,7 @@ export const HsubPaymentReconcilePage: React.FC = () => {
   const [txPage, setTxPage] = useState<number>(1);
   const [txLimit] = useState<number>(50);
   const [txLoading, setTxLoading] = useState<boolean>(false);
+  const [pcuHerbalCosts, setPcuHerbalCosts] = useState<Record<string, number>>({});
 
   // Load summary
   const loadSummary = useCallback(async () => {
@@ -208,6 +209,21 @@ export const HsubPaymentReconcilePage: React.FC = () => {
         throw new Error(json.error || 'ไม่สามารถโหลดข้อมูลสรุปพึงจ่าย รพ.สต. ได้');
       }
       setSummary(json.data);
+
+      // Fetch herbal costs from HOSxP PCU
+      try {
+        const resHerbal = await fetch('/api/pcu-herbal/summary');
+        const jsonHerbal = await resHerbal.json();
+        if (jsonHerbal.success && jsonHerbal.data?.pcus) {
+          const costMap: Record<string, number> = {};
+          for (const p of jsonHerbal.data.pcus) {
+            costMap[p.pcu_code] = p.total_drug_cost || 0;
+          }
+          setPcuHerbalCosts(costMap);
+        }
+      } catch (err) {
+        console.warn('Herbal cost summary skipped', err);
+      }
     } catch (err: any) {
       setError(err.message || 'เกิดข้อผิดพลาดในการโหลดข้อมูล');
     } finally {
@@ -442,6 +458,7 @@ export const HsubPaymentReconcilePage: React.FC = () => {
   }, [summary]);
 
   // Settlement rows combining H-Sub and PPFS MIS (5 PCUs)
+  // Formula requested: hsub - ทุน PPFS - ทุนยา = ยอดจ่ายคืน รพสตสุทธิ
   const settlementRows = useMemo(() => {
     const list = [
       { code: '05572', name: 'รพ.สต.บ้านโคกนาดี' },
@@ -469,16 +486,20 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       const trifQty = ppfs.trif_qty;
       const trifPaid = ppfs.trif_paid;
       const trifCost = Math.round(trifQty * 30.0 * 100) / 100;
-      const trifMargin = Math.round((trifPaid - trifCost) * 100) / 100;
 
       const folicQty = ppfs.folic_qty;
       const folicPaid = ppfs.folic_paid;
       const folicCost = Math.round(folicQty * 6.24 * 100) / 100;
-      const folicMargin = Math.round((folicPaid - folicCost) * 100) / 100;
 
-      const grossRevenue = Math.round((hsubDrugTotal + trifPaid + folicPaid) * 100) / 100;
-      const totalDeductedCost = Math.round((trifCost + folicCost) * 100) / 100;
-      const netPayable = Math.round((grossRevenue - totalDeductedCost) * 100) / 100;
+      // ทุน PPFS = ทุน Triferdine + ทุน Folic
+      const ppfsCost = Math.round((trifCost + folicCost) * 100) / 100;
+      // ทุนยา = ทุนยาสมุนไพรจริงจาก HOSxP PCU
+      const herbalCost = pcuHerbalCosts[item.code] || 0;
+      const totalDeductedCost = Math.round((ppfsCost + herbalCost) * 100) / 100;
+
+      // FORMULA: hsub - ทุน PPFS - ทุนยา = ยอดจ่ายคืน รพสตสุทธิ
+      const netPayable = Math.max(0, Math.round((hsubDrugTotal - ppfsCost - herbalCost) * 100) / 100);
+      const netPayableAllFunds = Math.max(0, Math.round((hsubTotalPaid - ppfsCost - herbalCost) * 100) / 100);
 
       return {
         hcode: item.code,
@@ -491,18 +512,18 @@ export const HsubPaymentReconcilePage: React.FC = () => {
         trifQty,
         trifPaid,
         trifCost,
-        trifMargin,
         folicQty,
         folicPaid,
         folicCost,
-        folicMargin,
-        grossRevenue,
+        ppfsCost,
+        herbalCost,
         totalDeductedCost,
         netPayable,
+        netPayableAllFunds,
         ppfsUrl: ppfs.url,
       };
     });
-  }, [summary]);
+  }, [summary, pcuHerbalCosts]);
 
   // Mother hospital 11101 row (รพ.โคกศรีสุพรรณ)
   const motherHospitalRow = useMemo(() => {
@@ -510,16 +531,11 @@ export const HsubPaymentReconcilePage: React.FC = () => {
     const trifQty = p.trif_qty;
     const trifPaid = p.trif_paid;
     const trifCost = Math.round(trifQty * 30.0 * 100) / 100;
-    const trifMargin = Math.round((trifPaid - trifCost) * 100) / 100;
 
     const folicQty = p.folic_qty;
     const folicPaid = p.folic_paid;
     const folicCost = Math.round(folicQty * 6.24 * 100) / 100;
-    const folicMargin = Math.round((folicPaid - folicCost) * 100) / 100;
-
-    const grossRevenue = Math.round((trifPaid + folicPaid) * 100) / 100;
-    const totalDeductedCost = Math.round((trifCost + folicCost) * 100) / 100;
-    const netPayable = Math.round((grossRevenue - totalDeductedCost) * 100) / 100;
+    const ppfsCost = Math.round((trifCost + folicCost) * 100) / 100;
 
     return {
       hcode: '11101',
@@ -532,14 +548,14 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       trifQty,
       trifPaid,
       trifCost,
-      trifMargin,
       folicQty,
       folicPaid,
       folicCost,
-      folicMargin,
-      grossRevenue,
-      totalDeductedCost,
-      netPayable,
+      ppfsCost,
+      herbalCost: 0,
+      totalDeductedCost: ppfsCost,
+      netPayable: 0,
+      netPayableAllFunds: 0,
       ppfsUrl: p.url,
       note: p.note,
     };
@@ -555,14 +571,14 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       trifQty: settlementRows.reduce((a, b) => a + b.trifQty, 0),
       trifPaid: Math.round(settlementRows.reduce((a, b) => a + b.trifPaid, 0) * 100) / 100,
       trifCost: Math.round(settlementRows.reduce((a, b) => a + b.trifCost, 0) * 100) / 100,
-      trifMargin: Math.round(settlementRows.reduce((a, b) => a + b.trifMargin, 0) * 100) / 100,
       folicQty: settlementRows.reduce((a, b) => a + b.folicQty, 0),
       folicPaid: Math.round(settlementRows.reduce((a, b) => a + b.folicPaid, 0) * 100) / 100,
       folicCost: Math.round(settlementRows.reduce((a, b) => a + b.folicCost, 0) * 100) / 100,
-      folicMargin: Math.round(settlementRows.reduce((a, b) => a + b.folicMargin, 0) * 100) / 100,
-      grossRevenue: Math.round(settlementRows.reduce((a, b) => a + b.grossRevenue, 0) * 100) / 100,
+      ppfsCost: Math.round(settlementRows.reduce((a, b) => a + b.ppfsCost, 0) * 100) / 100,
+      herbalCost: Math.round(settlementRows.reduce((a, b) => a + b.herbalCost, 0) * 100) / 100,
       totalDeductedCost: Math.round(settlementRows.reduce((a, b) => a + b.totalDeductedCost, 0) * 100) / 100,
       netPayable: Math.round(settlementRows.reduce((a, b) => a + b.netPayable, 0) * 100) / 100,
+      netPayableAllFunds: Math.round(settlementRows.reduce((a, b) => a + b.netPayableAllFunds, 0) * 100) / 100,
     };
   }, [settlementRows]);
 
@@ -572,18 +588,15 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       'ลำดับ': idx + 1,
       'รหัสหน่วยบริการ': r.hcode,
       'ชื่อหน่วยบริการ': r.name,
-      'ชดเชยยา Home Care H-Sub (บาท)': r.hsubHcDrug,
-      'ชดเชยยาฉุกเฉิน AE H-Sub (บาท)': r.hsubAeDrug,
-      'รวมชดเชยยา H-Sub (บาท)': r.hsubDrugTotal,
-      'ชดเชย Triferdine (PPFS บาท)': r.trifPaid,
-      'ต้นทุน Triferdine ที่หัก (บาท)': r.trifCost,
-      'ส่วนต่าง Triferdine (บาท)': r.trifMargin,
-      'ชดเชย Folic (PPFS บาท)': r.folicPaid,
-      'ต้นทุน Folic ที่หัก (บาท)': r.folicCost,
-      'ส่วนต่าง Folic (บาท)': r.folicMargin,
-      'รวมยอดชดเชยรับเข้า (บาท)': r.grossRevenue,
-      'รวมต้นทุนที่หัก (บาท)': r.totalDeductedCost,
-      'ยอดสุทธิพึงจ่าย รพ.สต. (บาท)': r.netPayable,
+      'ชดเชยยา H-Sub (1 บาท)': r.hsubDrugTotal,
+      'ยอดชดเชยรวม H-Sub (บาท)': r.hsubTotalPaid,
+      'ทุน PPFS Triferdine (2.1 บาท)': r.trifCost,
+      'ทุน PPFS Folic (2.2 บาท)': r.folicCost,
+      'รวมทุน PPFS (2 บาท)': r.ppfsCost,
+      'ทุนยาสมุนไพร HOSxP (3 บาท)': r.herbalCost,
+      'รวมต้นทุนที่หัก (2+3 บาท)': r.totalDeductedCost,
+      'ยอดจ่ายคืน รพ.สต. สุทธิ (1 - 2 - 3 บาท)': r.netPayable,
+      'ชดเชย PPFS จาก MIS (อ้างอิง บาท)': r.trifPaid + r.folicPaid,
       'ลิงก์ PPFS MIS เขต 7': r.ppfsUrl,
     }));
 
@@ -592,18 +605,15 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       'ลำดับ': '' as any,
       'รหัสหน่วยบริการ': 'รวม CUP รพ.สต.',
       'ชื่อหน่วยบริการ': '5 รพ.สต. ในเครือข่าย',
-      'ชดเชยยา Home Care H-Sub (บาท)': settlementGrandTotals.hsubHcDrug,
-      'ชดเชยยาฉุกเฉิน AE H-Sub (บาท)': settlementGrandTotals.hsubAeDrug,
-      'รวมชดเชยยา H-Sub (บาท)': settlementGrandTotals.hsubDrugTotal,
-      'ชดเชย Triferdine (PPFS บาท)': settlementGrandTotals.trifPaid,
-      'ต้นทุน Triferdine ที่หัก (บาท)': settlementGrandTotals.trifCost,
-      'ส่วนต่าง Triferdine (บาท)': settlementGrandTotals.trifMargin,
-      'ชดเชย Folic (PPFS บาท)': settlementGrandTotals.folicPaid,
-      'ต้นทุน Folic ที่หัก (บาท)': settlementGrandTotals.folicCost,
-      'ส่วนต่าง Folic (บาท)': settlementGrandTotals.folicMargin,
-      'รวมยอดชดเชยรับเข้า (บาท)': settlementGrandTotals.grossRevenue,
-      'รวมต้นทุนที่หัก (บาท)': settlementGrandTotals.totalDeductedCost,
-      'ยอดสุทธิพึงจ่าย รพ.สต. (บาท)': settlementGrandTotals.netPayable,
+      'ชดเชยยา H-Sub (1 บาท)': settlementGrandTotals.hsubDrugTotal,
+      'ยอดชดเชยรวม H-Sub (บาท)': settlementGrandTotals.hsubTotalPaid,
+      'ทุน PPFS Triferdine (2.1 บาท)': settlementGrandTotals.trifCost,
+      'ทุน PPFS Folic (2.2 บาท)': settlementGrandTotals.folicCost,
+      'รวมทุน PPFS (2 บาท)': settlementGrandTotals.ppfsCost,
+      'ทุนยาสมุนไพร HOSxP (3 บาท)': settlementGrandTotals.herbalCost,
+      'รวมต้นทุนที่หัก (2+3 บาท)': settlementGrandTotals.totalDeductedCost,
+      'ยอดจ่ายคืน รพ.สต. สุทธิ (1 - 2 - 3 บาท)': settlementGrandTotals.netPayable,
+      'ชดเชย PPFS จาก MIS (อ้างอิง บาท)': settlementGrandTotals.trifPaid + settlementGrandTotals.folicPaid,
       'ลิงก์ PPFS MIS เขต 7': '-',
     } as any);
 
@@ -612,25 +622,22 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       'ลำดับ': '*' as any,
       'รหัสหน่วยบริการ': motherHospitalRow.hcode,
       'ชื่อหน่วยบริการ': `${motherHospitalRow.name} [รพ.แม่ข่าย]`,
-      'ชดเชยยา Home Care H-Sub (บาท)': 0,
-      'ชดเชยยาฉุกเฉิน AE H-Sub (บาท)': 0,
-      'รวมชดเชยยา H-Sub (บาท)': 0,
-      'ชดเชย Triferdine (PPFS บาท)': motherHospitalRow.trifPaid,
-      'ต้นทุน Triferdine ที่หัก (บาท)': motherHospitalRow.trifCost,
-      'ส่วนต่าง Triferdine (บาท)': motherHospitalRow.trifMargin,
-      'ชดเชย Folic (PPFS บาท)': motherHospitalRow.folicPaid,
-      'ต้นทุน Folic ที่หัก (บาท)': motherHospitalRow.folicCost,
-      'ส่วนต่าง Folic (บาท)': motherHospitalRow.folicMargin,
-      'รวมยอดชดเชยรับเข้า (บาท)': motherHospitalRow.grossRevenue,
-      'รวมต้นทุนที่หัก (บาท)': motherHospitalRow.totalDeductedCost,
-      'ยอดสุทธิพึงจ่าย รพ.สต. (บาท)': motherHospitalRow.netPayable,
+      'ชดเชยยา H-Sub (1 บาท)': 0,
+      'ยอดชดเชยรวม H-Sub (บาท)': 0,
+      'ทุน PPFS Triferdine (2.1 บาท)': motherHospitalRow.trifCost,
+      'ทุน PPFS Folic (2.2 บาท)': motherHospitalRow.folicCost,
+      'รวมทุน PPFS (2 บาท)': motherHospitalRow.ppfsCost,
+      'ทุนยาสมุนไพร HOSxP (3 บาท)': 0,
+      'รวมต้นทุนที่หัก (2+3 บาท)': motherHospitalRow.ppfsCost,
+      'ยอดจ่ายคืน รพ.สต. สุทธิ (1 - 2 - 3 บาท)': 0,
+      'ชดเชย PPFS จาก MIS (อ้างอิง บาท)': motherHospitalRow.trifPaid + motherHospitalRow.folicPaid,
       'ลิงก์ PPFS MIS เขต 7': motherHospitalRow.ppfsUrl,
     } as any);
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(data);
-    XLSX.utils.book_append_sheet(wb, ws, 'กระทบยอด PPFS และ H-Sub');
-    XLSX.writeFile(wb, `กระทบยอด_PPFS_Hsub_หักต้นทุน_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'กระทบยอดจ่ายคืน รพสต');
+    XLSX.writeFile(wb, `สรุปจ่ายคืน_รพสต_หักทุนPPFS_ทุนยา_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const totalPages = Math.ceil(txTotal / txLimit);
@@ -1026,6 +1033,17 @@ export const HsubPaymentReconcilePage: React.FC = () => {
             </div>
           </div>
 
+          {/* Formula alert box */}
+          <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '8px', padding: '0.75rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span style={{ fontSize: '1.35rem' }}>💡</span>
+            <div>
+              <strong style={{ color: '#065f46', fontSize: '0.95rem' }}>สูตรคำนวณสั่งจ่ายคืน รพ.สต. สุทธิ:</strong>
+              <span style={{ marginLeft: '0.6rem', fontFamily: 'monospace', fontWeight: 700, color: '#047857', fontSize: '1rem', background: '#d1fae5', padding: '0.2rem 0.5rem', borderRadius: '4px' }}>
+                ยอดชดเชย H-Sub (1) - ทุน PPFS (2) - ทุนยา (3) = ยอดจ่ายคืน รพ.สต. สุทธิ
+              </span>
+            </div>
+          </div>
+
           {/* Cards banner */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
             {/* Card 1: Hospital 11101 */}
@@ -1040,7 +1058,7 @@ export const HsubPaymentReconcilePage: React.FC = () => {
                 <div>• Triferdine (PNC): <strong>133 ครั้ง | 17,955.00 ฿</strong> (ทุน ~3,990 ฿ | กำไร +13,965 ฿)</div>
                 <div>• Ferrofolic (Folic): <strong>376 ครั้ง | 30,080.00 ฿</strong> (ทุน ~2,346 ฿ | กำไร +27,734 ฿)</div>
                 <div style={{ borderTop: '1px dashed #86efac', marginTop: '0.4rem', paddingTop: '0.4rem', fontWeight: 700 }}>
-                  รวม PPFS รพ.แม่ข่าย: <span style={{ color: '#047857' }}>48,035.00 ฿</span> (กำไรส่วนต่าง +41,698.76 ฿)
+                  รวม PPFS รพ.แม่ข่าย: <span style={{ color: '#047857' }}>48,035.00 ฿</span> (ทุนรวม 6,336.24 ฿)
                 </div>
               </div>
               <div style={{ marginTop: '0.6rem' }}>
@@ -1059,16 +1077,16 @@ export const HsubPaymentReconcilePage: React.FC = () => {
             <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <span style={{ fontWeight: 700, color: '#1e40af', fontSize: '0.95rem' }}>
-                  🏢 รวม 5 รพ.สต. ในเครือข่าย CUP
+                  🏢 ชดเชย H-Sub 5 รพ.สต. (ยอดตั้งต้น)
                 </span>
                 <span className="hsub-badge hsub-badge-blue">5 แห่ง</span>
               </div>
               <div style={{ fontSize: '0.85rem', color: '#1e3a8a', lineHeight: 1.6 }}>
                 <div>• ชดเชยยา H-Sub (Home Care+AE): <strong>฿{settlementGrandTotals.hsubDrugTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-                <div>• ชดเชย Triferdine (PPFS): <strong>242 ครั้ง | ฿{settlementGrandTotals.trifPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-                <div>• ชดเชย Folic (PPFS): <strong>4,167 ครั้ง | ฿{settlementGrandTotals.folicPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div>• ชดเชย H-Sub รวมทุกหมวด: <strong>฿{settlementGrandTotals.hsubTotalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div style={{ color: '#475569', fontSize: '0.8rem' }}>• ชดเชย PPFS MIS (อ้างอิง): ฿{(settlementGrandTotals.trifPaid + settlementGrandTotals.folicPaid).toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
                 <div style={{ borderTop: '1px dashed #93c5fd', marginTop: '0.4rem', paddingTop: '0.4rem', fontWeight: 700 }}>
-                  รวมชดเชยรับเข้า: <span style={{ color: '#1d4ed8' }}>฿{settlementGrandTotals.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  ยอดตั้งต้น H-Sub ค่ายา: <span style={{ color: '#1d4ed8' }}>฿{settlementGrandTotals.hsubDrugTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
             </div>
@@ -1077,16 +1095,16 @@ export const HsubPaymentReconcilePage: React.FC = () => {
             <div style={{ background: '#fefce8', border: '1px solid #fef08a', borderRadius: '10px', padding: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                 <span style={{ fontWeight: 700, color: '#854d0e', fontSize: '0.95rem' }}>
-                  ⚖️ หักต้นทุนยา & ยอดสุทธิสั่งจ่าย
+                  ⚖️ หักต้นทุนยา & ยอดจ่ายคืนสุทธิ
                 </span>
                 <span style={{ background: '#fef08a', color: '#854d0e', fontSize: '0.75rem', fontWeight: 600, padding: '0.15rem 0.5rem', borderRadius: '4px' }}>หักต้นทุน</span>
               </div>
               <div style={{ fontSize: '0.85rem', color: '#713f12', lineHeight: 1.6 }}>
-                <div>• หักต้นทุน Folic (6.24 ฿/คอร์ส): <strong>-฿{settlementGrandTotals.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-                <div>• หักต้นทุน Triferdine (~30 ฿/แผง): <strong>-฿{settlementGrandTotals.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-                <div>• กำไรส่วนต่างเฉพาะ PPFS รวม: <strong style={{ color: '#16a34a' }}>+฿{(settlementGrandTotals.folicMargin + settlementGrandTotals.trifMargin).toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
-                <div style={{ borderTop: '1px dashed #fde047', marginTop: '0.4rem', paddingTop: '0.4rem', fontWeight: 700 }}>
-                  ยอดสุทธิพึงจ่าย รพ.สต.: <span style={{ color: '#ca8a04' }}>฿{settlementGrandTotals.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <div>• หักทุน PPFS (Trif+Folic): <strong style={{ color: '#b45309' }}>-฿{settlementGrandTotals.ppfsCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div>• หักทุนยาสมุนไพร (HOSxP): <strong style={{ color: '#c2410c' }}>-฿{settlementGrandTotals.herbalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div>• รวมต้นทุนที่หัก: <strong style={{ color: '#dc2626' }}>-฿{settlementGrandTotals.totalDeductedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</strong></div>
+                <div style={{ borderTop: '1px dashed #fde047', marginTop: '0.4rem', paddingTop: '0.4rem', fontWeight: 700, fontSize: '0.95rem' }}>
+                  ยอดจ่ายคืน รพ.สต. สุทธิ: <span style={{ color: '#047857' }}>฿{settlementGrandTotals.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
             </div>
@@ -1098,17 +1116,17 @@ export const HsubPaymentReconcilePage: React.FC = () => {
               <thead>
                 <tr>
                   <th>รหัส</th>
-                  <th>หน่วยบริการ</th>
-                  <th className="text-right">ชดเชยยา H-Sub</th>
-                  <th className="text-right">Triferdine ชดเชย</th>
-                  <th className="text-right">หักทุน Triferdine</th>
-                  <th className="text-right">กำไร Triferdine</th>
-                  <th className="text-right">Folic ชดเชย</th>
-                  <th className="text-right">หักทุน Folic</th>
-                  <th className="text-right">กำไร Folic</th>
-                  <th className="text-right" style={{ background: '#f8fafc' }}>รวมชดเชยรับเข้า</th>
-                  <th className="text-right" style={{ background: '#fffbeb' }}>รวมทุนที่หัก</th>
-                  <th className="text-right" style={{ background: '#ecfdf5', color: '#047857' }}>สุทธิพึงจ่าย รพ.สต.</th>
+                  <th>หน่วยบริการ (รพ.สต.)</th>
+                  <th className="text-right">ชดเชยยา H-Sub (1)</th>
+                  <th className="text-right">ทุน PPFS Triferdine (2.1)</th>
+                  <th className="text-right">ทุน PPFS Folic (2.2)</th>
+                  <th className="text-right" style={{ background: '#fef3c7', color: '#92400e' }}>รวมทุน PPFS (2)</th>
+                  <th className="text-right" style={{ background: '#ffedd5', color: '#9a3412' }}>ทุนยาสมุนไพร (3)</th>
+                  <th className="text-right" style={{ background: '#fee2e2', color: '#991b1b' }}>รวมทุนที่หัก (2+3)</th>
+                  <th className="text-right" style={{ background: '#ecfdf5', color: '#047857', fontWeight: 700, fontSize: '0.95rem' }}>
+                    ยอดจ่ายคืน รพ.สต. สุทธิ (1 - 2 - 3)
+                  </th>
+                  <th className="text-right" style={{ background: '#f1f5f9', color: '#475569' }}>ชดเชย PPFS (อ้างอิง)</th>
                   <th className="text-center">PPFS MIS</th>
                 </tr>
               </thead>
@@ -1122,39 +1140,33 @@ export const HsubPaymentReconcilePage: React.FC = () => {
                       <strong>{r.name}</strong>
                     </td>
                     <td className="text-right font-mono" style={{ color: '#0284c7' }}>
-                      {r.hsubDrugTotal > 0 ? `฿${r.hsubDrugTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '-'}
+                      ฿{r.hsubDrugTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
-                        HC: {r.hsubHcDrug.toLocaleString(undefined, { minimumFractionDigits: 2 })} | AE: {r.hsubAeDrug.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        ยอดรวม Statement: ฿{r.hsubTotalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                       </div>
-                    </td>
-                    <td className="text-right font-mono" style={{ color: '#4338ca' }}>
-                      ฿{r.trifPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{r.trifQty.toLocaleString()} ครั้ง</div>
                     </td>
                     <td className="text-right font-mono" style={{ color: '#b45309' }}>
                       -฿{r.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="text-right font-mono font-bold" style={{ color: '#059669' }}>
-                      +฿{r.trifMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="text-right font-mono" style={{ color: '#0891b2' }}>
-                      ฿{r.folicPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{r.folicQty.toLocaleString()} ครั้ง</div>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{r.trifQty.toLocaleString()} ครั้ง</div>
                     </td>
                     <td className="text-right font-mono" style={{ color: '#b45309' }}>
                       -฿{r.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{r.folicQty.toLocaleString()} ครั้ง</div>
                     </td>
-                    <td className="text-right font-mono font-bold" style={{ color: '#059669' }}>
-                      +฿{r.folicMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <td className="text-right font-mono font-bold" style={{ background: '#fef3c7', color: '#b45309' }}>
+                      -฿{r.ppfsCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="text-right font-mono font-bold" style={{ background: '#f8fafc', color: '#1e40af' }}>
-                      ฿{r.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <td className="text-right font-mono" style={{ background: '#ffedd5', color: '#c2410c' }}>
+                      -฿{r.herbalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="text-right font-mono" style={{ background: '#fffbeb', color: '#dc2626' }}>
+                    <td className="text-right font-mono font-bold" style={{ background: '#fee2e2', color: '#dc2626' }}>
                       -฿{r.totalDeductedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="text-right font-mono font-bold" style={{ background: '#ecfdf5', color: '#047857', fontSize: '1rem' }}>
+                    <td className="text-right font-mono font-bold" style={{ background: '#ecfdf5', color: '#047857', fontSize: '1.05rem' }}>
                       ฿{r.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="text-right font-mono" style={{ background: '#f8fafc', color: '#475569' }}>
+                      ฿{(r.trifPaid + r.folicPaid).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </td>
                     <td className="text-center">
                       <a
@@ -1176,35 +1188,32 @@ export const HsubPaymentReconcilePage: React.FC = () => {
                   <td colSpan={2}>รวมทั้งสิ้น (CUP 5 รพ.สต.)</td>
                   <td className="text-right" style={{ color: '#0284c7' }}>
                     ฿{settlementGrandTotals.hsubDrugTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="text-right" style={{ color: '#4338ca' }}>
-                    ฿{settlementGrandTotals.trifPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>{settlementGrandTotals.trifQty.toLocaleString()} ครั้ง</div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>
+                      รวม Statement: ฿{settlementGrandTotals.hsubTotalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </div>
                   </td>
                   <td className="text-right" style={{ color: '#b45309' }}>
                     -฿{settlementGrandTotals.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="text-right" style={{ color: '#059669' }}>
-                    +฿{settlementGrandTotals.trifMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="text-right" style={{ color: '#0891b2' }}>
-                    ฿{settlementGrandTotals.folicPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>{settlementGrandTotals.folicQty.toLocaleString()} ครั้ง</div>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>{settlementGrandTotals.trifQty.toLocaleString()} ครั้ง</div>
                   </td>
                   <td className="text-right" style={{ color: '#b45309' }}>
                     -฿{settlementGrandTotals.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal' }}>{settlementGrandTotals.folicQty.toLocaleString()} ครั้ง</div>
                   </td>
-                  <td className="text-right" style={{ color: '#059669' }}>
-                    +฿{settlementGrandTotals.folicMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <td className="text-right" style={{ background: '#fef3c7', color: '#b45309' }}>
+                    -฿{settlementGrandTotals.ppfsCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
-                  <td className="text-right" style={{ color: '#1e40af' }}>
-                    ฿{settlementGrandTotals.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <td className="text-right" style={{ background: '#ffedd5', color: '#c2410c' }}>
+                    -฿{settlementGrandTotals.herbalCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
-                  <td className="text-right" style={{ color: '#dc2626' }}>
+                  <td className="text-right" style={{ background: '#fee2e2', color: '#dc2626' }}>
                     -฿{settlementGrandTotals.totalDeductedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
-                  <td className="text-right" style={{ color: '#047857', fontSize: '1.05rem' }}>
+                  <td className="text-right" style={{ background: '#ecfdf5', color: '#047857', fontSize: '1.1rem' }}>
                     ฿{settlementGrandTotals.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </td>
+                  <td className="text-right" style={{ background: '#f8fafc', color: '#475569' }}>
+                    ฿{(settlementGrandTotals.trifPaid + settlementGrandTotals.folicPaid).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
                   <td className="text-center">-</td>
                 </tr>
@@ -1225,34 +1234,28 @@ export const HsubPaymentReconcilePage: React.FC = () => {
                   <td className="text-right font-mono" style={{ color: '#64748b' }}>
                     - <div style={{ fontSize: '0.7rem' }}>แยกส่วน รพ.</div>
                   </td>
-                  <td className="text-right font-mono" style={{ color: '#4338ca' }}>
-                    ฿{motherHospitalRow.trifPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <td className="text-right font-mono" style={{ color: '#b45309' }}>
+                    -฿{motherHospitalRow.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{motherHospitalRow.trifQty.toLocaleString()} ครั้ง</div>
                   </td>
                   <td className="text-right font-mono" style={{ color: '#b45309' }}>
-                    -฿{motherHospitalRow.trifCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="text-right font-mono font-bold" style={{ color: '#059669' }}>
-                    +฿{motherHospitalRow.trifMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="text-right font-mono" style={{ color: '#0891b2' }}>
-                    ฿{motherHospitalRow.folicPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    -฿{motherHospitalRow.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     <div style={{ fontSize: '0.7rem', color: '#64748b' }}>{motherHospitalRow.folicQty.toLocaleString()} ครั้ง</div>
                   </td>
-                  <td className="text-right font-mono" style={{ color: '#b45309' }}>
-                    -฿{motherHospitalRow.folicCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <td className="text-right font-mono font-bold" style={{ background: '#fef3c7', color: '#b45309' }}>
+                    -฿{motherHospitalRow.ppfsCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
-                  <td className="text-right font-mono font-bold" style={{ color: '#059669' }}>
-                    +฿{motherHospitalRow.folicMargin.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <td className="text-right font-mono" style={{ background: '#ffedd5', color: '#64748b' }}>
+                    -
                   </td>
-                  <td className="text-right font-mono font-bold" style={{ color: '#1e40af' }}>
-                    ฿{motherHospitalRow.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="text-right font-mono" style={{ color: '#dc2626' }}>
+                  <td className="text-right font-mono font-bold" style={{ background: '#fee2e2', color: '#dc2626' }}>
                     -฿{motherHospitalRow.totalDeductedCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
-                  <td className="text-right font-mono font-bold" style={{ color: '#047857' }}>
-                    ฿{motherHospitalRow.netPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <td className="text-right font-mono font-bold" style={{ background: '#ecfdf5', color: '#047857' }}>
+                    - <div style={{ fontSize: '0.7rem' }}>แยกส่วน รพ.</div>
+                  </td>
+                  <td className="text-right font-mono" style={{ background: '#f8fafc', color: '#047857', fontWeight: 700 }}>
+                    ฿{(motherHospitalRow.trifPaid + motherHospitalRow.folicPaid).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </td>
                   <td className="text-center">
                     <a

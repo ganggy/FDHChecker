@@ -825,6 +825,15 @@ export async function getPcuHerbalReconciliation(options: {
       const grossProfit = Math.max(0, totalChargeAmt - totalDrugCost);
       const marginPct = totalChargeAmt > 0 ? (grossProfit / totalChargeAmt) * 100 : 0;
 
+      const hospHsub = hsubDataMap.get('11101') || {
+        claim: 0,
+        hc_drug: 0,
+        ae_drug: 0,
+        dmis_drug: 0,
+        drug_paid: 0,
+        total_paid: 0,
+      };
+
       return {
         pcu_code: '11101',
         pcu_name: 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)',
@@ -834,13 +843,13 @@ export async function getPcuHerbalReconciliation(options: {
         total_dispensed_qty: totalDispensedQty,
         total_drug_cost: Math.round(totalDrugCost * 100) / 100,
         total_charge_amt: Math.round(totalChargeAmt * 100) / 100,
-        hsub_claim_amt: 0,
-        hsub_hc_drug: 0,
-        hsub_ae_drug: 0,
-        hsub_dmis_drug: 0,
-        hsub_drug_paid: 0,
-        hsub_total_paid: 0,
-        total_reimbursed: ppfsTotalPaid,
+        hsub_claim_amt: hospHsub.claim,
+        hsub_hc_drug: hospHsub.hc_drug,
+        hsub_ae_drug: hospHsub.ae_drug,
+        hsub_dmis_drug: hospHsub.dmis_drug,
+        hsub_drug_paid: hospHsub.drug_paid,
+        hsub_total_paid: hospHsub.total_paid,
+        total_reimbursed: ppfsTotalPaid + hospHsub.total_paid,
         ppfs_triferdine_paid: ppfsTriferdinePaid,
         ppfs_folic_paid: ppfsFolicPaid,
         ppfs_total_paid: ppfsTotalPaid,

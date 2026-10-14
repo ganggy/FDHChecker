@@ -467,7 +467,7 @@ export async function importHsubDirectory(customDir?: string): Promise<{
       const fullPath = path.join(targetDir, file);
       try {
         const wb = xlsx.readFile(fullPath);
-        const sheetName = wb.SheetNames.find((s) => s.includes('รายงานพึงจ่าย') || s.includes('Sheet1')) || wb.SheetNames[0];
+        const sheetName = wb.SheetNames.find((s) => s.includes('รายงานพึงจ่าย') || s.includes('รายละเอียด(ข้อมูลปกติ)') || s.includes('รายละเอียด') || s.includes('Sheet1')) || wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
         if (!ws) continue;
 

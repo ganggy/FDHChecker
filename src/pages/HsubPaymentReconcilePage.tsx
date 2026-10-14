@@ -300,11 +300,11 @@ export const HsubPaymentReconcilePage: React.FC = () => {
       try {
         const buffer = await file.arrayBuffer();
         const workbook = XLSX.read(buffer, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        if (!firstSheetName) {
+        const targetSheetName = workbook.SheetNames.find(s => s.includes('รายละเอียด(ข้อมูลปกติ)') || s.includes('รายละเอียด') || s.includes('รายงานพึงจ่าย') || s.includes('Sheet1')) || workbook.SheetNames[0];
+        if (!targetSheetName) {
           throw new Error('ไม่พบแผ่นงาน (Sheet) ในไฟล์');
         }
-        const sheet = workbook.Sheets[firstSheetName];
+        const sheet = workbook.Sheets[targetSheetName];
         const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) as any[][];
 
         const res = await fetch('/api/hsub/import-raw', {

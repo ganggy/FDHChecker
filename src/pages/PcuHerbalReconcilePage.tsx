@@ -963,11 +963,28 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                         <td className="text-right" style={{ color: '#64748b' }}>
                           {data.hospital.total_charge_amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
                         </td>
-                        <td className="text-right" style={{ color: '#0d9488', fontWeight: 600 }}>-</td>
-                        <td className="text-right" style={{ color: '#6366f1' }}>-</td>
+                        <td className="text-right" style={{ color: '#0d9488', fontWeight: 600 }}>
+                          {(data.hospital.hsub_hc_drug || 0) > 0 
+                            ? `${data.hospital.hsub_hc_drug.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿` 
+                            : '-'}
+                        </td>
+                        <td className="text-right" style={{ color: '#6366f1' }}>
+                          {((data.hospital.hsub_ae_drug || 0) + (data.hospital.hsub_dmis_drug || 0)) > 0 
+                            ? `${((data.hospital.hsub_ae_drug || 0) + (data.hospital.hsub_dmis_drug || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿` 
+                            : '-'}
+                        </td>
                         <td className="text-right" style={{ color: '#2563eb', fontWeight: 700 }}>
-                          {(data.hospital.ppfs_total_paid || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
-                          <div style={{ fontSize: '0.7rem', color: '#0284c7' }}>(PPFS ชดเชย)</div>
+                          {(data.hospital.hsub_total_paid || 0) > 0 ? (
+                            <div>
+                              <div>{(data.hospital.hsub_total_paid + (data.hospital.ppfs_total_paid || 0)).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
+                              <div style={{ fontSize: '0.7rem', color: '#0284c7' }}>(H-Sub + PPFS)</div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div>{(data.hospital.ppfs_total_paid || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</div>
+                              <div style={{ fontSize: '0.7rem', color: '#0284c7' }}>(PPFS ชดเชย)</div>
+                            </div>
+                          )}
                         </td>
                         <td className="text-right profit-text">
                           +{data.hospital.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿

@@ -28,7 +28,10 @@ pcuHerbalRouter.get('/master-items', async (req, res) => {
   return res.json({
     success: true,
     data,
-    pcus: pcus.map(p => ({ code: p.code, name: p.name, host: p.host })),
+    pcus: [
+      { code: '11101', name: 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)', host: 'HOSxP Main DB' },
+      ...pcus.map(p => ({ code: p.code, name: p.name, host: p.host })),
+    ],
   });
 });
 

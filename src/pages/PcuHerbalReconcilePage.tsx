@@ -74,6 +74,8 @@ export interface PcuHerbalResponse {
     payable_profit: number;
   };
   pcus: PcuHerbalSummary[];
+  hospital?: PcuHerbalSummary;
+  hospital_11101_ppfs?: any;
   master_items: HerbalMasterItem[];
 }
 
@@ -471,22 +473,22 @@ export const PcuHerbalReconcilePage: React.FC = () => {
     );
   }, [data?.master_items, searchTerm]);
 
-  // Aggregate master item stats across all or selected PCUs
+  // Aggregate master item stats across all or selected PCUs (and Hospital)
   const masterItemAggregates = useMemo(() => {
-    if (!data?.pcus || !data?.master_items) return new Map<number, { qty: number; cost: number; charge: number; count: number }>();
-    const map = new Map<number, { qty: number; cost: number; charge: number; count: number }>();
+    if (!data?.master_items) return new Map<number, { qty: number; cost: number; charge: number; count: number; hospQty: number; hospCost: number; hospCharge: number }>();
+    const map = new Map<number, { qty: number; cost: number; charge: number; count: number; hospQty: number; hospCost: number; hospCharge: number }>();
 
     for (const item of data.master_items) {
-      map.set(item.id, { qty: 0, cost: 0, charge: 0, count: 0 });
+      map.set(item.id, { qty: 0, cost: 0, charge: 0, count: 0, hospQty: 0, hospCost: 0, hospCharge: 0 });
     }
 
     const pcusToUse = selectedHcode === 'all'
       ? data.pcus
-      : data.pcus.filter(p => p.pcu_code === selectedHcode);
+      : (data.pcus ? data.pcus.filter(p => p.pcu_code === selectedHcode) : []);
 
     for (const pcu of pcusToUse) {
-      for (const breakdown of pcu.item_breakdown) {
-        const current = map.get(breakdown.herbal_id) || { qty: 0, cost: 0, charge: 0, count: 0 };
+      for (const breakdown of (pcu.item_breakdown || [])) {
+        const current = map.get(breakdown.herbal_id) || { qty: 0, cost: 0, charge: 0, count: 0, hospQty: 0, hospCost: 0, hospCharge: 0 };
         current.qty += breakdown.dispensed_qty;
         current.cost += breakdown.total_cost;
         current.charge += breakdown.total_charge;
@@ -494,35 +496,68 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         map.set(breakdown.herbal_id, current);
       }
     }
+
+    if (data.hospital && data.hospital.item_breakdown) {
+      for (const breakdown of data.hospital.item_breakdown) {
+        const current = map.get(breakdown.herbal_id);
+        if (current) {
+          current.hospQty = breakdown.dispensed_qty;
+          current.hospCost = breakdown.total_cost;
+          current.hospCharge = breakdown.total_charge;
+        }
+      }
+    }
+
     return map;
-  }, [data?.pcus, data?.master_items, selectedHcode]);
+  }, [data?.pcus, data?.hospital, data?.master_items, selectedHcode]);
 
   // Export to Excel
   const handleExportExcel = () => {
     if (!data) return;
 
-    // Sheet 1: PCU Summary
-    const pcuSheetData = data.pcus.map(p => ({
-      'รหัส รพ.สต.': p.pcu_code,
-      'ชื่อหน่วยบริการ': p.pcu_name,
-      'IP Host': p.host_ip,
-      'สถานะเชื่อมต่อ': p.is_online ? 'ออนไลน์' : 'ออฟไลน์',
-      'จำนวนครั้งจ่ายยา': p.total_dispense_count,
-      'ปริมาณยาที่จ่าย (หน่วย)': p.total_dispensed_qty,
-      'ยอดต้นทุนค่ายา (บาท)': p.total_drug_cost,
-      'ยอดเรียกเก็บ รพ.สต. (บาท)': p.total_charge_amt,
-      'ยอดส่งเบิก สปสช. (บาท)': p.hsub_claim_amt,
-      'ยอดชดเชยสมุนไพร hc_drug (บาท)': p.hsub_hc_drug,
-      'ยอดชดเชยยาอื่นๆ ae+dmis (บาท)': ((p.hsub_ae_drug || 0) + (p.hsub_dmis_drug || 0)),
-      'รวมยาทั้งหมดที่ได้รับชดเชย H-Sub (บาท)': p.hsub_total_paid,
-      'กำไรส่วนต่าง (บาท)': p.gross_profit,
-      'ส่วนแบ่งกำไรพึงจ่าย รพ.สต. (บาท)': p.payable_profit,
-      'อัตรากำไร (%)': p.margin_percentage,
-    }));
+    // Sheet 1: PCU and Hospital Summary
+    const pcuSheetData = [
+      ...(data.hospital ? [{
+        'รหัส รพ.สต./รพ.': data.hospital.pcu_code,
+        'ชื่อหน่วยบริการ': `${data.hospital.pcu_name} (แม่ข่าย)`,
+        'IP Host': data.hospital.host_ip,
+        'สถานะเชื่อมต่อ': data.hospital.is_online ? 'ออนไลน์' : 'ออฟไลน์',
+        'จำนวนครั้งจ่ายยา': data.hospital.total_dispense_count,
+        'ปริมาณยาที่จ่าย (หน่วย)': data.hospital.total_dispensed_qty,
+        'ยอดต้นทุนค่ายา (บาท)': data.hospital.total_drug_cost,
+        'ยอดเรียกเก็บ รพ.สต./รพ. (บาท)': data.hospital.total_charge_amt,
+        'ยอดส่งเบิก สปสช. (บาท)': 0,
+        'ยอดชดเชยสมุนไพร hc_drug (บาท)': 0,
+        'ยอดชดเชยยาอื่นๆ ae+dmis (บาท)': 0,
+        'รวมยาทั้งหมดที่ได้รับชดเชย H-Sub (บาท)': 0,
+        'ยอดชดเชย PPFS (บาท)': data.hospital.ppfs_total_paid || 0,
+        'กำไรส่วนต่าง (บาท)': data.hospital.gross_profit,
+        'ส่วนแบ่งกำไรพึงจ่าย รพ.สต. (บาท)': 0,
+        'อัตรากำไร (%)': data.hospital.margin_percentage,
+      }] : []),
+      ...data.pcus.map(p => ({
+        'รหัส รพ.สต./รพ.': p.pcu_code,
+        'ชื่อหน่วยบริการ': p.pcu_name,
+        'IP Host': p.host_ip,
+        'สถานะเชื่อมต่อ': p.is_online ? 'ออนไลน์' : 'ออฟไลน์',
+        'จำนวนครั้งจ่ายยา': p.total_dispense_count,
+        'ปริมาณยาที่จ่าย (หน่วย)': p.total_dispensed_qty,
+        'ยอดต้นทุนค่ายา (บาท)': p.total_drug_cost,
+        'ยอดเรียกเก็บ รพ.สต./รพ. (บาท)': p.total_charge_amt,
+        'ยอดส่งเบิก สปสช. (บาท)': p.hsub_claim_amt,
+        'ยอดชดเชยสมุนไพร hc_drug (บาท)': p.hsub_hc_drug,
+        'ยอดชดเชยยาอื่นๆ ae+dmis (บาท)': ((p.hsub_ae_drug || 0) + (p.hsub_dmis_drug || 0)),
+        'รวมยาทั้งหมดที่ได้รับชดเชย H-Sub (บาท)': p.hsub_total_paid,
+        'ยอดชดเชย PPFS (บาท)': p.ppfs_total_paid || 0,
+        'กำไรส่วนต่าง (บาท)': p.gross_profit,
+        'ส่วนแบ่งกำไรพึงจ่าย รพ.สต. (บาท)': p.payable_profit,
+        'อัตรากำไร (%)': p.margin_percentage,
+      }))
+    ];
 
     // Sheet 2: Master Items
     const masterSheetData = data.master_items.map(m => {
-      const agg = masterItemAggregates.get(m.id) || { qty: 0, cost: 0, charge: 0, count: 0 };
+      const agg = masterItemAggregates.get(m.id) || { qty: 0, cost: 0, charge: 0, count: 0, hospQty: 0, hospCost: 0, hospCharge: 0 };
       return {
         'ลำดับ': m.id,
         'หมวดหมู่': m.category === 'iron_folic' ? 'Triferdine & Folic Acid' : 'เวชภัณฑ์สมุนไพร 46 รายการ',
@@ -530,8 +565,10 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         'ขนาดบรรจุ': m.size,
         'ราคาต้นทุนมาตรฐาน (บาท)': m.cost,
         'ต้นทุนต่อหน่วย (บาท)': m.unitCost,
-        'จำนวนจ่ายจริง (หน่วย)': agg.qty,
-        'รวมต้นทุนจ่ายยา (บาท)': Math.round(agg.cost * 100) / 100,
+        'จำนวนจ่าย 5 รพ.สต. (หน่วย)': agg.qty,
+        'จำนวนจ่าย รพ.โคกศรีสุพรรณ (หน่วย)': agg.hospQty || 0,
+        'รวมจ่ายทั้งสิ้นทั้งอำเภอ (หน่วย)': agg.qty + (agg.hospQty || 0),
+        'รวมต้นทุนจ่ายยา รพ.สต. (บาท)': Math.round(agg.cost * 100) / 100,
         'ยอดเรียกเก็บ รพ.สต. (บาท)': Math.round(agg.charge * 100) / 100,
         'ส่วนต่างกำไรประมาณการ (บาท)': Math.round((agg.charge - agg.cost) * 100) / 100,
         'หมายเหตุอัตรา/เงื่อนไข': m.monthlyRateNote || '-',
@@ -675,7 +712,8 @@ export const PcuHerbalReconcilePage: React.FC = () => {
         <div className="filter-item">
           <label>เลือก รพ.สต.</label>
           <select value={selectedHcode} onChange={(e) => setSelectedHcode(e.target.value)}>
-            <option value="all">🏢 ทั้งหมด (5 รพ.สต.)</option>
+            <option value="all">🏢 ทั้งหมด (5 รพ.สต. + รพ.แม่ข่าย)</option>
+            <option value="11101">🏥 11101 รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)</option>
             <option value="05570">05570 รพ.สต.โพนค้อ (hospcu05570)</option>
             <option value="05572">05572 รพ.สต.โคกนาดี (hospcu05572)</option>
             <option value="05573">05573 รพ.สต.โพนทอง (hospcu05573)</option>
@@ -904,6 +942,55 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
+                    {/* Hospital 11101 Row (แม่ข่าย) */}
+                    {selectedHcode === 'all' && data.hospital && (
+                      <tr style={{ background: '#ecfdf5', borderTop: '2px solid #6ee7b7', borderBottom: '2px solid #6ee7b7' }}>
+                        <td>
+                          <span className="badge-pcu" style={{ background: '#059669', color: '#ffffff' }}>11101</span>
+                        </td>
+                        <td>
+                          <strong style={{ color: '#065f46' }}>🏥 {data.hospital.pcu_name}</strong>
+                          <div style={{ fontSize: '0.75rem', color: '#047857' }}>รพ.แม่ข่าย / คลังยาหลัก (HOSxP Main DB)</div>
+                        </td>
+                        <td>
+                          <code style={{ fontSize: '0.8rem', background: '#d1fae5', color: '#065f46', padding: '0.2rem 0.4rem', borderRadius: '4px' }}>
+                            Main Hospital DB
+                          </code>
+                        </td>
+                        <td className="text-right" style={{ fontWeight: 600 }}>{data.hospital.total_dispense_count.toLocaleString()}</td>
+                        <td className="text-right" style={{ fontWeight: 600 }}>{data.hospital.total_dispensed_qty.toLocaleString()}</td>
+                        <td className="text-right" style={{ fontWeight: 600 }}>{data.hospital.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿</td>
+                        <td className="text-right" style={{ color: '#64748b' }}>
+                          {data.hospital.total_charge_amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                        <td className="text-right" style={{ color: '#0d9488', fontWeight: 600 }}>-</td>
+                        <td className="text-right" style={{ color: '#6366f1' }}>-</td>
+                        <td className="text-right" style={{ color: '#2563eb', fontWeight: 700 }}>
+                          {(data.hospital.ppfs_total_paid || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                          <div style={{ fontSize: '0.7rem', color: '#0284c7' }}>(PPFS ชดเชย)</div>
+                        </td>
+                        <td className="text-right profit-text">
+                          +{data.hospital.gross_profit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                        </td>
+                        <td className="text-right" style={{ color: '#64748b', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                          (รพ.แม่ข่าย)
+                        </td>
+                        <td className="text-center">
+                          <span style={{ padding: '0.2rem 0.5rem', background: '#a7f3d0', color: '#065f46', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 700 }}>
+                            {data.hospital.margin_percentage}%
+                          </span>
+                        </td>
+                        <td className="text-center">
+                          <button
+                            className="btn-detail"
+                            style={{ background: '#059669', borderColor: '#059669' }}
+                            onClick={() => openDrillDown('11101', 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)')}
+                          >
+                            🔎 เจาะลึกคนไข้
+                          </button>
+                        </td>
+                      </tr>
+                    )}
                     {data.pcus.map((pcu) => (
                       <tr key={pcu.pcu_code}>
                         <td>
@@ -985,6 +1072,116 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                   </tfoot>
                 </table>
               </div>
+
+              {/* Benchmark Comparison: Hospital 11101 vs 5 PCUs */}
+              {data.hospital && (
+                <div style={{ marginTop: '1.5rem', background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '1.5rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: '1.1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>⚖️</span> เปรียบเทียบการให้บริการและจ่ายยา: รพ.โคกศรีสุพรรณ (แม่ข่าย) vs รวม 5 รพ.สต.
+                      </h4>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>
+                        สถิติเชิงเปรียบเทียบระหว่างโรงพยาบาลแม่ข่ายกับหน่วยบริการปฐมภูมิในเครือข่าย เพื่อตรวจสอบปริมาณการใช้ยาและชดเชยค่าบริการ
+                      </p>
+                    </div>
+                    <button
+                      className="btn-detail"
+                      style={{ background: '#0284c7', borderColor: '#0284c7', color: '#ffffff', padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                      onClick={() => openDrillDown('11101', 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)')}
+                    >
+                      🔎 ตรวจสอบคนไข้ รพ.โคกศรีสุพรรณ ({data.hospital.total_dispense_count.toLocaleString()} ครั้ง)
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1rem' }}>
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #3b82f6' }}>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>จำนวนครั้งจ่ายยารวม (Visits)</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem' }}>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>🏥 รพ.แม่ข่าย</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>{data.hospital.total_dispense_count.toLocaleString()}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#6366f1', fontWeight: 600 }}>🏢 5 รพ.สต.</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>{data.grand_total.total_dispense_count.toLocaleString()}</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem', textAlign: 'center', background: '#e2e8f0', borderRadius: '4px', padding: '2px 6px' }}>
+                        สัดส่วน รพ. : รพ.สต. = {Math.round((data.hospital.total_dispense_count / (data.hospital.total_dispense_count + data.grand_total.total_dispense_count || 1)) * 100)}% : {Math.round((data.grand_total.total_dispense_count / (data.hospital.total_dispense_count + data.grand_total.total_dispense_count || 1)) * 100)}%
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #10b981' }}>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>ปริมาณยาที่จ่าย (หน่วย)</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem' }}>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>🏥 รพ.แม่ข่าย</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>{data.hospital.total_dispensed_qty.toLocaleString()}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#6366f1', fontWeight: 600 }}>🏢 5 รพ.สต.</div>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>{data.grand_total.total_dispensed_qty.toLocaleString()}</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem', textAlign: 'center', background: '#e2e8f0', borderRadius: '4px', padding: '2px 6px' }}>
+                        รวมทั้งอำเภอ: {(data.hospital.total_dispensed_qty + data.grand_total.total_dispensed_qty).toLocaleString()} หน่วย
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #f59e0b' }}>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>มูลค่าต้นทุนค่ายา (บาท)</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem' }}>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>🏥 รพ.แม่ข่าย</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{data.hospital.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#6366f1', fontWeight: 600 }}>🏢 5 รพ.สต.</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{data.grand_total.total_drug_cost.toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem', textAlign: 'center', background: '#e2e8f0', borderRadius: '4px', padding: '2px 6px' }}>
+                        รวมต้นทุนทั้งสิ้น: {(data.hospital.total_drug_cost + data.grand_total.total_drug_cost).toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #8b5cf6' }}>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>มูลค่าเรียกเก็บ (Charge Amt)</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem' }}>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>🏥 รพ.แม่ข่าย</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{data.hospital.total_charge_amt.toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#6366f1', fontWeight: 600 }}>🏢 5 รพ.สต.</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{data.grand_total.total_charge_amt.toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem', textAlign: 'center', background: '#e2e8f0', borderRadius: '4px', padding: '2px 6px' }}>
+                        รวมเรียกเก็บทั้งสิ้น: {(data.hospital.total_charge_amt + data.grand_total.total_charge_amt).toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿
+                      </div>
+                    </div>
+
+                    <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #06b6d4' }}>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>ชดเชย PPFS (Triferdine + Folic)</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem' }}>
+                        <div>
+                          <div style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>🏥 รพ.แม่ข่าย</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0284c7' }}>{(data.hospital.ppfs_total_paid || 0).toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.75rem', color: '#6366f1', fontWeight: 600 }}>🏢 5 รพ.สต.</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0284c7' }}>{(data.grand_total.ppfs_total_paid || 316270).toLocaleString('th-TH', { minimumFractionDigits: 0 })} ฿</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '0.5rem', textAlign: 'center', background: '#e2e8f0', borderRadius: '4px', padding: '2px 6px' }}>
+                        ลิงก์ สปสช.: <a href={data.hospital.ppfs_url || 'https://khonkaen2.nhso.go.th/mis/ppfs2569/hcode.php?hcode=11101&metric=SUM_PAID'} target="_blank" rel="noopener noreferrer" style={{ color: '#0284c7', textDecoration: 'underline' }}>PPFS รพ.โคกศรีสุพรรณ (11101)</a>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1024,7 +1221,7 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                   </thead>
                   <tbody>
                     {filteredMasterItems.map((item) => {
-                      const agg = masterItemAggregates.get(item.id) || { qty: 0, cost: 0, charge: 0, count: 0 };
+                      const agg = masterItemAggregates.get(item.id) || { qty: 0, cost: 0, charge: 0, count: 0, hospQty: 0, hospCost: 0, hospCharge: 0 };
                       const margin = agg.charge - agg.cost;
                       return (
                         <tr key={item.id}>
@@ -1050,7 +1247,12 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                           <td className="text-right">{item.cost.toFixed(2)} ฿</td>
                           <td className="text-right" style={{ color: '#64748b' }}>{item.unitCost.toFixed(3)} ฿</td>
                           <td className="text-right" style={{ fontWeight: 600 }}>
-                            {agg.qty > 0 ? (
+                            {selectedHcode === 'all' && data.hospital ? (
+                              <div style={{ fontSize: '0.85rem' }}>
+                                <div><span style={{ fontSize: '0.75rem', color: '#6366f1' }}>🏢 รพ.สต.:</span> {agg.qty.toLocaleString()}</div>
+                                <div><span style={{ fontSize: '0.75rem', color: '#059669' }}>🏥 รพ.:</span> {(agg.hospQty || 0).toLocaleString()}</div>
+                              </div>
+                            ) : agg.qty > 0 ? (
                               <span>{agg.qty.toLocaleString()}</span>
                             ) : (
                               <span style={{ color: '#94a3b8' }}>0</span>
@@ -1080,16 +1282,28 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                             )}
                           </td>
                           <td className="text-center">
-                            {agg.count > 0 ? (
-                              <button
-                                className="btn-detail"
-                                onClick={() => openDrillDown(selectedHcode === 'all' ? '05572' : selectedHcode, `${item.name} (ขนาด ${item.size})`, item.id)}
-                              >
-                                📋 {agg.count} Visit
-                              </button>
-                            ) : (
-                              <span style={{ color: '#cbd5e1', fontSize: '0.75rem' }}>ไม่มีจ่าย</span>
-                            )}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'center' }}>
+                              {agg.count > 0 && (
+                                <button
+                                  className="btn-detail"
+                                  onClick={() => openDrillDown(selectedHcode === 'all' ? '05572' : selectedHcode, `${item.name} (ขนาด ${item.size}) - รพ.สต.`, item.id)}
+                                >
+                                  🏢 รพ.สต. ({agg.count} V)
+                                </button>
+                              )}
+                              {selectedHcode === 'all' && data.hospital && (
+                                <button
+                                  className="btn-detail"
+                                  style={{ background: '#059669', borderColor: '#059669', color: '#ffffff' }}
+                                  onClick={() => openDrillDown('11101', `${item.name} (ขนาด ${item.size}) - รพ.โคกศรีสุพรรณ`, item.id)}
+                                >
+                                  🏥 รพ.แม่ข่าย
+                                </button>
+                              )}
+                              {agg.count === 0 && (!data.hospital || selectedHcode !== 'all') && (
+                                <span style={{ color: '#cbd5e1', fontSize: '0.75rem' }}>ไม่มีจ่าย</span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1327,7 +1541,8 @@ export const PcuHerbalReconcilePage: React.FC = () => {
                       setAuditPage(1);
                     }}
                   >
-                    <option value="all">🏥 ทั้งหมด 5 รพ.สต.</option>
+                    <option value="all">🏢 ทั้งหมด (5 รพ.สต. + รพ.แม่ข่าย)</option>
+                    <option value="11101">🏥 11101 - รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)</option>
                     {data?.pcus.map((p) => (
                       <option key={p.pcu_code} value={p.pcu_code}>
                         {p.pcu_code} - {p.pcu_name}

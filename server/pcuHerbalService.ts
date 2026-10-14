@@ -1,5 +1,6 @@
 import mysql, { Pool } from 'mysql2/promise';
 import dotenv from 'dotenv';
+import { pool, getRepstmConnection } from './db/connection.js';
 dotenv.config();
 
 export interface PcuConfig {
@@ -22,6 +23,17 @@ export interface PcuConfig {
   db: string;
   vpnNote?: string;
 }
+
+export const HOSPITAL_11101_CONFIG: PcuConfig = {
+  code: '11101',
+  name: 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)',
+  host: 'HOSxP Hospital (Main DB)',
+  port: 3306,
+  user: 'root',
+  pass: '',
+  db: 'hosxp',
+  vpnNote: 'ฐานข้อมูลหลักโรงพยาบาล',
+};
 
 export const DEFAULT_PCU_CONFIGS: PcuConfig[] = [
   {
@@ -462,7 +474,7 @@ export async function getPcuHerbalReconciliation(options: {
   const { hcode, startDate = '2025-10-01', endDate = '2026-10-31', category = 'all' } = options;
 
   const allPcus = await getActivePcuConfigs();
-  const targetPcus = hcode && hcode !== 'all'
+  const targetPcus = hcode && hcode !== 'all' && hcode !== '11101'
     ? allPcus.filter(p => p.code === hcode)
     : allPcus;
 
@@ -473,7 +485,6 @@ export async function getPcuHerbalReconciliation(options: {
       : ALL_DRUG_MASTER;
 
   // 1. Fetch H-Sub amounts from hospital database (ข้อมูลนำเข้า H-Sub)
-  const hospConn = await getHospitalConnection();
   const hsubDataMap = new Map<string, {
     claim: number;
     hc_drug: number;
@@ -484,37 +495,40 @@ export async function getPcuHerbalReconciliation(options: {
     count: number;
   }>();
   try {
-    const [hsubRows]: any = await hospConn.query(
-      `SELECT 
-        hcode, 
-        COUNT(*) as cnt,
-        SUM(COALESCE(claim_amt, 0)) as total_claim,
-        SUM(COALESCE(hc_drug, 0)) as total_hc_drug,
-        SUM(COALESCE(ae_drug, 0)) as total_ae_drug,
-        SUM(COALESCE(dmis_drug, 0)) as total_dmis_drug,
-        SUM(COALESCE(hc_drug, 0) + COALESCE(ae_drug, 0) + COALESCE(dmis_drug, 0)) as total_drug_paid,
-        SUM(COALESCE(total_paid, 0)) as total_paid
-      FROM hsub_payment_item
-      WHERE (? IS NULL OR service_date >= ?)
-        AND (? IS NULL OR service_date <= ?)
-      GROUP BY hcode`,
-      [startDate, startDate, endDate + ' 23:59:59', endDate + ' 23:59:59']
-    );
-    for (const r of hsubRows) {
-      hsubDataMap.set(String(r.hcode), {
-        claim: Number(r.total_claim || 0),
-        hc_drug: Number(r.total_hc_drug || 0),
-        ae_drug: Number(r.total_ae_drug || 0),
-        dmis_drug: Number(r.total_dmis_drug || 0),
-        drug_paid: Number(r.total_drug_paid || 0),
-        total_paid: Number(r.total_paid || 0),
-        count: Number(r.cnt || 0),
-      });
+    const hospConn = await getRepstmConnection();
+    try {
+      const [hsubRows]: any = await hospConn.query(
+        `SELECT 
+          hcode, 
+          COUNT(*) as cnt,
+          SUM(COALESCE(claim_amt, 0)) as total_claim,
+          SUM(COALESCE(hc_drug, 0)) as total_hc_drug,
+          SUM(COALESCE(ae_drug, 0)) as total_ae_drug,
+          SUM(COALESCE(dmis_drug, 0)) as total_dmis_drug,
+          SUM(COALESCE(hc_drug, 0) + COALESCE(ae_drug, 0) + COALESCE(dmis_drug, 0)) as total_drug_paid,
+          SUM(COALESCE(total_paid, 0)) as total_paid
+        FROM hsub_payment_item
+        WHERE (? IS NULL OR service_date >= ?)
+          AND (? IS NULL OR service_date <= ?)
+        GROUP BY hcode`,
+        [startDate, startDate, endDate + ' 23:59:59', endDate + ' 23:59:59']
+      );
+      for (const r of hsubRows) {
+        hsubDataMap.set(String(r.hcode), {
+          claim: Number(r.total_claim || 0),
+          hc_drug: Number(r.total_hc_drug || 0),
+          ae_drug: Number(r.total_ae_drug || 0),
+          dmis_drug: Number(r.total_dmis_drug || 0),
+          drug_paid: Number(r.total_drug_paid || 0),
+          total_paid: Number(r.total_paid || 0),
+          count: Number(r.cnt || 0),
+        });
+      }
+    } finally {
+      hospConn.release();
     }
   } catch (err) {
     console.warn('[PcuHerbal] Failed to query hsub_payment_item:', err);
-  } finally {
-    await hospConn.end();
   }
 
   // 2. Query each PCU in parallel with timeout
@@ -692,7 +706,167 @@ export async function getPcuHerbalReconciliation(options: {
     };
   };
 
-  const results = await Promise.all(targetPcus.map(querySinglePcu));
+    // Query Hospital 11101 from primary hospital pool (pool)
+    const queryHospital11101 = async (): Promise<PcuHerbalSummary> => {
+      let isOnline = false;
+      let dispenseRows: any[] = [];
+      try {
+        const conn = await pool.getConnection();
+        try {
+          const [rows]: any = await conn.query(
+            `SELECT 
+              o.icode, d.name as drug_name, d.units,
+              DATE_FORMAT(o.vstdate, '%Y-%m') as vst_month,
+              COUNT(DISTINCT o.vn) as visit_count,
+              SUM(o.qty) as total_qty,
+              SUM(o.sum_price) as total_charge
+            FROM opitemrece o
+            JOIN drugitems d ON o.icode = d.icode
+            WHERE o.vstdate >= ? AND o.vstdate <= ?
+              AND (
+                d.name LIKE '%ขมิ้น%' OR d.name LIKE '%ฟ้าทะลาย%' OR d.name LIKE '%เถาวัลย์%' OR 
+                d.name LIKE '%ไพล%' OR d.name LIKE '%เพชรสังฆาต%' OR d.name LIKE '%มะระขี้นก%' OR 
+                d.name LIKE '%มะขามป้อม%' OR d.name LIKE '%เขียวหอม%' OR d.name LIKE '%ชุมเห็ดเทศ%' OR 
+                d.name LIKE '%ทองพันชั่ง%' OR d.name LIKE '%ธรณีสัณฆาต%' OR d.name LIKE '%ธรณีสัณฑะฆาต%' OR 
+                d.name LIKE '%ธาตุอบเชย%' OR d.name LIKE '%บำรุงโลหิต%' OR d.name LIKE '%เบญจกูล%' OR 
+                d.name LIKE '%ประคบ%' OR d.name LIKE '%รางจืด%' OR d.name LIKE '%สหัสธารา%' OR 
+                d.name LIKE '%นวโกฐ%' OR d.name LIKE '%เหลืองปิดสมุทร%' OR d.name LIKE '%มะแว้ง%' OR 
+                d.name LIKE '%เสลดพังพอน%' OR d.name LIKE '%ห้าราก%' OR d.name LIKE '%กระเจี๊ยบ%' OR 
+                d.name LIKE '%ตรีผลา%' OR d.name LIKE '%ธาตุบรรจบ%' OR d.name LIKE '%จันทร์ลีลา%' OR 
+                d.name LIKE '%ปราบชมพูทวีป%' OR d.name LIKE '%มะขามแขก%' OR d.name LIKE '%หญ้าดอกขาว%' OR 
+                d.name LIKE '%หญ้าหนวดแมว%' OR d.name LIKE '%อินทจักร์%' OR d.name LIKE '%อำมฤควาที%' OR 
+                d.name LIKE '%ศุขไสยาสน์%' OR d.name LIKE '%แก้ลมแก้เส้น%' OR d.name LIKE '%ขี้ผึ้ง%' OR 
+                d.name LIKE '%trifer%' OR d.name LIKE '%ไตรเฟอร์%' OR 
+                d.name LIKE '%folic%' OR d.name LIKE '%โฟลิก%'
+              )
+            GROUP BY o.icode, d.name, d.units, DATE_FORMAT(o.vstdate, '%Y-%m')`,
+            [startDate, endDate]
+          );
+          dispenseRows = rows || [];
+          isOnline = true;
+        } finally {
+          conn.release();
+        }
+      } catch (err: any) {
+        console.warn('[PcuHerbal] Failed to query hospital 11101 drugitems:', err);
+        isOnline = false;
+      }
+
+      const itemMap = new Map<number, {
+        herbal_id: number;
+        herbal_name: string;
+        size: string;
+        cost_price: number;
+        dispense_count: number;
+        dispensed_qty: number;
+        total_cost: number;
+        total_charge: number;
+        category?: string;
+      }>();
+
+      for (const master of targetMasterList) {
+        itemMap.set(master.id, {
+          herbal_id: master.id,
+          herbal_name: master.name,
+          size: master.size,
+          cost_price: master.cost,
+          dispense_count: 0,
+          dispensed_qty: 0,
+          total_cost: 0,
+          total_charge: 0,
+          category: master.category,
+        });
+      }
+
+      let totalDispenseCount = 0;
+      let totalDispensedQty = 0;
+      let totalDrugCost = 0;
+      let totalChargeAmt = 0;
+
+      for (const row of dispenseRows) {
+        const drugName = String(row.drug_name || '').toLowerCase();
+        const master = targetMasterList.find(m => {
+          return m.keywords.some(kw => drugName.includes(kw.toLowerCase()));
+        });
+
+        if (master) {
+          const item = itemMap.get(master.id)!;
+          const qty = Number(row.total_qty || 0);
+          const charge = Number(row.total_charge || 0);
+          let cost = 0;
+
+          if (master.id === 47) {
+            const vstMonth = String(row.vst_month || '');
+            const unitRate = vstMonth >= '2026-07' ? (38.52 / 30) : (26.75 / 30);
+            cost = qty * unitRate;
+          } else if (master.id === 48) {
+            cost = qty * 0.12;
+          } else {
+            cost = qty * master.unitCost;
+          }
+
+          item.dispense_count += Number(row.visit_count || 0);
+          item.dispensed_qty += qty;
+          item.total_cost += cost;
+          item.total_charge += charge;
+
+          totalDispenseCount += Number(row.visit_count || 0);
+          totalDispensedQty += qty;
+          totalDrugCost += cost;
+          totalChargeAmt += charge;
+        }
+      }
+
+      const ppfs = PPFS_HOSPITAL_11101;
+      const ppfsTriferdinePaid = ppfs.triferdine_pnc_paid || 0;
+      const ppfsFolicPaid = ppfs.folic_paid || 0;
+      const ppfsTotalPaid = ppfs.total_ppfs_paid || (ppfsTriferdinePaid + ppfsFolicPaid);
+      const totalRevenue = Math.round((totalChargeAmt + ppfsTotalPaid) * 100) / 100;
+      const grossProfit = Math.max(0, totalChargeAmt - totalDrugCost);
+      const marginPct = totalChargeAmt > 0 ? (grossProfit / totalChargeAmt) * 100 : 0;
+
+      return {
+        pcu_code: '11101',
+        pcu_name: 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)',
+        host_ip: 'HOSxP Hospital (Main DB)',
+        is_online: isOnline,
+        total_dispense_count: totalDispenseCount,
+        total_dispensed_qty: totalDispensedQty,
+        total_drug_cost: Math.round(totalDrugCost * 100) / 100,
+        total_charge_amt: Math.round(totalChargeAmt * 100) / 100,
+        hsub_claim_amt: 0,
+        hsub_hc_drug: 0,
+        hsub_ae_drug: 0,
+        hsub_dmis_drug: 0,
+        hsub_drug_paid: 0,
+        hsub_total_paid: 0,
+        total_reimbursed: ppfsTotalPaid,
+        ppfs_triferdine_paid: ppfsTriferdinePaid,
+        ppfs_folic_paid: ppfsFolicPaid,
+        ppfs_total_paid: ppfsTotalPaid,
+        ppfs_url: ppfs.ppfs_url,
+        total_revenue: totalRevenue,
+        triferdine_reimbursed: ppfsTriferdinePaid,
+        folic_reimbursed: ppfsFolicPaid,
+        gross_profit: Math.round(grossProfit * 100) / 100,
+        payable_profit: 0,
+        margin_percentage: Math.round(marginPct * 10) / 10,
+        item_breakdown: Array.from(itemMap.values()),
+      };
+    };
+
+    let results: PcuHerbalSummary[] = [];
+    let hospitalSummary: PcuHerbalSummary;
+
+    if (hcode === '11101') {
+      hospitalSummary = await queryHospital11101();
+      results = [hospitalSummary];
+    } else {
+      [results, hospitalSummary] = await Promise.all([
+        Promise.all(targetPcus.map(querySinglePcu)),
+        queryHospital11101(),
+      ]);
+    }
 
   // Calculate grand totals across all PCUs
   const grandTotal = {
@@ -717,6 +891,7 @@ export async function getPcuHerbalReconciliation(options: {
     period: { startDate, endDate },
     grand_total: grandTotal,
     pcus: results,
+    hospital: hospitalSummary,
     hospital_11101_ppfs: PPFS_HOSPITAL_11101,
     master_items: targetMasterList,
   };
@@ -743,11 +918,18 @@ export async function getPcuHerbalDrillDown(options: {
     limit = 50,
   } = options;
 
-  const allPcus = await getActivePcuConfigs();
-  const pcu = allPcus.find(p => p.code === hcode);
-  if (!pcu) throw new Error(`ไม่พบข้อมูล รพ.สต. รหัส ${hcode}`);
-
-  const pool = getPcuPool(pcu);
+  let targetPool: any;
+  let pcuName = '';
+  if (hcode === '11101') {
+    targetPool = pool;
+    pcuName = 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)';
+  } else {
+    const allPcus = await getActivePcuConfigs();
+    const pcu = allPcus.find(p => p.code === hcode);
+    if (!pcu) throw new Error(`ไม่พบข้อมูล รพ.สต. รหัส ${hcode}`);
+    targetPool = getPcuPool(pcu);
+    pcuName = pcu.name;
+  }
   const offset = (page - 1) * limit;
 
   let keywordFilters: string[] = [];
@@ -805,33 +987,41 @@ export async function getPcuHerbalDrillDown(options: {
 
   const whereSql = whereClauses.join(' AND ');
 
-  // Total count
-  const [countRes]: any = await pool.query(
-    `SELECT COUNT(*) as total
-     FROM opitemrece o
-     JOIN drugitems d ON o.icode = d.icode
-     LEFT JOIN patient pt ON o.hn = pt.hn
-     WHERE ${whereSql}`,
-    queryParams
-  );
-  const total = Number(countRes[0]?.total || 0);
+  const conn = await targetPool.getConnection();
+  let countRes: any;
+  let rows: any;
+  try {
+    // Total count
+    [countRes] = await conn.query(
+      `SELECT COUNT(*) as total
+       FROM opitemrece o
+       JOIN drugitems d ON o.icode = d.icode
+       LEFT JOIN patient pt ON o.hn = pt.hn
+       WHERE ${whereSql}`,
+      queryParams
+    );
 
-  // Paginated rows
-  const [rows]: any = await pool.query(
-    `SELECT 
-      o.vn, o.hn, 
-      DATE_FORMAT(o.vstdate, '%Y-%m-%d') as vstdate,
-      CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patient_name,
-      o.icode, d.name as drug_name, d.units,
-      o.qty, o.unitprice, o.sum_price
-     FROM opitemrece o
-     JOIN drugitems d ON o.icode = d.icode
-     LEFT JOIN patient pt ON o.hn = pt.hn
-     WHERE ${whereSql}
-     ORDER BY o.vstdate DESC, o.vn DESC
-     LIMIT ? OFFSET ?`,
-    [...queryParams, limit, offset]
-  );
+    // Paginated rows
+    [rows] = await conn.query(
+      `SELECT 
+        o.vn, o.hn, 
+        DATE_FORMAT(o.vstdate, '%Y-%m-%d') as vstdate,
+        CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as patient_name,
+        o.icode, d.name as drug_name, d.units,
+        o.qty, o.unitprice, o.sum_price
+       FROM opitemrece o
+       JOIN drugitems d ON o.icode = d.icode
+       LEFT JOIN patient pt ON o.hn = pt.hn
+       WHERE ${whereSql}
+       ORDER BY o.vstdate DESC, o.vn DESC
+       LIMIT ? OFFSET ?`,
+      [...queryParams, limit, offset]
+    );
+  } finally {
+    conn.release();
+  }
+
+  const total = Number(countRes?.[0]?.total || 0);
 
   // Calculate unit cost based on master catalog
   const mappedRows = rows.map((r: any) => {
@@ -1031,7 +1221,7 @@ export async function getPcuHerbalDiagAudit(options: PcuHerbalDiagAuditOptions =
 
   const allPcus = await getActivePcuConfigs();
   const targetPcus = hcode && hcode !== 'all'
-    ? allPcus.filter(p => p.code === hcode)
+    ? (hcode === '11101' ? [] : allPcus.filter(p => p.code === hcode))
     : allPcus;
 
   const pcuStats: Array<{
@@ -1062,6 +1252,101 @@ export async function getPcuHerbalDiagAudit(options: PcuHerbalDiagAuditOptions =
     issue_reason: string;
     recommended_diags: string[];
   }> = [];
+
+  // Audit Hospital 11101 when selected or when auditing all
+  const shouldAuditHospital = !hcode || hcode === 'all' || hcode === '11101';
+  if (shouldAuditHospital) {
+    try {
+      const conn = await pool.getConnection();
+      try {
+        const [rows]: any = await conn.query(
+          `SELECT 
+            o.vn, o.hn, 
+            DATE_FORMAT(o.vstdate, '%Y-%m-%d') as vstdate,
+            CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) as pt_name,
+            d.name as drug_name,
+            o.qty, o.sum_price,
+            v.pdx,
+            CONCAT_WS(',', v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5) as all_diags
+          FROM opitemrece o
+          JOIN drugitems d ON o.icode = d.icode
+          LEFT JOIN patient pt ON o.hn = pt.hn
+          LEFT JOIN vn_stat v ON o.vn = v.vn
+          WHERE o.vstdate >= ? AND o.vstdate <= ?
+            AND (
+              d.name LIKE '%ขมิ้น%' OR d.name LIKE '%ฟ้าทะลาย%' OR d.name LIKE '%เถาวัลย์%' OR 
+              d.name LIKE '%ไพล%' OR d.name LIKE '%เพชรสังฆาต%' OR d.name LIKE '%มะระขี้นก%' OR 
+              d.name LIKE '%มะขามป้อม%' OR d.name LIKE '%เขียวหอม%' OR d.name LIKE '%ชุมเห็ดเทศ%' OR 
+              d.name LIKE '%ทองพันชั่ง%' OR d.name LIKE '%ธรณีสัณฆาต%' OR d.name LIKE '%ธาตุอบเชย%' OR 
+              d.name LIKE '%บำรุงโลหิต%' OR d.name LIKE '%เบญจกูล%' OR d.name LIKE '%ประคบ%' OR 
+              d.name LIKE '%รางจืด%' OR d.name LIKE '%สหัสธารา%' OR d.name LIKE '%นวโกฐ%' OR 
+              d.name LIKE '%เหลืองปิดสมุทร%' OR d.name LIKE '%มะแว้ง%' OR d.name LIKE '%เสลดพังพอน%' OR 
+              d.name LIKE '%ห้าราก%' OR d.name LIKE '%กระเจี๊ยบ%' OR d.name LIKE '%ตรีผลา%' OR 
+              d.name LIKE '%ธาตุบรรจบ%' OR d.name LIKE '%จันทร์ลีลา%' OR d.name LIKE '%ปราบชมพูทวีป%' OR 
+              d.name LIKE '%มะขามแขก%' OR d.name LIKE '%หญ้าดอกขาว%' OR d.name LIKE '%หญ้าหนวดแมว%' OR 
+              d.name LIKE '%อินทจักร์%' OR d.name LIKE '%อำมฤควาที%' OR d.name LIKE '%ศุขไสยาสน์%' OR 
+              d.name LIKE '%แก้ลมแก้เส้น%' OR d.name LIKE '%ขี้ผึ้ง%'
+            )
+          ORDER BY o.vstdate DESC, o.vn DESC`,
+          [startDate, endDate]
+        );
+
+        let hospValid = 0;
+        let hospMismatch = 0;
+        let hospMissing = 0;
+        let hospRiskValue = 0;
+
+        for (const r of rows) {
+          const diags = String(r.all_diags || r.pdx || '').split(',').map(s => s.trim()).filter(Boolean);
+          const audit = auditHerbalPrescription(r.drug_name, diags);
+
+          if (audit.status === 'valid') {
+            hospValid++;
+          } else if (audit.status === 'mismatch') {
+            hospMismatch++;
+            hospRiskValue += Number(r.sum_price || 0);
+          } else if (audit.status === 'missing') {
+            hospMissing++;
+            hospRiskValue += Number(r.sum_price || 0);
+          }
+
+          allAuditedItems.push({
+            vn: String(r.vn),
+            hn: String(r.hn),
+            vstdate: String(r.vstdate),
+            patient_name: String(r.pt_name || 'ไม่ระบุชื่อ').trim(),
+            pcu_code: '11101',
+            pcu_name: 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)',
+            drug_name: String(r.drug_name),
+            qty: Number(r.qty || 0),
+            sum_price: Math.round(Number(r.sum_price || 0) * 100) / 100,
+            pdx: String(r.pdx || '-'),
+            all_diags: diags,
+            audit_status: audit.status,
+            indication_group: audit.indication,
+            issue_reason: audit.reason,
+            recommended_diags: audit.recommended,
+          });
+        }
+
+        const totalPresc = rows.length;
+        pcuStats.push({
+          pcu_code: '11101',
+          pcu_name: 'รพ.โคกศรีสุพรรณ (รพ.แม่ข่าย)',
+          total_prescriptions: totalPresc,
+          valid_cnt: hospValid,
+          mismatch_cnt: hospMismatch,
+          missing_cnt: hospMissing,
+          error_rate_pct: totalPresc > 0 ? Math.round(((hospMismatch + hospMissing) / totalPresc) * 1000) / 10 : 0,
+          at_risk_value_baht: Math.round(hospRiskValue * 100) / 100,
+        });
+      } finally {
+        conn.release();
+      }
+    } catch (err: any) {
+      console.warn('[PcuHerbalDiagAudit] Error connecting to Hospital 11101:', err.message);
+    }
+  }
 
   for (const pcu of targetPcus) {
     try {

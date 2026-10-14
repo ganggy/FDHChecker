@@ -180,6 +180,152 @@ export interface ExecutivePipelineMetrics {
   stmCompensatedCount?: number;
 }
 
+export type ErrorIssueType = 'C_CODE' | 'REP_SHEET_ZERO' | 'STM_ZERO';
+
+export type ClinicalDepartmentKey =
+  | 'OPD'
+  | 'PHARMACY'
+  | 'THAI_MED'
+  | 'PHYSICAL_THERAPY'
+  | 'DENTAL'
+  | 'DIALYSIS'
+  | 'IPD'
+  | 'PPFS'
+  | 'OTHER';
+
+export const CLINICAL_DEPARTMENT_KEYS: ClinicalDepartmentKey[] = [
+  'OPD',
+  'PHARMACY',
+  'THAI_MED',
+  'PHYSICAL_THERAPY',
+  'DENTAL',
+  'DIALYSIS',
+  'IPD',
+  'PPFS',
+  'OTHER',
+];
+
+export const CLINICAL_DEPARTMENT_LABELS: Record<ClinicalDepartmentKey, {
+  name: string;
+  icon: string;
+  description: string;
+  defaultGuideline: string;
+}> = {
+  OPD: {
+    name: 'ห้องตรวจผู้ป่วยนอก (OPD)',
+    icon: '🩺',
+    description: 'จุดตรวจรักษาผู้ป่วยนอกทั่วไป, เวชระเบียน, และคลินิกเฉพาะทาง',
+    defaultGuideline: 'ตรวจสอบการลงรหัสวินิจฉัยหลัก (Primary Diag) ให้มีความจำเพาะ, หลีกเลี่ยงรหัส Z ลำพัง, และยืนยันสิทธิ สปสช. ผ่าน Smart Card/Authen Code ให้ตรงวันรับบริการ',
+  },
+  PHARMACY: {
+    name: 'ห้องยาและคลังยา (Pharmacy)',
+    icon: '💊',
+    description: 'การสั่งจ่ายยาผู้ป่วยนอก/ใน, ยานอกบัญชี (NED), และยาตามโครงการพิเศษ',
+    defaultGuideline: 'ปรับปรุง Master TMT 24 หลักในตาราง drugitems ให้ตรงกับ สปสช. 100%, กำกับแพทย์ให้เลือกข้อบ่งชี้ NED ตามเกณฑ์, และขออนุมัติ Pre-Auth (PA) สำหรับยากลุ่มควบคุมก่อนจ่าย',
+  },
+  THAI_MED: {
+    name: 'แพทย์แผนไทย (Thai Med)',
+    icon: '🌿',
+    description: 'งานบริการนวด ประคบ อบสมุนไพร พอกเข่า และเวชกรรมไทย',
+    defaultGuideline: 'จับคู่ ICD-10 ของโรคให้ตรงกับข้อบ่งใช้ของหัตถการและยาสมุนไพร, ควบคุมความถี่ไม่เกินโควตากองทุน (3 ครั้ง/สัปดาห์), และตรวจสอบใบประกอบวิชาชีพผู้ให้บริการในระบบ',
+  },
+  PHYSICAL_THERAPY: {
+    name: 'กายภาพบำบัด (Physical Therapy)',
+    icon: '🏃',
+    description: 'งานฟื้นฟูสมรรถภาพทางกายและเวชกรรมฟื้นฟู',
+    defaultGuideline: 'กำกับให้มีใบสั่งการรักษาจากแพทย์ก่อนเริ่มรอบกายภาพ, บันทึกการประเมินความพิการ/Barthel Index ตามรอบ Intermediate Care (IMC), และหลีกเลี่ยงการเบิกหัตถการที่ซ้ำซ้อนในแพ็กเกจ',
+  },
+  DENTAL: {
+    name: 'ห้องฟัน / ทันตกรรม (Dental)',
+    icon: '🦷',
+    description: 'บริการทันตกรรมป้องกัน บำบัดรักษา และศัลยกรรมช่องปาก',
+    defaultGuideline: 'ตรวจสอบสิทธิและโควตาปีงบประมาณก่อนทำหัตถการ (ขูดหินปูน/เคลือบหลุมร่องฟัน), ตรวจสอบช่วงอายุผู้ป่วยให้ตรงเกณฑ์ PPFS, และบันทึกหมายเลขซี่ฟัน/ด้านให้ถูกต้อง',
+  },
+  DIALYSIS: {
+    name: 'ฟอกไต / ไตเทียม (Dialysis)',
+    icon: '🫘',
+    description: 'บริการฟอกเลือดด้วยเครื่องไตเทียม (HD) และการล้างไตผ่านช่องท้อง (PD)',
+    defaultGuideline: 'ตรวจสอบและต่ออายุใบรับรองสิทธิฟอกไต (KT/CHI) ล่วงหน้า 30 วัน, ควบคุมความถี่รอบสัปดาห์ตามที่กองทุนอนุมัติ, และส่งเบิกแยกกองทุนให้ตรงสิทธิ (ข้าราชการ/อปท./ประกันสังคม)',
+  },
+  IPD: {
+    name: 'ผู้ป่วยใน (IPD / หอผู้ป่วย)',
+    icon: '🛏️',
+    description: 'บริการผู้ป่วยนอนพักรักษาในโรงพยาบาลและการสรุปเวชระเบียน',
+    defaultGuideline: 'เร่งรัดแพทย์สรุปชาร์ตเวชระเบียนภายใน 7-14 วัน, ตรวจสอบ DRG/RW และ Comorbidity/Complication ให้สมบูรณ์, และบันทึกเหตุผลความจำเป็นกรณีวันนอนเกินเกณฑ์เฉลี่ย (Long Stay)',
+  },
+  PPFS: {
+    name: 'ส่งเสริมสุขภาพและป้องกันโรค (PPFS)',
+    icon: '🛡️',
+    description: 'งานสร้างเสริมภูมิคุ้มกัน (EPI), ฝากครรภ์ (ANC), และตรวจคัดกรองสุขภาพ',
+    defaultGuideline: 'ยืนยันตัวตนออก Authen Code ทุกครั้ง, ตรวจสอบช่วงอายุและประวัติการรับบริการในเขตพื้นที่เพื่อป้องกันการคัดกรองซ้ำซ้อน, และนัดติดตามหญิงตั้งครรภ์ให้ครบ 5 ครั้งตามเกณฑ์',
+  },
+  OTHER: {
+    name: 'บริการเฉพาะ / อื่นๆ (Other)',
+    icon: '🧩',
+    description: 'บริการกรณีฉุกเฉินวิกฤต (UCEP/AE), บุคคลไร้สถานะ, และงานบริหารจัดการข้อมูล',
+    defaultGuideline: 'ตรวจสอบการคัดแยกเกณฑ์ UCEP สีแดงภายใน 72 ชั่วโมงแรก, ตรวจสอบสถานะเลข 13 หลักบุคคลไร้สถานะ, และทบทวนโครงสร้างแฟ้มข้อมูลส่งออกก่อนส่งเข้าระบบ e-Claim',
+  },
+};
+
+export interface DepartmentHotspotSummary {
+  departmentKey: ClinicalDepartmentKey;
+  departmentName: string;
+  departmentIcon: string;
+  description: string;
+  totalErrors: number;
+  totalErrorAmount: number;
+  percentageOfErrors: number;
+  percentageOfAmount: number;
+  cCodeCount: number;
+  cCodeAmount: number;
+  repSheetZeroCount: number;
+  repSheetZeroAmount: number;
+  stmZeroCount: number;
+  stmZeroAmount: number;
+  topRootCauses: Array<{
+    codeOrReason: string;
+    description: string;
+    count: number;
+    amount: number;
+    issueType: ErrorIssueType;
+    recommendation: string;
+  }>;
+  actionGuideline: string;
+}
+
+export interface ZeroCProblemCaseItem {
+  id: string;
+  issueType: ErrorIssueType;
+  departmentKey: ClinicalDepartmentKey;
+  departmentName: string;
+  departmentIcon: string;
+  vn?: string;
+  an?: string;
+  hn?: string;
+  serviceDate?: string;
+  patientName?: string;
+  maininscl?: string;
+  errorcode?: string;
+  amount: number;
+  paidAmount: number;
+  rootCause: string;
+  recommendation: string;
+  sourceFilename?: string;
+  sheetName?: string;
+}
+
+export interface ZeroCAuditResult {
+  summary: {
+    totalProblematicCases: number;
+    totalProblematicAmount: number;
+    cCodes: { count: number; amount: number; percentage: number };
+    repSheetZero: { count: number; amount: number; percentage: number };
+    stmZero: { count: number; amount: number; percentage: number };
+  };
+  departmentHotspots: DepartmentHotspotSummary[];
+  problemCases: ZeroCProblemCaseItem[];
+}
+
 export interface ExecutiveMonitorResult {
   period: {
     startDate?: string;
@@ -206,6 +352,7 @@ export interface ExecutiveMonitorResult {
   matrix: Record<RightSchemeKey, Record<ServiceCategoryKey, MetricItem>>;
   smtTransfers: SmtBudgetComparison[];
   topCCodes: TopCCodeItem[];
+  zeroCAudit: ZeroCAuditResult;
 }
 
 /**
@@ -759,6 +906,158 @@ export function extractSubSchemeName(row: any): string {
   return raw;
 }
 
+/**
+ * Classify a problem case into a specific clinical department or service point.
+ */
+export function classifyClinicalDepartment(
+  sKey: ServiceCategoryKey,
+  patientType?: string | null,
+  an?: string | null,
+  vn?: string | null,
+  errorCode?: string | null,
+  rawData?: Record<string, unknown> | string | null,
+  isDental?: boolean,
+  isThaiMed?: boolean
+): ClinicalDepartmentKey {
+  const codeStr = String(errorCode || '').toUpperCase();
+  let rawText = '';
+  if (typeof rawData === 'string') {
+    rawText = rawData.toLowerCase();
+  } else if (rawData && typeof rawData === 'object') {
+    rawText = JSON.stringify(rawData).toLowerCase();
+  }
+
+  // 1. DENTAL
+  if (isDental || sKey === 'DENTAL' || rawText.includes('dental') || rawText.includes('ทันตกรรม') || rawText.includes('ฟัน')) {
+    return 'DENTAL';
+  }
+
+  // 2. THAI_MED
+  if (isThaiMed || sKey === 'THAI_MED' || rawText.includes('แผนไทย') || rawText.includes('สมุนไพร') || rawText.includes('นวด') || rawText.includes('ประคบ')) {
+    return 'THAI_MED';
+  }
+
+  // 3. PHYSICAL_THERAPY
+  if (sKey === 'PHYSICAL_THERAPY' || rawText.includes('กายภาพ') || rawText.includes('physio') || rawText.includes('ฟื้นฟู')) {
+    return 'PHYSICAL_THERAPY';
+  }
+
+  // 4. DIALYSIS
+  if (sKey === 'DIALYSIS' || rawText.includes('ไตเทียม') || rawText.includes('ฟอกเลือด') || rawText.includes('chihd') || rawText.includes('dckd') || codeStr.includes('CHI') || codeStr.includes('KT')) {
+    return 'DIALYSIS';
+  }
+
+  // 5. PHARMACY: Check drug error codes or text
+  const isDrugCode = [
+    '399-1', '301', '302', '303', '304', '305', '306', '307', '308', '309',
+    'C30', 'C31', 'C03', 'C11', 'C22', 'D01', 'D02', 'D03', 'D04'
+  ].some(c => codeStr.includes(c));
+  const isDrugText = rawText.includes(' ned') || rawText.includes('tmt') || rawText.includes('คลังยา') || rawText.includes('ห้องยา') || rawText.includes('เภสัช') || rawText.includes('hc_drug') || rawText.includes('ae_drug') || rawText.includes('dmis_drug');
+  if (isDrugCode || isDrugText) {
+    return 'PHARMACY';
+  }
+
+  // 6. IPD
+  const hasAn = Boolean(an && String(an).trim() !== '' && String(an).trim() !== '0');
+  if (sKey === 'IPD' || patientType === 'IP' || hasAn || rawText.includes('ผู้ป่วยใน') || rawText.includes('ward') || codeStr.includes('DRG') || codeStr.includes('RW')) {
+    return 'IPD';
+  }
+
+  // 7. PPFS
+  if (sKey === 'PPFS' || rawText.includes('ppfs') || rawText.includes('anc') || rawText.includes('สร้างเสริม') || rawText.includes('วัคซีน') || rawText.includes('คัดกรอง')) {
+    return 'PPFS';
+  }
+
+  // 8. OPD
+  if (sKey === 'OPD' || patientType === 'OP' || vn) {
+    return 'OPD';
+  }
+
+  return 'OTHER';
+}
+
+/**
+ * Resolve root cause explanation and actionable recommendation for a problem case.
+ */
+export function resolveProblemRootCauseAndGuide(
+  code: string,
+  issueType: ErrorIssueType,
+  deptKey: ClinicalDepartmentKey,
+  errorCatalog: Record<string, any>
+): { description: string; recommendation: string } {
+  const cleanCode = code.trim().toUpperCase().replace(/^C(?=\d+(?:-\d+)?$)/, '');
+  const catEntry = errorCatalog[cleanCode] || errorCatalog[code];
+
+  if (issueType === 'REP_SHEET_ZERO') {
+    return {
+      description: catEntry?.description || 'ข้อมูลถูกปฏิเสธตั้งแต่ชั้นโครงสร้างแฟ้ม REP (Sheet 0) ไม่ผ่านการตรวจรับข้อมูลเข้าสู่ระบบ',
+      recommendation: catEntry?.guide || 'ตรวจสอบความถูกต้องของโครงสร้าง 16 แฟ้ม, เลขบัตรประชาชน, รหัสหน่วยบริการ และข้อมูลพื้นฐานของผู้รับบริการ',
+    };
+  }
+
+  if (issueType === 'STM_ZERO') {
+    return {
+      description: catEntry?.description || 'สเตทเมนต์ชดเชย 0 บาท / กองทุนตัดจ่าย (ไม่ผ่านเกณฑ์การตรวจสอบย้อนหลังหรือเงื่อนไขชดเชย)',
+      recommendation: catEntry?.guide || 'ตรวจสอบบันทึกบริการต้นทางใน HOSxP, ยืนยันสิทธิกับกองทุน และพิจารณาปรับปรุงข้อมูลเพื่อขออุทธรณ์การเบิกจ่าย',
+    };
+  }
+
+  if (catEntry) {
+    return {
+      description: catEntry.description,
+      recommendation: catEntry.guide || CLINICAL_DEPARTMENT_LABELS[deptKey].defaultGuideline,
+    };
+  }
+
+  // Department-specific fallbacks
+  switch (deptKey) {
+    case 'PHARMACY':
+      return {
+        description: 'ข้อผิดพลาดเกี่ยวกับรายการยา (รหัส TMT ไม่แมป / ยานอกบัญชี NED ขาดข้อบ่งชี้ / จ่ายเกินเกณฑ์ชดเชย)',
+        recommendation: 'ตรวจสอบรหัสยา 24 หลักในฐาน drugitems, ระบุข้อบ่งชี้การใช้ยา NED ให้ชัดเจนใน HOSxP และแนบเอกสารขออนุมัติ PA',
+      };
+    case 'THAI_MED':
+      return {
+        description: 'ข้อผิดพลาดแพทย์แผนไทย (รหัสโรค ICD-10 ไม่สัมพันธ์กับหัตถการ / นวดประคบเกินโควตา / ขาดใบประกอบวิชาชีพ)',
+        recommendation: 'ตรวจสอบจับคู่ ICD-10 กับ ICD-10-TM ในระบบบันทึกงานแพทย์แผนไทย และควบคุมความถี่ไม่เกิน 3 ครั้ง/สัปดาห์',
+      };
+    case 'DENTAL':
+      return {
+        description: 'ข้อผิดพลาดทันตกรรม (ทำหัตถการซ้ำซ้อนเกินโควตาต่อปี / ผิดช่วงอายุเกณฑ์ PPFS / รหัสซี่ฟันไม่ตรง)',
+        recommendation: 'ตรวจสอบประวัติทันตกรรมย้อนหลังในฐาน สปสช. ก่อนให้บริการ และตรวจสอบเกณฑ์ช่วงอายุของผู้รับบริการ',
+      };
+    case 'PHYSICAL_THERAPY':
+      return {
+        description: 'ข้อผิดพลาดกายภาพบำบัด (รหัสหัตถการไม่สัมพันธ์กับโรค / ขาดใบสั่งการรักษาจากแพทย์ / เบิกซ้ำซ้อนในแพ็กเกจ)',
+        recommendation: 'ตรวจสอบให้มีใบส่งตัว/ใบสั่งตรวจจากแพทย์ และประเมิน Barthel Index ตามรอบการฟื้นฟู Intermediate Care',
+      };
+    case 'DIALYSIS':
+      return {
+        description: 'ข้อผิดพลาดฟอกไต (ขาดรหัสรับรองสิทธิ KT/CHI / ใบรับรองหมดอายุ / เบิกซ้ำซ้อนรอบสัปดาห์)',
+        recommendation: 'ตรวจสอบและต่ออายุใบรับรองสิทธิฟอกไตล่วงหน้า 30 วัน และแยกส่งตามกองทุนให้ตรงสิทธิผู้ป่วย',
+      };
+    case 'IPD':
+      return {
+        description: 'ข้อผิดพลาดผู้ป่วยใน (สรุปชาร์ตเกินกำหนด / วันนอนเกินเกณฑ์ / DRG-RW ต่ำกว่าเกณฑ์ชดเชย)',
+        recommendation: 'ตรวจสอบชาร์ตเวชระเบียนร่วมกับแพทย์ผู้รักษา เร่งรัดการสรุปชาร์ตภายใน 14 วัน และระบุ Comorbidity/Complication ให้ครบ',
+      };
+    case 'PPFS':
+      return {
+        description: 'ข้อผิดพลาดส่งเสริมป้องกัน (ตรวจซ้ำซ้อน / ขาด Authen Code / ไม่ตรงช่วงอายุตามเกณฑ์ สปสช.)',
+        recommendation: 'ยืนยันตัวตนออก Authen Code ทุกเคส และตรวจสอบประวัติรับบริการในเขตสุขภาพก่อนให้บริการซ้ำ',
+      };
+    case 'OPD':
+      return {
+        description: 'ข้อผิดพลาดผู้ป่วยนอก (ขาด Primary Diagnosis / ใช้รหัส Z ผิดเงื่อนไข / สิทธิไม่ตรงกับฐาน สปสช.)',
+        recommendation: 'ลงรหัสวินิจฉัยหลักที่มีความจำเพาะ หลีกเลี่ยงรหัส Z ลำพัง และตรวจสอบสิทธิผ่าน Smart Card ทุกครั้ง',
+      };
+    default:
+      return {
+        description: 'รหัสปฏิเสธการจ่ายหรือเงื่อนไขการส่งเบิก (C-Code)',
+        recommendation: 'ตรวจสอบเวชระเบียนและเอกสารประกอบการส่งเบิก ปรับปรุงข้อมูลให้ถูกต้องตามเงื่อนไขของกองทุน',
+      };
+  }
+}
 
 /**
  * Query total hospital patient visits (OPD visits and IPD admissions) from HOSxP.
@@ -1042,6 +1341,7 @@ export async function getExecutiveMonitorSummary(params: {
          hn,
          vn,
          an,
+         patient_name,
          patient_type,
          department,
          DATE_FORMAT(service_datetime, '%Y-%m-%d') AS service_date,
@@ -1086,6 +1386,7 @@ export async function getExecutiveMonitorSummary(params: {
          hn,
          vn,
          an,
+         patient_name,
          patient_type,
          department,
          DATE_FORMAT(admdate, '%Y-%m-%d') AS service_date,
@@ -1147,6 +1448,46 @@ export async function getExecutiveMonitorSummary(params: {
       fdhQueryParams
     );
     const fdhRows = (fdhRowsRaw as any[]) || [];
+
+    // Fetch REP Sheet 0 rows (rejected at REP file ingestion layer)
+    const activeBatchClause = `NOT EXISTS (SELECT 1 FROM repstm_import_batch replacement WHERE replacement.replaces_batch_id = b.id)`;
+    const sheetZeroClause = `LOWER(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(b.sheet_name, ''), ' ', ''), '_', ''), '-', ''), '.', '')) IN ('sheet0', 'datasheet0', '0')`;
+    let repSheetZeroWhere = `WHERE r.data_type = 'REP' AND b.data_type = 'REP' AND ${sheetZeroClause} AND ${activeBatchClause}`;
+    const repSheetZeroParams: any[] = [];
+    if (effectiveStartDate && effectiveEndDate) {
+      repSheetZeroWhere += ` AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY)`;
+      repSheetZeroParams.push(effectiveStartDate, effectiveEndDate);
+    }
+
+    let repSheetZeroRows: any[] = [];
+    try {
+      const [rsz] = await repConn.query(
+        `SELECT
+           r.id,
+           r.batch_id,
+           'REP' AS data_type,
+           'REP_SHEET_ZERO' AS issue_type,
+           r.row_no,
+           r.hn,
+           r.vn,
+           r.an,
+           COALESCE(r.amount, 0) AS amount,
+           r.service_date,
+           r.raw_data,
+           b.source_filename,
+           b.sheet_name,
+           DATE_FORMAT(r.created_at, '%Y-%m-%d') AS created_date
+         FROM repstm_import_row r
+         JOIN repstm_import_batch b ON b.id = r.batch_id
+         ${repSheetZeroWhere}
+         ORDER BY r.id DESC
+         LIMIT 5000`,
+        repSheetZeroParams
+      );
+      repSheetZeroRows = (rsz as any[]) || [];
+    } catch (err) {
+      console.warn('[ExecutiveMonitor] repSheetZero query notice:', err);
+    }
 
     // 3. Initialize metrics
     const matrix: Record<RightSchemeKey, Record<ServiceCategoryKey, MetricItem>> = {} as any;
@@ -1224,6 +1565,106 @@ export async function getExecutiveMonitorSummary(params: {
     }>();
 
     const tranIdToVisitKey = new Map<string, string>();
+
+    // Zero / C Problem Tracking by Clinical Department & Point of Service
+    const problemVisitMap = new Map<string, ZeroCProblemCaseItem>();
+    const deptErrorStats = new Map<ClinicalDepartmentKey, {
+      totalErrors: number;
+      totalErrorAmount: number;
+      cCodeCount: number;
+      cCodeAmount: number;
+      repSheetZeroCount: number;
+      repSheetZeroAmount: number;
+      stmZeroCount: number;
+      stmZeroAmount: number;
+      causesMap: Map<string, { codeOrReason: string; description: string; count: number; amount: number; issueType: ErrorIssueType; recommendation: string }>;
+    }>();
+
+    for (const dk of CLINICAL_DEPARTMENT_KEYS) {
+      deptErrorStats.set(dk, {
+        totalErrors: 0,
+        totalErrorAmount: 0,
+        cCodeCount: 0,
+        cCodeAmount: 0,
+        repSheetZeroCount: 0,
+        repSheetZeroAmount: 0,
+        stmZeroCount: 0,
+        stmZeroAmount: 0,
+        causesMap: new Map(),
+      });
+    }
+
+    const recordProblemCase = (p: {
+      visitKey: string;
+      issueType: ErrorIssueType;
+      deptKey: ClinicalDepartmentKey;
+      vn: string;
+      an: string;
+      hn: string;
+      patientName: string;
+      maininscl: string;
+      serviceDate: string;
+      errorCode: string;
+      amount: number;
+      paidAmount: number;
+      sourceFilename: string;
+      sheetName?: string;
+    }) => {
+      let existing = problemVisitMap.get(p.visitKey);
+      if (!existing) {
+        const { description, recommendation } = resolveProblemRootCauseAndGuide(
+          p.errorCode,
+          p.issueType,
+          p.deptKey,
+          errorCatalog
+        );
+        existing = {
+          id: p.visitKey,
+          issueType: p.issueType,
+          departmentKey: p.deptKey,
+          departmentName: CLINICAL_DEPARTMENT_LABELS[p.deptKey].name,
+          departmentIcon: CLINICAL_DEPARTMENT_LABELS[p.deptKey].icon,
+          vn: p.vn || undefined,
+          an: p.an || undefined,
+          hn: p.hn || undefined,
+          patientName: p.patientName || undefined,
+          maininscl: p.maininscl || undefined,
+          serviceDate: p.serviceDate || undefined,
+          errorcode: p.errorCode || undefined,
+          amount: Math.max(0, p.amount),
+          paidAmount: Math.max(0, p.paidAmount),
+          rootCause: description,
+          recommendation,
+          sourceFilename: p.sourceFilename || undefined,
+          sheetName: p.sheetName || undefined,
+        };
+        problemVisitMap.set(p.visitKey, existing);
+      } else {
+        if (existing.issueType === 'STM_ZERO' && p.issueType === 'C_CODE') {
+          existing.issueType = 'C_CODE';
+          if (p.errorCode) {
+            existing.errorcode = existing.errorcode ? `${existing.errorcode}, ${p.errorCode}` : p.errorCode;
+          }
+          const { description, recommendation } = resolveProblemRootCauseAndGuide(
+            p.errorCode,
+            'C_CODE',
+            p.deptKey,
+            errorCatalog
+          );
+          existing.rootCause = description;
+          existing.recommendation = recommendation;
+        }
+        if (p.amount > existing.amount) existing.amount = p.amount;
+        if (p.deptKey !== 'OPD' && p.deptKey !== 'OTHER' && (existing.departmentKey === 'OPD' || existing.departmentKey === 'OTHER')) {
+          existing.departmentKey = p.deptKey;
+          existing.departmentName = CLINICAL_DEPARTMENT_LABELS[p.deptKey].name;
+          existing.departmentIcon = CLINICAL_DEPARTMENT_LABELS[p.deptKey].icon;
+        }
+        if (!existing.patientName && p.patientName) existing.patientName = p.patientName;
+        if (!existing.hn && p.hn) existing.hn = p.hn;
+        if (!existing.maininscl && p.maininscl) existing.maininscl = p.maininscl;
+      }
+    };
 
     const processRow = (row: any) => {
       // Extract raw_data JSON object if available
@@ -1430,11 +1871,90 @@ export async function getExecutiveMonitorSummary(params: {
           sMap.set(code, sExisting);
         }
       }
+
+      // Track problem case for Zero / C Department Audit
+      const isZeroPaid = isStm && (paid === 0 || row.paid_amount === null || String(row.paid_amount) === '0');
+      if (cFlag || isZeroPaid) {
+        const issueType: ErrorIssueType = cFlag ? 'C_CODE' : 'STM_ZERO';
+        const primaryCode = errorCodes[0] || (cFlag ? 'DENY' : 'STM_ZERO');
+        const deptKey = classifyClinicalDepartment(sKey, row.patient_type, cleanAn, vn, primaryCode, rawObj, isDental, isThaiMed);
+        const pName = String(row.patient_name || rawObj?.['ชื่อ-สกุล'] || rawObj?.['ชื่อ - สกุล'] || rawObj?.patient_name || '').trim();
+        const mainIns = String(row.maininscl || rawObj?.maininscl || rawObj?.pttype || '').trim();
+        const srcFile = String(row.filename || rawObj?.filename || '').trim();
+
+        recordProblemCase({
+          visitKey,
+          issueType,
+          deptKey,
+          vn,
+          an: cleanAn,
+          hn: String(row.hn || rawObj?.hn || '').trim(),
+          patientName: pName,
+          maininscl: mainIns,
+          serviceDate: rowDate,
+          errorCode: errorCodes.join(', ') || primaryCode,
+          amount: claimed,
+          paidAmount: paid,
+          sourceFilename: srcFile,
+          sheetName: String(row.sheet_name || rawObj?.sheet_name || '').trim(),
+        });
+      }
     };
 
     for (const r of statementRows) processRow(r);
     for (const r of repDataRows) processRow(r);
     for (const r of fdhRows) processRow(r);
+
+    // Process REP Sheet 0 rows (rejected at REP file ingestion layer)
+    for (const r of repSheetZeroRows) {
+      let rawObj: any = null;
+      if (r.raw_data) {
+        if (typeof r.raw_data === 'string') {
+          try { rawObj = JSON.parse(r.raw_data); } catch { /* ignore */ }
+        } else if (typeof r.raw_data === 'object') {
+          rawObj = r.raw_data;
+        }
+      }
+      const vn = String(r.vn || rawObj?.['รหัสบริการ (SEQ)'] || rawObj?.['SEQ NO'] || rawObj?.vn || rawObj?.VN || '').trim();
+      const an = String(r.an || rawObj?.['รหัสผู้ป่วยใน (AN)'] || rawObj?.an || rawObj?.AN || '').trim();
+      const hn = String(r.hn || rawObj?.hn || rawObj?.HN || '').trim();
+      const pName = String(rawObj?.['ชื่อ-สกุล'] || rawObj?.['ชื่อ - สกุล'] || rawObj?.patient_name || '').trim();
+      const mainIns = String(rawObj?.maininscl || rawObj?.pttype || '').trim();
+      const amt = Number(r.amount || rawObj?.amount || rawObj?.['เรียกเก็บ'] || 0);
+      let sDate = r.service_date || '';
+      if (!sDate && rawObj) {
+        const rawDateStr = rawObj['วันเข้ารักษา'] || rawObj['วันที่รับบริการ'] || rawObj['วันที่'] || rawObj['DATE_SERV'] || '';
+        const parsed = parseFlexibleDateTime(rawDateStr);
+        if (parsed) sDate = parsed.slice(0, 10);
+      }
+      if (!sDate) sDate = r.created_date || '';
+      if (effectiveStartDate && effectiveEndDate && sDate) {
+        if (sDate < effectiveStartDate || sDate > effectiveEndDate) continue;
+      }
+
+      const errCode = String(rawObj?.errorcode || rawObj?.['รหัสข้อผิดพลาด'] || rawObj?.['รหัสไม่ผ่าน'] || rawObj?.['error code'] || 'REP_SHEET_0').trim();
+      const isDental = vn !== '' && dentalVnSet.has(vn);
+      const isThaiMed = vn !== '' && thaiMedVnMap.has(vn);
+      const deptKey = classifyClinicalDepartment('OTHER', null, an, vn, errCode, rawObj, isDental, isThaiMed);
+      const vKey = an ? 'AN_' + an : (vn ? 'VN_' + vn : 'REP0_' + r.id);
+
+      recordProblemCase({
+        visitKey: vKey,
+        issueType: 'REP_SHEET_ZERO',
+        deptKey,
+        vn,
+        an,
+        hn,
+        patientName: pName,
+        maininscl: mainIns,
+        serviceDate: sDate,
+        errorCode: errCode,
+        amount: amt,
+        paidAmount: 0,
+        sourceFilename: String(r.source_filename || '').trim(),
+        sheetName: String(r.sheet_name || 'Sheet 0').trim(),
+      });
+    }
 
     // Now roll up aggregates into matrix, byService, and byRight
     let totalClaimedAmount = 0;
@@ -1728,6 +2248,127 @@ export async function getExecutiveMonitorSummary(params: {
       stmCompensatedCount,
     };
 
+    // 7. Aggregate Zero / C Department Audit
+    let totalProblematicAmount = 0;
+    let totalProblematicCases = 0;
+    let cCodeCount = 0;
+    let cCodeAmount = 0;
+    let repSheetZeroCount = 0;
+    let repSheetZeroAmount = 0;
+    let stmZeroCount = 0;
+    let stmZeroAmount = 0;
+
+    for (const item of problemVisitMap.values()) {
+      totalProblematicCases++;
+      totalProblematicAmount += item.amount;
+
+      if (item.issueType === 'C_CODE') {
+        cCodeCount++;
+        cCodeAmount += item.amount;
+      } else if (item.issueType === 'REP_SHEET_ZERO') {
+        repSheetZeroCount++;
+        repSheetZeroAmount += item.amount;
+      } else {
+        stmZeroCount++;
+        stmZeroAmount += item.amount;
+      }
+
+      const dStat = deptErrorStats.get(item.departmentKey)!;
+      dStat.totalErrors++;
+      dStat.totalErrorAmount += item.amount;
+      if (item.issueType === 'C_CODE') {
+        dStat.cCodeCount++;
+        dStat.cCodeAmount += item.amount;
+      } else if (item.issueType === 'REP_SHEET_ZERO') {
+        dStat.repSheetZeroCount++;
+        dStat.repSheetZeroAmount += item.amount;
+      } else {
+        dStat.stmZeroCount++;
+        dStat.stmZeroAmount += item.amount;
+      }
+
+      const causeKey = item.errorcode || (item.issueType === 'REP_SHEET_ZERO' ? 'โครงสร้าง REP Sheet 0' : 'ตัดจ่าย STM 0');
+      let cEntry = dStat.causesMap.get(causeKey);
+      if (!cEntry) {
+        cEntry = {
+          codeOrReason: causeKey,
+          description: item.rootCause,
+          count: 0,
+          amount: 0,
+          issueType: item.issueType,
+          recommendation: item.recommendation,
+        };
+        dStat.causesMap.set(causeKey, cEntry);
+      }
+      cEntry.count++;
+      cEntry.amount += item.amount;
+    }
+
+    const departmentHotspots: DepartmentHotspotSummary[] = CLINICAL_DEPARTMENT_KEYS.map((dk) => {
+      const dStat = deptErrorStats.get(dk)!;
+      const topRootCauses = Array.from(dStat.causesMap.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5)
+        .map(c => ({
+          ...c,
+          amount: Math.round(c.amount * 100) / 100,
+        }));
+
+      const pctErrors = totalProblematicCases > 0
+        ? Math.round((dStat.totalErrors / totalProblematicCases) * 10000) / 100
+        : 0;
+      const pctAmount = totalProblematicAmount > 0
+        ? Math.round((dStat.totalErrorAmount / totalProblematicAmount) * 10000) / 100
+        : 0;
+
+      return {
+        departmentKey: dk,
+        departmentName: CLINICAL_DEPARTMENT_LABELS[dk].name,
+        departmentIcon: CLINICAL_DEPARTMENT_LABELS[dk].icon,
+        description: CLINICAL_DEPARTMENT_LABELS[dk].description,
+        totalErrors: dStat.totalErrors,
+        totalErrorAmount: Math.round(dStat.totalErrorAmount * 100) / 100,
+        percentageOfErrors: pctErrors,
+        percentageOfAmount: pctAmount,
+        cCodeCount: dStat.cCodeCount,
+        cCodeAmount: Math.round(dStat.cCodeAmount * 100) / 100,
+        repSheetZeroCount: dStat.repSheetZeroCount,
+        repSheetZeroAmount: Math.round(dStat.repSheetZeroAmount * 100) / 100,
+        stmZeroCount: dStat.stmZeroCount,
+        stmZeroAmount: Math.round(dStat.stmZeroAmount * 100) / 100,
+        topRootCauses,
+        actionGuideline: CLINICAL_DEPARTMENT_LABELS[dk].defaultGuideline,
+      };
+    }).sort((a, b) => b.totalErrorAmount - a.totalErrorAmount || b.totalErrors - a.totalErrors);
+
+    const sortedProblemCases = Array.from(problemVisitMap.values())
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 1000);
+
+    const zeroCAudit: ZeroCAuditResult = {
+      summary: {
+        totalProblematicCases,
+        totalProblematicAmount: Math.round(totalProblematicAmount * 100) / 100,
+        cCodes: {
+          count: cCodeCount,
+          amount: Math.round(cCodeAmount * 100) / 100,
+          percentage: totalProblematicCases > 0 ? Math.round((cCodeCount / totalProblematicCases) * 10000) / 100 : 0,
+        },
+        repSheetZero: {
+          count: repSheetZeroCount,
+          amount: Math.round(repSheetZeroAmount * 100) / 100,
+          percentage: totalProblematicCases > 0 ? Math.round((repSheetZeroCount / totalProblematicCases) * 10000) / 100 : 0,
+        },
+        stmZero: {
+          count: stmZeroCount,
+          amount: Math.round(stmZeroAmount * 100) / 100,
+          percentage: totalProblematicCases > 0 ? Math.round((stmZeroCount / totalProblematicCases) * 10000) / 100 : 0,
+        },
+      },
+      departmentHotspots,
+      problemCases: sortedProblemCases,
+    };
+
     return {
       period: {
         startDate: effectiveStartDate,
@@ -1754,6 +2395,7 @@ export async function getExecutiveMonitorSummary(params: {
       matrix,
       smtTransfers,
       topCCodes,
+      zeroCAudit,
     };
   } finally {
     repConn.release();

@@ -5,6 +5,8 @@ import {
   RIGHT_SCHEME_LABELS,
   SERVICE_CATEGORY_ORDER,
   RIGHT_SCHEME_ORDER,
+  CLINICAL_DEPARTMENT_KEYS,
+  CLINICAL_DEPARTMENT_LABELS,
 } from '../executiveMonitorService.js';
 
 export const executiveMonitorRouter = Router();
@@ -30,12 +32,18 @@ executiveMonitorRouter.get('/filter-options', (_req, res) => {
     ...RIGHT_SCHEME_LABELS[key],
   }));
 
+  const clinicalDepartments = CLINICAL_DEPARTMENT_KEYS.map((key) => ({
+    key,
+    ...CLINICAL_DEPARTMENT_LABELS[key],
+  }));
+
   return res.json({
     success: true,
     data: {
       budgetYears: years,
       serviceCategories,
       rightSchemes,
+      clinicalDepartments,
     },
   });
 });

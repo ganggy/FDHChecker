@@ -108,6 +108,78 @@ export interface ExecutivePipelineMetrics {
   stmCompensatedCount?: number;
 }
 
+export type ErrorIssueType = 'C_CODE' | 'REP_SHEET_ZERO' | 'STM_ZERO';
+
+export type ClinicalDepartmentKey =
+  | 'OPD'
+  | 'PHARMACY'
+  | 'THAI_MED'
+  | 'PHYSICAL_THERAPY'
+  | 'DENTAL'
+  | 'DIALYSIS'
+  | 'IPD'
+  | 'PPFS'
+  | 'OTHER';
+
+export interface DepartmentHotspotSummary {
+  departmentKey: ClinicalDepartmentKey;
+  departmentName: string;
+  departmentIcon: string;
+  description: string;
+  totalErrors: number;
+  totalErrorAmount: number;
+  percentageOfErrors: number;
+  percentageOfAmount: number;
+  cCodeCount: number;
+  cCodeAmount: number;
+  repSheetZeroCount: number;
+  repSheetZeroAmount: number;
+  stmZeroCount: number;
+  stmZeroAmount: number;
+  topRootCauses: Array<{
+    codeOrReason: string;
+    description: string;
+    count: number;
+    amount: number;
+    issueType: ErrorIssueType;
+    recommendation: string;
+  }>;
+  actionGuideline: string;
+}
+
+export interface ZeroCProblemCaseItem {
+  id: string;
+  issueType: ErrorIssueType;
+  departmentKey: ClinicalDepartmentKey;
+  departmentName: string;
+  departmentIcon: string;
+  vn?: string;
+  an?: string;
+  hn?: string;
+  serviceDate?: string;
+  patientName?: string;
+  maininscl?: string;
+  errorcode?: string;
+  amount: number;
+  paidAmount: number;
+  rootCause: string;
+  recommendation: string;
+  sourceFilename?: string;
+  sheetName?: string;
+}
+
+export interface ZeroCAuditResult {
+  summary: {
+    totalProblematicCases: number;
+    totalProblematicAmount: number;
+    cCodes: { count: number; amount: number; percentage: number };
+    repSheetZero: { count: number; amount: number; percentage: number };
+    stmZero: { count: number; amount: number; percentage: number };
+  };
+  departmentHotspots: DepartmentHotspotSummary[];
+  problemCases: ZeroCProblemCaseItem[];
+}
+
 export interface ExecutiveMonitorResult {
   period: {
     startDate?: string;
@@ -134,6 +206,7 @@ export interface ExecutiveMonitorResult {
   matrix: Record<string, Record<string, MetricItem>>;
   smtTransfers: SmtBudgetComparison[];
   topCCodes: TopCCodeItem[];
+  zeroCAudit?: ZeroCAuditResult;
 }
 
 const formatCurrency = (val: number | undefined | null) =>
@@ -165,9 +238,14 @@ export const ExecutiveMonitorPage: React.FC = () => {
     ];
   }, [defByNum]);
 
-  const [activeTab, setActiveTab] = useState<'matrix' | 'services' | 'smt' | 'top_c'>('matrix');
+  const [activeTab, setActiveTab] = useState<'matrix' | 'services' | 'smt' | 'top_c' | 'zero_c_audit'>('matrix');
   const [matrixMetricMode, setMatrixMetricMode] = useState<'claimed' | 'c_code' | 'reimbursed' | 'rate'>('claimed');
   const [matrixDisplayMode, setMatrixDisplayMode] = useState<'amount' | 'visits' | 'both'>('both');
+
+  // Filters for Zero / C Department Audit
+  const [selectedAuditDept, setSelectedAuditDept] = useState<string>('ALL');
+  const [selectedIssueType, setSelectedIssueType] = useState<string>('ALL');
+  const [auditSearchQuery, setAuditSearchQuery] = useState<string>('');
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -177,7 +255,27 @@ export const ExecutiveMonitorPage: React.FC = () => {
     budgetYears: string[];
     serviceCategories: Array<{ key: string; name: string; icon: string }>;
     rightSchemes: Array<{ key: string; name: string; icon: string }>;
+    clinicalDepartments?: Array<{ key: string; name: string; icon: string; description: string; defaultGuideline: string }>;
   } | null>(null);
+
+  const filteredProblemCases = useMemo(() => {
+    if (!data?.zeroCAudit?.problemCases) return [];
+    return data.zeroCAudit.problemCases.filter((item) => {
+      if (selectedAuditDept !== 'ALL' && item.departmentKey !== selectedAuditDept) return false;
+      if (selectedIssueType !== 'ALL' && item.issueType !== selectedIssueType) return false;
+      if (auditSearchQuery.trim()) {
+        const q = auditSearchQuery.trim().toLowerCase();
+        const matchVn = item.vn?.toLowerCase().includes(q);
+        const matchAn = item.an?.toLowerCase().includes(q);
+        const matchHn = item.hn?.toLowerCase().includes(q);
+        const matchName = item.patientName?.toLowerCase().includes(q);
+        const matchErr = item.errorcode?.toLowerCase().includes(q);
+        const matchCause = item.rootCause?.toLowerCase().includes(q);
+        if (!matchVn && !matchAn && !matchHn && !matchName && !matchErr && !matchCause) return false;
+      }
+      return true;
+    });
+  }, [data?.zeroCAudit?.problemCases, selectedAuditDept, selectedIssueType, auditSearchQuery]);
 
   // Load filter options on mount
   useEffect(() => {
@@ -429,12 +527,108 @@ export const ExecutiveMonitorPage: React.FC = () => {
       }
     }
 
-    if (subSchemeRows.length > 0) {
-      const wsSub = XLSX.utils.json_to_sheet(subSchemeRows);
-      XLSX.utils.book_append_sheet(wb, wsSub, 'สิทธิย่อยและกองทุน');
+    // Sheet 7: Department Hotspots (จุดเกิดเหตุผิดพลาดแยกแผนก)
+    if (data.zeroCAudit?.departmentHotspots && data.zeroCAudit.departmentHotspots.length > 0) {
+      const hotspotRows = data.zeroCAudit.departmentHotspots.map((d) => ({
+        จุดบริการ_แผนก: d.departmentName,
+        ยอดเงินสูญเสีย_บาท: d.totalErrorAmount,
+        สัดส่วนยอดเงิน_เปอร์เซ็นต์: d.percentageOfAmount,
+        จำนวนเคสผิดพลาด_ครั้ง: d.totalErrors,
+        สัดส่วนเคส_เปอร์เซ็นต์: d.percentageOfErrors,
+        เคสติด_C_บาท: d.cCodeAmount,
+        เคสติด_C_ครั้ง: d.cCodeCount,
+        เคส_REP_Sheet0_บาท: d.repSheetZeroAmount,
+        เคส_REP_Sheet0_ครั้ง: d.repSheetZeroCount,
+        เคส_STM0_บาท: d.stmZeroAmount,
+        เคส_STM0_ครั้ง: d.stmZeroCount,
+        สาเหตุหลักที่พบบ่อย: d.topRootCauses.map((c) => `${c.codeOrReason} (${c.count} ครั้ง)`).join('; '),
+        แนวทางแก้ไขเชิงนโยบาย: d.actionGuideline,
+      }));
+      const wsHotspot = XLSX.utils.json_to_sheet(hotspotRows);
+      XLSX.utils.book_append_sheet(wb, wsHotspot, 'จุดเกิดเหตุผิดพลาดแยกแผนก');
+    }
+
+    // Sheet 8: Problem Cases Drill-down (รายการเคสปัญหา)
+    if (data.zeroCAudit?.problemCases && data.zeroCAudit.problemCases.length > 0) {
+      const caseRows = data.zeroCAudit.problemCases.map((c) => ({
+        วันที่รับบริการ: c.serviceDate || '',
+        แผนก: c.departmentName,
+        ประเภทปัญหา: c.issueType === 'C_CODE' ? 'ติด C (Deny)' : c.issueType === 'REP_SHEET_ZERO' ? 'REP Sheet 0' : 'STM = 0',
+        VN: c.vn || '',
+        AN: c.an || '',
+        HN: c.hn || '',
+        ชื่อผู้ป่วย: c.patientName || '',
+        สิทธิการรักษา: c.maininscl || '',
+        รหัสข้อผิดพลาด: c.errorcode || '',
+        ยอดเรียกเก็บ_บาท: c.amount,
+        ยอดชดเชย_บาท: c.paidAmount,
+        สาเหตุเชิงลึก: c.rootCause,
+        แนวทางแก้ไข: c.recommendation,
+        ชื่อไฟล์ที่มา: c.sourceFilename || '',
+      }));
+      const wsCases = XLSX.utils.json_to_sheet(caseRows);
+      XLSX.utils.book_append_sheet(wb, wsCases, 'รายการเคสปัญหา');
     }
 
     XLSX.writeFile(wb, `Executive_Monitor_FY${data.period.budgetYear}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const handleExportZeroCExcel = () => {
+    if (!data?.zeroCAudit) return;
+    const wb = XLSX.utils.book_new();
+
+    const summaryRows = [
+      { หัวข้อ: 'ยอดรวมเคสปัญหาทั้งหมด (ครั้ง)', ค่า: data.zeroCAudit.summary.totalProblematicCases },
+      { หัวข้อ: 'ยอดเงินสูญเสีย/เสี่ยงสูญเสียรวม (บาท)', ค่า: data.zeroCAudit.summary.totalProblematicAmount },
+      { หัวข้อ: 'เคสติด C / Deny (ครั้ง)', ค่า: data.zeroCAudit.summary.cCodes.count },
+      { หัวข้อ: 'เคสติด C / Deny (บาท)', ค่า: data.zeroCAudit.summary.cCodes.amount },
+      { หัวข้อ: 'เคส REP Sheet 0 (ครั้ง)', ค่า: data.zeroCAudit.summary.repSheetZero.count },
+      { หัวข้อ: 'เคส REP Sheet 0 (บาท)', ค่า: data.zeroCAudit.summary.repSheetZero.amount },
+      { หัวข้อ: 'เคส STM = 0 (ครั้ง)', ค่า: data.zeroCAudit.summary.stmZero.count },
+      { หัวข้อ: 'เคส STM = 0 (บาท)', ค่า: data.zeroCAudit.summary.stmZero.amount },
+    ];
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'สรุปภาพรวมความเสียหาย');
+
+    const hotspotRows = data.zeroCAudit.departmentHotspots.map((d) => ({
+      จุดบริการ_แผนก: d.departmentName,
+      ยอดเงินสูญเสีย_บาท: d.totalErrorAmount,
+      สัดส่วนยอดเงิน_เปอร์เซ็นต์: d.percentageOfAmount,
+      จำนวนเคสผิดพลาด_ครั้ง: d.totalErrors,
+      สัดส่วนเคส_เปอร์เซ็นต์: d.percentageOfErrors,
+      เคสติด_C_บาท: d.cCodeAmount,
+      เคสติด_C_ครั้ง: d.cCodeCount,
+      เคส_REP_Sheet0_บาท: d.repSheetZeroAmount,
+      เคส_REP_Sheet0_ครั้ง: d.repSheetZeroCount,
+      เคส_STM0_บาท: d.stmZeroAmount,
+      เคส_STM0_ครั้ง: d.stmZeroCount,
+      สาเหตุหลักที่พบบ่อย: d.topRootCauses.map((c) => `${c.codeOrReason} (${c.count} ครั้ง)`).join('; '),
+      แนวทางแก้ไขเชิงนโยบาย: d.actionGuideline,
+    }));
+    const wsHotspot = XLSX.utils.json_to_sheet(hotspotRows);
+    XLSX.utils.book_append_sheet(wb, wsHotspot, 'วิเคราะห์แยกแผนก');
+
+    const casesToExport = filteredProblemCases.length > 0 ? filteredProblemCases : (data.zeroCAudit.problemCases || []);
+    const caseRows = casesToExport.map((c) => ({
+      วันที่รับบริการ: c.serviceDate || '',
+      แผนก: c.departmentName,
+      ประเภทปัญหา: c.issueType === 'C_CODE' ? 'ติด C (Deny)' : c.issueType === 'REP_SHEET_ZERO' ? 'REP Sheet 0' : 'STM = 0',
+      VN: c.vn || '',
+      AN: c.an || '',
+      HN: c.hn || '',
+      ชื่อผู้ป่วย: c.patientName || '',
+      สิทธิการรักษา: c.maininscl || '',
+      รหัสข้อผิดพลาด: c.errorcode || '',
+      ยอดเรียกเก็บ_บาท: c.amount,
+      ยอดชดเชย_บาท: c.paidAmount,
+      สาเหตุเชิงลึก: c.rootCause,
+      แนวทางแก้ไข: c.recommendation,
+      ชื่อไฟล์ที่มา: c.sourceFilename || '',
+    }));
+    const wsCases = XLSX.utils.json_to_sheet(caseRows);
+    XLSX.utils.book_append_sheet(wb, wsCases, 'รายการเคสเจาะลึก');
+
+    XLSX.writeFile(wb, `Zero_C_Department_Audit_FY${data.period.budgetYear}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // Helper for matrix rendering
@@ -895,6 +1089,12 @@ export const ExecutiveMonitorPage: React.FC = () => {
               onClick={() => setActiveTab('top_c')}
             >
               <span>🔍</span> วิเคราะห์รหัสติด C สูงสุด (Top 10)
+            </button>
+            <button
+              className={`tab-btn ${activeTab === 'zero_c_audit' ? 'active' : ''}`}
+              onClick={() => setActiveTab('zero_c_audit')}
+            >
+              <span>⚠️</span> วิเคราะห์จุดผิดพลาด (ติด C / Sheet 0 / STM 0) แยกแผนก
             </button>
           </div>
 
@@ -1637,6 +1837,329 @@ export const ExecutiveMonitorPage: React.FC = () => {
                   </p>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Tab 5: วิเคราะห์จุดผิดพลาด (ติด C / Sheet 0 / STM 0) แยกตามจุดบริการ/แผนก */}
+          {activeTab === 'zero_c_audit' && (
+            <div className="zero-c-audit-container">
+              {/* Executive Loss & Risk Summary (4 Cards) */}
+              <div className="zero-c-summary-grid">
+                {/* Card 1: Total Problematic */}
+                <div className="zero-c-card total-loss">
+                  <div className="zero-c-card-header">
+                    <span className="zero-c-card-title">ความเสียหายและเคสปัญหาภาพรวม</span>
+                    <span className="zero-c-card-icon">🚨</span>
+                  </div>
+                  <div className="zero-c-card-main-val">
+                    ฿{formatCurrency(data.zeroCAudit?.summary.totalProblematicAmount || 0)}
+                  </div>
+                  <div className="zero-c-card-sub">
+                    รวมทั้งสิ้น <strong>{formatNumber(data.zeroCAudit?.summary.totalProblematicCases || 0)}</strong> ครั้ง/Visits
+                  </div>
+                  <div className="zero-c-card-footer">
+                    ยอดเงินที่ถูกตัดจ่าย ชดเชย 0 บาท หรือติดเงื่อนไข C-Codes ทั้งหมด
+                  </div>
+                </div>
+
+                {/* Card 2: C-Codes */}
+                <div className="zero-c-card c-code">
+                  <div className="zero-c-card-header">
+                    <span className="zero-c-card-title">เคสติด C (C-Codes / Denial)</span>
+                    <span className="zero-c-card-icon">❌</span>
+                  </div>
+                  <div className="zero-c-card-main-val" style={{ color: '#ea580c' }}>
+                    ฿{formatCurrency(data.zeroCAudit?.summary.cCodes.amount || 0)}
+                  </div>
+                  <div className="zero-c-card-sub">
+                    <strong>{formatNumber(data.zeroCAudit?.summary.cCodes.count || 0)}</strong> ครั้ง ({data.zeroCAudit?.summary.cCodes.percentage || 0}%)
+                  </div>
+                  <div className="zero-c-card-footer">
+                    ติดเงื่อนไขการตรวจสอบ C-Codes รอแก้ไขข้อมูลหรือทำเรื่องอุทธรณ์
+                  </div>
+                </div>
+
+                {/* Card 3: REP Sheet 0 */}
+                <div className="zero-c-card rep-sheet0">
+                  <div className="zero-c-card-header">
+                    <span className="zero-c-card-title">เคส REP Data Sheet 0</span>
+                    <span className="zero-c-card-icon">📋</span>
+                  </div>
+                  <div className="zero-c-card-main-val" style={{ color: '#eab308' }}>
+                    ฿{formatCurrency(data.zeroCAudit?.summary.repSheetZero.amount || 0)}
+                  </div>
+                  <div className="zero-c-card-sub">
+                    <strong>{formatNumber(data.zeroCAudit?.summary.repSheetZero.count || 0)}</strong> ครั้ง ({data.zeroCAudit?.summary.repSheetZero.percentage || 0}%)
+                  </div>
+                  <div className="zero-c-card-footer">
+                    ถูกปฏิเสธตั้งแต่ชั้นโครงสร้างแฟ้ม 16 แฟ้ม ไม่ผ่านเข้าสู่ระบบ REP
+                  </div>
+                </div>
+
+                {/* Card 4: STM = 0 */}
+                <div className="zero-c-card stm-zero">
+                  <div className="zero-c-card-header">
+                    <span className="zero-c-card-title">เคส STM = 0 (ชดเชย 0 บาท / ตัดจ่าย)</span>
+                    <span className="zero-c-card-icon">⭕</span>
+                  </div>
+                  <div className="zero-c-card-main-val" style={{ color: '#dc2626' }}>
+                    ฿{formatCurrency(data.zeroCAudit?.summary.stmZero.amount || 0)}
+                  </div>
+                  <div className="zero-c-card-sub">
+                    <strong>{formatNumber(data.zeroCAudit?.summary.stmZero.count || 0)}</strong> ครั้ง ({data.zeroCAudit?.summary.stmZero.percentage || 0}%)
+                  </div>
+                  <div className="zero-c-card-footer">
+                    สเตทเมนต์ชดเชย 0 บาท จากกฎตรวจสอบย้อนหลัง / ซ้ำซ้อน / เกินเกณฑ์กองทุน
+                  </div>
+                </div>
+              </div>
+
+              {/* Department Hotspots Section */}
+              <div className="zero-c-section-header">
+                <div className="section-title-group">
+                  <h3>
+                    <span>🏢</span> การกระจายตัวของจุดเกิดเหตุผิดพลาดบ่อยครั้ง (Clinical Department Hotspots)
+                  </h3>
+                  <p className="section-subtitle">
+                    วิเคราะห์จำแนกตามจุดบริการและแผนกทางคลินิก เพื่อระบุต้นเหตุข้อผิดพลาดและกำหนดมาตรการแก้ไขเชิงนโยบาย
+                  </p>
+                </div>
+                <div className="section-header-actions">
+                  <button
+                    className="btn-export-hotspot"
+                    onClick={handleExportZeroCExcel}
+                  >
+                    <span>📥</span> ส่งออกสรุปแยกแผนก (Excel)
+                  </button>
+                </div>
+              </div>
+
+              {/* Hotspots Grid */}
+              <div className="hotspots-grid">
+                {data.zeroCAudit?.departmentHotspots.map((dept, index) => {
+                  const isSelected = selectedAuditDept === dept.departmentKey;
+                  return (
+                    <div
+                      key={dept.departmentKey}
+                      className={`hotspot-card ${isSelected ? 'selected' : ''}`}
+                      onClick={() => {
+                        setSelectedAuditDept(isSelected ? 'ALL' : dept.departmentKey);
+                      }}
+                    >
+                      <div className="hotspot-card-top">
+                        <div className="hotspot-dept-title">
+                          <span className="dept-icon">{dept.departmentIcon}</span>
+                          <div>
+                            <h4>{dept.departmentName}</h4>
+                            <span className="hotspot-rank-badge">อันดับที่ {index + 1}</span>
+                          </div>
+                        </div>
+                        <div className="hotspot-share-badge">
+                          {dept.percentageOfAmount}% ของยอดเสียหาย
+                        </div>
+                      </div>
+
+                      <div className="hotspot-metric-row">
+                        <div className="metric-col">
+                          <span className="metric-label">มูลค่าเงินเสียหาย</span>
+                          <span className="metric-val highlight-warn">฿{formatCurrency(dept.totalErrorAmount)}</span>
+                        </div>
+                        <div className="metric-col">
+                          <span className="metric-label">จำนวนเคสที่พบปัญหา</span>
+                          <span className="metric-val">{formatNumber(dept.totalErrors)} visits</span>
+                        </div>
+                      </div>
+
+                      {/* Problem Type Breakdown Mini Pills */}
+                      <div className="hotspot-breakdown-pills">
+                        <span className="mini-pill c-pill" title="เคสติด C">
+                          C: ฿{formatCurrency(dept.cCodeAmount)} ({dept.cCodeCount})
+                        </span>
+                        <span className="mini-pill rep-pill" title="เคส REP Sheet 0">
+                          REP 0: ฿{formatCurrency(dept.repSheetZeroAmount)} ({dept.repSheetZeroCount})
+                        </span>
+                        <span className="mini-pill stm-pill" title="เคส STM = 0">
+                          STM 0: ฿{formatCurrency(dept.stmZeroAmount)} ({dept.stmZeroCount})
+                        </span>
+                      </div>
+
+                      {/* Percentage Bar */}
+                      <div className="hotspot-progress-container">
+                        <div
+                          className="hotspot-progress-bar"
+                          style={{ width: `${Math.min(100, dept.percentageOfAmount)}%` }}
+                        />
+                      </div>
+
+                      {/* Top Root Causes in this Department */}
+                      <div className="hotspot-causes-box">
+                        <div className="causes-title">🔍 สาเหตุข้อผิดพลาดที่พบบ่อยสุด:</div>
+                        {dept.topRootCauses.length > 0 ? (
+                          <ul className="causes-list">
+                            {dept.topRootCauses.slice(0, 3).map((cause, cIdx) => (
+                              <li key={cIdx}>
+                                <div className="cause-header">
+                                  <span className="cause-code">{cause.codeOrReason}</span>
+                                  <span className="cause-stats">{formatNumber(cause.count)} ครั้ง (฿{formatCurrency(cause.amount)})</span>
+                                </div>
+                                <div className="cause-desc">{cause.description}</div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="no-causes">ไม่พบข้อผิดพลาดที่ชัดเจนในรอบนี้</div>
+                        )}
+                      </div>
+
+                      {/* Action Guideline */}
+                      <div className="hotspot-guideline-box">
+                        <span className="guideline-icon">💡</span>
+                        <span className="guideline-text"><strong>มาตรการแก้ไข:</strong> {dept.actionGuideline}</span>
+                      </div>
+
+                      <div className="hotspot-action-hint">
+                        {isSelected ? '✓ กำลังกรองตารางด้วยแผนกนี้ (คลิกเพื่อยกเลิก)' : '👉 คลิกเพื่อเจาะลึกเฉพาะเคสของแผนกนี้'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Case-level Drill-down Table Section */}
+              <div className="drilldown-table-section">
+                <div className="drilldown-table-header">
+                  <div className="table-title-group">
+                    <h3>
+                      <span>🔍</span> รายการเคสเจาะลึกที่เกิดข้อผิดพลาด (Detailed Problem Encounters)
+                    </h3>
+                    <p className="section-subtitle">
+                      แสดงรายการ {formatNumber(filteredProblemCases.length)} เคส จากทั้งหมด {formatNumber(data.zeroCAudit?.problemCases.length || 0)} เคส พร้อมรหัสและแนวทางแก้ไขรายบุคคล
+                    </p>
+                  </div>
+                  <div className="drilldown-filter-controls">
+                    {/* Department Filter */}
+                    <div className="filter-select-group">
+                      <label>แผนก/จุดบริการ:</label>
+                      <select
+                        value={selectedAuditDept}
+                        onChange={(e) => setSelectedAuditDept(e.target.value)}
+                      >
+                        <option value="ALL">ทุกแผนก (ทั้งหมด)</option>
+                        {data.zeroCAudit?.departmentHotspots.map((d) => (
+                          <option key={d.departmentKey} value={d.departmentKey}>
+                            {d.departmentIcon} {d.departmentName} ({formatNumber(d.totalErrors)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Issue Type Filter */}
+                    <div className="filter-select-group">
+                      <label>ประเภทปัญหา:</label>
+                      <select
+                        value={selectedIssueType}
+                        onChange={(e) => setSelectedIssueType(e.target.value)}
+                      >
+                        <option value="ALL">ทุกประเภทปัญหา (ทั้งหมด)</option>
+                        <option value="C_CODE">❌ ติด C (C-Codes / Denial)</option>
+                        <option value="REP_SHEET_ZERO">📋 REP Sheet 0 (ปฏิเสธแฟ้ม)</option>
+                        <option value="STM_ZERO">⭕ STM = 0 (ชดเชย 0 บาท / ตัดจ่าย)</option>
+                      </select>
+                    </div>
+
+                    {/* Text Search */}
+                    <div className="filter-search-group">
+                      <input
+                        type="text"
+                        placeholder="ค้นหา VN, AN, HN, ชื่อ, หรือรหัส error..."
+                        value={auditSearchQuery}
+                        onChange={(e) => setAuditSearchQuery(e.target.value)}
+                      />
+                      {auditSearchQuery && (
+                        <button
+                          className="btn-clear-search"
+                          onClick={() => setAuditSearchQuery('')}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {filteredProblemCases.length > 0 ? (
+                  <div className="table-responsive">
+                    <table className="exec-table drilldown-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '105px' }}>วันที่บริการ</th>
+                          <th style={{ width: '140px' }}>จุดบริการ / แผนก</th>
+                          <th style={{ width: '120px' }}>ประเภทปัญหา</th>
+                          <th style={{ width: '120px' }}>เลข Visit</th>
+                          <th style={{ width: '150px' }}>HN / ผู้ป่วย</th>
+                          <th style={{ width: '110px' }}>สิทธิ</th>
+                          <th style={{ width: '110px' }}>รหัส Error</th>
+                          <th className="text-right" style={{ width: '110px' }}>ยอดเรียกเก็บ</th>
+                          <th>สาเหตุเชิงลึก</th>
+                          <th>แนวทางแก้ไข</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredProblemCases.slice(0, 100).map((c, idx) => (
+                          <tr key={idx}>
+                            <td style={{ fontSize: '0.85rem' }}>{c.serviceDate || '-'}</td>
+                            <td>
+                              <span className="dept-tag">
+                                {c.departmentIcon} {c.departmentName.split(' ')[0]}
+                              </span>
+                            </td>
+                            <td>
+                              {c.issueType === 'C_CODE' ? (
+                                <span className="issue-badge badge-c">ติด C / Deny</span>
+                              ) : c.issueType === 'REP_SHEET_ZERO' ? (
+                                <span className="issue-badge badge-rep">REP Sheet 0</span>
+                              ) : (
+                                <span className="issue-badge badge-stm">STM = 0</span>
+                              )}
+                            </td>
+                            <td style={{ fontWeight: 600, fontFamily: 'monospace' }}>
+                              {c.an ? `AN ${c.an}` : (c.vn ? `VN ${c.vn}` : c.id)}
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600 }}>{c.hn ? `HN ${c.hn}` : '-'}</div>
+                              <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{c.patientName || '-'}</div>
+                            </td>
+                            <td style={{ fontSize: '0.825rem' }}>{c.maininscl || '-'}</td>
+                            <td>
+                              <span className="kpi-badge badge-orange" style={{ fontSize: '0.8rem' }}>
+                                {c.errorcode || '-'}
+                              </span>
+                            </td>
+                            <td className="text-right highlight-warn" style={{ fontWeight: 700 }}>
+                              ฿{formatCurrency(c.amount)}
+                            </td>
+                            <td style={{ color: '#334155', fontSize: '0.825rem' }}>{c.rootCause}</td>
+                            <td style={{ color: '#0369a1', fontSize: '0.825rem' }}>
+                              💡 {c.recommendation}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {filteredProblemCases.length > 100 && (
+                      <div className="table-footer-notice">
+                        แสดง 100 เคสแรกจากทั้งหมด {formatNumber(filteredProblemCases.length)} เคส (กรุณากดปุ่มส่งออก Excel ด้านบนเพื่อดูรายการทั้งหมด)
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="state-container" style={{ padding: '3rem' }}>
+                    <p style={{ color: '#16a34a', fontWeight: 600 }}>
+                      🎉 ไม่พบรายการเคสผิดพลาดตามเงื่อนไขตัวกรองที่เลือก
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

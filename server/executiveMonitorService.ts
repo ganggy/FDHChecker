@@ -420,13 +420,23 @@ export function classifyServiceCategory(
     combinedText.includes('ไตเทียม') ||
     combinedText.includes('ฟอกเลือด') ||
     combinedText.includes('ฟอกไต') ||
+    combinedText.includes('ล้างไต') ||
     combinedText.includes('hemodialysis') ||
+    combinedText.includes('dialysis') ||
     combinedText.includes('chihd') ||
     combinedText.includes('lgo-hd') ||
     combinedText.includes('ca_hd') ||
+    combinedText.includes('dmishd') ||
+    combinedText.includes('dckd') ||
+    combinedText.includes('uuc2') ||
+    combinedText.includes('uuc-2') ||
     combinedText.includes('39.95') ||
+    combinedText.includes('3995') ||
     combinedText.includes('z49') ||
-    combinedText.includes('ไตวาย')
+    combinedText.includes('n185') ||
+    combinedText.includes('n18.5') ||
+    combinedText.includes('ไตวาย') ||
+    department === '060'
   ) {
     return 'DIALYSIS';
   }
@@ -452,9 +462,12 @@ export function classifyServiceCategory(
     combinedText.includes('เวชกรรมฟื้นฟู') ||
     combinedText.includes('rehab') ||
     combinedText.includes('ฟื้นฟูสมรรถภาพ') ||
-    combinedText.includes('pt') ||
+    combinedText.includes('physical therapy') ||
+    combinedText.includes('physiotherapy') ||
+    /\b(pt_rehab|physio)\b/i.test(combinedText) ||
     combinedText.includes('z50') ||
-    combinedText.includes('หมวด 14')
+    combinedText.includes('หมวด 14') ||
+    department === '012'
   ) {
     return 'PHYSICAL_THERAPY';
   }
@@ -917,7 +930,8 @@ export function classifyClinicalDepartment(
   errorCode?: string | null,
   rawData?: Record<string, unknown> | string | null,
   isDental?: boolean,
-  isThaiMed?: boolean
+  isThaiMed?: boolean,
+  isDialysis?: boolean
 ): ClinicalDepartmentKey {
   const codeStr = String(errorCode || '').toUpperCase();
   let rawText = '';
@@ -937,14 +951,41 @@ export function classifyClinicalDepartment(
     return 'THAI_MED';
   }
 
-  // 3. PHYSICAL_THERAPY
-  if (sKey === 'PHYSICAL_THERAPY' || rawText.includes('กายภาพ') || rawText.includes('physio') || rawText.includes('ฟื้นฟู')) {
-    return 'PHYSICAL_THERAPY';
+  // 3. DIALYSIS / ไตเทียม (Check Dialysis before Physical Therapy and OPD)
+  if (
+    isDialysis ||
+    sKey === 'DIALYSIS' ||
+    rawText.includes('ไตเทียม') ||
+    rawText.includes('ฟอกเลือด') ||
+    rawText.includes('ฟอกไต') ||
+    rawText.includes('ล้างไต') ||
+    rawText.includes('uuc2') ||
+    rawText.includes('uuc-2') ||
+    rawText.includes('chihd') ||
+    rawText.includes('dmishd') ||
+    rawText.includes('dckd') ||
+    rawText.includes('n185') ||
+    rawText.includes('n18.5') ||
+    rawText.includes('z49') ||
+    rawText.includes('39.95') ||
+    rawText.includes('3995') ||
+    codeStr.includes('CHI') ||
+    codeStr.includes('KT') ||
+    codeStr.includes('UUC2')
+  ) {
+    return 'DIALYSIS';
   }
 
-  // 4. DIALYSIS
-  if (sKey === 'DIALYSIS' || rawText.includes('ไตเทียม') || rawText.includes('ฟอกเลือด') || rawText.includes('chihd') || rawText.includes('dckd') || codeStr.includes('CHI') || codeStr.includes('KT')) {
-    return 'DIALYSIS';
+  // 4. PHYSICAL_THERAPY
+  if (
+    sKey === 'PHYSICAL_THERAPY' ||
+    rawText.includes('กายภาพ') ||
+    rawText.includes('physio') ||
+    rawText.includes('physical therapy') ||
+    rawText.includes('เวชกรรมฟื้นฟู') ||
+    rawText.includes('ฟื้นฟูสมรรถภาพ')
+  ) {
+    return 'PHYSICAL_THERAPY';
   }
 
   // 5. PHARMACY: Check drug error codes or text
@@ -996,6 +1037,12 @@ export function resolveProblemRootCauseAndGuide(
   }
 
   if (issueType === 'STM_ZERO') {
+    if (deptKey === 'DIALYSIS') {
+      return {
+        description: catEntry?.description || 'สเตทเมนต์ชดเชย 0 บาท (เคสฟอกไต / UUC2 กองทุนไม่ชดเชยหรือถูกตัดจ่ายในรอบนี้)',
+        recommendation: catEntry?.guide || 'ตรวจสอบสิทธิฟอกไต (KT/CHI/UUC2), ความถี่รอบสัปดาห์, วันหมดอายุใบรับรอง และตรวจสอบว่าเงินชดเชยแยกจ่ายผ่านกองทุนไตเทียมเฉพาะหรือถูกปฏิเสธจ่าย',
+      };
+    }
     return {
       description: catEntry?.description || 'สเตทเมนต์ชดเชย 0 บาท / กองทุนตัดจ่าย (ไม่ผ่านเกณฑ์การตรวจสอบย้อนหลังหรือเงื่อนไขชดเชย)',
       recommendation: catEntry?.guide || 'ตรวจสอบบันทึกบริการต้นทางใน HOSxP, ยืนยันสิทธิกับกองทุน และพิจารณาปรับปรุงข้อมูลเพื่อขออุทธรณ์การเบิกจ่าย',
@@ -1199,8 +1246,9 @@ export async function getExecutiveMonitorSummary(params: {
 
   const repConn = await getRepstmConnection();
 
-  // Preload HOSxP clinical data: dental registry, Thai medicine procedures, FDH claim status, and total hospital visits
+  // Preload HOSxP clinical data: dental registry, Thai medicine procedures, Dialysis (dep 060), FDH claim status, and total hospital visits
   let dentalVnSet = new Set<string>();
+  let dialysisVnSet = new Set<string>();
   const thaiMedVnMap = new Map<string, { opName: string; opType: 'นวด' | 'ประคบ' | 'อบ' | 'นวดพร้อมประคบ' | 'อื่นๆ' }>();
   const fdhStatusMap = new Map<string, { fdhAmt: number; status: string }>();
   let hospitalVisits = { total: 0, opd: 0, ipd: 0 };
@@ -1214,6 +1262,14 @@ export async function getExecutiveMonitorSummary(params: {
         effectiveStartDate && effectiveEndDate ? [effectiveStartDate, effectiveEndDate] : []
       );
       dentalVnSet = new Set((dtRows as any[]).map(r => String(r.vn)));
+
+      // Preload Dialysis visits: main_dep = '060' or cur_dep = '060'
+      const diaQuery = effectiveStartDate && effectiveEndDate
+        ? `SELECT DISTINCT vn FROM ovst WHERE vn IS NOT NULL AND (main_dep = '060' OR cur_dep = '060') AND vstdate >= ? AND vstdate <= ?`
+        : `SELECT DISTINCT vn FROM ovst WHERE vn IS NOT NULL AND (main_dep = '060' OR cur_dep = '060')`;
+      const diaParams = effectiveStartDate && effectiveEndDate ? [effectiveStartDate, effectiveEndDate] : [];
+      const [diaRows] = await hosConn.query(diaQuery, diaParams);
+      dialysisVnSet = new Set((diaRows as any[]).map(r => String(r.vn)));
 
       // Preload Thai Medicine procedures: นวด (58101), ประคบ (58201), อบ (58301), นวดพร้อมประคบ (58130)
       const tmQuery = effectiveStartDate && effectiveEndDate
@@ -1715,12 +1771,15 @@ export async function getExecutiveMonitorSummary(params: {
       const isDental = vn !== '' && dentalVnSet.has(vn);
       const tmInfo = vn !== '' ? thaiMedVnMap.get(vn) : undefined;
       const isThaiMed = Boolean(tmInfo);
+      const isDialysis = vn !== '' && dialysisVnSet.has(vn);
 
       let sKey: ServiceCategoryKey;
       if (isDental) {
         sKey = 'DENTAL';
       } else if (isThaiMed) {
         sKey = 'THAI_MED';
+      } else if (isDialysis) {
+        sKey = 'DIALYSIS';
       } else {
         sKey = classifyServiceCategory(row.patient_type, row.department, row.an, row.filename, row.raw_data);
       }
@@ -1877,7 +1936,7 @@ export async function getExecutiveMonitorSummary(params: {
       if (cFlag || isZeroPaid) {
         const issueType: ErrorIssueType = cFlag ? 'C_CODE' : 'STM_ZERO';
         const primaryCode = errorCodes[0] || (cFlag ? 'DENY' : 'STM_ZERO');
-        const deptKey = classifyClinicalDepartment(sKey, row.patient_type, cleanAn, vn, primaryCode, rawObj, isDental, isThaiMed);
+        const deptKey = classifyClinicalDepartment(sKey, row.patient_type, cleanAn, vn, primaryCode, rawObj, isDental, isThaiMed, isDialysis);
         const pName = String(row.patient_name || rawObj?.['ชื่อ-สกุล'] || rawObj?.['ชื่อ - สกุล'] || rawObj?.patient_name || '').trim();
         const mainIns = String(row.maininscl || rawObj?.maininscl || rawObj?.pttype || '').trim();
         const srcFile = String(row.filename || rawObj?.filename || '').trim();
@@ -1935,7 +1994,8 @@ export async function getExecutiveMonitorSummary(params: {
       const errCode = String(rawObj?.errorcode || rawObj?.['รหัสข้อผิดพลาด'] || rawObj?.['รหัสไม่ผ่าน'] || rawObj?.['error code'] || 'REP_SHEET_0').trim();
       const isDental = vn !== '' && dentalVnSet.has(vn);
       const isThaiMed = vn !== '' && thaiMedVnMap.has(vn);
-      const deptKey = classifyClinicalDepartment('OTHER', null, an, vn, errCode, rawObj, isDental, isThaiMed);
+      const isDialysis = vn !== '' && dialysisVnSet.has(vn);
+      const deptKey = classifyClinicalDepartment('OTHER', null, an, vn, errCode, rawObj, isDental, isThaiMed, isDialysis);
       const vKey = an ? 'AN_' + an : (vn ? 'VN_' + vn : 'REP0_' + r.id);
 
       recordProblemCase({

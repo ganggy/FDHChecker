@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyServiceCategory,
+  classifyClinicalDepartment,
   classifyRightScheme,
   isCCode,
   mapSmtFundToServiceCategory,
@@ -36,6 +37,8 @@ test('classifyServiceCategory accurately identifies specialized services', () =>
   assert.equal(classifyServiceCategory(null, null, null, 'LGO-HD-2025.xlsx', null), 'DIALYSIS');
   assert.equal(classifyServiceCategory(null, null, null, null, { PROJCODE: 'CA_HD' }), 'DIALYSIS');
   assert.equal(classifyServiceCategory(null, null, null, null, { 'วันที่ฟอกเลือดด้วยเครื่องไตเทียม': '2025-01-01' }), 'DIALYSIS');
+  assert.equal(classifyServiceCategory('OP', null, null, 'STM_11101_OPCS.xls', { PROJCODE: 'UUC2', pttype: '30' }), 'DIALYSIS');
+  assert.equal(classifyServiceCategory(null, '060', null, null, { DIAG: 'N185' }), 'DIALYSIS');
 
   // Thai Traditional Medicine
   assert.equal(classifyServiceCategory('ผู้ป่วยนอก', 'แพทย์แผนไทย', null, null, null), 'THAI_MED');
@@ -45,6 +48,7 @@ test('classifyServiceCategory accurately identifies specialized services', () =>
   // Physical Therapy
   assert.equal(classifyServiceCategory('ผู้ป่วยนอก', 'กายภาพบำบัด', null, null, null), 'PHYSICAL_THERAPY');
   assert.equal(classifyServiceCategory(null, null, null, null, { DIAG: 'Z50', desc: 'เวชกรรมฟื้นฟู' }), 'PHYSICAL_THERAPY');
+  assert.notEqual(classifyServiceCategory('OP', null, null, 'STM_OP.xls', { pttype: '10' }), 'PHYSICAL_THERAPY');
 
   // Dental
   assert.equal(classifyServiceCategory('ผู้ป่วยนอก', 'ทันตกรรม', null, null, null), 'DENTAL');
@@ -183,4 +187,25 @@ test('Fiscal year boundaries are accurately calculated from budget year', () => 
   assert.equal(`${startAd}-10-01`, '2025-10-01');
   assert.equal(`${endAd}-09-30`, '2026-09-30');
 });
+
+test('classifyClinicalDepartment correctly routes Dialysis UUC2 and does not misclassify to Physical Therapy', () => {
+  // Dialysis UUC2 case
+  assert.equal(
+    classifyClinicalDepartment('DIALYSIS', 'OP', null, '691001080010', 'STM_ZERO', { PROJCODE: 'UUC2', pttype: '30' }, false, false, true),
+    'DIALYSIS'
+  );
+
+  // Dialysis by raw text containing UUC2 even if sKey was OTHER
+  assert.equal(
+    classifyClinicalDepartment('OTHER', 'OP', null, '691001080010', 'STM_ZERO', { PROJCODE: 'UUC2', 'สิทธิ': 'OFC' }),
+    'DIALYSIS'
+  );
+
+  // Real Physical Therapy case
+  assert.equal(
+    classifyClinicalDepartment('PHYSICAL_THERAPY', 'OP', null, '691001080099', 'STM_ZERO', { 'จุดบริการ': 'กายภาพบำบัด' }),
+    'PHYSICAL_THERAPY'
+  );
+});
+
 

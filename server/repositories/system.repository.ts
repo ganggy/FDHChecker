@@ -17,6 +17,7 @@ export const APP_USER_GROUP_TABLE_SQL = `
     group_key VARCHAR(64) NOT NULL UNIQUE,
     group_name VARCHAR(128) NOT NULL,
     is_admin TINYINT(1) NOT NULL DEFAULT 0,
+    hcode VARCHAR(16) NULL,
     menu_permissions JSON NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -30,6 +31,7 @@ export const APP_USER_TABLE_SQL = `
     password_hash VARCHAR(255) NOT NULL,
     display_name VARCHAR(128) NULL,
     group_id BIGINT NULL,
+    hcode VARCHAR(16) NULL,
     approved TINYINT(1) NOT NULL DEFAULT 0,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     is_admin TINYINT(1) NOT NULL DEFAULT 0,
@@ -61,12 +63,31 @@ export const DEFAULT_MENU_PAGES = [
   'receivable', 'receivableSettlement', 'insuranceOverview', 'executiveMonitor', 'accountingRevenueBudget', 'smtBudget', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'revenueOpportunity', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'ktbApproveCode', 'preValidator', 'workQueue', 'rejectTracking', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit',
-  'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking', 'ucOutsideCup', 'dentalAudit', 'icd9Lookup'
+  'repDailySummary', 'ppfsBenchmark', 'ppfsVisitMatch', 'uuc1Tracking', 'ucOutsideCup', 'dentalAudit', 'icd9Lookup',
+  'hsubPayment', 'pcuHerbal', 'pcuPayout', 'pcuCaseCost'
 ];
 
 export const DEFAULT_STAFF_MENU_PAGES = [
   'staff', 'ipd', 'aiReports', 'hospitalReports', 'fdh', 'nhsoClose', 'sssExport', 'sssRepStm', 'preValidator', 'workQueue', 'guide'
 ];
+
+export const DEFAULT_PCU_MENU_PAGES = [
+  'staff', 'fdh', 'nhsoClose', 'authenSync', 'fdhImport', 'fdhClaimDetail', 'preValidator',
+  'workQueue', 'rejectTracking', 'uuc1Tracking', 'repstm', 'reconciliation', 'stmZeroAudit',
+  'repSheetZeroAudit', 'repDailySummary', 'repDeny', 'hsubPayment', 'pcuHerbal', 'pcuPayout',
+  'pcuCaseCost', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'mophDmht', 'mophVaccine',
+  'ppfsBenchmark', 'ppfsVisitMatch', 'icd9Lookup', 'guide'
+];
+
+export const normalizeFacilityHcode = (value: unknown): string | null => {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  if (!/^\d{5}$/.test(trimmed)) {
+    throw new Error('รหัสหน่วยบริการ (hcode) ต้องเป็นตัวเลข 5 หลักเท่านั้น');
+  }
+  return trimmed;
+};
 
 export const parseStoredSettingValue = <T>(value: unknown): T | null => {
   if (value == null) return null;
@@ -170,6 +191,9 @@ export type AppUserRecord = {
   group_id: number | null;
   group_key: string | null;
   group_name: string | null;
+  hcode: string | null;
+  user_hcode: string | null;
+  group_hcode: string | null;
   approved: number;
   is_active: number;
   is_admin: number;
@@ -216,10 +240,25 @@ export const ensureAuthTables = async () => {
     const [userColumnRows] = await connection.query(
       `SELECT COLUMN_NAME
        FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_user' AND COLUMN_NAME = 'fund_permissions'`
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_user' AND COLUMN_NAME IN ('fund_permissions', 'hcode')`
     );
-    if (!Array.isArray(userColumnRows) || userColumnRows.length === 0) {
+    const existingUserColumns = new Set(
+      (Array.isArray(userColumnRows) ? userColumnRows : []).map((r: any) => String(r.COLUMN_NAME || ''))
+    );
+    if (!existingUserColumns.has('fund_permissions')) {
       await connection.query('ALTER TABLE app_user ADD COLUMN fund_permissions JSON NULL AFTER is_admin');
+    }
+    if (!existingUserColumns.has('hcode')) {
+      await connection.query('ALTER TABLE app_user ADD COLUMN hcode VARCHAR(16) NULL AFTER group_id');
+    }
+
+    const [groupColumnRows] = await connection.query(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'app_user_group' AND COLUMN_NAME = 'hcode'`
+    );
+    if (!Array.isArray(groupColumnRows) || groupColumnRows.length === 0) {
+      await connection.query('ALTER TABLE app_user_group ADD COLUMN hcode VARCHAR(16) NULL AFTER is_admin');
     }
 
     await connection.query(
@@ -234,6 +273,13 @@ export const ensureAuthTables = async () => {
        VALUES ('staff', 'ผู้ใช้งานทั่วไป', 0, ?)
        ON DUPLICATE KEY UPDATE group_name = VALUES(group_name)`,
       [JSON.stringify(DEFAULT_STAFF_MENU_PAGES)]
+    );
+
+    await connection.query(
+      `INSERT INTO app_user_group (group_key, group_name, is_admin, menu_permissions)
+       VALUES ('pcu', 'รพ.สต. (หน่วยบริการปฐมภูมิ)', 0, ?)
+       ON DUPLICATE KEY UPDATE group_name = VALUES(group_name)`,
+      [JSON.stringify(DEFAULT_PCU_MENU_PAGES)]
     );
 
     const [staffGroupRows] = await connection.query(
@@ -298,27 +344,40 @@ export const ensureAuthTables = async () => {
   }
 };
 
-const mapAppUser = (row: any): AppUserRecord => ({
-  id: Number(row.id),
-  username: String(row.username || ''),
-  display_name: row.display_name == null ? null : String(row.display_name),
-  group_id: row.group_id == null ? null : Number(row.group_id),
-  group_key: row.group_key == null ? null : String(row.group_key),
-  group_name: row.group_name == null ? null : String(row.group_name),
-  approved: Number(row.approved || 0),
-  is_active: Number(row.is_active || 0),
-  is_admin: Number(row.is_admin || 0),
-  group_is_admin: Number(row.group_is_admin || 0),
-  menu_permissions: normalizeMenuPermissions(row.menu_permissions),
-  fund_permissions: row.fund_permissions == null ? null : normalizeFundPermissions(row.fund_permissions),
-  last_login_at: row.last_login_at == null ? null : String(row.last_login_at),
-  created_at: row.created_at == null ? null : String(row.created_at),
-});
+const mapAppUser = (row: any): AppUserRecord => {
+  const userHcode = row.user_hcode != null && String(row.user_hcode).trim()
+    ? String(row.user_hcode).trim()
+    : row.hcode != null && String(row.hcode).trim()
+      ? String(row.hcode).trim()
+      : null;
+  const groupHcode = row.group_hcode != null && String(row.group_hcode).trim()
+    ? String(row.group_hcode).trim()
+    : null;
+  return {
+    id: Number(row.id),
+    username: String(row.username || ''),
+    display_name: row.display_name == null ? null : String(row.display_name),
+    group_id: row.group_id == null ? null : Number(row.group_id),
+    group_key: row.group_key == null ? null : String(row.group_key),
+    group_name: row.group_name == null ? null : String(row.group_name),
+    hcode: userHcode || groupHcode || null,
+    user_hcode: userHcode,
+    group_hcode: groupHcode,
+    approved: Number(row.approved || 0),
+    is_active: Number(row.is_active || 0),
+    is_admin: Number(row.is_admin || 0),
+    group_is_admin: Number(row.group_is_admin || 0),
+    menu_permissions: normalizeMenuPermissions(row.menu_permissions),
+    fund_permissions: row.fund_permissions == null ? null : normalizeFundPermissions(row.fund_permissions),
+    last_login_at: row.last_login_at == null ? null : String(row.last_login_at),
+    created_at: row.created_at == null ? null : String(row.created_at),
+  };
+};
 
 const getUserSelectSql = () => `
-  SELECT u.id, u.username, u.display_name, u.group_id, u.approved, u.is_active, u.is_admin, u.fund_permissions,
+  SELECT u.id, u.username, u.display_name, u.group_id, u.hcode AS user_hcode, u.approved, u.is_active, u.is_admin, u.fund_permissions,
          u.last_login_at, u.created_at,
-         g.group_key, g.group_name, g.is_admin AS group_is_admin, g.menu_permissions
+         g.group_key, g.group_name, g.hcode AS group_hcode, g.is_admin AS group_is_admin, g.menu_permissions
   FROM app_user u
   LEFT JOIN app_user_group g ON g.id = u.group_id
 `;
@@ -358,7 +417,7 @@ export const loginAppUser = async (usernameInput: string, password: string) => {
   const connection = await getRepstmConnection();
   try {
     const [rows] = await connection.query(
-      `SELECT u.*, g.group_key, g.group_name, g.is_admin AS group_is_admin, g.menu_permissions
+      `SELECT u.*, u.hcode AS user_hcode, g.group_key, g.group_name, g.hcode AS group_hcode, g.is_admin AS group_is_admin, g.menu_permissions
        FROM app_user u
        LEFT JOIN app_user_group g ON g.id = u.group_id
        WHERE u.username = ? LIMIT 1`,
@@ -481,6 +540,7 @@ export const createMemberUser = async (input: {
   password: string;
   displayName?: string;
   groupId?: number | null;
+  hcode?: string | null;
   isAdmin?: boolean;
   fundPermissions?: string[] | null;
 }) => {
@@ -491,6 +551,12 @@ export const createMemberUser = async (input: {
   }
   if (String(input.password || '').length < 12) {
     return { success: false, status: 400, error: 'รหัสผ่านต้องมีอย่างน้อย 12 ตัวอักษร' };
+  }
+  let normalizedHcode: string | null = null;
+  try {
+    normalizedHcode = normalizeFacilityHcode(input.hcode);
+  } catch (err: any) {
+    return { success: false, status: 400, error: err?.message || 'รหัสหน่วยบริการไม่ถูกต้อง' };
   }
 
   const connection = await getRepstmConnection();
@@ -510,13 +576,14 @@ export const createMemberUser = async (input: {
     }
 
     const [result] = await connection.query(
-      `INSERT INTO app_user (username, password_hash, display_name, group_id, approved, is_active, is_admin, fund_permissions)
-       VALUES (?, ?, ?, ?, 1, 1, ?, ?)`,
+      `INSERT INTO app_user (username, password_hash, display_name, group_id, hcode, approved, is_active, is_admin, fund_permissions)
+       VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)`,
       [
         username,
         hashPassword(input.password),
         String(input.displayName || username).trim().slice(0, 191),
         groupId,
+        normalizedHcode,
         input.isAdmin ? 1 : 0,
         input.fundPermissions == null ? null : JSON.stringify(normalizeFundPermissions(input.fundPermissions)),
       ]
@@ -539,7 +606,7 @@ export const getMemberAdminData = async () => {
   try {
     const [userRows] = await connection.query(`${getUserSelectSql()} ORDER BY u.approved ASC, u.created_at DESC`);
     const [groupRows] = await connection.query(
-      'SELECT id, group_key, group_name, is_admin, menu_permissions, created_at, updated_at FROM app_user_group ORDER BY is_admin DESC, group_name ASC'
+      'SELECT id, group_key, group_name, is_admin, hcode, menu_permissions, created_at, updated_at FROM app_user_group ORDER BY is_admin DESC, group_name ASC'
     );
     return {
       users: (Array.isArray(userRows) ? userRows : []).map(mapAppUser),
@@ -548,6 +615,7 @@ export const getMemberAdminData = async () => {
         group_key: String(row.group_key || ''),
         group_name: String(row.group_name || ''),
         is_admin: Number(row.is_admin || 0),
+        hcode: row.hcode != null && String(row.hcode).trim() ? String(row.hcode).trim() : null,
         menu_permissions: normalizeMenuPermissions(row.menu_permissions),
         created_at: row.created_at == null ? null : String(row.created_at),
         updated_at: row.updated_at == null ? null : String(row.updated_at),
@@ -566,6 +634,7 @@ export const updateMemberUser = async (
     isActive?: boolean;
     isAdmin?: boolean;
     groupId?: number | null;
+    hcode?: string | null;
     displayName?: string;
     fundPermissions?: string[] | null;
     password?: string;
@@ -592,6 +661,10 @@ export const updateMemberUser = async (
     if (Object.prototype.hasOwnProperty.call(input, 'groupId')) {
       updates.push('group_id = ?');
       values.push(input.groupId || null);
+    }
+    if (Object.prototype.hasOwnProperty.call(input, 'hcode')) {
+      updates.push('hcode = ?');
+      values.push(normalizeFacilityHcode(input.hcode));
     }
     if (typeof input.displayName === 'string') {
       updates.push('display_name = ?');
@@ -655,6 +728,7 @@ export const saveMemberGroup = async (input: {
   id?: number | null;
   groupName: string;
   isAdmin?: boolean;
+  hcode?: string | null;
   menuPermissions: string[];
 }) => {
   await ensureAuthTables();
@@ -662,22 +736,28 @@ export const saveMemberGroup = async (input: {
   if (!groupName) {
     return { success: false, status: 400, error: 'กรุณาระบุชื่อกลุ่ม' };
   }
+  let normalizedHcode: string | null = null;
+  try {
+    normalizedHcode = normalizeFacilityHcode(input.hcode);
+  } catch (err: any) {
+    return { success: false, status: 400, error: err?.message || 'รหัสหน่วยบริการไม่ถูกต้อง' };
+  }
   const permissions = normalizeMenuPermissions(input.isAdmin ? DEFAULT_MENU_PAGES : input.menuPermissions);
   const connection = await getRepstmConnection();
   try {
     if (input.id) {
       await connection.query(
         `UPDATE app_user_group
-         SET group_name = ?, is_admin = ?, menu_permissions = ?, updated_at = CURRENT_TIMESTAMP
+         SET group_name = ?, is_admin = ?, hcode = ?, menu_permissions = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [groupName, input.isAdmin ? 1 : 0, JSON.stringify(permissions), input.id]
+        [groupName, input.isAdmin ? 1 : 0, normalizedHcode, JSON.stringify(permissions), input.id]
       );
     } else {
       const groupKey = `group_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`;
       await connection.query(
-        `INSERT INTO app_user_group (group_key, group_name, is_admin, menu_permissions)
-         VALUES (?, ?, ?, ?)`,
-        [groupKey, groupName, input.isAdmin ? 1 : 0, JSON.stringify(permissions)]
+        `INSERT INTO app_user_group (group_key, group_name, is_admin, hcode, menu_permissions)
+         VALUES (?, ?, ?, ?, ?)`,
+        [groupKey, groupName, input.isAdmin ? 1 : 0, normalizedHcode, JSON.stringify(permissions)]
       );
     }
     return { success: true };

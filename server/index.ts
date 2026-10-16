@@ -349,6 +349,9 @@ const publicUserPayload = (user: NonNullable<Awaited<ReturnType<typeof getAuthUs
   is_admin: Boolean(user.is_admin || user.group_is_admin),
   menu_permissions: user.menu_permissions,
   fund_permissions: user.is_admin || user.group_is_admin ? null : user.fund_permissions,
+  hcode: user.hcode || null,
+  user_hcode: user.user_hcode || null,
+  group_hcode: user.group_hcode || null,
   last_login_at: user.last_login_at,
 });
 
@@ -751,6 +754,7 @@ app.post('/api/admin/members', requireAdmin, async (req, res) => {
       fundPermissions: req.body?.fundPermissions == null
         ? null
         : Array.isArray(req.body.fundPermissions) ? req.body.fundPermissions.map(String) : [],
+      hcode: req.body?.hcode ?? null,
     });
     if (!result.success) {
       return res.status(result.status || 400).json({ success: false, error: result.error });
@@ -777,12 +781,17 @@ app.patch('/api/admin/members/:id', requireAdmin, async (req, res) => {
           ? null
           : Array.isArray(req.body.fundPermissions) ? req.body.fundPermissions.map(String) : []
         : undefined,
+      hcode: Object.prototype.hasOwnProperty.call(req.body || {}, 'hcode')
+        ? (req.body.hcode ? String(req.body.hcode) : null)
+        : undefined,
       password: typeof req.body?.password === 'string' ? req.body.password : undefined,
     });
     res.json({ success: true, user: user ? publicUserPayload(user) : null });
   } catch (error) {
     console.error('Update member error:', error);
-    res.status(500).json({ success: false, error: 'Cannot update member' });
+    const message = error instanceof Error && error.message.includes('5 หลัก') ? error.message : 'Cannot update member';
+    const status = error instanceof Error && error.message.includes('5 หลัก') ? 400 : 500;
+    res.status(status).json({ success: false, error: message });
   }
 });
 
@@ -813,6 +822,7 @@ app.post('/api/admin/groups', requireAdmin, async (req, res) => {
       groupName: String(req.body?.groupName || ''),
       isAdmin: Boolean(req.body?.isAdmin),
       menuPermissions: Array.isArray(req.body?.menuPermissions) ? req.body.menuPermissions : [],
+      hcode: req.body?.hcode ?? null,
     });
     if (!result.success) {
       return res.status(result.status || 400).json({ success: false, error: result.error });
@@ -3933,7 +3943,7 @@ app.post(
 
 app.post('/api/repstm/import', async (req, res) => {
   try {
-    const { dataType, sourceFilename, fileSize, fileHash, sheetName, isSubfile, importedBy, notes, rows, forceReimport } = req.body as {
+    const { dataType, sourceFilename, fileSize, fileHash, sheetName, isSubfile, importedBy, notes, rows, forceReimport, expectedHcode } = req.body as {
       dataType?: 'REP' | 'STM' | 'INV';
       sourceFilename?: string;
       fileSize?: number;
@@ -3944,6 +3954,7 @@ app.post('/api/repstm/import', async (req, res) => {
       notes?: string;
       rows?: Record<string, unknown>[];
       forceReimport?: boolean;
+      expectedHcode?: string;
     };
 
     const normalizedType = String(dataType || '').toUpperCase() as 'REP' | 'STM' | 'INV';
@@ -3969,6 +3980,7 @@ app.post('/api/repstm/import', async (req, res) => {
       return res.status(400).json({ success: false, error: 'ข้อมูลหลังแปลงไฟล์ไม่อยู่ในรูปแบบตาราง' });
     }
 
+    const scopedHcode = (req as AuthenticatedRequest).authUser?.hcode || (expectedHcode ? String(expectedHcode).trim() : null);
     const result = await importRepstmRows({
       dataType: normalizedType,
       sourceFilename: String(sourceFilename).trim(),
@@ -3980,9 +3992,17 @@ app.post('/api/repstm/import', async (req, res) => {
       notes: notes ? String(notes).trim() : undefined,
       rows: sanitizedRows,
       forceReimport: forceReimport === true,
+      expectedHcode: scopedHcode,
     });
 
     if (!result.success) {
+      const statusCode = Number((result as Record<string, unknown>).statusCode || 0);
+      if (statusCode >= 400 && statusCode < 500) {
+        return res.status(statusCode).json({
+          success: false,
+          error: String(result.error || 'รหัสหน่วยบริการในไฟล์ไม่ตรงกับหน่วยบริการของคุณ'),
+        });
+      }
       throw result.error || new Error('Import failed');
     }
 
@@ -4011,11 +4031,12 @@ app.post('/api/repstm/preflight', async (req, res) => {
     if (files.length === 0 || files.length > 1000) {
       return res.status(400).json({ success: false, error: 'กรุณาส่งรายการไฟล์ 1-1,000 ไฟล์' });
     }
+    const scopedHcode = (req as AuthenticatedRequest).authUser?.hcode || (req.body?.hcode ? String(req.body.hcode).trim() : null);
     const data = await preflightRepstmImportFiles(files.map((file: Record<string, unknown>) => ({
       filename: String(file?.filename || ''),
       size: Number(file?.size),
       hash: String(file?.hash || ''),
-    })));
+    })), scopedHcode);
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error checking REP/STM/INV import files:', error);
@@ -4027,7 +4048,8 @@ app.get('/api/repstm/batches', async (req, res) => {
   try {
     const dataType = req.query.dataType ? String(req.query.dataType).toUpperCase() as 'REP' | 'STM' | 'INV' : undefined;
     const limit = Number(req.query.limit || 20);
-    const data = await getRepstmImportBatches(dataType, limit);
+    const scopedHcode = (req as AuthenticatedRequest).authUser?.hcode || (req.query.hcode ? String(req.query.hcode).trim() : null);
+    const data = await getRepstmImportBatches(dataType, limit, scopedHcode);
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error fetching REP/STM/INV batches:', error);
@@ -4053,7 +4075,8 @@ app.get('/api/repstm/batches/:batchId', async (req, res) => {
 app.get('/api/repstm/manage/search', async (req, res) => {
   try {
     const filters = normalizeRepstmSearchFilters(req.query as Record<string, unknown>);
-    const data = await searchRepstmManagedBatches(filters);
+    const scopedHcode = (req as AuthenticatedRequest).authUser?.hcode || (req.query.hcode ? String(req.query.hcode).trim() : null);
+    const data = await searchRepstmManagedBatches({ ...filters, hcode: scopedHcode });
     res.json({ success: true, data });
   } catch (error) {
     console.error('Error searching REP/STM/INV management rows:', error);
@@ -4085,10 +4108,12 @@ app.get('/api/repstm/:dataType', async (req, res) => {
     }
 
     const limit = Number(req.query.limit || 200);
+    const scopedHcode = (req as AuthenticatedRequest).authUser?.hcode || (req.query.hcode ? String(req.query.hcode).trim() : null);
     const visit = {
       vn: String(req.query.vn || '').trim() || undefined,
       an: String(req.query.an || '').trim() || undefined,
       hn: String(req.query.hn || '').trim() || undefined,
+      hcode: scopedHcode,
     };
     if (String(req.query.visitOnly || '') === 'true' && !visit.vn && !visit.an) {
       return res.json({ success: true, data: [] });
@@ -4199,7 +4224,8 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
     if (selectedIds && (selectedIds.length > 200 || selectedIds.some(id => !/^(stm|raw)-[1-9]\d*$/.test(id)))) {
       return res.status(400).json({ success: false, error: 'ระบุรหัสแถวให้ถูกต้อง ครั้งละไม่เกิน 200 แถว' });
     }
-    const rows = await readStmZeroRows(startDate, endDate, repSheetZero ? 'rep-sheet-zero' : 'stm', selectedIds);
+    const scopedHcode = (req as AuthenticatedRequest).authUser?.hcode || (req.query.hcode ? String(req.query.hcode).trim() : null);
+    const rows = await readStmZeroRows(startDate, endDate, repSheetZero ? 'rep-sheet-zero' : 'stm', selectedIds, scopedHcode);
     if (req.query.checkIds) {
       const ids = String(req.query.checkIds).split(',').filter(Boolean);
       if (ids.length > 200) return res.status(400).json({ success: false, error: 'ตรวจได้ครั้งละไม่เกิน 200 แถว' });
@@ -4258,8 +4284,9 @@ app.get(['/api/reconciliation/stm-zero', '/api/reconciliation/rep-sheet-zero'], 
 // Auto-Fix endpoints for REP Data Sheet 0
 app.post('/api/reconciliation/rep-sheet-zero/detect-fix', async (req, res) => {
   try {
-    const { vn, an, hn, errorcode, verifycode, reason } = req.body || {};
-    const result = await detectRepSheetZeroFix({ vn, an, hn, errorcode, verifycode, reason });
+    const { vn, an, hn, cid, serviceDate, hcode, errorcode, verifycode, reason } = req.body || {};
+    const expectedHcode = (req as AuthenticatedRequest).authUser?.hcode || hcode;
+    const result = await detectRepSheetZeroFix({ vn, an, hn, cid, serviceDate, hcode: expectedHcode, errorcode, verifycode, reason });
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'ตรวจหาข้อผิดพลาดไม่สำเร็จ';
@@ -4269,9 +4296,10 @@ app.post('/api/reconciliation/rep-sheet-zero/detect-fix', async (req, res) => {
 
 app.post('/api/reconciliation/rep-sheet-zero/apply-fix', async (req, res) => {
   try {
-    const { vn, an, fixType } = req.body || {};
+    const { vn, an, hn, cid, serviceDate, hcode, fixType } = req.body || {};
     const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
-    const result = await applyRepSheetZeroFix({ vn, an, fixType, actorName });
+    const expectedHcode = (req as AuthenticatedRequest).authUser?.hcode || hcode;
+    const result = await applyRepSheetZeroFix({ vn, an, hn, cid, serviceDate, hcode: expectedHcode, fixType, actorName });
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'แก้ไขอัตโนมัติไม่สำเร็จ';
@@ -4283,9 +4311,10 @@ app.post('/api/reconciliation/rep-sheet-zero/batch-fix', async (req, res) => {
   try {
     const { items, all, startDate, endDate, fdhStatus, lifecycle, action, match, search } = req.body || {};
     const actorName = (req as any).authUser?.display_name || (req as any).authUser?.username || 'admin';
-    let targetItems: Array<{ vn: string; an?: string }> = items || [];
+    const expectedHcode = (req as AuthenticatedRequest).authUser?.hcode || undefined;
+    let targetItems: Array<{ vn: string; an?: string; hn?: string; cid?: string; serviceDate?: string; hcode?: string }> = items || [];
     if (all) {
-      const rows = await readStmZeroRows(startDate, endDate, 'rep-sheet-zero');
+      const rows = await readStmZeroRows(startDate, endDate, 'rep-sheet-zero', undefined, expectedHcode);
       const filtered = rows.filter(r => (!action || r.action === action)
         && (!search || [r.hn, r.vn, r.an, r.tran_id, r.errorcode, r.verifycode, r.source_filename, r.statement_no, ...Object.values(r.raw_data).filter(v => typeof v === 'string') as string[]].some(v => v.toLowerCase().includes(String(search).toLowerCase())))
         && (match !== 'unmatched' || !r.matched) && (match !== 'matched' || r.matched)
@@ -4294,9 +4323,11 @@ app.post('/api/reconciliation/rep-sheet-zero/batch-fix', async (req, res) => {
           || (fdhStatus === 'sent_today' && Boolean(r.fdh_sent_today))
           || ((fdhStatus === 'sent_previously' || fdhStatus === 'sent_any') && Boolean(r.last_fdh_sent_at)))
         && (!lifecycle || lifecycle === 'all' || r.lifecycle_status === lifecycle));
-      targetItems = filtered.filter(r => Boolean(r.vn || r.an)).map(r => ({ vn: r.vn, an: r.an }));
+      targetItems = filtered
+        .filter(r => Boolean(r.vn || r.an))
+        .map(r => ({ vn: r.vn, an: r.an, hn: r.hn, serviceDate: r.service_date || undefined }));
     }
-    const result = await batchApplyRepSheetZeroFix({ items: targetItems, actorName });
+    const result = await batchApplyRepSheetZeroFix({ items: targetItems, actorName, expectedHcode });
     return res.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'แก้ไขแบบกลุ่มไม่สำเร็จ';

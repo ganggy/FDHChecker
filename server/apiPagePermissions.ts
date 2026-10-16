@@ -51,9 +51,11 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/fdh\/claim-detail(\/|$)/, pages: ['fdhClaimDetail', 'reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/fdh\/import-status(\/|$)/, pages: ['fdhImport', 'fdh', 'reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/fdh(\/|$)/, pages: ['fdh', 'fundFdh', 'fdhImport', 'staff', 'ipd'] },
+  { pattern: /^\/hsub(\/|$)/, pages: ['hsubPayment', 'pcuPayout', 'pcuCaseCost'] },
+  { pattern: /^\/pcu-herbal(\/|$)/, pages: ['pcuHerbal', 'pcuPayout', 'pcuCaseCost'] },
   { pattern: /^\/hosxp\/audit(\/|$)/, pages: ['ipd'] },
   { pattern: /^\/hosxp\/ipd(\/|$)/, pages: ['ipd', 'ipdClaimMonitor'] },
-  { pattern: /^\/hosxp(\/|$)/, pages: ['staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup'] },
+  { pattern: /^\/hosxp(\/|$)/, pages: ['staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup', 'repSheetZeroAudit', 'stmZeroAudit', 'reconciliation', 'preValidator', 'workQueue', 'rejectTracking'] },
   { pattern: /^\/icd9(\/|$)/, pages: ['icd9Lookup', 'staff', 'fdh', 'specific', 'fundFdh', 'fund43', 'fundKtb', 'fundOther', 'monitor', 'fsMonitor', 'ipd', 'ipdClaimMonitor', 'ucOutsideCup', 'settings', 'hospitalReports'] },
 ];
 export function canAccessApiPage(path: string, method: string, user: { is_admin?: boolean | number; group_is_admin?: boolean | number; menu_permissions?: unknown }) {

@@ -28,6 +28,144 @@ export interface RepSheetZeroFixExecutionResult {
   message: string;
 }
 
+export async function verifyVisitIdentityForAutoFix(
+  connection: { query: (sql: string, values?: unknown[]) => Promise<unknown> },
+  has: (table: string, ...cols: string[]) => boolean,
+  params: {
+    vn?: string;
+    hn?: string;
+    cid?: string;
+    serviceDate?: string;
+    hcode?: string;
+  }
+): Promise<{
+  verified: boolean;
+  reason?: string;
+  hn: string;
+  vstdate: string;
+  vsttime: string;
+  doctor: string;
+  cid: string;
+  claimCode: string;
+}> {
+  const vn = String(params.vn || '').trim();
+  if (!vn || !has('ovst', 'vn')) {
+    return {
+      verified: false,
+      reason: 'ไม่พบข้อมูล Visit (VN) ในระบบ HIS',
+      hn: '',
+      vstdate: '',
+      vsttime: '09:00:00',
+      doctor: '900',
+      cid: '',
+      claimCode: '',
+    };
+  }
+
+  const expectedHcode = String(params.hcode || '').trim();
+  if (/^\d{5}$/.test(expectedHcode)) {
+    try {
+      const [cfgRows] = (await connection.query(
+        'SELECT hospitalcode FROM opdconfig ORDER BY hospitalcode DESC LIMIT 1'
+      )) as [RowDataPacket[]];
+      const hospitalCode = String(cfgRows?.[0]?.hospitalcode || '').trim();
+      if (/^\d{5}$/.test(hospitalCode) && hospitalCode !== expectedHcode) {
+        return {
+          verified: false,
+          reason: `รหัสหน่วยบริการ (${expectedHcode}) ไม่ตรงกับฐานข้อมูล HIS (${hospitalCode}) จึงระงับการ Auto-Fix เพื่อป้องกันข้อมูลข้ามหน่วยบริการ`,
+          hn: '',
+          vstdate: '',
+          vsttime: '09:00:00',
+          doctor: '900',
+          cid: '',
+          claimCode: '',
+        };
+      }
+    } catch {
+      // Ignore if opdconfig is unavailable
+    }
+  }
+
+  const [ovstRows] = (await connection.query(
+    `SELECT o.hn, DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS vstdate_str, o.vstdate, o.vsttime, o.doctor, pt.cid
+            ${has('ovst', 'claim_code') ? ', o.claim_code' : ''}
+     FROM ovst o
+     LEFT JOIN patient pt ON o.hn = pt.hn
+     WHERE o.vn = ? LIMIT 1`,
+    [vn]
+  )) as [RowDataPacket[]];
+
+  const ovst = ovstRows?.[0];
+  if (!ovst) {
+    return {
+      verified: false,
+      reason: `ไม่พบ VN ${vn} ในตาราง ovst ของระบบ HIS`,
+      hn: '',
+      vstdate: '',
+      vsttime: '09:00:00',
+      doctor: '900',
+      cid: '',
+      claimCode: '',
+    };
+  }
+
+  const actualHn = String(ovst.hn || '').trim();
+  const actualCid = String(ovst.cid || '').replace(/\D/g, '');
+  const actualDate = String(ovst.vstdate_str || ovst.vstdate || '').slice(0, 10);
+  const expectedHn = String(params.hn || '').trim();
+  const expectedCid = String(params.cid || '').replace(/\D/g, '');
+  const expectedDate = String(params.serviceDate || '').trim().slice(0, 10);
+
+  if (expectedHn && actualHn && expectedHn.replace(/^0+/, '') !== actualHn.replace(/^0+/, '')) {
+    return {
+      verified: false,
+      reason: `HN ในรายการ (${expectedHn}) ไม่ตรงกับ HN ของ VN ${vn} ใน HIS (${actualHn})`,
+      hn: actualHn,
+      vstdate: actualDate,
+      vsttime: String(ovst.vsttime || '09:00:00'),
+      doctor: String(ovst.doctor || '900'),
+      cid: actualCid,
+      claimCode: String(ovst.claim_code || '').trim(),
+    };
+  }
+
+  if (expectedCid.length === 13 && actualCid.length === 13 && expectedCid !== actualCid) {
+    return {
+      verified: false,
+      reason: `เลขบัตรประชาชน (CID) ไม่ตรงกับผู้ป่วยของ VN ${vn} ใน HIS`,
+      hn: actualHn,
+      vstdate: actualDate,
+      vsttime: String(ovst.vsttime || '09:00:00'),
+      doctor: String(ovst.doctor || '900'),
+      cid: actualCid,
+      claimCode: String(ovst.claim_code || '').trim(),
+    };
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(expectedDate) && /^\d{4}-\d{2}-\d{2}$/.test(actualDate) && expectedDate !== actualDate) {
+    return {
+      verified: false,
+      reason: `วันที่รับบริการ (${expectedDate}) ไม่ตรงกับวันที่ของ VN ${vn} ใน HIS (${actualDate})`,
+      hn: actualHn,
+      vstdate: actualDate,
+      vsttime: String(ovst.vsttime || '09:00:00'),
+      doctor: String(ovst.doctor || '900'),
+      cid: actualCid,
+      claimCode: String(ovst.claim_code || '').trim(),
+    };
+  }
+
+  return {
+    verified: true,
+    hn: actualHn,
+    vstdate: actualDate,
+    vsttime: String(ovst.vsttime || '09:00:00'),
+    doctor: String(ovst.doctor || '900'),
+    cid: actualCid,
+    claimCode: String(ovst.claim_code || '').trim(),
+  };
+}
+
 /**
  * ตรวจสอบโอกาสในการแก้ไขข้อมูลอัตโนมัติ (Auto-Fix) สำหรับ Visit ใน REP Data Sheet 0
  */
@@ -35,10 +173,13 @@ export async function detectRepSheetZeroFix(params: {
   vn: string;
   an?: string;
   hn?: string;
+  cid?: string;
+  serviceDate?: string;
+  hcode?: string;
   errorcode?: string;
   verifycode?: string;
   reason?: string;
-}): Promise<RepSheetZeroFixDetectionResult> {
+}): Promise<RepSheetZeroFixDetectionResult & { verificationError?: string }> {
   const { vn, an } = params;
   if (!vn && !an) {
     return { vn: '', an: '', hn: params.hn || '', opportunities: [], canAutoFix: false };
@@ -52,53 +193,60 @@ export async function detectRepSheetZeroFix(params: {
 
     const opportunities: RepSheetZeroFixOpportunity[] = [];
 
-    // 1. ตรวจสอบการผูก Claim Code / Authen Code
-    if (vn && (has('ovst', 'vn', 'claim_code') || has('visit_pttype', 'vn', 'auth_code')) && has('authenhos', 'claim_code')) {
-      let currentClaimCode = '';
-      let currentVstdate = '';
-      let currentCid = '';
+    if (vn && has('ovst', 'vn')) {
+      const check = await verifyVisitIdentityForAutoFix(connection, has, {
+        vn,
+        hn: params.hn,
+        cid: params.cid,
+        serviceDate: params.serviceDate,
+        hcode: params.hcode,
+      });
+      if (!check.verified) {
+        return {
+          vn,
+          an,
+          hn: params.hn || check.hn || '',
+          opportunities: [],
+          canAutoFix: false,
+          verificationError: check.reason,
+        };
+      }
 
-      if (has('ovst', 'vn')) {
-        const [ovstRows] = await connection.query<RowDataPacket[]>(
-          `SELECT o.hn, o.vstdate, pt.cid ${has('ovst', 'claim_code') ? ', o.claim_code' : ''}
-           FROM ovst o 
-           LEFT JOIN patient pt ON o.hn = pt.hn
-           WHERE o.vn = ? LIMIT 1`,
-          [vn]
-        );
-        const ovst = ovstRows[0];
-        currentVstdate = String(ovst?.vstdate || '');
-        currentCid = String(ovst?.cid || '');
-        if (has('ovst', 'claim_code')) {
-          currentClaimCode = String(ovst?.claim_code || '').trim();
+      // 1. ตรวจสอบการผูก Claim Code / Authen Code (ต้องตรงทั้งผู้ป่วยและวันที่รับบริการ)
+      if ((has('ovst', 'vn', 'claim_code') || has('visit_pttype', 'vn', 'auth_code')) && has('authenhos', 'claim_code')) {
+        let currentClaimCode = check.claimCode;
+        const currentVstdate = check.vstdate;
+        const currentCid = check.cid;
+
+        if (!currentClaimCode && has('visit_pttype', 'vn', 'auth_code')) {
+          const [vpRows] = await connection.query<RowDataPacket[]>(
+            `SELECT auth_code FROM visit_pttype WHERE vn = ? AND TRIM(IFNULL(auth_code, '')) <> '' LIMIT 1`,
+            [vn]
+          );
+          currentClaimCode = String(vpRows[0]?.auth_code || '').trim();
         }
-      }
 
-      if (!currentClaimCode && has('visit_pttype', 'vn', 'auth_code')) {
-        const [vpRows] = await connection.query<RowDataPacket[]>(
-          `SELECT auth_code FROM visit_pttype WHERE vn = ? AND TRIM(IFNULL(auth_code, '')) <> '' LIMIT 1`,
-          [vn]
-        );
-        currentClaimCode = String(vpRows[0]?.auth_code || '').trim();
-      }
-
-      if (!currentClaimCode) {
-        // ค้นหา Claim Code ใน authenhos โดย vn หรือ pid(cid) + created_date
-        const [authRows] = await connection.query<RowDataPacket[]>(
-          `SELECT claim_code FROM authenhos 
-           WHERE (vn = ? OR (? <> '' AND pid = ? AND created_date = ?)) 
-             AND TRIM(IFNULL(claim_code, '')) <> ''
-           ORDER BY created_date DESC, created_time DESC LIMIT 1`,
-          [vn, currentCid, currentCid, currentVstdate]
-        );
-        const candidate = authRows[0]?.claim_code;
-        if (candidate) {
-          opportunities.push({
-            fixType: 'LINK_AUTHEN',
-            title: 'ผูกรหัส Claim / Authen Code',
-            detail: `พบรหัส ${candidate} ในประวัติ Authen พร้อมผูกเข้า Visit อัตโนมัติ`,
-            autoFixable: true,
-          });
+        if (!currentClaimCode) {
+          // ค้นหา Claim Code ใน authenhos โดยตรวจสอบว่า pid และ created_date ไม่ขัดแย้งกับผู้ป่วยจริงของ Visit
+          const [authRows] = await connection.query<RowDataPacket[]>(
+            `SELECT claim_code FROM authenhos 
+             WHERE (
+               (vn = ? AND (? = '' OR pid IS NULL OR TRIM(pid) = '' OR pid = ?))
+               OR (? <> '' AND pid = ? AND created_date = ?)
+             )
+               AND TRIM(IFNULL(claim_code, '')) <> ''
+             ORDER BY created_date DESC, created_time DESC LIMIT 1`,
+            [vn, currentCid, currentCid, currentCid, currentCid, currentVstdate]
+          );
+          const candidate = authRows[0]?.claim_code;
+          if (candidate) {
+            opportunities.push({
+              fixType: 'LINK_AUTHEN',
+              title: 'ผูกรหัส Claim / Authen Code',
+              detail: `พบรหัส ${candidate} ในประวัติ Authen (ตรวจสอบตรงกับผู้ป่วยแล้ว) พร้อมผูกเข้า Visit อัตโนมัติ`,
+              autoFixable: true,
+            });
+          }
         }
       }
     }
@@ -282,6 +430,10 @@ export async function detectRepSheetZeroFix(params: {
 export async function applyRepSheetZeroFix(params: {
   vn: string;
   an?: string;
+  hn?: string;
+  cid?: string;
+  serviceDate?: string;
+  hcode?: string;
   fixType?: 'ALL' | 'LINK_AUTHEN' | 'REMOVE_NUMERIC_DX' | 'ADD_DENTAL_EXAM' | 'SET_PRIMARY_DX' | 'ADD_HERBAL_DIAG' | 'ADD_PALLIATIVE_MORPHINE_DX';
   actorName?: string;
 }): Promise<RepSheetZeroFixExecutionResult> {
@@ -298,25 +450,35 @@ export async function applyRepSheetZeroFix(params: {
 
     const actionsApplied: string[] = [];
 
-    // ดึง HN, vstdate, vsttime, doctor และ CID
+    // ตรวจสอบความตรงกันของ HN, CID, วันที่รับบริการ และรหัสหน่วยบริการ (hcode) ก่อนแก้ไขข้อมูลอัตโนมัติ
     let currentHn = '';
     let currentVstdate = '';
     let currentVsttime = '09:00:00';
     let currentDoctor = '900';
     let currentCid = '';
     if (vn && has('ovst', 'vn')) {
-      const [ovstRows] = await connection.query<RowDataPacket[]>(
-        `SELECT o.hn, o.vstdate, o.vsttime, o.doctor, pt.cid 
-         FROM ovst o 
-         LEFT JOIN patient pt ON o.hn = pt.hn 
-         WHERE o.vn = ? LIMIT 1`,
-        [vn]
-      );
-      currentHn = String(ovstRows[0]?.hn || '');
-      currentVstdate = String(ovstRows[0]?.vstdate || '');
-      currentVsttime = String(ovstRows[0]?.vsttime || '09:00:00');
-      currentDoctor = String(ovstRows[0]?.doctor || '900');
-      currentCid = String(ovstRows[0]?.cid || '');
+      const check = await verifyVisitIdentityForAutoFix(connection, has, {
+        vn,
+        hn: params.hn,
+        cid: params.cid,
+        serviceDate: params.serviceDate,
+        hcode: params.hcode,
+      });
+      if (!check.verified) {
+        return {
+          vn,
+          an,
+          hn: params.hn || check.hn || '',
+          success: false,
+          actionsApplied: [],
+          message: check.reason || 'ข้อมูลผู้ป่วย/วันที่รับบริการไม่ตรงกับ HIS จึงระงับการ Auto-Fix',
+        };
+      }
+      currentHn = check.hn;
+      currentVstdate = check.vstdate;
+      currentVsttime = check.vsttime;
+      currentDoctor = check.doctor;
+      currentCid = check.cid;
     }
 
     await connection.beginTransaction();
@@ -325,10 +487,13 @@ export async function applyRepSheetZeroFix(params: {
     if ((fixType === 'ALL' || fixType === 'LINK_AUTHEN') && vn && (has('ovst', 'vn', 'claim_code') || has('visit_pttype', 'vn', 'auth_code')) && has('authenhos', 'claim_code')) {
       const [authRows] = await connection.query<RowDataPacket[]>(
         `SELECT claim_code FROM authenhos 
-         WHERE (vn = ? OR (? <> '' AND pid = ? AND created_date = ?)) 
+         WHERE (
+           (vn = ? AND (? = '' OR pid IS NULL OR TRIM(pid) = '' OR pid = ?))
+           OR (? <> '' AND pid = ? AND created_date = ?)
+         )
            AND TRIM(IFNULL(claim_code, '')) <> ''
          ORDER BY created_date DESC, created_time DESC LIMIT 1`,
-        [vn, currentCid, currentCid, currentVstdate]
+        [vn, currentCid, currentCid, currentCid, currentCid, currentVstdate]
       );
       const candidate = authRows[0]?.claim_code;
       if (candidate) {
@@ -576,8 +741,9 @@ export async function applyRepSheetZeroFix(params: {
  * แก้ไขอัตโนมัติแบบกลุ่ม (Batch Auto-Fix)
  */
 export async function batchApplyRepSheetZeroFix(params: {
-  items: Array<{ vn: string; an?: string }>;
+  items: Array<{ vn: string; an?: string; hn?: string; cid?: string; serviceDate?: string; hcode?: string }>;
   actorName?: string;
+  expectedHcode?: string;
 }): Promise<{
   total: number;
   fixedCount: number;
@@ -592,6 +758,10 @@ export async function batchApplyRepSheetZeroFix(params: {
     const res = await applyRepSheetZeroFix({
       vn: item.vn,
       an: item.an,
+      hn: item.hn,
+      cid: item.cid,
+      serviceDate: item.serviceDate,
+      hcode: item.hcode || params.expectedHcode,
       fixType: 'ALL',
       actorName: params.actorName,
     });

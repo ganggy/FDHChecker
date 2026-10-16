@@ -19,6 +19,58 @@ import {
 } from '../utils/repstmImportClassification';
 import { RepStmImportDetail } from '../components/RepStmImportDetail';
 import { collectRowHeaders, parseWorksheetRows } from '../utils/repstmWorksheetParsing';
+import { fetchMe } from '../services/authService';
+
+const extractFiveDigitCodeFromText = (value: unknown): string => {
+  if (value == null) return '';
+  const raw = String(value).trim();
+  if (/^\d{5}$/.test(raw)) return raw;
+  const match = raw.match(/(?:^|[^0-9])(\d{5})(?:$|[^0-9])/);
+  return match ? match[1] : '';
+};
+
+const HCODE_COLUMN_KEYS = ['hospcode', 'hcode', 'hmain', 'hospital_code', 'รหัสหน่วยบริการ', 'หน่วยบริการ'];
+
+const verifyImportRowsHcode = (
+  rows: Record<string, unknown>[],
+  fileName: string,
+  expectedHcode: string | null,
+): { valid: boolean; detectedHcode: string; error?: string } => {
+  const found = new Set<string>();
+  const sampleLimit = Math.min(rows.length, 300);
+  for (let i = 0; i < sampleLimit; i += 1) {
+    const row = rows[i];
+    if (!row || typeof row !== 'object') continue;
+    for (const [k, v] of Object.entries(row)) {
+      const normKey = k.trim().toLowerCase().replace(/[\s_-]+/g, '');
+      if (HCODE_COLUMN_KEYS.some((cand) => normKey === cand.replace(/[\s_-]+/g, ''))) {
+        const code = extractFiveDigitCodeFromText(v);
+        if (code) found.add(code);
+      }
+    }
+  }
+  if (found.size === 0 && fileName) {
+    const match = fileName.match(/(?:^|[_-])(\d{5})(?:[_.-]|$)/);
+    if (match) found.add(match[1]);
+  }
+  const codes = [...found];
+  if (codes.length > 1) {
+    return {
+      valid: false,
+      detectedHcode: codes.join(', '),
+      error: `พบหลายรหัสหน่วยบริการปะปนกันในไฟล์เดียว (${codes.join(', ')}) กรุณาแยกไฟล์ตามหน่วยบริการ`,
+    };
+  }
+  const detectedHcode = codes[0] || '';
+  if (expectedHcode && detectedHcode && detectedHcode !== expectedHcode) {
+    return {
+      valid: false,
+      detectedHcode,
+      error: `รหัสหน่วยบริการในไฟล์ (${detectedHcode}) ไม่ตรงกับหน่วยบริการของคุณ (${expectedHcode}) — ป้องกันข้อมูล REP/STM ปะปนกัน`,
+    };
+  }
+  return { valid: true, detectedHcode };
+};
 
 type ImportType = RepstmImportType;
 
@@ -272,6 +324,8 @@ export const RepStmImportPage: React.FC = () => {
   const [detailView, setDetailView] = useState<DetailViewState | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [expectedHcode, setExpectedHcode] = useState<string | null>(null);
+  const [facilityGroupLabel, setFacilityGroupLabel] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -380,6 +434,36 @@ export const RepStmImportPage: React.FC = () => {
     void loadData(dataType);
   }, [dataType]);
 
+  // Load current user's facility HCODE or active site hospital_code for REP/STM isolation check
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const session = await fetchMe().catch(() => null);
+        if (!active) return;
+        if (session?.user?.display_name || session?.user?.username) {
+          setImportedBy(session.user.display_name || session.user.username);
+        }
+        if (session?.user?.group_name) {
+          setFacilityGroupLabel(session.user.group_name);
+        }
+        if (session?.user?.hcode && /^\d{5}$/.test(session.user.hcode)) {
+          setExpectedHcode(session.user.hcode);
+          return;
+        }
+        const res = await fetch('/api/config/app-settings').catch(() => null);
+        const json = await res?.json().catch(() => null);
+        const code = String(json?.data?.hospital_code || json?.hospital_code || '').trim();
+        if (active && /^\d{5}$/.test(code)) {
+          setExpectedHcode(code);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
   // Probe saved settings once so the backend connection is warmed up for browser-based login.
   useEffect(() => {
     fetch('/api/config/nhso-eclaim-settings')
@@ -426,20 +510,40 @@ export const RepStmImportPage: React.FC = () => {
   };
 
   const changeQueueImporter = (id: string, importerType: ImportType) => {
-    updateQueueItem(id, (item) => ({
-      ...item,
-      detectedType: importerType,
-      status: item.rows.length > 0 && item.status !== 'importing' && item.status !== 'success' ? 'ready' : item.status,
-      message: item.rows.length > 0
-        ? `เลือกตัวนำเข้า ${importerType} โดยผู้ใช้ · ${item.rows.length.toLocaleString()} แถวพร้อมนำเข้า`
-        : item.message,
-    }));
+    updateQueueItem(id, (item) => {
+      const hcodeCheck = verifyImportRowsHcode(item.rows, item.fileName, expectedHcode);
+      if (!hcodeCheck.valid) {
+        return {
+          ...item,
+          detectedType: importerType,
+          status: 'error',
+          message: `⛔ ${hcodeCheck.error}`,
+        };
+      }
+      return {
+        ...item,
+        detectedType: importerType,
+        status: item.rows.length > 0 && item.status !== 'importing' && item.status !== 'success' ? 'ready' : item.status,
+        message: item.rows.length > 0
+          ? `เลือกตัวนำเข้า ${importerType} โดยผู้ใช้ · ${item.rows.length.toLocaleString()} แถวพร้อมนำเข้า`
+          : item.message,
+      };
+    });
   };
 
   const changeAllQueueImporters = (importerType: ImportType) => {
     setQueueItems((current) =>
       current.map((item) => {
         if (item.status === 'importing' || item.status === 'success') return item;
+        const hcodeCheck = verifyImportRowsHcode(item.rows, item.fileName, expectedHcode);
+        if (!hcodeCheck.valid) {
+          return {
+            ...item,
+            detectedType: importerType,
+            status: 'error',
+            message: `⛔ ${hcodeCheck.error}`,
+          };
+        }
         return {
           ...item,
           detectedType: importerType,
@@ -837,6 +941,8 @@ export const RepStmImportPage: React.FC = () => {
             : isSubfile
               ? hintType || detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows)
               : detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows) || hintType;
+          const hcodeCheck = verifyImportRowsHcode(rows, queueItem.fileName, expectedHcode);
+          const isReady = rows.length > 0 && Boolean(detectedType) && hcodeCheck.valid;
           const parsedItem: ImportQueueItem = {
             ...queueItem,
             sheetName,
@@ -851,13 +957,15 @@ export const RepStmImportPage: React.FC = () => {
             archiveSummaries,
             archiveEntries,
             relativePath: sourceEntryName || queueItem.relativePath,
-            status: rows.length > 0 && detectedType ? 'ready' : 'error',
-            progress: rows.length > 0 && detectedType ? 60 : 100,
-            message: rows.length === 0
-              ? 'ไม่พบข้อมูลในไฟล์'
-              : detectedType
-                ? `ตรวจพบเป็น ${detectedType} (Sheet: ${sheetName}) พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
-                : 'ไม่สามารถระบุประเภทไฟล์ได้',
+            status: isReady ? 'ready' : 'error',
+            progress: isReady ? 60 : 100,
+            message: !hcodeCheck.valid
+              ? `⛔ ${hcodeCheck.error}`
+              : rows.length === 0
+                ? 'ไม่พบข้อมูลในไฟล์'
+                : detectedType
+                  ? `ตรวจพบเป็น ${detectedType}${hcodeCheck.detectedHcode ? ` [หน่วยบริการ: ${hcodeCheck.detectedHcode}]` : ''} (Sheet: ${sheetName}) พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
+                  : 'ไม่สามารถระบุประเภทไฟล์ได้',
           };
           parsedItems.push(parsedItem);
           updateQueueItem(queueItem.id, (item) => ({
@@ -872,6 +980,8 @@ export const RepStmImportPage: React.FC = () => {
               : isSubfile
                 ? hintType || detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows)
                 : detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows) || hintType;
+            const hcodeCheck = verifyImportRowsHcode(rows, queueItem.fileName, expectedHcode);
+            const isReady = rows.length > 0 && Boolean(detectedType) && hcodeCheck.valid;
             return {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,
@@ -888,13 +998,15 @@ export const RepStmImportPage: React.FC = () => {
               summary,
               archiveSummaries,
               archiveEntries,
-              status: (rows.length > 0 && detectedType ? 'ready' : 'error') as QueueStatus,
-              progress: rows.length > 0 && detectedType ? 60 : 100,
-              message: rows.length === 0
-                ? `Sheet "${sheetName}": ไม่พบข้อมูล`
-                : detectedType
-                  ? `${isSubfile ? 'Sub file ข้อมูลประกอบ' : `ตรวจพบเป็น ${detectedType}`} พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
-                  : `Sheet "${sheetName}": ไม่สามารถระบุประเภท`,
+              status: (isReady ? 'ready' : 'error') as QueueStatus,
+              progress: isReady ? 60 : 100,
+              message: !hcodeCheck.valid
+                ? `⛔ ${hcodeCheck.error}`
+                : rows.length === 0
+                  ? `Sheet "${sheetName}": ไม่พบข้อมูล`
+                  : detectedType
+                    ? `${isSubfile ? 'Sub file ข้อมูลประกอบ' : `ตรวจพบเป็น ${detectedType}`}${hcodeCheck.detectedHcode ? ` [หน่วยบริการ: ${hcodeCheck.detectedHcode}]` : ''} พร้อมนำเข้า ${rows.length.toLocaleString()} แถว`
+                    : `Sheet "${sheetName}": ไม่สามารถระบุประเภท`,
             };
           });
           parsedItems.push(...expandedItems);
@@ -1047,10 +1159,35 @@ export const RepStmImportPage: React.FC = () => {
   return (
     <div className="page-container">
       <div className="page-header repstm-hero">
-        <h1 className="page-title">📥 นำเข้า REP / STM / INV</h1>
-        <p className="page-subtitle">
-          อัปโหลดหลายไฟล์หรือทั้งโฟลเดอร์จาก NHSO แล้วให้ระบบตรวจชนิดไฟล์ <code>REP / STM / INV</code> อัตโนมัติ พร้อมเก็บลงฐาน <code>repstminv</code> เพื่อใช้ตรวจสอบและต่อยอดงาน reconciliation
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h1 className="page-title">📥 นำเข้า REP / STM / INV</h1>
+            <p className="page-subtitle">
+              อัปโหลดหลายไฟล์หรือทั้งโฟลเดอร์จาก NHSO แล้วให้ระบบตรวจชนิดไฟล์ <code>REP / STM / INV</code> อัตโนมัติ พร้อมเก็บลงฐาน <code>repstminv</code> เพื่อใช้ตรวจสอบและต่อยอดงาน reconciliation
+            </p>
+          </div>
+          {expectedHcode && (
+            <div
+              style={{
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                color: '#166534',
+                padding: '8px 14px',
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 600,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+              }}
+            >
+              <span>🛡️ ตรวจสอบรหัสหน่วยบริการ (ป้องกันข้อมูลปะปน): <code>{expectedHcode}</code></span>
+              <span style={{ fontSize: 11, fontWeight: 400, color: '#15803d' }}>
+                {facilityGroupLabel ? `กลุ่มสิทธิ์: ${facilityGroupLabel} · ` : ''}รับเฉพาะไฟล์ของหน่วยบริการ {expectedHcode} เท่านั้น
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="card repstm-control-card" style={{ marginBottom: 16 }}>

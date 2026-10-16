@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pickImportColumn } from './utils/importColumnLookup.js';
-import { statementEncounterIdentity, findStatementEncounter, uniqueHisEncounter } from './stmEncounterIdentity.js';
+import { statementEncounterIdentity, findStatementEncounter, uniqueHisEncounter, extractFiveDigitHcode, matchesHospitalIdentity, resolveHospitalEncounter } from './stmEncounterIdentity.js';
 import { repSheetZeroReasons } from '../src/utils/repSheetZeroAudit.js';
 import { isDataSheetZero, includeAuditSupplement, detectTypeFromSheetName } from '../src/utils/repstmImportClassification.js';
 import { readZeroAuditSourceRows } from './repositories/stmZero.repository.js';
@@ -27,18 +27,18 @@ test('REP reasons preserve original text and distinguish known and unknown codes
   assert.equal(result.explanations[1].known, false);
   assert.equal(repSheetZeroReasons({ ...row, raw_data: {} }, {}).original.length, 0);
 });
-test('REP Sheet 0 query reads only active REP sheets, including absent and positive amounts', async () => {
+test('REP Sheet 0 query reads only active REP sheets, including absent and positive amounts, and scopes by hcode', async () => {
   const db = new PGlite();
   try {
-    await db.exec(`CREATE TABLE repstm_import_batch (id int PRIMARY KEY, data_type text, source_filename text, sheet_name text, created_at timestamp, replaces_batch_id int);
+    await db.exec(`CREATE TABLE repstm_import_batch (id int PRIMARY KEY, data_type text, source_filename text, sheet_name text, created_at timestamp, replaces_batch_id int, hcode text);
       CREATE TABLE repstm_import_row (id int PRIMARY KEY, batch_id int, data_type text, paid_amount numeric);
       INSERT INTO repstm_import_batch VALUES
-        (1, 'REP', 'rep-demo.xls', 'Data Sheet 0', '2026-09-20', NULL),
-        (2, 'STM', 'stm-demo.xls', 'Data Sheet 0', '2026-09-20', NULL),
-        (3, 'REP', 'rep-demo.xls', 'Data Drug', '2026-09-20', NULL),
-        (4, 'REP', 'rep-old.xls', 'Data Sheet 0', '2026-09-20', NULL),
-        (5, 'REP', 'rep-new.xls', 'Data Sheet 0', '2026-09-20', 4),
-        (6, 'REP', 'rep-outside.xls', 'Data Sheet 0', '2026-08-20', NULL);
+        (1, 'REP', 'rep-demo.xls', 'Data Sheet 0', '2026-09-20', NULL, '10999'),
+        (2, 'STM', 'stm-demo.xls', 'Data Sheet 0', '2026-09-20', NULL, '10999'),
+        (3, 'REP', 'rep-demo.xls', 'Data Drug', '2026-09-20', NULL, '10999'),
+        (4, 'REP', 'rep-old.xls', 'Data Sheet 0', '2026-09-20', NULL, '10999'),
+        (5, 'REP', 'rep-new.xls', 'Data Sheet 0', '2026-09-20', 4, '04567'),
+        (6, 'REP', 'rep-outside.xls', 'Data Sheet 0', '2026-08-20', NULL, '10999');
       INSERT INTO repstm_import_row VALUES (1,1,'REP',NULL), (2,1,'REP',10), (3,2,'STM',0), (4,3,'REP',NULL), (5,4,'REP',NULL), (6,5,'REP',0), (7,6,'REP',0);`);
     const connection = { async query(sql: string, values: unknown[]) {
       const query = compilePostgresQuery(sql, values);
@@ -47,6 +47,9 @@ test('REP Sheet 0 query reads only active REP sheets, including absent and posit
     const rows = await readZeroAuditSourceRows(connection, '2026-09-01', '2026-09-30', 'rep-sheet-zero');
     assert.deepEqual(rows.map(r => r.id), [6, 2, 1]);
     assert.ok(rows.every(r => r.audit_id.startsWith('raw-')));
+    // Scoped to PCU 04567 -> only sees batch 5 (row 6)
+    const pcuRows = await readZeroAuditSourceRows(connection, '2026-09-01', '2026-09-30', 'rep-sheet-zero', undefined, '04567');
+    assert.deepEqual(pcuRows.map(r => r.id), [6]);
     const detail = await readZeroAuditSourceRows(connection, '2026-09-01', '2026-09-30', 'rep-sheet-zero', ['raw-2']);
     assert.deepEqual(detail.map(r => r.id), [2]);
     assert.deepEqual(await readZeroAuditSourceRows(connection, '2026-09-01', '2026-09-30', 'rep-sheet-zero', ['stm-2']), []);
@@ -116,3 +119,53 @@ test('OP recovery uses the service minute, permits omitted seconds, and rejects 
   assert.equal(uniqueHisEncounter('DEMO-H', 'UNKNOWN', [{ kind: 'OP', visit_code: 'DEMO-V', hn: 'DEMO-H' }, { kind: 'IP', visit_code: 'DEMO-A', hn: 'DEMO-H' }]), null);
   assert.equal(uniqueHisEncounter('OTHER-H', 'OP', [{ kind: 'OP', visit_code: 'DEMO-V', hn: 'DEMO-H' }]), null);
 });
+
+test('strict facility HCODE and patient identity verification prevents cross-facility VN collisions', async () => {
+  assert.equal(extractFiveDigitHcode('04567 รพ.สต.บ้านตัวอย่าง', 'REP_10999_202608.xls'), '04567');
+  assert.equal(extractFiveDigitHcode('', 'STM_04567_OPUCS202608.xls'), '04567');
+
+  const pcuIdentity = statementEncounterIdentity({
+    source_filename: 'REP_04567_202608.xls',
+    raw_data: { HCODE: '04567', SEQ: '690807101500', HN: '0012345', PID: '1100100100101', วันเข้ารักษา: '07/08/2026 10:15:00' },
+  });
+  assert.equal(pcuIdentity.hcode, '04567');
+
+  // Hospital visit with same VN/HN/CID/date but different hospital_code (10999 vs 04567) MUST be rejected
+  assert.equal(
+    matchesHospitalIdentity(pcuIdentity, 'OP', {
+      visit_code: '690807101500',
+      hn: '0012345',
+      cid: '1100100100101',
+      service_date: '2026-08-07',
+      service_time: '10:15:00',
+      hcode: '10999',
+    }),
+    false,
+  );
+
+  // Matching hcode + patient + date succeeds
+  assert.equal(
+    matchesHospitalIdentity(pcuIdentity, 'OP', {
+      visit_code: '690807101500',
+      hn: '0012345',
+      cid: '1100100100101',
+      service_date: '2026-08-07',
+      service_time: '10:15:00',
+      hcode: '04567',
+    }),
+    true,
+  );
+
+  // VN-only row without service_date or 13-digit CID cannot auto-link by key alone
+  const vnOnlyIdentity = statementEncounterIdentity({
+    raw_data: { SEQ: '690807101500', HN: '0012345' },
+  });
+  const mockHospital = {
+    async query(sql: string) {
+      if (sql.includes('opdconfig')) return [[{ hospitalcode: '04567' }]];
+      return [[{ visit_code: '690807101500', hn: '0012345', cid: '1100100100101', service_date: '2026-08-07', service_time: '10:15:00' }]];
+    },
+  };
+  assert.equal(await resolveHospitalEncounter(mockHospital, vnOnlyIdentity, true), null);
+});
+

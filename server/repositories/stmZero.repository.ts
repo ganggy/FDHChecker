@@ -11,7 +11,7 @@ const text = (v: unknown) => v == null ? '' : String(v);
 const amount = (v: unknown) => v == null || v === '' ? null : Number(v);
 export type ZeroAuditSource = 'stm' | 'rep-sheet-zero';
 const repSheetZeroPredicate = `r.data_type = 'REP' AND b.data_type = 'REP' AND ${sheetZero}`;
-export async function readZeroAuditSourceRows(connection: Pick<PoolConnection, 'query'>, startDate: string, endDate: string, source: ZeroAuditSource, selectedIds?: string[]) {
+export async function readZeroAuditSourceRows(connection: Pick<PoolConnection, 'query'>, startDate: string, endDate: string, source: ZeroAuditSource, selectedIds?: string[], hcode?: string | null) {
     const selection = (prefix: string, alias: string) => {
       if (selectedIds === undefined) return { sql: '', args: [] as string[] };
       const ids = selectedIds.filter(id => id.startsWith(prefix + '-')).map(id => id.slice(prefix.length + 1));
@@ -20,24 +20,27 @@ export async function readZeroAuditSourceRows(connection: Pick<PoolConnection, '
     };
     const normalSelection = selection('stm', 's');
     const archiveSelection = selection('raw', 'r');
+    const normalizedHcode = hcode && /^\d{5}$/.test(String(hcode).trim()) ? String(hcode).trim() : null;
+    const hcodeSql = normalizedHcode ? ` AND (b.hcode = ? OR b.hcode IS NULL)` : '';
+    const hcodeArgs = normalizedHcode ? [normalizedHcode] : [];
     // Imported period deliberately includes rows without service dates and visits not found in HIS.
     const [normalized] = source === 'rep-sheet-zero' ? [[] as RowDataPacket[]] : await connection.query<RowDataPacket[]>(`SELECT s.*, b.source_filename, b.sheet_name,
       DATE_FORMAT(s.service_datetime, '%Y-%m-%d') AS service_date
       FROM repstm_statement_data s JOIN repstm_import_batch b ON b.id = s.batch_id
       WHERE s.data_type = 'STM' AND (s.paid_amount = 0 OR s.paid_amount IS NULL) AND ${active}
-      AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY) ${normalSelection.sql} ORDER BY s.id DESC LIMIT 20001`, [startDate, endDate, ...normalSelection.args]);
+      AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY)${hcodeSql} ${normalSelection.sql} ORDER BY s.id DESC LIMIT 20001`, [startDate, endDate, ...hcodeArgs, ...normalSelection.args]);
     const [archive] = await connection.query<RowDataPacket[]>(`SELECT r.*, b.source_filename, b.sheet_name
       FROM repstm_import_row r JOIN repstm_import_batch b ON b.id = r.batch_id
-      WHERE ${source === 'rep-sheet-zero' ? repSheetZeroPredicate : sheetZero} AND ${active} AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY)
+      WHERE ${source === 'rep-sheet-zero' ? repSheetZeroPredicate : sheetZero} AND ${active} AND b.created_at >= ? AND b.created_at < DATE_ADD(CAST(? AS DATE), INTERVAL 1 DAY)${hcodeSql}
       ${source === 'rep-sheet-zero' ? '' : 'AND NOT EXISTS (SELECT 1 FROM repstm_statement_data s WHERE s.batch_id = b.id)'}
-      ${archiveSelection.sql} ORDER BY r.id DESC LIMIT 20001`, [startDate, endDate, ...archiveSelection.args]);
+      ${archiveSelection.sql} ORDER BY r.id DESC LIMIT 20001`, [startDate, endDate, ...hcodeArgs, ...archiveSelection.args]);
     if (normalized.length + archive.length > 20000) throw new Error('เกิน 20,000 แถว กรุณาลดช่วงวันที่นำเข้า');
     return [...normalized.map(r => ({ ...r, audit_id: `stm-${r.id}` })), ...archive.map(r => ({ ...r, audit_id: `raw-${r.id}` }))] as Array<Record<string, unknown> & { audit_id: string }>;
 }
-export async function readStmZeroRows(startDate: string, endDate: string, source: ZeroAuditSource = 'stm', selectedIds?: string[]): Promise<StmZeroRow[]> {
+export async function readStmZeroRows(startDate: string, endDate: string, source: ZeroAuditSource = 'stm', selectedIds?: string[], hcode?: string | null): Promise<StmZeroRow[]> {
   const connection = await getRepstmConnection();
   try {
-    const sourceRows = await readZeroAuditSourceRows(connection, startDate, endDate, source, selectedIds);
+    const sourceRows = await readZeroAuditSourceRows(connection, startDate, endDate, source, selectedIds, hcode);
     const identities = new Map(sourceRows.map(r => [r.audit_id, statementEncounterIdentity(r)]));
     const rows = sourceRows
       .map(r => {

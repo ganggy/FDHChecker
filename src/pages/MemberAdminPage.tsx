@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { allMenuItems, primaryNavItems, rolePresets, toolNavGroups } from '../config/menuDefinitions';
-import { FUND_DEFINITIONS } from '../config/fundDefinitions';
+import { FUND_DEFINITIONS, PCU_ELIGIBLE_FUND_IDS } from '../config/fundDefinitions';
 import {
   createMember,
   fetchMemberAdminData,
@@ -31,11 +31,12 @@ const menuSections = (() => {
   return sections;
 })();
 
-const emptyGroup = (): { id: number | null; groupName: string; isAdmin: boolean; menuPermissions: AppPage[] } => ({
+const emptyGroup = (): { id: number | null; groupName: string; isAdmin: boolean; menuPermissions: AppPage[]; hcode: string } => ({
   id: null,
   groupName: '',
   isAdmin: false,
   menuPermissions: ['staff', 'ipd', 'fdh', 'guide'],
+  hcode: '',
 });
 
 export const MemberAdminPage = () => {
@@ -52,11 +53,12 @@ export const MemberAdminPage = () => {
     password: '',
     confirmPassword: '',
     groupId: '',
+    hcode: '',
     isAdmin: false,
     allFunds: true,
     fundPermissions: [] as string[],
   });
-  const [fundEditor, setFundEditor] = useState<{ userId: number; name: string; allFunds: boolean; fundPermissions: string[] } | null>(null);
+  const [fundEditor, setFundEditor] = useState<{ userId: number; name: string; allFunds: boolean; fundPermissions: string[]; hcode: string } | null>(null);
   const [passwordEditor, setPasswordEditor] = useState<{ userId: number; username: string; name: string } | null>(null);
   const [newPasswordValue, setNewPasswordValue] = useState('');
   const [confirmPasswordValue, setConfirmPasswordValue] = useState('');
@@ -148,6 +150,10 @@ export const MemberAdminPage = () => {
       setError('ยืนยันรหัสผ่านไม่ตรงกัน');
       return;
     }
+    if (newUser.hcode.trim() && !/^\d{5}$/.test(newUser.hcode.trim())) {
+      setError('รหัสหน่วยบริการ (HCODE) ต้องเป็นตัวเลข 5 หลัก');
+      return;
+    }
     setCreatingUser(true);
     try {
       await createMember({
@@ -155,10 +161,11 @@ export const MemberAdminPage = () => {
         displayName: newUser.displayName,
         password: newUser.password,
         groupId: Number(newUser.groupId) || null,
+        hcode: newUser.hcode.trim() || null,
         isAdmin: newUser.isAdmin,
         fundPermissions: newUser.allFunds ? null : newUser.fundPermissions,
       });
-      setNewUser({ username: '', displayName: '', password: '', confirmPassword: '', groupId: '', isAdmin: false, allFunds: true, fundPermissions: [] });
+      setNewUser({ username: '', displayName: '', password: '', confirmPassword: '', groupId: '', hcode: '', isAdmin: false, allFunds: true, fundPermissions: [] });
       setMessage('เพิ่มผู้ใช้และเปิดใช้งานแล้ว');
       await loadData();
     } catch (err) {
@@ -183,6 +190,7 @@ export const MemberAdminPage = () => {
       name: user.display_name || user.username,
       allFunds: user.is_admin || user.fund_permissions === null,
       fundPermissions: user.fund_permissions || [],
+      hcode: user.user_hcode || '',
     });
   };
 
@@ -197,12 +205,19 @@ export const MemberAdminPage = () => {
 
   const saveFundPermissions = async () => {
     if (!fundEditor) return;
+    if (fundEditor.hcode.trim() && !/^\d{5}$/.test(fundEditor.hcode.trim())) {
+      setError('รหัสหน่วยบริการ (HCODE) ต้องเป็นตัวเลข 5 หลัก');
+      return;
+    }
     setSaving(true);
     setError('');
     setMessage('');
     try {
-      await updateMember(fundEditor.userId, { fundPermissions: fundEditor.allFunds ? null : fundEditor.fundPermissions });
-      setMessage(`บันทึกสิทธิ์กองทุนของ ${fundEditor.name} แล้ว`);
+      await updateMember(fundEditor.userId, {
+        fundPermissions: fundEditor.allFunds ? null : fundEditor.fundPermissions,
+        hcode: fundEditor.hcode.trim() || null,
+      });
+      setMessage(`บันทึกสิทธิ์กองทุนและรหัสหน่วยบริการของ ${fundEditor.name} แล้ว`);
       setFundEditor(null);
       await loadData();
     } catch (err) {
@@ -258,6 +273,7 @@ export const MemberAdminPage = () => {
       groupName: group.group_name,
       isAdmin: Boolean(group.is_admin),
       menuPermissions: group.menu_permissions,
+      hcode: group.hcode || '',
     });
   };
 
@@ -272,11 +288,18 @@ export const MemberAdminPage = () => {
 
   const handleSaveGroup = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (editingGroup.hcode.trim() && !/^\d{5}$/.test(editingGroup.hcode.trim())) {
+      setError('รหัสหน่วยบริการ (HCODE) ของกลุ่มต้องเป็นตัวเลข 5 หลัก');
+      return;
+    }
     setSaving(true);
     setError('');
     setMessage('');
     try {
-      const nextData = await saveGroup(editingGroup);
+      const nextData = await saveGroup({
+        ...editingGroup,
+        hcode: editingGroup.hcode.trim() || null,
+      });
       setData(nextData);
       setEditingGroup(emptyGroup());
       setMessage('บันทึกกลุ่มผู้ใช้แล้ว');
@@ -438,22 +461,52 @@ export const MemberAdminPage = () => {
               </label>
               <label>
                 กลุ่มผู้ใช้
-                <select value={newUser.groupId} onChange={(event) => setNewUser((current) => ({ ...current, groupId: event.target.value }))}>
+                <select
+                  value={newUser.groupId}
+                  onChange={(event) => {
+                    const selectedGroup = data?.groups.find((g) => String(g.id) === event.target.value);
+                    const isPcuGroup = selectedGroup?.group_key === 'pcu' || selectedGroup?.group_name.includes('รพ.สต.');
+                    setNewUser((current) => ({
+                      ...current,
+                      groupId: event.target.value,
+                      allFunds: isPcuGroup ? false : current.allFunds,
+                      fundPermissions: isPcuGroup && current.fundPermissions.length === 0 ? PCU_ELIGIBLE_FUND_IDS : current.fundPermissions,
+                    }));
+                  }}
+                >
                   <option value="">ผู้ใช้งานทั่วไป</option>
                   {data?.groups.map((group) => <option key={group.id} value={group.id}>{group.group_name}</option>)}
                 </select>
+              </label>
+              <label>
+                รหัสหน่วยบริการ 5 หลัก (HCODE) <span className="muted" style={{ fontWeight: 400 }}>(เช่น รพ.สต. เพื่อแยก REP/STM ไม่ให้ปะปนกัน)</span>
+                <input
+                  value={newUser.hcode}
+                  onChange={(event) => setNewUser((current) => ({ ...current, hcode: event.target.value.replace(/\D/g, '').slice(0, 5) }))}
+                  maxLength={5}
+                  placeholder="เว้นว่างเพื่อใช้ตามกลุ่มหรือหน่วยบริการหลัก"
+                />
               </label>
               <label className="inline-check member-create-admin">
                 <input type="checkbox" checked={newUser.isAdmin} onChange={(event) => setNewUser((current) => ({ ...current, isAdmin: event.target.checked }))} />
                 ให้สิทธิ์ผู้ดูแลระบบ
               </label>
               <div className="member-fund-access">
-                <div className="member-fund-access__header">
+                <div className="member-fund-access__header" style={{ flexWrap: 'wrap', gap: 8 }}>
                   <strong>กองทุนที่เข้าถึงได้</strong>
-                  <label className="inline-check">
-                    <input type="checkbox" checked={newUser.allFunds} onChange={(event) => setNewUser((current) => ({ ...current, allFunds: event.target.checked }))} />
-                    ทุกกองทุน
-                  </label>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-small"
+                      onClick={() => setNewUser((current) => ({ ...current, allFunds: false, fundPermissions: [...PCU_ELIGIBLE_FUND_IDS] }))}
+                    >
+                      🏡 เฉพาะกองทุน รพ.สต. (ปฐมภูมิ)
+                    </button>
+                    <label className="inline-check">
+                      <input type="checkbox" checked={newUser.allFunds} onChange={(event) => setNewUser((current) => ({ ...current, allFunds: event.target.checked }))} />
+                      ทุกกองทุน
+                    </label>
+                  </div>
                 </div>
                 {!newUser.allFunds && (
                   <div className="member-fund-grid">
@@ -494,7 +547,14 @@ export const MemberAdminPage = () => {
                     <tr key={user.id} className={!user.approved ? 'row-warning' : ''}>
                       <td>
                         <strong>{user.display_name || user.username}</strong>
-                        <div className="muted">{user.username}</div>
+                        <div className="muted">
+                          {user.username}
+                          {user.hcode && (
+                            <span style={{ marginLeft: 6, background: '#e0f2fe', color: '#0369a1', padding: '1px 6px', borderRadius: 4, fontSize: '0.78rem', fontWeight: 600 }}>
+                              🏥 HCODE: {user.hcode}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <select value={user.group_id || ''} onChange={(event) => handleUserUpdate(user.id, { groupId: Number(event.target.value) || null })}>
@@ -521,7 +581,7 @@ export const MemberAdminPage = () => {
                         <button className="btn-secondary btn-small" onClick={() => handleUserUpdate(user.id, { isActive: !user.is_active })}>
                           {user.is_active ? 'ปิดใช้' : 'เปิดใช้'}
                         </button>
-                        <button className="btn-secondary btn-small" onClick={() => openFundEditor(user)}>กองทุน</button>
+                        <button className="btn-secondary btn-small" onClick={() => openFundEditor(user)}>กองทุน/หน่วยบริการ</button>
                         <button className="btn-secondary btn-small" onClick={() => openPasswordEditor(user)} title="แก้ไขรหัสผ่านให้ผู้ใช้นี้">
                           🔑 รหัสผ่าน
                         </button>
@@ -535,15 +595,34 @@ export const MemberAdminPage = () => {
               <div className="member-fund-editor">
                 <div className="member-fund-access__header">
                   <div>
-                    <strong>สิทธิ์กองทุน: {fundEditor.name}</strong>
-                    <div className="muted">ใช้กับหน้า “รวมทุกกองทุน” และหน้ากองทุนแยกตามช่องทาง</div>
+                    <strong>สิทธิ์กองทุนและหน่วยบริการ: {fundEditor.name}</strong>
+                    <div className="muted">กำหนดรหัสหน่วยบริการ 5 หลัก (HCODE) และกองทุนที่อนุญาตให้เบิก/ตรวจสอบ</div>
                   </div>
                   <button type="button" className="btn-secondary btn-small" onClick={() => setFundEditor(null)}>ปิด</button>
                 </div>
-                <label className="inline-check">
-                  <input type="checkbox" checked={fundEditor.allFunds} onChange={(event) => setFundEditor((current) => current ? ({ ...current, allFunds: event.target.checked }) : current)} />
-                  เข้าถึงทุกกองทุน
+                <label style={{ display: 'block', marginBottom: '0.75rem' }}>
+                  รหัสหน่วยบริการ 5 หลักเฉพาะผู้ใช้นี้ (HCODE)
+                  <input
+                    value={fundEditor.hcode}
+                    onChange={(event) => setFundEditor((current) => current ? ({ ...current, hcode: event.target.value.replace(/\D/g, '').slice(0, 5) }) : current)}
+                    maxLength={5}
+                    placeholder="เช่น 04567 (เว้นว่างเพื่อใช้ค่าจากกลุ่ม)"
+                    style={{ marginTop: 4 }}
+                  />
                 </label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  <label className="inline-check">
+                    <input type="checkbox" checked={fundEditor.allFunds} onChange={(event) => setFundEditor((current) => current ? ({ ...current, allFunds: event.target.checked }) : current)} />
+                    เข้าถึงทุกกองทุน
+                  </label>
+                  <button
+                    type="button"
+                    className="btn-secondary btn-small"
+                    onClick={() => setFundEditor((current) => current ? ({ ...current, allFunds: false, fundPermissions: [...PCU_ELIGIBLE_FUND_IDS] }) : current)}
+                  >
+                    🏡 เลือกเฉพาะกองทุน รพ.สต. (ปฐมภูมิ)
+                  </button>
+                </div>
                 {!fundEditor.allFunds && (
                   <div className="member-fund-grid">
                     {FUND_DEFINITIONS.map((fund) => (
@@ -555,7 +634,7 @@ export const MemberAdminPage = () => {
                   </div>
                 )}
                 <button type="button" className="btn-primary" disabled={saving} onClick={() => void saveFundPermissions()}>
-                  {saving ? 'กำลังบันทึก...' : 'บันทึกสิทธิ์กองทุน'}
+                  {saving ? 'กำลังบันทึก...' : 'บันทึกสิทธิ์กองทุนและหน่วยบริการ'}
                 </button>
               </div>
             )}
@@ -617,7 +696,7 @@ export const MemberAdminPage = () => {
             <div className="member-group-list">
               {data?.groups.map((group) => (
                 <button key={group.id} className={`member-group-item ${editingGroup.id === group.id ? 'active' : ''}`} onClick={() => startEditGroup(group)}>
-                  <strong>{group.group_name}</strong>
+                  <strong>{group.group_name}{group.hcode ? ` (${group.hcode})` : ''}</strong>
                   <span>{group.is_admin ? 'ทุกเมนู' : `${group.menu_permissions.length} เมนู`}</span>
                 </button>
               ))}
@@ -627,6 +706,15 @@ export const MemberAdminPage = () => {
               <label>
                 ชื่อกลุ่ม
                 <input value={editingGroup.groupName} onChange={(event) => setEditingGroup((current) => ({ ...current, groupName: event.target.value }))} required />
+              </label>
+              <label>
+                รหัสหน่วยบริการประจำกลุ่ม 5 หลัก (HCODE) <span className="muted" style={{ fontWeight: 400 }}>(เช่น รหัส รพ.สต. เพื่อแยก REP/STM ไม่ให้ปะปนกับโรงพยาบาล)</span>
+                <input
+                  value={editingGroup.hcode}
+                  onChange={(event) => setEditingGroup((current) => ({ ...current, hcode: event.target.value.replace(/\D/g, '').slice(0, 5) }))}
+                  maxLength={5}
+                  placeholder="เช่น 04567 (เว้นว่างหากใช้ร่วมกับหน่วยบริการหลัก)"
+                />
               </label>
               <label className="inline-check">
                 <input type="checkbox" checked={editingGroup.isAdmin} onChange={(event) => setEditingGroup((current) => ({ ...current, isAdmin: event.target.checked }))} />

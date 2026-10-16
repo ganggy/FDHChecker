@@ -254,7 +254,13 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
       const res = await fetch('/api/reconciliation/rep-sheet-zero/apply-fix', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vn: row.vn, an: row.an, fixType: 'ALL' }),
+        body: JSON.stringify({
+          vn: row.vn,
+          an: row.an,
+          hn: row.hn || undefined,
+          serviceDate: row.service_date || undefined,
+          fixType: 'ALL',
+        }),
       });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.error || 'แก้ไขอัตโนมัติไม่สำเร็จ');
@@ -302,7 +308,12 @@ export function StmZeroAuditPanel({ mode = 'stm' }: { mode?: 'stm' | 'rep-sheet-
             fdhStatus: loaded.fdhStatus,
           }
         : {
-            items: eligible.map(r => ({ vn: r.vn, an: r.an })),
+            items: eligible.map(r => ({
+              vn: r.vn,
+              an: r.an,
+              hn: r.hn || undefined,
+              serviceDate: r.service_date || undefined,
+            })),
           };
 
       const res = await fetch('/api/reconciliation/rep-sheet-zero/batch-fix', {

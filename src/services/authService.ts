@@ -14,6 +14,9 @@ export type AuthUser = {
   is_admin: boolean;
   menu_permissions: AppPage[];
   fund_permissions: string[] | null;
+  hcode?: string | null;
+  user_hcode?: string | null;
+  group_hcode?: string | null;
   last_login_at: string | null;
 };
 
@@ -28,6 +31,7 @@ export type MemberGroup = {
   group_name: string;
   is_admin: number;
   menu_permissions: AppPage[];
+  hcode?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -120,6 +124,7 @@ export const createMember = async (payload: {
   groupId?: number | null;
   isAdmin?: boolean;
   fundPermissions?: string[] | null;
+  hcode?: string | null;
 }) => {
   const data = await jsonOrThrow<{ success: true; user: MemberUser | null }>(
     await fetch('/api/admin/members', {
@@ -140,6 +145,7 @@ export const updateMember = async (
     groupId?: number | null;
     displayName?: string;
     fundPermissions?: string[] | null;
+    hcode?: string | null;
     password?: string;
   }
 ) => {
@@ -168,6 +174,7 @@ export const saveGroup = async (payload: {
   groupName: string;
   isAdmin: boolean;
   menuPermissions: AppPage[];
+  hcode?: string | null;
 }) => {
   const data = await jsonOrThrow<{ success: true; data: MemberAdminData }>(
     await fetch('/api/admin/groups', {

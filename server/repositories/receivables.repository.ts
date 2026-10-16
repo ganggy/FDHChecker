@@ -26,7 +26,7 @@ import { mergeFdhClaimDetails } from '../fdhClaimDetailMerge.js';
 import { activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection } from '../hospitalDatabase.js';
 import { isKidneyStmFileName } from '../../src/utils/repstmImportClassification.js';
 import { pickImportColumn } from '../utils/importColumnLookup.js';
-import { resolveHospitalEncounter } from '../stmEncounterIdentity.js';
+import { resolveHospitalEncounter, extractFiveDigitHcode } from '../stmEncounterIdentity.js';
 
 
 const normalizeCitizenId = (value: string): string => {
@@ -469,18 +469,21 @@ const loadIndexedOverlapCounts = async (
 const findRepstmImportDecision = async (
   connection: HospitalConnection,
   dataType: RepstmDataType,
-  profile: ImportCompletenessProfile
+  profile: ImportCompletenessProfile,
+  hcode?: string | null
 ): Promise<RepstmImportDecision> => {
+  const normalizedHcode = extractFiveDigitHcode(hcode);
   const indexedOverlapCounts = await loadIndexedOverlapCounts(connection, dataType, profile.rowIdentities);
   if (indexedOverlapCounts.size > 0) {
     const indexedBatchIds = [...indexedOverlapCounts.keys()];
     const [indexedRows] = await connection.query(
       `SELECT id, row_count, source_filename, created_at, logical_hash, completeness_score,
-              distinct_record_count, column_count, non_empty_cell_count
+              distinct_record_count, column_count, non_empty_cell_count, hcode
        FROM repstm_import_batch
        WHERE data_type = ?
-         AND id IN (${indexedBatchIds.map(() => '?').join(',')})`,
-      [dataType, ...indexedBatchIds]
+         AND id IN (${indexedBatchIds.map(() => '?').join(',')})
+         ${normalizedHcode ? 'AND (hcode = ? OR hcode IS NULL)' : ''}`,
+      normalizedHcode ? [dataType, ...indexedBatchIds, normalizedHcode] : [dataType, ...indexedBatchIds]
     );
 
     let replaceCandidate: { batch: Record<string, unknown>; score: number; rowCount: number } | null = null;
@@ -528,9 +531,10 @@ const findRepstmImportDecision = async (
 
   const [candidateRows] = await connection.query(
     `SELECT b.id, b.row_count, b.source_filename, b.created_at, b.logical_hash, b.completeness_score,
-            distinct_record_count, column_count, non_empty_cell_count
+            distinct_record_count, column_count, non_empty_cell_count, b.hcode
      FROM repstm_import_batch b
      WHERE b.data_type = ?
+       ${normalizedHcode ? 'AND (b.hcode = ? OR b.hcode IS NULL)' : ''}
        AND (
          b.logical_hash = ?
          OR b.logical_hash IS NULL
@@ -545,7 +549,9 @@ const findRepstmImportDecision = async (
        )
      ORDER BY CASE WHEN b.logical_hash = ? THEN 0 ELSE 1 END, b.created_at DESC
      LIMIT 100`,
-    [dataType, profile.logicalHash, profile.logicalHash]
+    normalizedHcode
+      ? [dataType, normalizedHcode, profile.logicalHash, profile.logicalHash]
+      : [dataType, profile.logicalHash, profile.logicalHash]
   );
 
   if (!Array.isArray(candidateRows) || candidateRows.length === 0) return { action: 'import' };
@@ -705,8 +711,61 @@ const resolveStatementRecordUid = (
     .join(':');
 };
 
-const resolveRepVisitCode = async (hosConnection: HospitalConnection, department: string, hn: string, admdate: string | null, pid: string, an: string, vn: string) => {
-  const match = await resolveHospitalEncounter(hosConnection, { kind: department === 'IP' ? 'IP' : 'OP', hn, cid: normalizeCitizenId(pid), serviceDatetime: admdate, an, vn });
+export const extractRepstmRowHcodes = (rows: Record<string, unknown>[], sourceFilename?: string): string[] => {
+  const found = new Set<string>();
+  for (const row of rows) {
+    const rawHcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode', 'HCode', 'HCODE', 'hospcode', 'รหัสหน่วยบริการ', 'หน่วยบริการ']);
+    const extracted = extractFiveDigitHcode(rawHcode);
+    if (extracted) found.add(extracted);
+  }
+  if (found.size === 0 && sourceFilename) {
+    const fromFile = extractFiveDigitHcode('', sourceFilename);
+    if (fromFile) found.add(fromFile);
+  }
+  return [...found];
+};
+
+export const resolveExpectedFacilityHcode = async (
+  hosConnection: HospitalConnection,
+  explicitHcode?: string | null
+): Promise<string> => {
+  const direct = extractFiveDigitHcode(explicitHcode);
+  if (direct) return direct;
+  try {
+    const [rows] = await hosConnection.query(
+      'SELECT hospitalcode FROM opdconfig ORDER BY hospitalcode DESC LIMIT 1'
+    );
+    const record = Array.isArray(rows) && rows.length > 0 ? (rows[0] as Record<string, unknown>) : null;
+    const fromOpdConfig = extractFiveDigitHcode(record?.hospitalcode);
+    if (fromOpdConfig) return fromOpdConfig;
+  } catch {
+    // Fallback to site_settings below
+  }
+  const fallbackSiteSettings = (businessRules as Record<string, unknown>)?.site_settings as Record<string, unknown> | undefined;
+  return extractFiveDigitHcode(fallbackSiteSettings?.hospital_code);
+};
+
+const resolveRepVisitCode = async (
+  hosConnection: HospitalConnection,
+  department: string,
+  hn: string,
+  admdate: string | null,
+  pid: string,
+  an: string,
+  vn: string,
+  hcode?: string,
+  expectedHcode?: string
+) => {
+  const match = await resolveHospitalEncounter(hosConnection, {
+    kind: department === 'IP' ? 'IP' : 'OP',
+    hn,
+    cid: normalizeCitizenId(pid),
+    serviceDatetime: admdate,
+    an,
+    vn,
+    hcode,
+    expectedHcode,
+  });
   return match?.visit_code || '';
 };
 
@@ -746,6 +805,7 @@ const importRepDataRows = async (
   payload: {
     sourceFilename: string;
     rows: Record<string, unknown>[];
+    expectedHcode?: string | null;
   }
 ) => {
   await repConnection.query(REP_DATA_TABLE_SQL);
@@ -753,6 +813,7 @@ const importRepDataRows = async (
 
   const visitCodeCache = new Map<string, string>();
   const incomeCache = new Map<string, number | null>();
+  const expectedHcode = extractFiveDigitHcode(payload.expectedHcode);
 
   const opVisitCodes = new Set<string>();
   const ipVisitCodes = new Set<string>();
@@ -800,7 +861,8 @@ const importRepDataRows = async (
     const seqNo = pickRowValueAdvanced(row, ['SEQ NO', 'SEQ_NO', 'SEQNO', 'SEQ', 'ลำดับที่', 'no']);
     const tranId = pickRowValueAdvanced(row, ['TRAN_ID', 'transaction_uid', 'tranid']);
     const fallbackSiteSettings = (businessRules as Record<string, unknown>)?.site_settings as Record<string, unknown> | undefined;
-    const hcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode']) || String(fallbackSiteSettings?.hospital_code || '');
+    const rawHcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode', 'HCode', 'HCODE', 'hospcode', 'รหัสหน่วยบริการ', 'หน่วยบริการ']);
+    const hcode = extractFiveDigitHcode(rawHcode, payload.sourceFilename) || expectedHcode || String(fallbackSiteSettings?.hospital_code || '');
     const hn = pickRowValueAdvanced(row, ['HN']);
     const rawAn = pickRowValueAdvanced(row, ['AN']);
     const pid = pickRowValueAdvanced(row, ['PID', 'CID']);
@@ -835,10 +897,10 @@ const importRepDataRows = async (
     const normalizedSeqNo = normalizeImportCellValue(seqNo);
     const fallbackVn = department === 'OP' ? (normalizeImportCellValue(pickRowValueAdvanced(row, ['VN', 'vn', 'InvNo', 'invno'])) || normalizedSeqNo) : '';
     const fallbackAn = department === 'IP' ? (rawAn.trim() || normalizedSeqNo) : rawAn.trim();
-    const visitLookupKey = [department, hn.trim(), admdate || '', normalizeCitizenId(pid), fallbackAn, fallbackVn].join('|');
+    const visitLookupKey = [department, hn.trim(), admdate || '', normalizeCitizenId(pid), fallbackAn, fallbackVn, hcode, expectedHcode].join('|');
     let resolvedVisitCode = visitCodeCache.get(visitLookupKey);
     if (resolvedVisitCode == null) {
-      resolvedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, admdate, pid, fallbackAn, fallbackVn);
+      resolvedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, admdate, pid, fallbackAn, fallbackVn, hcode, expectedHcode);
       visitCodeCache.set(visitLookupKey, resolvedVisitCode);
     }
     const vn = department === 'OP' ? resolvedVisitCode : '';
@@ -925,12 +987,14 @@ export const importStatementDataRows = async (
     dataType: 'STM' | 'INV';
     sourceFilename: string;
     rows: Record<string, unknown>[];
+    expectedHcode?: string | null;
   }
 ) => {
   await repConnection.query(REPSTM_STATEMENT_DATA_TABLE_SQL);
 
   const visitCodeCache = new Map<string, string>();
   const kidneyReport = payload.dataType === 'STM' && isKidneyStmFileName(payload.sourceFilename);
+  const expectedHcode = extractFiveDigitHcode(payload.expectedHcode);
 
   for (let index = 0; index < payload.rows.length; index += 1) {
     const row = payload.rows[index];
@@ -943,7 +1007,8 @@ export const importStatementDataRows = async (
     ]);
     const tranId = pickRowValueAdvanced(row, ['TRAN_ID', 'transaction_uid', 'tranid']);
     const fallbackSiteSettings = (businessRules as Record<string, unknown>)?.site_settings as Record<string, unknown> | undefined;
-    const hcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode']) || String(fallbackSiteSettings?.hospital_code || '');
+    const rawHcode = pickRowValueAdvanced(row, ['HOSPCODE', 'hcode', 'HCode', 'HCODE', 'hospcode', 'รหัสหน่วยบริการ', 'หน่วยบริการ']);
+    const hcode = extractFiveDigitHcode(rawHcode, payload.sourceFilename) || expectedHcode || String(fallbackSiteSettings?.hospital_code || '');
     const hn = pickRowValueAdvanced(row, ['HN']);
     const rawVn = pickRowValueAdvanced(row, ['VN', 'SEQ', 'SEQ NO', 'SEQ_NO', 'SEQNO', 'visit_no', 'InvNo', 'invno', 'เลขที่ใบแจ้งหนี้', 'SESSNO']);
     const rawAn = pickRowValueAdvanced(row, ['AN']);
@@ -982,10 +1047,10 @@ export const importStatementDataRows = async (
     const amount = payload.dataType === 'INV' ? paidAmount : kidneyReport ? parsedAmount ?? parsedPaidAmount : parsedAmount;
 
     const department = resolveDepartment(patientType, rawAn);
-    const visitLookupKey = [department, hn.trim(), serviceDateTime || '', normalizeCitizenId(pid), rawAn.trim(), rawVn.trim()].join('|');
+    const visitLookupKey = [department, hn.trim(), serviceDateTime || '', normalizeCitizenId(pid), rawAn.trim(), rawVn.trim(), hcode, expectedHcode].join('|');
     let matchedVisitCode = visitCodeCache.get(visitLookupKey);
     if (matchedVisitCode == null) {
-      matchedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, serviceDateTime, pid, rawAn, rawVn);
+      matchedVisitCode = await resolveRepVisitCode(hosConnection, department, hn, serviceDateTime, pid, rawAn, rawVn, hcode, expectedHcode);
       visitCodeCache.set(visitLookupKey, matchedVisitCode);
     }
     const vn = department === 'OP' ? matchedVisitCode : '';
@@ -1126,6 +1191,7 @@ export const importRepstmRows = async (payload: {
   sheetName?: string;
   isSubfile?: boolean;
   importedBy?: string;
+  expectedHcode?: string | null;
   notes?: string;
   rows: Record<string, unknown>[];
   forceReimport?: boolean;
@@ -1138,10 +1204,37 @@ export const importRepstmRows = async (payload: {
 
     const uniqueRows = deduplicateRepstmRows(payload.dataType, payload.rows);
     const removedDuplicateRows = payload.rows.length - uniqueRows.length;
+
+    const effectiveHcode = await resolveExpectedFacilityHcode(hosConnection, payload.expectedHcode);
+    const detectedHcodes = extractRepstmRowHcodes(uniqueRows, payload.sourceFilename);
+    if (detectedHcodes.length > 1) {
+      await connection.rollback();
+      return {
+        success: false,
+        statusCode: 400,
+        error: `พบข้อมูลหลายรหัสหน่วยบริการปะปนกันในไฟล์เดียว (${detectedHcodes.join(', ')}) กรุณาแยกไฟล์ตามหน่วยบริการก่อนนำเข้า`,
+      };
+    }
+    const foreignHcodes = effectiveHcode
+      ? detectedHcodes.filter((code) => code !== effectiveHcode)
+      : [];
+    if (foreignHcodes.length > 0) {
+      await connection.rollback();
+      return {
+        success: false,
+        statusCode: 403,
+        error: `ไม่สามารถนำเข้าไฟล์ของหน่วยบริการรหัส ${foreignHcodes.join(', ')} ได้ เนื่องจากบัญชี/ระบบนี้ผูกกับรหัสหน่วยบริการ ${effectiveHcode} (ป้องกันข้อมูล REP/STM ปะปนกัน)`,
+      };
+    }
+    const batchHcode = detectedHcodes[0] || effectiveHcode || null;
+
     const contentBatchHash = buildBatchHash(payload.dataType, uniqueRows);
-    const originalBatchHash = payload.isSubfile
-      ? hashText(`${payload.dataType}:SUBFILE:${payload.sheetName || ''}:${contentBatchHash}`)
+    const scopedBatchHashBase = batchHcode
+      ? hashText(`${batchHcode}:${contentBatchHash}`)
       : contentBatchHash;
+    const originalBatchHash = payload.isSubfile
+      ? hashText(`${payload.dataType}:SUBFILE:${payload.sheetName || ''}:${scopedBatchHashBase}`)
+      : scopedBatchHashBase;
     const batchHash = payload.forceReimport
       ? hashText(`${originalBatchHash}:force:${Date.now()}:${crypto.randomBytes(8).toString('hex')}`)
       : originalBatchHash;
@@ -1149,9 +1242,12 @@ export const importRepstmRows = async (payload: {
     const [duplicateRows] = await connection.query(
       `SELECT id, row_count, source_filename, created_at
        FROM repstm_import_batch
-       WHERE data_type = ? AND batch_hash = ?
+       WHERE data_type = ? AND batch_hash IN (?, ?)
+         ${batchHcode ? 'AND (hcode = ? OR hcode IS NULL)' : ''}
        LIMIT 1`,
-      [payload.dataType, originalBatchHash]
+      batchHcode
+        ? [payload.dataType, originalBatchHash, contentBatchHash, batchHcode]
+        : [payload.dataType, originalBatchHash, contentBatchHash]
     );
 
     if (!payload.forceReimport && Array.isArray(duplicateRows) && duplicateRows.length > 0) {
@@ -1168,7 +1264,7 @@ export const importRepstmRows = async (payload: {
 
     const detectedDecision: RepstmImportDecision = payload.isSubfile
       ? { action: 'import' }
-      : await findRepstmImportDecision(connection, payload.dataType, completenessProfile);
+      : await findRepstmImportDecision(connection, payload.dataType, completenessProfile, batchHcode);
     const exactDuplicate = Array.isArray(duplicateRows) && duplicateRows.length > 0
       ? duplicateRows[0] as Record<string, unknown>
       : null;
@@ -1203,8 +1299,8 @@ export const importRepstmRows = async (payload: {
     const [batchResult] = await connection.query(
       `INSERT INTO repstm_import_batch
        (data_type, source_filename, file_size, file_hash, batch_hash, logical_hash, completeness_score, distinct_record_count,
-        column_count, non_empty_cell_count, replaces_batch_id, sheet_name, is_subfile, imported_by, row_count, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        column_count, non_empty_cell_count, replaces_batch_id, sheet_name, is_subfile, hcode, imported_by, row_count, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.dataType,
         payload.sourceFilename,
@@ -1219,6 +1315,7 @@ export const importRepstmRows = async (payload: {
         importDecision.action === 'replace' ? importDecision.batchId : null,
         payload.sheetName || null,
         payload.isSubfile ? 1 : 0,
+        batchHcode,
         payload.importedBy || null,
         uniqueRows.length,
         payload.forceReimport
@@ -1235,12 +1332,14 @@ export const importRepstmRows = async (payload: {
       await importRepDataRows(connection, hosConnection, batchId, {
         sourceFilename: payload.sourceFilename,
         rows: uniqueRows,
+        expectedHcode: batchHcode,
       });
     } else if (!payload.isSubfile && (payload.dataType === 'STM' || payload.dataType === 'INV')) {
       await importStatementDataRows(connection, hosConnection, batchId, {
         dataType: payload.dataType,
         sourceFilename: payload.sourceFilename,
         rows: uniqueRows,
+        expectedHcode: batchHcode,
       });
     }
 
@@ -1251,8 +1350,9 @@ export const importRepstmRows = async (payload: {
         `DELETE FROM repstm_import_batch
          WHERE data_type = 'INV'
            AND source_filename = ?
-           AND id <> ?`,
-        [payload.sourceFilename, batchId]
+           AND id <> ?
+           ${batchHcode ? 'AND (hcode = ? OR hcode IS NULL)' : ''}`,
+        batchHcode ? [payload.sourceFilename, batchId, batchHcode] : [payload.sourceFilename, batchId]
       );
     }
 
@@ -1263,6 +1363,7 @@ export const importRepstmRows = async (payload: {
       replaced: importDecision.action === 'replace',
       replacedBatchId: importDecision.action === 'replace' ? importDecision.batchId : null,
       batchId,
+      hcode: batchHcode,
       rowCount: uniqueRows.length,
       removedDuplicateRows,
       forced: Boolean(payload.forceReimport),
@@ -1547,7 +1648,7 @@ export const getFdhClaimDetailRows = async (options: {
 
 export const getRepDataRows = async (
   limit = 200,
-  visit: { vn?: string; an?: string; hn?: string } = {}
+  visit: { vn?: string; an?: string; hn?: string; hcode?: string | null } = {}
 ): Promise<Record<string, unknown>[]> => {
   const connection = await getRepstmConnection();
   try {
@@ -1556,16 +1657,27 @@ export const getRepDataRows = async (
     const visitParams: string[] = [];
     if (visit.vn) { visitConditions.push('vn = ?'); visitParams.push(visit.vn); }
     if (visit.an) { visitConditions.push('an = ?'); visitParams.push(visit.an); }
+    const whereClauses: string[] = [];
+    const queryParams: Array<string | number> = [];
+    if (visitConditions.length) {
+      whereClauses.push(`(${visitConditions.join(' OR ')})`);
+      queryParams.push(...visitParams);
+    }
+    const normalizedHcode = extractFiveDigitHcode(visit.hcode);
+    if (normalizedHcode) {
+      whereClauses.push('(hcode = ? OR hcode IS NULL OR hcode = "")');
+      queryParams.push(normalizedHcode);
+    }
     const [rows] = await connection.query(
       `SELECT id, batch_id, rep_no, seq_no, tran_id, hcode, hn, vn, an, pid, patient_name, patient_type, department,
               admdate, dchdate, senddate, maininscl, subinscl, errorcode, verifycode, projectcode, filename,
               percentpay, income, compensated, nhso, agency, hc, ae, inst, op, ip, dmis, drug, ontop,
               diff, down_amount, up_amount, yymm, yearbudget, raw_data, created_at
        FROM rep_data
-       ${visitConditions.length ? `WHERE (${visitConditions.join(' OR ')})` : ''}
+       ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
        ORDER BY created_at DESC, id DESC
        LIMIT ?`,
-      [...visitParams, limit]
+      [...queryParams, limit]
     );
     const repRows = Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
     if (repRows.length === 0) return [];
@@ -2304,7 +2416,7 @@ export const getReceivableLatestBalance = async (params: {
 export const getStatementVisitRows = async (
   dataType: 'STM' | 'INV',
   limit = 200,
-  visit: { vn?: string; an?: string; hn?: string } = {}
+  visit: { vn?: string; an?: string; hn?: string; hcode?: string | null } = {}
 ): Promise<Record<string, unknown>[]> => {
   await ensureRepstmTables();
   await repairLegacyStatementAmounts();
@@ -2314,8 +2426,13 @@ export const getStatementVisitRows = async (
     const visitParams: string[] = [];
     if (visit.vn) { visitConditions.push('s.vn = ?'); visitParams.push(visit.vn); }
     if (visit.an) { visitConditions.push('s.an = ?'); visitParams.push(visit.an); }
+    const normalizedHcode = extractFiveDigitHcode(visit.hcode);
+    const hcodeCondition = normalizedHcode
+      ? 'AND (s.hcode = ? OR b.hcode = ? OR (s.hcode IS NULL AND b.hcode IS NULL))'
+      : '';
+    const hcodeParams = normalizedHcode ? [normalizedHcode, normalizedHcode] : [];
     const [rows] = await connection.query(
-      `SELECT s.id, s.batch_id, s.data_type, s.record_uid, s.statement_no, s.tran_id,
+      `SELECT s.id, s.batch_id, s.data_type, s.record_uid, s.statement_no, s.tran_id, s.hcode,
               s.hn, s.vn, s.an, s.pid, s.patient_name, s.patient_type, s.department,
               s.service_datetime AS service_date, s.senddate, s.maininscl, s.subinscl,
               s.errorcode, s.verifycode, s.amount, s.paid_amount, s.invoice_amount,
@@ -2330,9 +2447,10 @@ export const getStatementVisitRows = async (
            WHERE replacement.replaces_batch_id = b.id
          )
          ${visitConditions.length ? `AND (${visitConditions.join(' OR ')})` : ''}
+         ${hcodeCondition}
        ORDER BY s.created_at DESC, s.id DESC
        LIMIT ?`,
-      [dataType, ...visitParams, limit]
+      [dataType, ...visitParams, ...hcodeParams, limit]
     );
     if (!Array.isArray(rows)) return [];
 
@@ -5582,20 +5700,25 @@ export const repairMisclassifiedEclaimRepImports = async () => {
 
 export const getRepstmImportBatches = async (
   dataType?: 'REP' | 'STM' | 'INV',
-  limit = 20
+  limit = 20,
+  hcode?: string | null
 ): Promise<Record<string, unknown>[]> => {
   await ensureRepstmTables();
   const connection = await getRepstmConnection();
   try {
+    const normalizedHcode = extractFiveDigitHcode(hcode);
     const [rows] = await connection.query(
-      `SELECT id, data_type, source_filename, sheet_name, is_subfile, imported_by, row_count, notes,
+      `SELECT id, data_type, source_filename, sheet_name, is_subfile, hcode, imported_by, row_count, notes,
               logical_hash, completeness_score, distinct_record_count, column_count,
               non_empty_cell_count, replaces_batch_id, created_at
        FROM repstm_import_batch
        WHERE (? IS NULL OR data_type = ?)
+         ${normalizedHcode ? 'AND (hcode = ? OR hcode IS NULL)' : ''}
        ORDER BY created_at DESC
        LIMIT ?`,
-      [dataType || null, dataType || null, limit]
+      normalizedHcode
+        ? [dataType || null, dataType || null, normalizedHcode, limit]
+        : [dataType || null, dataType || null, limit]
     );
     return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
   } catch (error) {
@@ -5614,7 +5737,7 @@ export const getRepstmImportBatchDetail = async (
   const connection = await getRepstmConnection();
   try {
     const [batchRows] = await connection.query(
-      `SELECT id, data_type, source_filename, file_size, file_hash, sheet_name, is_subfile,
+      `SELECT id, data_type, source_filename, file_size, file_hash, sheet_name, is_subfile, hcode,
               imported_by, row_count, notes, logical_hash, completeness_score,
               distinct_record_count, column_count, non_empty_cell_count, replaces_batch_id, created_at
        FROM repstm_import_batch
@@ -5655,6 +5778,7 @@ export const searchRepstmManagedBatches = async (filters: {
   page: number;
   pageSize: number;
   includeReplaced: boolean;
+  hcode?: string | null;
 }) => {
   await ensureRepstmTables();
   const connection = await getRepstmConnection();
@@ -5664,6 +5788,11 @@ export const searchRepstmManagedBatches = async (filters: {
     if (filters.dataType !== 'ALL') {
       where.push('b.data_type = ?');
       params.push(filters.dataType);
+    }
+    const normalizedHcode = extractFiveDigitHcode(filters.hcode);
+    if (normalizedHcode) {
+      where.push('(b.hcode = ? OR b.hcode IS NULL)');
+      params.push(normalizedHcode);
     }
     if (!filters.includeReplaced) {
       where.push(`NOT EXISTS (
@@ -5675,9 +5804,9 @@ export const searchRepstmManagedBatches = async (filters: {
       where.push(`(
         CAST(b.id AS CHAR) LIKE ? OR COALESCE(b.source_filename, '') LIKE ?
         OR COALESCE(b.sheet_name, '') LIKE ? OR COALESCE(b.imported_by, '') LIKE ?
-        OR COALESCE(b.notes, '') LIKE ?
+        OR COALESCE(b.notes, '') LIKE ? OR COALESCE(b.hcode, '') LIKE ?
       )`);
-      params.push(like, like, like, like, like);
+      params.push(like, like, like, like, like, like);
     }
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
     const offset = (filters.page - 1) * filters.pageSize;
@@ -5688,7 +5817,7 @@ export const searchRepstmManagedBatches = async (filters: {
       params,
     );
     const [batchResults] = await connection.query(
-      `SELECT b.id, b.data_type, b.source_filename, b.file_size, b.sheet_name, b.is_subfile,
+      `SELECT b.id, b.data_type, b.source_filename, b.file_size, b.sheet_name, b.is_subfile, b.hcode,
               b.imported_by, b.row_count, b.notes, b.replaces_batch_id, b.created_at,
               EXISTS(SELECT 1 FROM repstm_import_batch replacement WHERE replacement.replaces_batch_id = b.id) AS is_replaced
        FROM repstm_import_batch b
@@ -5718,7 +5847,7 @@ const restoreRepstmBatchNormalizedRows = async (
   batchId: number,
 ) => {
   const [batchRows] = await connection.query(
-    `SELECT id, data_type, source_filename, is_subfile FROM repstm_import_batch WHERE id = ? LIMIT 1`,
+    `SELECT id, data_type, source_filename, is_subfile, hcode FROM repstm_import_batch WHERE id = ? LIMIT 1`,
     [batchId],
   );
   if (!Array.isArray(batchRows) || batchRows.length === 0) return;
@@ -5737,12 +5866,14 @@ const restoreRepstmBatchNormalizedRows = async (
     await importRepDataRows(connection, hosConnection, batchId, {
       sourceFilename: String(batch.source_filename || ''),
       rows,
+      expectedHcode: batch.hcode ? String(batch.hcode) : null,
     });
   } else if (dataType === 'STM' || dataType === 'INV') {
     await importStatementDataRows(connection, hosConnection, batchId, {
       dataType,
       sourceFilename: String(batch.source_filename || ''),
       rows,
+      expectedHcode: batch.hcode ? String(batch.hcode) : null,
     });
   }
 };
@@ -5821,7 +5952,8 @@ export const deleteRepstmManagedBatch = async (input: {
 };
 
 export const preflightRepstmImportFiles = async (
-  files: Array<{ filename: string; size?: number; hash?: string }>
+  files: Array<{ filename: string; size?: number; hash?: string }>,
+  expectedHcode?: string | null
 ): Promise<Record<string, unknown>[]> => {
   await ensureRepstmTables();
   const normalizedFiles = files
@@ -5840,14 +5972,16 @@ export const preflightRepstmImportFiles = async (
   const hashCondition = hashes.length > 0
     ? ` OR file_hash IN (${hashes.map(() => '?').join(',')})`
     : '';
+  const normalizedHcode = extractFiveDigitHcode(expectedHcode);
+  const hcodeFilterSql = normalizedHcode ? ' AND (hcode = ? OR hcode IS NULL)' : '';
   const connection = await getRepstmConnection();
   try {
     const [rows] = await connection.query(
-      `SELECT id, data_type, source_filename, file_size, file_hash, row_count, created_at
+      `SELECT id, data_type, source_filename, file_size, file_hash, hcode, row_count, created_at
        FROM repstm_import_batch
-       WHERE SUBSTRING_INDEX(source_filename, ' [', 1) IN (${namePlaceholders})${hashCondition}
+       WHERE (SUBSTRING_INDEX(source_filename, ' [', 1) IN (${namePlaceholders})${hashCondition})${hcodeFilterSql}
        ORDER BY id DESC`,
-      [...names, ...hashes]
+      normalizedHcode ? [...names, ...hashes, normalizedHcode] : [...names, ...hashes]
     );
     const batches = Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
 
@@ -5890,7 +6024,7 @@ export const preflightRepstmImportFiles = async (
 export const getRepstmImportedRows = async (
   dataType: 'REP' | 'STM' | 'INV',
   limit = 200,
-  visit: { vn?: string; an?: string; hn?: string } = {}
+  visit: { vn?: string; an?: string; hn?: string; hcode?: string | null } = {}
 ): Promise<Record<string, unknown>[]> => {
   await ensureRepstmTables();
   const connection = await getRepstmConnection();
@@ -5899,18 +6033,22 @@ export const getRepstmImportedRows = async (
     const visitParams: string[] = [];
     if (visit.vn) { visitConditions.push('r.vn = ?'); visitParams.push(visit.vn); }
     if (visit.an) { visitConditions.push('r.an = ?'); visitParams.push(visit.an); }
+    const normalizedHcode = extractFiveDigitHcode(visit.hcode);
+    const hcodeCondition = normalizedHcode ? 'AND (b.hcode = ? OR b.hcode IS NULL)' : '';
+    const hcodeParams = normalizedHcode ? [normalizedHcode] : [];
     const [rows] = await connection.query(
       `SELECT r.id, r.batch_id, r.data_type, r.row_no, r.ref_key, r.row_identity, r.hn, r.vn, r.an, r.cid, r.amount, r.service_date, r.raw_data, r.created_at,
-              b.source_filename, b.sheet_name
+              b.source_filename, b.sheet_name, b.hcode
        FROM repstm_import_row r
        JOIN repstm_import_batch b ON b.id = r.batch_id
        LEFT JOIN repstm_import_batch replacement ON replacement.replaces_batch_id = b.id
        WHERE r.data_type = ?
        AND replacement.id IS NULL
        ${visitConditions.length ? `AND (${visitConditions.join(' OR ')})` : ''}
+       ${hcodeCondition}
        ORDER BY r.id DESC
        LIMIT ?`,
-      [dataType, ...visitParams, limit]
+      [dataType, ...visitParams, ...hcodeParams, limit]
     );
     if (!Array.isArray(rows)) return [];
     const seen = new Set<string>();

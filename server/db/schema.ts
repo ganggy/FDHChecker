@@ -136,6 +136,7 @@ export const REPSTM_IMPORT_BATCH_TABLE_SQL = `
     replaces_batch_id BIGINT NULL,
     sheet_name VARCHAR(255) NULL,
     is_subfile TINYINT(1) NOT NULL DEFAULT 0,
+    hcode VARCHAR(16) NULL,
     imported_by VARCHAR(128) NULL,
     row_count INT NOT NULL DEFAULT 0,
     notes TEXT NULL,
@@ -145,6 +146,7 @@ export const REPSTM_IMPORT_BATCH_TABLE_SQL = `
     INDEX idx_file_hash (file_hash),
     INDEX idx_source_filename (source_filename),
     INDEX idx_replaces_batch_id (replaces_batch_id),
+    INDEX idx_hcode (hcode),
     INDEX idx_data_type_created_at (data_type, created_at),
     INDEX idx_created_at (created_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -1041,6 +1043,7 @@ const ensureRepstmTablesUncached = async () => {
       ['non_empty_cell_count', 'ADD COLUMN non_empty_cell_count INT NOT NULL DEFAULT 0 AFTER column_count'],
       ['replaces_batch_id', 'ADD COLUMN replaces_batch_id BIGINT NULL AFTER non_empty_cell_count'],
       ['is_subfile', 'ADD COLUMN is_subfile TINYINT(1) NOT NULL DEFAULT 0 AFTER sheet_name'],
+      ['hcode', 'ADD COLUMN hcode VARCHAR(16) NULL AFTER is_subfile'],
     ];
     for (const [columnName, alterSql] of repstmBatchColumns) {
       const [columnRows] = await connection.query(
@@ -1116,6 +1119,7 @@ const ensureRepstmTablesUncached = async () => {
       ['idx_source_filename', 'ADD INDEX idx_source_filename (source_filename)'],
       ['idx_data_type_logical_hash', 'ADD INDEX idx_data_type_logical_hash (data_type, logical_hash)'],
       ['idx_replaces_batch_id', 'ADD INDEX idx_replaces_batch_id (replaces_batch_id)'],
+      ['idx_hcode', 'ADD INDEX idx_hcode (hcode)'],
     ];
     for (const [indexName, alterSql] of repstmBatchIndexes) {
       const [indexRows] = await connection.query(

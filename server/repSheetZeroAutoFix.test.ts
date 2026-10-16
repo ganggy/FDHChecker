@@ -31,3 +31,58 @@ test('evaluateHerbalMedicationMatch recommends diagnosis for herbal meds without
   assert.equal(res3.status, 'invalid');
   assert.ok(res3.medicineRecommendations.length > 0);
 });
+
+test('verifyVisitIdentityForAutoFix rejects mismatched HCODE, HN, CID, or serviceDate before auto-complete', async () => {
+  const { verifyVisitIdentityForAutoFix } = await import('./repSheetZeroAutoFix.js');
+  const mockConn = {
+    async query(sql: string) {
+      if (sql.includes('opdconfig')) {
+        return [[{ hospitalcode: '04567' }]];
+      }
+      if (sql.includes('FROM ovst')) {
+        return [[{ vn: '690807101500', hn: '0000123', cid: '1100100100101', vstdate_str: '2026-08-07', vstdate: '2026-08-07', vsttime: '09:00:00', doctor: '900', claim_code: '' }]];
+      }
+      return [[]];
+    },
+  };
+  const has = () => true;
+
+  // Exact match passes
+  const okResult = await verifyVisitIdentityForAutoFix(mockConn, has, {
+    vn: '690807101500',
+    hn: '123',
+    cid: '1100100100101',
+    serviceDate: '2026-08-07',
+    hcode: '04567',
+  });
+  assert.equal(okResult.verified, true);
+
+  // Mismatched HCODE fails
+  const wrongHcode = await verifyVisitIdentityForAutoFix(mockConn, has, {
+    vn: '690807101500',
+    hn: '123',
+    hcode: '10999',
+  });
+  assert.equal(wrongHcode.verified, false);
+  assert.match(wrongHcode.reason || '', /รหัสหน่วยบริการ/);
+
+  // Mismatched HN fails
+  const wrongHn = await verifyVisitIdentityForAutoFix(mockConn, has, {
+    vn: '690807101500',
+    hn: '9999999',
+    hcode: '04567',
+  });
+  assert.equal(wrongHn.verified, false);
+  assert.match(wrongHn.reason || '', /HN/);
+
+  // Mismatched serviceDate fails
+  const wrongDate = await verifyVisitIdentityForAutoFix(mockConn, has, {
+    vn: '690807101500',
+    hn: '123',
+    serviceDate: '2026-08-08',
+    hcode: '04567',
+  });
+  assert.equal(wrongDate.verified, false);
+  assert.match(wrongDate.reason || '', /วันที่รับบริการ/);
+});
+

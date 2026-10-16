@@ -3,6 +3,18 @@ import { parseFlexibleDateTime } from './utils/dataNormalization.js';
 import { parseOriginalRow } from '../src/utils/stmZeroAudit.js';
 
 export type EncounterKind = 'OP' | 'IP' | 'UNKNOWN';
+export function extractFiveDigitHcode(value: unknown, filename?: string): string {
+  const text = String(value ?? '').trim();
+  if (/^\d{5}$/.test(text)) return text;
+  const codeMatch = text.match(/(?:^|\D)(\d{5})(?:\D|$)/);
+  if (codeMatch && /^(?:0\d{4}|[1-9]\d{4})$/.test(codeMatch[1])) return codeMatch[1];
+  if (filename) {
+    const fileMatch = String(filename).match(/(?:^|[_.-])(\d{5})(?:[_.-]|$)/);
+    if (fileMatch) return fileMatch[1];
+  }
+  return '';
+}
+
 export function statementEncounterIdentity(row: Record<string, unknown>) {
   const raw = parseOriginalRow(row.raw_data);
   const pick = (keys: string[]) => pickImportColumn(raw, keys, true);
@@ -13,6 +25,8 @@ export function statementEncounterIdentity(row: Record<string, unknown>) {
   const clean = (value: unknown) => { const key = String(value ?? '').trim(); return forbidden.has(key) ? '' : key; };
   const type = pick(['ประเภทผู้ป่วย', 'patient_type', 'department']).toUpperCase();
   const filename = String(row.source_filename ?? row.filename ?? '');
+  const rawHcode = pick(['HOSPCODE', 'hcode', 'HCode', 'HCODE', 'hospcode', 'รหัสหน่วยบริการ', 'หน่วยบริการ']) || String(row.hcode ?? row.hospcode ?? '').trim();
+  const hcode = extractFiveDigitHcode(rawHcode, filename);
   let kind: EncounterKind = 'UNKNOWN';
   if (/^(OP|OPD)$/.test(type) || type.includes('ผู้ป่วยนอก')) kind = 'OP';
   else if (/^(IP|IPD)$/.test(type) || type.includes('ผู้ป่วยใน')) kind = 'IP';
@@ -21,10 +35,15 @@ export function statementEncounterIdentity(row: Record<string, unknown>) {
   else if (clean(rawAn)) kind = 'IP';
   else if (clean(rawVn)) kind = 'OP';
   const serviceDatetime = parseFlexibleDateTime(pick(['service_datetime', 'service_date', 'date_serv', 'วันที่รับบริการ', 'วันเข้ารักษา', 'วันที่ฟอกเลือดด้วยเครื่องไตเทียม', 'วันจำหน่าย']) || String(row.service_datetime ?? row.service_date ?? ''));
-  return { kind, hn: pick(['HN']) || String(row.hn ?? '').trim(), cid: pick(['CID', 'PID', 'เลขบัตรประชาชน', 'เลขบัตรประชาชน (PID)']) || String(row.pid ?? row.cid ?? '').trim(), tranId,
+  return {
+    kind,
+    hn: pick(['HN']) || String(row.hn ?? '').trim(),
+    cid: pick(['CID', 'PID', 'เลขบัตรประชาชน', 'เลขบัตรประชาชน (PID)']) || String(row.pid ?? row.cid ?? '').trim(),
+    tranId,
     vn: kind === 'IP' ? '' : clean(rawVn || row.vn),
     an: kind === 'OP' ? '' : clean(rawAn || row.an),
     serviceDatetime,
+    hcode,
   };
 }
 
@@ -36,9 +55,21 @@ export function uniqueHisEncounter(hn: string, kind: EncounterKind, encounters: 
 }
 
 type EncounterReader = { query(sql: string, values: string[]): Promise<unknown> };
-type EncounterIdentity = { kind: EncounterKind; hn: string; cid?: string; vn?: string; an?: string; serviceDatetime: string | null };
+export type EncounterIdentity = {
+  kind: EncounterKind;
+  hn: string;
+  cid?: string;
+  vn?: string;
+  an?: string;
+  serviceDatetime: string | null;
+  hcode?: string;
+  expectedHcode?: string;
+};
 export function matchesHospitalIdentity(identity: EncounterIdentity, kind: 'OP' | 'IP', record: Record<string, unknown>): boolean {
   if (identity.kind !== 'UNKNOWN' && identity.kind !== kind) return false;
+  const rowHcode = extractFiveDigitHcode(identity.hcode);
+  const targetHcode = extractFiveDigitHcode(identity.expectedHcode ?? record.hcode ?? record.hospital_code);
+  if (rowHcode && targetHcode && rowHcode !== targetHcode) return false;
   if (identity.hn && String(record.hn ?? '') !== identity.hn) return false;
   const cid = String(identity.cid || '').replace(/[^0-9]/g, '');
   if (cid.length === 13 && String(record.cid ?? '') !== cid) return false;
@@ -49,13 +80,19 @@ export function matchesHospitalIdentity(identity: EncounterIdentity, kind: 'OP' 
   if (kind === 'OP' && minute && minute !== '00:00' && String(record.service_time || '').slice(0, 5) !== minute) return false;
   return true;
 }
-// Explicit keys must also agree with the patient and supplied service date/time.
+// Explicit keys must also agree with the patient, facility hcode, and supplied service date/time (or verified CID).
 export async function resolveHospitalEncounter(connection: EncounterReader, identity: EncounterIdentity, useKeys = true): Promise<HisEncounter | null> {
+  const rowHcode = extractFiveDigitHcode(identity.hcode);
+  const expectedHcode = extractFiveDigitHcode(identity.expectedHcode);
+  if (rowHcode && expectedHcode && rowHcode !== expectedHcode) return null;
+
   const hn = identity.hn.trim();
   const cid = String(identity.cid || '').replace(/[^0-9]/g, '');
   if (!hn && cid.length !== 13) return null;
   const date = identity.serviceDatetime?.slice(0, 10);
   const minute = identity.serviceDatetime?.slice(11, 16);
+  // Require either a service date OR a 13-digit CID in addition to key/HN so a colliding VN/SEQ from another facility cannot auto-match.
+  if (!date && cid.length !== 13) return null;
   const encounters: HisEncounter[] = [];
   for (const kind of ['OP', 'IP'] as const) {
     if (identity.kind !== 'UNKNOWN' && identity.kind !== kind) continue;

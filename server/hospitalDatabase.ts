@@ -1,8 +1,8 @@
 import mysql from 'mysql2/promise';
 import pg from 'pg';
-import { readHospitalDatabaseConfig, type HospitalDatabaseConfig } from './hospitalDatabaseConfig.js';
+import { readHospitalDatabaseConfig, readFacilityDatabaseConfig, normalizeFacilityHcode, type HospitalDatabaseConfig } from './hospitalDatabaseConfig.js';
 import { compilePostgresQuery, UnsupportedPostgresQueryError } from './postgresSql.js';
-import { recordHospitalDatabaseFailure } from './hospitalDatabaseContext.js';
+import { recordHospitalDatabaseFailure, getCurrentFacilityHcode } from './hospitalDatabaseContext.js';
 
 export type HospitalConnection = Pick<mysql.PoolConnection, 'query' | 'execute' | 'release' | 'beginTransaction' | 'commit' | 'rollback'>;
 export const activeHospitalDatabaseConfig = Object.freeze(readHospitalDatabaseConfig());
@@ -96,7 +96,59 @@ export function createHospitalPool(config: HospitalDatabaseConfig) {
   };
 }
 
-export const hospitalPool = createHospitalPool(activeHospitalDatabaseConfig);
+export const defaultHospitalPool = createHospitalPool(activeHospitalDatabaseConfig);
+
+const facilityPools = new Map<string, ReturnType<typeof createHospitalPool>>();
+
+export function getHospitalPoolForFacility(hcode?: string | null): ReturnType<typeof createHospitalPool> {
+  if (!hcode) return defaultHospitalPool;
+  try {
+    const normalized = normalizeFacilityHcode(hcode);
+    if (!normalized) return defaultHospitalPool;
+    const existing = facilityPools.get(normalized);
+    if (existing) return existing;
+    const facilityConfig = readFacilityDatabaseConfig(normalized);
+    if (!facilityConfig) return defaultHospitalPool;
+    const pool = createHospitalPool(facilityConfig);
+    facilityPools.set(normalized, pool);
+    return pool;
+  } catch {
+    return defaultHospitalPool;
+  }
+}
+
+export async function reloadFacilityDatabasePool(hcode: string): Promise<void> {
+  try {
+    const normalized = normalizeFacilityHcode(hcode);
+    if (!normalized) return;
+    const existing = facilityPools.get(normalized);
+    if (existing) {
+      facilityPools.delete(normalized);
+      await existing.end();
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function closeAllFacilityDatabasePools(): Promise<void> {
+  const pools = Array.from(facilityPools.values());
+  facilityPools.clear();
+  await Promise.allSettled(pools.map((p) => p.end()));
+}
+
+export const hospitalPool = {
+  getConnection: async (): Promise<HospitalConnection> => {
+    const hcode = getCurrentFacilityHcode();
+    const pool = getHospitalPoolForFacility(hcode);
+    return pool.getConnection();
+  },
+  end: async () => {
+    await closeAllFacilityDatabasePools();
+    return defaultHospitalPool.end();
+  },
+};
+
 
 const requiredSchema: Record<string, string[]> = {
   patient: ['hn', 'pname', 'fname', 'lname', 'birthday', 'sex'],

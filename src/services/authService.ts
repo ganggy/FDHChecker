@@ -17,6 +17,7 @@ export type AuthUser = {
   hcode?: string | null;
   user_hcode?: string | null;
   group_hcode?: string | null;
+  facility_db_configured?: boolean;
   last_login_at: string | null;
 };
 
@@ -216,4 +217,65 @@ export const unlockLoginLock = async (payload: { ip?: string; all?: boolean }) =
     })
   );
 };
+
+export type FacilityDatabaseItem = {
+  hcode: string;
+  type: 'mysql' | 'postgresql';
+  host: string;
+  port: number;
+  database: string;
+  schema?: string;
+  user: string;
+  passwordConfigured: boolean;
+  ssl: boolean;
+};
+
+export const fetchFacilityDatabases = async (): Promise<FacilityDatabaseItem[]> => {
+  const data = await jsonOrThrow<{ success: true; data: FacilityDatabaseItem[] }>(
+    await fetch('/api/config/facility-databases', { headers: authHeaders() })
+  );
+  return data.data || [];
+};
+
+export const testFacilityDatabase = async (
+  hcode: string,
+  payload: Partial<FacilityDatabaseItem> & { password?: string }
+): Promise<{
+  connected: boolean;
+  compatible: boolean;
+  missing: string[];
+  message: string;
+}> => {
+  const data = await jsonOrThrow<{ success: true; data: any }>(
+    await fetch(`/api/config/facility-databases/${hcode}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    })
+  );
+  return data.data;
+};
+
+export const saveFacilityDatabase = async (
+  hcode: string,
+  payload: Partial<FacilityDatabaseItem> & { password?: string }
+) => {
+  return jsonOrThrow<{ success: true; data: FacilityDatabaseItem; test: any }>(
+    await fetch(`/api/config/facility-databases/${hcode}/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    })
+  );
+};
+
+export const deleteFacilityDatabase = async (hcode: string) => {
+  return jsonOrThrow<{ success: true; deleted: boolean }>(
+    await fetch(`/api/config/facility-databases/${hcode}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+  );
+};
+
 

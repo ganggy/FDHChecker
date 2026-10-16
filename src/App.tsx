@@ -300,7 +300,25 @@ function App() {
           <div className="navbar-end">
             <div className="navbar-user navbar-meta-card">
               <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>{authSession.user.display_name || authSession.user.username}</div>
-              <div>{authSession.user.group_name || (authSession.user.is_admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน')}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <span>{authSession.user.group_name || (authSession.user.is_admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน')}</span>
+                {authSession.user.hcode && (
+                  <span
+                    style={{
+                      fontSize: '0.78rem',
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      fontWeight: 600,
+                      background: authSession.user.facility_db_configured ? 'rgba(34, 197, 94, 0.25)' : 'rgba(234, 179, 8, 0.25)',
+                      border: `1px solid ${authSession.user.facility_db_configured ? 'rgba(34, 197, 94, 0.5)' : 'rgba(234, 179, 8, 0.5)'}`,
+                      color: authSession.user.facility_db_configured ? '#86efac' : '#fef08a',
+                    }}
+                    title={authSession.user.facility_db_configured ? `รพ.สต. ${authSession.user.hcode} (ใช้ฐานข้อมูลของ รพ.สต.)` : `รพ.สต. ${authSession.user.hcode} (ยังไม่ตั้งค่าฐานข้อมูลเฉพาะ จึงใช้ฐานข้อมูล รพ. หลัก)`}
+                  >
+                    รพ.สต. {authSession.user.hcode} {authSession.user.facility_db_configured ? '🗄️ PCU DB' : '🏥 รพ. DB'}
+                  </span>
+                )}
+              </div>
             </div>
             <div className="navbar-time navbar-meta-card">
               <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>ระบบตรวจสอบเบิกจ่าย v1.0.2</div>

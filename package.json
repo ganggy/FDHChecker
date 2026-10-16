@@ -41,7 +41,7 @@
     "mobile:build:ios:sim": "npm run mobile:sync && cd ios/App && DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer} xcodebuild -project App.xcodeproj -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath build/DerivedData CODE_SIGNING_ALLOWED=NO build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:hospital-db": "node --import tsx --test server/postgresSql.test.ts server/hospitalDatabaseConfig.test.ts server/routes/hospitalDatabaseRoutes.test.ts"
+    "test:hospital-db": "node --import tsx --test server/postgresSql.test.ts server/hospitalDatabaseConfig.test.ts server/routes/hospitalDatabaseRoutes.test.ts server/routes/facilityDatabaseRoutes.test.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

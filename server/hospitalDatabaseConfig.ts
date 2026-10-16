@@ -81,3 +81,110 @@ export function saveHospitalDatabaseConfig(config: HospitalDatabaseConfig) {
     if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
   }
 }
+
+export function normalizeFacilityHcode(value: unknown): string | null {
+  if (value == null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  if (!/^\d{5}$/.test(trimmed)) {
+    throw new Error('รหัสหน่วยบริการ (hcode) ต้องเป็นตัวเลข 5 หลักเท่านั้น');
+  }
+  return trimmed;
+}
+
+export const facilityDatabasesConfigPath = () =>
+  path.resolve(process.env.FACILITY_DATABASES_CONFIG_FILE || '.secrets/facility-databases.json');
+
+export function readFacilityDatabaseConfigs(): Record<string, HospitalDatabaseConfig> {
+  const filename = facilityDatabasesConfigPath();
+  if (!fs.existsSync(filename)) return {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(filename, 'utf8'));
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const result: Record<string, HospitalDatabaseConfig> = {};
+    for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+      try {
+        const hcode = normalizeFacilityHcode(key);
+        if (hcode) {
+          result[hcode] = validateHospitalDatabaseConfig(val);
+        }
+      } catch {
+        // ignore invalid entries
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+export function readFacilityDatabaseConfig(hcode: string): HospitalDatabaseConfig | null {
+  try {
+    const normalized = normalizeFacilityHcode(hcode);
+    if (!normalized) return null;
+    const all = readFacilityDatabaseConfigs();
+    return all[normalized] || null;
+  } catch {
+    return null;
+  }
+}
+
+export function hasFacilityDatabaseConfig(hcode: string): boolean {
+  return readFacilityDatabaseConfig(hcode) !== null;
+}
+
+export function saveFacilityDatabaseConfig(hcode: string, config: HospitalDatabaseConfig): void {
+  const normalized = normalizeFacilityHcode(hcode);
+  if (!normalized) throw new Error('รหัสหน่วยบริการไม่ถูกต้อง');
+  const validated = validateHospitalDatabaseConfig(config);
+  const all = readFacilityDatabaseConfigs();
+  all[normalized] = validated;
+
+  const filename = facilityDatabasesConfigPath();
+  fs.mkdirSync(path.dirname(filename), { recursive: true, mode: 0o700 });
+  const temporary = `${filename}.${crypto.randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(all, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, filename);
+  } finally {
+    if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+  }
+}
+
+export function deleteFacilityDatabaseConfig(hcode: string): boolean {
+  try {
+    const normalized = normalizeFacilityHcode(hcode);
+    if (!normalized) return false;
+    const all = readFacilityDatabaseConfigs();
+    if (!all[normalized]) return false;
+    delete all[normalized];
+
+    const filename = facilityDatabasesConfigPath();
+    fs.mkdirSync(path.dirname(filename), { recursive: true, mode: 0o700 });
+    const temporary = `${filename}.${crypto.randomUUID()}.tmp`;
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(all, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+      fs.renameSync(temporary, filename);
+    } finally {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function publicFacilityDatabaseConfig(hcode: string, config: HospitalDatabaseConfig) {
+  return {
+    hcode,
+    ...publicHospitalDatabaseConfig(config),
+  };
+}
+
+export function listPublicFacilityDatabaseConfigs(): Array<{ hcode: string } & ReturnType<typeof publicHospitalDatabaseConfig>> {
+  const all = readFacilityDatabaseConfigs();
+  return Object.entries(all)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([hcode, cfg]) => publicFacilityDatabaseConfig(hcode, cfg));
+}
+

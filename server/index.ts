@@ -30,8 +30,10 @@ import dotenv from 'dotenv';
 import AdmZip from 'adm-zip';
 import crypto from 'crypto';
 import { createHospitalDatabaseRouter } from './routes/hospitalDatabaseRoutes.js';
+import { createFacilityDatabaseRouter } from './routes/facilityDatabaseRoutes.js';
 import { activeHospitalDatabaseConfig } from './hospitalDatabase.js';
-import { hospitalDatabaseResponseGuard } from './hospitalDatabaseContext.js';
+import { hospitalDatabaseResponseGuard, setRequestFacilityHcode } from './hospitalDatabaseContext.js';
+import { hasFacilityDatabaseConfig, normalizeFacilityHcode } from './hospitalDatabaseConfig.js';
 import { clearCache, getVisitsCached } from './cacheManager.js';
 import {
   getCheckData,
@@ -218,7 +220,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 const app = express();
-if (activeHospitalDatabaseConfig.type === 'postgresql') app.use('/api', hospitalDatabaseResponseGuard);
+app.use('/api', hospitalDatabaseResponseGuard);
 app.disable('x-powered-by');
 if (String(process.env.TRUST_PROXY || '') === '1') app.set('trust proxy', 1);
 
@@ -352,6 +354,7 @@ const publicUserPayload = (user: NonNullable<Awaited<ReturnType<typeof getAuthUs
   hcode: user.hcode || null,
   user_hcode: user.user_hcode || null,
   group_hcode: user.group_hcode || null,
+  facility_db_configured: Boolean(user.hcode && hasFacilityDatabaseConfig(user.hcode)),
   last_login_at: user.last_login_at,
 });
 
@@ -365,6 +368,16 @@ const requireAuth = async (req: AuthenticatedRequest, res: Response, next: NextF
     }
     req.authToken = token;
     req.authUser = user;
+    if (user.hcode) {
+      setRequestFacilityHcode(user.hcode);
+    } else if ((user.is_admin || user.group_is_admin) && req.headers['x-facility-hcode']) {
+      try {
+        const adminFacilityHcode = normalizeFacilityHcode(req.headers['x-facility-hcode']);
+        if (adminFacilityHcode) setRequestFacilityHcode(adminFacilityHcode);
+      } catch {
+        // ignore invalid header
+      }
+    }
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
@@ -1107,6 +1120,7 @@ app.use('/api/config', (req: AuthenticatedRequest, res, next) => {
 });
 
 app.use('/api/config/hospital-database', requireAdmin, createHospitalDatabaseRouter());
+app.use('/api/config/facility-databases', requireAdmin, createFacilityDatabaseRouter());
 
 
 app.use('/api', (req: AuthenticatedRequest, res, next) => {

@@ -106,7 +106,15 @@ const run = (command: string, args: string[], timeout = commandTimeoutMs, extraE
 
 const runGit = (args: string[], timeout?: number) => {
   const sslSkip = process.env.GIT_SSL_NO_VERIFY !== 'false';
-  const prefixArgs = sslSkip ? ['-c', 'http.sslVerify=false'] : [];
+  const prefixArgs: string[] = [];
+  if (sslSkip) {
+    prefixArgs.push('-c', 'http.sslVerify=false');
+  }
+  const token = String(process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.FDH_GITHUB_TOKEN || '').trim();
+  if (token) {
+    const authHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+    prefixArgs.push('-c', `http.extraHeader=${authHeader}`);
+  }
   return run('git', [...prefixArgs, ...args], timeout, sslSkip ? { GIT_SSL_NO_VERIFY: 'true' } : {});
 };
 
@@ -352,6 +360,7 @@ export const buildUpdateRunnerConfig = (job: SystemUpdateJob, directory: string,
       FDH_UPDATE_CHANGE_SUMMARY: job.changeSummary, FDH_DEPLOY_BRANCH: job.branch,
       FDH_UPDATE_RUNNER_NAME: `fdh-update-${job.id}`,
       FDH_PM2_APPS: process.env.FDH_PM2_APPS || 'fdh-backend fdh-frontend',
+      GITHUB_TOKEN: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.FDH_GITHUB_TOKEN || '',
     },
   }],
 });

@@ -144,7 +144,12 @@ cd "$APP_DIR"
 CURRENT_STAGE="connecting"
 write_state "running" "$CURRENT_STAGE" 8 "กำลังเชื่อมต่อ GitHub"
 log "$ACTION requested by=$ACTOR branch=$DEPLOY_BRANCH from=$FROM_COMMIT to=$TO_COMMIT"
-run_step 120 "git fetch" git fetch --prune origin "$DEPLOY_BRANCH"
+GIT_AUTH_ARGS=()
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  BASIC_AUTH="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+  GIT_AUTH_ARGS=("-c" "http.extraHeader=AUTHORIZATION: basic $BASIC_AUTH")
+fi
+run_step 120 "git fetch" git "${GIT_AUTH_ARGS[@]}" fetch --prune origin "$DEPLOY_BRANCH"
 
 [[ "$(git branch --show-current)" == "$DEPLOY_BRANCH" ]] || { log "branch mismatch"; false; }
 [[ -z "$(git status --porcelain -uno)" ]] || { log "working tree is dirty"; false; }

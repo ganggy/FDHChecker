@@ -357,6 +357,8 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimBrowserMessage, setEclaimBrowserMessage] = useState('ยังไม่ได้เริ่มเชื่อมต่อ NHSO e-Claim');
   const [eclaimScreenshotVersion, setEclaimScreenshotVersion] = useState(0);
   const [eclaimLoading, setEclaimLoading] = useState(false);
+  const [eclaimSearchProgress, setEclaimSearchProgress] = useState<string | null>(null);
+  const eclaimStopSearchRef = useRef(false);
   const [eclaimError, setEclaimError] = useState<string | null>(null);
   const [eclaimFiles, setEclaimFiles] = useState<Record<string, unknown>[]>([]);
   const [eclaimSelected, setEclaimSelected] = useState<Set<string>>(new Set());
@@ -783,6 +785,7 @@ export const RepStmImportPage: React.FC = () => {
     setEclaimSelected(new Set());
     setEclaimPipeline({});
     setEclaimDebugLog([]);
+    eclaimStopSearchRef.current = false;
 
     if (eclaimPeriods.length === 0) {
       setEclaimError('ช่วงวันที่ไม่ถูกต้อง');
@@ -795,54 +798,97 @@ export const RepStmImportPage: React.FC = () => {
 
     try {
       setEclaimLoading(true);
-      const res = await fetch('/api/nhso-eclaim/browser-search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          periods: eclaimPeriods,
-          fileType: eclaimFileType,
-          funds: eclaimFunds,
-        }),
-      });
-      const json = await res.json() as {
-        success: boolean;
-        data?: Record<string, unknown>[];
-        newCount?: number;
-        existingCount?: number;
-        debug?: typeof eclaimDebugLog;
-        error?: string;
-      };
-      if (!json.success) throw new Error(json.error || 'ค้นหาไม่สำเร็จ');
-      if (json.debug) setEclaimDebugLog(json.debug);
-      const files = json.data || [];
-      setEclaimFiles(files);
+      // Search newest period first (e.g. 202610 -> 202609 -> ...) so recent files appear within seconds
+      const orderedPeriods = [...eclaimPeriods].reverse();
+      const accumulatedFiles: Record<string, unknown>[] = [];
+      const seenDownloads = new Set<string>();
+      const allowedPeriodsSet = new Set(eclaimPeriods);
 
-      // Pre-mark already-imported files in pipeline state so user sees clear status immediately
-      const initialPipeline: Record<string, EclaimPipelineState> = {};
-      files.forEach((file, index) => {
-        if (file.alreadyImported) {
-          const key = getEclaimFileKey(file, index);
-          initialPipeline[key] = {
-            status: 'duplicate',
-            message: `มีในระบบแล้ว (Batch #${String(file.importedBatchId || '-')}${file.importedAt ? ` · ${String(file.importedAt)}` : ''})`,
-          };
+      for (let idx = 0; idx < orderedPeriods.length; idx++) {
+        if (eclaimStopSearchRef.current) break;
+        const period = orderedPeriods[idx];
+        setEclaimSearchProgress(`กำลังค้นหางวด ${period} (${idx + 1}/${orderedPeriods.length})${accumulatedFiles.length > 0 ? ` · พบแล้ว ${accumulatedFiles.length} ไฟล์` : ''}...`);
+
+        const res = await fetch('/api/nhso-eclaim/browser-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            periods: [period],
+            fileType: eclaimFileType,
+            funds: eclaimFunds,
+            // ValidationMainAction.do (REP) lists recent files globally without a month dropdown,
+            // so we only need to scrape it on the first request (idx === 0)
+            skipRep: idx > 0,
+            maxPagesPerSource: orderedPeriods.length > 3 ? 2 : 3,
+          }),
+        });
+        const json = await res.json() as {
+          success: boolean;
+          data?: Record<string, unknown>[];
+          newCount?: number;
+          existingCount?: number;
+          debug?: typeof eclaimDebugLog;
+          error?: string;
+        };
+        if (!json.success) throw new Error(json.error || `ค้นหางวด ${period} ไม่สำเร็จ`);
+        if (json.debug && json.debug.length > 0) {
+          setEclaimDebugLog((prev) => [...prev, ...(json.debug || [])]);
         }
-      });
-      setEclaimPipeline(initialPipeline);
 
-      if (files.length === 0) {
+        const periodFiles = json.data || [];
+        let addedInStep = 0;
+        for (const f of periodFiles) {
+          const fPeriod = String(f.period || '');
+          // If backend inferred a specific period from filename/date, keep it if within selected range (or if range is 1 period)
+          if (orderedPeriods.length > 1 && fPeriod && /^\d{6}$/.test(fPeriod) && !allowedPeriodsSet.has(fPeriod)) {
+            continue;
+          }
+          const dedupKey = `${String(f.filename || '')}__${String(f.downloadUrl || '')}`;
+          if (seenDownloads.has(dedupKey)) continue;
+          seenDownloads.add(dedupKey);
+          accumulatedFiles.push(f);
+          addedInStep++;
+        }
+
+        if (addedInStep > 0 || idx === 0) {
+          const snapshot = [...accumulatedFiles];
+          setEclaimFiles(snapshot);
+          const nextPipeline: Record<string, EclaimPipelineState> = {};
+          snapshot.forEach((file, index) => {
+            if (file.alreadyImported) {
+              const key = getEclaimFileKey(file, index);
+              nextPipeline[key] = {
+                status: 'duplicate',
+                message: `มีในระบบแล้ว (Batch #${String(file.importedBatchId || '-')}${file.importedAt ? ` · ${String(file.importedAt)}` : ''})`,
+              };
+            }
+          });
+          setEclaimPipeline(nextPipeline);
+          const nextTargetKeys = new Set(
+            snapshot
+              .map((file, index) => ({ file, key: getEclaimFileKey(file, index) }))
+              .filter(({ file }) => !eclaimSkipExisting || !file.alreadyImported)
+              .map(({ key }) => key)
+          );
+          setEclaimSelected(nextTargetKeys);
+        }
+      }
+
+      setEclaimSearchProgress(null);
+
+      if (accumulatedFiles.length === 0) {
         setEclaimError(`ไม่พบไฟล์สำหรับงวด ${eclaimPeriods.join(', ')} ประเภท ${eclaimFileType}`);
         setEclaimShowDebug(true);
       } else {
-        const targetKeys = new Set(
-          files
+        const finalTargetKeys = new Set(
+          accumulatedFiles
             .map((file, index) => ({ file, key: getEclaimFileKey(file, index) }))
             .filter(({ file }) => !eclaimSkipExisting || !file.alreadyImported)
             .map(({ key }) => key)
         );
-        setEclaimSelected(targetKeys);
-        if (eclaimAutoDownload && targetKeys.size > 0) {
-          await handleEclaimDownloadFiles(files, targetKeys);
+        setEclaimSelected(finalTargetKeys);
+        if (eclaimAutoDownload && finalTargetKeys.size > 0) {
+          await handleEclaimDownloadFiles(accumulatedFiles, finalTargetKeys);
         }
       }
 
@@ -853,6 +899,7 @@ export const RepStmImportPage: React.FC = () => {
       setEclaimError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
     } finally {
       setEclaimLoading(false);
+      setEclaimSearchProgress(null);
     }
   };
 
@@ -1803,12 +1850,37 @@ export const RepStmImportPage: React.FC = () => {
             <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'flex-end' }}>
               <div style={{ flex: 1 }}>
                 {eclaimPeriods.length > 0 && (
-                  <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-                    งวดที่จะค้นหา ({eclaimPeriods.length} งวด):{' '}
-                    {eclaimPeriods.slice(0, 12).map((p) => (
-                      <span key={p} className="badge badge-info" style={{ marginRight: 4 }}>{p}</span>
+                  <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span>งวดที่จะค้นหา ({eclaimPeriods.length} งวด, เริ่มจากงวดล่าสุดก่อน):</span>
+                    {[...eclaimPeriods].reverse().slice(0, 12).map((p) => (
+                      <span key={p} className="badge badge-info" style={{ marginRight: 2 }}>{p}</span>
                     ))}
                     {eclaimPeriods.length > 12 && <span style={{ fontSize: 11 }}>+{eclaimPeriods.length - 12} งวด</span>}
+                    <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '2px 8px' }}
+                        onClick={() => {
+                          setEclaimStartDate(firstOfMonth);
+                          setEclaimEndDate(todayStr);
+                        }}
+                      >
+                        เดือนนี้ (เร็วสุด)
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '2px 8px' }}
+                        onClick={() => {
+                          const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().slice(0, 10);
+                          setEclaimStartDate(prev);
+                          setEclaimEndDate(todayStr);
+                        }}
+                      >
+                        2 เดือนล่าสุด
+                      </button>
+                    </span>
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1818,11 +1890,24 @@ export const RepStmImportPage: React.FC = () => {
                     disabled={eclaimLoading || eclaimDownloading || !eclaimBrowserReady}
                   >
                     {eclaimLoading
-                      ? '⟳ กำลังกวาดค้นหาไฟล์ทุกหน้า...'
+                      ? `⟳ ${eclaimSearchProgress || 'กำลังกวาดค้นหาไฟล์ทุกหน้า...'}`
                       : eclaimAutoDownload && eclaimAutoImport
                         ? '🚀 All-in-One Auto Sync (ดึงไฟล์ใหม่ + นำเข้า REP/STM + ซิงค์ SMT)'
                         : '🔍 ค้นหาไฟล์จาก NHSO e-Claim'}
                   </button>
+                  {eclaimLoading && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ background: '#f59e0b', color: '#fff', border: 'none' }}
+                      onClick={() => {
+                        eclaimStopSearchRef.current = true;
+                        setEclaimSearchProgress('กำลังหยุดค้นหางวดถัดไป และดึงไฟล์ที่พบแล้ว...');
+                      }}
+                    >
+                      ⏹️ หยุดค้นหางวดถัดไป (ดึงไฟล์ที่พบแล้ว {eclaimFiles.length} ไฟล์ทันที)
+                    </button>
+                  )}
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
                     <input
                       type="checkbox"

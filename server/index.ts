@@ -6615,6 +6615,25 @@ const normalizeFilenameStem = (name: string): string => (
     .toLowerCase()
 );
 
+const inferPeriodFromFilenameOrCells = (filename: string, cells: string[], fallbackPeriod: string): string => {
+  const text = `${filename} ${cells.join(' ')}`;
+  // 1. YYYYMMDD in CE (e.g. _20261015_ or 20251203)
+  const ceMatch = text.match(/(?:^|[^0-9])(202[3-9])(0[1-9]|1[0-2])(?:[0-3][0-9])?(?:[^0-9]|$)/);
+  if (ceMatch) return `${ceMatch[1]}${ceMatch[2]}`;
+  // 2. YYYYMMDD in BE (e.g. _25691015_ or 256812)
+  const beMatch = text.match(/(?:^|[^0-9])(25[6-7][0-9])(0[1-9]|1[0-2])(?:[0-3][0-9])?(?:[^0-9]|$)/);
+  if (beMatch) return `${Number(beMatch[1]) - 543}${beMatch[2]}`;
+  // 3. Thai date DD/MM/2569 or DD/MM/2026 in cells
+  const dateMatch = text.match(/\b([0-3]?\d)\/(0?[1-9]|1[0-2])\/(25[6-7]\d|202\d)\b/);
+  if (dateMatch) {
+    const rawYr = Number(dateMatch[3]);
+    const ceYr = rawYr > 2400 ? rawYr - 543 : rawYr;
+    const mm = String(Number(dateMatch[2])).padStart(2, '0');
+    return `${ceYr}${mm}`;
+  }
+  return fallbackPeriod;
+};
+
 /** POST /api/nhso-eclaim/browser-search — navigate in the alive browser and scrape file list across all funds & pages */
 app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
   if (!eclaimBrowserSession?.ready) {
@@ -6625,12 +6644,14 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
     periods: periodsBody,
     fileType = 'ALL',
     funds: fundsBody,
-    maxPagesPerSource = 8,
+    maxPagesPerSource = 3,
+    skipRep = false,
   } = req.body as {
     periods?: string[];
     fileType?: string;
     funds?: string[];
     maxPagesPerSource?: number;
+    skipRep?: boolean;
   };
   const periods = Array.isArray(periodsBody) && periodsBody.length > 0 ? periodsBody : [];
   if (periods.length === 0) return res.status(400).json({ success: false, error: 'กรุณาระบุงวด' });
@@ -6638,11 +6659,12 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
   const requestedFunds = Array.isArray(fundsBody) && fundsBody.length > 0
     ? new Set(fundsBody.map((f) => String(f).trim().toUpperCase()).filter(Boolean))
     : null;
-  const maxPages = Math.max(1, Math.min(Number(maxPagesPerSource) || 8, 20));
+  const maxPages = Math.max(1, Math.min(Number(maxPagesPerSource) || 3, 20));
 
   const page = eclaimBrowserSession.page;
   const allFiles: Record<string, unknown>[] = [];
   const debugLog: { period: string; url: string; title: string; rowCount: number; htmlSnippet: string }[] = [];
+  const scrapedGlobalRepUrls = new Set<string>();
 
   // Convert YYYYMM (CE) → { year: พ.ศ., monthNum: 1-12, monthTh: Thai name }
   const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
@@ -6740,8 +6762,8 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       if (visitedUrls.has(nextUrl)) continue;
       visitedUrls.add(nextUrl);
       try {
-        await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
-        await page.waitForTimeout(900);
+        await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.waitForTimeout(450);
         const subRows = await scrapeFilesFromPage(periodStr);
         collected.push(...subRows);
       } catch {
@@ -6767,8 +6789,8 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
 
         for (const url of financeUrls) {
           try {
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await page.waitForTimeout(1200);
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForTimeout(500);
             pageTitle = await page.title().catch(() => '');
 
             const yearSelectHandle = await page.$('select[name*="year" i], select[name*="yr" i], select:first-of-type').catch(() => null);
@@ -6776,7 +6798,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
               await yearSelectHandle.selectOption({ value: String(yearBE) }).catch(async () => {
                 await yearSelectHandle.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */});
               });
-              await page.waitForTimeout(400);
+              await page.waitForTimeout(250);
             }
 
             const monthSelectHandle = await page.$('select[name*="month" i], select[name*="mn" i], select:nth-of-type(2)').catch(() => null);
@@ -6784,13 +6806,13 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
               await monthSelectHandle.selectOption({ value: String(monthNum) }).catch(async () => {
                 await monthSelectHandle.selectOption({ label: monthTh }).catch(() => {/* ignore */});
               });
-              await page.waitForTimeout(400);
+              await page.waitForTimeout(250);
             }
 
             const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา|Search", "i")').catch(() => null);
             if (submitBtn) {
               await submitBtn.click();
-              await page.waitForTimeout(1800);
+              await page.waitForTimeout(900);
             }
 
             scraped = await scrapeFilesAcrossPages(period);
@@ -6803,6 +6825,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
           const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
           return {
             ...file,
+            period: inferPeriodFromFilenameOrCells(fname, cells, period),
             detectedType: 'INV',
             fund: inferFundFromFilenameOrRow(fname, cells, 'INV'),
           };
@@ -6824,27 +6847,27 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         ];
         for (const stmSource of statementSources) {
           try {
-            await page.goto(stmSource.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await page.waitForTimeout(1200);
+            await page.goto(stmSource.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForTimeout(500);
             pageTitle = await page.title().catch(() => '');
             const yearSel = await page.$('select[name*="year" i], select[id*="year" i], select:first-of-type').catch(() => null);
             if (yearSel) {
               await yearSel.selectOption({ value: String(yearBE) }).catch(() =>
                 yearSel.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */})
               );
-              await page.waitForTimeout(300);
+              await page.waitForTimeout(250);
             }
             const monthSel = await page.$('select[name*="month" i], select[id*="month" i], select:nth-of-type(2)').catch(() => null);
             if (monthSel) {
               await monthSel.selectOption({ value: String(monthNum) }).catch(() =>
                 monthSel.selectOption({ label: monthTh }).catch(() => {/* ignore */})
               );
-              await page.waitForTimeout(300);
+              await page.waitForTimeout(250);
             }
             const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา", "i")').catch(() => null);
             if (submitBtn) {
               await submitBtn.click();
-              await page.waitForTimeout(1800);
+              await page.waitForTimeout(900);
             }
             const statementFiles = await scrapeFilesAcrossPages(period);
             periodFiles.push(...statementFiles.map((file) => {
@@ -6852,6 +6875,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
               const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
               return {
                 ...file,
+                period: inferPeriodFromFilenameOrCells(fname, cells, period),
                 detectedType: 'STM',
                 fund: inferFundFromFilenameOrRow(fname, cells, stmSource.defaultFund),
               };
@@ -6862,73 +6886,62 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       }
 
       // --- Strategy 3: REP ทุกสิทธิที่พบในหน้า validation/REP ของ eClaim ---
-      if (fileType === 'ALL' || fileType === 'REP') {
+      if (!skipRep && (fileType === 'ALL' || fileType === 'REP')) {
         const allInsuranceCodes = ['ucs', 'ofc', 'lgo', 'bkk', 'sss'];
         const insuranceCodes = requestedFunds
           ? allInsuranceCodes.filter((c) => requestedFunds.has(c.toUpperCase()))
           : allInsuranceCodes;
-        const repSources = [
-          ...insuranceCodes.map((fund) => ({
-            fund: fund.toUpperCase(),
-            needsPeriodSelection: true,
-            url: `https://eclaim.nhso.go.th/webComponent/validation/ValidationMainAction.do?maininscl=${fund}`,
-          })),
-          {
-            fund: 'REP',
-            needsPeriodSelection: false,
-            url: `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=list&period=${period}`,
-          },
-          {
-            fund: 'REP',
-            needsPeriodSelection: false,
-            url: `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=search&period=${period}`,
-          },
-          ...(eclaimBrowserSession.repPageUrl ? [{
-            fund: 'REP',
-            needsPeriodSelection: false,
-            url: eclaimBrowserSession.repPageUrl,
-          }] : []),
-        ];
+        const repSources = insuranceCodes.map((fund) => ({
+          fund: fund.toUpperCase(),
+          url: `https://eclaim.nhso.go.th/webComponent/validation/ValidationMainAction.do?maininscl=${fund}`,
+        }));
 
+        let foundRepInValidation = false;
         for (const source of repSources) {
+          if (scrapedGlobalRepUrls.has(source.url)) continue;
           try {
-            await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
-            await page.waitForTimeout(1200);
+            await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForTimeout(500);
             pageTitle = await page.title().catch(() => '');
 
             const isErrorPage = pageTitle.toLowerCase().includes('error') || await page.evaluate(() =>
               (document.body?.textContent || '').includes('has no explicit mapping for /error')
             ).catch(() => false);
-            if (isErrorPage) continue;
+            if (isErrorPage) {
+              scrapedGlobalRepUrls.add(source.url);
+              continue;
+            }
 
-            if (source.needsPeriodSelection) {
-              const yearSel = await page.$('select[name*="year" i], select[id*="year" i], select:first-of-type').catch(() => null);
-              if (yearSel) {
-                await yearSel.selectOption({ value: String(yearBE) }).catch(() =>
-                  yearSel.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */})
-                );
-                await page.waitForTimeout(300);
-              }
-              const monthSel = await page.$('select[name*="month" i], select[id*="month" i], select:nth-of-type(2)').catch(() => null);
-              if (monthSel) {
-                await monthSel.selectOption({ value: String(monthNum) }).catch(() =>
-                  monthSel.selectOption({ label: monthTh }).catch(() => {/* ignore */})
-                );
-                await page.waitForTimeout(300);
-              }
+            // Check if this page actually has explicit year/month dropdowns
+            const yearSel = await page.$('select[name*="year" i], select[id*="year" i]').catch(() => null);
+            const monthSel = await page.$('select[name*="month" i], select[id*="month" i]').catch(() => null);
+            if (yearSel && monthSel) {
+              await yearSel.selectOption({ value: String(yearBE) }).catch(() =>
+                yearSel.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */})
+              );
+              await page.waitForTimeout(200);
+              await monthSel.selectOption({ value: String(monthNum) }).catch(() =>
+                monthSel.selectOption({ label: monthTh }).catch(() => {/* ignore */})
+              );
+              await page.waitForTimeout(200);
               const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา", "i")').catch(() => null);
               if (submitBtn) {
                 await submitBtn.click();
-                await page.waitForTimeout(1800);
+                await page.waitForTimeout(900);
               }
+            } else {
+              // ValidationMainAction.do lists recent files across dates without period dropdown — scrape once!
+              scrapedGlobalRepUrls.add(source.url);
             }
 
             const sourceFiles = await scrapeFilesAcrossPages(period);
+            if (sourceFiles.length > 0) foundRepInValidation = true;
             periodFiles.push(...sourceFiles.map((file) => {
               const fname = String(file.filename || '');
               const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
               return {
                 ...file,
+                period: inferPeriodFromFilenameOrCells(fname, cells, period),
                 detectedType: 'REP',
                 fund: inferFundFromFilenameOrRow(fname, cells, source.fund),
                 sourcePage: file.sourcePage || source.url,
@@ -6936,6 +6949,27 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             }));
             usedUrl = source.url;
           } catch { /* try next */ }
+        }
+
+        // Only try legacy RepAction.do if ValidationMainAction returned nothing
+        if (!foundRepInValidation && scrapedGlobalRepUrls.size === 0) {
+          const fallbackUrl = `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=list&period=${period}`;
+          try {
+            await page.goto(fallbackUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            await page.waitForTimeout(500);
+            const sourceFiles = await scrapeFilesAcrossPages(period);
+            periodFiles.push(...sourceFiles.map((file) => {
+              const fname = String(file.filename || '');
+              const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+              return {
+                ...file,
+                period: inferPeriodFromFilenameOrCells(fname, cells, period),
+                detectedType: 'REP',
+                fund: inferFundFromFilenameOrRow(fname, cells, 'REP'),
+                sourcePage: file.sourcePage || fallbackUrl,
+              };
+            }));
+          } catch { /* ignore */ }
         }
       }
 

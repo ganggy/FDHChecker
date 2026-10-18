@@ -6259,27 +6259,100 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
       : String(cfg.password || '');
 
     const { chromium } = await import('playwright');
-    const edgePath64 = 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe';
-    const edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
     const fsSync = await import('fs');
-    const configuredExecutable = String(process.env.ECLAIM_BROWSER_EXECUTABLE || '').trim();
-    const executablePath = configuredExecutable && fsSync.existsSync(configuredExecutable)
-      ? configuredExecutable
-      : fsSync.existsSync(edgePath64)
-        ? edgePath64
-        : fsSync.existsSync(edgePath)
-          ? edgePath
-          : undefined;
+    const osMod = await import('os');
+
+    const findBrowserExecutable = (): string | undefined => {
+      const configuredExecutable = String(process.env.ECLAIM_BROWSER_EXECUTABLE || '').trim();
+      const candidates: string[] = [
+        ...(configuredExecutable ? [configuredExecutable] : []),
+        // Windows system browsers
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        // Linux system browsers
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/snap/bin/chromium',
+        '/usr/bin/microsoft-edge-stable',
+        '/usr/bin/microsoft-edge',
+      ];
+      for (const candidate of candidates) {
+        if (candidate && fsSync.existsSync(candidate)) return candidate;
+      }
+      // Also scan ~/.cache/ms-playwright for any already-installed chromium or headless_shell binary
+      try {
+        const cacheDir = path.join(osMod.homedir(), '.cache', 'ms-playwright');
+        if (fsSync.existsSync(cacheDir)) {
+          const dirs = fsSync.readdirSync(cacheDir)
+            .filter((d) => d.startsWith('chromium'))
+            .sort()
+            .reverse();
+          for (const dir of dirs) {
+            const subCandidates = [
+              path.join(cacheDir, dir, 'chrome-linux', 'chrome'),
+              path.join(cacheDir, dir, 'chrome-linux64', 'chrome'),
+              path.join(cacheDir, dir, 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
+              path.join(cacheDir, dir, 'chrome-win', 'chrome.exe'),
+            ];
+            for (const sub of subCandidates) {
+              if (fsSync.existsSync(sub)) return sub;
+            }
+          }
+        }
+      } catch {
+        // ignore cache scan errors
+      }
+      return undefined;
+    };
+
     const forceHeadless = String(process.env.ECLAIM_BROWSER_HEADLESS || '').trim().toLowerCase();
     const headless = forceHeadless
       ? !['0', 'false', 'no'].includes(forceHeadless)
       : process.platform !== 'win32';
+    const launchArgs = headless ? ['--no-sandbox', '--disable-dev-shm-usage'] : ['--start-maximized'];
 
-    const browser = await chromium.launch({
-      executablePath,
-      headless,
-      args: headless ? ['--no-sandbox', '--disable-dev-shm-usage'] : ['--start-maximized'],
-    });
+    let executablePath = findBrowserExecutable();
+    let browser;
+    try {
+      browser = await chromium.launch({
+        executablePath,
+        headless,
+        args: launchArgs,
+      });
+    } catch (launchErr) {
+      const errMsg = String((launchErr as Error)?.message || launchErr);
+      if (/Executable doesn't exist|playwright install/i.test(errMsg)) {
+        console.log('[nhso-eclaim] Browser executable missing; running automatic npx playwright install chromium...');
+        const { execFile } = await import('child_process');
+        const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+        await new Promise<void>((resolve, reject) => {
+          execFile(
+            npxCmd,
+            ['playwright', 'install', 'chromium'],
+            { cwd: process.cwd(), timeout: 240_000 },
+            (error, stdout, stderr) => {
+              if (error) {
+                reject(new Error(`ติดตั้ง Browser อัตโนมัติไม่สำเร็จ: ${stderr || stdout || error.message}`));
+              } else {
+                resolve();
+              }
+            }
+          );
+        });
+        executablePath = findBrowserExecutable();
+        browser = await chromium.launch({
+          executablePath,
+          headless,
+          args: launchArgs,
+        });
+      } else {
+        throw launchErr;
+      }
+    }
     const context = await browser.newContext({ viewport: { width: 1365, height: 900 }, locale: 'th-TH' });
     const page = await context.newPage();
 

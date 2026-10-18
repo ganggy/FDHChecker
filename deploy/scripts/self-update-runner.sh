@@ -177,6 +177,7 @@ write_state "running" "$CURRENT_STAGE" 42 "กำลังติดตั้ง 
 # The PM2 daemon may pass NODE_ENV=production/npm_config_omit=dev to this
 # worker. Tests and both builds still require TypeScript, Vite and test tools.
 run_step 900 "dependencies" npm ci --include=dev
+run_step 300 "playwright browser" npx playwright install chromium || log "playwright install chromium skipped/non-fatal"
 
 CURRENT_STAGE="testing"
 write_state "running" "$CURRENT_STAGE" 53 "กำลังตรวจสอบโค้ดและทดสอบระบบ"

@@ -6313,45 +6313,143 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
     const headless = forceHeadless
       ? !['0', 'false', 'no'].includes(forceHeadless)
       : process.platform !== 'win32';
-    const launchArgs = headless ? ['--no-sandbox', '--disable-dev-shm-usage'] : ['--start-maximized'];
+    const launchArgs = headless
+      ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote']
+      : ['--start-maximized'];
+
+    const userLibsBase = path.join(osMod.homedir(), '.cache', 'ms-playwright', 'user-libs');
+    const userLibFlatDir = path.join(userLibsBase, 'lib');
+    const userLibRootDir = path.join(userLibsBase, 'root');
+
+    const buildBrowserLaunchEnv = (): NodeJS.ProcessEnv => {
+      const env: NodeJS.ProcessEnv = { ...process.env } as NodeJS.ProcessEnv;
+      if (process.platform === 'linux' && fsSync.existsSync(userLibsBase)) {
+        const extraDirs = [
+          userLibFlatDir,
+          path.join(userLibRootDir, 'usr', 'lib', 'x86_64-linux-gnu'),
+          path.join(userLibRootDir, 'lib', 'x86_64-linux-gnu'),
+          path.join(userLibRootDir, 'usr', 'lib64'),
+          path.join(userLibRootDir, 'lib64'),
+          path.join(userLibRootDir, 'usr', 'lib'),
+          path.join(userLibRootDir, 'lib'),
+        ].filter((d) => fsSync.existsSync(d));
+        if (extraDirs.length > 0) {
+          const existingLd = String(process.env.LD_LIBRARY_PATH || '').trim();
+          const combinedLd = [...extraDirs, ...(existingLd ? [existingLd] : [])].join(':');
+          env.LD_LIBRARY_PATH = combinedLd;
+          process.env.LD_LIBRARY_PATH = combinedLd;
+        }
+      }
+      return env;
+    };
+
+    const installMissingLinuxSharedLibs = async (binPath?: string) => {
+      if (process.platform !== 'linux') return;
+      const { execFile } = await import('child_process');
+      const script = `
+        set -e
+        BASE_DIR="$HOME/.cache/ms-playwright/user-libs"
+        DEB_DIR="$BASE_DIR/debs"
+        ROOT_DIR="$BASE_DIR/root"
+        LIB_DIR="$BASE_DIR/lib"
+        mkdir -p "$DEB_DIR" "$ROOT_DIR" "$LIB_DIR"
+
+        # 1. Try passwordless sudo first if available
+        sudo -n npx playwright install-deps chromium >/dev/null 2>&1 || true
+
+        cd "$DEB_DIR"
+        if command -v apt-get >/dev/null 2>&1 && command -v dpkg-deb >/dev/null 2>&1; then
+          PKGS="libgbm1 libnss3 libnspr4 libatk1.0-0 libatk1.0-0t64 libatk-bridge2.0-0 libatk-bridge2.0-0t64 libcups2 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libcairo2 libasound2 libasound2t64 libatspi2.0-0 libatspi2.0-0t64 libxshmfence1 libx11-xcb1 libxcb-dri3-0 libwayland-server0 libwayland-client0 libpciaccess0 libx11-6 libxext6 libxi6 libxtst6 libxcb1 libexpat1"
+          for p in $PKGS; do
+            apt-get download "$p" >/dev/null 2>&1 || true
+          done
+          for deb in "$DEB_DIR"/*.deb; do
+            [ -f "$deb" ] && dpkg-deb -x "$deb" "$ROOT_DIR" 2>/dev/null || true
+          done
+        elif command -v dnf >/dev/null 2>&1; then
+          dnf download --destdir="$DEB_DIR" mesa-libgbm nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr pango cairo alsa-lib at-spi2-core libxshmfence libwayland-server libwayland-client libpciaccess libX11 libX11-xcb libxcb >/dev/null 2>&1 || true
+          cd "$ROOT_DIR"
+          for rpm in "$DEB_DIR"/*.rpm; do
+            [ -f "$rpm" ] && (rpm2cpio "$rpm" | cpio -idmv >/dev/null 2>&1 || true)
+          done
+        elif command -v yumdownloader >/dev/null 2>&1; then
+          yumdownloader --destdir="$DEB_DIR" mesa-libgbm nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr pango cairo alsa-lib at-spi2-core libxshmfence libwayland-server libwayland-client libpciaccess libX11 libX11-xcb libxcb >/dev/null 2>&1 || true
+          cd "$ROOT_DIR"
+          for rpm in "$DEB_DIR"/*.rpm; do
+            [ -f "$rpm" ] && (rpm2cpio "$rpm" | cpio -idmv >/dev/null 2>&1 || true)
+          done
+        fi
+
+        # Copy/link all extracted .so* files into flat LIB_DIR
+        find "$ROOT_DIR" \\( -type f -o -type l \\) -name "*.so*" -exec cp -Pf {} "$LIB_DIR/" \\; 2>/dev/null || true
+
+        # If binary path is known, inspect ldd for any remaining missing libraries and fetch them
+        if [ -n "${binPath || ''}" ] && [ -f "${binPath || ''}" ] && command -v ldd >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+          cd "$DEB_DIR"
+          MISSING_LIBS=$(LD_LIBRARY_PATH="$LIB_DIR:$LD_LIBRARY_PATH" ldd "${binPath || ''}" 2>/dev/null | awk '/not found/ {print $1}' | sort -u)
+          for so in $MISSING_LIBS; do
+            # Derive candidate Debian package names from soname (e.g. libgbm.so.1 -> libgbm1)
+            GUESS=$(echo "$so" | sed -E 's/\\.so\\.([0-9]+)$/\\1/; s/\\.so$//')
+            for cand in "$GUESS" "\${GUESS}t64" "\${GUESS}-0"; do
+              apt-get download "$cand" >/dev/null 2>&1 || true
+            done
+          done
+          for deb in "$DEB_DIR"/*.deb; do
+            [ -f "$deb" ] && dpkg-deb -x "$deb" "$ROOT_DIR" 2>/dev/null || true
+          done
+          find "$ROOT_DIR" \\( -type f -o -type l \\) -name "*.so*" -exec cp -Pf {} "$LIB_DIR/" \\; 2>/dev/null || true
+        fi
+      `;
+      await new Promise<void>((resolve) => {
+        execFile('bash', ['-c', script], { timeout: 240_000 }, () => resolve());
+      });
+    };
 
     let executablePath = findBrowserExecutable();
     let browser;
-    try {
-      browser = await chromium.launch({
-        executablePath,
-        headless,
-        args: launchArgs,
-      });
-    } catch (launchErr) {
-      const errMsg = String((launchErr as Error)?.message || launchErr);
-      if (/Executable doesn't exist|playwright install/i.test(errMsg)) {
-        console.log('[nhso-eclaim] Browser executable missing; running automatic npx playwright install chromium...');
-        const { execFile } = await import('child_process');
-        const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-        await new Promise<void>((resolve, reject) => {
-          execFile(
-            npxCmd,
-            ['playwright', 'install', 'chromium'],
-            { cwd: process.cwd(), timeout: 240_000 },
-            (error, stdout, stderr) => {
-              if (error) {
-                reject(new Error(`ติดตั้ง Browser อัตโนมัติไม่สำเร็จ: ${stderr || stdout || error.message}`));
-              } else {
-                resolve();
-              }
-            }
-          );
-        });
-        executablePath = findBrowserExecutable();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
         browser = await chromium.launch({
           executablePath,
           headless,
           args: launchArgs,
+          env: buildBrowserLaunchEnv() as Record<string, string>,
         });
-      } else {
+        break;
+      } catch (launchErr) {
+        const errMsg = String((launchErr as Error)?.message || launchErr);
+        if (attempt < 3 && /Executable doesn't exist|playwright install/i.test(errMsg)) {
+          console.log('[nhso-eclaim] Browser executable missing; running automatic npx playwright install chromium...');
+          const { execFile } = await import('child_process');
+          const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+          await new Promise<void>((resolve, reject) => {
+            execFile(
+              npxCmd,
+              ['playwright', 'install', 'chromium'],
+              { cwd: process.cwd(), timeout: 240_000 },
+              (error, stdout, stderr) => {
+                if (error) {
+                  reject(new Error(`ติดตั้ง Browser อัตโนมัติไม่สำเร็จ: ${stderr || stdout || error.message}`));
+                } else {
+                  resolve();
+                }
+              }
+            );
+          });
+          executablePath = findBrowserExecutable();
+          continue;
+        }
+        if (attempt < 3 && /error while loading shared libraries|cannot open shared object file|Target page, context or browser has been closed/i.test(errMsg)) {
+          console.log('[nhso-eclaim] Missing Linux shared libraries (e.g. libgbm.so.1); extracting user-space libraries automatically...');
+          await installMissingLinuxSharedLibs(executablePath);
+          executablePath = findBrowserExecutable();
+          continue;
+        }
         throw launchErr;
       }
+    }
+    if (!browser) {
+      throw new Error('ไม่สามารถเปิด Browser สำหรับเชื่อมต่อ NHSO e-Claim ได้');
     }
     const context = await browser.newContext({ viewport: { width: 1365, height: 900 }, locale: 'th-TH' });
     const page = await context.newPage();

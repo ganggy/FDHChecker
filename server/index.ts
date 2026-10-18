@@ -6179,18 +6179,40 @@ app.get('/api/nhso-eclaim/archive-files', async (_req, res) => {
   }
 });
 
+let eclaimLaunchState: {
+  launching: boolean;
+  phase: string;
+  message: string;
+  error: string | null;
+} = {
+  launching: false,
+  phase: 'closed',
+  message: 'ยังไม่ได้เริ่มเชื่อมต่อ NHSO e-Claim',
+  error: null,
+};
+
 /** GET /api/nhso-eclaim/browser-status — check if browser session is alive and ready */
 app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
-  if (!eclaimBrowserSession) return res.json({ alive: false, ready: false, phase: 'closed', message: 'ยังไม่ได้เริ่มเชื่อมต่อ NHSO e-Claim' });
+  if (!eclaimBrowserSession) {
+    return res.json({
+      alive: false,
+      launching: eclaimLaunchState.launching,
+      ready: false,
+      phase: eclaimLaunchState.phase,
+      message: eclaimLaunchState.message,
+      error: eclaimLaunchState.error,
+    });
+  }
   try {
     const url = eclaimBrowserSession.page.url();
     const title = await eclaimBrowserSession.page.title().catch(() => '');
     return res.json({
       alive: eclaimBrowserSession.browser.isConnected(),
+      launching: false,
       ready: eclaimBrowserSession.ready,
       phase: eclaimBrowserSession.phase,
       message: eclaimBrowserSession.message,
-      error: eclaimBrowserSession.lastError || null,
+      error: eclaimBrowserSession.lastError || eclaimLaunchState.error || null,
       url,
       title,
       repPageUrl: eclaimBrowserSession.repPageUrl,
@@ -6199,7 +6221,14 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
     });
   } catch {
     eclaimBrowserSession = null;
-    return res.json({ alive: false, ready: false, phase: 'closed', message: 'Browser ถูกปิดแล้ว' });
+    return res.json({
+      alive: false,
+      launching: false,
+      ready: false,
+      phase: 'closed',
+      message: 'Browser ถูกปิดแล้ว',
+      error: null,
+    });
   }
 });
 
@@ -6221,11 +6250,12 @@ app.post('/api/nhso-eclaim/browser-thaid', async (_req, res) => {
   if (!eclaimBrowserSession) return res.status(400).json({ success: false, error: 'ยังไม่ได้เริ่ม Browser' });
   try {
     const clicked = await tryOpenThaIdLogin(eclaimBrowserSession.page);
+    await eclaimBrowserSession.page.waitForTimeout(1500).catch(() => undefined);
     eclaimBrowserSession.phase = 'waiting_thaid';
     eclaimBrowserSession.message = clicked
-      ? 'เปิดหน้า ThaID แล้ว กรุณาสแกน QR'
-      : 'ยังไม่พบปุ่ม ThaID โปรดตรวจภาพ Login แล้วลองอีกครั้ง';
-    return res.json({ success: clicked, message: eclaimBrowserSession.message });
+      ? 'เปิดหน้า ThaID แล้ว กรุณาสแกน QR ด้านล่าง'
+      : 'แสดงหน้าจอ Login แล้ว หากยังไม่เห็น QR กดปุ่มนี้อีกครั้ง';
+    return res.json({ success: true, clicked, message: eclaimBrowserSession.message });
   } catch (error) {
     return res.status(500).json({ success: false, error: (error as Error).message });
   }
@@ -6233,6 +6263,12 @@ app.post('/api/nhso-eclaim/browser-thaid', async (_req, res) => {
 
 /** POST /api/nhso-eclaim/browser-close — close the alive browser session */
 app.post('/api/nhso-eclaim/browser-close', async (_req, res) => {
+  eclaimLaunchState = {
+    launching: false,
+    phase: 'closed',
+    message: 'ปิด Browser แล้ว',
+    error: null,
+  };
   if (eclaimBrowserSession) {
     try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
     eclaimBrowserSession = null;
@@ -6247,6 +6283,12 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
     try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
     eclaimBrowserSession = null;
   }
+  eclaimLaunchState = {
+    launching: true,
+    phase: 'opening',
+    message: 'กำลังเตรียม Browser บนเซิร์ฟเวอร์...',
+    error: null,
+  };
 
   try {
     const cfg = await getResolvedNhsoEclaimConfig();
@@ -6347,7 +6389,7 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
       if (process.platform !== 'linux') return;
       const { execFile } = await import('child_process');
       const script = `
-        set -e
+        export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
         BASE_DIR="$HOME/.cache/ms-playwright/user-libs"
         DEB_DIR="$BASE_DIR/debs"
         ROOT_DIR="$BASE_DIR/root"
@@ -6357,24 +6399,30 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
         # 1. Try passwordless sudo first if available
         sudo -n npx playwright install-deps chromium >/dev/null 2>&1 || true
 
-        cd "$DEB_DIR"
+        cd "$DEB_DIR" || exit 0
         if command -v apt-get >/dev/null 2>&1 && command -v dpkg-deb >/dev/null 2>&1; then
-          PKGS="libgbm1 libnss3 libnspr4 libatk1.0-0 libatk1.0-0t64 libatk-bridge2.0-0 libatk-bridge2.0-0t64 libcups2 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libcairo2 libasound2 libasound2t64 libatspi2.0-0 libatspi2.0-0t64 libxshmfence1 libx11-xcb1 libxcb-dri3-0 libwayland-server0 libwayland-client0 libpciaccess0 libx11-6 libxext6 libxi6 libxtst6 libxcb1 libexpat1"
-          for p in $PKGS; do
-            apt-get download "$p" >/dev/null 2>&1 || true
-          done
+          CORE_PKGS="libgbm1 libnss3 libnspr4 libatk1.0-0 libatk1.0-0t64 libatk-bridge2.0-0 libatk-bridge2.0-0t64 libcups2 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libasound2 libasound2t64 libatspi2.0-0 libatspi2.0-0t64 libxshmfence1 libx11-xcb1 libxcb-dri3-0 libxcb-randr0 libwayland-server0 libwayland-client0 libpciaccess0 libx11-6 libxext6 libxi6 libxtst6 libxcb1 libexpat1 libpixman-1-0 libxcb-shm0 libxcb-render0 libxrender1"
+          ALL_PKGS=$(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances $CORE_PKGS 2>/dev/null | grep "^[a-z0-9]" | grep -v -E "^(libc6|libgcc|gcc|multiarch|debconf|dpkg|coreutils|passwd|adduser|ucf|tzdata)" | sort -u)
+          if [ -z "$ALL_PKGS" ]; then
+            ALL_PKGS="$CORE_PKGS"
+          fi
+          apt-get download $ALL_PKGS >/dev/null 2>&1 || {
+            for p in $CORE_PKGS; do
+              apt-get download "$p" >/dev/null 2>&1 || true
+            done
+          }
           for deb in "$DEB_DIR"/*.deb; do
             [ -f "$deb" ] && dpkg-deb -x "$deb" "$ROOT_DIR" 2>/dev/null || true
           done
         elif command -v dnf >/dev/null 2>&1; then
           dnf download --destdir="$DEB_DIR" mesa-libgbm nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr pango cairo alsa-lib at-spi2-core libxshmfence libwayland-server libwayland-client libpciaccess libX11 libX11-xcb libxcb >/dev/null 2>&1 || true
-          cd "$ROOT_DIR"
+          cd "$ROOT_DIR" || exit 0
           for rpm in "$DEB_DIR"/*.rpm; do
             [ -f "$rpm" ] && (rpm2cpio "$rpm" | cpio -idmv >/dev/null 2>&1 || true)
           done
         elif command -v yumdownloader >/dev/null 2>&1; then
           yumdownloader --destdir="$DEB_DIR" mesa-libgbm nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr pango cairo alsa-lib at-spi2-core libxshmfence libwayland-server libwayland-client libpciaccess libX11 libX11-xcb libxcb >/dev/null 2>&1 || true
-          cd "$ROOT_DIR"
+          cd "$ROOT_DIR" || exit 0
           for rpm in "$DEB_DIR"/*.rpm; do
             [ -f "$rpm" ] && (rpm2cpio "$rpm" | cpio -idmv >/dev/null 2>&1 || true)
           done
@@ -6385,10 +6433,9 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
 
         # If binary path is known, inspect ldd for any remaining missing libraries and fetch them
         if [ -n "${binPath || ''}" ] && [ -f "${binPath || ''}" ] && command -v ldd >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
-          cd "$DEB_DIR"
+          cd "$DEB_DIR" || exit 0
           MISSING_LIBS=$(LD_LIBRARY_PATH="$LIB_DIR:$LD_LIBRARY_PATH" ldd "${binPath || ''}" 2>/dev/null | awk '/not found/ {print $1}' | sort -u)
           for so in $MISSING_LIBS; do
-            # Derive candidate Debian package names from soname (e.g. libgbm.so.1 -> libgbm1)
             GUESS=$(echo "$so" | sed -E 's/\\.so\\.([0-9]+)$/\\1/; s/\\.so$//')
             for cand in "$GUESS" "\${GUESS}t64" "\${GUESS}-0"; do
               apt-get download "$cand" >/dev/null 2>&1 || true
@@ -6419,6 +6466,7 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
       } catch (launchErr) {
         const errMsg = String((launchErr as Error)?.message || launchErr);
         if (attempt < 3 && /Executable doesn't exist|playwright install/i.test(errMsg)) {
+          eclaimLaunchState.message = 'กำลังดาวน์โหลด Browser Chromium บนเซิร์ฟเวอร์อัตโนมัติ (ครั้งแรกประมาณ 20–40 วินาที)...';
           console.log('[nhso-eclaim] Browser executable missing; running automatic npx playwright install chromium...');
           const { execFile } = await import('child_process');
           const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
@@ -6440,6 +6488,7 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
           continue;
         }
         if (attempt < 3 && /error while loading shared libraries|cannot open shared object file|Target page, context or browser has been closed/i.test(errMsg)) {
+          eclaimLaunchState.message = 'กำลังเตรียมไลบรารีระบบ Linux (libgbm1, libnss3) อัตโนมัติ (ครั้งแรกประมาณ 15–30 วินาที)...';
           console.log('[nhso-eclaim] Missing Linux shared libraries (e.g. libgbm.so.1); extracting user-space libraries automatically...');
           await installMissingLinuxSharedLibs(executablePath);
           executablePath = findBrowserExecutable();
@@ -6461,18 +6510,29 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
       page,
       ready: false,
       phase: 'opening',
-      message: 'กำลังเปิดหน้า Login NHSO e-Claim',
+      message: 'กำลังเปิดหน้า Login NHSO e-Claim...',
       repPageUrl: '',
       createdAt: Date.now(),
       loginMode,
     };
     eclaimBrowserSession = session;
+    eclaimLaunchState = {
+      launching: false,
+      phase: 'opening',
+      message: session.message,
+      error: null,
+    };
 
     // Open e-Claim system
     await page.goto('https://eclaim.nhso.go.th/webComponent/main/MainWebAction.do', {
       waitUntil: 'domcontentloaded',
       timeout: 60000,
     });
+    // Wait up to 4s for Keycloak redirect / login controls or ThaID button to render
+    await page.waitForSelector(
+      'input[name="username"], input#username, #kc-login, button:has-text("ThaID"), a:has-text("ThaID"), :text-matches("ThaID|ไทยดี", "i")',
+      { timeout: 4000 }
+    ).catch(() => undefined);
     await page.waitForTimeout(800);
 
     // Step A: Try automatic Username/Password login if configured and mode is 'auto' or 'password'
@@ -6502,11 +6562,14 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
 
     // Step B: Open ThaID QR option (either chosen directly or fallback/2FA after password)
     session.phase = 'waiting_thaid';
-    session.message = 'กำลังเปิดตัวเลือก ThaID';
+    session.message = 'กำลังเปิดหน้าสแกน QR แอป ThaID...';
     const clicked = await tryOpenThaIdLogin(page);
+    if (clicked) {
+      await page.waitForTimeout(1800).catch(() => undefined);
+    }
     session.message = clicked
-      ? 'สแกน QR และยืนยันตัวตนในแอป ThaID (หรือกรอกรหัสผ่านในหน้าเว็บ)'
-      : 'กรุณากด “เลือก ThaID” แล้วสแกน QR';
+      ? 'สแกน QR ด้านล่างและยืนยันตัวตนในแอป ThaID'
+      : 'แสดงหน้าจอ Login แล้ว — กรุณาสแกน QR หรือกด “สลับไปแสดง QR ThaID”';
     void monitorEclaimThaIdLogin(session);
     return res.status(202).json({
       success: true,
@@ -6520,8 +6583,15 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
       try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
       eclaimBrowserSession = null;
     }
+    const errMsg = (error as Error).message || 'เชื่อมต่อ NHSO e-Claim ไม่สำเร็จ';
+    eclaimLaunchState = {
+      launching: false,
+      phase: 'error',
+      message: `เกิดข้อผิดพลาด: ${errMsg}`,
+      error: errMsg,
+    };
     console.error('browser-login error:', error);
-    return res.status(500).json({ success: false, error: (error as Error).message });
+    return res.status(500).json({ success: false, error: errMsg });
   }
 });
 

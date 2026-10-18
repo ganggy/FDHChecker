@@ -559,6 +559,8 @@ export const RepStmImportPage: React.FC = () => {
     }
   };
 
+  const eclaimLoginInFlightRef = useRef(false);
+
   useEffect(() => {
     if (!eclaimOpen) return;
     let active = true;
@@ -566,15 +568,22 @@ export const RepStmImportPage: React.FC = () => {
       try {
         const response = await fetch('/api/nhso-eclaim/browser-status', { cache: 'no-store' });
         const status = await response.json() as {
-          alive?: boolean; ready?: boolean; phase?: string; message?: string; error?: string | null;
+          alive?: boolean; launching?: boolean; ready?: boolean; phase?: string; message?: string; error?: string | null;
         };
         if (!active) return;
+        const phase = String(status.phase || 'closed');
+        // Do not overwrite loading state if browser-login request just started and server status hasn't flipped yet
+        if (eclaimLoginInFlightRef.current && phase === 'closed' && !status.launching && !status.error) {
+          return;
+        }
         setEclaimBrowserAlive(Boolean(status.alive));
         setEclaimBrowserReady(Boolean(status.ready));
-        setEclaimBrowserPhase(String(status.phase || 'closed'));
-        setEclaimBrowserMessage(String(status.message || ''));
+        setEclaimBrowserPhase(phase);
+        if (status.message) setEclaimBrowserMessage(String(status.message));
         if (status.error) setEclaimError(status.error);
-        if (status.ready || ['closed', 'expired', 'error'].includes(String(status.phase || ''))) {
+        if (status.launching) {
+          setEclaimBrowserLoading(true);
+        } else if (!eclaimLoginInFlightRef.current && (status.ready || ['closed', 'expired', 'error'].includes(phase))) {
           setEclaimBrowserLoading(false);
         }
         if (status.alive && !status.ready) setEclaimScreenshotVersion(Date.now());
@@ -689,9 +698,12 @@ export const RepStmImportPage: React.FC = () => {
   };
 
   const handleBrowserLogin = async () => {
+    eclaimLoginInFlightRef.current = true;
     setEclaimError(null);
     setEclaimBrowserReady(false);
     setEclaimBrowserLoading(true);
+    setEclaimBrowserPhase('opening');
+    setEclaimBrowserMessage('กำลังเตรียม Browser และเปิดหน้า Login NHSO e-Claim...');
     try {
       const res = await fetch('/api/nhso-eclaim/browser-login', {
         method: 'POST',
@@ -716,6 +728,8 @@ export const RepStmImportPage: React.FC = () => {
     } catch (err) {
       setEclaimError((err as Error).message);
       setEclaimBrowserLoading(false);
+    } finally {
+      eclaimLoginInFlightRef.current = false;
     }
   };
 

@@ -331,6 +331,10 @@ export const RepStmImportPage: React.FC = () => {
 
   // NHSO eclaim All-in-One Auto Download state
   const today = new Date();
+  const currentFiscalStartYearCE = today.getMonth() >= 9 ? today.getFullYear() : today.getFullYear() - 1;
+  const prevFiscalStartYearCE = currentFiscalStartYearCE - 1;
+  const currentFiscalStart = `${currentFiscalStartYearCE}-10-01`;
+  const prevFiscalStart = `${prevFiscalStartYearCE}-10-01`;
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
   const todayStr = today.toISOString().slice(0, 10);
   const [eclaimOpen, setEclaimOpen] = useState(false);
@@ -347,7 +351,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimSavingSettings, setEclaimSavingSettings] = useState(false);
   const [eclaimSettingsMsg, setEclaimSettingsMsg] = useState<string | null>(null);
   const [eclaimFunds, setEclaimFunds] = useState<string[]>(['UCS', 'OFC', 'LGO', 'BKK', 'SSS']);
-  const [eclaimStartDate, setEclaimStartDate] = useState(firstOfMonth);
+  const [eclaimStartDate, setEclaimStartDate] = useState(prevFiscalStart);
   const [eclaimEndDate, setEclaimEndDate] = useState(todayStr);
   const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
   const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
@@ -757,21 +761,48 @@ export const RepStmImportPage: React.FC = () => {
     setEclaimBrowserLoading(false);
   };
 
-  const triggerSmtBudgetSync = async () => {
+  const triggerSmtBudgetSync = async (periodsToCover: string[] = eclaimPeriods) => {
     if (!eclaimSyncSmtBudget) return;
     try {
-      setEclaimSmtSyncMessage('⟳ กำลังซิงค์ข้อมูลงบโอนเงิน สปสช. (SMT Budget)...');
-      const res = await fetch('/api/smt-budget/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const json = await res.json() as { success?: boolean; data?: { syncedRecords?: number; budgetYear?: string }; error?: string };
-      if (json.success) {
-        const count = Number(json.data?.syncedRecords ?? 0);
-        setEclaimSmtSyncMessage(`✅ ซิงค์งบโอนเงิน สปสช. (SMT Budget) สำเร็จ${count ? ` (${count.toLocaleString()} รายการ)` : ''}`);
+      const fiscalYearsSet = new Set<string>();
+      for (const p of periodsToCover) {
+        if (/^\d{6}$/.test(p)) {
+          const yCE = Number(p.slice(0, 4));
+          const mNum = Number(p.slice(4, 6));
+          const fyBE = yCE + 543 + (mNum >= 10 ? 1 : 0);
+          fiscalYearsSet.add(String(fyBE));
+        }
+      }
+      const fiscalYears = fiscalYearsSet.size > 0
+        ? Array.from(fiscalYearsSet).sort((a, b) => Number(b) - Number(a))
+        : [String(currentFiscalStartYearCE + 544), String(prevFiscalStartYearCE + 544)];
+
+      let totalSynced = 0;
+      const syncedYears: string[] = [];
+      for (const budgetYear of fiscalYears) {
+        setEclaimSmtSyncMessage(`⟳ กำลังซิงค์ข้อมูลงบโอนเงิน สปสช. (SMT Budget) ปีงบประมาณ ${budgetYear}...`);
+        const res = await fetch('/api/smt-budget/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ budgetYear }),
+        });
+        const json = await res.json() as {
+          success?: boolean;
+          data?: { syncedRecords?: number; total_fetched?: number; inserted_or_updated?: number; budgetYear?: string };
+          error?: string;
+        };
+        if (json.success) {
+          const count = Number(json.data?.inserted_or_updated ?? json.data?.total_fetched ?? json.data?.syncedRecords ?? 0);
+          totalSynced += count;
+          syncedYears.push(budgetYear);
+        }
+      }
+      if (syncedYears.length > 0) {
+        setEclaimSmtSyncMessage(
+          `✅ ซิงค์งบโอนเงิน สปสช. (SMT Budget ปีงบ ${syncedYears.join(', ')}) สำเร็จ (${totalSynced.toLocaleString()} รายการ)`
+        );
       } else {
-        setEclaimSmtSyncMessage(`⚠️ ซิงค์ SMT Budget ไม่สำเร็จ: ${json.error || 'ไม่สามารถเชื่อมต่อ SMT ได้'}`);
+        setEclaimSmtSyncMessage('⚠️ ซิงค์ SMT Budget ไม่สำเร็จ: ไม่สามารถเชื่อมต่อ SMT ได้');
       }
     } catch (err) {
       setEclaimSmtSyncMessage(`⚠️ ซิงค์ SMT Budget ไม่สำเร็จ: ${err instanceof Error ? err.message : 'เกิดข้อผิดพลาด'}`);
@@ -798,16 +829,23 @@ export const RepStmImportPage: React.FC = () => {
 
     try {
       setEclaimLoading(true);
-      // Search newest period first (e.g. 202610 -> 202609 -> ...) so recent files appear within seconds
+      if (eclaimSyncSmtBudget) {
+        void triggerSmtBudgetSync(eclaimPeriods);
+      }
+
+      // Walk backwards from newest month first (e.g. 202610 -> 202609 -> ... -> previous fiscal year)
       const orderedPeriods = [...eclaimPeriods].reverse();
       const accumulatedFiles: Record<string, unknown>[] = [];
       const seenDownloads = new Set<string>();
       const allowedPeriodsSet = new Set(eclaimPeriods);
+      let repSupportsPeriodFilter = true;
 
       for (let idx = 0; idx < orderedPeriods.length; idx++) {
         if (eclaimStopSearchRef.current) break;
         const period = orderedPeriods[idx];
-        setEclaimSearchProgress(`กำลังค้นหางวด ${period} (${idx + 1}/${orderedPeriods.length})${accumulatedFiles.length > 0 ? ` · พบแล้ว ${accumulatedFiles.length} ไฟล์` : ''}...`);
+        setEclaimSearchProgress(
+          `งวด ${period} (${idx + 1}/${orderedPeriods.length}): กำลังค้นหาไฟล์${accumulatedFiles.length > 0 ? ` (พบสะสม ${accumulatedFiles.length} ไฟล์)` : ''}...`
+        );
 
         const res = await fetch('/api/nhso-eclaim/browser-search', {
           method: 'POST',
@@ -816,10 +854,9 @@ export const RepStmImportPage: React.FC = () => {
             periods: [period],
             fileType: eclaimFileType,
             funds: eclaimFunds,
-            // ValidationMainAction.do (REP) lists recent files globally without a month dropdown,
-            // so we only need to scrape it on the first request (idx === 0)
-            skipRep: idx > 0,
-            maxPagesPerSource: orderedPeriods.length > 3 ? 2 : 3,
+            // If ValidationMainAction.do has no month/year filter, scrape it deeply on the first pass (idx === 0) and skip on idx > 0
+            skipRep: idx > 0 && !repSupportsPeriodFilter,
+            maxPagesPerSource: idx === 0 ? 8 : 3,
           }),
         });
         const json = await res.json() as {
@@ -827,50 +864,77 @@ export const RepStmImportPage: React.FC = () => {
           data?: Record<string, unknown>[];
           newCount?: number;
           existingCount?: number;
+          repHasPeriodFilter?: boolean;
           debug?: typeof eclaimDebugLog;
           error?: string;
         };
         if (!json.success) throw new Error(json.error || `ค้นหางวด ${period} ไม่สำเร็จ`);
+        if (idx === 0 && json.repHasPeriodFilter !== undefined) {
+          repSupportsPeriodFilter = Boolean(json.repHasPeriodFilter);
+        }
         if (json.debug && json.debug.length > 0) {
           setEclaimDebugLog((prev) => [...prev, ...(json.debug || [])]);
         }
 
         const periodFiles = json.data || [];
-        let addedInStep = 0;
+        const prevLen = accumulatedFiles.length;
         for (const f of periodFiles) {
           const fPeriod = String(f.period || '');
-          // If backend inferred a specific period from filename/date, keep it if within selected range (or if range is 1 period)
           if (orderedPeriods.length > 1 && fPeriod && /^\d{6}$/.test(fPeriod) && !allowedPeriodsSet.has(fPeriod)) {
             continue;
           }
-          const dedupKey = `${String(f.filename || '')}__${String(f.downloadUrl || '')}`;
+          const dedupKey = `${String(f.filename || '')}__${String(f.downloadHref || '')}__${String(f.downloadOnclick || '')}`;
           if (seenDownloads.has(dedupKey)) continue;
           seenDownloads.add(dedupKey);
           accumulatedFiles.push(f);
-          addedInStep++;
         }
 
-        if (addedInStep > 0 || idx === 0) {
+        const addedCount = accumulatedFiles.length - prevLen;
+        if (addedCount > 0 || idx === 0) {
           const snapshot = [...accumulatedFiles];
           setEclaimFiles(snapshot);
-          const nextPipeline: Record<string, EclaimPipelineState> = {};
-          snapshot.forEach((file, index) => {
+
+          const stepDuplicatePipeline: Record<string, EclaimPipelineState> = {};
+          const stepNewKeys = new Set<string>();
+
+          for (let fileIdx = prevLen; fileIdx < snapshot.length; fileIdx++) {
+            const file = snapshot[fileIdx];
+            const key = getEclaimFileKey(file, fileIdx);
             if (file.alreadyImported) {
-              const key = getEclaimFileKey(file, index);
-              nextPipeline[key] = {
+              stepDuplicatePipeline[key] = {
                 status: 'duplicate',
                 message: `มีในระบบแล้ว (Batch #${String(file.importedBatchId || '-')}${file.importedAt ? ` · ${String(file.importedAt)}` : ''})`,
               };
             }
-          });
-          setEclaimPipeline(nextPipeline);
-          const nextTargetKeys = new Set(
-            snapshot
-              .map((file, index) => ({ file, key: getEclaimFileKey(file, index) }))
-              .filter(({ file }) => !eclaimSkipExisting || !file.alreadyImported)
-              .map(({ key }) => key)
-          );
-          setEclaimSelected(nextTargetKeys);
+            if (!eclaimSkipExisting || !file.alreadyImported) {
+              stepNewKeys.add(key);
+            }
+          }
+
+          if (Object.keys(stepDuplicatePipeline).length > 0) {
+            setEclaimPipeline((current) => ({ ...stepDuplicatePipeline, ...current }));
+          }
+
+          if (stepNewKeys.size > 0) {
+            setEclaimSelected((current) => {
+              const next = new Set(current);
+              stepNewKeys.forEach((k) => next.add(k));
+              return next;
+            });
+          }
+
+          // Immediately download & import new files found in this period before stepping back to the older month!
+          if (eclaimAutoDownload && stepNewKeys.size > 0 && !eclaimStopSearchRef.current) {
+            setEclaimSearchProgress(
+              `งวด ${period} (${idx + 1}/${orderedPeriods.length}): กำลังดาวน์โหลดและนำเข้า ${stepNewKeys.size} ไฟล์ใหม่...`
+            );
+            await handleEclaimDownloadFiles(snapshot, stepNewKeys);
+            setEclaimSelected((current) => {
+              const next = new Set(current);
+              stepNewKeys.forEach((k) => next.delete(k));
+              return next;
+            });
+          }
         }
       }
 
@@ -879,21 +943,6 @@ export const RepStmImportPage: React.FC = () => {
       if (accumulatedFiles.length === 0) {
         setEclaimError(`ไม่พบไฟล์สำหรับงวด ${eclaimPeriods.join(', ')} ประเภท ${eclaimFileType}`);
         setEclaimShowDebug(true);
-      } else {
-        const finalTargetKeys = new Set(
-          accumulatedFiles
-            .map((file, index) => ({ file, key: getEclaimFileKey(file, index) }))
-            .filter(({ file }) => !eclaimSkipExisting || !file.alreadyImported)
-            .map(({ key }) => key)
-        );
-        setEclaimSelected(finalTargetKeys);
-        if (eclaimAutoDownload && finalTargetKeys.size > 0) {
-          await handleEclaimDownloadFiles(accumulatedFiles, finalTargetKeys);
-        }
-      }
-
-      if (eclaimSyncSmtBudget) {
-        void triggerSmtBudgetSync();
       }
     } catch (err) {
       setEclaimError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
@@ -1851,12 +1900,34 @@ export const RepStmImportPage: React.FC = () => {
               <div style={{ flex: 1 }}>
                 {eclaimPeriods.length > 0 && (
                   <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <span>งวดที่จะค้นหา ({eclaimPeriods.length} งวด, เริ่มจากงวดล่าสุดก่อน):</span>
-                    {[...eclaimPeriods].reverse().slice(0, 12).map((p) => (
+                    <span>งวดที่จะดึง ({eclaimPeriods.length} งวด · ดึงและนำเข้าจากเดือนล่าสุดย้อนหลังไปทีละเดือน):</span>
+                    {[...eclaimPeriods].reverse().slice(0, 14).map((p) => (
                       <span key={p} className="badge badge-info" style={{ marginRight: 2 }}>{p}</span>
                     ))}
-                    {eclaimPeriods.length > 12 && <span style={{ fontSize: 11 }}>+{eclaimPeriods.length - 12} งวด</span>}
-                    <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4 }}>
+                    {eclaimPeriods.length > 14 && <span style={{ fontSize: 11 }}>+{eclaimPeriods.length - 14} งวด</span>}
+                    <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '2px 8px' }}
+                        onClick={() => {
+                          setEclaimStartDate(prevFiscalStart);
+                          setEclaimEndDate(todayStr);
+                        }}
+                      >
+                        ปีงบนี้ + ปีงบก่อนหน้า (ค่าเริ่มต้น)
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '2px 8px' }}
+                        onClick={() => {
+                          setEclaimStartDate(currentFiscalStart);
+                          setEclaimEndDate(todayStr);
+                        }}
+                      >
+                        ปีงบนี้
+                      </button>
                       <button
                         type="button"
                         className="btn btn-secondary"
@@ -1866,19 +1937,7 @@ export const RepStmImportPage: React.FC = () => {
                           setEclaimEndDate(todayStr);
                         }}
                       >
-                        เดือนนี้ (เร็วสุด)
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        style={{ fontSize: 11, padding: '2px 8px' }}
-                        onClick={() => {
-                          const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().slice(0, 10);
-                          setEclaimStartDate(prev);
-                          setEclaimEndDate(todayStr);
-                        }}
-                      >
-                        2 เดือนล่าสุด
+                        เฉพาะเดือนนี้
                       </button>
                     </span>
                   </div>

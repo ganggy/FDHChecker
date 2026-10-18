@@ -6773,9 +6773,63 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
     return collected;
   };
 
+  // Smart Year/Month selector — inspects <select> options directly in DOM (fast & works regardless of select name attribute)
+  const selectYearAndMonthOnPage = async (yearBE: number, yearCE: number, monthNum: number, monthTh: string): Promise<boolean> => {
+    const matched = await page.evaluate(({ yBE, yCE, mNum, mTh }) => {
+      const selects = Array.from(document.querySelectorAll<HTMLSelectElement>('select'));
+      let yearChanged = false;
+      let monthChanged = false;
+      const mPadded = String(mNum).padStart(2, '0');
+
+      for (const sel of selects) {
+        const options = Array.from(sel.options);
+        if (!yearChanged) {
+          const yearOpt = options.find((o) => {
+            const val = o.value.trim();
+            const txt = (o.textContent || '').trim();
+            return val === String(yBE) || txt === String(yBE) || val === String(yCE) || txt === String(yCE);
+          });
+          if (yearOpt) {
+            sel.value = yearOpt.value;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            yearChanged = true;
+            continue;
+          }
+        }
+        if (!monthChanged) {
+          const monthOpt = options.find((o) => {
+            const val = o.value.trim();
+            const txt = (o.textContent || '').trim();
+            return txt === mTh || txt.includes(mTh) || val === String(mNum) || val === mPadded;
+          });
+          if (monthOpt) {
+            sel.value = monthOpt.value;
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            monthChanged = true;
+          }
+        }
+      }
+      return yearChanged || monthChanged;
+    }, { yBE: yearBE, yCE: yearCE, mNum: monthNum, mTh: monthTh }).catch(() => false);
+
+    if (matched) {
+      await page.waitForTimeout(200);
+      const submitBtn = await page.$(
+        'input[type="submit"], button[type="submit"], input[type="button"][value*="ค้นหา"], input[type="button"][value*="แสดง"], button:text-matches("แสดง|ค้นหา|Search", "i")'
+      ).catch(() => null);
+      if (submitBtn) {
+        await submitBtn.click().catch(() => {/* ignore */});
+        await page.waitForTimeout(850);
+      }
+    }
+    return matched;
+  };
+
+  let repHasPeriodFilter = false;
+
   try {
     for (const period of periods) {
-      const { yearBE, monthNum, monthTh } = parsePeriod(period);
+      const { yearCE, yearBE, monthNum, monthTh } = parsePeriod(period);
       const periodFiles: Record<string, unknown>[] = [];
       let scraped: Record<string, unknown>[] = [];
       let usedUrl = '';
@@ -6790,30 +6844,9 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         for (const url of financeUrls) {
           try {
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(450);
             pageTitle = await page.title().catch(() => '');
-
-            const yearSelectHandle = await page.$('select[name*="year" i], select[name*="yr" i], select:first-of-type').catch(() => null);
-            if (yearSelectHandle) {
-              await yearSelectHandle.selectOption({ value: String(yearBE) }).catch(async () => {
-                await yearSelectHandle.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */});
-              });
-              await page.waitForTimeout(250);
-            }
-
-            const monthSelectHandle = await page.$('select[name*="month" i], select[name*="mn" i], select:nth-of-type(2)').catch(() => null);
-            if (monthSelectHandle) {
-              await monthSelectHandle.selectOption({ value: String(monthNum) }).catch(async () => {
-                await monthSelectHandle.selectOption({ label: monthTh }).catch(() => {/* ignore */});
-              });
-              await page.waitForTimeout(250);
-            }
-
-            const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา|Search", "i")').catch(() => null);
-            if (submitBtn) {
-              await submitBtn.click();
-              await page.waitForTimeout(900);
-            }
+            await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
 
             scraped = await scrapeFilesAcrossPages(period);
             usedUrl = url;
@@ -6848,27 +6881,9 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         for (const stmSource of statementSources) {
           try {
             await page.goto(stmSource.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(450);
             pageTitle = await page.title().catch(() => '');
-            const yearSel = await page.$('select[name*="year" i], select[id*="year" i], select:first-of-type').catch(() => null);
-            if (yearSel) {
-              await yearSel.selectOption({ value: String(yearBE) }).catch(() =>
-                yearSel.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */})
-              );
-              await page.waitForTimeout(250);
-            }
-            const monthSel = await page.$('select[name*="month" i], select[id*="month" i], select:nth-of-type(2)').catch(() => null);
-            if (monthSel) {
-              await monthSel.selectOption({ value: String(monthNum) }).catch(() =>
-                monthSel.selectOption({ label: monthTh }).catch(() => {/* ignore */})
-              );
-              await page.waitForTimeout(250);
-            }
-            const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา", "i")').catch(() => null);
-            if (submitBtn) {
-              await submitBtn.click();
-              await page.waitForTimeout(900);
-            }
+            await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
             const statementFiles = await scrapeFilesAcrossPages(period);
             periodFiles.push(...statementFiles.map((file) => {
               const fname = String(file.filename || '');
@@ -6901,7 +6916,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
           if (scrapedGlobalRepUrls.has(source.url)) continue;
           try {
             await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(450);
             pageTitle = await page.title().catch(() => '');
 
             const isErrorPage = pageTitle.toLowerCase().includes('error') || await page.evaluate(() =>
@@ -6912,23 +6927,9 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
               continue;
             }
 
-            // Check if this page actually has explicit year/month dropdowns
-            const yearSel = await page.$('select[name*="year" i], select[id*="year" i]').catch(() => null);
-            const monthSel = await page.$('select[name*="month" i], select[id*="month" i]').catch(() => null);
-            if (yearSel && monthSel) {
-              await yearSel.selectOption({ value: String(yearBE) }).catch(() =>
-                yearSel.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */})
-              );
-              await page.waitForTimeout(200);
-              await monthSel.selectOption({ value: String(monthNum) }).catch(() =>
-                monthSel.selectOption({ label: monthTh }).catch(() => {/* ignore */})
-              );
-              await page.waitForTimeout(200);
-              const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา", "i")').catch(() => null);
-              if (submitBtn) {
-                await submitBtn.click();
-                await page.waitForTimeout(900);
-              }
+            const hasFilter = await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
+            if (hasFilter) {
+              repHasPeriodFilter = true;
             } else {
               // ValidationMainAction.do lists recent files across dates without period dropdown — scrape once!
               scrapedGlobalRepUrls.add(source.url);
@@ -6956,7 +6957,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
           const fallbackUrl = `https://eclaim.nhso.go.th/webComponent/rep/RepAction.do?method=list&period=${period}`;
           try {
             await page.goto(fallbackUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(450);
             const sourceFiles = await scrapeFilesAcrossPages(period);
             periodFiles.push(...sourceFiles.map((file) => {
               const fname = String(file.filename || '');
@@ -7056,6 +7057,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       total: enrichedFiles.length,
       newCount,
       existingCount,
+      repHasPeriodFilter,
       debug: debugLog,
     });
   } catch (error) {

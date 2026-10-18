@@ -382,6 +382,15 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimSmtSyncMessage, setEclaimSmtSyncMessage] = useState<string | null>(null);
   const [eclaimArchiveDir, setEclaimArchiveDir] = useState('');
   const [eclaimArchiveFiles, setEclaimArchiveFiles] = useState<Array<{ relativePath: string; filename: string; size: number; modifiedAt: string }>>([]);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importModalTab, setImportModalTab] = useState<'all' | 'active' | 'success' | 'error' | 'duplicate'>('all');
+  const [eclaimTableFilter, setEclaimTableFilter] = useState<'all' | 'new' | 'success' | 'error' | 'duplicate'>('new');
+  const [queueTableFilter, setQueueTableFilter] = useState<'all' | 'ready' | 'success' | 'error' | 'duplicate'>('all');
+  const [currentActiveFileLabel, setCurrentActiveFileLabel] = useState<string | null>(null);
+  const [currentActiveFileType, setCurrentActiveFileType] = useState<string | null>(null);
+  const [currentActiveFileFund, setCurrentActiveFileFund] = useState<string | null>(null);
+  const [currentActiveStepLabel, setCurrentActiveStepLabel] = useState<string | null>(null);
+  const [eclaimPeriodProgress, setEclaimPeriodProgress] = useState<{ current: number; total: number; period: string } | null>(null);
 
   /** Returns all YYYYMM periods between two ISO date strings (inclusive) */
   const getPeriodsInRange = (startDate: string, endDate: string): string[] => {
@@ -425,7 +434,6 @@ export const RepStmImportPage: React.FC = () => {
   const successItems = queueItems.filter((item) => item.status === 'success');
   const duplicateItems = queueItems.filter((item) => item.status === 'duplicate');
   const errorItems = queueItems.filter((item) => item.status === 'error');
-  const importingItems = queueItems.filter((item) => item.status === 'importing');
   const overallProgress = useMemo(() => {
     if (queueItems.length === 0) return 0;
     const total = queueItems.reduce(
@@ -440,6 +448,214 @@ export const RepStmImportPage: React.FC = () => {
       return acc;
     }, { REP: 0, STM: 0, INV: 0 });
   }, [queueItems]);
+
+  const liveDashboardStats = useMemo(() => {
+    const isWorking = eclaimLoading || eclaimDownloading || importing || queueItems.some((item) => item.status === 'parsing' || item.status === 'importing');
+    const byType: Record<'REP' | 'STM' | 'INV', { total: number; newCount: number; active: number; success: number; duplicate: number; error: number; rows: number }> = {
+      REP: { total: 0, newCount: 0, active: 0, success: 0, duplicate: 0, error: 0, rows: 0 },
+      STM: { total: 0, newCount: 0, active: 0, success: 0, duplicate: 0, error: 0, rows: 0 },
+      INV: { total: 0, newCount: 0, active: 0, success: 0, duplicate: 0, error: 0, rows: 0 },
+    };
+
+    type UnifiedItem = {
+      id: string;
+      filename: string;
+      type: 'REP' | 'STM' | 'INV' | 'OTHER';
+      fund: string;
+      period: string;
+      category: 'active' | 'ready' | 'success' | 'duplicate' | 'error';
+      badgeLabel: string;
+      detail: string;
+      rowCount: number;
+    };
+    const unifiedItems: UnifiedItem[] = [];
+
+    let totalFiles = 0;
+    let newFilesCount = 0;
+    let downloadingCount = 0;
+    let importingCount = 0;
+    let activeCount = 0;
+    let successCount = 0;
+    let duplicateCount = 0;
+    let errorCount = 0;
+    const totalImportedRows = queueItems
+      .filter((q) => q.status === 'success')
+      .reduce((sum, q) => sum + Number(q.rowCount || 0), 0);
+
+    // Map queue items by stem for row count enrichment
+    const queueRowsByStem = new Map<string, number>();
+    for (const q of queueItems) {
+      const stem = q.fileName.replace(/\.(xlsx?|csv|zip)$/i, '').toLowerCase();
+      queueRowsByStem.set(stem, (queueRowsByStem.get(stem) || 0) + Number(q.rowCount || 0));
+      if (q.detectedType && byType[q.detectedType] && q.status === 'success') {
+        byType[q.detectedType].rows += Number(q.rowCount || 0);
+      }
+    }
+
+    if (eclaimFiles.length > 0 || eclaimLoading || eclaimDownloading) {
+      totalFiles = eclaimFiles.length;
+      eclaimFiles.forEach((file, idx) => {
+        const key = getEclaimFileKey(file, idx);
+        const fname = String(file.filename || file.fileName || file.name || `file_${idx + 1}`);
+        const rawType = String(file.detectedType || '').toUpperCase();
+        const fType: 'REP' | 'STM' | 'INV' | 'OTHER' = rawType === 'REP' || rawType === 'STM' || rawType === 'INV' ? rawType : 'OTHER';
+        const fund = String(file.fund || '-');
+        const period = String(file.period || file._period || '-');
+        const alreadyImported = Boolean(file.alreadyImported);
+        const pipe = eclaimPipeline[key];
+        const stem = fname.replace(/\.(xlsx?|csv|zip)$/i, '').toLowerCase();
+        const matchedRows = queueRowsByStem.get(stem) || 0;
+
+        if (!alreadyImported) newFilesCount += 1;
+        if (fType !== 'OTHER') {
+          byType[fType].total += 1;
+          if (!alreadyImported) byType[fType].newCount += 1;
+        }
+
+        let category: UnifiedItem['category'] = 'ready';
+        let badgeLabel = alreadyImported ? '☑️ มีในระบบแล้ว' : '🆕 รอดำเนินการ';
+        const detail = pipe?.message || (alreadyImported ? `มีในระบบแล้ว #${String(file.importedBatchId || '-')}` : 'พร้อมดาวน์โหลด');
+
+        if (pipe) {
+          if (pipe.status === 'downloading' || pipe.status === 'downloaded') {
+            category = 'active';
+            downloadingCount += 1;
+            activeCount += 1;
+            badgeLabel = pipe.status === 'downloading' ? '⬇️ กำลังโหลด' : '📥 โหลดแล้ว/รอตรวจ';
+            if (fType !== 'OTHER') byType[fType].active += 1;
+          } else if (pipe.status === 'importing') {
+            category = 'active';
+            importingCount += 1;
+            activeCount += 1;
+            badgeLabel = '⟳ กำลังนำเข้า';
+            if (fType !== 'OTHER') byType[fType].active += 1;
+          } else if (pipe.status === 'success') {
+            category = 'success';
+            successCount += 1;
+            badgeLabel = '✅ นำเข้าสำเร็จ';
+            if (fType !== 'OTHER') byType[fType].success += 1;
+          } else if (pipe.status === 'duplicate') {
+            category = 'duplicate';
+            duplicateCount += 1;
+            badgeLabel = '☑️ มีข้อมูลแล้ว';
+            if (fType !== 'OTHER') byType[fType].duplicate += 1;
+          } else if (pipe.status === 'error') {
+            category = 'error';
+            errorCount += 1;
+            badgeLabel = '❌ ผิดพลาด';
+            if (fType !== 'OTHER') byType[fType].error += 1;
+          }
+        } else if (alreadyImported) {
+          category = 'duplicate';
+          duplicateCount += 1;
+          if (fType !== 'OTHER') byType[fType].duplicate += 1;
+        }
+
+        unifiedItems.push({
+          id: key,
+          filename: fname,
+          type: fType,
+          fund,
+          period,
+          category,
+          badgeLabel,
+          detail,
+          rowCount: matchedRows,
+        });
+      });
+    } else {
+      totalFiles = queueItems.length;
+      newFilesCount = queueItems.length;
+      queueItems.forEach((item) => {
+        const fType: 'REP' | 'STM' | 'INV' | 'OTHER' = item.detectedType || 'OTHER';
+        if (fType !== 'OTHER') {
+          byType[fType].total += 1;
+          byType[fType].newCount += 1;
+        }
+        let category: UnifiedItem['category'] = 'ready';
+        let badgeLabel = statusLabelMap[item.status] || item.status;
+        if (item.status === 'parsing' || item.status === 'importing') {
+          category = 'active';
+          activeCount += 1;
+          if (item.status === 'parsing') downloadingCount += 1;
+          else importingCount += 1;
+          badgeLabel = item.status === 'parsing' ? '🔍 กำลังอ่านไฟล์' : '⟳ กำลังนำเข้า';
+          if (fType !== 'OTHER') byType[fType].active += 1;
+        } else if (item.status === 'success') {
+          category = 'success';
+          successCount += 1;
+          badgeLabel = '✅ นำเข้าสำเร็จ';
+          if (fType !== 'OTHER') byType[fType].success += 1;
+        } else if (item.status === 'duplicate') {
+          category = 'duplicate';
+          duplicateCount += 1;
+          badgeLabel = '☑️ มีข้อมูลแล้ว';
+          if (fType !== 'OTHER') byType[fType].duplicate += 1;
+        } else if (item.status === 'error') {
+          category = 'error';
+          errorCount += 1;
+          badgeLabel = '❌ ผิดพลาด';
+          if (fType !== 'OTHER') byType[fType].error += 1;
+        }
+
+        unifiedItems.push({
+          id: item.id,
+          filename: item.fileName,
+          type: fType,
+          fund: item.importerLabel || '-',
+          period: item.sheetName || '-',
+          category,
+          badgeLabel,
+          detail: item.message || '-',
+          rowCount: item.rowCount,
+        });
+      });
+    }
+
+    // Calculate smooth overall progress percentage
+    let progressPercent = overallProgress;
+    if (eclaimFiles.length > 0 || eclaimLoading || eclaimDownloading) {
+      const targetWorkCount = Math.max(newFilesCount, successCount + errorCount + activeCount, 1);
+      const finishedWorkCount = successCount + errorCount;
+      const fileRatio = Math.min(1, (finishedWorkCount + activeCount * 0.45) / targetWorkCount);
+      if (eclaimLoading && eclaimPeriodProgress && eclaimPeriodProgress.total > 0) {
+        const periodRatio = eclaimPeriodProgress.current / eclaimPeriodProgress.total;
+        progressPercent = Math.min(98, Math.max(5, Math.round((periodRatio * 0.55 + fileRatio * 0.45) * 100)));
+      } else if (eclaimDownloading || importing) {
+        progressPercent = Math.min(98, Math.max(10, Math.round(fileRatio * 100)));
+      } else if (finishedWorkCount > 0 || duplicateCount > 0) {
+        progressPercent = 100;
+      } else {
+        progressPercent = 0;
+      }
+    }
+
+    // Sort unifiedItems so active -> error -> success -> ready -> duplicate appear in the most helpful order
+    const orderWeight: Record<UnifiedItem['category'], number> = {
+      active: 1,
+      error: 2,
+      success: 3,
+      ready: 4,
+      duplicate: 5,
+    };
+    const sortedUnified = [...unifiedItems].sort((a, b) => orderWeight[a.category] - orderWeight[b.category]);
+
+    return {
+      isWorking,
+      byType,
+      totalFiles,
+      newFilesCount,
+      downloadingCount,
+      importingCount,
+      activeCount,
+      successCount,
+      duplicateCount,
+      errorCount,
+      totalImportedRows,
+      progressPercent,
+      unifiedItems: sortedUnified,
+    };
+  }, [eclaimFiles, eclaimPipeline, eclaimLoading, eclaimDownloading, importing, queueItems, overallProgress, eclaimPeriodProgress]);
 
   const loadData = async (type: ImportType) => {
     try {
@@ -891,6 +1107,8 @@ export const RepStmImportPage: React.FC = () => {
 
     try {
       setEclaimLoading(true);
+      setImportModalOpen(true);
+      setImportModalTab('all');
       if (eclaimSyncSmtBudget) {
         void triggerSmtBudgetSync(eclaimPeriods);
       }
@@ -905,6 +1123,8 @@ export const RepStmImportPage: React.FC = () => {
       for (let idx = 0; idx < orderedPeriods.length; idx++) {
         if (eclaimStopSearchRef.current) break;
         const period = orderedPeriods[idx];
+        setEclaimPeriodProgress({ current: idx + 1, total: orderedPeriods.length, period });
+        setCurrentActiveStepLabel(`กำลังค้นหาไฟล์จาก สปสช. งวด ${period} (เดือนที่ ${idx + 1}/${orderedPeriods.length})`);
         setEclaimSearchProgress(
           `งวด ${period} (${idx + 1}/${orderedPeriods.length}): กำลังค้นหาไฟล์${accumulatedFiles.length > 0 ? ` (พบสะสม ${accumulatedFiles.length} ไฟล์)` : ''}...`
         );
@@ -1021,6 +1241,8 @@ export const RepStmImportPage: React.FC = () => {
     } finally {
       setEclaimLoading(false);
       setEclaimSearchProgress(null);
+      setCurrentActiveFileLabel(null);
+      setCurrentActiveStepLabel(null);
     }
   };
 
@@ -1028,6 +1250,7 @@ export const RepStmImportPage: React.FC = () => {
   const handleEclaimDownloadFiles = async (filesToProcess: Record<string, unknown>[], selectedKeys: Set<string>) => {
     if (selectedKeys.size === 0 || !eclaimBrowserReady) return;
     setEclaimDownloading(true);
+    setImportModalOpen(true);
     setEclaimError(null);
     const filesToDownload = filesToProcess
       .map((file, index) => ({ file, key: getEclaimFileKey(file, index) }))
@@ -1045,6 +1268,10 @@ export const RepStmImportPage: React.FC = () => {
     for (let rowIdx = 0; rowIdx < filesToDownload.length; rowIdx += 1) {
       const { file: fileObj, key } = filesToDownload[rowIdx];
       const filename = String(fileObj.filename || fileObj.fileName || fileObj.name || `download_${rowIdx + 1}.xlsx`);
+      setCurrentActiveFileLabel(filename);
+      setCurrentActiveFileType(String(fileObj.detectedType || ''));
+      setCurrentActiveFileFund(String(fileObj.fund || ''));
+      setCurrentActiveStepLabel(`กำลังดาวน์โหลดไฟล์จาก สปสช. (${rowIdx + 1}/${filesToDownload.length})`);
       try {
         const dlRes = await fetch('/api/nhso-eclaim/browser-download', {
           method: 'POST',
@@ -1104,6 +1331,7 @@ export const RepStmImportPage: React.FC = () => {
       }
     }
     if (dataTransfer.files.length > 0) {
+      setCurrentActiveStepLabel(`กำลังตรวจสอบและอ่านโครงสร้างไฟล์ (${dataTransfer.files.length} ไฟล์)...`);
       const parsedItems = await handleFileChange(dataTransfer.files, true);
       const readyForImport = parsedItems.filter((item) => item.status === 'ready' && item.detectedType);
       const parseFailures = parsedItems.filter((item) => item.status === 'error');
@@ -1147,6 +1375,10 @@ export const RepStmImportPage: React.FC = () => {
     }
     if (downloadErrors.length > 0) setEclaimError(downloadErrors.join(' | '));
     setEclaimDownloading(false);
+    if (!eclaimLoading) {
+      setCurrentActiveFileLabel(null);
+      setCurrentActiveStepLabel(null);
+    }
   };
 
   const handleEclaimDownload = async () => {
@@ -1205,6 +1437,8 @@ export const RepStmImportPage: React.FC = () => {
     });
     if (!append) {
       setActivePreviewId(initialQueue[0]?.id || null);
+      setImportModalOpen(true);
+      setImportModalTab('all');
     } else if (!activePreviewId && initialQueue[0]) {
       setActivePreviewId(initialQueue[0].id);
     }
@@ -1214,6 +1448,8 @@ export const RepStmImportPage: React.FC = () => {
     const readNext = async () => {
       while (nextReadIndex < initialQueue.length) {
         const queueItem = initialQueue[nextReadIndex++];
+        setCurrentActiveFileLabel(queueItem.fileName);
+        setCurrentActiveStepLabel('กำลังอ่านไฟล์และตรวจสอบประวัติ...');
         updateQueueItem(queueItem.id, (item) => ({
           ...item,
           progress: 10,
@@ -1293,6 +1529,8 @@ export const RepStmImportPage: React.FC = () => {
         const queueItem = parseQueue[nextParseIndex++];
       try {
         await yieldToBrowser();
+        setCurrentActiveFileLabel(queueItem.fileName);
+        setCurrentActiveStepLabel('กำลังวิเคราะห์โครงสร้าง Sheet / ตารางข้อมูล...');
         const parsedSheets = await readImportSource(
           queueItem.file,
           includeSubfiles,
@@ -1419,6 +1657,10 @@ export const RepStmImportPage: React.FC = () => {
       }
     };
     await Promise.all(Array.from({ length: Math.min(4, parseQueue.length) }, () => parseNext()));
+    if (!eclaimLoading && !eclaimDownloading) {
+      setCurrentActiveFileLabel(null);
+      setCurrentActiveStepLabel(null);
+    }
     return parsedItems;
   };
 
@@ -1436,6 +1678,7 @@ export const RepStmImportPage: React.FC = () => {
     const outcomes: Record<string, EclaimPipelineState> = {};
     try {
       setImporting(true);
+      setImportModalOpen(true);
       setError(null);
       setSuccessMessage(null);
 
@@ -1445,7 +1688,8 @@ export const RepStmImportPage: React.FC = () => {
       let replacedCount = 0;
       let failedCount = 0;
 
-      for (const item of targetItems) {
+      for (let i = 0; i < targetItems.length; i += 1) {
+        const item = targetItems[i];
         if (!item.detectedType) {
           updateQueueItem(item.id, (current) => ({
             ...current,
@@ -1457,6 +1701,11 @@ export const RepStmImportPage: React.FC = () => {
           outcomes[item.file.name] = { status: 'error', message: 'ระบุประเภทไฟล์ไม่ได้' };
           continue;
         }
+
+        setCurrentActiveFileLabel(item.fileName);
+        setCurrentActiveFileType(item.detectedType);
+        setCurrentActiveFileFund(item.importerLabel || '');
+        setCurrentActiveStepLabel(`กำลังนำเข้า ${item.detectedType} เข้าฐานข้อมูล (${i + 1}/${targetItems.length} · ${item.rowCount.toLocaleString()} แถว)`);
 
         updateQueueItem(item.id, (current) => ({
           ...current,
@@ -1520,6 +1769,10 @@ export const RepStmImportPage: React.FC = () => {
       setError(err instanceof Error ? err.message : 'นำเข้า REP/STM/INV ไม่สำเร็จ');
     } finally {
       setImporting(false);
+      if (!eclaimLoading && !eclaimDownloading) {
+        setCurrentActiveFileLabel(null);
+        setCurrentActiveStepLabel(null);
+      }
     }
     return outcomes;
   };
@@ -2310,170 +2563,219 @@ export const RepStmImportPage: React.FC = () => {
               </div>
             )}
 
-            {eclaimFiles.length > 0 && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8, fontSize: 12 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span className="badge badge-info">พบทั้งหมด {eclaimFiles.length} ไฟล์</span>
-                    <span className="badge badge-success">
-                      🆕 ไฟล์ใหม่ {eclaimFiles.filter((f) => !f.alreadyImported).length} ไฟล์
-                    </span>
-                    <span className="badge badge-secondary">
-                      ☑️ มีในระบบแล้ว {eclaimFiles.filter((f) => Boolean(f.alreadyImported)).length} ไฟล์
-                    </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: 11, padding: '2px 8px' }}
-                      onClick={() => {
-                        setEclaimSelected(
-                          new Set(
-                            eclaimFiles
-                              .map((f, idx) => ({ f, key: getEclaimFileKey(f, idx) }))
-                              .filter(({ f }) => !f.alreadyImported)
-                              .map(({ key }) => key)
-                          )
-                        );
-                      }}
-                    >
-                      เลือกเฉพาะไฟล์ใหม่
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: 11, padding: '2px 8px' }}
-                      onClick={() => setEclaimSelected(new Set(eclaimFiles.map((f, idx) => getEclaimFileKey(f, idx))))}
-                    >
-                      เลือกทั้งหมด
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      style={{ fontSize: 11, padding: '2px 8px' }}
-                      onClick={() => setEclaimSelected(new Set())}
-                    >
-                      ยกเลิกทั้งหมด
-                    </button>
-                  </div>
-                </div>
-                <div className="modal-table-wrap">
-                  <table className="data-table long-id-table long-id-table--repstm-latest">
-                    <thead>
-                      <tr>
-                        <th>
-                          <input
-                            type="checkbox"
-                            checked={eclaimSelected.size === eclaimFiles.length && eclaimFiles.length > 0}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setEclaimSelected(new Set(eclaimFiles.map((file, index) => getEclaimFileKey(file, index))));
-                              } else {
-                                setEclaimSelected(new Set());
-                              }
-                            }}
-                          />
-                        </th>
-                        <th>ชื่อไฟล์</th>
-                        <th>ประเภท</th>
-                        <th>กองทุน</th>
-                        <th>งวด</th>
-                        <th>สถานะในระบบ</th>
-                        <th>ข้อมูลเพิ่มเติม</th>
-                        <th>สถานะ Pipeline</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {eclaimFiles.map((file, idx) => {
-                        const key = getEclaimFileKey(file, idx);
-                        const displayName = String(file.filename || file.fileName || file.name || idx);
-                        const checked = eclaimSelected.has(key);
-                        const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
-                        const href = String(file.downloadHref || '');
-                        const hasOnclick = Boolean(file.downloadOnclick);
-                        const alreadyImported = Boolean(file.alreadyImported);
-                        const pipeline = eclaimPipeline[key];
+            {eclaimFiles.length > 0 && (() => {
+              const filteredEclaimRows = eclaimFiles
+                .map((file, idx) => ({ file, idx, key: getEclaimFileKey(file, idx) }))
+                .filter(({ file, key }) => {
+                  const pipe = eclaimPipeline[key];
+                  const already = Boolean(file.alreadyImported);
+                  if (eclaimTableFilter === 'new') return !already || (pipe && pipe.status !== 'duplicate');
+                  if (eclaimTableFilter === 'success') return pipe?.status === 'success';
+                  if (eclaimTableFilter === 'error') return pipe?.status === 'error';
+                  if (eclaimTableFilter === 'duplicate') return already || pipe?.status === 'duplicate';
+                  return true;
+                });
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10, fontSize: 12 }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {(
+                        [
+                          { id: 'new', label: `🆕 ไฟล์ใหม่ (${eclaimFiles.filter((f) => !f.alreadyImported).length})` },
+                          { id: 'success', label: `✅ นำเข้าแล้ว (${liveDashboardStats.successCount})` },
+                          { id: 'error', label: `❌ ผิดพลาด (${liveDashboardStats.errorCount})` },
+                          { id: 'duplicate', label: `☑️ มีในระบบแล้ว (${liveDashboardStats.duplicateCount})` },
+                          { id: 'all', label: `📋 ทั้งหมด (${eclaimFiles.length})` },
+                        ] as const
+                      ).map((tab) => {
+                        const active = eclaimTableFilter === tab.id;
                         return (
-                          <tr key={key} onClick={() => setEclaimSelected((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(key)) next.delete(key); else next.add(key);
-                            return next;
-                          })} style={{ cursor: 'pointer', background: checked ? 'rgba(37,99,235,0.07)' : undefined }}>
-                            <td onClick={(e) => e.stopPropagation()}>
-                              <input type="checkbox" checked={checked} onChange={() => setEclaimSelected((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(key)) next.delete(key); else next.add(key);
-                                return next;
-                              })} />
-                            </td>
-                            <td className="table-cell-nowrap" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }} title={displayName}>{displayName}</td>
-                            <td className="table-cell-nowrap">
-                              <span className="badge badge-primary" style={{ fontSize: 10 }}>
-                                {String(file.detectedType || '-')}
-                              </span>
-                            </td>
-                            <td className="table-cell-nowrap">
-                              <span className="badge badge-info" style={{ fontSize: 10 }}>
-                                {String(file.fund || '-')}
-                              </span>
-                            </td>
-                            <td className="table-cell-nowrap">{String(file.period || file._period || '-')}</td>
-                            <td className="table-cell-nowrap">
-                              {alreadyImported ? (
-                                <span
-                                  className="badge badge-secondary"
-                                  style={{ fontSize: 10 }}
-                                  title={`Batch #${String(file.importedBatchId || '-')} (${String(file.importedAt || '')})`}
-                                >
-                                  ☑️ มีในระบบแล้ว #{String(file.importedBatchId || '-')}
-                                </span>
-                              ) : (
-                                <span className="badge badge-success" style={{ fontSize: 10 }}>
-                                  🆕 ไฟล์ใหม่
-                                </span>
-                              )}
-                            </td>
-                            <td className="table-cell-nowrap" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {cells.filter(Boolean).slice(0, 4).join(' | ') || '-'}
-                            </td>
-                            <td className="table-cell-nowrap">
-                              {pipeline ? (
-                                <span
-                                  title={pipeline.message}
-                                  style={{
-                                    fontSize: 10,
-                                    fontWeight: 600,
-                                    color: pipeline.status === 'success' ? '#15803d'
-                                      : pipeline.status === 'duplicate' ? '#0369a1'
-                                        : pipeline.status === 'error' ? '#b91c1c'
-                                          : pipeline.status === 'importing' ? '#7c3aed'
-                                            : '#d97706',
-                                  }}
-                                >
-                                  {pipeline.status === 'success' && '✅ นำเข้าแล้ว'}
-                                  {pipeline.status === 'duplicate' && '☑️ มีข้อมูลแล้ว'}
-                                  {pipeline.status === 'error' && `❌ ผิดพลาด${pipeline.message ? `: ${pipeline.message}` : ''}`}
-                                  {pipeline.status === 'importing' && '⟳ กำลังนำเข้า'}
-                                  {pipeline.status === 'downloading' && '⬇️ กำลังดาวน์โหลด'}
-                                  {pipeline.status === 'downloaded' && '📥 ดาวน์โหลดแล้ว'}
-                                </span>
-                              ) : (
-                                <>
-                                  {href && <span style={{ fontSize: 10, color: '#2563eb' }}>🔗 พร้อมดาวน์โหลด</span>}
-                                  {!href && hasOnclick && <span style={{ fontSize: 10, color: '#d97706' }}>⚡ พร้อมดาวน์โหลด</span>}
-                                  {!href && !hasOnclick && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>?</span>}
-                                </>
-                              )}
-                            </td>
-                          </tr>
+                          <button
+                            key={tab.id}
+                            type="button"
+                            onClick={() => setEclaimTableFilter(tab.id)}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 999,
+                              fontSize: 11,
+                              fontWeight: active ? 700 : 500,
+                              border: active ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+                              background: active ? '#eff6ff' : '#fff',
+                              color: active ? '#1d4ed8' : '#475569',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {tab.label}
+                          </button>
                         );
                       })}
-                    </tbody>
-                  </table>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ fontSize: 11, padding: '4px 12px', background: 'linear-gradient(135deg, #2563eb, #0891b2)', border: 'none' }}
+                        onClick={() => setImportModalOpen(true)}
+                      >
+                        📊 เปิด Popup สถานะการนำเข้า ({liveDashboardStats.progressPercent}%)
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '3px 8px' }}
+                        onClick={() => {
+                          setEclaimSelected(
+                            new Set(
+                              eclaimFiles
+                                .map((f, idx) => ({ f, key: getEclaimFileKey(f, idx) }))
+                                .filter(({ f }) => !f.alreadyImported)
+                                .map(({ key }) => key)
+                            )
+                          );
+                        }}
+                      >
+                        เลือกเฉพาะไฟล์ใหม่
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '3px 8px' }}
+                        onClick={() => setEclaimSelected(new Set(eclaimFiles.map((f, idx) => getEclaimFileKey(f, idx))))}
+                      >
+                        เลือกทั้งหมด
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 11, padding: '3px 8px' }}
+                        onClick={() => setEclaimSelected(new Set())}
+                      >
+                        ยกเลิกทั้งหมด
+                      </button>
+                    </div>
+                  </div>
+                  <div className="modal-table-wrap" style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+                    <table className="data-table long-id-table long-id-table--repstm-latest" style={{ margin: 0 }}>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc' }}>
+                        <tr>
+                          <th>
+                            <input
+                              type="checkbox"
+                              checked={eclaimSelected.size === eclaimFiles.length && eclaimFiles.length > 0}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setEclaimSelected(new Set(eclaimFiles.map((file, index) => getEclaimFileKey(file, index))));
+                                } else {
+                                  setEclaimSelected(new Set());
+                                }
+                              }}
+                            />
+                          </th>
+                          <th>ชื่อไฟล์</th>
+                          <th>ประเภท</th>
+                          <th>กองทุน</th>
+                          <th>งวด</th>
+                          <th>สถานะในระบบ</th>
+                          <th>ข้อมูลเพิ่มเติม</th>
+                          <th>สถานะ Pipeline</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredEclaimRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>
+                              ไม่มีรายการในหมวดที่เลือก (กดแท็บ &quot;📋 ทั้งหมด&quot; เพื่อดูทุกรายการ)
+                            </td>
+                          </tr>
+                        ) : filteredEclaimRows.map(({ file, idx, key }) => {
+                          const displayName = String(file.filename || file.fileName || file.name || idx);
+                          const checked = eclaimSelected.has(key);
+                          const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+                          const href = String(file.downloadHref || '');
+                          const hasOnclick = Boolean(file.downloadOnclick);
+                          const alreadyImported = Boolean(file.alreadyImported);
+                          const pipeline = eclaimPipeline[key];
+                          return (
+                            <tr key={key} onClick={() => setEclaimSelected((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(key)) next.delete(key); else next.add(key);
+                              return next;
+                            })} style={{ cursor: 'pointer', background: checked ? 'rgba(37,99,235,0.07)' : undefined }}>
+                              <td onClick={(e) => e.stopPropagation()}>
+                                <input type="checkbox" checked={checked} onChange={() => setEclaimSelected((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(key)) next.delete(key); else next.add(key);
+                                  return next;
+                                })} />
+                              </td>
+                              <td className="table-cell-nowrap" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }} title={displayName}>{displayName}</td>
+                              <td className="table-cell-nowrap">
+                                <span className="badge badge-primary" style={{ fontSize: 10 }}>
+                                  {String(file.detectedType || '-')}
+                                </span>
+                              </td>
+                              <td className="table-cell-nowrap">
+                                <span className="badge badge-info" style={{ fontSize: 10 }}>
+                                  {String(file.fund || '-')}
+                                </span>
+                              </td>
+                              <td className="table-cell-nowrap">{String(file.period || file._period || '-')}</td>
+                              <td className="table-cell-nowrap">
+                                {alreadyImported ? (
+                                  <span
+                                    className="badge badge-secondary"
+                                    style={{ fontSize: 10 }}
+                                    title={`Batch #${String(file.importedBatchId || '-')} (${String(file.importedAt || '')})`}
+                                  >
+                                    ☑️ มีในระบบแล้ว #{String(file.importedBatchId || '-')}
+                                  </span>
+                                ) : (
+                                  <span className="badge badge-success" style={{ fontSize: 10 }}>
+                                    🆕 ไฟล์ใหม่
+                                  </span>
+                                )}
+                              </td>
+                              <td className="table-cell-nowrap" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {cells.filter(Boolean).slice(0, 4).join(' | ') || '-'}
+                              </td>
+                              <td className="table-cell-nowrap">
+                                {pipeline ? (
+                                  <span
+                                    title={pipeline.message}
+                                    style={{
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      color: pipeline.status === 'success' ? '#15803d'
+                                        : pipeline.status === 'duplicate' ? '#0369a1'
+                                          : pipeline.status === 'error' ? '#b91c1c'
+                                            : pipeline.status === 'importing' ? '#7c3aed'
+                                              : '#d97706',
+                                    }}
+                                  >
+                                    {pipeline.status === 'success' && '✅ นำเข้าแล้ว'}
+                                    {pipeline.status === 'duplicate' && '☑️ มีข้อมูลแล้ว'}
+                                    {pipeline.status === 'error' && `❌ ผิดพลาด${pipeline.message ? `: ${pipeline.message}` : ''}`}
+                                    {pipeline.status === 'importing' && '⟳ กำลังนำเข้า'}
+                                    {pipeline.status === 'downloading' && '⬇️ กำลังดาวน์โหลด'}
+                                    {pipeline.status === 'downloaded' && '📥 ดาวน์โหลดแล้ว'}
+                                  </span>
+                                ) : (
+                                  <>
+                                    {href && <span style={{ fontSize: 10, color: '#2563eb' }}>🔗 พร้อมดาวน์โหลด</span>}
+                                    {!href && hasOnclick && <span style={{ fontSize: 10, color: '#d97706' }}>⚡ พร้อมดาวน์โหลด</span>}
+                                    {!href && !hasOnclick && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>?</span>}
+                                  </>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {eclaimFiles.length === 0 && !eclaimLoading && eclaimBrowserReady && (
               <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -2485,15 +2787,42 @@ export const RepStmImportPage: React.FC = () => {
       </div>
 
       <div className="card repstm-status-card" style={{ marginBottom: 16 }}>
-        <div className="card-header">
-          <div className="card-title">สถานะการนำเข้าข้อมูล</div>
+        <div className="card-header" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="card-title">สถานะการนำเข้าข้อมูล</div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ fontSize: 11, padding: '4px 12px', background: 'linear-gradient(135deg, #2563eb, #0891b2)', border: 'none' }}
+              onClick={() => setImportModalOpen(true)}
+            >
+              📊 ดูสถานะแบบ Popup ({liveDashboardStats.progressPercent}%)
+            </button>
+          </div>
           <div className="repstm-chip-row">
-            <span className="badge badge-info">ทั้งหมด {queueItems.length.toLocaleString()} ไฟล์</span>
-            <span className="badge badge-primary">พร้อมนำเข้า {readyItems.length.toLocaleString()}</span>
-            <span className="badge badge-success">สำเร็จ {successItems.length.toLocaleString()}</span>
-            <span className="badge badge-info">เข้าแล้ว {duplicateItems.length.toLocaleString()}</span>
-            <span className="badge badge-warning">กำลังนำเข้า {importingItems.length.toLocaleString()}</span>
-            <span className="badge badge-danger">ผิดพลาด {errorItems.length.toLocaleString()}</span>
+            {(
+              [
+                { id: 'all', label: `ทั้งหมด ${queueItems.length.toLocaleString()}`, cls: 'badge-info' },
+                { id: 'ready', label: `พร้อมนำเข้า ${readyItems.length.toLocaleString()}`, cls: 'badge-primary' },
+                { id: 'success', label: `สำเร็จ ${successItems.length.toLocaleString()}`, cls: 'badge-success' },
+                { id: 'duplicate', label: `เข้าแล้ว ${duplicateItems.length.toLocaleString()}`, cls: 'badge-info' },
+                { id: 'error', label: `ผิดพลาด ${errorItems.length.toLocaleString()}`, cls: 'badge-danger' },
+              ] as const
+            ).map((pill) => (
+              <button
+                key={pill.id}
+                type="button"
+                className={`badge ${pill.cls}`}
+                onClick={() => setQueueTableFilter(pill.id)}
+                style={{
+                  cursor: 'pointer',
+                  border: queueTableFilter === pill.id ? '2px solid #1e293b' : '1px solid transparent',
+                  opacity: queueTableFilter === pill.id ? 1 : 0.8,
+                }}
+              >
+                {pill.label}
+              </button>
+            ))}
           </div>
         </div>
         <div className="card-body" style={{ padding: 16 }}>
@@ -2553,9 +2882,9 @@ export const RepStmImportPage: React.FC = () => {
           </div>
 
           {queueItems.length > 0 ? (
-            <div className="modal-table-wrap repstm-table-shell">
-              <table className="data-table repstm-queue-table">
-                <thead>
+            <div className="modal-table-wrap repstm-table-shell" style={{ maxHeight: 340, overflowY: 'auto' }}>
+              <table className="data-table repstm-queue-table" style={{ margin: 0 }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: '#f8fafc' }}>
                   <tr>
                     <th>ไฟล์</th>
                     <th>ตัวนำเข้า</th>
@@ -2569,63 +2898,71 @@ export const RepStmImportPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {queueItems.map((item) => {
-                    const itemProgress = item.progress ?? statusPercentMap[item.status];
-                    return (
-                    <tr
-                      key={item.id}
-                      onClick={() => setActivePreviewId(item.id)}
-                      className={item.id === activePreview?.id ? 'repstm-row-active' : 'repstm-row'}
-                    >
-                      <td>
-                        <div className="repstm-file-name" title={item.fileName}>{item.fileName}</div>
-                        <div className="repstm-file-subpath" title={item.relativePath || '-'}>{item.relativePath || '-'}</div>
-                      </td>
-                      <td className="table-cell-nowrap" onClick={(event) => event.stopPropagation()}>
-                        <select
-                          className="form-control repstm-importer-select"
-                          value={item.detectedType || ''}
-                          disabled={item.status === 'importing' || item.status === 'success'}
-                          onChange={(event) => changeQueueImporter(item.id, event.target.value as ImportType)}
-                          aria-label={`เลือกตัวนำเข้าสำหรับ ${item.fileName}`}
-                        >
-                          <option value="" disabled>เลือกตัวนำเข้า</option>
-                          <option value="REP">REP</option>
-                          <option value="STM">STM</option>
-                          <option value="INV">INV</option>
-                        </select>
-                        {item.importerLabel ? <div className="repstm-importer-hint">แนะนำ: {item.importerLabel}</div> : null}
-                      </td>
-                      <td className="table-cell-nowrap">{item.sheetName || '-'}</td>
-                      <td className="table-cell-nowrap"><span className={`badge ${item.isSubfile ? 'badge-warning' : 'badge-primary'}`}>{item.isSubfile ? 'Sub file' : 'ไฟล์หลัก'}</span></td>
-                      <td className="table-cell-nowrap">{item.rowCount.toLocaleString()}</td>
-                      <td className="table-cell-nowrap">
-                        <span className={`badge ${item.status === 'success' ? 'badge-success' : item.status === 'duplicate' ? 'badge-info' : item.status === 'error' ? 'badge-danger' : item.status === 'importing' ? 'badge-warning' : 'badge-primary'}`}>
-                          {statusLabelMap[item.status]}
-                        </span>
-                      </td>
-                      <td className="repstm-progress-cell">
-                        <div className="repstm-row-progress">
-                          <div className="repstm-row-progress-track">
-                            <div style={{
-                              width: `${itemProgress}%`,
-                              background: statusColorMap[item.status],
-                            }} />
-                          </div>
-                          <span className="repstm-progress-percent">
-                            {itemProgress}%
+                  {queueItems
+                    .filter((item) => {
+                      if (queueTableFilter === 'ready') return item.status === 'ready' || item.status === 'parsing' || item.status === 'importing';
+                      if (queueTableFilter === 'success') return item.status === 'success';
+                      if (queueTableFilter === 'duplicate') return item.status === 'duplicate';
+                      if (queueTableFilter === 'error') return item.status === 'error';
+                      return true;
+                    })
+                    .map((item) => {
+                      const itemProgress = item.progress ?? statusPercentMap[item.status];
+                      return (
+                      <tr
+                        key={item.id}
+                        onClick={() => setActivePreviewId(item.id)}
+                        className={item.id === activePreview?.id ? 'repstm-row-active' : 'repstm-row'}
+                      >
+                        <td>
+                          <div className="repstm-file-name" title={item.fileName}>{item.fileName}</div>
+                          <div className="repstm-file-subpath" title={item.relativePath || '-'}>{item.relativePath || '-'}</div>
+                        </td>
+                        <td className="table-cell-nowrap" onClick={(event) => event.stopPropagation()}>
+                          <select
+                            className="form-control repstm-importer-select"
+                            value={item.detectedType || ''}
+                            disabled={item.status === 'importing' || item.status === 'success'}
+                            onChange={(event) => changeQueueImporter(item.id, event.target.value as ImportType)}
+                            aria-label={`เลือกตัวนำเข้าสำหรับ ${item.fileName}`}
+                          >
+                            <option value="" disabled>เลือกตัวนำเข้า</option>
+                            <option value="REP">REP</option>
+                            <option value="STM">STM</option>
+                            <option value="INV">INV</option>
+                          </select>
+                          {item.importerLabel ? <div className="repstm-importer-hint">แนะนำ: {item.importerLabel}</div> : null}
+                        </td>
+                        <td className="table-cell-nowrap">{item.sheetName || '-'}</td>
+                        <td className="table-cell-nowrap"><span className={`badge ${item.isSubfile ? 'badge-warning' : 'badge-primary'}`}>{item.isSubfile ? 'Sub file' : 'ไฟล์หลัก'}</span></td>
+                        <td className="table-cell-nowrap">{item.rowCount.toLocaleString()}</td>
+                        <td className="table-cell-nowrap">
+                          <span className={`badge ${item.status === 'success' ? 'badge-success' : item.status === 'duplicate' ? 'badge-info' : item.status === 'error' ? 'badge-danger' : item.status === 'importing' ? 'badge-warning' : 'badge-primary'}`}>
+                            {statusLabelMap[item.status]}
                           </span>
-                        </div>
-                      </td>
-                      <td className="repstm-message-cell">{item.message || '-'}</td>
-                      <td className="table-cell-nowrap" onClick={(event) => event.stopPropagation()}>
-                        <button className="btn btn-secondary repstm-detail-button" type="button" disabled={item.rows.length === 0} onClick={() => openQueueDetail(item)}>
-                          ดูข้อมูล
-                        </button>
-                      </td>
-                    </tr>
-                    );
-                  })}
+                        </td>
+                        <td className="repstm-progress-cell">
+                          <div className="repstm-row-progress">
+                            <div className="repstm-row-progress-track">
+                              <div style={{
+                                width: `${itemProgress}%`,
+                                background: statusColorMap[item.status],
+                              }} />
+                            </div>
+                            <span className="repstm-progress-percent">
+                              {itemProgress}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="repstm-message-cell">{item.message || '-'}</td>
+                        <td className="table-cell-nowrap" onClick={(event) => event.stopPropagation()}>
+                          <button className="btn btn-secondary repstm-detail-button" type="button" disabled={item.rows.length === 0} onClick={() => openQueueDetail(item)}>
+                            ดูข้อมูล
+                          </button>
+                        </td>
+                      </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -2826,6 +3163,516 @@ export const RepStmImportPage: React.FC = () => {
           </div>
         </div>
       </div>
+      {/* Floating pill when popup is minimized while active or has results */}
+      {!importModalOpen && (liveDashboardStats.isWorking || liveDashboardStats.totalFiles > 0) && (
+        <button
+          type="button"
+          onClick={() => setImportModalOpen(true)}
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: 24,
+            zIndex: 9900,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '10px 18px',
+            borderRadius: 999,
+            border: 'none',
+            background: liveDashboardStats.isWorking
+              ? 'linear-gradient(135deg, #1d4ed8, #0891b2)'
+              : 'linear-gradient(135deg, #0f172a, #1e293b)',
+            color: '#fff',
+            boxShadow: '0 12px 28px rgba(15, 23, 42, 0.35)',
+            cursor: 'pointer',
+            fontWeight: 700,
+            fontSize: 13,
+          }}
+        >
+          <span>{liveDashboardStats.isWorking ? '⟳' : '📊'}</span>
+          <span>
+            {liveDashboardStats.isWorking
+              ? `กำลังนำเข้า ${liveDashboardStats.progressPercent}% (สำเร็จ ${liveDashboardStats.successCount})`
+              : `สรุปนำเข้า: สำเร็จ ${liveDashboardStats.successCount} · REP ${liveDashboardStats.byType.REP.total} · STM ${liveDashboardStats.byType.STM.total}`}
+          </span>
+        </button>
+      )}
+
+      {/* Live Import & Auto-Sync Progress Popup Modal */}
+      {importModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9998,
+            background: 'rgba(15, 23, 42, 0.68)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => {
+            if (!liveDashboardStats.isWorking) setImportModalOpen(false);
+          }}
+        >
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: 20,
+              width: '100%',
+              maxWidth: 880,
+              maxHeight: '90vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 60px rgba(15, 23, 42, 0.4)',
+              border: '1px solid #e2e8f0',
+              overflow: 'hidden',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                padding: '18px 24px',
+                background: liveDashboardStats.isWorking
+                  ? 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #0e7490 100%)'
+                  : 'linear-gradient(135deg, #0f172a 0%, #065f46 100%)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: 'rgba(255,255,255,0.16)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 22,
+                  }}
+                >
+                  {liveDashboardStats.isWorking ? '🚀' : '✅'}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: '-0.01em' }}>
+                    {liveDashboardStats.isWorking
+                      ? 'กำลังดึงและนำเข้าข้อมูล REP / STM อัตโนมัติ'
+                      : 'สรุปผลการดึงและนำเข้าข้อมูล REP / STM'}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 2 }}>
+                    {currentActiveStepLabel
+                      || eclaimSearchProgress
+                      || (liveDashboardStats.isWorking
+                        ? 'กำลังประมวลผลไฟล์และบันทึกเข้าฐานข้อมูล...'
+                        : `ประมวลผลเสร็จสิ้น · พบทั้งหมด ${liveDashboardStats.totalFiles.toLocaleString()} ไฟล์ (ไฟล์ใหม่ ${liveDashboardStats.newFilesCount.toLocaleString()} ไฟล์)`)}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {eclaimLoading && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      eclaimStopSearchRef.current = true;
+                      setEclaimSearchProgress('กำลังหยุดค้นหางวดถัดไป...');
+                    }}
+                    style={{
+                      background: '#f59e0b',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ⏹️ หยุดค้นหางวดถัดไป
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setImportModalOpen(false)}
+                  style={{
+                    background: 'rgba(255,255,255,0.16)',
+                    color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.28)',
+                    borderRadius: 8,
+                    padding: '6px 14px',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {liveDashboardStats.isWorking ? '🗕 ย่อหน้าต่าง (ทำงานต่อเบื้องหลัง)' : '✕ ปิดหน้าต่าง'}
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* 1. Hero Progress Bar + Active File Banner */}
+              <div
+                style={{
+                  background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 14,
+                  padding: '16px 18px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
+                      แถบสถานะความคืบหน้าการนำเข้า (Overall Progress)
+                    </div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                      พบทั้งหมด <strong>{liveDashboardStats.totalFiles.toLocaleString()}</strong> ไฟล์ · ไฟล์ใหม่ <strong>{liveDashboardStats.newFilesCount.toLocaleString()}</strong> ไฟล์
+                      {eclaimPeriodProgress ? ` · สแกนงวดเดือน ${eclaimPeriodProgress.current}/${eclaimPeriodProgress.total} (งวด ${eclaimPeriodProgress.period})` : ''}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <span
+                      style={{
+                        fontSize: 28,
+                        fontWeight: 800,
+                        background: 'linear-gradient(135deg, #1d4ed8, #059669)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {liveDashboardStats.progressPercent}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Main Progress Bar Track */}
+                <div
+                  style={{
+                    height: 14,
+                    borderRadius: 999,
+                    background: '#e2e8f0',
+                    overflow: 'hidden',
+                    boxShadow: 'inset 0 1px 3px rgba(15,23,42,0.12)',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.max(liveDashboardStats.isWorking ? 6 : 0, liveDashboardStats.progressPercent)}%`,
+                      height: '100%',
+                      borderRadius: 999,
+                      background: liveDashboardStats.errorCount > 0 && liveDashboardStats.successCount === 0 && !liveDashboardStats.isWorking
+                        ? 'linear-gradient(90deg, #ef4444, #f97316)'
+                        : 'linear-gradient(90deg, #2563eb 0%, #06b6d4 50%, #10b981 100%)',
+                      transition: 'width 0.35s ease',
+                      boxShadow: '0 0 12px rgba(6, 182, 212, 0.45)',
+                    }}
+                  />
+                </div>
+
+                {/* Current Active File Callout */}
+                {(currentActiveFileLabel || liveDashboardStats.isWorking) && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      background: '#eff6ff',
+                      border: '1px solid #bfdbfe',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                      <span style={{ fontSize: 16 }}>⚡</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 11, color: '#1e40af', fontWeight: 600 }}>
+                          {currentActiveStepLabel || eclaimSearchProgress || 'กำลังดำเนินการ...'}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: '#0f172a',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                          title={currentActiveFileLabel || ''}
+                        >
+                          {currentActiveFileLabel || 'กำลังกวาดรายการไฟล์จากหน้าเว็บ สปสช...'}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {currentActiveFileType && (
+                        <span className="badge badge-primary" style={{ fontSize: 11 }}>
+                          {currentActiveFileType}
+                        </span>
+                      )}
+                      {currentActiveFileFund && (
+                        <span className="badge badge-info" style={{ fontSize: 11 }}>
+                          {currentActiveFileFund}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {eclaimSmtSyncMessage && (
+                  <div style={{ marginTop: 8, fontSize: 11, color: '#0369a1', fontWeight: 600 }}>
+                    {eclaimSmtSyncMessage}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. 4 Main Status KPI Cards */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))',
+                  gap: 10,
+                }}
+              >
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 700 }}>⏳ กำลังโหลด / กำลังนำเข้า</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#1e3a8a', marginTop: 2 }}>
+                    {liveDashboardStats.activeCount.toLocaleString()} <span style={{ fontSize: 13, fontWeight: 600 }}>ไฟล์</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#3b82f6', marginTop: 2 }}>
+                    กำลังโหลด {liveDashboardStats.downloadingCount} · กำลังนำเข้า {liveDashboardStats.importingCount}
+                  </div>
+                </div>
+
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, color: '#15803d', fontWeight: 700 }}>✅ นำเข้าสำเร็จ</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#14532d', marginTop: 2 }}>
+                    {liveDashboardStats.successCount.toLocaleString()} <span style={{ fontSize: 13, fontWeight: 600 }}>ไฟล์</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#16a34a', marginTop: 2 }}>
+                    รวม {liveDashboardStats.totalImportedRows.toLocaleString()} แถวข้อมูล
+                  </div>
+                </div>
+
+                <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, color: '#475569', fontWeight: 700 }}>☑️ มีในระบบแล้ว (ข้าม)</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: '#1e293b', marginTop: 2 }}>
+                    {liveDashboardStats.duplicateCount.toLocaleString()} <span style={{ fontSize: 13, fontWeight: 600 }}>ไฟล์</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    ข้อมูลเคยนำเข้าแล้ว ไม่ซ้ำซ้อน
+                  </div>
+                </div>
+
+                <div style={{ background: liveDashboardStats.errorCount > 0 ? '#fef2f2' : '#f8fafc', border: `1px solid ${liveDashboardStats.errorCount > 0 ? '#fecaca' : '#cbd5e1'}`, borderRadius: 12, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 11, color: liveDashboardStats.errorCount > 0 ? '#b91c1c' : '#64748b', fontWeight: 700 }}>❌ ผิดพลาด</div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: liveDashboardStats.errorCount > 0 ? '#7f1d1d' : '#334155', marginTop: 2 }}>
+                    {liveDashboardStats.errorCount.toLocaleString()} <span style={{ fontSize: 13, fontWeight: 600 }}>ไฟล์</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: liveDashboardStats.errorCount > 0 ? '#dc2626' : '#94a3b8', marginTop: 2 }}>
+                    {liveDashboardStats.errorCount > 0 ? 'กดแท็บ "❌ ผิดพลาด" ด้านล่างเพื่อดูสาเหตุ' : 'ไม่มีรายการผิดพลาด'}
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Breakdown by File Type: REP vs STM vs INV */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+                  gap: 10,
+                }}
+              >
+                {(
+                  [
+                    { key: 'REP', title: '📘 ไฟล์ REP (ใบตอบรับ)', accent: '#2563eb', bg: '#f8fafc' },
+                    { key: 'STM', title: '📗 ไฟล์ STM (Statement)', accent: '#0891b2', bg: '#f8fafc' },
+                    { key: 'INV', title: '📙 ไฟล์ INV (Invoice)', accent: '#d97706', bg: '#f8fafc' },
+                  ] as const
+                ).map(({ key, title, accent, bg }) => {
+                  const stat = liveDashboardStats.byType[key];
+                  const done = stat.success + stat.duplicate + stat.error;
+                  const pct = stat.total > 0 ? Math.round((done / stat.total) * 100) : 0;
+                  return (
+                    <div
+                      key={key}
+                      style={{
+                        background: bg,
+                        border: '1px solid #e2e8f0',
+                        borderLeft: `4px solid ${accent}`,
+                        borderRadius: 10,
+                        padding: '10px 14px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>{title}</span>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: accent }}>
+                          {stat.total.toLocaleString()} ไฟล์
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11, color: '#475569', marginTop: 6 }}>
+                        <span style={{ color: '#15803d', fontWeight: 600 }}>✅ สำเร็จ {stat.success}</span>
+                        <span>·</span>
+                        <span style={{ color: '#1d4ed8', fontWeight: 600 }}>⏳ กำลังทำ {stat.active}</span>
+                        <span>·</span>
+                        <span style={{ color: '#475569' }}>☑️ มีแล้ว {stat.duplicate}</span>
+                        {stat.error > 0 && (
+                          <>
+                            <span>·</span>
+                            <span style={{ color: '#b91c1c', fontWeight: 700 }}>❌ พลาด {stat.error}</span>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ height: 5, borderRadius: 999, background: '#e2e8f0', marginTop: 8, overflow: 'hidden' }}>
+                        <div style={{ width: `${pct}%`, height: '100%', background: accent, transition: 'width 0.3s ease' }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 4. Compact Filterable Live File List inside Popup */}
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    padding: '8px 12px',
+                    borderBottom: '1px solid #e2e8f0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {(
+                      [
+                        { id: 'all', label: `ทั้งหมด (${liveDashboardStats.unifiedItems.length})` },
+                        { id: 'active', label: `⏳ กำลังทำ (${liveDashboardStats.activeCount})` },
+                        { id: 'success', label: `✅ สำเร็จ (${liveDashboardStats.successCount})` },
+                        { id: 'error', label: `❌ ผิดพลาด (${liveDashboardStats.errorCount})` },
+                        { id: 'duplicate', label: `☑️ มีแล้ว (${liveDashboardStats.duplicateCount})` },
+                      ] as const
+                    ).map((t) => {
+                      const active = importModalTab === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setImportModalTab(t.id)}
+                          style={{
+                            padding: '3px 10px',
+                            borderRadius: 999,
+                            fontSize: 11,
+                            fontWeight: active ? 700 : 500,
+                            border: active ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
+                            background: active ? '#eff6ff' : '#fff',
+                            color: active ? '#1d4ed8' : '#475569',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {t.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>
+                    แสดงรายการล่าสุด (เลื่อนดูได้ในกรอบนี้)
+                  </span>
+                </div>
+
+                <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  <table className="data-table" style={{ margin: 0, fontSize: 12 }}>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: '#f8fafc' }}>
+                      <tr>
+                        <th>ชื่อไฟล์</th>
+                        <th>ประเภท</th>
+                        <th>กองทุน / Sheet</th>
+                        <th>งวด</th>
+                        <th>สถานะ</th>
+                        <th>รายละเอียด</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(() => {
+                        const rowsToShow = liveDashboardStats.unifiedItems
+                          .filter((item) => {
+                            if (importModalTab === 'active') return item.category === 'active' || item.category === 'ready';
+                            if (importModalTab === 'success') return item.category === 'success';
+                            if (importModalTab === 'error') return item.category === 'error';
+                            if (importModalTab === 'duplicate') return item.category === 'duplicate';
+                            return true;
+                          })
+                          .slice(0, 150);
+                        if (rowsToShow.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={6} style={{ textAlign: 'center', padding: 20, color: '#64748b' }}>
+                                {liveDashboardStats.isWorking ? 'กำลังค้นหาและดึงรายการไฟล์...' : 'ไม่มีรายการในหมวดนี้'}
+                              </td>
+                            </tr>
+                          );
+                        }
+                        return rowsToShow.map((item) => (
+                          <tr key={item.id}>
+                            <td className="table-cell-nowrap" style={{ maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600 }} title={item.filename}>
+                              {item.filename}
+                            </td>
+                            <td className="table-cell-nowrap">
+                              <span
+                                className="badge"
+                                style={{
+                                  fontSize: 10,
+                                  background: item.type === 'REP' ? '#dbeafe' : item.type === 'STM' ? '#cffafe' : '#fef3c7',
+                                  color: item.type === 'REP' ? '#1d4ed8' : item.type === 'STM' ? '#0e7490' : '#b45309',
+                                }}
+                              >
+                                {item.type}
+                              </span>
+                            </td>
+                            <td className="table-cell-nowrap" style={{ fontSize: 11 }}>{item.fund}</td>
+                            <td className="table-cell-nowrap" style={{ fontSize: 11 }}>{item.period}</td>
+                            <td className="table-cell-nowrap">
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: item.category === 'success' ? '#15803d'
+                                    : item.category === 'error' ? '#b91c1c'
+                                      : item.category === 'active' ? '#1d4ed8'
+                                        : '#475569',
+                                }}
+                              >
+                                {item.badgeLabel}
+                              </span>
+                            </td>
+                            <td className="table-cell-nowrap" style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11, color: '#64748b' }} title={item.detail}>
+                              {item.rowCount > 0 ? `${item.rowCount.toLocaleString()} แถว · ` : ''}{item.detail}
+                            </td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {detailView ? (
           <RepStmImportDetail
             title={detailView.title}

@@ -6969,6 +6969,8 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
           const cellTexts = tds.map((td) => cleanCellText(td));
           if (cellTexts.some((t) => t.includes('.qmmc') || t.includes('function('))) continue;
           if (cellTexts.every((t) => !t)) continue;
+          const joinedRowText = cellTexts.join(' ');
+          if (/หน้าหลัก.*(?:ข่าว|ดาวน์โหลด|ออกจากระบบ|คู่มือ)/.test(joinedRowText)) continue;
 
           const links = Array.from(tr.querySelectorAll<HTMLAnchorElement>('a'));
           const dlLinks = links.filter((a) =>

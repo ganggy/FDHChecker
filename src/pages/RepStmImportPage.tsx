@@ -29,7 +29,7 @@ const extractFiveDigitCodeFromText = (value: unknown): string => {
   return match ? match[1] : '';
 };
 
-const HCODE_COLUMN_KEYS = ['hospcode', 'hcode', 'hmain', 'hospital_code', 'รหัสหน่วยบริการ', 'หน่วยบริการ'];
+const HCODE_COLUMN_KEYS = ['hospcode', 'hcode', 'hospital_code', 'รหัสหน่วยบริการ', 'หน่วยบริการ'];
 
 const verifyImportRowsHcode = (
   rows: Record<string, unknown>[],
@@ -49,9 +49,12 @@ const verifyImportRowsHcode = (
       }
     }
   }
-  if (found.size === 0 && fileName) {
-    const match = fileName.match(/(?:^|[_-])(\d{5})(?:[_.-]|$)/);
-    if (match) found.add(match[1]);
+  const fileHcodeMatch = fileName ? fileName.match(/(?:^|[_-])(\d{5})(?:[_.-]|$)/) : null;
+  if (found.size === 0 && fileHcodeMatch) {
+    found.add(fileHcodeMatch[1]);
+  }
+  if (expectedHcode && (found.has(expectedHcode) || fileHcodeMatch?.[1] === expectedHcode)) {
+    return { valid: true, detectedHcode: expectedHcode };
   }
   const codes = [...found];
   if (codes.length > 1) {
@@ -1037,9 +1040,11 @@ export const RepStmImportPage: React.FC = () => {
 
     const dataTransfer = new DataTransfer();
     const downloadedKeysByName = new Map<string, string[]>();
+    const usedFilenames = new Set<string>();
     const downloadErrors: string[] = [];
-    for (const { file: fileObj, key } of filesToDownload) {
-      const filename = String(fileObj.filename || fileObj.fileName || fileObj.name || 'download.xlsx');
+    for (let rowIdx = 0; rowIdx < filesToDownload.length; rowIdx += 1) {
+      const { file: fileObj, key } = filesToDownload[rowIdx];
+      const filename = String(fileObj.filename || fileObj.fileName || fileObj.name || `download_${rowIdx + 1}.xlsx`);
       try {
         const dlRes = await fetch('/api/nhso-eclaim/browser-download', {
           method: 'POST',
@@ -1048,6 +1053,8 @@ export const RepStmImportPage: React.FC = () => {
             downloadHref: String(fileObj.downloadHref || ''),
             downloadOnclick: String(fileObj.downloadOnclick || ''),
             downloadLabel: String(fileObj.downloadLabel || ''),
+            downloadCandidates: Array.isArray(fileObj.downloadCandidates) ? fileObj.downloadCandidates : undefined,
+            cells: Array.isArray(fileObj.cells) ? fileObj.cells : undefined,
             sourcePage: String(fileObj.sourcePage || ''),
             period: String(fileObj.period || fileObj._period || ''),
             detectedType: String(fileObj.detectedType || ''),
@@ -1067,7 +1074,17 @@ export const RepStmImportPage: React.FC = () => {
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
         const blob = new Blob([bytes], { type: dlJson.contentType || 'application/octet-stream' });
-        const downloadedFilename = dlJson.filename || filename;
+        let downloadedFilename = dlJson.filename || filename;
+        if (!/\.(xlsx|xls|csv|zip)$/i.test(downloadedFilename)) {
+          downloadedFilename = `${downloadedFilename}.xls`;
+        }
+        if (usedFilenames.has(downloadedFilename.toLowerCase())) {
+          const extMatch = downloadedFilename.match(/(\.[a-z0-9]+)$/i);
+          const ext = extMatch ? extMatch[1] : '.xls';
+          const stem = extMatch ? downloadedFilename.slice(0, -ext.length) : downloadedFilename;
+          downloadedFilename = `${stem}_${rowIdx + 1}${ext}`;
+        }
+        usedFilenames.add(downloadedFilename.toLowerCase());
         const dlFile = new File([blob], downloadedFilename, { type: dlJson.contentType || 'application/octet-stream' });
         dataTransfer.items.add(dlFile);
         downloadedKeysByName.set(downloadedFilename, [...(downloadedKeysByName.get(downloadedFilename) || []), key]);
@@ -1077,7 +1094,7 @@ export const RepStmImportPage: React.FC = () => {
             status: 'downloaded',
             message: dlJson.savedArchivePath
               ? `ดาวน์โหลดและสำรองไฟล์แล้ว (${dlJson.savedArchivePath})`
-              : 'ดาวน์โหลด Excel แล้ว รอตรวจและนำเข้า',
+              : 'ดาวน์โหลดไฟล์แล้ว รอตรวจและนำเข้า',
           },
         }));
       } catch (err) {
@@ -1090,6 +1107,16 @@ export const RepStmImportPage: React.FC = () => {
       const parsedItems = await handleFileChange(dataTransfer.files, true);
       const readyForImport = parsedItems.filter((item) => item.status === 'ready' && item.detectedType);
       const parseFailures = parsedItems.filter((item) => item.status === 'error');
+      const preflightDuplicates = parsedItems.filter((item) => item.status === 'duplicate');
+
+      preflightDuplicates.forEach((item) => {
+        (downloadedKeysByName.get(item.file.name) || []).forEach((key) => {
+          setEclaimPipeline((current) => ({
+            ...current,
+            [key]: { status: 'duplicate', message: item.message || 'มีข้อมูลชุดนี้แล้ว' },
+          }));
+        });
+      });
 
       parseFailures.forEach((item) => {
         (downloadedKeysByName.get(item.file.name) || []).forEach((key) => {
@@ -2426,7 +2453,7 @@ export const RepStmImportPage: React.FC = () => {
                                 >
                                   {pipeline.status === 'success' && '✅ นำเข้าแล้ว'}
                                   {pipeline.status === 'duplicate' && '☑️ มีข้อมูลแล้ว'}
-                                  {pipeline.status === 'error' && '❌ ผิดพลาด'}
+                                  {pipeline.status === 'error' && `❌ ผิดพลาด${pipeline.message ? `: ${pipeline.message}` : ''}`}
                                   {pipeline.status === 'importing' && '⟳ กำลังนำเข้า'}
                                   {pipeline.status === 'downloading' && '⬇️ กำลังดาวน์โหลด'}
                                   {pipeline.status === 'downloaded' && '📥 ดาวน์โหลดแล้ว'}

@@ -6918,46 +6918,114 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
   const scrapeFilesFromPage = async (periodStr: string): Promise<Record<string, unknown>[]> => {
     return page.evaluate((pStr) => {
       const rows: Record<string, unknown>[] = [];
+      const cleanCellText = (el: Element): string => {
+        const clone = el.cloneNode(true) as Element;
+        for (const junk of Array.from(clone.querySelectorAll('style, script, noscript'))) {
+          junk.remove();
+        }
+        return (clone.textContent || '').replace(/\s+/g, ' ').trim();
+      };
+      const isGenericLabel = (txt: string): boolean => (
+        /^(?:download|ดาวน์โหลด|คลิก|click|เลือก|view|แสดง|ดูรายละเอียด|รายละเอียด|export|ไฟล์|file|-|\d{1,3})$/i.test(txt.trim())
+      );
+      const extractFilenameFromCode = (raw: string): string => {
+        const fileMatch = raw.match(/([A-Za-z0-9_-]{4,}\.(?:xlsx?|zip|csv|txt|rep|stm))/i);
+        if (fileMatch?.[1]) return fileMatch[1];
+        const paramMatch = raw.match(/(?:file(?:name)?|name|doc(?:No|Id)?|stm(?:No|Id)?|rep(?:No|Id)?)\s*=\s*['"]?([A-Za-z0-9_.-]{5,})/i);
+        if (paramMatch?.[1] && !/^(?:download|true|false|null)$/i.test(paramMatch[1])) return paramMatch[1];
+        const argMatch = raw.match(/['"]((?:11101|\d{5}|REP|STM|INV|OP|IP)[A-Za-z0-9_.-]{4,})['"]/i);
+        if (argMatch?.[1]) return argMatch[1];
+        return '';
+      };
+      const buildRowFilename = (cells: string[], href: string, onclick: string, p: string): string => {
+        // 1. Explicit filename with supported extension in cell text (excluding .ecd/.pdf)
+        const extCell = cells.find((t) => /\.(?:xlsx?|zip|csv|txt|rep|stm)$/i.test(t) && !/\.ecd$/i.test(t));
+        if (extCell) return extCell;
+        // 2. Extracted from href or onclick arguments
+        const fromCode = extractFilenameFromCode(`${href} ${onclick}`);
+        if (fromCode) return fromCode;
+        // 3. Statement / REP document identifier in cells (e.g. 11101_OP202601..., REP..., STM...)
+        const idCell = cells.find((t) => (
+          /^(?:\d{5}_[A-Za-z0-9_.-]+|(?:REP|STM|INV)[A-Za-z0-9_.-]{4,}|[A-Za-z0-9]+_[A-Za-z0-9]+_\d{6,})$/i.test(t)
+        ));
+        if (idCell) return idCell;
+        // 4. Construct a unique descriptive name from non-generic cells (e.g. UCS Statement: 6810 | 04/11/2568 | ...)
+        const meaningful = cells
+          .filter((t) => t && !isGenericLabel(t) && !t.includes('.qmmc'))
+          .map((t) => t.replace(/[\\/]+/g, '-').replace(/\s+/g, '_').replace(/[^A-Za-z0-9ก-๙_.-]/g, ''))
+          .filter(Boolean);
+        if (meaningful.length > 0) {
+          return `STM_${p}_${meaningful.slice(0, 3).join('_')}`.slice(0, 100);
+        }
+        return `NHSO_${p}`;
+      };
+
       for (const table of Array.from(document.querySelectorAll<HTMLTableElement>('table'))) {
         for (const tr of Array.from(table.querySelectorAll<HTMLTableRowElement>('tr'))) {
-          const tds = Array.from(tr.querySelectorAll<HTMLTableCellElement>('td'));
+          // Skip outer layout <tr> elements that contain nested tables
+          if (tr.querySelector('table')) continue;
+          const tds = Array.from(tr.querySelectorAll<HTMLTableCellElement>(':scope > td'));
           if (tds.length < 1) continue;
-          const cellTexts = tds.map((td) => td.textContent?.trim() || '');
+          const cellTexts = tds.map((td) => cleanCellText(td));
+          if (cellTexts.some((t) => t.includes('.qmmc') || t.includes('function('))) continue;
+          if (cellTexts.every((t) => !t)) continue;
+
           const links = Array.from(tr.querySelectorAll<HTMLAnchorElement>('a'));
           const dlLinks = links.filter((a) =>
-            /download|ดาวน์โหลด|\.zip|\.xlsx|\.xls|\.txt|\.ecd/i.test(
-              a.href + a.textContent + (a.getAttribute('onclick') || '')
+            /download|ดาวน์โหลด|\.zip|\.xlsx|\.xls|\.txt|\.ecd|export/i.test(
+              `${a.href} ${a.textContent || ''} ${a.getAttribute('onclick') || ''} ${a.getAttribute('title') || ''}`
             )
           );
           if (dlLinks.length > 0) {
-            const excelLink = dlLinks.find((link) =>
-              /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(
-                `${link.textContent || ''} ${link.getAttribute('title') || ''} ${link.getAttribute('aria-label') || ''}`
-              )
-            ) || dlLinks.find((link) =>
-              /excel|xlsx?|export/i.test(`${link.href} ${link.getAttribute('onclick') || ''}`)
-              && !/\.ecd(?:$|[?#])/i.test(link.href)
-            );
-            const a = excelLink || dlLinks.find((link) => !/\.ecd(?:$|[?#])/i.test(link.href)) || dlLinks[0];
-            const filenameFromCell = cellTexts.find((t) => /\.\w{2,5}$/.test(t));
+            const scored = dlLinks.map((link, idx) => {
+              const href = link.href || '';
+              const onclick = link.getAttribute('onclick') || '';
+              const label = cleanCellText(link);
+              const title = link.getAttribute('title') || '';
+              const aria = link.getAttribute('aria-label') || '';
+              const combined = `${href} ${onclick} ${label} ${title} ${aria}`;
+              const isEcd = /\.ecd(?:$|[?#'"\s])/i.test(combined);
+              const isPdf = /\.pdf(?:$|[?#'"\s])|reportpdf|printpdf|\bpdf\b/i.test(combined);
+              const isExcelExplicit = /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(combined);
+              const isExcelOrZip = /excel|\.xlsx?|\.zip|\.csv|export|detail|รายละเอียด|rep_|stm_/i.test(combined);
+              const score = (isEcd ? -500 : 0)
+                + (isPdf ? -200 : 0)
+                + (isExcelExplicit ? 150 : 0)
+                + (isExcelOrZip ? 100 : 0)
+                + (idx * 10); // When multiple "Download" links exist on a Statement row, later columns are typically Excel/ZIP detail
+              return { link, href, onclick, label, isEcd, isPdf, isExcelExplicit, isExcelOrZip, score };
+            }).sort((a, b) => b.score - a.score);
+
+            const best = scored[0];
+            const candidates = scored
+              .filter((item) => !item.isEcd)
+              .map((item) => ({ href: item.href, onclick: item.onclick, label: item.label }));
+            const rowFilename = buildRowFilename(cellTexts, best.href, best.onclick, pStr);
+
             rows.push({
-              filename: filenameFromCell || a.textContent?.trim() || cellTexts[0] || 'file',
-              downloadHref: a.href || '',
-              downloadOnclick: a.getAttribute('onclick') || '',
-              downloadLabel: a.textContent?.trim() || '',
-              downloadKind: excelLink ? 'EXCEL' : 'FILE',
+              filename: rowFilename,
+              downloadHref: best.href,
+              downloadOnclick: best.onclick,
+              downloadLabel: best.label,
+              downloadKind: best.isExcelExplicit || best.isExcelOrZip ? 'EXCEL' : 'FILE',
+              downloadCandidates: candidates,
               sourcePage: window.location.href,
               cells: cellTexts,
               period: pStr,
             });
-          } else if (tds.some((td) => /REP|STM|INV|\.zip|\.xlsx|\.ecd/i.test(td.textContent || ''))) {
+          } else if (tds.some((td) => /REP|STM|INV|\.zip|\.xlsx|\.ecd/i.test(cleanCellText(td)))) {
             const candidate = links.find((a) => Boolean(a.getAttribute('onclick')))
               || links.find((a) => Boolean(a.getAttribute('href')));
             if (candidate) {
+              const href = candidate.href || '';
+              const onclick = candidate.getAttribute('onclick') || '';
+              const label = cleanCellText(candidate);
               rows.push({
-                filename: cellTexts.find((t) => /\.\w{2,5}$/.test(t)) || cellTexts[0] || 'file',
-                downloadHref: candidate.href || '',
-                downloadOnclick: candidate.getAttribute('onclick') || '',
+                filename: buildRowFilename(cellTexts, href, onclick, pStr),
+                downloadHref: href,
+                downloadOnclick: onclick,
+                downloadLabel: label,
+                downloadCandidates: [{ href, onclick, label }],
                 sourcePage: window.location.href,
                 cells: cellTexts,
                 period: pStr,
@@ -7344,10 +7412,22 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Browser ยังไม่พร้อม กรุณา login ก่อน' });
   }
 
-  const { downloadHref, downloadOnclick, downloadLabel, filename, sourcePage, period, detectedType } = req.body as {
+  const {
+    downloadHref,
+    downloadOnclick,
+    downloadLabel,
+    downloadCandidates,
+    cells,
+    filename,
+    sourcePage,
+    period,
+    detectedType,
+  } = req.body as {
     downloadHref?: string;
     downloadOnclick?: string;
     downloadLabel?: string;
+    downloadCandidates?: Array<{ href?: string; onclick?: string; label?: string }>;
+    cells?: string[];
     filename?: string;
     sourcePage?: string;
     period?: string;
@@ -7375,32 +7455,94 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
     return disposition.match(/filename\s*=\s*["']?([^;"']+)/i)?.[1]?.trim() || '';
   };
 
-  const normalizeDownloadedFilename = (rawName: string, buffer: Buffer, contentType: string) => {
-    const baseName = String(rawName || filename || 'eclaim-download').split(/[\\/]/).pop() || 'eclaim-download';
-    const safeName = Array.from(baseName)
+  const sanitizeFileBase = (rawName: string) => {
+    const fallback = filename && !/^(?:download|ดาวน์โหลด|file)$/i.test(filename.trim())
+      ? filename.trim()
+      : `eclaim_${period || 'file'}`;
+    const candidate = String(rawName || '').trim();
+    const baseName = (!candidate || /^(?:download|ดาวน์โหลด|file)(?:\.[a-z0-9]+)?$/i.test(candidate) || /\.do$/i.test(candidate))
+      ? fallback
+      : (candidate.split(/[\\/]/).pop() || fallback);
+    return Array.from(baseName)
       .map((character) => character.charCodeAt(0) < 32 ? '_' : character)
       .join('')
       .replace(/[<>:"|?*]/g, '_');
-    const oleExcel = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
-    const zipFile = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b;
-    const excelMime = /spreadsheet|excel|ms-excel/i.test(contentType);
-    const replaceExtension = (extension: string) => /\.[a-z0-9]{1,6}$/i.test(safeName)
-      ? safeName.replace(/\.[a-z0-9]{1,6}$/i, extension)
-      : `${safeName}${extension}`;
-
-    if (oleExcel) return replaceExtension('.xls');
-    if (zipFile) {
-      try {
-        const archive = new AdmZip(buffer);
-        if (archive.getEntry('xl/workbook.xml')) return replaceExtension('.xlsx');
-      } catch { /* keep the server filename */ }
-    }
-    if (excelMime && !/\.(xlsx?|csv)$/i.test(safeName)) return replaceExtension('.xls');
-    return safeName;
   };
 
-  const sendBuffer = async (buffer: Buffer, responseFilename: string, contentType = 'application/octet-stream') => {
-    const normalizedName = normalizeDownloadedFilename(responseFilename, buffer, contentType);
+  const replaceExt = (name: string, ext: string) => (
+    /\.[a-z0-9]{1,6}$/i.test(name) ? name.replace(/\.[a-z0-9]{1,6}$/i, ext) : `${name}${ext}`
+  );
+
+  const prepareDownloadedPayload = (rawBuffer: Buffer, rawName: string, rawContentType: string): {
+    kind: 'ok' | 'pdf';
+    buffer: Buffer;
+    filename: string;
+    contentType: string;
+  } => {
+    const safeName = sanitizeFileBase(rawName);
+    const isPdf = (rawBuffer.length >= 5 && rawBuffer.subarray(0, 5).toString('utf8') === '%PDF-')
+      || /application\/pdf/i.test(rawContentType);
+    if (isPdf) {
+      return { kind: 'pdf', buffer: rawBuffer, filename: replaceExt(safeName, '.pdf'), contentType: 'application/pdf' };
+    }
+
+    const oleExcel = rawBuffer.length >= 8
+      && rawBuffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
+    if (oleExcel) {
+      return { kind: 'ok', buffer: rawBuffer, filename: replaceExt(safeName, '.xls'), contentType: 'application/vnd.ms-excel' };
+    }
+
+    const zipFile = rawBuffer.length >= 4 && rawBuffer[0] === 0x50 && rawBuffer[1] === 0x4b;
+    if (zipFile) {
+      try {
+        const archive = new AdmZip(rawBuffer);
+        if (archive.getEntry('xl/workbook.xml')) {
+          return {
+            kind: 'ok',
+            buffer: rawBuffer,
+            filename: replaceExt(safeName, '.xlsx'),
+            contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          };
+        }
+        const entries = archive.getEntries().filter((e) => !e.isDirectory);
+        if (entries.length > 0 && entries.every((e) => /\.pdf$/i.test(e.entryName))) {
+          return { kind: 'pdf', buffer: rawBuffer, filename: replaceExt(safeName, '.zip'), contentType: 'application/zip' };
+        }
+        const hasNativeArchiveFormat = entries.some((e) => /\.(bil|dbf|rep)$/i.test(e.entryName))
+          || entries.some((e) => {
+            if (!/\.xml$/i.test(e.entryName)) return false;
+            const head = e.getData().subarray(0, 1024).toString('utf8');
+            return /<(?:STMSTM|STMLIST)\b/i.test(head);
+          });
+        const excelEntry = entries.find((e) => /\.(xlsx|xls|csv)$/i.test(e.entryName) && !/summary|สรุป/i.test(e.entryName))
+          || entries.find((e) => /\.(xlsx|xls|csv)$/i.test(e.entryName));
+        if (!hasNativeArchiveFormat && excelEntry) {
+          const extracted = excelEntry.getData();
+          const entryBase = sanitizeFileBase(path.basename(excelEntry.entryName));
+          const extMatch = excelEntry.entryName.match(/\.(xlsx|xls|csv)$/i);
+          const ext = extMatch ? extMatch[0].toLowerCase() : '.xls';
+          return {
+            kind: 'ok',
+            buffer: extracted,
+            filename: /\.(xlsx|xls|csv)$/i.test(entryBase) ? entryBase : replaceExt(entryBase, ext),
+            contentType: ext === '.xlsx'
+              ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+              : ext === '.csv'
+                ? 'text/csv'
+                : 'application/vnd.ms-excel',
+          };
+        }
+      } catch { /* keep as zip */ }
+      return { kind: 'ok', buffer: rawBuffer, filename: replaceExt(safeName, '.zip'), contentType: 'application/zip' };
+    }
+
+    if (!/\.(xlsx?|csv|zip)$/i.test(safeName)) {
+      return { kind: 'ok', buffer: rawBuffer, filename: replaceExt(safeName, '.xls'), contentType: rawContentType || 'application/vnd.ms-excel' };
+    }
+    return { kind: 'ok', buffer: rawBuffer, filename: safeName, contentType: rawContentType || 'application/octet-stream' };
+  };
+
+  const sendPrepared = async (prepared: { buffer: Buffer; filename: string; contentType: string }) => {
     let savedArchivePath: string | null = null;
     if (cfg.saveLocalArchive !== false) {
       try {
@@ -7411,8 +7553,8 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
         const safeType = String(detectedType || 'OTHER').replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase();
         const targetDir = path.resolve(process.cwd(), subdir, safePeriod || 'general', safeType || 'OTHER');
         await fs.mkdir(targetDir, { recursive: true });
-        const fullFilePath = path.join(targetDir, normalizedName);
-        await fs.writeFile(fullFilePath, buffer);
+        const fullFilePath = path.join(targetDir, prepared.filename);
+        await fs.writeFile(fullFilePath, prepared.buffer);
         savedArchivePath = fullFilePath;
       } catch (archiveErr) {
         console.warn('Unable to save local archive copy:', archiveErr);
@@ -7420,19 +7562,47 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
     }
     return res.json({
       success: true,
-      base64: buffer.toString('base64'),
-      filename: normalizedName,
-      contentType,
+      base64: prepared.buffer.toString('base64'),
+      filename: prepared.filename,
+      contentType: prepared.contentType,
       savedArchivePath,
     });
   };
 
+  // Build deduplicated list of candidate links for this row
+  const candidates: Array<{ href: string; onclick: string; label: string }> = [];
+  const seenCand = new Set<string>();
+  const pushCand = (c?: { href?: string; onclick?: string; label?: string }) => {
+    if (!c) return;
+    const href = String(c.href || '').trim();
+    const onclick = String(c.onclick || '').trim();
+    const label = String(c.label || '').trim();
+    if (!href && !onclick) return;
+    const key = `${href}|${onclick}`;
+    if (seenCand.has(key)) return;
+    seenCand.add(key);
+    candidates.push({ href, onclick, label });
+  };
+  pushCand({ href: downloadHref, onclick: downloadOnclick, label: downloadLabel });
+  if (Array.isArray(downloadCandidates)) {
+    downloadCandidates.forEach((c) => pushCand(c));
+  }
+
+  const rowHints = (Array.isArray(cells) ? cells : [])
+    .map((c) => String(c || '').trim())
+    .filter((c) => c.length >= 2 && !/^(?:download|ดาวน์โหลด|คลิก|click|\d{1,2})$/i.test(c));
+
   try {
-    // Most eClaim links are normal HTTP downloads. Calling them through the
-    // Playwright request context keeps the same ThaID/JSESSIONID cookies and is
-    // more reliable than waiting for a browser download event on a headless server.
-    if (downloadHref && /^https?:\/\//i.test(downloadHref) && isAllowedEclaimUrl(downloadHref)) {
-      const directResponse = await context.request.get(downloadHref, {
+    // 1. Try direct HTTP request first for any candidate with a non-generic HTTP URL
+    for (let i = 0; i < candidates.length; i += 1) {
+      const cand = candidates[i];
+      const isDirectHttp = Boolean(cand.href)
+        && /^https?:\/\//i.test(cand.href)
+        && !/(?:#|javascript:\s*(?:void\(0\))?)$/i.test(cand.href)
+        && isAllowedEclaimUrl(cand.href);
+      if (!isDirectHttp) continue;
+
+      const directResponse = await context.request.get(cand.href, {
         failOnStatusCode: false,
         timeout: 60000,
         headers: { Referer: sourcePage && isAllowedEclaimUrl(sourcePage) ? sourcePage : page.url() },
@@ -7442,7 +7612,7 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
         const contentType = String(directResponse.headers()['content-type'] || '').toLowerCase();
         const disposition = String(directResponse.headers()['content-disposition'] || '');
         const buffer = await directResponse.body().catch(() => Buffer.alloc(0));
-        const prefix = buffer.subarray(0, 200).toString('utf8').trim().toLowerCase();
+        const prefix = buffer.subarray(0, 250).toString('utf8').trim().toLowerCase();
         const looksLikeLoginOrError = contentType.includes('text/html')
           || contentType.includes('application/json')
           || prefix.startsWith('<!doctype html')
@@ -7450,86 +7620,179 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
         const downloadable = directResponse.ok() && buffer.length > 0
           && (!looksLikeLoginOrError || /attachment|filename=/i.test(disposition));
 
+        await directResponse.dispose().catch(() => undefined);
         if (downloadable) {
           const responseName = filenameFromDisposition(disposition) || filename || 'eclaim-download';
-          await directResponse.dispose().catch(() => undefined);
-          return await sendBuffer(buffer, responseName, contentType || 'application/octet-stream');
+          const prepared = prepareDownloadedPayload(buffer, responseName, contentType || 'application/octet-stream');
+          if (prepared.kind === 'pdf') {
+            // Skip PDF and try next candidate or DOM click
+            continue;
+          }
+          return await sendPrepared(prepared);
         }
-        await directResponse.dispose().catch(() => undefined);
       }
     }
 
-    // onclick/javascript links depend on functions and form state from the page
-    // where the result was found. Return to that page and click the real anchor.
+    // 2. onclick/form links depend on the sourcePage DOM & period filter state
     if (sourcePage && isAllowedEclaimUrl(sourcePage) && page.url() !== sourcePage) {
       await page.goto(sourcePage, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForTimeout(800);
+      await page.waitForTimeout(600);
     }
 
-    const downloadWaiters = context.pages().map((candidatePage) =>
-      candidatePage.waitForEvent('download', { timeout: 60000 }).catch(() => null)
-    );
-    downloadWaiters.push(
-      context.waitForEvent('page', { timeout: 60000 })
-        .then((popup) => popup.waitForEvent('download', { timeout: 60000 }))
-        .catch(() => null)
-    );
+    // Check if the target row is currently rendered on the page; if not and period is known, select Year/Month on the page
+    const hasTargetOnPage = await page.evaluate(({ hints, fname, onclicks }) => {
+      const bodyText = document.body?.textContent || '';
+      if (fname && !/^(?:download|ดาวน์โหลด|file)$/i.test(fname) && bodyText.includes(fname)) return true;
+      if (hints.length > 0 && hints.every((h) => bodyText.includes(h))) return true;
+      if (onclicks.some((oc) => oc && Array.from(document.querySelectorAll('a')).some((a) => a.getAttribute('onclick') === oc))) {
+        return true;
+      }
+      return false;
+    }, {
+      hints: rowHints.slice(0, 2),
+      fname: String(filename || ''),
+      onclicks: candidates.map((c) => c.onclick).filter(Boolean),
+    }).catch(() => false);
 
-    let clicked = false;
-    const anchors = page.locator('a');
-    const anchorCount = await anchors.count();
-    let bestAnchorIndex = -1;
-    let bestAnchorScore = 0;
-    for (let index = 0; index < anchorCount; index += 1) {
-      const anchor = anchors.nth(index);
-      const info = await anchor.evaluate((element) => ({
-        href: (element as HTMLAnchorElement).href || '',
-        onclick: element.getAttribute('onclick') || '',
-        text: element.textContent?.trim() || '',
-        rowText: element.closest('tr')?.textContent?.trim() || '',
-      })).catch(() => null);
-      if (!info) continue;
-      const sameHref = Boolean(downloadHref) && info.href === downloadHref;
-      const sameOnclick = Boolean(downloadOnclick) && info.onclick === downloadOnclick;
-      const sameLabel = Boolean(downloadLabel) && info.text.trim().toLowerCase() === String(downloadLabel).trim().toLowerCase();
-      const sameFilename = Boolean(filename) && info.text.includes(String(filename));
-      const sameRow = Boolean(filename) && info.rowText.includes(String(filename));
-      const genericHref = /(?:#|javascript:\s*(?:void\(0\))?)$/i.test(info.href);
-      const score = (sameOnclick ? 100 : 0)
-        + (sameLabel ? 80 : 0)
-        + (sameHref && !genericHref ? 60 : 0)
-        + (sameHref ? 5 : 0)
-        + (sameRow ? 40 : 0)
-        + (sameFilename ? 10 : 0);
-      if (score > bestAnchorScore) {
-        bestAnchorScore = score;
-        bestAnchorIndex = index;
+    if (!hasTargetOnPage && period && /^\d{6}$/.test(period)) {
+      const thaiMonthsList = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+      const yCE = parseInt(period.slice(0, 4), 10);
+      const yBE = yCE + 543;
+      const mNum = parseInt(period.slice(4, 6), 10);
+      const mTh = thaiMonthsList[mNum - 1] || '';
+      const matchedFilter = await page.evaluate(({ yBEVal, yCEVal, mNumVal, mThVal }) => {
+        const selects = Array.from(document.querySelectorAll<HTMLSelectElement>('select'));
+        let yearChanged = false;
+        let monthChanged = false;
+        const mPadded = String(mNumVal).padStart(2, '0');
+        for (const sel of selects) {
+          const options = Array.from(sel.options);
+          if (!yearChanged) {
+            const yearOpt = options.find((o) => {
+              const val = o.value.trim();
+              const txt = (o.textContent || '').trim();
+              return val === String(yBEVal) || txt === String(yBEVal) || val === String(yCEVal) || txt === String(yCEVal);
+            });
+            if (yearOpt) {
+              sel.value = yearOpt.value;
+              sel.dispatchEvent(new Event('change', { bubbles: true }));
+              yearChanged = true;
+              continue;
+            }
+          }
+          if (!monthChanged) {
+            const monthOpt = options.find((o) => {
+              const val = o.value.trim();
+              const txt = (o.textContent || '').trim();
+              return txt === mThVal || (mThVal && txt.includes(mThVal)) || val === String(mNumVal) || val === mPadded;
+            });
+            if (monthOpt) {
+              sel.value = monthOpt.value;
+              sel.dispatchEvent(new Event('change', { bubbles: true }));
+              monthChanged = true;
+            }
+          }
+        }
+        return yearChanged || monthChanged;
+      }, { yBEVal: yBE, yCEVal: yCE, mNumVal: mNum, mThVal: mTh }).catch(() => false);
+
+      if (matchedFilter) {
+        await page.waitForTimeout(200);
+        const submitBtn = await page.$(
+          'input[type="submit"], button[type="submit"], input[type="button"][value*="ค้นหา"], input[type="button"][value*="แสดง"], button:text-matches("แสดง|ค้นหา|Search", "i")'
+        ).catch(() => null);
+        if (submitBtn) {
+          await submitBtn.click().catch(() => {/* ignore */});
+          await page.waitForTimeout(900);
+        }
       }
     }
-    if (bestAnchorIndex >= 0) {
-      await anchors.nth(bestAnchorIndex).click({ force: true, timeout: 10000 });
-      clicked = true;
+
+    let sawPdfOnly = false;
+    for (let candIdx = 0; candIdx < Math.max(candidates.length, 1); candIdx += 1) {
+      const cand = candidates[candIdx] || { href: downloadHref || '', onclick: downloadOnclick || '', label: downloadLabel || '' };
+      const downloadWaiters = context.pages().map((candidatePage) =>
+        candidatePage.waitForEvent('download', { timeout: 35000 }).catch(() => null)
+      );
+      downloadWaiters.push(
+        context.waitForEvent('page', { timeout: 35000 })
+          .then((popup) => popup.waitForEvent('download', { timeout: 35000 }))
+          .catch(() => null)
+      );
+
+      let clicked = false;
+      const anchors = page.locator('a');
+      const anchorCount = await anchors.count();
+      let bestAnchorIndex = -1;
+      let bestAnchorScore = 0;
+      for (let index = 0; index < anchorCount; index += 1) {
+        const anchor = anchors.nth(index);
+        const info = await anchor.evaluate((element) => ({
+          href: (element as HTMLAnchorElement).href || '',
+          onclick: element.getAttribute('onclick') || '',
+          text: (element.textContent || '').replace(/\s+/g, ' ').trim(),
+          rowText: (element.closest('tr')?.textContent || '').replace(/\s+/g, ' ').trim(),
+        })).catch(() => null);
+        if (!info) continue;
+        const sameHref = Boolean(cand.href) && info.href === cand.href;
+        const sameOnclick = Boolean(cand.onclick) && info.onclick === cand.onclick;
+        const isGenericText = /^(?:download|ดาวน์โหลด|คลิก|click)$/i.test(cand.label || '');
+        const sameLabel = Boolean(cand.label) && !isGenericText && info.text.toLowerCase() === cand.label.toLowerCase();
+        const sameFilename = Boolean(filename) && !/^(?:download|ดาวน์โหลด|file)$/i.test(String(filename)) && info.rowText.includes(String(filename));
+        const matchedRowHints = rowHints.filter((h) => info.rowText.includes(h)).length;
+        const genericHref = /(?:#|javascript:\s*(?:void\(0\))?)$/i.test(info.href);
+        const combinedLinkText = `${info.href} ${info.onclick} ${info.text}`;
+        const isPdfAnchor = /\.pdf(?:$|[?#'"\s])|reportpdf|printpdf/i.test(combinedLinkText);
+        const isEcdAnchor = /\.ecd(?:$|[?#'"\s])/i.test(combinedLinkText);
+        const isExcelOrZipAnchor = /excel|\.xlsx?|\.zip|\.csv|export|detail|รายละเอียด/i.test(combinedLinkText);
+
+        const score = (sameOnclick ? 140 : 0)
+          + (sameHref && !genericHref ? 100 : 0)
+          + (sameLabel ? 60 : 0)
+          + (sameFilename ? 60 : 0)
+          + (matchedRowHints * 45)
+          + (isExcelOrZipAnchor ? 25 : 0)
+          + (isPdfAnchor ? -120 : 0)
+          + (isEcdAnchor ? -300 : 0);
+        if (score > bestAnchorScore) {
+          bestAnchorScore = score;
+          bestAnchorIndex = index;
+        }
+      }
+
+      if (bestAnchorIndex >= 0 && bestAnchorScore >= 40) {
+        await anchors.nth(bestAnchorIndex).click({ force: true, timeout: 10000 });
+        clicked = true;
+      } else if (cand.onclick) {
+        await page.evaluate((onclick) => { (new Function(onclick))(); }, cand.onclick);
+        clicked = true;
+      } else if (cand.href && isAllowedEclaimUrl(cand.href) && !/(?:#|javascript:)/i.test(cand.href)) {
+        await page.goto(cand.href, { waitUntil: 'commit', timeout: 30000 }).catch((error) => {
+          if (!String((error as Error).message || error).toLowerCase().includes('download is starting')) throw error;
+        });
+        clicked = true;
+      }
+
+      if (!clicked) continue;
+
+      const download = await Promise.race(downloadWaiters);
+      if (!download) continue;
+      const downloadPath = await download.path();
+      if (!downloadPath) continue;
+      const buffer = await fs.readFile(downloadPath);
+      const suggestedName = download.suggestedFilename() || filename || 'eclaim-download';
+      const prepared = prepareDownloadedPayload(buffer, suggestedName, 'application/octet-stream');
+      if (prepared.kind === 'pdf') {
+        sawPdfOnly = true;
+        continue;
+      }
+      return await sendPrepared(prepared);
     }
 
-    if (!clicked && downloadOnclick) {
-      await page.evaluate((onclick) => { (new Function(onclick))(); }, downloadOnclick);
-      clicked = true;
-    } else if (!clicked && downloadHref && isAllowedEclaimUrl(downloadHref)) {
-      await page.goto(downloadHref, { waitUntil: 'commit', timeout: 30000 }).catch((error) => {
-        if (!String((error as Error).message || error).toLowerCase().includes('download is starting')) throw error;
-      });
-      clicked = true;
+    if (sawPdfOnly) {
+      throw new Error('รายการนี้มีเฉพาะไฟล์สรุป PDF (ไม่มีไฟล์รายละเอียด Excel/ZIP สำหรับนำเข้า)');
     }
-
-    if (!clicked) throw new Error('ไม่พบลิงก์ดาวน์โหลดของไฟล์นี้บนหน้า eClaim');
-
-    const download = await Promise.race(downloadWaiters);
-    if (!download) throw new Error('eClaim ไม่ได้ส่งไฟล์กลับมาภายใน 60 วินาที กรุณาค้นหาไฟล์ใหม่แล้วลองอีกครั้ง');
-    const downloadPath = await download.path();
-    if (!downloadPath) throw new Error('Browser รับไฟล์แล้วแต่ไม่พบไฟล์ชั่วคราว');
-    const buffer = await fs.readFile(downloadPath);
-    const suggestedName = download.suggestedFilename() || filename || 'eclaim-download';
-    return await sendBuffer(buffer, suggestedName);
+    throw new Error('ไม่พบไฟล์ดาวน์โหลดสำหรับรายการนี้บนหน้า e-Claim');
   } catch (error) {
     console.error('eClaim browser download error:', {
       filename,

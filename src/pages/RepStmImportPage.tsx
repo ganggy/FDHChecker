@@ -329,11 +329,24 @@ export const RepStmImportPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
-  // NHSO eclaim download state
+  // NHSO eclaim All-in-One Auto Download state
   const today = new Date();
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
   const todayStr = today.toISOString().slice(0, 10);
   const [eclaimOpen, setEclaimOpen] = useState(false);
+  const [eclaimShowSettings, setEclaimShowSettings] = useState(false);
+  const [eclaimShowArchive, setEclaimShowArchive] = useState(false);
+  const [eclaimUsername, setEclaimUsername] = useState('');
+  const [eclaimPassword, setEclaimPassword] = useState('');
+  const [eclaimHasPassword, setEclaimHasPassword] = useState(false);
+  const [eclaimLoginMode, setEclaimLoginMode] = useState<'auto' | 'password' | 'thaid'>('auto');
+  const [eclaimSaveLocalArchive, setEclaimSaveLocalArchive] = useState(true);
+  const [eclaimSkipExisting, setEclaimSkipExisting] = useState(true);
+  const [eclaimSyncSmtBudget, setEclaimSyncSmtBudget] = useState(true);
+  const [eclaimAutoSyncInterval, setEclaimAutoSyncInterval] = useState(0);
+  const [eclaimSavingSettings, setEclaimSavingSettings] = useState(false);
+  const [eclaimSettingsMsg, setEclaimSettingsMsg] = useState<string | null>(null);
+  const [eclaimFunds, setEclaimFunds] = useState<string[]>(['UCS', 'OFC', 'LGO', 'BKK', 'SSS']);
   const [eclaimStartDate, setEclaimStartDate] = useState(firstOfMonth);
   const [eclaimEndDate, setEclaimEndDate] = useState(todayStr);
   const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
@@ -341,7 +354,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimBrowserReady, setEclaimBrowserReady] = useState(false);
   const [eclaimBrowserAlive, setEclaimBrowserAlive] = useState(false);
   const [eclaimBrowserPhase, setEclaimBrowserPhase] = useState('closed');
-  const [eclaimBrowserMessage, setEclaimBrowserMessage] = useState('ยังไม่ได้เริ่ม Login ThaID');
+  const [eclaimBrowserMessage, setEclaimBrowserMessage] = useState('ยังไม่ได้เริ่มเชื่อมต่อ NHSO e-Claim');
   const [eclaimScreenshotVersion, setEclaimScreenshotVersion] = useState(0);
   const [eclaimLoading, setEclaimLoading] = useState(false);
   const [eclaimError, setEclaimError] = useState<string | null>(null);
@@ -353,6 +366,9 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimPipeline, setEclaimPipeline] = useState<Record<string, EclaimPipelineState>>({});
   const [eclaimDebugLog, setEclaimDebugLog] = useState<{ period: string; url: string; title: string; rowCount: number; htmlSnippet: string }[]>([]);
   const [eclaimShowDebug, setEclaimShowDebug] = useState(false);
+  const [eclaimSmtSyncMessage, setEclaimSmtSyncMessage] = useState<string | null>(null);
+  const [eclaimArchiveDir, setEclaimArchiveDir] = useState('');
+  const [eclaimArchiveFiles, setEclaimArchiveFiles] = useState<Array<{ relativePath: string; filename: string; size: number; modifiedAt: string }>>([]);
 
   /** Returns all YYYYMM periods between two ISO date strings (inclusive) */
   const getPeriodsInRange = (startDate: string, endDate: string): string[] => {
@@ -464,13 +480,84 @@ export const RepStmImportPage: React.FC = () => {
     return () => { active = false; };
   }, []);
 
-  // Probe saved settings once so the backend connection is warmed up for browser-based login.
+  const loadEclaimArchiveFiles = async () => {
+    try {
+      const res = await fetch('/api/nhso-eclaim/archive-files');
+      const json = await res.json() as {
+        success?: boolean;
+        archiveDir?: string;
+        files?: Array<{ relativePath: string; filename: string; size: number; modifiedAt: string }>;
+      };
+      if (json.success) {
+        setEclaimArchiveDir(String(json.archiveDir || ''));
+        setEclaimArchiveFiles(Array.isArray(json.files) ? json.files : []);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // Load saved NHSO All-in-One settings on mount
   useEffect(() => {
     fetch('/api/config/nhso-eclaim-settings')
       .then((r) => r.json())
-      .then(() => undefined)
+      .then((json: {
+        success?: boolean;
+        data?: {
+          username?: string;
+          hasPassword?: boolean;
+          loginMode?: 'auto' | 'password' | 'thaid';
+          saveLocalArchive?: boolean;
+          skipExistingFiles?: boolean;
+          syncSmtBudgetOnRun?: boolean;
+          autoSyncIntervalMinutes?: number;
+        };
+      }) => {
+        if (!json?.success || !json.data) return;
+        const d = json.data;
+        if (d.username !== undefined) setEclaimUsername(String(d.username || ''));
+        setEclaimHasPassword(Boolean(d.hasPassword));
+        if (d.loginMode && ['auto', 'password', 'thaid'].includes(d.loginMode)) {
+          setEclaimLoginMode(d.loginMode);
+        }
+        if (d.saveLocalArchive !== undefined) setEclaimSaveLocalArchive(Boolean(d.saveLocalArchive));
+        if (d.skipExistingFiles !== undefined) setEclaimSkipExisting(Boolean(d.skipExistingFiles));
+        if (d.syncSmtBudgetOnRun !== undefined) setEclaimSyncSmtBudget(Boolean(d.syncSmtBudgetOnRun));
+        if (d.autoSyncIntervalMinutes !== undefined) setEclaimAutoSyncInterval(Number(d.autoSyncIntervalMinutes) || 0);
+      })
       .catch(() => {/* ignore */});
+    void loadEclaimArchiveFiles();
   }, []);
+
+  const handleSaveEclaimSettings = async () => {
+    setEclaimSavingSettings(true);
+    setEclaimSettingsMsg(null);
+    setEclaimError(null);
+    try {
+      const res = await fetch('/api/config/nhso-eclaim-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: eclaimUsername.trim(),
+          password: eclaimPassword ? eclaimPassword : '********',
+          loginMode: eclaimLoginMode,
+          saveLocalArchive: eclaimSaveLocalArchive,
+          skipExistingFiles: eclaimSkipExisting,
+          syncSmtBudgetOnRun: eclaimSyncSmtBudget,
+          autoSyncIntervalMinutes: eclaimAutoSyncInterval,
+        }),
+      });
+      const json = await res.json() as { success?: boolean; message?: string; error?: string; data?: { hasPassword?: boolean } };
+      if (!json.success) throw new Error(json.error || 'บันทึกการตั้งค่าไม่สำเร็จ');
+      if (json.data?.hasPassword !== undefined) setEclaimHasPassword(Boolean(json.data.hasPassword));
+      setEclaimPassword('');
+      setEclaimSettingsMsg(json.message || 'บันทึกการตั้งค่า NHSO All-in-One สำเร็จ');
+    } catch (err) {
+      setEclaimError(err instanceof Error ? err.message : 'บันทึกการตั้งค่าไม่สำเร็จ');
+    } finally {
+      setEclaimSavingSettings(false);
+    }
+  };
 
   useEffect(() => {
     if (!eclaimOpen) return;
@@ -606,13 +693,26 @@ export const RepStmImportPage: React.FC = () => {
     setEclaimBrowserReady(false);
     setEclaimBrowserLoading(true);
     try {
-      const res = await fetch('/api/nhso-eclaim/browser-login', { method: 'POST' });
+      const res = await fetch('/api/nhso-eclaim/browser-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          loginMode: eclaimLoginMode,
+          username: eclaimUsername.trim() || undefined,
+          password: eclaimPassword || undefined,
+        }),
+      });
       const json = await res.json() as { success: boolean; ready?: boolean; phase?: string; message?: string; error?: string };
       if (!json.success) throw new Error(json.error || 'Login ไม่สำเร็จ');
       setEclaimBrowserAlive(true);
+      setEclaimBrowserReady(Boolean(json.ready));
       setEclaimBrowserPhase(String(json.phase || 'waiting_thaid'));
-      setEclaimBrowserMessage(String(json.message || 'สแกน QR ด้วยแอป ThaID'));
-      setEclaimScreenshotVersion(Date.now());
+      setEclaimBrowserMessage(String(json.message || 'กำลังเชื่อมต่อ NHSO e-Claim'));
+      if (json.ready) {
+        setEclaimBrowserLoading(false);
+      } else {
+        setEclaimScreenshotVersion(Date.now());
+      }
     } catch (err) {
       setEclaimError((err as Error).message);
       setEclaimBrowserLoading(false);
@@ -641,8 +741,30 @@ export const RepStmImportPage: React.FC = () => {
     setEclaimBrowserLoading(false);
   };
 
+  const triggerSmtBudgetSync = async () => {
+    if (!eclaimSyncSmtBudget) return;
+    try {
+      setEclaimSmtSyncMessage('⟳ กำลังซิงค์ข้อมูลงบโอนเงิน สปสช. (SMT Budget)...');
+      const res = await fetch('/api/smt-budget/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json() as { success?: boolean; data?: { syncedRecords?: number; budgetYear?: string }; error?: string };
+      if (json.success) {
+        const count = Number(json.data?.syncedRecords ?? 0);
+        setEclaimSmtSyncMessage(`✅ ซิงค์งบโอนเงิน สปสช. (SMT Budget) สำเร็จ${count ? ` (${count.toLocaleString()} รายการ)` : ''}`);
+      } else {
+        setEclaimSmtSyncMessage(`⚠️ ซิงค์ SMT Budget ไม่สำเร็จ: ${json.error || 'ไม่สามารถเชื่อมต่อ SMT ได้'}`);
+      }
+    } catch (err) {
+      setEclaimSmtSyncMessage(`⚠️ ซิงค์ SMT Budget ไม่สำเร็จ: ${err instanceof Error ? err.message : 'เกิดข้อผิดพลาด'}`);
+    }
+  };
+
   const handleEclaimSearch = async () => {
     setEclaimError(null);
+    setEclaimSmtSyncMessage(null);
     setEclaimFiles([]);
     setEclaimSelected(new Set());
     setEclaimPipeline({});
@@ -653,7 +775,7 @@ export const RepStmImportPage: React.FC = () => {
       return;
     }
     if (!eclaimBrowserReady) {
-      setEclaimError('กรุณา Login และยืนยันตัวตนด้วย ThaID ก่อน');
+      setEclaimError('กรุณาเชื่อมต่อ / Login เข้าสู่ระบบ NHSO e-Claim ก่อน');
       return;
     }
 
@@ -662,23 +784,56 @@ export const RepStmImportPage: React.FC = () => {
       const res = await fetch('/api/nhso-eclaim/browser-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ periods: eclaimPeriods, fileType: eclaimFileType }),
+        body: JSON.stringify({
+          periods: eclaimPeriods,
+          fileType: eclaimFileType,
+          funds: eclaimFunds,
+        }),
       });
       const json = await res.json() as {
-        success: boolean; data?: Record<string, unknown>[]; debug?: typeof eclaimDebugLog; error?: string;
+        success: boolean;
+        data?: Record<string, unknown>[];
+        newCount?: number;
+        existingCount?: number;
+        debug?: typeof eclaimDebugLog;
+        error?: string;
       };
       if (!json.success) throw new Error(json.error || 'ค้นหาไม่สำเร็จ');
       if (json.debug) setEclaimDebugLog(json.debug);
       const files = json.data || [];
       setEclaimFiles(files);
+
+      // Pre-mark already-imported files in pipeline state so user sees clear status immediately
+      const initialPipeline: Record<string, EclaimPipelineState> = {};
+      files.forEach((file, index) => {
+        if (file.alreadyImported) {
+          const key = getEclaimFileKey(file, index);
+          initialPipeline[key] = {
+            status: 'duplicate',
+            message: `มีในระบบแล้ว (Batch #${String(file.importedBatchId || '-')}${file.importedAt ? ` · ${String(file.importedAt)}` : ''})`,
+          };
+        }
+      });
+      setEclaimPipeline(initialPipeline);
+
       if (files.length === 0) {
         setEclaimError(`ไม่พบไฟล์สำหรับงวด ${eclaimPeriods.join(', ')} ประเภท ${eclaimFileType}`);
         setEclaimShowDebug(true);
-      } else if (eclaimAutoDownload) {
-        // Auto-select all and download
-        const allKeys = new Set(files.map((file, index) => getEclaimFileKey(file, index)));
-        setEclaimSelected(allKeys);
-        await handleEclaimDownloadFiles(files, allKeys);
+      } else {
+        const targetKeys = new Set(
+          files
+            .map((file, index) => ({ file, key: getEclaimFileKey(file, index) }))
+            .filter(({ file }) => !eclaimSkipExisting || !file.alreadyImported)
+            .map(({ key }) => key)
+        );
+        setEclaimSelected(targetKeys);
+        if (eclaimAutoDownload && targetKeys.size > 0) {
+          await handleEclaimDownloadFiles(files, targetKeys);
+        }
+      }
+
+      if (eclaimSyncSmtBudget) {
+        void triggerSmtBudgetSync();
       }
     } catch (err) {
       setEclaimError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
@@ -715,10 +870,19 @@ export const RepStmImportPage: React.FC = () => {
             downloadOnclick: String(fileObj.downloadOnclick || ''),
             downloadLabel: String(fileObj.downloadLabel || ''),
             sourcePage: String(fileObj.sourcePage || ''),
+            period: String(fileObj.period || fileObj._period || ''),
+            detectedType: String(fileObj.detectedType || ''),
             filename,
           }),
         });
-        const dlJson = await dlRes.json() as { success: boolean; base64?: string; filename?: string; contentType?: string; error?: string };
+        const dlJson = await dlRes.json() as {
+          success: boolean;
+          base64?: string;
+          filename?: string;
+          contentType?: string;
+          savedArchivePath?: string | null;
+          error?: string;
+        };
         if (!dlJson.success || !dlJson.base64) throw new Error(dlJson.error || `ดาวน์โหลด ${filename} ไม่สำเร็จ`);
         const binaryStr = atob(dlJson.base64);
         const bytes = new Uint8Array(binaryStr.length);
@@ -730,7 +894,12 @@ export const RepStmImportPage: React.FC = () => {
         downloadedKeysByName.set(downloadedFilename, [...(downloadedKeysByName.get(downloadedFilename) || []), key]);
         setEclaimPipeline((current) => ({
           ...current,
-          [key]: { status: 'downloaded', message: 'ดาวน์โหลด Excel แล้ว รอตรวจและนำเข้า' },
+          [key]: {
+            status: 'downloaded',
+            message: dlJson.savedArchivePath
+              ? `ดาวน์โหลดและสำรองไฟล์แล้ว (${dlJson.savedArchivePath})`
+              : 'ดาวน์โหลด Excel แล้ว รอตรวจและนำเข้า',
+          },
         }));
       } catch (err) {
         const message = err instanceof Error ? err.message : `ดาวน์โหลด ${filename} ไม่สำเร็จ`;
@@ -768,6 +937,7 @@ export const RepStmImportPage: React.FC = () => {
           });
         });
       }
+      void loadEclaimArchiveFiles();
     }
     if (downloadErrors.length > 0) setEclaimError(downloadErrors.join(' | '));
     setEclaimDownloading(false);
@@ -776,6 +946,18 @@ export const RepStmImportPage: React.FC = () => {
   const handleEclaimDownload = async () => {
     await handleEclaimDownloadFiles(eclaimFiles, eclaimSelected);
   };
+
+  // Optional periodic auto-sync timer while session is ready
+  useEffect(() => {
+    if (!eclaimBrowserReady || eclaimAutoSyncInterval <= 0) return;
+    const intervalMs = eclaimAutoSyncInterval * 60_000;
+    const timer = window.setInterval(() => {
+      if (!eclaimLoading && !eclaimDownloading) {
+        void handleEclaimSearch();
+      }
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [eclaimBrowserReady, eclaimAutoSyncInterval, eclaimLoading, eclaimDownloading, eclaimStartDate, eclaimEndDate, eclaimFileType, eclaimFunds]);
 
   const handleFileChange = async (files: FileList | null, append = false, bypassPreflight = false): Promise<ImportQueueItem[]> => {
     if (!append) {
@@ -1315,31 +1497,202 @@ export const RepStmImportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* NHSO eclaim direct download */}
+      {/* NHSO All-in-One Auto Download (REP / STM / INV / SMT) */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-header" style={{ cursor: 'pointer' }} onClick={() => setEclaimOpen((v) => !v)}>
-          <div className="card-title">🌐 ดาวน์โหลด STM/INV จาก NHSO eclaim โดยตรง</div>
-          <span style={{ fontSize: 18 }}>{eclaimOpen ? '▲' : '▼'}</span>
+          <div className="card-title">
+            🚀 NHSO All-in-One Auto Download (ดึงไฟล์ REP / STM / INV + ซิงค์งบโอนเงินอัตโนมัติในเว็บ)
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {eclaimBrowserReady && (
+              <span className="badge badge-success" style={{ fontSize: 11 }}>
+                ✅ เชื่อมต่อ e-Claim พร้อมใช้งาน
+              </span>
+            )}
+            {eclaimAutoSyncInterval > 0 && eclaimBrowserReady && (
+              <span className="badge badge-info" style={{ fontSize: 11 }}>
+                ⏱️ Auto-Sync ทุก {eclaimAutoSyncInterval} นาที
+              </span>
+            )}
+            <span style={{ fontSize: 18 }}>{eclaimOpen ? '▲' : '▼'}</span>
+          </div>
         </div>
         {eclaimOpen && (
           <div className="card-body">
-            <div className="alert alert-info" style={{ marginBottom: 16 }}>
-              <span>ℹ️</span>
-              <span>
-                ดาวน์โหลดไฟล์ STM/INV จาก <strong>eclaim.nhso.go.th</strong> โดยตรง (คล้าย Auto4Rep.EXE)
-                แล้วเพิ่มเข้าคิวนำเข้าอัตโนมัติ
-              </span>
+            <div className="alert alert-info" style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <span>ℹ️ </span>
+                <span>
+                  ระบบ <strong>NHSO All-in-One Auto Download</strong> ในตัวเว็บ FDH Checker:
+                  รองรับล็อกอินอัตโนมัติ (Username/Password หรือ ThaID QR), กวาดไฟล์ครบทุกกองทุน (<strong>UCS, OFC, LGO, BKK, SSS</strong>) ข้ามหลายหน้าอัตโนมัติ,
+                  เช็คไฟล์ที่มีในฐานข้อมูลแล้วเพื่อดึงเฉพาะไฟล์ใหม่, สำรองไฟล์เก็บไว้บน Server และนำเข้าฐานข้อมูลพร้อมซิงค์งบโอนเงิน (SMT) จบในคลิกเดียว
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12, padding: '4px 10px' }}
+                  onClick={() => setEclaimShowSettings((v) => !v)}
+                >
+                  ⚙️ {eclaimShowSettings ? 'ซ่อนตั้งค่า Auto-Login' : 'ตั้งค่าบัญชี / Auto-Download'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12, padding: '4px 10px' }}
+                  onClick={() => {
+                    setEclaimShowArchive((v) => !v);
+                    void loadEclaimArchiveFiles();
+                  }}
+                >
+                  📁 ไฟล์สำรองบน Server ({eclaimArchiveFiles.length})
+                </button>
+              </div>
             </div>
 
-            {/* Step 1: ThaID Login */}
+            {/* Collapsible Settings Drawer */}
+            {eclaimShowSettings && (
+              <div style={{ background: 'var(--bg-secondary,#f8fafc)', border: '1px solid var(--border-color,#cbd5e1)', borderRadius: 8, padding: 14, marginBottom: 14, fontSize: 12 }}>
+                <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 13 }}>
+                  ⚙️ ตั้งค่าระบบ NHSO All-in-One Auto Download
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 10 }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">โหมดการเข้าสู่ระบบ (Login Mode)</label>
+                    <select
+                      className="form-control"
+                      value={eclaimLoginMode}
+                      onChange={(e) => setEclaimLoginMode(e.target.value as 'auto' | 'password' | 'thaid')}
+                    >
+                      <option value="auto">อัตโนมัติ (ใช้รหัสผ่านก่อน ถ้าติดให้ใช้ ThaID)</option>
+                      <option value="password">ใช้ Username / Password ของ e-Claim</option>
+                      <option value="thaid">สแกน QR แอป ThaID เท่านั้น</option>
+                    </select>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Username (NHSO e-Claim)</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="ระบุ Username สำหรับ Auto-Login"
+                      value={eclaimUsername}
+                      onChange={(e) => setEclaimUsername(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">
+                      Password {eclaimHasPassword ? <span style={{ color: '#16a34a', fontWeight: 600 }}>(บันทึกไว้แล้ว)</span> : null}
+                    </label>
+                    <input
+                      type="password"
+                      className="form-control"
+                      placeholder={eclaimHasPassword ? '•••••••• (เว้นว่างหากไม่เปลี่ยน)' : 'ระบุรหัสผ่าน e-Claim'}
+                      value={eclaimPassword}
+                      onChange={(e) => setEclaimPassword(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">ตั้งเวลาดึงอัตโนมัติ (ขณะเปิด Session)</label>
+                    <select
+                      className="form-control"
+                      value={eclaimAutoSyncInterval}
+                      onChange={(e) => setEclaimAutoSyncInterval(Number(e.target.value) || 0)}
+                    >
+                      <option value={0}>ปิด (กดดึงด้วยตนเอง)</option>
+                      <option value={30}>ทุก 30 นาที</option>
+                      <option value={60}>ทุก 1 ชั่วโมง</option>
+                      <option value={120}>ทุก 2 ชั่วโมง</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={eclaimSkipExisting}
+                      onChange={(e) => setEclaimSkipExisting(e.target.checked)}
+                    />
+                    <span>ข้ามไฟล์ที่มีในระบบแล้วอัตโนมัติ (ดึงเฉพาะไฟล์ใหม่)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={eclaimSaveLocalArchive}
+                      onChange={(e) => setEclaimSaveLocalArchive(e.target.checked)}
+                    />
+                    <span>สำรองไฟล์ต้นฉบับเก็บไว้บน Server (<code>downloads/nhso-repstm/</code>)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={eclaimSyncSmtBudget}
+                      onChange={(e) => setEclaimSyncSmtBudget(e.target.checked)}
+                    />
+                    <span>ซิงค์ข้อมูลงบโอนเงิน สปสช. (SMT Budget) พร้อมกันอัตโนมัติ</span>
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void handleSaveEclaimSettings()}
+                    disabled={eclaimSavingSettings}
+                  >
+                    {eclaimSavingSettings ? '⟳ กำลังบันทึก...' : '💾 บันทึกการตั้งค่า'}
+                  </button>
+                  {eclaimSettingsMsg && (
+                    <span style={{ color: '#15803d', fontWeight: 600 }}>{eclaimSettingsMsg}</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Collapsible Local Archive Drawer */}
+            {eclaimShowArchive && (
+              <div style={{ background: 'var(--bg-secondary,#f8fafc)', border: '1px solid var(--border-color,#cbd5e1)', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700 }}>
+                    📁 ไฟล์สำรองที่ดาวน์โหลดเก็บไว้บน Server ({eclaimArchiveFiles.length} ไฟล์ล่าสุด)
+                    {eclaimArchiveDir && <span style={{ fontWeight: 400, marginLeft: 8, color: 'var(--text-muted)' }}>({eclaimArchiveDir})</span>}
+                  </div>
+                  <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => void loadEclaimArchiveFiles()}>
+                    🔄 รีเฟรช
+                  </button>
+                </div>
+                {eclaimArchiveFiles.length === 0 ? (
+                  <div style={{ color: 'var(--text-muted)', padding: '6px 0' }}>ยังไม่มีไฟล์ในโฟลเดอร์สำรองบน Server</div>
+                ) : (
+                  <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+                    <table className="data-table" style={{ fontSize: 11 }}>
+                      <thead>
+                        <tr>
+                          <th>Path ย่อย (งวด/ประเภท/ชื่อไฟล์)</th>
+                          <th>ขนาดไฟล์</th>
+                          <th>เวลาที่บันทึก</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {eclaimArchiveFiles.map((f) => (
+                          <tr key={f.relativePath}>
+                            <td><code>{f.relativePath}</code></td>
+                            <td>{(f.size / 1024).toFixed(1)} KB</td>
+                            <td>{new Date(f.modifiedAt).toLocaleString('th-TH')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Step 1: Login Session (Auto Password or ThaID QR) */}
             <div style={{ background: 'var(--bg-secondary,#f0f4ff)', border: '1px solid var(--border-color,#c7d2fe)', borderRadius: 8, padding: 12, marginBottom: 12, fontSize: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>📋 ขั้นตอนที่ 1 — Login ด้วย ThaID</div>
-              <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.8 }}>
-                <li>กด <strong>เริ่ม Login ThaID</strong> เพื่อเปิด Browser บน Server</li>
-                <li>สแกน QR ที่แสดงด้านล่างและยืนยันในแอป ThaID</li>
-                <li>เมื่อสถานะเป็น “พร้อมแล้ว” สามารถดาวน์โหลดได้ตลอดจนกว่า session จะหมดอายุ</li>
-              </ol>
-              <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                📋 ขั้นตอนที่ 1 — เชื่อมต่อ NHSO e-Claim ({eclaimLoginMode === 'password' ? 'โหมดรหัสผ่านอัตโนมัติ' : eclaimLoginMode === 'thaid' ? 'โหมดสแกน QR ThaID' : 'โหมดอัตโนมัติ: รหัสผ่าน / ThaID'})
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   className="btn btn-primary"
                   onClick={handleBrowserLogin}
@@ -1347,19 +1700,23 @@ export const RepStmImportPage: React.FC = () => {
                   style={{ flexShrink: 0 }}
                 >
                   {eclaimBrowserLoading
-                    ? '⏳ กำลังรอการยืนยัน ThaID...'
-                    : '🔐 เริ่ม Login ThaID'}
+                    ? '⏳ กำลังเชื่อมต่อ NHSO e-Claim...'
+                    : eclaimUsername || eclaimHasPassword
+                      ? '🔐 เชื่อมต่อ / Auto-Login e-Claim'
+                      : '🔐 เริ่ม Login NHSO e-Claim (ThaID)'}
                 </button>
                 {eclaimBrowserAlive && !eclaimBrowserReady && (
                   <button className="btn btn-secondary" onClick={() => void handleThaIdSelect()}>
-                    เลือก ThaID / แสดง QR
+                    📱 สลับไปแสดง QR ThaID
                   </button>
                 )}
                 {eclaimBrowserReady && !eclaimBrowserLoading && (
                   <>
-                    <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 13 }}>✅ ThaID พร้อมแล้ว — ดาวน์โหลดไฟล์ได้เลย</span>
+                    <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 13 }}>
+                      ✅ เชื่อมต่อ NHSO e-Claim พร้อมแล้ว — กดปุ่ม All-in-One Auto Sync ด้านล่างได้เลย
+                    </span>
                     <button className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 10px' }} onClick={handleBrowserClose}>
-                      ❌ ปิด Browser
+                      ❌ ปิด Session Browser
                     </button>
                   </>
                 )}
@@ -1371,14 +1728,15 @@ export const RepStmImportPage: React.FC = () => {
                 <div style={{ marginTop: 10, maxWidth: 900 }}>
                   <img
                     src={`/api/nhso-eclaim/browser-screenshot?t=${eclaimScreenshotVersion}`}
-                    alt="หน้าจอ Login ThaID จาก eClaim"
+                    alt="หน้าจอ Login NHSO e-Claim"
                     style={{ display: 'block', width: '100%', maxHeight: 620, objectFit: 'contain', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8 }}
                   />
                 </div>
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
+            {/* Step 2: Date range, File type, and Fund filters */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 10 }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">วันที่เริ่มต้น</label>
                 <input type="date" className="form-control" value={eclaimStartDate} onChange={(e) => setEclaimStartDate(e.target.value)} />
@@ -1390,12 +1748,42 @@ export const RepStmImportPage: React.FC = () => {
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">ประเภทไฟล์</label>
                 <select className="form-control" value={eclaimFileType} onChange={(e) => setEclaimFileType(e.target.value as typeof eclaimFileType)}>
-                  <option value="ALL">ทุกประเภท</option>
-                  <option value="REP">REP</option>
-                  <option value="STM">STM</option>
-                  <option value="INV">INV</option>
+                  <option value="ALL">ทุกประเภท (REP + STM + INV)</option>
+                  <option value="REP">REP (ผลการตรวจข้อมูล)</option>
+                  <option value="STM">STM (Statement โอนเงิน)</option>
+                  <option value="INV">INV (รายงานการเงิน)</option>
                 </select>
               </div>
+            </div>
+
+            {/* Fund filter checkboxes */}
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12, fontSize: 12 }}>
+              <span style={{ fontWeight: 600 }}>กองทุนที่ต้องการดึง:</span>
+              {[
+                { code: 'UCS', label: 'UCS (บัตรทอง)' },
+                { code: 'OFC', label: 'OFC (ข้าราชการ)' },
+                { code: 'LGO', label: 'LGO (อปท.)' },
+                { code: 'BKK', label: 'BKK (กทม.)' },
+                { code: 'SSS', label: 'SSS (ประกันสังคม)' },
+              ].map((fundItem) => {
+                const checked = eclaimFunds.includes(fundItem.code);
+                return (
+                  <label key={fundItem.code} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEclaimFunds((prev) => Array.from(new Set([...prev, fundItem.code])));
+                        } else {
+                          setEclaimFunds((prev) => prev.filter((f) => f !== fundItem.code));
+                        }
+                      }}
+                    />
+                    <span>{fundItem.label}</span>
+                  </label>
+                );
+              })}
             </div>
 
             <div style={{ display: 'flex', gap: 10, marginBottom: 12, alignItems: 'flex-end' }}>
@@ -1409,17 +1797,33 @@ export const RepStmImportPage: React.FC = () => {
                     {eclaimPeriods.length > 12 && <span style={{ fontSize: 11 }}>+{eclaimPeriods.length - 12} งวด</span>}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary" onClick={handleEclaimSearch} disabled={eclaimLoading || eclaimDownloading || !eclaimBrowserReady}>
-                    {eclaimLoading ? '⟳ กำลังค้นหา...' : '🔍 ดาวน์โหลดไฟล์ใหม่จาก NHSO eClaim'}
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleEclaimSearch}
+                    disabled={eclaimLoading || eclaimDownloading || !eclaimBrowserReady}
+                  >
+                    {eclaimLoading
+                      ? '⟳ กำลังกวาดค้นหาไฟล์ทุกหน้า...'
+                      : eclaimAutoDownload && eclaimAutoImport
+                        ? '🚀 All-in-One Auto Sync (ดึงไฟล์ใหม่ + นำเข้า REP/STM + ซิงค์ SMT)'
+                        : '🔍 ค้นหาไฟล์จาก NHSO e-Claim'}
                   </button>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={eclaimSkipExisting}
+                      onChange={(e) => setEclaimSkipExisting(e.target.checked)}
+                    />
+                    ดึงเฉพาะไฟล์ใหม่ที่ยังไม่มีในระบบ
+                  </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
                     <input
                       type="checkbox"
                       checked={eclaimAutoDownload}
                       onChange={(e) => setEclaimAutoDownload(e.target.checked)}
                     />
-                    ดาวน์โหลดทุกไฟล์ที่พบอัตโนมัติ
+                    ดาวน์โหลดอัตโนมัติทันทีที่พบ
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
                     <input
@@ -1427,7 +1831,7 @@ export const RepStmImportPage: React.FC = () => {
                       checked={eclaimAutoImport}
                       onChange={(e) => setEclaimAutoImport(e.target.checked)}
                     />
-                    ตรวจซ้ำและนำเข้า STM/INV ทันที
+                    นำเข้า REP/STM/INV เข้าฐานข้อมูลทันที
                   </label>
                   {eclaimFiles.length > 0 && (
                     <button
@@ -1437,12 +1841,18 @@ export const RepStmImportPage: React.FC = () => {
                     >
                       {eclaimDownloading
                         ? (importing ? '⟳ กำลังนำเข้าข้อมูล...' : '⟳ กำลังดาวน์โหลด/ตรวจไฟล์...')
-                        : `⬇️ ดาวน์โหลด${eclaimAutoImport ? 'และนำเข้า' : 'เข้าคิว'} (${eclaimSelected.size} ไฟล์)`}
+                        : `⬇️ ดาวน์โหลดไฟล์ที่เลือก${eclaimAutoImport ? 'และนำเข้า' : 'เข้าคิว'} (${eclaimSelected.size} ไฟล์)`}
                     </button>
                   )}
                 </div>
               </div>
             </div>
+
+            {eclaimSmtSyncMessage && (
+              <div className="alert alert-info" style={{ marginBottom: 12, padding: '8px 12px', fontSize: 12 }}>
+                <span>{eclaimSmtSyncMessage}</span>
+              </div>
+            )}
 
             {eclaimError && (
               <div className="alert alert-danger" style={{ marginBottom: 12 }}>
@@ -1483,98 +1893,173 @@ export const RepStmImportPage: React.FC = () => {
             )}
 
             {eclaimFiles.length > 0 && (
-              <div className="modal-table-wrap">
-                <table className="data-table long-id-table long-id-table--repstm-latest">
-                  <thead>
-                    <tr>
-                      <th>
-                        <input
-                          type="checkbox"
-                          checked={eclaimSelected.size === eclaimFiles.length && eclaimFiles.length > 0}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setEclaimSelected(new Set(eclaimFiles.map((file, index) => getEclaimFileKey(file, index))));
-                            } else {
-                              setEclaimSelected(new Set());
-                            }
-                          }}
-                        />
-                      </th>
-                      <th>ชื่อไฟล์</th>
-                      <th>งวด</th>
-                      <th>สิทธิ/แหล่งข้อมูล</th>
-                      <th>ข้อมูลเพิ่มเติม</th>
-                      <th>สถานะ Pipeline</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {eclaimFiles.map((file, idx) => {
-                      const key = getEclaimFileKey(file, idx);
-                      const displayName = String(file.filename || file.fileName || file.name || idx);
-                      const checked = eclaimSelected.has(key);
-                      const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
-                      const href = String(file.downloadHref || '');
-                      const hasOnclick = Boolean(file.downloadOnclick);
-                      const pipeline = eclaimPipeline[key];
-                      return (
-                        <tr key={key} onClick={() => setEclaimSelected((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(key)) next.delete(key); else next.add(key);
-                          return next;
-                        })} style={{ cursor: 'pointer', background: checked ? 'rgba(37,99,235,0.07)' : undefined }}>
-                          <td onClick={(e) => e.stopPropagation()}>
-                            <input type="checkbox" checked={checked} onChange={() => setEclaimSelected((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(key)) next.delete(key); else next.add(key);
-                              return next;
-                            })} />
-                          </td>
-                          <td className="table-cell-nowrap" style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }} title={displayName}>{displayName}</td>
-                          <td className="table-cell-nowrap">{String(file.period || file._period || '-')}</td>
-                          <td className="table-cell-nowrap">{String(file.fund || file.detectedType || '-')}</td>
-                          <td className="table-cell-nowrap" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {cells.filter(Boolean).slice(0, 4).join(' | ') || '-'}
-                          </td>
-                          <td className="table-cell-nowrap">
-                            {pipeline ? (
-                              <span
-                                title={pipeline.message}
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  color: pipeline.status === 'success' ? '#15803d'
-                                    : pipeline.status === 'duplicate' ? '#0369a1'
-                                      : pipeline.status === 'error' ? '#b91c1c'
-                                        : pipeline.status === 'importing' ? '#7c3aed'
-                                          : '#d97706',
-                                }}
-                              >
-                                {pipeline.status === 'success' && '✅ นำเข้าแล้ว'}
-                                {pipeline.status === 'duplicate' && '☑️ มีข้อมูลแล้ว'}
-                                {pipeline.status === 'error' && '❌ ผิดพลาด'}
-                                {pipeline.status === 'importing' && '⟳ กำลังนำเข้า'}
-                                {pipeline.status === 'downloading' && '⬇️ กำลังดาวน์โหลด'}
-                                {pipeline.status === 'downloaded' && '📥 ดาวน์โหลดแล้ว'}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8, fontSize: 12 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="badge badge-info">พบทั้งหมด {eclaimFiles.length} ไฟล์</span>
+                    <span className="badge badge-success">
+                      🆕 ไฟล์ใหม่ {eclaimFiles.filter((f) => !f.alreadyImported).length} ไฟล์
+                    </span>
+                    <span className="badge badge-secondary">
+                      ☑️ มีในระบบแล้ว {eclaimFiles.filter((f) => Boolean(f.alreadyImported)).length} ไฟล์
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: 11, padding: '2px 8px' }}
+                      onClick={() => {
+                        setEclaimSelected(
+                          new Set(
+                            eclaimFiles
+                              .map((f, idx) => ({ f, key: getEclaimFileKey(f, idx) }))
+                              .filter(({ f }) => !f.alreadyImported)
+                              .map(({ key }) => key)
+                          )
+                        );
+                      }}
+                    >
+                      เลือกเฉพาะไฟล์ใหม่
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: 11, padding: '2px 8px' }}
+                      onClick={() => setEclaimSelected(new Set(eclaimFiles.map((f, idx) => getEclaimFileKey(f, idx))))}
+                    >
+                      เลือกทั้งหมด
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ fontSize: 11, padding: '2px 8px' }}
+                      onClick={() => setEclaimSelected(new Set())}
+                    >
+                      ยกเลิกทั้งหมด
+                    </button>
+                  </div>
+                </div>
+                <div className="modal-table-wrap">
+                  <table className="data-table long-id-table long-id-table--repstm-latest">
+                    <thead>
+                      <tr>
+                        <th>
+                          <input
+                            type="checkbox"
+                            checked={eclaimSelected.size === eclaimFiles.length && eclaimFiles.length > 0}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEclaimSelected(new Set(eclaimFiles.map((file, index) => getEclaimFileKey(file, index))));
+                              } else {
+                                setEclaimSelected(new Set());
+                              }
+                            }}
+                          />
+                        </th>
+                        <th>ชื่อไฟล์</th>
+                        <th>ประเภท</th>
+                        <th>กองทุน</th>
+                        <th>งวด</th>
+                        <th>สถานะในระบบ</th>
+                        <th>ข้อมูลเพิ่มเติม</th>
+                        <th>สถานะ Pipeline</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {eclaimFiles.map((file, idx) => {
+                        const key = getEclaimFileKey(file, idx);
+                        const displayName = String(file.filename || file.fileName || file.name || idx);
+                        const checked = eclaimSelected.has(key);
+                        const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+                        const href = String(file.downloadHref || '');
+                        const hasOnclick = Boolean(file.downloadOnclick);
+                        const alreadyImported = Boolean(file.alreadyImported);
+                        const pipeline = eclaimPipeline[key];
+                        return (
+                          <tr key={key} onClick={() => setEclaimSelected((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(key)) next.delete(key); else next.add(key);
+                            return next;
+                          })} style={{ cursor: 'pointer', background: checked ? 'rgba(37,99,235,0.07)' : undefined }}>
+                            <td onClick={(e) => e.stopPropagation()}>
+                              <input type="checkbox" checked={checked} onChange={() => setEclaimSelected((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(key)) next.delete(key); else next.add(key);
+                                return next;
+                              })} />
+                            </td>
+                            <td className="table-cell-nowrap" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }} title={displayName}>{displayName}</td>
+                            <td className="table-cell-nowrap">
+                              <span className="badge badge-primary" style={{ fontSize: 10 }}>
+                                {String(file.detectedType || '-')}
                               </span>
-                            ) : (
-                              <>
-                                {href && <span style={{ fontSize: 10, color: '#2563eb' }}>🔗 พร้อมดาวน์โหลด</span>}
-                                {!href && hasOnclick && <span style={{ fontSize: 10, color: '#d97706' }}>⚡ พร้อมดาวน์โหลด</span>}
-                                {!href && !hasOnclick && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>?</span>}
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            </td>
+                            <td className="table-cell-nowrap">
+                              <span className="badge badge-info" style={{ fontSize: 10 }}>
+                                {String(file.fund || '-')}
+                              </span>
+                            </td>
+                            <td className="table-cell-nowrap">{String(file.period || file._period || '-')}</td>
+                            <td className="table-cell-nowrap">
+                              {alreadyImported ? (
+                                <span
+                                  className="badge badge-secondary"
+                                  style={{ fontSize: 10 }}
+                                  title={`Batch #${String(file.importedBatchId || '-')} (${String(file.importedAt || '')})`}
+                                >
+                                  ☑️ มีในระบบแล้ว #{String(file.importedBatchId || '-')}
+                                </span>
+                              ) : (
+                                <span className="badge badge-success" style={{ fontSize: 10 }}>
+                                  🆕 ไฟล์ใหม่
+                                </span>
+                              )}
+                            </td>
+                            <td className="table-cell-nowrap" style={{ fontSize: 11, color: 'var(--text-muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {cells.filter(Boolean).slice(0, 4).join(' | ') || '-'}
+                            </td>
+                            <td className="table-cell-nowrap">
+                              {pipeline ? (
+                                <span
+                                  title={pipeline.message}
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: pipeline.status === 'success' ? '#15803d'
+                                      : pipeline.status === 'duplicate' ? '#0369a1'
+                                        : pipeline.status === 'error' ? '#b91c1c'
+                                          : pipeline.status === 'importing' ? '#7c3aed'
+                                            : '#d97706',
+                                  }}
+                                >
+                                  {pipeline.status === 'success' && '✅ นำเข้าแล้ว'}
+                                  {pipeline.status === 'duplicate' && '☑️ มีข้อมูลแล้ว'}
+                                  {pipeline.status === 'error' && '❌ ผิดพลาด'}
+                                  {pipeline.status === 'importing' && '⟳ กำลังนำเข้า'}
+                                  {pipeline.status === 'downloading' && '⬇️ กำลังดาวน์โหลด'}
+                                  {pipeline.status === 'downloaded' && '📥 ดาวน์โหลดแล้ว'}
+                                </span>
+                              ) : (
+                                <>
+                                  {href && <span style={{ fontSize: 10, color: '#2563eb' }}>🔗 พร้อมดาวน์โหลด</span>}
+                                  {!href && hasOnclick && <span style={{ fontSize: 10, color: '#d97706' }}>⚡ พร้อมดาวน์โหลด</span>}
+                                  {!href && !hasOnclick && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>?</span>}
+                                </>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
             {eclaimFiles.length === 0 && !eclaimLoading && eclaimBrowserReady && (
               <div style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>
-                ไม่พบไฟล์สำหรับงวด {eclaimPeriods.join(', ')} ประเภท {eclaimFileType}
+                กดปุ่ม <strong>🚀 All-in-One Auto Sync</strong> เพื่อกวาดค้นหาและดึงไฟล์สำหรับงวด {eclaimPeriods.join(', ')} ({eclaimFileType})
               </div>
             )}
           </div>

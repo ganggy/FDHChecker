@@ -434,13 +434,60 @@ type EclaimBrowserSession = {
   context: import('playwright').BrowserContext;
   page: import('playwright').Page;
   ready: boolean;
-  phase: 'opening' | 'waiting_thaid' | 'ready' | 'expired' | 'error';
+  phase: 'opening' | 'logging_in' | 'waiting_thaid' | 'ready' | 'expired' | 'error';
   message: string;
   lastError?: string;
   repPageUrl: string;
   createdAt: number;
+  loginMode?: 'auto' | 'password' | 'thaid';
 };
 let eclaimBrowserSession: EclaimBrowserSession | null = null;
+
+const tryPasswordLoginOnEclaim = async (
+  page: import('playwright').Page,
+  username: string,
+  password: string,
+): Promise<{ submitted: boolean; error?: string }> => {
+  if (!username || !password) return { submitted: false };
+  try {
+    for (const frame of [page.mainFrame(), ...page.frames()]) {
+      const userLocator = frame.locator(
+        'input[name="username"], input#username, input[name="j_username"], input[name="user"]'
+      ).first();
+      const passLocator = frame.locator(
+        'input[name="password"], input#password, input[name="j_password"], input[type="password"]'
+      ).first();
+
+      const hasUser = await userLocator.isVisible({ timeout: 1500 }).catch(() => false);
+      const hasPass = await passLocator.isVisible({ timeout: 1500 }).catch(() => false);
+      if (!hasUser || !hasPass) continue;
+
+      await userLocator.fill(username);
+      await passLocator.fill(password);
+
+      const submitLocator = frame.locator(
+        '#kc-login, button[type="submit"], input[type="submit"], button:has-text("เข้าสู่ระบบ"), button:has-text("Sign In"), button:has-text("Login")'
+      ).first();
+      if (await submitLocator.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await submitLocator.click({ timeout: 5000 });
+      } else {
+        await passLocator.press('Enter');
+      }
+
+      await page.waitForTimeout(2500);
+      const alertText = await frame.locator(
+        '.alert-error, .kc-feedback-text, #input-error, .error-message, .text-danger'
+      ).first().textContent().catch(() => '');
+      if (alertText && alertText.trim()) {
+        return { submitted: true, error: alertText.trim() };
+      }
+      return { submitted: true };
+    }
+    return { submitted: false };
+  } catch (err) {
+    return { submitted: false, error: (err as Error).message };
+  }
+};
 
 const tryOpenThaIdLogin = async (page: import('playwright').Page) => {
   const patterns = [/ThaID/i, /Thai\s*ID/i, /ดิจิทัลไอดี/i, /เข้าสู่ระบบ.*ไทยดี/i];
@@ -465,40 +512,45 @@ const tryOpenThaIdLogin = async (page: import('playwright').Page) => {
   return false;
 };
 
+const checkEclaimSessionReady = async (session: EclaimBrowserSession): Promise<boolean> => {
+  const cookies = await session.context.cookies();
+  const hasSession = cookies.some((cookie) => cookie.name.toUpperCase() === 'JSESSIONID');
+  const currentUrl = session.page.url();
+  const isEclaimPage = currentUrl.includes('eclaim.nhso.go.th');
+  const isLoginPage = currentUrl.includes('iam.nhso.go.th')
+    || currentUrl.includes('LoginAction.do?code=')
+    || await session.page.locator('input[type="password"], input[name="username"]').count().catch(() => 0) > 0;
+  return Boolean(hasSession && isEclaimPage && !isLoginPage);
+};
+
 const monitorEclaimThaIdLogin = async (session: EclaimBrowserSession) => {
   const deadline = Date.now() + 10 * 60 * 1000;
   while (Date.now() < deadline && eclaimBrowserSession === session) {
     try {
       await session.page.waitForTimeout(1200);
-      const cookies = await session.context.cookies();
-      const hasSession = cookies.some((cookie) => cookie.name.toUpperCase() === 'JSESSIONID');
-      const currentUrl = session.page.url();
-      const isEclaimPage = currentUrl.includes('eclaim.nhso.go.th');
-      const isLoginPage = currentUrl.includes('iam.nhso.go.th')
-        || currentUrl.includes('LoginAction.do?code=')
-        || await session.page.locator('input[type="password"], input[name="username"]').count().catch(() => 0) > 0;
-
-      if (hasSession && isEclaimPage && !isLoginPage) {
+      if (await checkEclaimSessionReady(session)) {
         session.ready = true;
         session.phase = 'ready';
-        session.message = 'ยืนยัน ThaID สำเร็จ พร้อมค้นหาและดาวน์โหลดไฟล์';
-        session.repPageUrl = currentUrl;
+        session.message = 'เข้าสู่ระบบ NHSO e-Claim สำเร็จ พร้อมค้นหาและดาวน์โหลดไฟล์อัตโนมัติ';
+        session.repPageUrl = session.page.url();
         return;
       }
 
-      session.phase = 'waiting_thaid';
-      session.message = 'สแกน QR และยืนยันตัวตนในแอป ThaID';
+      if (session.phase !== 'logging_in') {
+        session.phase = 'waiting_thaid';
+        session.message = 'สแกน QR และยืนยันตัวตนในแอป ThaID (หรือเข้าสู่ระบบด้วยรหัสผ่าน)';
+      }
     } catch (error) {
       session.ready = false;
       session.phase = 'error';
       session.lastError = (error as Error).message;
-      session.message = 'Browser สำหรับ ThaID หยุดทำงาน';
+      session.message = 'Browser สำหรับเชื่อมต่อ e-Claim หยุดทำงาน';
       return;
     }
   }
   if (eclaimBrowserSession === session && !session.ready) {
     session.phase = 'expired';
-    session.message = 'QR/Session หมดเวลา กรุณาเริ่ม Login ThaID ใหม่';
+    session.message = 'QR/Session หมดเวลา กรุณาเริ่มเข้าสู่ระบบใหม่';
   }
 };
 
@@ -569,6 +621,12 @@ const getDefaultNhsoEclaimConfig = () => ({
   downloadUrl: 'https://eclaim.nhso.go.th/Client/ec2/backend/api/transaction/rep-downloads/exec-download',
   username: '',
   password: '',
+  loginMode: 'auto' as 'auto' | 'password' | 'thaid',
+  saveLocalArchive: true,
+  archiveSubdir: 'downloads/nhso-repstm',
+  autoSyncIntervalMinutes: 0,
+  skipExistingFiles: true,
+  syncSmtBudgetOnRun: true,
 });
 
 const getDefaultMophClaimConfig = () => ({
@@ -6032,7 +6090,13 @@ app.post('/api/fdh/track-vns', async (req, res) => {
 app.get('/api/config/nhso-eclaim-settings', async (_req, res) => {
   try {
     const data = await getResolvedNhsoEclaimConfig();
-    res.json({ success: true, data: maskConfigSecrets(data, ['password']) });
+    res.json({
+      success: true,
+      data: {
+        ...maskConfigSecrets(data, ['password']),
+        hasPassword: Boolean(String(data.password || '').trim()),
+      },
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: (error as Error).message });
   }
@@ -6042,25 +6106,82 @@ app.get('/api/config/nhso-eclaim-settings', async (_req, res) => {
 app.post('/api/config/nhso-eclaim-settings', async (req, res) => {
   try {
     const current = await getResolvedNhsoEclaimConfig();
+    const rawLoginMode = String(req.body?.loginMode ?? current.loginMode ?? 'auto').trim().toLowerCase();
+    const loginMode = (['auto', 'password', 'thaid'].includes(rawLoginMode) ? rawLoginMode : 'auto') as 'auto' | 'password' | 'thaid';
     const payload = {
       ...current,
-      username: String(req.body?.username ?? current.username ?? ''),
+      username: String(req.body?.username ?? current.username ?? '').trim(),
       password: preserveSecret(req.body?.password, current.password),
       authUrl: String(req.body?.authUrl ?? current.authUrl),
       fileListUrl: String(req.body?.fileListUrl ?? current.fileListUrl),
       downloadUrl: String(req.body?.downloadUrl ?? current.downloadUrl),
+      loginMode,
+      saveLocalArchive: req.body?.saveLocalArchive !== undefined ? Boolean(req.body.saveLocalArchive) : Boolean(current.saveLocalArchive ?? true),
+      archiveSubdir: String(req.body?.archiveSubdir ?? current.archiveSubdir ?? 'downloads/nhso-repstm').trim() || 'downloads/nhso-repstm',
+      autoSyncIntervalMinutes: Math.max(0, Number(req.body?.autoSyncIntervalMinutes ?? current.autoSyncIntervalMinutes ?? 0) || 0),
+      skipExistingFiles: req.body?.skipExistingFiles !== undefined ? Boolean(req.body.skipExistingFiles) : Boolean(current.skipExistingFiles ?? true),
+      syncSmtBudgetOnRun: req.body?.syncSmtBudgetOnRun !== undefined ? Boolean(req.body.syncSmtBudgetOnRun) : Boolean(current.syncSmtBudgetOnRun ?? true),
     };
     await setAppSetting(NHSO_ECLAIM_SETTINGS_KEY, payload);
-    res.json({ success: true, message: 'NHSO eclaim settings saved' });
+    res.json({
+      success: true,
+      message: 'บันทึกตั้งค่า NHSO All-in-One Auto Download เรียบร้อยแล้ว',
+      data: {
+        ...maskConfigSecrets(payload, ['password']),
+        hasPassword: Boolean(String(payload.password || '').trim()),
+      },
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: (error as Error).message });
   }
 });
 
-/** POST /api/nhso-eclaim/auth — get token from NHSO eclaim */
+/** GET /api/nhso-eclaim/archive-files — list locally archived REP/STM files */
+app.get('/api/nhso-eclaim/archive-files', async (_req, res) => {
+  try {
+    const cfg = await getResolvedNhsoEclaimConfig();
+    const subdir = String(cfg.archiveSubdir || 'downloads/nhso-repstm')
+      .replace(/\.\./g, '')
+      .replace(/^[\\/]+/, '');
+    const rootDir = path.resolve(process.cwd(), subdir);
+    const items: Array<{ relativePath: string; filename: string; size: number; modifiedAt: string }> = [];
+
+    const walk = async (dir: string): Promise<void> => {
+      const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(fullPath);
+        } else if (entry.isFile() && /\.(xls|xlsx|zip|csv|ecd)$/i.test(entry.name)) {
+          const stat = await fs.stat(fullPath).catch(() => null);
+          if (stat) {
+            items.push({
+              relativePath: path.relative(rootDir, fullPath).replace(/\\/g, '/'),
+              filename: entry.name,
+              size: stat.size,
+              modifiedAt: stat.mtime.toISOString(),
+            });
+          }
+        }
+      }
+    };
+
+    await walk(rootDir);
+    items.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+    res.json({
+      success: true,
+      archiveDir: rootDir,
+      total: items.length,
+      files: items.slice(0, 100),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
 /** GET /api/nhso-eclaim/browser-status — check if browser session is alive and ready */
 app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
-  if (!eclaimBrowserSession) return res.json({ alive: false, ready: false, phase: 'closed', message: 'ยังไม่ได้เริ่ม Login ThaID' });
+  if (!eclaimBrowserSession) return res.json({ alive: false, ready: false, phase: 'closed', message: 'ยังไม่ได้เริ่มเชื่อมต่อ NHSO e-Claim' });
   try {
     const url = eclaimBrowserSession.page.url();
     const title = await eclaimBrowserSession.page.title().catch(() => '');
@@ -6074,6 +6195,7 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
       title,
       repPageUrl: eclaimBrowserSession.repPageUrl,
       createdAt: eclaimBrowserSession.createdAt,
+      loginMode: eclaimBrowserSession.loginMode || 'auto',
     });
   } catch {
     eclaimBrowserSession = null;
@@ -6083,7 +6205,7 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
 
 /** GET /api/nhso-eclaim/browser-screenshot — QR/login screen rendered by Alma browser */
 app.get('/api/nhso-eclaim/browser-screenshot', async (_req, res) => {
-  if (!eclaimBrowserSession) return res.status(404).json({ success: false, error: 'ยังไม่ได้เริ่ม Login ThaID' });
+  if (!eclaimBrowserSession) return res.status(404).json({ success: false, error: 'ยังไม่ได้เริ่มเชื่อมต่อ NHSO e-Claim' });
   try {
     const png = await eclaimBrowserSession.page.screenshot({ type: 'png', fullPage: false });
     res.setHeader('Content-Type', 'image/png');
@@ -6118,8 +6240,8 @@ app.post('/api/nhso-eclaim/browser-close', async (_req, res) => {
   return res.json({ success: true });
 });
 
-/** POST /api/nhso-eclaim/browser-login — start a non-blocking ThaID browser session */
-app.post('/api/nhso-eclaim/browser-login', async (_req, res) => {
+/** POST /api/nhso-eclaim/browser-login — start a non-blocking browser session (supports Username/Password Auto-Login + ThaID QR) */
+app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
   // Close any existing session first
   if (eclaimBrowserSession) {
     try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
@@ -6127,6 +6249,15 @@ app.post('/api/nhso-eclaim/browser-login', async (_req, res) => {
   }
 
   try {
+    const cfg = await getResolvedNhsoEclaimConfig();
+    const requestedMode = String(req.body?.loginMode || cfg.loginMode || 'auto').trim().toLowerCase();
+    const loginMode = (['auto', 'password', 'thaid'].includes(requestedMode) ? requestedMode : 'auto') as 'auto' | 'password' | 'thaid';
+    const username = String(req.body?.username || cfg.username || '').trim();
+    const rawPass = req.body?.password;
+    const password = (rawPass && rawPass !== SECRET_PLACEHOLDER)
+      ? String(rawPass)
+      : String(cfg.password || '');
+
     const { chromium } = await import('playwright');
     const edgePath64 = 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe';
     const edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
@@ -6159,26 +6290,60 @@ app.post('/api/nhso-eclaim/browser-login', async (_req, res) => {
       page,
       ready: false,
       phase: 'opening',
-      message: 'กำลังเปิดหน้า Login eClaim',
+      message: 'กำลังเปิดหน้า Login NHSO e-Claim',
       repPageUrl: '',
       createdAt: Date.now(),
+      loginMode,
     };
     eclaimBrowserSession = session;
 
-    // Open old e-Claim system
+    // Open e-Claim system
     await page.goto('https://eclaim.nhso.go.th/webComponent/main/MainWebAction.do', {
       waitUntil: 'domcontentloaded',
       timeout: 60000,
     });
+    await page.waitForTimeout(800);
+
+    // Step A: Try automatic Username/Password login if configured and mode is 'auto' or 'password'
+    if ((loginMode === 'auto' || loginMode === 'password') && username && password) {
+      session.phase = 'logging_in';
+      session.message = `กำลังเข้าสู่ระบบอัตโนมัติด้วยบัญชี ${username}...`;
+      const pwResult = await tryPasswordLoginOnEclaim(page, username, password);
+      if (pwResult.submitted) {
+        await page.waitForTimeout(1500);
+        if (await checkEclaimSessionReady(session)) {
+          session.ready = true;
+          session.phase = 'ready';
+          session.message = `เข้าสู่ระบบอัตโนมัติสำเร็จ (${username}) พร้อมดาวน์โหลด REP/STM`;
+          session.repPageUrl = page.url();
+          return res.status(200).json({
+            success: true,
+            ready: true,
+            phase: session.phase,
+            message: session.message,
+          });
+        }
+        if (pwResult.error) {
+          session.lastError = `รหัสผ่านไม่ผ่านหรือต้องยืนยัน ThaID เพิ่มเติม: ${pwResult.error}`;
+        }
+      }
+    }
+
+    // Step B: Open ThaID QR option (either chosen directly or fallback/2FA after password)
     session.phase = 'waiting_thaid';
     session.message = 'กำลังเปิดตัวเลือก ThaID';
-    await page.waitForTimeout(800);
     const clicked = await tryOpenThaIdLogin(page);
     session.message = clicked
-      ? 'สแกน QR และยืนยันตัวตนในแอป ThaID'
+      ? 'สแกน QR และยืนยันตัวตนในแอป ThaID (หรือกรอกรหัสผ่านในหน้าเว็บ)'
       : 'กรุณากด “เลือก ThaID” แล้วสแกน QR';
     void monitorEclaimThaIdLogin(session);
-    return res.status(202).json({ success: true, ready: false, phase: session.phase, message: session.message });
+    return res.status(202).json({
+      success: true,
+      ready: false,
+      phase: session.phase,
+      message: session.message,
+      error: session.lastError || undefined,
+    });
   } catch (error) {
     if (eclaimBrowserSession) {
       try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
@@ -6189,15 +6354,50 @@ app.post('/api/nhso-eclaim/browser-login', async (_req, res) => {
   }
 });
 
-/** POST /api/nhso-eclaim/browser-search — navigate in the alive browser and scrape file list */
+const inferFundFromFilenameOrRow = (filename: string, cells: string[], defaultFund = ''): string => {
+  const combined = `${filename} ${cells.join(' ')}`.toUpperCase();
+  if (/OPLGO|IPLGO|_LGO|LGO[_.\s-]/.test(combined)) return 'LGO';
+  if (/OPCS|IPCS|_OFC|OFC[_.\s-]|CSMBS/.test(combined)) return 'OFC';
+  if (/OPBKK|IPBKK|_BKK|BKK[_.\s-]/.test(combined)) return 'BKK';
+  if (/OPUCS|IPUCS|ORF|_UCS|UCS[_.\s-]|WEL/.test(combined)) return 'UCS';
+  if (/SSS|SSOP/.test(combined)) return 'SSS';
+  return defaultFund;
+};
+
+const normalizeFilenameStem = (name: string): string => (
+  String(name || '')
+    .trim()
+    .split(/[\\/]/)
+    .pop()!
+    .replace(/\s+\[.*\]$/, '') // strip sheet suffix like " [Detail]"
+    .replace(/\.(ecd|xls|xlsx|zip|csv|txt)$/i, '')
+    .toLowerCase()
+);
+
+/** POST /api/nhso-eclaim/browser-search — navigate in the alive browser and scrape file list across all funds & pages */
 app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
   if (!eclaimBrowserSession?.ready) {
-    return res.status(400).json({ success: false, error: 'Browser ยังไม่พร้อม กรุณา Login และยืนยันตัวตนด้วย ThaID ก่อน' });
+    return res.status(400).json({ success: false, error: 'Browser ยังไม่พร้อม กรุณาเข้าสู่ระบบ NHSO e-Claim ก่อน' });
   }
 
-  const { periods: periodsBody, fileType = 'ALL' } = req.body as { periods?: string[]; fileType?: string };
+  const {
+    periods: periodsBody,
+    fileType = 'ALL',
+    funds: fundsBody,
+    maxPagesPerSource = 8,
+  } = req.body as {
+    periods?: string[];
+    fileType?: string;
+    funds?: string[];
+    maxPagesPerSource?: number;
+  };
   const periods = Array.isArray(periodsBody) && periodsBody.length > 0 ? periodsBody : [];
   if (periods.length === 0) return res.status(400).json({ success: false, error: 'กรุณาระบุงวด' });
+
+  const requestedFunds = Array.isArray(fundsBody) && fundsBody.length > 0
+    ? new Set(fundsBody.map((f) => String(f).trim().toUpperCase()).filter(Boolean))
+    : null;
+  const maxPages = Math.max(1, Math.min(Number(maxPagesPerSource) || 8, 20));
 
   const page = eclaimBrowserSession.page;
   const allFiles: Record<string, unknown>[] = [];
@@ -6227,10 +6427,6 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             )
           );
           if (dlLinks.length > 0) {
-            // Validation pages contain two links in the same row: the REP .ecd
-            // payload and the human-readable "download excel" link. Always pick
-            // the Excel action; selecting the first link only refreshes/downloads
-            // the .ecd payload and never produces an importable workbook.
             const excelLink = dlLinks.find((link) =>
               /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(
                 `${link.textContent || ''} ${link.getAttribute('title') || ''} ${link.getAttribute('aria-label') || ''}`
@@ -6252,9 +6448,6 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
               period: pStr,
             });
           } else if (tds.some((td) => /REP|STM|INV|\.zip|\.xlsx|\.ecd/i.test(td.textContent || ''))) {
-            // Some eClaim themes use an icon/empty link whose label does not say
-            // "download". Keep the row only when there is still a clickable link;
-            // otherwise Auto Download would queue a display-only table row.
             const candidate = links.find((a) => Boolean(a.getAttribute('onclick')))
               || links.find((a) => Boolean(a.getAttribute('href')));
             if (candidate) {
@@ -6274,6 +6467,49 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
     }, periodStr);
   };
 
+  // Multi-page pagination scraper — automatically traverses DisplayTag / numbered pagination links
+  const scrapeFilesAcrossPages = async (periodStr: string): Promise<Record<string, unknown>[]> => {
+    const collected: Record<string, unknown>[] = [];
+    const firstPageRows = await scrapeFilesFromPage(periodStr);
+    collected.push(...firstPageRows);
+    if (firstPageRows.length === 0 || maxPages <= 1) return collected;
+
+    const visitedUrls = new Set<string>([page.url()]);
+    const paginationUrls = await page.evaluate(() => {
+      const urls: string[] = [];
+      const selectors = [
+        '.pagelinks a',
+        'span.pagelinks a',
+        'a[href*="d-"][href*="-p="]',
+        '.pagination a',
+        'a[href*="page="]',
+      ];
+      for (const sel of selectors) {
+        for (const a of Array.from(document.querySelectorAll<HTMLAnchorElement>(sel))) {
+          const href = a.href || '';
+          if (href && /^https?:\/\//i.test(href) && !urls.includes(href)) {
+            urls.push(href);
+          }
+        }
+      }
+      return urls;
+    }).catch(() => [] as string[]);
+
+    for (const nextUrl of paginationUrls.slice(0, maxPages - 1)) {
+      if (visitedUrls.has(nextUrl)) continue;
+      visitedUrls.add(nextUrl);
+      try {
+        await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.waitForTimeout(900);
+        const subRows = await scrapeFilesFromPage(periodStr);
+        collected.push(...subRows);
+      } catch {
+        break;
+      }
+    }
+    return collected;
+  };
+
   try {
     for (const period of periods) {
       const { yearBE, monthNum, monthTh } = parsePeriod(period);
@@ -6283,62 +6519,72 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       let pageTitle = '';
 
       // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ---
-      // This page shows .ecd files with "download excel" links — confirmed working from browser screenshots
-      const financeUrls = [
-        `https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do`,
-      ];
-
-      for (const url of financeUrls) {
-        try {
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          await page.waitForTimeout(1500);
-          pageTitle = await page.title().catch(() => '');
-
-          // Select year (พ.ศ.) in the dropdown
-          const yearSelectHandle = await page.$('select[name*="year" i], select[name*="yr" i], select:first-of-type').catch(() => null);
-          if (yearSelectHandle) {
-            await yearSelectHandle.selectOption({ value: String(yearBE) }).catch(async () => {
-              await yearSelectHandle.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */});
-            });
-            await page.waitForTimeout(500);
-          }
-
-          // Select month dropdown
-          const monthSelectHandle = await page.$('select[name*="month" i], select[name*="mn" i], select:nth-of-type(2)').catch(() => null);
-          if (monthSelectHandle) {
-            await monthSelectHandle.selectOption({ value: String(monthNum) }).catch(async () => {
-              await monthSelectHandle.selectOption({ label: monthTh }).catch(() => {/* ignore */});
-            });
-            await page.waitForTimeout(500);
-          }
-
-          // Click submit button if available
-          const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา|Search", "i")').catch(() => null);
-          if (submitBtn) {
-            await submitBtn.click();
-            await page.waitForTimeout(2000);
-          }
-
-          scraped = await scrapeFilesFromPage(period);
-          usedUrl = url;
-          if (scraped.length > 0) break;
-        } catch { /* try next */ }
-      }
       if (fileType === 'ALL' || fileType === 'INV') {
-        periodFiles.push(...scraped.map((file) => ({ ...file, detectedType: 'INV' })));
-      }
-      scraped = [];
-
-      // --- Strategy 2: UC + ข้าราชการ Statement pages ---
-      if (fileType === 'ALL' || fileType === 'STM') {
-        const statementUrls = [
-          'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do?dynamicMenuFunctionUnitId=1578',
-          'https://eclaim.nhso.go.th/webComponent/nch/StatementReportWebAction.do?dynamicMenuFunctionUnitId=995',
+        const financeUrls = [
+          `https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do`,
         ];
-        for (const stmUrl of statementUrls) {
+
+        for (const url of financeUrls) {
           try {
-            await page.goto(stmUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await page.waitForTimeout(1500);
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForTimeout(1200);
+            pageTitle = await page.title().catch(() => '');
+
+            const yearSelectHandle = await page.$('select[name*="year" i], select[name*="yr" i], select:first-of-type').catch(() => null);
+            if (yearSelectHandle) {
+              await yearSelectHandle.selectOption({ value: String(yearBE) }).catch(async () => {
+                await yearSelectHandle.selectOption({ label: String(yearBE) }).catch(() => {/* ignore */});
+              });
+              await page.waitForTimeout(400);
+            }
+
+            const monthSelectHandle = await page.$('select[name*="month" i], select[name*="mn" i], select:nth-of-type(2)').catch(() => null);
+            if (monthSelectHandle) {
+              await monthSelectHandle.selectOption({ value: String(monthNum) }).catch(async () => {
+                await monthSelectHandle.selectOption({ label: monthTh }).catch(() => {/* ignore */});
+              });
+              await page.waitForTimeout(400);
+            }
+
+            const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา|Search", "i")').catch(() => null);
+            if (submitBtn) {
+              await submitBtn.click();
+              await page.waitForTimeout(1800);
+            }
+
+            scraped = await scrapeFilesAcrossPages(period);
+            usedUrl = url;
+            if (scraped.length > 0) break;
+          } catch { /* try next */ }
+        }
+        periodFiles.push(...scraped.map((file) => {
+          const fname = String(file.filename || '');
+          const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+          return {
+            ...file,
+            detectedType: 'INV',
+            fund: inferFundFromFilenameOrRow(fname, cells, 'INV'),
+          };
+        }));
+        scraped = [];
+      }
+
+      // --- Strategy 2: All Statement pages (UCS + OFC/LGO/BKK/NCH) ---
+      if (fileType === 'ALL' || fileType === 'STM') {
+        const statementSources = [
+          {
+            defaultFund: 'UCS',
+            url: 'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do?dynamicMenuFunctionUnitId=1578',
+          },
+          {
+            defaultFund: 'OFC/LGO',
+            url: 'https://eclaim.nhso.go.th/webComponent/nch/StatementReportWebAction.do?dynamicMenuFunctionUnitId=995',
+          },
+        ];
+        for (const stmSource of statementSources) {
+          try {
+            await page.goto(stmSource.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForTimeout(1200);
             pageTitle = await page.title().catch(() => '');
             const yearSel = await page.$('select[name*="year" i], select[id*="year" i], select:first-of-type').catch(() => null);
             if (yearSel) {
@@ -6357,20 +6603,29 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา", "i")').catch(() => null);
             if (submitBtn) {
               await submitBtn.click();
-              await page.waitForTimeout(2000);
+              await page.waitForTimeout(1800);
             }
-            const statementFiles = await scrapeFilesFromPage(period);
-            periodFiles.push(...statementFiles.map((file) => ({ ...file, detectedType: 'STM' })));
-            usedUrl = stmUrl;
+            const statementFiles = await scrapeFilesAcrossPages(period);
+            periodFiles.push(...statementFiles.map((file) => {
+              const fname = String(file.filename || '');
+              const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+              return {
+                ...file,
+                detectedType: 'STM',
+                fund: inferFundFromFilenameOrRow(fname, cells, stmSource.defaultFund),
+              };
+            }));
+            usedUrl = stmSource.url;
           } catch { /* try the next statement page */ }
         }
       }
 
       // --- Strategy 3: REP ทุกสิทธิที่พบในหน้า validation/REP ของ eClaim ---
-      // หน้าตรวจสอบแยกสิทธิใช้ maininscl ต่างกัน จึงต้องเปิดครบทุกหน้า
-      // ห้ามหยุดที่หน้าที่พบไฟล์หน้าแรก มิฉะนั้นไฟล์ของสิทธิอื่นจะตกหล่น
       if (fileType === 'ALL' || fileType === 'REP') {
-        const insuranceCodes = ['ucs', 'ofc', 'lgo', 'bkk'];
+        const allInsuranceCodes = ['ucs', 'ofc', 'lgo', 'bkk', 'sss'];
+        const insuranceCodes = requestedFunds
+          ? allInsuranceCodes.filter((c) => requestedFunds.has(c.toUpperCase()))
+          : allInsuranceCodes;
         const repSources = [
           ...insuranceCodes.map((fund) => ({
             fund: fund.toUpperCase(),
@@ -6397,7 +6652,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         for (const source of repSources) {
           try {
             await page.goto(source.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
-            await page.waitForTimeout(1500);
+            await page.waitForTimeout(1200);
             pageTitle = await page.title().catch(() => '');
 
             const isErrorPage = pageTitle.toLowerCase().includes('error') || await page.evaluate(() =>
@@ -6423,56 +6678,135 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
               const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา", "i")').catch(() => null);
               if (submitBtn) {
                 await submitBtn.click();
-                await page.waitForTimeout(2000);
+                await page.waitForTimeout(1800);
               }
             }
 
-            const sourceFiles = await scrapeFilesFromPage(period);
-            periodFiles.push(...sourceFiles.map((file) => ({
-              ...file,
-              detectedType: 'REP',
-              fund: source.fund,
-              sourcePage: file.sourcePage || source.url,
-            })));
+            const sourceFiles = await scrapeFilesAcrossPages(period);
+            periodFiles.push(...sourceFiles.map((file) => {
+              const fname = String(file.filename || '');
+              const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+              return {
+                ...file,
+                detectedType: 'REP',
+                fund: inferFundFromFilenameOrRow(fname, cells, source.fund),
+                sourcePage: file.sourcePage || source.url,
+              };
+            }));
             usedUrl = source.url;
           } catch { /* try next */ }
         }
       }
 
-      allFiles.push(...periodFiles);
+      // Filter by requestedFunds if provided
+      const filteredPeriodFiles = requestedFunds
+        ? periodFiles.filter((file) => {
+            const f = String(file.fund || '').toUpperCase();
+            return !f || requestedFunds.has(f) || Array.from(requestedFunds).some((rf) => f.includes(rf));
+          })
+        : periodFiles;
+
+      allFiles.push(...filteredPeriodFiles);
 
       // Debug: snapshot of current page HTML
       const htmlSnippet = await page.evaluate(() => document.body?.innerHTML?.slice(0, 3000) || '').catch(() => '');
-      debugLog.push({ period, url: usedUrl || 'none', title: pageTitle, rowCount: periodFiles.length, htmlSnippet });
+      debugLog.push({ period, url: usedUrl || 'none', title: pageTitle, rowCount: filteredPeriodFiles.length, htmlSnippet });
     }
 
     const uniqueFiles = Array.from(new Map(allFiles.map((file) => {
-       const key = [file.period, file.detectedType, file.fund, file.filename, file.downloadHref, file.downloadOnclick]
-         .map((value) => String(value || '')).join('|');
+      const key = [file.period, file.detectedType, file.fund, file.filename, file.downloadHref, file.downloadOnclick]
+        .map((value) => String(value || '')).join('|');
       return [key, file] as const;
     })).values());
-    return res.json({ success: true, data: uniqueFiles, total: uniqueFiles.length, debug: debugLog });
+
+    // Cross-reference against repstm_import_batch to flag files already imported
+    const importedByExactName = new Map<string, { id: number; created_at: string }>();
+    const importedByStem = new Map<string, { id: number; created_at: string; source_filename: string }>();
+    try {
+      await ensureRepstmTables();
+      const repConn = await getUTFConnection();
+      try {
+        const [batchRows] = await repConn.query(
+          `SELECT id, source_filename, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') AS created_str
+           FROM repstm_import_batch b
+           WHERE NOT EXISTS (
+             SELECT 1 FROM repstm_import_batch r2 WHERE r2.replaces_batch_id = b.id
+           )
+           ORDER BY id DESC`
+        );
+        for (const row of (batchRows as Array<{ id: number; source_filename: string; created_str: string }>)) {
+          const rawName = String(row.source_filename || '').trim();
+          if (!rawName) continue;
+          const lower = rawName.toLowerCase();
+          if (!importedByExactName.has(lower)) {
+            importedByExactName.set(lower, { id: row.id, created_at: row.created_str });
+          }
+          const stem = normalizeFilenameStem(rawName);
+          if (stem && !importedByStem.has(stem)) {
+            importedByStem.set(stem, { id: row.id, created_at: row.created_str, source_filename: rawName });
+          }
+        }
+      } finally {
+        repConn.release();
+      }
+    } catch (dbErr) {
+      console.warn('Unable to cross-check repstm_import_batch during browser-search:', dbErr);
+    }
+
+    let newCount = 0;
+    let existingCount = 0;
+    const enrichedFiles = uniqueFiles.map((file) => {
+      const fname = String(file.filename || '').trim();
+      const lower = fname.toLowerCase();
+      const stem = normalizeFilenameStem(fname);
+      const exactMatch = importedByExactName.get(lower);
+      const stemMatch = stem ? importedByStem.get(stem) : undefined;
+      const match = exactMatch || stemMatch;
+      if (match) {
+        existingCount += 1;
+      } else {
+        newCount += 1;
+      }
+      return {
+        ...file,
+        alreadyImported: Boolean(match),
+        importedBatchId: match?.id || null,
+        importedAt: match?.created_at || null,
+      };
+    });
+
+    return res.json({
+      success: true,
+      data: enrichedFiles,
+      total: enrichedFiles.length,
+      newCount,
+      existingCount,
+      debug: debugLog,
+    });
   } catch (error) {
     return res.status(500).json({ success: false, error: (error as Error).message, debug: debugLog });
   }
 });
 
-/** POST /api/nhso-eclaim/browser-download — download a file via the alive browser, return base64 */
+/** POST /api/nhso-eclaim/browser-download — download a file via the alive browser, save local archive, return base64 */
 app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
   if (!eclaimBrowserSession?.ready) {
     return res.status(400).json({ success: false, error: 'Browser ยังไม่พร้อม กรุณา login ก่อน' });
   }
 
-  const { downloadHref, downloadOnclick, downloadLabel, filename, sourcePage } = req.body as {
+  const { downloadHref, downloadOnclick, downloadLabel, filename, sourcePage, period, detectedType } = req.body as {
     downloadHref?: string;
     downloadOnclick?: string;
     downloadLabel?: string;
     filename?: string;
     sourcePage?: string;
+    period?: string;
+    detectedType?: string;
   };
 
   const page = eclaimBrowserSession.page;
   const context = eclaimBrowserSession.context;
+  const cfg = await getResolvedNhsoEclaimConfig().catch(() => getDefaultNhsoEclaimConfig());
 
   const isAllowedEclaimUrl = (rawUrl: string) => {
     try {
@@ -6515,14 +6849,33 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
     return safeName;
   };
 
-  const sendBuffer = (buffer: Buffer, responseFilename: string, contentType = 'application/octet-stream') => (
-    res.json({
+  const sendBuffer = async (buffer: Buffer, responseFilename: string, contentType = 'application/octet-stream') => {
+    const normalizedName = normalizeDownloadedFilename(responseFilename, buffer, contentType);
+    let savedArchivePath: string | null = null;
+    if (cfg.saveLocalArchive !== false) {
+      try {
+        const subdir = String(cfg.archiveSubdir || 'downloads/nhso-repstm')
+          .replace(/\.\./g, '')
+          .replace(/^[\\/]+/, '');
+        const safePeriod = String(period || 'general').replace(/[^a-zA-Z0-9_-]/g, '');
+        const safeType = String(detectedType || 'OTHER').replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase();
+        const targetDir = path.resolve(process.cwd(), subdir, safePeriod || 'general', safeType || 'OTHER');
+        await fs.mkdir(targetDir, { recursive: true });
+        const fullFilePath = path.join(targetDir, normalizedName);
+        await fs.writeFile(fullFilePath, buffer);
+        savedArchivePath = fullFilePath;
+      } catch (archiveErr) {
+        console.warn('Unable to save local archive copy:', archiveErr);
+      }
+    }
+    return res.json({
       success: true,
       base64: buffer.toString('base64'),
-      filename: normalizeDownloadedFilename(responseFilename, buffer, contentType),
+      filename: normalizedName,
       contentType,
-    })
-  );
+      savedArchivePath,
+    });
+  };
 
   try {
     // Most eClaim links are normal HTTP downloads. Calling them through the
@@ -6550,7 +6903,7 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
         if (downloadable) {
           const responseName = filenameFromDisposition(disposition) || filename || 'eclaim-download';
           await directResponse.dispose().catch(() => undefined);
-          return sendBuffer(buffer, responseName, contentType || 'application/octet-stream');
+          return await sendBuffer(buffer, responseName, contentType || 'application/octet-stream');
         }
         await directResponse.dispose().catch(() => undefined);
       }
@@ -6626,7 +6979,7 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
     if (!downloadPath) throw new Error('Browser รับไฟล์แล้วแต่ไม่พบไฟล์ชั่วคราว');
     const buffer = await fs.readFile(downloadPath);
     const suggestedName = download.suggestedFilename() || filename || 'eclaim-download';
-    return sendBuffer(buffer, suggestedName);
+    return await sendBuffer(buffer, suggestedName);
   } catch (error) {
     console.error('eClaim browser download error:', {
       filename,

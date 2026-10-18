@@ -359,7 +359,8 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimBrowserAlive, setEclaimBrowserAlive] = useState(false);
   const [eclaimBrowserPhase, setEclaimBrowserPhase] = useState('closed');
   const [eclaimBrowserMessage, setEclaimBrowserMessage] = useState('ยังไม่ได้เริ่มเชื่อมต่อ NHSO e-Claim');
-  const [eclaimScreenshotVersion, setEclaimScreenshotVersion] = useState(0);
+  const [eclaimScreenshotDataUrl, setEclaimScreenshotDataUrl] = useState<string | null>(null);
+  const [eclaimQrModalOpen, setEclaimQrModalOpen] = useState(false);
   const [eclaimLoading, setEclaimLoading] = useState(false);
   const [eclaimSearchProgress, setEclaimSearchProgress] = useState<string | null>(null);
   const eclaimStopSearchRef = useRef(false);
@@ -574,7 +575,13 @@ export const RepStmImportPage: React.FC = () => {
       try {
         const response = await fetch('/api/nhso-eclaim/browser-status', { cache: 'no-store' });
         const status = await response.json() as {
-          alive?: boolean; launching?: boolean; ready?: boolean; phase?: string; message?: string; error?: string | null;
+          alive?: boolean;
+          launching?: boolean;
+          ready?: boolean;
+          phase?: string;
+          message?: string;
+          error?: string | null;
+          screenshotDataUrl?: string | null;
         };
         if (!active) return;
         const phase = String(status.phase || 'closed');
@@ -587,12 +594,19 @@ export const RepStmImportPage: React.FC = () => {
         setEclaimBrowserPhase(phase);
         if (status.message) setEclaimBrowserMessage(String(status.message));
         if (status.error) setEclaimError(status.error);
+        if (status.screenshotDataUrl) {
+          setEclaimScreenshotDataUrl(status.screenshotDataUrl);
+        } else if (status.ready || !status.alive) {
+          setEclaimScreenshotDataUrl(null);
+        }
+        if (status.ready) {
+          setEclaimQrModalOpen(false);
+        }
         if (status.launching) {
           setEclaimBrowserLoading(true);
-        } else if (!eclaimLoginInFlightRef.current && (status.ready || ['closed', 'expired', 'error'].includes(phase))) {
+        } else if (!eclaimLoginInFlightRef.current && (status.ready || status.alive || ['closed', 'expired', 'error'].includes(phase))) {
           setEclaimBrowserLoading(false);
         }
-        if (status.alive && !status.ready) setEclaimScreenshotVersion(Date.now());
       } catch { /* backend may be restarting */ }
     };
     void pollStatus();
@@ -720,16 +734,27 @@ export const RepStmImportPage: React.FC = () => {
           password: eclaimPassword || undefined,
         }),
       });
-      const json = await res.json() as { success: boolean; ready?: boolean; phase?: string; message?: string; error?: string };
+      const json = await res.json() as {
+        success: boolean;
+        ready?: boolean;
+        phase?: string;
+        message?: string;
+        screenshotDataUrl?: string | null;
+        error?: string;
+      };
       if (!json.success) throw new Error(json.error || 'Login ไม่สำเร็จ');
       setEclaimBrowserAlive(true);
       setEclaimBrowserReady(Boolean(json.ready));
       setEclaimBrowserPhase(String(json.phase || 'waiting_thaid'));
       setEclaimBrowserMessage(String(json.message || 'กำลังเชื่อมต่อ NHSO e-Claim'));
+      setEclaimBrowserLoading(false);
+      if (json.screenshotDataUrl) {
+        setEclaimScreenshotDataUrl(json.screenshotDataUrl);
+      }
       if (json.ready) {
-        setEclaimBrowserLoading(false);
+        setEclaimQrModalOpen(false);
       } else {
-        setEclaimScreenshotVersion(Date.now());
+        setEclaimQrModalOpen(true);
       }
     } catch (err) {
       setEclaimError((err as Error).message);
@@ -743,10 +768,18 @@ export const RepStmImportPage: React.FC = () => {
     setEclaimError(null);
     try {
       const response = await fetch('/api/nhso-eclaim/browser-thaid', { method: 'POST' });
-      const json = await response.json() as { success?: boolean; message?: string; error?: string };
+      const json = await response.json() as {
+        success?: boolean;
+        message?: string;
+        screenshotDataUrl?: string | null;
+        error?: string;
+      };
       setEclaimBrowserMessage(String(json.message || 'กรุณาสแกน QR ด้วยแอป ThaID'));
       if (!response.ok) throw new Error(json.error || 'เปิดหน้า ThaID ไม่สำเร็จ');
-      setEclaimScreenshotVersion(Date.now());
+      if (json.screenshotDataUrl) {
+        setEclaimScreenshotDataUrl(json.screenshotDataUrl);
+      }
+      setEclaimQrModalOpen(true);
     } catch (err) {
       setEclaimError(err instanceof Error ? err.message : 'เปิดหน้า ThaID ไม่สำเร็จ');
     }
@@ -759,6 +792,8 @@ export const RepStmImportPage: React.FC = () => {
     setEclaimBrowserPhase('closed');
     setEclaimBrowserMessage('ปิด Browser แล้ว');
     setEclaimBrowserLoading(false);
+    setEclaimScreenshotDataUrl(null);
+    setEclaimQrModalOpen(false);
   };
 
   const triggerSmtBudgetSync = async (periodsToCover: string[] = eclaimPeriods) => {
@@ -875,7 +910,7 @@ export const RepStmImportPage: React.FC = () => {
             setEclaimBrowserAlive(true);
             setEclaimBrowserPhase('waiting_thaid');
             setEclaimBrowserMessage('สแกน QR Code ด้านล่างด้วยแอป ThaID บนมือถือเพื่อยืนยันตัวตน');
-            setEclaimScreenshotVersion(Date.now());
+            setEclaimQrModalOpen(true);
           }
           throw new Error(json.error || `ค้นหางวด ${period} ไม่สำเร็จ`);
         }
@@ -1820,15 +1855,30 @@ export const RepStmImportPage: React.FC = () => {
                   style={{ flexShrink: 0 }}
                 >
                   {eclaimBrowserLoading
-                    ? '⏳ กำลังเชื่อมต่อ NHSO e-Claim...'
-                    : eclaimUsername || eclaimHasPassword
-                      ? '🔐 เชื่อมต่อ / Auto-Login e-Claim'
-                      : '🔐 เริ่ม Login NHSO e-Claim (ThaID)'}
+                    ? '⏳ กำลังเตรียมหน้าจอ Login...'
+                    : eclaimBrowserAlive && !eclaimBrowserReady
+                      ? '🔄 เปิดหน้า Login / ขอ QR ใหม่'
+                      : eclaimLoginMode !== 'thaid' && (eclaimUsername || eclaimHasPassword)
+                        ? '🔐 เชื่อมต่อ / Auto-Login e-Claim'
+                        : '🔐 เริ่ม Login NHSO e-Claim (ThaID)'}
                 </button>
                 {eclaimBrowserAlive && !eclaimBrowserReady && (
-                  <button className="btn btn-secondary" onClick={() => void handleThaIdSelect()}>
-                    📱 สลับไปแสดง QR ThaID
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ background: '#2563eb', color: '#fff', border: 'none' }}
+                      onClick={() => setEclaimQrModalOpen(true)}
+                    >
+                      🔍 เปิด Popup สแกน QR ThaID
+                    </button>
+                    <button type="button" className="btn btn-secondary" onClick={() => void handleThaIdSelect()}>
+                      📱 สลับไปแสดง QR ThaID
+                    </button>
+                    <button type="button" className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 10px' }} onClick={handleBrowserClose}>
+                      ❌ ยกเลิก / ปิด Browser
+                    </button>
+                  </>
                 )}
                 {eclaimBrowserReady && !eclaimBrowserLoading && (
                   <>
@@ -1844,16 +1894,110 @@ export const RepStmImportPage: React.FC = () => {
               <div style={{ marginTop: 8, color: eclaimBrowserReady ? '#15803d' : '#92400e', fontWeight: 600 }}>
                 สถานะ: {eclaimBrowserMessage} <span style={{ opacity: 0.65 }}>({eclaimBrowserPhase})</span>
               </div>
-              {eclaimBrowserAlive && !eclaimBrowserReady && (
-                <div style={{ marginTop: 10, maxWidth: 900 }}>
+              {eclaimBrowserAlive && !eclaimBrowserReady && eclaimScreenshotDataUrl && (
+                <div style={{ marginTop: 10, maxWidth: 860 }}>
                   <img
-                    src={`/api/nhso-eclaim/browser-screenshot?t=${eclaimScreenshotVersion}`}
-                    alt="หน้าจอ Login NHSO e-Claim"
-                    style={{ display: 'block', width: '100%', maxHeight: 620, objectFit: 'contain', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8 }}
+                    src={eclaimScreenshotDataUrl}
+                    alt="หน้าจอสแกน QR ThaID NHSO e-Claim"
+                    style={{ display: 'block', width: '100%', maxHeight: 580, objectFit: 'contain', background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, cursor: 'pointer' }}
+                    onClick={() => setEclaimQrModalOpen(true)}
                   />
                 </div>
               )}
             </div>
+
+            {/* Centered Popup Modal for scanning ThaID QR Code */}
+            {eclaimQrModalOpen && eclaimBrowserAlive && !eclaimBrowserReady && (
+              <div
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  zIndex: 9999,
+                  background: 'rgba(15, 23, 42, 0.72)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 16,
+                }}
+                onClick={() => setEclaimQrModalOpen(false)}
+              >
+                <div
+                  style={{
+                    background: '#ffffff',
+                    borderRadius: 14,
+                    maxWidth: 880,
+                    width: '100%',
+                    maxHeight: '92vh',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxShadow: '0 25px 50px -12px rgba(0,0,0,0.45)',
+                    overflow: 'hidden',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    style={{
+                      padding: '14px 18px',
+                      background: 'linear-gradient(135deg, #1e3a8a, #2563eb)',
+                      color: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 16 }}>
+                        📱 สแกน QR Code แอป ThaID เพื่อเข้าสู่ระบบ NHSO e-Claim
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.9, marginTop: 2 }}>
+                        {eclaimBrowserMessage} ({eclaimBrowserPhase}) — เมื่อสแกนสำเร็จ หน้าต่างนี้จะปิดและพร้อมดึงข้อมูลอัตโนมัติทันที
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 12, padding: '4px 10px', background: '#fff', color: '#1e3a8a', border: 'none', fontWeight: 600 }}
+                        onClick={() => void handleThaIdSelect()}
+                      >
+                        🔄 สลับ/รีเฟรชหน้า QR ThaID
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        style={{ fontSize: 12, padding: '4px 10px', background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none' }}
+                        onClick={() => setEclaimQrModalOpen(false)}
+                      >
+                        ย่อหน้าต่าง ✕
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ padding: 16, overflowY: 'auto', background: '#f8fafc', textAlign: 'center' }}>
+                    {eclaimScreenshotDataUrl ? (
+                      <img
+                        src={eclaimScreenshotDataUrl}
+                        alt="QR Code ThaID NHSO e-Claim"
+                        style={{
+                          display: 'inline-block',
+                          maxWidth: '100%',
+                          maxHeight: '72vh',
+                          objectFit: 'contain',
+                          background: '#fff',
+                          border: '1px solid #cbd5e1',
+                          borderRadius: 10,
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                        }}
+                      />
+                    ) : (
+                      <div style={{ padding: '48px 20px', color: '#475569', fontSize: 14 }}>
+                        ⏳ กำลังโหลดภาพหน้าจอ QR Code ของแอป ThaID...
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Step 2: Date range, File type, and Fund filters */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 10 }}>

@@ -6311,6 +6311,16 @@ let eclaimLaunchState: {
   error: null,
 };
 
+const captureEclaimScreenshotDataUrl = async (session: EclaimBrowserSession | null): Promise<string | null> => {
+  if (!session || !session.browser.isConnected()) return null;
+  try {
+    const png = await session.page.screenshot({ type: 'png', fullPage: false });
+    return `data:image/png;base64,${png.toString('base64')}`;
+  } catch {
+    return null;
+  }
+};
+
 /** GET /api/nhso-eclaim/browser-status — check if browser session is alive and ready */
 app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
   if (!eclaimBrowserSession) {
@@ -6321,13 +6331,18 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
       phase: eclaimLaunchState.phase,
       message: eclaimLaunchState.message,
       error: eclaimLaunchState.error,
+      screenshotDataUrl: null,
     });
   }
   try {
+    const alive = eclaimBrowserSession.browser.isConnected();
     const url = eclaimBrowserSession.page.url();
     const title = await eclaimBrowserSession.page.title().catch(() => '');
+    const screenshotDataUrl = alive && !eclaimBrowserSession.ready
+      ? await captureEclaimScreenshotDataUrl(eclaimBrowserSession)
+      : null;
     return res.json({
-      alive: eclaimBrowserSession.browser.isConnected(),
+      alive,
       launching: false,
       ready: eclaimBrowserSession.ready,
       phase: eclaimBrowserSession.phase,
@@ -6338,6 +6353,7 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
       repPageUrl: eclaimBrowserSession.repPageUrl,
       createdAt: eclaimBrowserSession.createdAt,
       loginMode: eclaimBrowserSession.loginMode || 'auto',
+      screenshotDataUrl,
     });
   } catch {
     eclaimBrowserSession = null;
@@ -6348,6 +6364,7 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
       phase: 'closed',
       message: 'Browser ถูกปิดแล้ว',
       error: null,
+      screenshotDataUrl: null,
     });
   }
 });
@@ -6375,7 +6392,8 @@ app.post('/api/nhso-eclaim/browser-thaid', async (_req, res) => {
     eclaimBrowserSession.message = clicked
       ? 'เปิดหน้า ThaID แล้ว กรุณาสแกน QR ด้านล่าง'
       : 'แสดงหน้าจอ Login แล้ว หากยังไม่เห็น QR กดปุ่มนี้อีกครั้ง';
-    return res.json({ success: true, clicked, message: eclaimBrowserSession.message });
+    const screenshotDataUrl = await captureEclaimScreenshotDataUrl(eclaimBrowserSession);
+    return res.json({ success: true, clicked, message: eclaimBrowserSession.message, screenshotDataUrl });
   } catch (error) {
     return res.status(500).json({ success: false, error: (error as Error).message });
   }
@@ -6696,11 +6714,13 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
       ? 'สแกน QR Code ด้านล่างด้วยแอป ThaID บนมือถือเพื่อยืนยันตัวตน'
       : 'แสดงหน้าจอ Login แล้ว — กรุณาสแกน QR หรือกด “สลับไปแสดง QR ThaID”';
     void monitorEclaimThaIdLogin(session);
+    const screenshotDataUrl = await captureEclaimScreenshotDataUrl(session);
     return res.status(202).json({
       success: true,
       ready: false,
       phase: session.phase,
       message: session.message,
+      screenshotDataUrl,
       error: session.lastError || undefined,
     });
   } catch (error) {

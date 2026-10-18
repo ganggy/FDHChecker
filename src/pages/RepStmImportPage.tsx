@@ -1138,7 +1138,7 @@ export const RepStmImportPage: React.FC = () => {
             funds: eclaimFunds,
             // If ValidationMainAction.do has no month/year filter, scrape it deeply on the first pass (idx === 0) and skip on idx > 0
             skipRep: idx > 0 && !repSupportsPeriodFilter,
-            maxPagesPerSource: idx === 0 ? 8 : 3,
+            maxPagesPerSource: 25,
           }),
         });
         const json = await res.json() as {

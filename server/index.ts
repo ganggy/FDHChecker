@@ -6884,7 +6884,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
     periods: periodsBody,
     fileType = 'ALL',
     funds: fundsBody,
-    maxPagesPerSource = 3,
+    maxPagesPerSource = 20,
     skipRep = false,
   } = req.body as {
     periods?: string[];
@@ -6899,7 +6899,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
   const requestedFunds = Array.isArray(fundsBody) && fundsBody.length > 0
     ? new Set(fundsBody.map((f) => String(f).trim().toUpperCase()).filter(Boolean))
     : null;
-  const maxPages = Math.max(1, Math.min(Number(maxPagesPerSource) || 3, 20));
+  const maxPages = Math.max(1, Math.min(Number(maxPagesPerSource) || 20, 50));
 
   const page = eclaimBrowserSession.page;
   const allFiles: Record<string, unknown>[] = [];
@@ -7048,38 +7048,131 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
     if (firstPageRows.length === 0 || maxPages <= 1) return collected;
 
     const visitedUrls = new Set<string>([page.url()]);
-    const paginationUrls = await page.evaluate(() => {
-      const urls: string[] = [];
-      const selectors = [
-        '.pagelinks a',
-        'span.pagelinks a',
-        'a[href*="d-"][href*="-p="]',
-        '.pagination a',
-        'a[href*="page="]',
-      ];
-      for (const sel of selectors) {
-        for (const a of Array.from(document.querySelectorAll<HTMLAnchorElement>(sel))) {
-          const href = a.href || '';
-          if (href && /^https?:\/\//i.test(href) && !urls.includes(href)) {
-            urls.push(href);
+    let currentPage = 1;
+
+    while (currentPage < maxPages) {
+      const nextPageNum = currentPage + 1;
+
+      // Locate the next page target from current page's DOM
+      const nextTarget = await page.evaluate((targetPage) => {
+        const clean = (t: string) => t.trim().toLowerCase();
+        const isNextLabel = (txt: string, title: string) => (
+          /^(?:next|ถัดไป|>)$/i.test(txt) || /^(?:next|ถัดไป|>)$/i.test(title)
+        );
+        const isLastLabel = (txt: string, title: string) => (
+          /^(?:last|หน้าสุดท้าย|>>)$/i.test(txt) || /last|หน้าสุดท้าย/i.test(title)
+        );
+
+        const candidates = Array.from(document.querySelectorAll<HTMLAnchorElement>(
+          '.pagelinks a, span.pagelinks a, .pagination a, a[href*="d-"][href*="-p="], a[href*="page="], a[onclick*="page"], a[href*="javascript:"]'
+        ));
+
+        // 1. Try to find link explicitly with text matching targetPage number (e.g. "2", "3")
+        for (const a of candidates) {
+          const txt = clean(a.textContent || '');
+          if (txt === String(targetPage)) {
+            const href = a.getAttribute('href') || '';
+            const onclick = a.getAttribute('onclick') || '';
+            return {
+              href: a.href || '',
+              rawHref: href,
+              isJs: Boolean(onclick || href.startsWith('javascript:')),
+              pageNumber: targetPage,
+            };
           }
         }
-      }
-      return urls;
-    }).catch(() => [] as string[]);
 
-    for (const nextUrl of paginationUrls.slice(0, maxPages - 1)) {
-      if (visitedUrls.has(nextUrl)) continue;
-      visitedUrls.add(nextUrl);
+        // 2. Try to find link with -p=targetPage or page=targetPage in href
+        const targetParamRegex = new RegExp(`(?:-p=|page=)${targetPage}(?:&|$)`, 'i');
+        for (const a of candidates) {
+          const href = a.getAttribute('href') || '';
+          if (targetParamRegex.test(href)) {
+            const onclick = a.getAttribute('onclick') || '';
+            return {
+              href: a.href || '',
+              rawHref: href,
+              isJs: Boolean(onclick || href.startsWith('javascript:')),
+              pageNumber: targetPage,
+            };
+          }
+        }
+
+        // 3. Try to find "Next" / "ถัดไป" / ">" link (explicitly NOT "Last" / "หน้าสุดท้าย")
+        for (const a of candidates) {
+          const txt = clean(a.textContent || '');
+          const title = clean(a.getAttribute('title') || '');
+          if (isLastLabel(txt, title)) continue;
+          if (isNextLabel(txt, title)) {
+            const href = a.getAttribute('href') || '';
+            const onclick = a.getAttribute('onclick') || '';
+            return {
+              href: a.href || '',
+              rawHref: href,
+              isJs: Boolean(onclick || href.startsWith('javascript:')),
+              pageNumber: targetPage,
+            };
+          }
+        }
+
+        return null;
+      }, nextPageNum).catch(() => null);
+
+      if (!nextTarget) {
+        // No further pages found
+        break;
+      }
+
+      // Check if we've already visited this exact URL
+      if (nextTarget.href && !nextTarget.isJs && visitedUrls.has(nextTarget.href)) {
+        break;
+      }
+
+      let navigated = false;
       try {
-        await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-        await page.waitForTimeout(450);
-        const subRows = await scrapeFilesFromPage(periodStr);
-        collected.push(...subRows);
+        if (nextTarget.isJs || !nextTarget.href || nextTarget.href.startsWith('javascript:')) {
+          // Trigger click inside browser context
+          await page.evaluate((targetPage) => {
+            const clean = (t: string) => t.trim().toLowerCase();
+            const candidates = Array.from(document.querySelectorAll<HTMLAnchorElement>(
+              '.pagelinks a, span.pagelinks a, .pagination a, a[href*="d-"][href*="-p="], a[href*="page="], a[onclick*="page"], a[href*="javascript:"]'
+            ));
+            const targetParamRegex = new RegExp(`(?:-p=|page=)${targetPage}(?:&|$)`, 'i');
+            const target = candidates.find((a) => clean(a.textContent || '') === String(targetPage))
+              || candidates.find((a) => targetParamRegex.test(a.getAttribute('href') || ''))
+              || candidates.find((a) => /^(?:next|ถัดไป|>)$/i.test(clean(a.textContent || '')) || /next|ถัดไป/i.test(clean(a.getAttribute('title') || '')));
+            if (target) {
+              target.click();
+            }
+          }, nextPageNum);
+          await page.waitForTimeout(650);
+          navigated = true;
+        } else {
+          await page.goto(nextTarget.href, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          await page.waitForTimeout(450);
+          navigated = true;
+        }
       } catch {
         break;
       }
+
+      if (!navigated) break;
+
+      const currentSignature = `${page.url()}#page=${nextPageNum}`;
+      if (visitedUrls.has(currentSignature)) {
+        break;
+      }
+      visitedUrls.add(currentSignature);
+      if (nextTarget.href) visitedUrls.add(nextTarget.href);
+
+      const subRows = await scrapeFilesFromPage(periodStr);
+      if (subRows.length === 0) {
+        break;
+      }
+
+      collected.push(...subRows);
+      currentPage++;
     }
+
     return collected;
   };
 

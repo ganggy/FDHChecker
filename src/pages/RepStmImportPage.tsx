@@ -360,6 +360,9 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimBrowserPhase, setEclaimBrowserPhase] = useState('closed');
   const [eclaimBrowserMessage, setEclaimBrowserMessage] = useState('ยังไม่ได้เริ่มเชื่อมต่อ NHSO e-Claim');
   const [eclaimScreenshotDataUrl, setEclaimScreenshotDataUrl] = useState<string | null>(null);
+  const [eclaimQrCodeDataUrl, setEclaimQrCodeDataUrl] = useState<string | null>(null);
+  const [eclaimQrTimerText, setEclaimQrTimerText] = useState<string | null>(null);
+  const [eclaimQrRefCode, setEclaimQrRefCode] = useState<string | null>(null);
   const [eclaimQrModalOpen, setEclaimQrModalOpen] = useState(false);
   const [eclaimLoading, setEclaimLoading] = useState(false);
   const [eclaimSearchProgress, setEclaimSearchProgress] = useState<string | null>(null);
@@ -582,6 +585,9 @@ export const RepStmImportPage: React.FC = () => {
           message?: string;
           error?: string | null;
           screenshotDataUrl?: string | null;
+          qrCodeDataUrl?: string | null;
+          qrTimerText?: string | null;
+          qrRefCode?: string | null;
         };
         if (!active) return;
         const phase = String(status.phase || 'closed');
@@ -599,6 +605,9 @@ export const RepStmImportPage: React.FC = () => {
         } else if (status.ready || !status.alive) {
           setEclaimScreenshotDataUrl(null);
         }
+        setEclaimQrCodeDataUrl(status.qrCodeDataUrl || null);
+        setEclaimQrTimerText(status.qrTimerText || null);
+        setEclaimQrRefCode(status.qrRefCode || null);
         if (status.ready) {
           setEclaimQrModalOpen(false);
         }
@@ -740,6 +749,9 @@ export const RepStmImportPage: React.FC = () => {
         phase?: string;
         message?: string;
         screenshotDataUrl?: string | null;
+        qrCodeDataUrl?: string | null;
+        qrTimerText?: string | null;
+        qrRefCode?: string | null;
         error?: string;
       };
       if (!json.success) throw new Error(json.error || 'Login ไม่สำเร็จ');
@@ -751,6 +763,9 @@ export const RepStmImportPage: React.FC = () => {
       if (json.screenshotDataUrl) {
         setEclaimScreenshotDataUrl(json.screenshotDataUrl);
       }
+      setEclaimQrCodeDataUrl(json.qrCodeDataUrl || null);
+      setEclaimQrTimerText(json.qrTimerText || null);
+      setEclaimQrRefCode(json.qrRefCode || null);
       if (json.ready) {
         setEclaimQrModalOpen(false);
       } else {
@@ -772,6 +787,9 @@ export const RepStmImportPage: React.FC = () => {
         success?: boolean;
         message?: string;
         screenshotDataUrl?: string | null;
+        qrCodeDataUrl?: string | null;
+        qrTimerText?: string | null;
+        qrRefCode?: string | null;
         error?: string;
       };
       setEclaimBrowserMessage(String(json.message || 'กรุณาสแกน QR ด้วยแอป ThaID'));
@@ -779,6 +797,9 @@ export const RepStmImportPage: React.FC = () => {
       if (json.screenshotDataUrl) {
         setEclaimScreenshotDataUrl(json.screenshotDataUrl);
       }
+      setEclaimQrCodeDataUrl(json.qrCodeDataUrl || null);
+      setEclaimQrTimerText(json.qrTimerText || null);
+      setEclaimQrRefCode(json.qrRefCode || null);
       setEclaimQrModalOpen(true);
     } catch (err) {
       setEclaimError(err instanceof Error ? err.message : 'เปิดหน้า ThaID ไม่สำเร็จ');
@@ -793,6 +814,9 @@ export const RepStmImportPage: React.FC = () => {
     setEclaimBrowserMessage('ปิด Browser แล้ว');
     setEclaimBrowserLoading(false);
     setEclaimScreenshotDataUrl(null);
+    setEclaimQrCodeDataUrl(null);
+    setEclaimQrTimerText(null);
+    setEclaimQrRefCode(null);
     setEclaimQrModalOpen(false);
   };
 
@@ -1973,8 +1997,63 @@ export const RepStmImportPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <div style={{ padding: 16, overflowY: 'auto', background: '#f8fafc', textAlign: 'center' }}>
-                    {eclaimScreenshotDataUrl ? (
+                  <div style={{ padding: 20, overflowY: 'auto', background: '#f8fafc', textAlign: 'center' }}>
+                    {eclaimQrCodeDataUrl ? (
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          background: 'linear-gradient(145deg, #2563eb, #1e40af)',
+                          color: '#fff',
+                          padding: '20px 28px',
+                          borderRadius: 16,
+                          boxShadow: '0 10px 25px rgba(30, 64, 175, 0.3)',
+                          maxWidth: 420,
+                          width: '100%',
+                        }}
+                      >
+                        <div style={{ fontSize: 18, fontWeight: 700 }}>เข้าสู่ระบบด้วยแอป ThaID</div>
+                        <div style={{ fontSize: 13, opacity: 0.9, marginTop: 2 }}>ระบบยืนยันตัวตนแบบรวมศูนย์ (DOPA / สปสช.)</div>
+                        {eclaimQrTimerText && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              background: 'rgba(255,255,255,0.18)',
+                              padding: '4px 14px',
+                              borderRadius: 999,
+                              fontWeight: 700,
+                              fontSize: 14,
+                            }}
+                          >
+                            ⏱️ หมดเวลาใน : {eclaimQrTimerText} (รีเฟรชอัตโนมัติเมื่อครบเวลา)
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            marginTop: 14,
+                            background: '#ffffff',
+                            padding: 12,
+                            borderRadius: 12,
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                          }}
+                        >
+                          <img
+                            src={eclaimQrCodeDataUrl}
+                            alt="ThaID QR Code"
+                            style={{ display: 'block', width: 280, height: 280, objectFit: 'contain' }}
+                          />
+                        </div>
+                        {eclaimQrRefCode && (
+                          <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600 }}>
+                            หมายเลขอ้างอิง : <span style={{ letterSpacing: 1, background: 'rgba(0,0,0,0.2)', padding: '2px 8px', borderRadius: 6 }}>{eclaimQrRefCode}</span>
+                          </div>
+                        )}
+                        <div style={{ marginTop: 8, fontSize: 11, opacity: 0.85 }}>
+                          เปิดแอป ThaID บนมือถือ → กดสแกน QR Code ด้านบน
+                        </div>
+                      </div>
+                    ) : eclaimScreenshotDataUrl ? (
                       <img
                         src={eclaimScreenshotDataUrl}
                         alt="QR Code ThaID NHSO e-Claim"

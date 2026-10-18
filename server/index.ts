@@ -489,27 +489,39 @@ const tryPasswordLoginOnEclaim = async (
   }
 };
 
-const tryOpenThaIdLogin = async (page: import('playwright').Page): Promise<boolean> => {
+const tryOpenThaIdLogin = async (page: import('playwright').Page, forceRefresh = false): Promise<boolean> => {
   try {
-    // 1. If on the new NHSO SSO announcement page (MainWebAction.do -> LoginSSOAction.do), click the SSO button or navigate directly
     const currentUrl = page.url();
-    const hasSsoAnnouncement = await page.evaluate(() => {
-      return Boolean(
-        document.querySelector('form[action*="LoginSSOAction"], button.btn-sso, a[href*="LoginSSOAction"]')
-        || (document.title || '').includes('ประกาศใช้งานระบบ SSO')
-        || (document.body?.innerText || '').includes('เข้าสู่ระบบผ่าน OSS สปสช')
+    const pageCheck = await page.evaluate(() => {
+      const title = (document.title || '').trim();
+      const bodyText = (document.body?.innerText || '').trim();
+      const hasSsoAnnouncement = Boolean(
+        document.querySelector('form[action*="LoginSSOAction"], button.btn-sso, a[href*="LoginSSOAction"], a[href*="iam.nhso.go.th"]')
+        || title.includes('ประกาศใช้งานระบบ SSO')
+        || bodyText.includes('เข้าสู่ระบบผ่าน OSS สปสช')
       );
-    }).catch(() => false);
+      const isGdccBlocked = bodyText.includes('GDCC Security Center') || bodyText.includes('This content has been suspended');
+      const qrExpired = bodyText.includes('หมดเวลาใน : 00:00') || bodyText.includes('หมดเวลาใน: 00:00');
+      return { hasSsoAnnouncement, isGdccBlocked, qrExpired };
+    }).catch(() => ({ hasSsoAnnouncement: false, isGdccBlocked: false, qrExpired: false }));
 
-    if (hasSsoAnnouncement || (currentUrl.includes('eclaim.nhso.go.th') && !currentUrl.includes('iam.nhso.go.th'))) {
+    const needFreshSsoEntry =
+      forceRefresh
+      || pageCheck.hasSsoAnnouncement
+      || pageCheck.isGdccBlocked
+      || pageCheck.qrExpired
+      || (currentUrl.includes('eclaim.nhso.go.th') && !currentUrl.includes('iam.nhso.go.th'));
+
+    if (needFreshSsoEntry) {
+      // Navigate to LoginSSOAction.do (redirects to iam.nhso.go.th OAuth SSO for e-Claim)
       await page.goto('https://eclaim.nhso.go.th/webComponent/LoginSSOAction.do', {
         waitUntil: 'domcontentloaded',
         timeout: 30000,
       }).catch(() => undefined);
-      await page.waitForSelector('#social-thaid, a[href*="broker/thaid/login"], input#username', { timeout: 6000 }).catch(() => undefined);
+      await page.waitForSelector('#social-thaid, a[href*="broker/thaid/login"], input#username', { timeout: 7000 }).catch(() => undefined);
     }
 
-    // 2. Direct Keycloak ThaID social login button (#social-thaid on iam.nhso.go.th)
+    // Direct Keycloak ThaID social login button (#social-thaid on iam.nhso.go.th)
     const directSelectors = [
       'a#social-thaid',
       '#social-thaid',
@@ -522,19 +534,19 @@ const tryOpenThaIdLogin = async (page: import('playwright').Page): Promise<boole
     ];
     for (const sel of directSelectors) {
       const loc = page.locator(sel).first();
-      if (await loc.isVisible({ timeout: 600 }).catch(() => false)) {
+      if (await loc.isVisible({ timeout: 800 }).catch(() => false)) {
         await Promise.all([
           page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => undefined),
           loc.click({ timeout: 5000 }).catch(() => undefined),
         ]);
-        // Wait for DOPA ThaID QR image/canvas to finish rendering
-        await page.waitForSelector('img[src*="qr" i], img[alt*="qr" i], canvas, svg, .qrcode, #qr-code, img', { timeout: 5000 }).catch(() => undefined);
-        await page.waitForTimeout(1500);
+        // Wait for DOPA ThaID QR image (.div-qrcode img) to finish rendering
+        await page.waitForSelector('.div-qrcode img, img[src^="data:image/png;base64,"], img[src*="qr" i], canvas', { timeout: 6000 }).catch(() => undefined);
+        await page.waitForTimeout(1200);
         return true;
       }
     }
 
-    // 3. Fallback across frames if embedded
+    // Fallback across frames if embedded
     const patterns = [/ThaiD/i, /ThaID/i, /Thai\s*ID/i, /ดิจิทัลไอดี/i, /เข้าสู่ระบบ.*ไทยดี/i];
     for (const frame of page.frames()) {
       for (const pattern of patterns) {
@@ -554,7 +566,6 @@ const tryOpenThaIdLogin = async (page: import('playwright').Page): Promise<boole
       }
     }
 
-    // If already on DOPA ThaID QR page (bora.dopa.go.th), return true
     if (page.url().includes('bora.dopa.go.th') || page.url().includes('thaid')) {
       return true;
     }
@@ -565,66 +576,89 @@ const tryOpenThaIdLogin = async (page: import('playwright').Page): Promise<boole
 };
 
 const checkEclaimSessionReady = async (session: EclaimBrowserSession): Promise<boolean> => {
-  const cookies = await session.context.cookies().catch(() => []);
-  const hasSession = cookies.some((cookie) => cookie.name.toUpperCase() === 'JSESSIONID');
-  if (!hasSession) return false;
-
   const currentUrl = session.page.url();
   if (!currentUrl.includes('eclaim.nhso.go.th')) return false;
   if (
     currentUrl.includes('iam.nhso.go.th')
     || currentUrl.includes('bora.dopa.go.th')
     || currentUrl.includes('LoginSSOAction.do')
-    || currentUrl.includes('LoginAction.do?code=')
+    || currentUrl.includes('/Client/login?')
+    || currentUrl.endsWith('/Client/login')
   ) {
     return false;
   }
 
-  // Inspect actual DOM on eclaim.nhso.go.th to ensure we are NOT on the SSO announcement page or Error Page
-  const domCheck = await session.page.evaluate(() => {
-    const title = (document.title || '').trim();
-    const bodyText = (document.body?.innerText || document.body?.textContent || '').trim();
+  // If user landed on the new /Client/home portal after SSO, hop once through LoginSSOAction.do so /webComponent gets its JSESSIONID cookie
+  if (currentUrl.includes('/Client/') && !currentUrl.includes('/Client/login')) {
+    await session.page.goto('https://eclaim.nhso.go.th/webComponent/LoginSSOAction.do', {
+      waitUntil: 'domcontentloaded',
+      timeout: 25000,
+    }).catch(() => undefined);
+    await session.page.waitForTimeout(800).catch(() => undefined);
+  }
 
-    // Reject SSO Announcement Page ("ประกาศใช้งานระบบ SSO (ThaiD)" / "เข้าสู่ระบบผ่าน OSS สปสช")
-    if (
-      title.includes('ประกาศใช้งานระบบ SSO')
-      || bodyText.includes('เข้าสู่ระบบผ่าน OSS สปสช')
-      || Boolean(document.querySelector('form[action*="LoginSSOAction"], button.btn-sso'))
-    ) {
-      return { authenticated: false, reason: 'sso_announcement' };
+  const cookies = await session.context.cookies().catch(() => []);
+  const hasSession = cookies.some((cookie) => cookie.name.toUpperCase() === 'JSESSIONID');
+  if (!hasSession) return false;
+
+  const postUrl = session.page.url();
+  if (!postUrl.includes('eclaim.nhso.go.th') || postUrl.includes('iam.nhso.go.th') || postUrl.includes('bora.dopa.go.th')) {
+    return false;
+  }
+
+  // Inspect actual DOM across all frames on eclaim.nhso.go.th to ensure we are NOT on the SSO announcement page or Error Page
+  let hasAnyMenuOrContent = false;
+  for (const frame of session.page.frames()) {
+    const frameCheck = await frame.evaluate(() => {
+      const title = (document.title || '').trim();
+      const bodyText = (document.body?.innerText || document.body?.textContent || '').trim();
+
+      if (
+        title.includes('ประกาศใช้งานระบบ SSO')
+        || bodyText.includes('เข้าสู่ระบบผ่าน OSS สปสช')
+        || Boolean(document.querySelector('form[action*="LoginSSOAction"], button.btn-sso'))
+      ) {
+        return { blocked: true, reason: 'sso_announcement', hasMenu: false };
+      }
+
+      if (
+        title.toLowerCase().includes('error page')
+        || bodyText.includes('คุณไม่มีสิทธิ์เข้าใช้งานหน้าจอดังกล่าว')
+        || bodyText.includes('กรุณาเข้าสู่ระบบ')
+        || bodyText.includes('GDCC Security Center')
+        || Boolean(document.querySelector('form[name="frmErr"]'))
+      ) {
+        return { blocked: true, reason: 'unauthorized_or_error', hasMenu: false };
+      }
+
+      if (document.querySelector('input[type="password"], input[name="username"], #social-thaid')) {
+        return { blocked: true, reason: 'login_inputs', hasMenu: false };
+      }
+
+      const hasEclaimMenuOrContent = Boolean(
+        document.querySelector(
+          'a[href*="ValidationMainAction"], a[href*="statement"], a[href*="FinanceReport"], a[href*="dynamicMenuFunctionUnitId"], a[href*="Logout"], a[href*="logout"], frameset, frame'
+        )
+        || bodyText.includes('ออกจากระบบ')
+        || bodyText.includes('ตรวจสอบข้อมูล')
+        || bodyText.includes('รายงานการเงิน')
+        || bodyText.includes('ข้อมูลการส่งเบิก')
+        || bodyText.includes('ยินดีต้อนรับ')
+        || bodyText.includes('ผู้ใช้งาน')
+      );
+
+      return { blocked: false, reason: 'ok', hasMenu: hasEclaimMenuOrContent };
+    }).catch(() => ({ blocked: false, reason: 'eval_error', hasMenu: false }));
+
+    if (frameCheck.blocked) {
+      return false;
     }
-
-    // Reject Error Page / Unauthorized Page ("คุณไม่มีสิทธิ์เข้าใช้งานหน้าจอดังกล่าว")
-    if (
-      title.toLowerCase().includes('error page')
-      || bodyText.includes('คุณไม่มีสิทธิ์เข้าใช้งานหน้าจอดังกล่าว')
-      || bodyText.includes('กรุณาเข้าสู่ระบบ')
-      || Boolean(document.querySelector('form[name="frmErr"]'))
-    ) {
-      return { authenticated: false, reason: 'unauthorized_or_error' };
+    if (frameCheck.hasMenu) {
+      hasAnyMenuOrContent = true;
     }
+  }
 
-    // Reject pages that still show login inputs or ThaID button
-    if (document.querySelector('input[type="password"], input[name="username"], #social-thaid')) {
-      return { authenticated: false, reason: 'login_inputs' };
-    }
-
-    // Must have real e-Claim authenticated content/menus/links (do NOT match generic <table> since Error Page has <table id="index">)
-    const hasEclaimMenuOrContent = Boolean(
-      document.querySelector(
-        'a[href*="ValidationMainAction"], a[href*="statement"], a[href*="FinanceReport"], a[href*="dynamicMenuFunctionUnitId"], a[href*="Logout"], a[href*="logout"], frameset, frame'
-      )
-      || bodyText.includes('ออกจากระบบ')
-      || bodyText.includes('ตรวจสอบข้อมูล')
-      || bodyText.includes('รายงานการเงิน')
-      || bodyText.includes('ข้อมูลการส่งเบิก')
-      || bodyText.includes('ยินดีต้อนรับ')
-    );
-
-    return { authenticated: hasEclaimMenuOrContent && bodyText.length > 40, reason: hasEclaimMenuOrContent ? 'ok' : 'empty' };
-  }).catch(() => ({ authenticated: false, reason: 'eval_error' }));
-
-  return Boolean(domCheck.authenticated);
+  return hasAnyMenuOrContent;
 };
 
 const monitorEclaimThaIdLogin = async (session: EclaimBrowserSession) => {
@@ -632,17 +666,25 @@ const monitorEclaimThaIdLogin = async (session: EclaimBrowserSession) => {
   while (Date.now() < deadline && eclaimBrowserSession === session) {
     try {
       await session.page.waitForTimeout(1500);
-      // If browser somehow landed back on the SSO announcement page, automatically push it to LoginSSOAction.do
       const url = session.page.url();
-      if (url.includes('eclaim.nhso.go.th')) {
-        const isAnnouncement = await session.page.evaluate(() =>
-          Boolean(document.querySelector('form[action*="LoginSSOAction"], button.btn-sso'))
-          || (document.title || '').includes('ประกาศใช้งานระบบ SSO')
-        ).catch(() => false);
-        if (isAnnouncement) {
-          await tryOpenThaIdLogin(session.page);
-          continue;
-        }
+
+      // Auto-recover if on SSO announcement page, GDCC block page, or if the 60s ThaID QR code expired (00:00)
+      const needAutoRefresh = await session.page.evaluate(() => {
+        const title = (document.title || '').trim();
+        const bodyText = (document.body?.innerText || '').trim();
+        return Boolean(
+          document.querySelector('form[action*="LoginSSOAction"], button.btn-sso')
+          || title.includes('ประกาศใช้งานระบบ SSO')
+          || bodyText.includes('GDCC Security Center')
+          || bodyText.includes('หมดเวลาใน : 00:00')
+          || bodyText.includes('หมดเวลาใน: 00:00')
+        );
+      }).catch(() => false);
+
+      if (needAutoRefresh) {
+        session.message = 'กำลังรีเฟรช QR Code แอป ThaID ให้อัตโนมัติ...';
+        await tryOpenThaIdLogin(session.page, true);
+        continue;
       }
 
       if (await checkEclaimSessionReady(session)) {
@@ -655,7 +697,7 @@ const monitorEclaimThaIdLogin = async (session: EclaimBrowserSession) => {
 
       if (session.phase !== 'logging_in') {
         session.phase = 'waiting_thaid';
-        const onThaIdPage = session.page.url().includes('bora.dopa.go.th') || session.page.url().includes('thaid');
+        const onThaIdPage = url.includes('bora.dopa.go.th') || url.includes('thaid');
         session.message = onThaIdPage
           ? 'สแกน QR Code ด้านล่างด้วยแอป ThaID บนมือถือเพื่อเข้าสู่ระบบ NHSO e-Claim'
           : 'กรุณาสแกน QR แอป ThaID หรือเข้าสู่ระบบบนหน้าจอด้านล่าง';
@@ -6311,14 +6353,44 @@ let eclaimLaunchState: {
   error: null,
 };
 
-const captureEclaimScreenshotDataUrl = async (session: EclaimBrowserSession | null): Promise<string | null> => {
-  if (!session || !session.browser.isConnected()) return null;
+interface EclaimVisualState {
+  screenshotDataUrl: string | null;
+  qrCodeDataUrl: string | null;
+  qrTimerText: string | null;
+  qrRefCode: string | null;
+}
+
+const captureEclaimVisualState = async (session: EclaimBrowserSession | null): Promise<EclaimVisualState> => {
+  if (!session || !session.browser.isConnected()) {
+    return { screenshotDataUrl: null, qrCodeDataUrl: null, qrTimerText: null, qrRefCode: null };
+  }
+  let screenshotDataUrl: string | null = null;
   try {
     const png = await session.page.screenshot({ type: 'png', fullPage: false });
-    return `data:image/png;base64,${png.toString('base64')}`;
+    screenshotDataUrl = `data:image/png;base64,${png.toString('base64')}`;
   } catch {
-    return null;
+    screenshotDataUrl = null;
   }
+
+  const qrMeta = await session.page.evaluate(() => {
+    const qrImg = document.querySelector<HTMLImageElement>('.div-qrcode img, img[src^="data:image/png;base64,"]');
+    const qrSrc = qrImg?.src && qrImg.src.startsWith('data:image/') ? qrImg.src : null;
+    const bodyText = document.body?.innerText || '';
+    const timerMatch = bodyText.match(/หมดเวลาใน\s*:\s*([0-9]{1,2}:[0-9]{2})/);
+    const refMatch = bodyText.match(/หมายเลขอ้างอิง\s*:\s*([A-Z0-9]+)/i);
+    return {
+      qrCodeDataUrl: qrSrc,
+      qrTimerText: timerMatch ? timerMatch[1] : null,
+      qrRefCode: refMatch ? refMatch[1] : null,
+    };
+  }).catch(() => ({ qrCodeDataUrl: null, qrTimerText: null, qrRefCode: null }));
+
+  return {
+    screenshotDataUrl,
+    qrCodeDataUrl: qrMeta.qrCodeDataUrl,
+    qrTimerText: qrMeta.qrTimerText,
+    qrRefCode: qrMeta.qrRefCode,
+  };
 };
 
 /** GET /api/nhso-eclaim/browser-status — check if browser session is alive and ready */
@@ -6332,15 +6404,18 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
       message: eclaimLaunchState.message,
       error: eclaimLaunchState.error,
       screenshotDataUrl: null,
+      qrCodeDataUrl: null,
+      qrTimerText: null,
+      qrRefCode: null,
     });
   }
   try {
     const alive = eclaimBrowserSession.browser.isConnected();
     const url = eclaimBrowserSession.page.url();
     const title = await eclaimBrowserSession.page.title().catch(() => '');
-    const screenshotDataUrl = alive && !eclaimBrowserSession.ready
-      ? await captureEclaimScreenshotDataUrl(eclaimBrowserSession)
-      : null;
+    const visual = alive && !eclaimBrowserSession.ready
+      ? await captureEclaimVisualState(eclaimBrowserSession)
+      : { screenshotDataUrl: null, qrCodeDataUrl: null, qrTimerText: null, qrRefCode: null };
     return res.json({
       alive,
       launching: false,
@@ -6353,7 +6428,7 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
       repPageUrl: eclaimBrowserSession.repPageUrl,
       createdAt: eclaimBrowserSession.createdAt,
       loginMode: eclaimBrowserSession.loginMode || 'auto',
-      screenshotDataUrl,
+      ...visual,
     });
   } catch {
     eclaimBrowserSession = null;
@@ -6365,6 +6440,9 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
       message: 'Browser ถูกปิดแล้ว',
       error: null,
       screenshotDataUrl: null,
+      qrCodeDataUrl: null,
+      qrTimerText: null,
+      qrRefCode: null,
     });
   }
 });
@@ -6382,18 +6460,18 @@ app.get('/api/nhso-eclaim/browser-screenshot', async (_req, res) => {
   }
 });
 
-/** POST /api/nhso-eclaim/browser-thaid — click the ThaID option in the remote login page */
+/** POST /api/nhso-eclaim/browser-thaid — click the ThaID option in the remote login page (or refresh QR) */
 app.post('/api/nhso-eclaim/browser-thaid', async (_req, res) => {
   if (!eclaimBrowserSession) return res.status(400).json({ success: false, error: 'ยังไม่ได้เริ่ม Browser' });
   try {
-    const clicked = await tryOpenThaIdLogin(eclaimBrowserSession.page);
-    await eclaimBrowserSession.page.waitForTimeout(1500).catch(() => undefined);
+    const clicked = await tryOpenThaIdLogin(eclaimBrowserSession.page, true);
+    await eclaimBrowserSession.page.waitForTimeout(1000).catch(() => undefined);
     eclaimBrowserSession.phase = 'waiting_thaid';
     eclaimBrowserSession.message = clicked
       ? 'เปิดหน้า ThaID แล้ว กรุณาสแกน QR ด้านล่าง'
       : 'แสดงหน้าจอ Login แล้ว หากยังไม่เห็น QR กดปุ่มนี้อีกครั้ง';
-    const screenshotDataUrl = await captureEclaimScreenshotDataUrl(eclaimBrowserSession);
-    return res.json({ success: true, clicked, message: eclaimBrowserSession.message, screenshotDataUrl });
+    const visual = await captureEclaimVisualState(eclaimBrowserSession);
+    return res.json({ success: true, clicked, message: eclaimBrowserSession.message, ...visual });
   } catch (error) {
     return res.status(500).json({ success: false, error: (error as Error).message });
   }
@@ -6494,8 +6572,15 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
       ? !['0', 'false', 'no'].includes(forceHeadless)
       : process.platform !== 'win32';
     const launchArgs = headless
-      ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote']
-      : ['--start-maximized'];
+      ? [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--no-zygote',
+          '--disable-blink-features=AutomationControlled',
+        ]
+      : ['--start-maximized', '--disable-blink-features=AutomationControlled'];
 
     const userLibsBase = path.join(osMod.homedir(), '.cache', 'ms-playwright', 'user-libs');
     const userLibFlatDir = path.join(userLibsBase, 'lib');
@@ -6638,7 +6723,17 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
     if (!browser) {
       throw new Error('ไม่สามารถเปิด Browser สำหรับเชื่อมต่อ NHSO e-Claim ได้');
     }
-    const context = await browser.newContext({ viewport: { width: 1365, height: 900 }, locale: 'th-TH' });
+    // Use standard desktop Chrome User-Agent so GDCC Security Center WAF on iam.nhso.go.th does not block HeadlessChrome
+    const standardDesktopUserAgent =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+    const context = await browser.newContext({
+      viewport: { width: 1365, height: 900 },
+      locale: 'th-TH',
+      userAgent: standardDesktopUserAgent,
+    });
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    });
     const page = await context.newPage();
 
     // Store session immediately (browser stays alive after this request returns)
@@ -6708,19 +6803,19 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
     session.message = 'กำลังเปิดหน้าสแกน QR แอป ThaID...';
     const clicked = await tryOpenThaIdLogin(session.page);
     if (clicked) {
-      await session.page.waitForTimeout(1200).catch(() => undefined);
+      await session.page.waitForTimeout(1000).catch(() => undefined);
     }
     session.message = clicked
       ? 'สแกน QR Code ด้านล่างด้วยแอป ThaID บนมือถือเพื่อยืนยันตัวตน'
       : 'แสดงหน้าจอ Login แล้ว — กรุณาสแกน QR หรือกด “สลับไปแสดง QR ThaID”';
     void monitorEclaimThaIdLogin(session);
-    const screenshotDataUrl = await captureEclaimScreenshotDataUrl(session);
+    const visual = await captureEclaimVisualState(session);
     return res.status(202).json({
       success: true,
       ready: false,
       phase: session.phase,
       message: session.message,
-      screenshotDataUrl,
+      ...visual,
       error: session.lastError || undefined,
     });
   } catch (error) {

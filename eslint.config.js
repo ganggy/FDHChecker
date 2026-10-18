@@ -28,6 +28,7 @@ export default defineConfig([
       'react/forbid-component-props': 'off',
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
+      'react-refresh/only-export-components': 'off',
     }
   },
 ])

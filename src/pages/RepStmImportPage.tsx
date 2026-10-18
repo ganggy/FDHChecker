@@ -865,10 +865,20 @@ export const RepStmImportPage: React.FC = () => {
           newCount?: number;
           existingCount?: number;
           repHasPeriodFilter?: boolean;
+          needRelogin?: boolean;
           debug?: typeof eclaimDebugLog;
           error?: string;
         };
-        if (!json.success) throw new Error(json.error || `ค้นหางวด ${period} ไม่สำเร็จ`);
+        if (!json.success) {
+          if (json.needRelogin) {
+            setEclaimBrowserReady(false);
+            setEclaimBrowserAlive(true);
+            setEclaimBrowserPhase('waiting_thaid');
+            setEclaimBrowserMessage('สแกน QR Code ด้านล่างด้วยแอป ThaID บนมือถือเพื่อยืนยันตัวตน');
+            setEclaimScreenshotVersion(Date.now());
+          }
+          throw new Error(json.error || `ค้นหางวด ${period} ไม่สำเร็จ`);
+        }
         if (idx === 0 && json.repHasPeriodFilter !== undefined) {
           repSupportsPeriodFilter = Boolean(json.repHasPeriodFilter);
         }

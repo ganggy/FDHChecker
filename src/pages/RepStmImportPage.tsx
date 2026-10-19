@@ -20,7 +20,6 @@ import {
 import { RepStmImportDetail } from '../components/RepStmImportDetail';
 import { collectRowHeaders, parseWorksheetRows } from '../utils/repstmWorksheetParsing';
 import { fetchMe } from '../services/authService';
-import { CsopSyncPanel } from '../components/CsopSyncPanel';
 
 const extractFiveDigitCodeFromText = (value: unknown): string => {
   if (value == null) return '';
@@ -341,7 +340,7 @@ export const RepStmImportPage: React.FC = () => {
   const prevFiscalStart = `${prevFiscalStartYearCE}-10-01`;
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
   const todayStr = today.toISOString().slice(0, 10);
-  const [importSourceTab, setImportSourceTab] = useState<'eclaim' | 'csop' | 'manual'>('eclaim');
+  const [importSourceTab, setImportSourceTab] = useState<'eclaim' | 'manual'>('eclaim');
   const [eclaimOpen, setEclaimOpen] = useState(true);
   const [eclaimShowSettings, setEclaimShowSettings] = useState(false);
   const [eclaimShowArchive, setEclaimShowArchive] = useState(false);
@@ -1896,53 +1895,7 @@ export const RepStmImportPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Tab 2: CSOP (สกส.) */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => setImportSourceTab('csop')}
-          style={{
-            padding: '14px 18px',
-            borderRadius: 12,
-            border: importSourceTab === 'csop' ? '2px solid #0d9488' : '1px solid #e2e8f0',
-            background: importSourceTab === 'csop' ? 'linear-gradient(145deg, #f0fdfa, #ccfbf1)' : '#ffffff',
-            boxShadow: importSourceTab === 'csop' ? '0 4px 12px rgba(13,148,136,0.15)' : '0 1px 3px rgba(0,0,0,0.05)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            transition: 'all 0.2s ease',
-          }}
-        >
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 10,
-              background: importSourceTab === 'csop' ? '#0d9488' : '#f1f5f9',
-              color: importSourceTab === 'csop' ? '#ffffff' : '#64748b',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 22,
-              flexShrink: 0,
-            }}
-          >
-            🏥
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-              <strong style={{ fontSize: 14, color: importSourceTab === 'csop' ? '#0f766e' : '#1e293b' }}>
-                CSOP (สกส.) Sync
-              </strong>
-            </div>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-              ดึงไฟล์ REP / STM สิทธิข้าราชการ/อปท.
-            </div>
-          </div>
-        </div>
-
-        {/* Tab 3: Manual Upload */}
+        {/* Tab 2: Manual Upload */}
         <div
           role="button"
           tabIndex={0}
@@ -2936,10 +2889,6 @@ export const RepStmImportPage: React.FC = () => {
       </div>
       )}
 
-      {/* CSOP Sync Workspace */}
-      {importSourceTab === 'csop' && (
-        <CsopSyncPanel defaultOpen={true} onImportTriggered={() => void loadData(dataType)} />
-      )}
 
       {/* Quick Tools Action Bar (Always Accessible) */}
       <div

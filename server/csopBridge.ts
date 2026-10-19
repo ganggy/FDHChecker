@@ -21,7 +21,7 @@ export const getDefaultCsopConfig = (): CsopConfig => ({
   password: '',
   autoDownload: true,
   autoImport: true,
-  headless: false,
+  headless: process.platform !== 'win32',
 });
 
 export const getResolvedCsopConfig = async (overrides?: Partial<CsopConfig>): Promise<CsopConfig> => {
@@ -58,6 +58,99 @@ export interface CsopBrowserSession {
 
 let activeSession: CsopBrowserSession | null = null;
 
+const userLibsBase = path.join(os.homedir(), '.cache', 'ms-playwright', 'user-libs');
+const userLibFlatDir = path.join(userLibsBase, 'lib');
+const userLibRootDir = path.join(userLibsBase, 'root');
+
+const buildBrowserLaunchEnv = (): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = { ...process.env } as NodeJS.ProcessEnv;
+  if (process.platform === 'linux' && fs.existsSync(userLibsBase)) {
+    const extraDirs = [
+      userLibFlatDir,
+      path.join(userLibRootDir, 'usr', 'lib', 'x86_64-linux-gnu'),
+      path.join(userLibRootDir, 'lib', 'x86_64-linux-gnu'),
+      path.join(userLibRootDir, 'usr', 'lib64'),
+      path.join(userLibRootDir, 'lib64'),
+      path.join(userLibRootDir, 'usr', 'lib'),
+      path.join(userLibRootDir, 'lib'),
+    ].filter((d) => fs.existsSync(d));
+    if (extraDirs.length > 0) {
+      const existingLd = String(process.env.LD_LIBRARY_PATH || '').trim();
+      const combinedLd = [...extraDirs, ...(existingLd ? [existingLd] : [])].join(':');
+      env.LD_LIBRARY_PATH = combinedLd;
+      process.env.LD_LIBRARY_PATH = combinedLd;
+    }
+  }
+  return env;
+};
+
+const installMissingLinuxSharedLibs = async (binPath?: string) => {
+  if (process.platform !== 'linux') return;
+  const { execFile } = await import('child_process');
+  const script = `
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+    BASE_DIR="$HOME/.cache/ms-playwright/user-libs"
+    DEB_DIR="$BASE_DIR/debs"
+    ROOT_DIR="$BASE_DIR/root"
+    LIB_DIR="$BASE_DIR/lib"
+    mkdir -p "$DEB_DIR" "$ROOT_DIR" "$LIB_DIR"
+
+    # 1. Try passwordless sudo first if available
+    sudo -n npx playwright install-deps chromium >/dev/null 2>&1 || true
+
+    cd "$DEB_DIR" || exit 0
+    if command -v apt-get >/dev/null 2>&1 && command -v dpkg-deb >/dev/null 2>&1; then
+      CORE_PKGS="libgbm1 libnss3 libnspr4 libatk1.0-0 libatk1.0-0t64 libatk-bridge2.0-0 libatk-bridge2.0-0t64 libcups2 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libasound2 libasound2t64 libatspi2.0-0 libatspi2.0-0t64 libxshmfence1 libx11-xcb1 libxcb-dri3-0 libxcb-randr0 libwayland-server0 libwayland-client0 libpciaccess0 libx11-6 libxext6 libxi6 libxtst6 libxcb1 libexpat1 libpixman-1-0 libxcb-shm0 libxcb-render0 libxrender1"
+      ALL_PKGS=$(apt-cache depends --recurse --no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances $CORE_PKGS 2>/dev/null | grep "^[a-z0-9]" | grep -v -E "^(libc6|libgcc|gcc|multiarch|debconf|dpkg|coreutils|passwd|adduser|ucf|tzdata)" | sort -u)
+      if [ -z "$ALL_PKGS" ]; then
+        ALL_PKGS="$CORE_PKGS"
+      fi
+      apt-get download $ALL_PKGS >/dev/null 2>&1 || {
+        for p in $CORE_PKGS; do
+          apt-get download "$p" >/dev/null 2>&1 || true
+        done
+      }
+      for deb in "$DEB_DIR"/*.deb; do
+        [ -f "$deb" ] && dpkg-deb -x "$deb" "$ROOT_DIR" 2>/dev/null || true
+      done
+    elif command -v dnf >/dev/null 2>&1; then
+      dnf download --destdir="$DEB_DIR" mesa-libgbm nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr pango cairo alsa-lib at-spi2-core libxshmfence libwayland-server libwayland-client libpciaccess libX11 libX11-xcb libxcb >/dev/null 2>&1 || true
+      cd "$ROOT_DIR" || exit 0
+      for rpm in "$DEB_DIR"/*.rpm; do
+        [ -f "$rpm" ] && (rpm2cpio "$rpm" | cpio -idmv >/dev/null 2>&1 || true)
+      done
+    elif command -v yumdownloader >/dev/null 2>&1; then
+      yumdownloader --destdir="$DEB_DIR" mesa-libgbm nss nspr atk at-spi2-atk cups-libs libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr pango cairo alsa-lib at-spi2-core libxshmfence libwayland-server libwayland-client libpciaccess libX11 libX11-xcb libxcb >/dev/null 2>&1 || true
+      cd "$ROOT_DIR" || exit 0
+      for rpm in "$DEB_DIR"/*.rpm; do
+        [ -f "$rpm" ] && (rpm2cpio "$rpm" | cpio -idmv >/dev/null 2>&1 || true)
+      done
+    fi
+
+    # Copy/link all extracted .so* files into flat LIB_DIR
+    find "$ROOT_DIR" \\( -type f -o -type l \\) -name "*.so*" -exec cp -Pf {} "$LIB_DIR/" \\; 2>/dev/null || true
+
+    # If binary path is known, inspect ldd for any remaining missing libraries and fetch them
+    if [ -n "${binPath || ''}" ] && [ -f "${binPath || ''}" ] && command -v ldd >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then
+      cd "$DEB_DIR" || exit 0
+      MISSING_LIBS=$(LD_LIBRARY_PATH="$LIB_DIR:$LD_LIBRARY_PATH" ldd "${binPath || ''}" 2>/dev/null | awk '/not found/ {print $1}' | sort -u)
+      for so in $MISSING_LIBS; do
+        GUESS=$(echo "$so" | sed -E 's/\\.so\\.([0-9]+)$/\\1/; s/\\.so$//')
+        for cand in "$GUESS" "\${GUESS}t64" "\${GUESS}-0"; do
+          apt-get download "$cand" >/dev/null 2>&1 || true
+        done
+      done
+      for deb in "$DEB_DIR"/*.deb; do
+        [ -f "$deb" ] && dpkg-deb -x "$deb" "$ROOT_DIR" 2>/dev/null || true
+      done
+      find "$ROOT_DIR" \\( -type f -o -type l \\) -name "*.so*" -exec cp -Pf {} "$LIB_DIR/" \\; 2>/dev/null || true
+    fi
+  `;
+  await new Promise<void>((resolve) => {
+    execFile('bash', ['-c', script], { timeout: 240_000 }, () => resolve());
+  });
+};
+
 const findBrowserExecutable = (): string | undefined => {
   const configured = String(process.env.CSOP_BROWSER_EXECUTABLE || process.env.ECLAIM_BROWSER_EXECUTABLE || '').trim();
   const candidates: string[] = [
@@ -77,6 +170,32 @@ const findBrowserExecutable = (): string | undefined => {
   for (const c of candidates) {
     if (c && fs.existsSync(c)) return c;
   }
+
+  // Scan ~/.cache/ms-playwright
+  try {
+    const cacheDir = path.join(os.homedir(), '.cache', 'ms-playwright');
+    if (fs.existsSync(cacheDir)) {
+      const dirs = fs
+        .readdirSync(cacheDir)
+        .filter((d) => d.startsWith('chromium'))
+        .sort()
+        .reverse();
+      for (const dir of dirs) {
+        const subCandidates = [
+          path.join(cacheDir, dir, 'chrome-linux', 'chrome'),
+          path.join(cacheDir, dir, 'chrome-linux64', 'chrome'),
+          path.join(cacheDir, dir, 'chrome-headless-shell-linux64', 'chrome-headless-shell'),
+          path.join(cacheDir, dir, 'chrome-win', 'chrome.exe'),
+        ];
+        for (const sub of subCandidates) {
+          if (fs.existsSync(sub)) return sub;
+        }
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
   return undefined;
 };
 
@@ -159,23 +278,77 @@ export const startCsopBrowserSession = async (customConfig?: Partial<CsopConfig>
 
   const config = await getResolvedCsopConfig(customConfig);
   const { chromium } = await import('playwright');
-  const executablePath = findBrowserExecutable();
+  let executablePath = findBrowserExecutable();
 
-  const isHeadless = Boolean(config.headless);
+  const forceHeadless = String(process.env.CSOP_BROWSER_HEADLESS || process.env.ECLAIM_BROWSER_HEADLESS || '').trim().toLowerCase();
+  const isHeadless = forceHeadless
+    ? !['0', 'false', 'no'].includes(forceHeadless)
+    : process.platform !== 'win32' ? true : Boolean(config.headless);
 
-  const browser = await chromium.launch({
-    executablePath,
-    headless: isHeadless,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--start-maximized',
-    ],
-  });
+  const launchArgs = isHeadless
+    ? [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-zygote',
+        '--disable-blink-features=AutomationControlled',
+      ]
+    : [
+        '--start-maximized',
+        '--disable-blink-features=AutomationControlled',
+      ];
+
+  let browser: Browser | undefined;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      browser = await chromium.launch({
+        executablePath,
+        headless: isHeadless,
+        args: launchArgs,
+        env: buildBrowserLaunchEnv() as Record<string, string>,
+      });
+      break;
+    } catch (launchErr) {
+      const errMsg = String((launchErr as Error)?.message || launchErr);
+      if (attempt < 3 && /Executable doesn't exist|playwright install/i.test(errMsg)) {
+        console.log('[csop] Browser executable missing; running automatic npx playwright install chromium...');
+        const { execFile } = await import('child_process');
+        const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+        await new Promise<void>((resolve, reject) => {
+          execFile(
+            npxCmd,
+            ['playwright', 'install', 'chromium'],
+            { cwd: process.cwd(), timeout: 240_000 },
+            (error, stdout, stderr) => {
+              if (error) reject(new Error(`ติดตั้ง Browser ไม่สำเร็จ: ${stderr || stdout || error.message}`));
+              else resolve();
+            }
+          );
+        });
+        executablePath = findBrowserExecutable();
+        continue;
+      }
+      if (
+        attempt < 3 &&
+        /error while loading shared libraries|cannot open shared object file|Target page, context or browser has been closed/i.test(errMsg)
+      ) {
+        console.log('[csop] Missing Linux shared libraries (e.g. libgbm.so.1); extracting user-space libraries automatically...');
+        await installMissingLinuxSharedLibs(executablePath);
+        executablePath = findBrowserExecutable();
+        continue;
+      }
+      throw launchErr;
+    }
+  }
+
+  if (!browser) {
+    throw new Error('ไม่สามารถเปิด Browser สำหรับเชื่อมต่อ CSOP ได้');
+  }
 
   const context = await browser.newContext({
-    viewport: isHeadless ? { width: 1280, height: 800 } : null,
+    viewport: { width: 1280, height: 800 },
+    locale: 'th-TH',
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   });
 

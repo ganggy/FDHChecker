@@ -7,6 +7,8 @@ import {
   startCsopBrowserSession,
   getCsopBrowserStatus,
   clickCsopCoordinates,
+  autoClickTurnstile,
+  refillCsopCredentials,
   closeCsopBrowserSession,
   getActiveCsopSession,
 } from './csopBridge.js';
@@ -99,6 +101,36 @@ csopRouter.post('/browser-click', async (req, res) => {
     const result = await clickCsopCoordinates(x, y);
     // Wait briefly and return updated status with new screenshot
     await new Promise((resolve) => setTimeout(resolve, 800));
+    const status = await getCsopBrowserStatus();
+    return res.json({
+      ...result,
+      ...status,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/csop/auto-click-turnstile */
+csopRouter.post('/auto-click-turnstile', async (_req, res) => {
+  try {
+    const result = await autoClickTurnstile();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const status = await getCsopBrowserStatus();
+    return res.json({
+      ...result,
+      ...status,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/csop/refill */
+csopRouter.post('/refill', async (req, res) => {
+  try {
+    const result = await refillCsopCredentials(req.body);
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const status = await getCsopBrowserStatus();
     return res.json({
       ...result,

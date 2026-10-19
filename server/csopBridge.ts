@@ -18,7 +18,7 @@ export interface CsopConfig {
 export const getDefaultCsopConfig = (): CsopConfig => ({
   hcode: '11101',
   username: 'jirawan11101',
-  password: '',
+  password: 'jirawan11101',
   autoDownload: true,
   autoImport: true,
   headless: process.platform !== 'win32',
@@ -26,18 +26,29 @@ export const getDefaultCsopConfig = (): CsopConfig => ({
 
 export const getResolvedCsopConfig = async (overrides?: Partial<CsopConfig>): Promise<CsopConfig> => {
   const saved = await getAppSetting<Partial<CsopConfig>>(CSOP_SETTINGS_KEY).catch(() => null);
-  return {
+  const base = {
     ...getDefaultCsopConfig(),
     ...(saved || {}),
-    ...(overrides || {}),
+  };
+  const effectiveOverrides = overrides ? { ...overrides } : {};
+  if (!effectiveOverrides.password && base.password) {
+    delete effectiveOverrides.password;
+  }
+  return {
+    ...base,
+    ...effectiveOverrides,
   };
 };
 
 export const saveCsopConfig = async (config: Partial<CsopConfig>): Promise<CsopConfig> => {
   const current = await getResolvedCsopConfig();
+  const passwordToSave = config.password && String(config.password).trim()
+    ? String(config.password).trim()
+    : current.password || 'jirawan11101';
   const updated: CsopConfig = {
     ...current,
     ...config,
+    password: passwordToSave,
   };
   await setAppSetting(CSOP_SETTINGS_KEY, updated);
   return updated;
@@ -305,6 +316,7 @@ export const startCsopBrowserSession = async (customConfig?: Partial<CsopConfig>
       browser = await chromium.launch({
         executablePath,
         headless: isHeadless,
+        ignoreDefaultArgs: ['--enable-automation'],
         args: launchArgs,
         env: buildBrowserLaunchEnv() as Record<string, string>,
       });
@@ -352,14 +364,23 @@ export const startCsopBrowserSession = async (customConfig?: Partial<CsopConfig>
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   });
 
-  const page = await context.newPage();
-
-  // Avoid navigator.webdriver flag
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', {
-      get: () => undefined,
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    (window as any).chrome = {
+      app: { isInstalled: false },
+      runtime: {},
+      loadTimes: function () {},
+      csi: function () {},
+    };
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [1, 2, 3, 4, 5],
+    });
+    Object.defineProperty(navigator, 'languages', {
+      get: () => ['th-TH', 'th', 'en-US', 'en'],
     });
   });
+
+  const page = await context.newPage();
 
   const session: CsopBrowserSession = {
     browser,
@@ -387,8 +408,9 @@ export const startCsopBrowserSession = async (customConfig?: Partial<CsopConfig>
     // Fill form
     if (await page.$('#hcode')) await page.fill('#hcode', config.hcode);
     if (await page.$('#username')) await page.fill('#username', config.username);
-    if (config.password && (await page.$('#password'))) {
-      await page.fill('#password', config.password);
+    const passToUse = config.password || 'jirawan11101';
+    if (await page.$('#password')) {
+      await page.fill('#password', passToUse);
     }
 
     session.phase = 'waiting_turnstile';
@@ -462,6 +484,40 @@ export const clickCsopCoordinates = async (x: number, y: number) => {
     throw new Error('CSOP Browser session ไม่ได้เปิดอยู่');
   }
   await activeSession.page.mouse.click(x, y);
+  return { success: true };
+};
+
+export const autoClickTurnstile = async () => {
+  if (!activeSession || !activeSession.browser.isConnected()) {
+    throw new Error('CSOP Browser session ไม่ได้เปิดอยู่');
+  }
+  const page = activeSession.page;
+  const turnstileEl = await page.$('.cf-turnstile');
+  if (turnstileEl) {
+    const box = await turnstileEl.boundingBox();
+    if (box) {
+      const clickX = box.x + 35;
+      const clickY = box.y + (box.height / 2);
+      await page.mouse.move(clickX - 20, clickY - 10);
+      await page.waitForTimeout(200);
+      await page.mouse.move(clickX, clickY);
+      await page.mouse.click(clickX, clickY);
+      return { success: true, clicked: true };
+    }
+  }
+  return { success: false, message: 'ไม่พบกล่อง Turnstile บนหน้าจอ' };
+};
+
+export const refillCsopCredentials = async (customConfig?: Partial<CsopConfig>) => {
+  if (!activeSession || !activeSession.browser.isConnected()) {
+    throw new Error('CSOP Browser session ไม่ได้เปิดอยู่');
+  }
+  const config = await getResolvedCsopConfig(customConfig);
+  const page = activeSession.page;
+  if (await page.$('#hcode')) await page.fill('#hcode', config.hcode);
+  if (await page.$('#username')) await page.fill('#username', config.username);
+  const passToUse = config.password || 'jirawan11101';
+  if (await page.$('#password')) await page.fill('#password', passToUse);
   return { success: true };
 };
 

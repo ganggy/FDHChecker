@@ -52,8 +52,8 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
   // Config State
   const [hcode, setHcode] = useState('11101');
   const [username, setUsername] = useState('jirawan11101');
-  const [password, setPassword] = useState('');
-  const [hasPassword, setHasPassword] = useState(false);
+  const [password, setPassword] = useState('jirawan11101');
+  const [hasPassword, setHasPassword] = useState(true);
   const [autoDownload, setAutoDownload] = useState(true);
   const [autoImport, setAutoImport] = useState(true);
   const [headless, setHeadless] = useState(false);
@@ -244,6 +244,46 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ x: clickX, y: clickY }),
+      });
+      const data = await res.json();
+      if (data.screenshotDataUrl) {
+        setStatus((prev) => ({
+          ...prev,
+          screenshotDataUrl: data.screenshotDataUrl,
+          message: data.message || prev.message,
+          phase: data.phase || prev.phase,
+          ready: Boolean(data.ready),
+        }));
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleAutoClickVerify = async () => {
+    try {
+      const res = await fetch('/api/csop/auto-click-turnstile', { method: 'POST' });
+      const data = await res.json();
+      if (data.screenshotDataUrl) {
+        setStatus((prev) => ({
+          ...prev,
+          screenshotDataUrl: data.screenshotDataUrl,
+          message: data.message || prev.message,
+          phase: data.phase || prev.phase,
+          ready: Boolean(data.ready),
+        }));
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleRefill = async () => {
+    try {
+      const res = await fetch('/api/csop/refill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hcode, username, password }),
       });
       const data = await res.json();
       if (data.screenshotDataUrl) {
@@ -716,7 +756,40 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
                       {status.message}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-warning"
+                      style={{
+                        fontSize: 12,
+                        padding: '4px 10px',
+                        background: '#f59e0b',
+                        color: '#fff',
+                        border: 'none',
+                        fontWeight: 700,
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                      }}
+                      onClick={handleAutoClickVerify}
+                      title="ส่งคำสั่งให้เซิร์ฟเวอร์คลิกกล่อง Turnstile อัตโนมัติ"
+                    >
+                      ⚡ คลิก Verify อัตโนมัติ
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{
+                        fontSize: 12,
+                        padding: '4px 10px',
+                        background: 'rgba(255,255,255,0.25)',
+                        color: '#fff',
+                        border: '1px solid rgba(255,255,255,0.4)',
+                        fontWeight: 600,
+                      }}
+                      onClick={handleRefill}
+                      title="กรอก User / Password อีกครั้งหากช่องว่างเปล่า"
+                    >
+                      🔑 กรอกรหัสใหม่
+                    </button>
                     <button
                       type="button"
                       className="btn btn-secondary"
@@ -777,17 +850,42 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
                     <div>
                       <div
                         style={{
-                          background: '#e0f2fe',
-                          color: '#0369a1',
-                          padding: '8px 12px',
-                          borderRadius: 6,
-                          fontSize: 12,
-                          fontWeight: 600,
-                          marginBottom: 10,
-                          display: 'inline-block',
+                          background: '#f0fdf4',
+                          border: '1px solid #bbf7d0',
+                          color: '#166534',
+                          padding: '10px 14px',
+                          borderRadius: 8,
+                          fontSize: 13,
+                          marginBottom: 12,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                          justifyContent: 'center',
+                          maxWidth: '90%',
                         }}
                       >
-                        👆 ระบบกรอกรหัส รพ. {hcode} และผู้ใช้งาน {username} ให้แล้ว — คลิกที่กล่อง <strong>"Verify you are human"</strong> บนหน้าจอด้านล่างเพื่อเข้าสู่ระบบ
+                        <span>
+                          👆 ระบบกรอกรหัส รพ. <strong>{hcode}</strong> และผู้ใช้งาน <strong>{username}</strong> ให้แล้ว — คลิกที่กล่อง <strong>"Verify you are human"</strong> บนหน้าจอด้านล่าง หรือกดปุ่ม:
+                        </span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-warning"
+                            onClick={handleAutoClickVerify}
+                            style={{ fontWeight: 700, fontSize: 12, padding: '4px 10px' }}
+                          >
+                            ⚡ คลิก Verify ทันที
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-secondary"
+                            onClick={handleRefill}
+                            style={{ fontSize: 12, padding: '4px 10px', background: '#fff' }}
+                          >
+                            🔑 กรอกรหัสใหม่
+                          </button>
+                        </div>
                       </div>
                       <div
                         style={{

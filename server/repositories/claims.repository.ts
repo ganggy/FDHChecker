@@ -3949,11 +3949,57 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     }
     // 🚑 สิทธิ UC ในเขต (UUC=2) ที่ส่งต่อ (OP Refer) ไม่สามารถเบิกค่ารถ refer ได้ -> ตัดรายการค่ารถ refer (S1801 / TYPE 17) ออกจาก ADP
     const opdUucMap = new Map<string, string>(normalizedOpd.map((r: any) => [String(r.SEQ || ''), String(r.UUC || '1')]));
+
+    // 🚑 เคลียร์ค่าบริการทางการแพทย์ 55021/55022 ในบริการที่ไม่พบแพทย์ (แผนไทย, กายภาพ, ทันตกรรม, ล้างแผลฉีดยา ER) ออกจากแฟ้ม ADP เพื่อป้องกันการติด C
+    const pdxBySeq = new Map<string, string>();
+    for (const d of (odx as Array<Record<string, unknown>>)) {
+      const seq = String(d.SEQ || '');
+      const diagtype = String(d.DIAGTYPE || '').trim();
+      if (diagtype === '1' && !pdxBySeq.has(seq)) {
+        pdxBySeq.set(seq, String(d.DIAG || '').trim().toUpperCase().replace(/[.\s-]/g, ''));
+      }
+    }
+
+    const procsBySeq = new Map<string, string[]>();
+    for (const p of (consolidatedOop.rows || []) as Array<Record<string, unknown>>) {
+      const seq = String(p.SEQ || '');
+      const oper = String(p.OPER || '').trim().replace(/[.\s-]/g, '');
+      const list = procsBySeq.get(seq) || [];
+      list.push(oper);
+      procsBySeq.set(seq, list);
+    }
+
+    const nonDoctorSeqs = new Set<string>();
+    for (const opdRow of (normalizedOpd as Array<Record<string, unknown>>)) {
+      const seq = String(opdRow.SEQ || '');
+      const clinic = String(opdRow.CLINIC || '').toLowerCase();
+      const detail = String(opdRow.DETAIL || '').toLowerCase();
+      const pdx = pdxBySeq.get(seq) || '';
+      const procs = procsBySeq.get(seq) || [];
+
+      const isDental = clinic.includes('ทันต') || pdx.startsWith('K0') || pdx.startsWith('K1') || pdx === 'Z012' || procs.some((c) => c.startsWith('23') || c === '9654' || c === '9651');
+      const isThaiMed = clinic.includes('แผนไทย') || clinic.includes('แพทย์แผนไทย') || /^U[5-7]/.test(pdx);
+      const isPhysicalTherapy = clinic.includes('กายภาพ') || clinic.includes('ฟื้นฟู') || pdx.startsWith('Z50');
+      const isDressingOrInjection = pdx.startsWith('Z48') || pdx === 'Z518' || pdx === 'Z418' || pdx === 'Z768'
+        || (procs.length > 0 && procs.every((c) => ['9357', '9659', '9356', '9789', '9788', '9929', '9921', '9922', '9918'].includes(c)));
+      const isErOrNursing = clinic.includes('ฉุกเฉิน') || clinic.includes('er') || detail.includes('ทำแผล') || detail.includes('ล้างแผล') || detail.includes('ฉีดยา');
+
+      if (isDental || isThaiMed || isPhysicalTherapy || (isErOrNursing && isDressingOrInjection) || isDressingOrInjection) {
+        nonDoctorSeqs.add(seq);
+      }
+    }
+
     const filteredAdp = normalizedAdp.filter((row) => {
       const seq = String(row.SEQ || '');
+      const code = String(row.CODE || '').trim().toUpperCase();
+      const rawIcode = String(row._ICODE || '').trim().toUpperCase();
       const uuc = opdUucMap.get(seq);
-      const isReferAmbulance = String(row.CODE || '').toUpperCase() === 'S1801' || String(row.TYPE || '') === '17';
+      const isReferAmbulance = code === 'S1801' || String(row.TYPE || '') === '17';
       if (uuc === '2' && isReferAmbulance) {
+        return false;
+      }
+      const is55021or55022 = code === '55021' || code === '55022' || rawIcode === '55021' || rawIcode === '55022';
+      if (is55021or55022 && nonDoctorSeqs.has(seq)) {
         return false;
       }
       return true;

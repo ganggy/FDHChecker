@@ -259,7 +259,8 @@ export type WalkinAutoFixAction =
   | 'SYNC_DENTAL_PROC'
   | 'REMOVE_NUMERIC_DX'
   | 'ADD_DENTAL_EXAM'
-  | 'ADD_DENTAL_PDX';
+  | 'ADD_DENTAL_PDX'
+  | 'REMOVE_NON_DOCTOR_FEE';
 
 export type WalkinAuditIssue = {
   code: string;
@@ -328,9 +329,12 @@ export const evaluateWalkinVisitAudit = (visit: {
   pttype?: string;
   hospmain?: string;
   department?: string;
+  spclty?: string;
+  doctor?: string;
+  doctor_license?: string;
   diagnoses: Array<{ code: string; name?: string; diagtype: string }>;
   procedures: Array<{ code: string; name?: string; type?: string; tooth?: string; tmcode?: string; icd10tm?: string }>;
-  chargeItems?: Array<{ icode: string; name?: string; qty?: number; unitprice?: number; sum_price?: number; income?: string }>;
+  chargeItems?: Array<{ icode: string; name?: string; qty?: number; unitprice?: number; sum_price?: number; income?: string; nhso_adp_code?: string }>;
   has_walkin: boolean;
   walkin_rows?: number;
   total_charge?: number;
@@ -735,6 +739,47 @@ export const evaluateWalkinVisitAudit = (visit: {
     });
   }
 
+  // Rule G7: ค่าบริการทางการแพทย์ 55021/55022 ในบริการที่ไม่พบแพทย์ (C-NON-DOCTOR-55021-55022)
+  const isThaiMed = dept.includes('แผนไทย') || dept.includes('แพทย์แผนไทย') || dept.includes('แพทย์ทางเลือก')
+    || visit.spclty === '18'
+    || allDxCodes.some((c) => /^U[5-7]/.test(c))
+    || chargeItems.some((i) => i.income === '14' || String(i.name || '').includes('แผนไทย') || String(i.name || '').includes('สมุนไพร'));
+
+  const isPhysicalTherapy = dept.includes('กายภาพ') || dept.includes('เวชกรรมฟื้นฟู')
+    || visit.spclty === '19'
+    || allDxCodes.some((c) => c.startsWith('Z50'))
+    || chargeItems.some((i) => i.income === '12' || String(i.name || '').includes('กายภาพ') || String(i.name || '').includes('ฟื้นฟูสมรรถภาพ'));
+
+  const isErOrNursing = dept.includes('ฉุกเฉิน') || dept.includes('ER') || dept.includes('อุบัติเหตุ') || dept.includes('ทำแผล') || dept.includes('ล้างแผล') || dept.includes('ฉีดยา');
+  const isDressingOrInjectionDx = pdx.startsWith('Z48') || pdx === 'Z518' || pdx === 'Z418' || pdx === 'Z768' || pdx === 'Z29' || pdx === 'Z09';
+  const isDressingOrInjectionProc = allProcCodes.length > 0 && allProcCodes.every((c) => ['9357', '9659', '9356', '9789', '9788', '9929', '9921', '9922', '9918'].includes(c));
+  const hasMedicalDoctorLicense = Boolean(visit.doctor_license && /^ว/i.test(visit.doctor_license.trim()));
+  const isErNursingOnly = isErOrNursing && (isDressingOrInjectionDx || isDressingOrInjectionProc || !hasMedicalDoctorLicense);
+
+  const isNonDoctorVisit = is_dental || isThaiMed || isPhysicalTherapy || isErNursingOnly || (isDressingOrInjectionDx && !hasMedicalDoctorLicense);
+  if (isNonDoctorVisit) {
+    const hasInvalidDoctorFee = chargeItems.some((i) => {
+      const adp = clean(i.nhso_adp_code);
+      const icd = clean(i.icode);
+      const nm = String(i.name || '');
+      return adp === '55021' || adp === '55022' || icd === '55021' || icd === '55022' || nm.includes('55021') || nm.includes('55022');
+    });
+
+    if (hasInvalidDoctorFee) {
+      const nonDoctorLabel = isThaiMed ? 'แพทย์แผนไทย' : isPhysicalTherapy ? 'กายภาพบำบัด' : is_dental ? 'ทันตกรรม' : 'ล้างแผล/ฉีดยา/บริการพยาบาล';
+      issues.push({
+        code: 'C-NON-DOCTOR-55021-55022',
+        level: 'critical',
+        title: 'พบค่าบริการทางการแพทย์ 55021/55022 ในบริการที่ไม่พบแพทย์',
+        detail: `ตรวจพบการคิดค่าบริการ 55021/55022 ในบริการ${nonDoctorLabel}ที่ไม่ได้ตรวจรักษาโดยแพทย์แผนปัจจุบัน ทำให้เสี่ยงติด C Error ในระบบ e-Claim/FDH`,
+        recommendation: 'ลบรายการค่าบริการ 55021/55022 ออกจาก opitemrece ใน HOSxP ให้อัตโนมัติ เพื่อป้องกันการติด C ตอนส่งออก',
+        category: 'billing',
+        autoFixable: true,
+        fixAction: 'REMOVE_NON_DOCTOR_FEE',
+      });
+    }
+  }
+
   // Deduplicate issues by code
   const uniqueIssues: WalkinAuditIssue[] = [];
   const seenCodes = new Set<string>();
@@ -828,10 +873,14 @@ export const getUcOutsideCupClinicalAudit = async (input: {
               COALESCE(CONCAT(p.pname, p.fname, ' ', p.lname), '') AS patient_name,
               COALESCE(p.sex, '') AS sex,
               COALESCE(TIMESTAMPDIFF(YEAR, p.birthday, o.vstdate), 0) AS age_y,
-              COALESCE(k.department, o.main_dep, '') AS department
+              COALESCE(k.department, o.main_dep, '') AS department,
+              COALESCE(o.spclty, '') AS spclty,
+              COALESCE(o.doctor, '') AS doctor,
+              COALESCE(doc.licenseno, '') AS doctor_license
        FROM ovst o
        LEFT JOIN patient p ON p.hn = o.hn
        LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+       LEFT JOIN doctor doc ON doc.code = o.doctor
        WHERE ${whereClause}
        ORDER BY o.vstdate DESC, o.vsttime DESC
        LIMIT 10000`,
@@ -892,9 +941,11 @@ export const getUcOutsideCupClinicalAudit = async (input: {
 
     const [chargeRows] = await connection.query(
       `SELECT opi.vn, opi.icode, opi.qty, opi.unitprice, opi.sum_price, opi.income,
-              COALESCE(sd.name, '') AS name
+              COALESCE(sd.name, nd.name, '') AS name,
+              COALESCE(sd.nhso_adp_code, nd.nhso_adp_code, '') AS nhso_adp_code
        FROM opitemrece opi
        LEFT JOIN s_drugitems sd ON sd.icode = opi.icode
+       LEFT JOIN nondrugitems nd ON nd.icode = opi.icode
        WHERE opi.vn IN (${vns.map(() => '?').join(',')})`,
       vns
     );
@@ -927,7 +978,7 @@ export const getUcOutsideCupClinicalAudit = async (input: {
       procsByVn.set(vn, list);
     }
 
-    const chargesByVn = new Map<string, Array<{ icode: string; name?: string; qty: number; unitprice: number; sum_price: number; income?: string }>>();
+    const chargesByVn = new Map<string, Array<{ icode: string; name?: string; qty: number; unitprice: number; sum_price: number; income?: string; nhso_adp_code?: string }>>();
     const walkinCountByVn = new Map<string, number>();
     for (const raw of (Array.isArray(chargeRows) ? chargeRows : []) as Array<Record<string, unknown>>) {
       const vn = String(raw.vn || '');
@@ -943,6 +994,7 @@ export const getUcOutsideCupClinicalAudit = async (input: {
         unitprice: Number(raw.unitprice || 0),
         sum_price: Number(raw.sum_price || 0),
         income: String(raw.income || ''),
+        nhso_adp_code: String(raw.nhso_adp_code || ''),
       });
       chargesByVn.set(vn, list);
     }
@@ -971,6 +1023,9 @@ export const getUcOutsideCupClinicalAudit = async (input: {
         pttype: String(v.pttype || ''),
         hospmain: String(v.hospmain || ''),
         department: String(v.department || ''),
+        spclty: String(v.spclty || ''),
+        doctor: String(v.doctor || ''),
+        doctor_license: String(v.doctor_license || ''),
         diagnoses: diagsByVn.get(vn) || [],
         procedures: procsByVn.get(vn) || [],
         chargeItems: charges,
@@ -1123,10 +1178,14 @@ export const fixWalkinClinicalVisit = async (
             COALESCE(CONCAT(p.pname, p.fname, ' ', p.lname), '') AS patient_name,
             COALESCE(p.sex, '') AS sex,
             COALESCE(TIMESTAMPDIFF(YEAR, p.birthday, o.vstdate), 0) AS age_y,
-            COALESCE(k.department, o.main_dep, '') AS department
+            COALESCE(k.department, o.main_dep, '') AS department,
+            COALESCE(o.spclty, '') AS spclty,
+            COALESCE(o.doctor, '') AS doctor,
+            COALESCE(doc.licenseno, '') AS doctor_license
      FROM ovst o
      LEFT JOIN patient p ON p.hn = o.hn
      LEFT JOIN kskdepartment k ON k.depcode = o.main_dep
+     LEFT JOIN doctor doc ON doc.code = o.doctor
      WHERE o.vn = ?
      LIMIT 1`,
     [vn]
@@ -1172,9 +1231,11 @@ export const fixWalkinClinicalVisit = async (
 
   const [chargeRows] = await connection.query(
     `SELECT opi.vn, opi.icode, opi.qty, opi.unitprice, opi.sum_price, opi.income,
-            COALESCE(sd.name, '') AS name
+            COALESCE(sd.name, nd.name, '') AS name,
+            COALESCE(sd.nhso_adp_code, nd.nhso_adp_code, '') AS nhso_adp_code
      FROM opitemrece opi
      LEFT JOIN s_drugitems sd ON sd.icode = opi.icode
+     LEFT JOIN nondrugitems nd ON nd.icode = opi.icode
      WHERE opi.vn = ?`,
     [vn]
   );
@@ -1207,6 +1268,7 @@ export const fixWalkinClinicalVisit = async (
     unitprice: Number(c.unitprice || 0),
     sum_price: Number(c.sum_price || 0),
     income: String(c.income || ''),
+    nhso_adp_code: String(c.nhso_adp_code || ''),
   }));
 
   const walkinRows = charges.filter((c) => c.icode === icode).length;
@@ -1222,6 +1284,9 @@ export const fixWalkinClinicalVisit = async (
     pttype: String(visit.pttype || ''),
     hospmain: String(visit.hospmain || ''),
     department: String(visit.department || ''),
+    spclty: String(visit.spclty || ''),
+    doctor: String(visit.doctor || ''),
+    doctor_license: String(visit.doctor_license || ''),
     diagnoses: diags,
     procedures: procs,
     chargeItems: charges,
@@ -1673,6 +1738,27 @@ export const fixWalkinClinicalVisit = async (
       await connection.query(`UPDATE dtmain SET icd = ? WHERE vn = ? AND (icd IS NULL OR icd = '')`, [dentalPdx, vn]);
 
       executedActions.push(`กำหนดรหัสโรคหลัก (PDX) เป็น ${dentalPdxDesc} ใน ovstdiag และ vn_stat เรียบร้อย`);
+    } else if (action === 'REMOVE_NON_DOCTOR_FEE') {
+      const [delRes] = await connection.query(
+        `DELETE opi FROM opitemrece opi
+         LEFT JOIN s_drugitems sd ON sd.icode = opi.icode
+         LEFT JOIN nondrugitems nd ON nd.icode = opi.icode
+         WHERE opi.vn = ?
+           AND (
+             opi.icode IN ('55021', '55022')
+             OR sd.nhso_adp_code IN ('55021', '55022')
+             OR nd.nhso_adp_code IN ('55021', '55022')
+             OR sd.name LIKE '%55021%'
+             OR sd.name LIKE '%55022%'
+             OR nd.name LIKE '%55021%'
+             OR nd.name LIKE '%55022%'
+           )`,
+        [vn]
+      );
+      const delCount = Number((delRes as { affectedRows?: number }).affectedRows || 0);
+      if (delCount > 0) {
+        executedActions.push(`ลบรายการค่าบริการ 55021/55022 (${delCount} รายการ) ออกจาก opitemrece เรียบร้อย`);
+      }
     }
   }
 

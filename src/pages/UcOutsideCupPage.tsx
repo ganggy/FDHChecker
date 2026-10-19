@@ -1461,6 +1461,10 @@ export const UcOutsideCupPage = () => {
                   <span>🩺</span>
                   <span><strong>กำหนดรหัสโรคหลักทันตกรรม (PDX)</strong>: กำหนดรหัสโรคหลัก (เช่น Z01.2, K05.1) ใน ovstdiag สำหรับเคสทันตกรรมที่ยังไม่มีการลงรหัสโรค</span>
                 </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                  <span>🚫</span>
+                  <span><strong>เคลียร์ค่าบริการ 55021/55022</strong>: ลบรายการค่าบริการทางการแพทย์ 55021/55022 ออกจากบริการที่ไม่พบแพทย์ (แพทย์แผนไทย, กายภาพบำบัด, ทันตกรรม, ล้างแผลฉีดยา) เพื่อป้องกันการติด C</span>
+                </div>
               </div>
             </div>
 

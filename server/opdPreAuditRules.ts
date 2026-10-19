@@ -77,8 +77,11 @@ export const evaluateOpdPreAudit = (row: Record<string, unknown>): OpdPreAuditIs
   if (enabled(row.has_observation_charge) && (enabled(row.has_55020) || enabled(row.has_55021))) {
     issues.push({ code: 'OPD-CHG04', message: 'พบค่าเตียงสังเกตอาการร่วมกับค่าบริการ OPD 55020/55021', severity: 'blocking' });
   }
-  if (enabled(row.has_procedure_service) && !enabled(row.has_provider) && (enabled(row.has_55020) || enabled(row.has_55021))) {
+  if (enabled(row.has_procedure_service) && !enabled(row.has_provider) && (enabled(row.has_55020) || enabled(row.has_55021) || enabled(row.has_55022))) {
     issues.push({ code: 'OPD-CHG05', message: 'visit หัตถการไม่พบผู้ตรวจ แต่มีการเบิกค่าบริการ OPD', severity: 'blocking' });
+  }
+  if (!enabled(row.has_provider) && (enabled(row.has_55021) || enabled(row.has_55022))) {
+    issues.push({ code: 'OPD-CHG06', message: 'พบค่าบริการทางการแพทย์ 55021/55022 ในบริการที่ไม่พบแพทย์ (แผนไทย/กายภาพ/ทันตกรรม/ล้างแผลฉีดยา) เสี่ยงติด C Error', severity: 'blocking' });
   }
   if (count(row.invalid_drug_qty_count) > 0) {
     issues.push({ code: 'OPD-DRU01', message: 'พบรายการยาที่จำนวนจ่ายเป็นศูนย์หรือติดลบ', severity: 'blocking' });

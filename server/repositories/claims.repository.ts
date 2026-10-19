@@ -3998,8 +3998,8 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       if (uuc === '2' && isReferAmbulance) {
         return false;
       }
-      const is55021or55022 = code === '55021' || code === '55022' || rawIcode === '55021' || rawIcode === '55022';
-      if (is55021or55022 && nonDoctorSeqs.has(seq)) {
+      const isDoctorFee = ['55020', '55021', '55022'].includes(code) || ['55020', '55021', '55022'].includes(rawIcode);
+      if (isDoctorFee && nonDoctorSeqs.has(seq)) {
         return false;
       }
       return true;

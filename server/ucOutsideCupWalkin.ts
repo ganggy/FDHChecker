@@ -739,7 +739,7 @@ export const evaluateWalkinVisitAudit = (visit: {
     });
   }
 
-  // Rule G7: ค่าบริการทางการแพทย์ 55021/55022 ในบริการที่ไม่พบแพทย์ (C-NON-DOCTOR-55021-55022)
+  // Rule G7: ค่าบริการทางการแพทย์ 55020/55021 ในบริการที่ไม่พบแพทย์ (C-NON-DOCTOR-55020-55021)
   const isThaiMed = dept.includes('แผนไทย') || dept.includes('แพทย์แผนไทย') || dept.includes('แพทย์ทางเลือก')
     || visit.spclty === '18'
     || allDxCodes.some((c) => /^U[5-7]/.test(c))
@@ -762,17 +762,21 @@ export const evaluateWalkinVisitAudit = (visit: {
       const adp = clean(i.nhso_adp_code);
       const icd = clean(i.icode);
       const nm = String(i.name || '');
-      return adp === '55021' || adp === '55022' || icd === '55021' || icd === '55022' || nm.includes('55021') || nm.includes('55022');
+      return ['55020', '55021', '55022'].includes(adp)
+        || ['55020', '55021', '55022'].includes(icd)
+        || nm.includes('55020')
+        || nm.includes('55021')
+        || nm.includes('55022');
     });
 
     if (hasInvalidDoctorFee) {
       const nonDoctorLabel = isThaiMed ? 'แพทย์แผนไทย' : isPhysicalTherapy ? 'กายภาพบำบัด' : is_dental ? 'ทันตกรรม' : 'ล้างแผล/ฉีดยา/บริการพยาบาล';
       issues.push({
-        code: 'C-NON-DOCTOR-55021-55022',
+        code: 'C-NON-DOCTOR-55020-55021',
         level: 'critical',
-        title: 'พบค่าบริการทางการแพทย์ 55021/55022 ในบริการที่ไม่พบแพทย์',
-        detail: `ตรวจพบการคิดค่าบริการ 55021/55022 ในบริการ${nonDoctorLabel}ที่ไม่ได้ตรวจรักษาโดยแพทย์แผนปัจจุบัน ทำให้เสี่ยงติด C Error ในระบบ e-Claim/FDH`,
-        recommendation: 'ลบรายการค่าบริการ 55021/55022 ออกจาก opitemrece ใน HOSxP ให้อัตโนมัติ เพื่อป้องกันการติด C ตอนส่งออก',
+        title: 'พบค่าบริการทางการแพทย์ 55020/55021 ในบริการที่ไม่พบแพทย์',
+        detail: `ตรวจพบการคิดค่าบริการ 55020/55021 ในบริการ${nonDoctorLabel}ที่ไม่ได้ตรวจรักษาโดยแพทย์แผนปัจจุบัน ทำให้เสี่ยงติด C Error ในระบบ e-Claim/FDH`,
+        recommendation: 'ลบรายการค่าบริการ 55020/55021 ออกจาก opitemrece ใน HOSxP ให้อัตโนมัติ เพื่อป้องกันการติด C ตอนส่งออก',
         category: 'billing',
         autoFixable: true,
         fixAction: 'REMOVE_NON_DOCTOR_FEE',
@@ -1745,11 +1749,13 @@ export const fixWalkinClinicalVisit = async (
          LEFT JOIN nondrugitems nd ON nd.icode = opi.icode
          WHERE opi.vn = ?
            AND (
-             opi.icode IN ('55021', '55022')
-             OR sd.nhso_adp_code IN ('55021', '55022')
-             OR nd.nhso_adp_code IN ('55021', '55022')
+             opi.icode IN ('55020', '55021', '55022')
+             OR sd.nhso_adp_code IN ('55020', '55021', '55022')
+             OR nd.nhso_adp_code IN ('55020', '55021', '55022')
+             OR sd.name LIKE '%55020%'
              OR sd.name LIKE '%55021%'
              OR sd.name LIKE '%55022%'
+             OR nd.name LIKE '%55020%'
              OR nd.name LIKE '%55021%'
              OR nd.name LIKE '%55022%'
            )`,
@@ -1757,7 +1763,7 @@ export const fixWalkinClinicalVisit = async (
       );
       const delCount = Number((delRes as { affectedRows?: number }).affectedRows || 0);
       if (delCount > 0) {
-        executedActions.push(`ลบรายการค่าบริการ 55021/55022 (${delCount} รายการ) ออกจาก opitemrece เรียบร้อย`);
+        executedActions.push(`ลบรายการค่าบริการ 55020/55021 (${delCount} รายการ) ออกจาก opitemrece เรียบร้อย`);
       }
     }
   }

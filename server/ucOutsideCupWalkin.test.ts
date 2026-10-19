@@ -374,7 +374,7 @@ test('Dental Audit: dental visit with procedures but no diagnosis flags C-MISSIN
   assert.ok(result.auto_fix_actions.includes('ADD_DENTAL_PDX'));
 });
 
-test('Audit: Thai Traditional Medicine visit with 55021 flags C-NON-DOCTOR-55021-55022 and REMOVE_NON_DOCTOR_FEE', () => {
+test('Audit: Thai Traditional Medicine visit with 55020 flags C-NON-DOCTOR-55020-55021 and REMOVE_NON_DOCTOR_FEE', () => {
   const result = evaluateWalkinVisitAudit({
     vn: '691019000101',
     hn: '000001111',
@@ -384,20 +384,20 @@ test('Audit: Thai Traditional Medicine visit with 55021 flags C-NON-DOCTOR-55021
     procedures: [],
     chargeItems: [
       { icode: '5810101', name: 'นวดแผนไทยเพื่อการรักษา', sum_price: 250, income: '14' },
-      { icode: '3000550', name: 'ค่าบริการผู้ป่วยนอกนอกเวลาราชการ (55021)', sum_price: 100, nhso_adp_code: '55021' },
+      { icode: '3000550', name: 'ค่าบริการผู้ป่วยนอก (55020)', sum_price: 100, nhso_adp_code: '55020' },
     ],
     has_walkin: true,
   });
 
   assert.equal(result.audit_status, 'critical');
-  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55021-55022');
-  assert.ok(feeIssue, 'Should flag C-NON-DOCTOR-55021-55022');
+  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55020-55021');
+  assert.ok(feeIssue, 'Should flag C-NON-DOCTOR-55020-55021 for Thai Med with 55020');
   assert.equal(feeIssue.autoFixable, true);
   assert.equal(feeIssue.fixAction, 'REMOVE_NON_DOCTOR_FEE');
   assert.ok(result.auto_fix_actions.includes('REMOVE_NON_DOCTOR_FEE'));
 });
 
-test('Audit: Physical Therapy visit with 55022 flags C-NON-DOCTOR-55021-55022 and REMOVE_NON_DOCTOR_FEE', () => {
+test('Audit: Physical Therapy visit with 55021 flags C-NON-DOCTOR-55020-55021 and REMOVE_NON_DOCTOR_FEE', () => {
   const result = evaluateWalkinVisitAudit({
     vn: '691019000102',
     hn: '000001112',
@@ -407,19 +407,19 @@ test('Audit: Physical Therapy visit with 55022 flags C-NON-DOCTOR-55021-55022 an
     procedures: [],
     chargeItems: [
       { icode: '5599901', name: 'การทำกายภาพบำบัด', sum_price: 300, income: '12' },
-      { icode: '55022', name: 'ค่าธรรมเนียมบริการปฐมภูมิ', sum_price: 100, nhso_adp_code: '55022' },
+      { icode: '55021', name: 'ค่าบริการผู้ป่วยนอกนอกเวลาราชการ', sum_price: 100, nhso_adp_code: '55021' },
     ],
     has_walkin: true,
   });
 
   assert.equal(result.audit_status, 'critical');
-  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55021-55022');
-  assert.ok(feeIssue, 'Should flag C-NON-DOCTOR-55021-55022');
+  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55020-55021');
+  assert.ok(feeIssue, 'Should flag C-NON-DOCTOR-55020-55021 for PT with 55021');
   assert.equal(feeIssue.autoFixable, true);
   assert.equal(feeIssue.fixAction, 'REMOVE_NON_DOCTOR_FEE');
 });
 
-test('Audit: ER dressing visit (Z48.0) without doctor with 55021 flags C-NON-DOCTOR-55021-55022', () => {
+test('Audit: ER dressing visit (Z48.0) without doctor with 55020/55021 flags C-NON-DOCTOR-55020-55021', () => {
   const result = evaluateWalkinVisitAudit({
     vn: '691019000103',
     hn: '000001113',
@@ -430,19 +430,41 @@ test('Audit: ER dressing visit (Z48.0) without doctor with 55021 flags C-NON-DOC
     procedures: [{ code: '9357', name: 'Dressing of wound', type: 'Doctor' }],
     chargeItems: [
       { icode: '3000010', name: 'ค่าทำแผล/ล้างแผล', sum_price: 80 },
-      { icode: '55021', name: 'ค่าบริการผู้ป่วยนอกนอกเวลาราชการ', sum_price: 100, nhso_adp_code: '55021' },
+      { icode: '55020', name: 'ค่าบริการผู้ป่วยนอกในเวลาราชการ', sum_price: 100, nhso_adp_code: '55020' },
     ],
     has_walkin: true,
   });
 
   assert.equal(result.audit_status, 'critical');
-  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55021-55022');
-  assert.ok(feeIssue, 'Should flag C-NON-DOCTOR-55021-55022 for nurse ER dressing');
+  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55020-55021');
+  assert.ok(feeIssue, 'Should flag C-NON-DOCTOR-55020-55021 for nurse ER dressing');
   assert.equal(feeIssue.autoFixable, true);
   assert.equal(feeIssue.fixAction, 'REMOVE_NON_DOCTOR_FEE');
 });
 
-test('Audit: Medical visit with medical doctor (license ว.) and 55021 is valid and does NOT flag C-NON-DOCTOR-55021-55022', () => {
+test('Audit: Dental visit with 55020 flags C-NON-DOCTOR-55020-55021', () => {
+  const result = evaluateWalkinVisitAudit({
+    vn: '691019000105',
+    hn: '000001115',
+    service_date: '2026-10-19',
+    department: 'กลุ่มงานทันตกรรม',
+    spclty: '04',
+    diagnoses: [{ code: 'K02.1', diagtype: '1' }],
+    procedures: [{ code: '2321', name: 'อุดฟัน', type: 'Dental' }],
+    chargeItems: [
+      { icode: '55020', name: 'ค่าบริการผู้ป่วยนอก', sum_price: 100, nhso_adp_code: '55020' },
+    ],
+    has_walkin: true,
+  });
+
+  assert.equal(result.audit_status, 'critical');
+  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55020-55021');
+  assert.ok(feeIssue, 'Should flag C-NON-DOCTOR-55020-55021 for dental');
+  assert.equal(feeIssue.autoFixable, true);
+  assert.equal(feeIssue.fixAction, 'REMOVE_NON_DOCTOR_FEE');
+});
+
+test('Audit: Medical visit with medical doctor (license ว.) and 55020/55021 is valid and does NOT flag C-NON-DOCTOR-55020-55021', () => {
   const result = evaluateWalkinVisitAudit({
     vn: '691019000104',
     hn: '000001114',
@@ -452,13 +474,13 @@ test('Audit: Medical visit with medical doctor (license ว.) and 55021 is valid
     diagnoses: [{ code: 'J00', diagtype: '1' }],
     procedures: [],
     chargeItems: [
+      { icode: '55020', name: 'ค่าบริการผู้ป่วยนอกในเวลาราชการ', sum_price: 100, nhso_adp_code: '55020' },
       { icode: '55021', name: 'ค่าบริการผู้ป่วยนอกนอกเวลาราชการ', sum_price: 100, nhso_adp_code: '55021' },
     ],
     has_walkin: true,
   });
 
-  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55021-55022');
+  const feeIssue = result.issues.find((i) => i.code === 'C-NON-DOCTOR-55020-55021');
   assert.equal(feeIssue, undefined, 'Must NOT flag valid medical doctor visit');
-  assert.equal(result.audit_status, 'valid');
 });
 

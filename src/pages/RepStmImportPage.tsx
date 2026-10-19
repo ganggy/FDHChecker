@@ -341,7 +341,8 @@ export const RepStmImportPage: React.FC = () => {
   const prevFiscalStart = `${prevFiscalStartYearCE}-10-01`;
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
   const todayStr = today.toISOString().slice(0, 10);
-  const [eclaimOpen, setEclaimOpen] = useState(false);
+  const [importSourceTab, setImportSourceTab] = useState<'eclaim' | 'csop' | 'manual'>('eclaim');
+  const [eclaimOpen, setEclaimOpen] = useState(true);
   const [eclaimShowSettings, setEclaimShowSettings] = useState(false);
   const [eclaimShowArchive, setEclaimShowArchive] = useState(false);
   const [eclaimUsername, setEclaimUsername] = useState('');
@@ -792,7 +793,7 @@ export const RepStmImportPage: React.FC = () => {
   const eclaimLoginInFlightRef = useRef(false);
 
   useEffect(() => {
-    if (!eclaimOpen) return;
+    if (!eclaimOpen && importSourceTab !== 'eclaim') return;
     let active = true;
     const pollStatus = async () => {
       try {
@@ -841,7 +842,7 @@ export const RepStmImportPage: React.FC = () => {
     void pollStatus();
     const timer = window.setInterval(() => void pollStatus(), 1500);
     return () => { active = false; window.clearInterval(timer); };
-  }, [eclaimOpen]);
+  }, [eclaimOpen, importSourceTab]);
 
   const resetQueue = () => {
     setQueueItems([]);
@@ -1832,134 +1833,281 @@ export const RepStmImportPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="card repstm-control-card" style={{ marginBottom: 16 }}>
-        <div className="card-body">
-          <div className="alert alert-info repstm-alert" style={{ marginBottom: 16 }}>
-            <span>ℹ️</span>
-            <span>
-              รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV, <code>REP ไต CHI</code> จาก ZIP ที่มี BIL+DBF และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
-            </span>
+      {/* 3 Source Switcher Tabs */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        {/* Tab 1: NHSO e-Claim */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            setImportSourceTab('eclaim');
+            setEclaimOpen(true);
+          }}
+          style={{
+            padding: '14px 18px',
+            borderRadius: 12,
+            border: importSourceTab === 'eclaim' ? '2px solid #2563eb' : '1px solid #e2e8f0',
+            background: importSourceTab === 'eclaim' ? 'linear-gradient(145deg, #eff6ff, #dbeafe)' : '#ffffff',
+            boxShadow: importSourceTab === 'eclaim' ? '0 4px 12px rgba(37,99,235,0.15)' : '0 1px 3px rgba(0,0,0,0.05)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              background: importSourceTab === 'eclaim' ? '#2563eb' : '#f1f5f9',
+              color: importSourceTab === 'eclaim' ? '#ffffff' : '#64748b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 22,
+              flexShrink: 0,
+            }}
+          >
+            🌐
           </div>
-
-          <div className="repstm-form-grid">
-            <div className="form-group">
-              <label className="form-label">มุมมองข้อมูลล่าสุด</label>
-              <select className="form-control" value={dataType} onChange={(e) => setDataType(e.target.value as ImportType)}>
-                <option value="REP">REP</option>
-                <option value="STM">STM</option>
-                <option value="INV">INV</option>
-              </select>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+              <strong style={{ fontSize: 14, color: importSourceTab === 'eclaim' ? '#1e40af' : '#1e293b' }}>
+                NHSO e-Claim Sync
+              </strong>
+              {eclaimBrowserReady ? (
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: '#dcfce7', color: '#15803d' }}>
+                  ● ออนไลน์
+                </span>
+              ) : null}
             </div>
-            <div className="form-group">
-              <label className="form-label">ผู้นำเข้า</label>
-              <input className="form-control" value={importedBy} onChange={(e) => setImportedBy(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">หมายเหตุ</label>
-              <input className="form-control" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="เช่น งวดมีนาคม 2569" />
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+              ดึงไฟล์ REP / STM อัตโนมัติ (ทุกกองทุน)
             </div>
           </div>
+        </div>
 
-          <div className="form-group repstm-picker-group">
-            <label className="form-label">เลือกไฟล์หรือโฟลเดอร์</label>
-            <div className="repstm-picker-actions">
-              <button className="btn btn-primary" type="button" onClick={() => fileInputRef.current?.click()}>
-                เลือกหลายไฟล์
-              </button>
-              <button className="btn btn-secondary" type="button" onClick={() => folderInputRef.current?.click()}>
-                เลือกทั้งโฟลเดอร์
-              </button>
-            </div>
-            <input
-              ref={fileInputRef}
-              style={{ display: 'none' }}
-              type="file"
-              multiple
-              accept=".xlsx,.xls,.csv,.zip,application/zip"
-              onChange={(e) => {
-                void handleFileChange(e.target.files);
-                if (e.target) e.target.value = '';
-              }}
-            />
-            <input
-              ref={folderInputRef}
-              style={{ display: 'none' }}
-              type="file"
-              multiple
-              {...({ webkitdirectory: '', directory: '' } as unknown as React.InputHTMLAttributes<HTMLInputElement>)}
-              accept=".xlsx,.xls,.csv,.zip,application/zip"
-              onChange={(e) => {
-                void handleFileChange(e.target.files);
-                if (e.target) e.target.value = '';
-              }}
-            />
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง BIL+DBF/XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\FDH_STAT</code>
-            </div>
-            <label className="repstm-subfile-option">
-              <input
-                type="checkbox"
-                checked={includeSubfiles}
-                onChange={(event) => {
-                  setIncludeSubfiles(event.target.checked);
-                  resetQueue();
-                }}
-              />
-              <span>
-                <strong>รวม Sub file / ชีตข้อมูลประกอบ</strong>
-                <small>เช่น Data Drug, Data Instrument, ข้อมูลอุทธรณ์ และผู้พิการ D1 — Data Sheet 0 ใน REP จะเก็บอัตโนมัติ แม้ไม่เลือกช่องนี้ และไม่บวกยอดซ้ำกับไฟล์หลัก</small>
-              </span>
-            </label>
+        {/* Tab 2: CSOP (สกส.) */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setImportSourceTab('csop')}
+          style={{
+            padding: '14px 18px',
+            borderRadius: 12,
+            border: importSourceTab === 'csop' ? '2px solid #0d9488' : '1px solid #e2e8f0',
+            background: importSourceTab === 'csop' ? 'linear-gradient(145deg, #f0fdfa, #ccfbf1)' : '#ffffff',
+            boxShadow: importSourceTab === 'csop' ? '0 4px 12px rgba(13,148,136,0.15)' : '0 1px 3px rgba(0,0,0,0.05)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              background: importSourceTab === 'csop' ? '#0d9488' : '#f1f5f9',
+              color: importSourceTab === 'csop' ? '#ffffff' : '#64748b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 22,
+              flexShrink: 0,
+            }}
+          >
+            🏥
           </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+              <strong style={{ fontSize: 14, color: importSourceTab === 'csop' ? '#0f766e' : '#1e293b' }}>
+                CSOP (สกส.) Sync
+              </strong>
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+              ดึงไฟล์ REP / STM สิทธิข้าราชการ/อปท.
+            </div>
+          </div>
+        </div>
 
-          <div className="repstm-toolbar">
-            <button className="btn btn-primary" onClick={() => void handleImport(false)} disabled={importing || readyItems.length === 0}>
-              {importing ? 'กำลังนำเข้าหลายไฟล์...' : `นำเข้ารายการที่พร้อม (${readyItems.length.toLocaleString()})`}
-            </button>
-            {duplicateItems.length > 0 && (
-              <button className="btn btn-warning" onClick={() => void handleImport(true)} disabled={importing}>
-                นำเข้าซ้ำ ({duplicateItems.length.toLocaleString()} ไฟล์)
-              </button>
-            )}
-            <button
-              className="btn btn-secondary"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={importing}
-            >
-              เพิ่มไฟล์เข้าคิว
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={resetQueue}
-              disabled={importing}
-            >
-              ล้างคิว
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => navigateFromDashboard('repDeny', { source: 'dashboard', contextLabel: 'จากหน้ารับ REP/STM' })}
-              disabled={importing}
-            >
-              เปิดหน้าตรวจ C/Deny
-            </button>
-            <button
-              className="btn btn-secondary"
-              onClick={() => navigateFromDashboard('reconciliation', { source: 'dashboard', contextLabel: 'จากหน้ารับ REP/STM' })}
-              disabled={importing}
-            >
-              เปิดหน้ากระทบยอด visit
-            </button>
-            <button className="btn btn-secondary" onClick={() => navigateFromDashboard('stmZeroAudit', {})} disabled={importing}>
-              🔎 ตรวจ STM 0
-            </button>
-            <button className="btn btn-secondary" onClick={() => navigateFromDashboard('repSheetZeroAudit', {})} disabled={importing}>📄 ตรวจ REP Data Sheet 0</button>
+        {/* Tab 3: Manual Upload */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setImportSourceTab('manual')}
+          style={{
+            padding: '14px 18px',
+            borderRadius: 12,
+            border: importSourceTab === 'manual' ? '2px solid #6366f1' : '1px solid #e2e8f0',
+            background: importSourceTab === 'manual' ? 'linear-gradient(145deg, #eef2ff, #e0e7ff)' : '#ffffff',
+            boxShadow: importSourceTab === 'manual' ? '0 4px 12px rgba(99,102,241,0.15)' : '0 1px 3px rgba(0,0,0,0.05)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 10,
+              background: importSourceTab === 'manual' ? '#6366f1' : '#f1f5f9',
+              color: importSourceTab === 'manual' ? '#ffffff' : '#64748b',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 22,
+              flexShrink: 0,
+            }}
+          >
+            📁
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+              <strong style={{ fontSize: 14, color: importSourceTab === 'manual' ? '#4338ca' : '#1e293b' }}>
+                นำเข้าไฟล์ด้วยตนเอง
+              </strong>
+              {queueItems.length > 0 ? (
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: '#fee2e2', color: '#b91c1c' }}>
+                  คิว: {queueItems.length}
+                </span>
+              ) : null}
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+              อัปโหลดไฟล์ Excel / CSV / ZIP จากเครื่อง
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Manual Upload Workspace */}
+      {importSourceTab === 'manual' && (
+        <div className="card repstm-control-card" style={{ marginBottom: 16 }}>
+          <div className="card-body">
+            <div className="alert alert-info repstm-alert" style={{ marginBottom: 16 }}>
+              <span>ℹ️</span>
+              <span>
+                รองรับ <code>UCS / LGO / OFC (CSMBS)</code> จาก Excel/CSV, <code>REP ไต CHI</code> จาก ZIP ที่มี BIL+DBF และ ZIP/XML เช่น <code>COCDSTM</code> ระบบจะตรวจชื่อ ขนาด และเนื้อหา แนะนำตัวนำเข้าให้ และให้ผู้ใช้เปลี่ยนเป็น REP/STM/INV ก่อนยืนยันได้
+              </span>
+            </div>
+
+            <div className="repstm-form-grid">
+              <div className="form-group">
+                <label className="form-label">มุมมองข้อมูลล่าสุด</label>
+                <select className="form-control" value={dataType} onChange={(e) => setDataType(e.target.value as ImportType)}>
+                  <option value="REP">REP</option>
+                  <option value="STM">STM</option>
+                  <option value="INV">INV</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">ผู้นำเข้า</label>
+                <input className="form-control" value={importedBy} onChange={(e) => setImportedBy(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">หมายเหตุ</label>
+                <input className="form-control" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="เช่น งวดมีนาคม 2569" />
+              </div>
+            </div>
+
+            <div className="form-group repstm-picker-group">
+              <label className="form-label">เลือกไฟล์หรือโฟลเดอร์</label>
+              <div className="repstm-picker-actions">
+                <button className="btn btn-primary" type="button" onClick={() => fileInputRef.current?.click()}>
+                  เลือกหลายไฟล์
+                </button>
+                <button className="btn btn-secondary" type="button" onClick={() => folderInputRef.current?.click()}>
+                  เลือกทั้งโฟลเดอร์
+                </button>
+              </div>
+              <input
+                ref={fileInputRef}
+                style={{ display: 'none' }}
+                type="file"
+                multiple
+                accept=".xlsx,.xls,.csv,.zip,application/zip"
+                onChange={(e) => {
+                  void handleFileChange(e.target.files);
+                  if (e.target) e.target.value = '';
+                }}
+              />
+              <input
+                ref={folderInputRef}
+                style={{ display: 'none' }}
+                type="file"
+                multiple
+                {...({ webkitdirectory: '', directory: '' } as unknown as React.InputHTMLAttributes<HTMLInputElement>)}
+                accept=".xlsx,.xls,.csv,.zip,application/zip"
+                onChange={(e) => {
+                  void handleFileChange(e.target.files);
+                  if (e.target) e.target.value = '';
+                }}
+              />
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                ระบบจะตรวจชนิดจากชื่อไฟล์ หัวตาราง หรือโครงสร้าง BIL+DBF/XML ภายใน ZIP รองรับหลายไฟล์และทั้งโฟลเดอร์ เช่น <code>C:\TEMP\FDH_STAT</code>
+              </div>
+              <label className="repstm-subfile-option">
+                <input
+                  type="checkbox"
+                  checked={includeSubfiles}
+                  onChange={(event) => {
+                    setIncludeSubfiles(event.target.checked);
+                    resetQueue();
+                  }}
+                />
+                <span>
+                  <strong>รวม Sub file / ชีตข้อมูลประกอบ</strong>
+                  <small>เช่น Data Drug, Data Instrument, ข้อมูลอุทธรณ์ และผู้พิการ D1 — Data Sheet 0 ใน REP จะเก็บอัตโนมัติ แม้ไม่เลือกช่องนี้ และไม่บวกยอดซ้ำกับไฟล์หลัก</small>
+                </span>
+              </label>
+            </div>
+
+            <div className="repstm-toolbar">
+              <button className="btn btn-primary" onClick={() => void handleImport(false)} disabled={importing || readyItems.length === 0}>
+                {importing ? 'กำลังนำเข้าหลายไฟล์...' : `นำเข้ารายการที่พร้อม (${readyItems.length.toLocaleString()})`}
+              </button>
+              {duplicateItems.length > 0 && (
+                <button className="btn btn-warning" onClick={() => void handleImport(true)} disabled={importing}>
+                  นำเข้าซ้ำ ({duplicateItems.length.toLocaleString()} ไฟล์)
+                </button>
+              )}
+              <button
+                className="btn btn-secondary"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+              >
+                เพิ่มไฟล์เข้าคิว
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={resetQueue}
+                disabled={importing}
+              >
+                ล้างคิว
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* NHSO All-in-One Auto Download (REP / STM / INV / SMT) */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header" style={{ cursor: 'pointer' }} onClick={() => setEclaimOpen((v) => !v)}>
+      {importSourceTab === 'eclaim' && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header" style={{ cursor: 'pointer' }} onClick={() => setEclaimOpen((v) => !v)}>
           <div className="card-title">
             🚀 NHSO All-in-One Auto Download (ดึงไฟล์ REP / STM / INV + ซิงค์งบโอนเงินอัตโนมัติในเว็บ)
           </div>
@@ -2786,8 +2934,66 @@ export const RepStmImportPage: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
-      <CsopSyncPanel onImportTriggered={() => void loadData(dataType)} />
+      {/* CSOP Sync Workspace */}
+      {importSourceTab === 'csop' && (
+        <CsopSyncPanel defaultOpen={true} onImportTriggered={() => void loadData(dataType)} />
+      )}
+
+      {/* Quick Tools Action Bar (Always Accessible) */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '10px 16px',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: 10,
+          marginBottom: 16,
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>⚡ ทางลัดเครื่องมือตรวจสอบ:</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '5px 12px' }}
+            onClick={() => navigateFromDashboard('repDeny', { source: 'dashboard', contextLabel: 'จากหน้ารับ REP/STM' })}
+          >
+            🛡️ ตรวจ C / Deny
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '5px 12px' }}
+            onClick={() => navigateFromDashboard('reconciliation', { source: 'dashboard', contextLabel: 'จากหน้ารับ REP/STM' })}
+          >
+            🔄 กระทบยอด Visit
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '5px 12px' }}
+            onClick={() => navigateFromDashboard('stmZeroAudit', {})}
+          >
+            🔎 ตรวจ STM 0
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '5px 12px' }}
+            onClick={() => navigateFromDashboard('repSheetZeroAudit', {})}
+          >
+            📄 ตรวจ REP Data Sheet 0
+          </button>
+        </div>
+      </div>
 
       <div className="card repstm-status-card" style={{ marginBottom: 16 }}>
         <div className="card-header" style={{ flexWrap: 'wrap', gap: 8 }}>

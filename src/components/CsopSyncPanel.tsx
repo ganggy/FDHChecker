@@ -40,11 +40,12 @@ interface InspectionTable {
 
 interface Props {
   onImportTriggered?: () => void;
+  defaultOpen?: boolean;
 }
 
-export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered }) => {
+export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen = true }) => {
   void onImportTriggered;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [showSettings, setShowSettings] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
 

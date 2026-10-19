@@ -11,6 +11,8 @@ import {
   refillCsopCredentials,
   closeCsopBrowserSession,
   getActiveCsopSession,
+  testCsopSession,
+  parseCsopCookie,
 } from './csopBridge.js';
 
 export const csopRouter = Router();
@@ -28,6 +30,8 @@ csopRouter.get('/config', async (_req, res) => {
         autoDownload: config.autoDownload,
         autoImport: config.autoImport,
         headless: config.headless,
+        hasSessionCookie: Boolean(String(config.sessionCookie || '').trim()),
+        sessionConnectedAt: config.sessionConnectedAt || null,
       },
     });
   } catch (error) {
@@ -56,8 +60,63 @@ csopRouter.post('/config', async (req, res) => {
         autoDownload: updated.autoDownload,
         autoImport: updated.autoImport,
         headless: updated.headless,
+        hasSessionCookie: Boolean(String(updated.sessionCookie || '').trim()),
+        sessionConnectedAt: updated.sessionConnectedAt || null,
       },
     });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** POST /api/csop/session-cookie — validate and connect CSOP using copied session cookie */
+csopRouter.post('/session-cookie', async (req, res) => {
+  try {
+    const rawCookie = String(req.body?.cookie || '').trim();
+    if (!rawCookie) {
+      return res.status(400).json({ success: false, error: 'กรุณากรอกหรือวางข้อมูล Cookie ของ CSOP' });
+    }
+    const result = await testCsopSession(rawCookie);
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** GET /api/csop/session-status — test existing saved session cookie */
+csopRouter.get('/session-status', async (_req, res) => {
+  try {
+    const config = await getResolvedCsopConfig();
+    if (!config.sessionCookie) {
+      return res.json({
+        success: true,
+        hasCookie: false,
+        valid: false,
+        message: 'ยังไม่มีเซสชัน Cookie ของ CSOP ที่บันทึกไว้',
+      });
+    }
+    const result = await testCsopSession(config.sessionCookie);
+    return res.json({
+      success: true,
+      hasCookie: true,
+      ...result,
+      sessionConnectedAt: config.sessionConnectedAt,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+/** DELETE /api/csop/session-cookie */
+csopRouter.delete('/session-cookie', async (_req, res) => {
+  try {
+    const config = await getResolvedCsopConfig();
+    await saveCsopConfig({
+      ...config,
+      sessionCookie: '',
+      sessionConnectedAt: '',
+    });
+    return res.json({ success: true, message: 'ลบเซสชัน Cookie เรียบร้อยแล้ว' });
   } catch (error) {
     return res.status(500).json({ success: false, error: (error as Error).message });
   }

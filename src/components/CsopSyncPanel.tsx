@@ -80,7 +80,96 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
   } | null>(null);
   const [inspecting, setInspecting] = useState(false);
 
+  // Session Cookie State
+  const [sessionCookieInput, setSessionCookieInput] = useState('');
+  const [hasSessionCookie, setHasSessionCookie] = useState(false);
+  const [sessionConnectedAt, setSessionConnectedAt] = useState<string | null>(null);
+  const [connectingCookie, setConnectingCookie] = useState(false);
+  const [activeMethod, setActiveMethod] = useState<'cookie' | 'browser'>('cookie');
+
   const imgRef = useRef<HTMLImageElement>(null);
+
+  const handleCheckCookieStatus = async () => {
+    setActionMessage('⏳ กำลังทดสอบสถานะ Session Cookie...');
+    try {
+      const res = await fetch('/api/csop/session-status');
+      const data = await res.json();
+      if (data.valid) {
+        setHasSessionCookie(true);
+        setStatus((prev) => ({
+          ...prev,
+          ready: true,
+          message: data.message,
+          title: data.title || prev.title,
+        }));
+        setActionMessage('✅ Session Cookie ยังใช้งานได้ปกติ พร้อมดึงข้อมูล');
+      } else {
+        setHasSessionCookie(false);
+        setStatus((prev) => ({
+          ...prev,
+          ready: false,
+          message: data.message,
+        }));
+        setActionMessage(`⚠️ ${data.message}`);
+      }
+    } catch (err) {
+      setActionMessage(`❌ ไม่สามารถตรวจสอบสถานะได้: ${(err as Error).message}`);
+    }
+  };
+
+  const handleSaveCookie = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!sessionCookieInput.trim()) {
+      alert('กรุณากรอกหรือวางข้อมูล Cookie / cURL จาก CSOP');
+      return;
+    }
+    setConnectingCookie(true);
+    setActionMessage('⏳ กำลังตรวจสอบและเชื่อมต่อ CSOP Session...');
+    try {
+      const res = await fetch('/api/csop/session-cookie', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookie: sessionCookieInput }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        setHasSessionCookie(true);
+        setSessionConnectedAt(new Date().toISOString());
+        setSessionCookieInput('');
+        setStatus((prev) => ({
+          ...prev,
+          ready: true,
+          message: data.message || 'เชื่อมต่อ CSOP สำเร็จเรียบร้อย',
+          title: data.title || prev.title,
+        }));
+        setActionMessage('✅ เชื่อมต่อ CSOP ผ่าน Session Cookie สำเร็จเรียบร้อย!');
+      } else {
+        alert(data.message || 'การตรวจสอบ Session Cookie ล้มเหลว');
+        setActionMessage(`❌ ${data.message || 'Cookie ไม่ถูกต้องหรือหมดอายุ'}`);
+      }
+    } catch (err) {
+      alert((err as Error).message);
+    } finally {
+      setConnectingCookie(false);
+    }
+  };
+
+  const handleClearCookie = async () => {
+    if (!confirm('ต้องการยกเลิกและลบ Session Cookie หรือไม่?')) return;
+    try {
+      await fetch('/api/csop/session-cookie', { method: 'DELETE' });
+      setHasSessionCookie(false);
+      setSessionConnectedAt(null);
+      setStatus((prev) => ({
+        ...prev,
+        ready: false,
+        message: 'ลบเซสชัน Cookie เรียบร้อยแล้ว',
+      }));
+      setActionMessage('ลบเซสชัน Cookie เรียบร้อยแล้ว');
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  };
 
   // Load config on mount
   useEffect(() => {
@@ -94,6 +183,26 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
           setAutoDownload(Boolean(res.data.autoDownload));
           setAutoImport(Boolean(res.data.autoImport));
           setHeadless(Boolean(res.data.headless));
+          if (res.data.hasSessionCookie) {
+            setHasSessionCookie(true);
+            setSessionConnectedAt(res.data.sessionConnectedAt);
+          }
+        }
+      })
+      .catch(() => {});
+
+    fetch('/api/csop/session-status')
+      .then((res) => res.json())
+      .then((res) => {
+        if (res.valid) {
+          setHasSessionCookie(true);
+          setSessionConnectedAt(res.sessionConnectedAt);
+          setStatus((prev) => ({
+            ...prev,
+            ready: true,
+            message: res.message || 'เชื่อมต่อ CSOP สำเร็จเรียบร้อย',
+            title: res.title || prev.title,
+          }));
         }
       })
       .catch(() => {});
@@ -496,59 +605,197 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
             </div>
           )}
 
-          {/* Connection Control & Status Area */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-              padding: '12px 16px',
-              background: '#f1f5f9',
-              borderRadius: 8,
-              marginBottom: 14,
-              flexWrap: 'wrap',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button
-                type="button"
-                className={`btn ${status.ready ? 'btn-success' : 'btn-primary'}`}
-                style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                onClick={handleStartBrowser}
-                disabled={loading}
+          {/* Method Selection Tabs */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeMethod === 'cookie' ? 'btn-primary' : 'btn-outline-secondary'}`}
+              style={{
+                fontWeight: 600,
+                borderRadius: 6,
+                padding: '6px 14px',
+                fontSize: 13,
+                boxShadow: activeMethod === 'cookie' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}
+              onClick={() => setActiveMethod('cookie')}
+            >
+              🔑 วิธีที่ 1: เชื่อมต่อผ่าน Session Cookie (แนะนำ - ผ่านแน่นอน 100%)
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${activeMethod === 'browser' ? 'btn-primary' : 'btn-outline-secondary'}`}
+              style={{
+                fontWeight: 600,
+                borderRadius: 6,
+                padding: '6px 14px',
+                fontSize: 13,
+                boxShadow: activeMethod === 'browser' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}
+              onClick={() => setActiveMethod('browser')}
+            >
+              🖥️ วิธีที่ 2: จำลองเปิดหน้าจอ CSOP บนเซิร์ฟเวอร์ (Remote Browser)
+            </button>
+          </div>
+
+          {/* Method 1: Session Cookie Connector */}
+          {activeMethod === 'cookie' && (
+            <div
+              style={{
+                border: '1px solid #cbd5e1',
+                borderRadius: 8,
+                padding: 16,
+                background: hasSessionCookie ? '#f0fdf4' : '#f8fafc',
+                marginBottom: 14,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 8,
+                  flexWrap: 'wrap',
+                  gap: 8,
+                }}
               >
-                {status.ready ? '🔄 รีเฟรช / ตรวจสอบการเชื่อมต่อ CSOP' : '🔐 เริ่มเชื่อมต่อ CSOP (สกส.)'}
-              </button>
+                <div>
+                  <strong style={{ fontSize: 14, color: hasSessionCookie ? '#166534' : '#0f172a' }}>
+                    {hasSessionCookie ? '🟢 สถานะ: มีเซสชัน CSOP บันทึกอยู่ในระบบ พร้อมใช้งาน' : '🔗 นำเข้าเซสชัน CSOP จากเบราว์เซอร์จริง'}
+                  </strong>
+                  {sessionConnectedAt && (
+                    <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>
+                      (เชื่อมต่อเมื่อ: {new Date(sessionConnectedAt).toLocaleString('th-TH')})
+                    </span>
+                  )}
+                </div>
+                {hasSessionCookie && (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-success"
+                      onClick={handleCheckCookieStatus}
+                      style={{ fontSize: 12, fontWeight: 600 }}
+                    >
+                      🔄 ตรวจสอบเซสชัน
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger"
+                      onClick={handleClearCookie}
+                      style={{ fontSize: 12 }}
+                    >
+                      🗑️ ลบเซสชัน
+                    </button>
+                  </div>
+                )}
+              </div>
 
-              {status.alive && !status.ready && (
+              <p style={{ fontSize: 13, color: '#475569', marginBottom: 10, lineHeight: 1.5 }}>
+                เนื่องจาก CSOP มีระบบ Cloudflare Turnstile ที่บล็อกเบราว์เซอร์อัตโนมัติบน Cloud/VPS
+                การใช้เซสชันจากเบราว์เซอร์ที่คุณล็อกอินผ่านแล้วบนคอมพิวเตอร์ของคุณเอง จะทำให้ระบบดึง REP / STM ได้ 100% ทันที
+              </p>
+
+              {/* Instructions Box */}
+              <div
+                style={{
+                  background: '#e0f2fe',
+                  border: '1px solid #bae6fd',
+                  borderRadius: 6,
+                  padding: '10px 14px',
+                  fontSize: 12,
+                  color: '#0369a1',
+                  marginBottom: 12,
+                  lineHeight: 1.6,
+                }}
+              >
+                <strong>📌 วิธีคัดลอก Cookie จากแท็บ CSOP ที่คุณเปิดอยู่:</strong>
+                <ol style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                  <li>ในแท็บ CSOP (<a href="https://cs8.chi.or.th/csopupload" target="_blank" rel="noreferrer" style={{ color: '#0284c7', textDecoration: 'underline' }}>cs8.chi.or.th/csopupload</a>) ที่คุณเข้าสู่ระบบอยู่แล้ว กดปุ่ม <strong>F12</strong> (หรือคลิกขวา &gt; ตรวจสอบ/Inspect)</li>
+                  <li>ไปที่แท็บ <strong>Application</strong> &gt; เมนูด้านซ้ายเลือก <strong>Cookies</strong> &gt; คลิก <code>https://cs8.chi.or.th</code></li>
+                  <li>ดับเบิ้ลคลิกคัดลอกค่า Value ของ <code>CSOP.AspNetCore.Cookie</code> (หรือในแท็บ Network คลิกขวา Request ใดก็ได้ เลือก Copy &gt; Copy as cURL)</li>
+                  <li>นำมาวางในช่องด้านล่าง แล้วกด <strong>"เชื่อมต่อเซสชันทันที"</strong></li>
+                </ol>
+              </div>
+
+              {/* Input Form */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  className="form-control"
+                  style={{ flex: 1, minWidth: 260, fontSize: 13 }}
+                  placeholder="วางค่า Cookie (เช่น CSOP.AspNetCore.Cookie=... หรือข้อความ cURL จาก Network tab)"
+                  value={sessionCookieInput}
+                  onChange={(e) => setSessionCookieInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSaveCookie()}
+                />
                 <button
                   type="button"
-                  className="btn btn-warning"
-                  style={{ fontSize: 12 }}
-                  onClick={() => setModalOpen(true)}
+                  className="btn btn-primary"
+                  style={{ fontWeight: 600, fontSize: 13, minWidth: 150 }}
+                  onClick={() => handleSaveCookie()}
+                  disabled={connectingCookie || !sessionCookieInput.trim()}
                 >
-                  🖥️ เปิดหน้าจอยืนยันตัวตน (Verify)
+                  {connectingCookie ? '⏳ กำลังตรวจสอบ...' : '🔗 เชื่อมต่อเซสชันทันที'}
                 </button>
-              )}
+              </div>
+            </div>
+          )}
 
-              {status.alive && (
+          {/* Method 2: Remote Browser Connection Control & Status Area */}
+          {activeMethod === 'browser' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                padding: '12px 16px',
+                background: '#f1f5f9',
+                borderRadius: 8,
+                marginBottom: 14,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <button
                   type="button"
-                  className="btn btn-secondary"
-                  style={{ fontSize: 12 }}
-                  onClick={handleCloseBrowser}
+                  className={`btn ${status.ready ? 'btn-success' : 'btn-primary'}`}
+                  style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={handleStartBrowser}
                   disabled={loading}
                 >
-                  ❌ ปิดการเชื่อมต่อ
+                  {status.ready ? '🔄 รีเฟรช / ตรวจสอบการเชื่อมต่อ CSOP' : '🔐 เริ่มเชื่อมต่อ CSOP (สกส.)'}
                 </button>
-              )}
-            </div>
 
-            <div style={{ fontSize: 13, color: '#334155' }}>
-              <strong>สถานะ:</strong> {status.message || 'พร้อมเริ่มเชื่อมต่อ'}
+                {status.alive && !status.ready && (
+                  <button
+                    type="button"
+                    className="btn btn-warning"
+                    style={{ fontSize: 12, fontWeight: 600 }}
+                    onClick={() => setModalOpen(true)}
+                  >
+                    🖥️ เปิดหน้าจอยืนยันตัวตน (Verify)
+                  </button>
+                )}
+
+                {status.alive && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12 }}
+                    onClick={handleCloseBrowser}
+                    disabled={loading}
+                  >
+                    ❌ ปิดการเชื่อมต่อ
+                  </button>
+                )}
+              </div>
+
+              <div style={{ fontSize: 13, color: '#334155' }}>
+                <strong>สถานะ:</strong> {status.message || 'พร้อมเริ่มเชื่อมต่อ'}
+              </div>
             </div>
-          </div>
+          )}
 
           {actionMessage && (
             <div className="alert alert-info" style={{ marginBottom: 12, fontSize: 13 }}>
@@ -885,6 +1132,9 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
                           >
                             🔑 กรอกรหัสใหม่
                           </button>
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 12, color: '#64748b', width: '100%', textAlign: 'center' }}>
+                          💡 หาก Cloudflare ขึ้น &quot;การตรวจสอบล้มเหลว&quot; ให้กด <strong>&quot;ย่อหน้าต่าง ✕&quot;</strong> แล้วสลับไปที่ <strong>&quot;วิธีที่ 1: เชื่อมต่อผ่าน Session Cookie&quot;</strong> เพื่อเชื่อมต่อทันที 100%
                         </div>
                       </div>
                       <div

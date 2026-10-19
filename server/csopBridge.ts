@@ -13,6 +13,8 @@ export interface CsopConfig {
   autoDownload: boolean;
   autoImport: boolean;
   headless: boolean;
+  sessionCookie?: string;
+  sessionConnectedAt?: string;
 }
 
 export const getDefaultCsopConfig = (): CsopConfig => ({
@@ -52,6 +54,76 @@ export const saveCsopConfig = async (config: Partial<CsopConfig>): Promise<CsopC
   };
   await setAppSetting(CSOP_SETTINGS_KEY, updated);
   return updated;
+};
+
+export const parseCsopCookie = (raw: string): string => {
+  let str = String(raw || '').trim();
+  if (!str) return '';
+  // Check if it's a curl command or header with Cookie:
+  const headerMatch = str.match(/(?:-H\s+['"]?Cookie:\s*|Cookie:\s*)([^'"]+)/i);
+  if (headerMatch && headerMatch[1]) {
+    str = headerMatch[1].trim();
+  }
+  // Remove wrapping quotes if any
+  str = str.replace(/^["']|["']$/g, '').trim();
+  // If user pasted only the raw ticket value without 'CSOP.AspNetCore.Cookie='
+  if (!str.includes('=') && str.length > 25) {
+    return `CSOP.AspNetCore.Cookie=${str}`;
+  }
+  return str;
+};
+
+export const testCsopSession = async (cookieInput: string) => {
+  const cookie = parseCsopCookie(cookieInput);
+  if (!cookie) {
+    return { valid: false, message: 'กรุณากรอกหรือวางข้อมูล Cookie ของ CSOP' };
+  }
+
+  try {
+    const res = await fetch('https://cs8.chi.or.th/csopupload', {
+      headers: {
+        'Cookie': cookie,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+      redirect: 'follow',
+    });
+
+    const text = await res.text();
+    const isLoginPage =
+      text.includes('Login เข้าใช้งานระบบ') ||
+      text.includes('cf-turnstile') ||
+      text.includes('id="btnLogin"');
+
+    if (res.ok && !isLoginPage) {
+      let title = 'ระบบธุรกรรมข้อมูลผู้ป่วยนอกสิทธิสวัสดิการข้าราชการ CSOP';
+      const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+      if (titleMatch) title = titleMatch[1].trim();
+
+      const current = await getResolvedCsopConfig();
+      await saveCsopConfig({
+        ...current,
+        sessionCookie: cookie,
+        sessionConnectedAt: new Date().toISOString(),
+      });
+
+      return {
+        valid: true,
+        title,
+        cookie,
+        message: 'เชื่อมต่อ CSOP สำเร็จเรียบร้อย! ระบบพร้อมค้นหาและดาวน์โหลดไฟล์ REP / STM',
+      };
+    }
+
+    return {
+      valid: false,
+      message: 'Cookie ไม่ถูกต้องหรือหมดอายุแล้ว กรุณาเข้าสู่ระบบ CSOP บนเบราว์เซอร์ใหม่แล้วคัดลอกมาวางอีกครั้ง',
+    };
+  } catch (err) {
+    return {
+      valid: false,
+      message: `เกิดข้อผิดพลาดในการตรวจสอบ Cookie: ${(err as Error).message}`,
+    };
+  }
 };
 
 export interface CsopBrowserSession {
@@ -298,11 +370,10 @@ export const startCsopBrowserSession = async (customConfig?: Partial<CsopConfig>
 
   const launchArgs = isHeadless
     ? [
+        '--headless=new',
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-zygote',
         '--disable-blink-features=AutomationControlled',
       ]
     : [
@@ -364,20 +435,42 @@ export const startCsopBrowserSession = async (customConfig?: Partial<CsopConfig>
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
   });
 
+  if (config.sessionCookie) {
+    const cookieParts = config.sessionCookie.split(';');
+    const cookiesToAdd: Array<{
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+      secure: boolean;
+      httpOnly: boolean;
+    }> = [];
+    for (const part of cookieParts) {
+      const [name, ...valParts] = part.trim().split('=');
+      if (name && valParts.length > 0) {
+        cookiesToAdd.push({
+          name: name.trim(),
+          value: valParts.join('=').trim(),
+          domain: 'cs8.chi.or.th',
+          path: '/csopupload',
+          secure: true,
+          httpOnly: true,
+        });
+      }
+    }
+    if (cookiesToAdd.length > 0) {
+      await context.addCookies(cookiesToAdd).catch(() => {});
+    }
+  }
+
   await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-    (window as any).chrome = {
-      app: { isInstalled: false },
-      runtime: {},
-      loadTimes: function () {},
-      csi: function () {},
-    };
-    Object.defineProperty(navigator, 'plugins', {
-      get: () => [1, 2, 3, 4, 5],
+    Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
+      get: () => false,
     });
-    Object.defineProperty(navigator, 'languages', {
-      get: () => ['th-TH', 'th', 'en-US', 'en'],
-    });
+    if (!(window as any).chrome) {
+      (window as any).chrome = {};
+    }
+    (window as any).chrome.runtime = {};
   });
 
   const page = await context.newPage();
@@ -401,6 +494,20 @@ export const startCsopBrowserSession = async (customConfig?: Partial<CsopConfig>
       waitUntil: 'domcontentloaded',
       timeout: 45000,
     });
+
+    const currentUrl = page.url();
+    const isPastLoginPage =
+      !currentUrl.endsWith('/csopupload') &&
+      !currentUrl.endsWith('/csopupload/') &&
+      !currentUrl.endsWith('/csopupload/Login') &&
+      !currentUrl.endsWith('/csopupload/login');
+
+    if (isPastLoginPage) {
+      session.ready = true;
+      session.phase = 'ready';
+      session.message = 'เข้าสู่ระบบ CSOP สำเร็จเรียบร้อย (ผ่าน Session Cookie)';
+      return { success: true, message: session.message, phase: session.phase };
+    }
 
     session.phase = 'logging_in';
     session.message = `กำลังกรอกข้อมูลผู้ใช้ รหัส รพ. ${config.hcode} (${config.username})...`;
@@ -496,12 +603,15 @@ export const autoClickTurnstile = async () => {
   if (turnstileEl) {
     const box = await turnstileEl.boundingBox();
     if (box) {
-      const clickX = box.x + 35;
-      const clickY = box.y + (box.height / 2);
-      await page.mouse.move(clickX - 20, clickY - 10);
-      await page.waitForTimeout(200);
+      const clickX = box.x + 30;
+      const clickY = box.y + 35;
+      await page.mouse.move(clickX - 15, clickY - 15);
+      await page.waitForTimeout(100);
       await page.mouse.move(clickX, clickY);
-      await page.mouse.click(clickX, clickY);
+      await page.waitForTimeout(100);
+      await page.mouse.down();
+      await page.waitForTimeout(120);
+      await page.mouse.up();
       return { success: true, clicked: true };
     }
   }

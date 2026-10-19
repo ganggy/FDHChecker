@@ -7,28 +7,41 @@ document.getElementById('btnSync').addEventListener('click', async () => {
   statusDiv.innerText = '⏳ กำลังดึง Cookie จาก CSOP...';
 
   try {
-    const cookies = await chrome.cookies.getAll({ domain: 'cs8.chi.or.th' });
-    if (!cookies || cookies.length === 0) {
+    // 1. Get cookies by URL and by domain to ensure nothing is missed
+    const [byUrl, byDomain] = await Promise.all([
+      chrome.cookies.getAll({ url: 'https://cs8.chi.or.th/csopupload' }).catch(() => []),
+      chrome.cookies.getAll({ domain: 'cs8.chi.or.th' }).catch(() => []),
+    ]);
+
+    const cookieMap = new Map();
+    for (const c of [...(byUrl || []), ...(byDomain || [])]) {
+      if (c && c.name) cookieMap.set(c.name, c.value);
+    }
+
+    if (cookieMap.size === 0) {
       statusDiv.className = 'error';
-      statusDiv.innerText = '❌ ไม่พบ Cookie ของ CSOP กรุณาเปิดแท็บ cs8.chi.or.th แล้วเข้าสู่ระบบก่อน';
+      statusDiv.innerHTML = '❌ <strong>ไม่พบ Cookie ของ CSOP</strong><br>กรุณาเปิดแท็บ cs8.chi.or.th แล้วเข้าสู่ระบบก่อนครับ';
       btn.disabled = false;
       return;
     }
 
-    const cookieParts = cookies.map((c) => `${c.name}=${c.value}`);
+    const authCookieVal = cookieMap.get('CSOP.AspNetCore.Cookie') || '';
+    if (!authCookieVal || authCookieVal.trim().length < 30) {
+      statusDiv.className = 'error';
+      statusDiv.innerHTML = '⚠️ <strong>ยังไม่ได้เข้าสู่ระบบในแท็บ CSOP</strong><br>กรุณาสลับไปที่แท็บ CSOP พิมพ์รหัสผู้ใช้/รหัสผ่าน กดกล่องยืนยัน และกดปุ่ม <strong>"เข้าสู่ระบบ"</strong> ให้เข้าไปในระบบก่อน แล้วค่อยกดปุ่มนี้อีกครั้งครับ';
+      btn.disabled = false;
+      return;
+    }
+
+    const cookieParts = [];
+    for (const [name, val] of cookieMap.entries()) {
+      cookieParts.push(`${name}=${val}`);
+    }
     const cookieHeader = cookieParts.join('; ');
-
-    const hasAuthCookie = cookieParts.some((c) => c.startsWith('CSOP.AspNetCore.Cookie='));
-    if (!hasAuthCookie) {
-      statusDiv.className = 'error';
-      statusDiv.innerText = '⚠️ ยังไม่พบเซสชันการล็อกอิน CSOP.AspNetCore.Cookie กรุณาเข้าสู่ระบบในแท็บ CSOP ก่อนกดส่ง';
-      btn.disabled = false;
-      return;
-    }
 
     statusDiv.innerText = '⏳ กำลังส่งข้อมูลเซสชันเข้า FDH Checker...';
 
-    // Check active tab to find FDH Checker origin
+    // Find FDH Checker tab or fallback to origin
     const tabs = await chrome.tabs.query({});
     let targetOrigin = 'http://147.50.107.211:3507';
     for (const t of tabs) {
@@ -47,13 +60,13 @@ document.getElementById('btnSync').addEventListener('click', async () => {
       body: JSON.stringify({ cookie: cookieHeader }),
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (data.valid) {
       statusDiv.className = 'success';
-      statusDiv.innerHTML = '✅ <strong>ส่งเซสชันสำเร็จ!</strong><br>สลับกลับไปที่หน้าจอ FDH Checker ได้เลยครับ';
+      statusDiv.innerHTML = '✅ <strong>ส่งเซสชันสำเร็จ!</strong><br>เชื่อมต่อ CSOP เรียบร้อยแล้ว สลับกลับไปที่แท็บ FDH Checker ได้เลยครับ';
     } else {
       statusDiv.className = 'error';
-      statusDiv.innerText = `❌ ${data.message || 'การตรวจสอบเซสชันล้มเหลว'}`;
+      statusDiv.innerHTML = `❌ <strong>การตรวจสอบเซสชันไม่สำเร็จ:</strong><br>${data.message || data.error || 'กรุณาล็อกอินใหม่ในแท็บ CSOP'}`;
       btn.disabled = false;
     }
   } catch (err) {

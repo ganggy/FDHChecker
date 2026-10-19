@@ -59,17 +59,31 @@ export const saveCsopConfig = async (config: Partial<CsopConfig>): Promise<CsopC
 export const parseCsopCookie = (raw: string): string => {
   let str = String(raw || '').trim();
   if (!str) return '';
-  // Check if it's a curl command or header with Cookie:
-  const headerMatch = str.match(/(?:-H\s+['"]?Cookie:\s*|Cookie:\s*)([^'"]+)/i);
+
+  // 1. If the text contains CSOP.AspNetCore.Cookie anywhere:
+  const cookieMatch = str.match(/CSOP\.AspNetCore\.Cookie=([^;\r\n"'\s&]+)/i);
+  if (cookieMatch && cookieMatch[0]) {
+    const sessionMatch = str.match(/CSOP\.AspNetCore\.Session=([^;\r\n"'\s&]+)/i);
+    const parts = [cookieMatch[0].trim()];
+    if (sessionMatch && sessionMatch[0]) parts.push(sessionMatch[0].trim());
+    return parts.join('; ');
+  }
+
+  // 2. Check if it's a curl command or header with Cookie:
+  const headerMatch = str.match(/(?:-H\s+['"^]?Cookie:\s*|Cookie:\s*)([^'"\r\n^]+)/i);
   if (headerMatch && headerMatch[1]) {
     str = headerMatch[1].trim();
   }
-  // Remove wrapping quotes if any
-  str = str.replace(/^["']|["']$/g, '').trim();
-  // If user pasted only the raw ticket value without 'CSOP.AspNetCore.Cookie='
+
+  // 3. Remove wrapping quotes, backticks, or shell escapes
+  str = str.replace(/^["'\^`]+|["'\^`]+$/g, '').trim();
+
+  // 4. If user pasted only the raw ticket value without 'CSOP.AspNetCore.Cookie='
   if (!str.includes('=') && str.length > 25) {
+    str = str.replace(/\s+/g, '');
     return `CSOP.AspNetCore.Cookie=${str}`;
   }
+
   return str;
 };
 
@@ -80,7 +94,8 @@ export const testCsopSession = async (cookieInput: string) => {
   }
 
   try {
-    const res = await fetch('https://cs8.chi.or.th/csopupload', {
+    // Try /csopupload/Home first, fallback to /csopupload
+    let res = await fetch('https://cs8.chi.or.th/csopupload/Home', {
       headers: {
         'Cookie': cookie,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -88,11 +103,27 @@ export const testCsopSession = async (cookieInput: string) => {
       redirect: 'follow',
     });
 
-    const text = await res.text();
-    const isLoginPage =
+    let text = await res.text();
+    let isLoginPage =
       text.includes('Login เข้าใช้งานระบบ') ||
       text.includes('cf-turnstile') ||
       text.includes('id="btnLogin"');
+
+    if (!res.ok || isLoginPage) {
+      // Fallback check on root /csopupload
+      res = await fetch('https://cs8.chi.or.th/csopupload', {
+        headers: {
+          'Cookie': cookie,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+        redirect: 'follow',
+      });
+      text = await res.text();
+      isLoginPage =
+        text.includes('Login เข้าใช้งานระบบ') ||
+        text.includes('cf-turnstile') ||
+        text.includes('id="btnLogin"');
+    }
 
     if (res.ok && !isLoginPage) {
       let title = 'ระบบธุรกรรมข้อมูลผู้ป่วยนอกสิทธิสวัสดิการข้าราชการ CSOP';
@@ -114,9 +145,18 @@ export const testCsopSession = async (cookieInput: string) => {
       };
     }
 
+    // Check if what they pasted looks like antiforgery instead of auth cookie
+    const isAntiforgeryOnly =
+      cookie.includes('.AspNetCore.Antiforgery') ||
+      (cookie.startsWith('CSOP.AspNetCore.Cookie=CfDJ8') && !cookie.includes('.AspNetCore.Session'));
+    let tip = 'Cookie ไม่ถูกต้องหรือหมดอายุแล้ว กรุณาเข้าสู่ระบบ CSOP บนเบราว์เซอร์ใหม่แล้วคัดลอกมาวางอีกครั้ง';
+    if (isAntiforgeryOnly) {
+      tip = 'ข้อความที่วางเป็น Antiforgery Token ไม่ใช่ Session Cookie (ตัวที่เป็นเซสชันจริงชื่อ CSOP.AspNetCore.Cookie) หรือแนะนำให้ใช้คำสั่ง "Copy as cURL" ใน Network Tab ครับ';
+    }
+
     return {
       valid: false,
-      message: 'Cookie ไม่ถูกต้องหรือหมดอายุแล้ว กรุณาเข้าสู่ระบบ CSOP บนเบราว์เซอร์ใหม่แล้วคัดลอกมาวางอีกครั้ง',
+      message: tip,
     };
   } catch (err) {
     return {

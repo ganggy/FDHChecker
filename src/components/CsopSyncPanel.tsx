@@ -701,20 +701,31 @@ export const CsopSyncPanel: React.FC<Props> = ({ onImportTriggered, defaultOpen 
                   background: '#e0f2fe',
                   border: '1px solid #bae6fd',
                   borderRadius: 6,
-                  padding: '10px 14px',
+                  padding: '12px 14px',
                   fontSize: 12,
                   color: '#0369a1',
                   marginBottom: 12,
                   lineHeight: 1.6,
                 }}
               >
-                <strong>📌 วิธีคัดลอก Cookie จากแท็บ CSOP ที่คุณเปิดอยู่:</strong>
-                <ol style={{ margin: '4px 0 0 18px', padding: 0 }}>
-                  <li>ในแท็บ CSOP (<a href="https://cs8.chi.or.th/csopupload" target="_blank" rel="noreferrer" style={{ color: '#0284c7', textDecoration: 'underline' }}>cs8.chi.or.th/csopupload</a>) ที่คุณเข้าสู่ระบบอยู่แล้ว กดปุ่ม <strong>F12</strong> (หรือคลิกขวา &gt; ตรวจสอบ/Inspect)</li>
-                  <li>ไปที่แท็บ <strong>Application</strong> &gt; เมนูด้านซ้ายเลือก <strong>Cookies</strong> &gt; คลิก <code>https://cs8.chi.or.th</code></li>
-                  <li>ดับเบิ้ลคลิกคัดลอกค่า Value ของ <code>CSOP.AspNetCore.Cookie</code> (หรือในแท็บ Network คลิกขวา Request ใดก็ได้ เลือก Copy &gt; Copy as cURL)</li>
-                  <li>นำมาวางในช่องด้านล่าง แล้วกด <strong>"เชื่อมต่อเซสชันทันที"</strong></li>
-                </ol>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>
+                  📌 วิธีดึงเซสชันจากแท็บ CSOP ที่คุณเข้าสู่ระบบค้างไว้:
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <strong>วิธีที่ง่ายและแม่นยำที่สุด (Copy as cURL):</strong>
+                  <ol style={{ margin: '3px 0 6px 18px', padding: 0 }}>
+                    <li>ในแท็บ CSOP (<a href="https://cs8.chi.or.th/csopupload" target="_blank" rel="noreferrer" style={{ color: '#0284c7', textDecoration: 'underline' }}>cs8.chi.or.th/csopupload</a>) ที่ล็อกอินอยู่แล้ว กดปุ่ม <strong>F12</strong></li>
+                    <li>ไปที่แท็บ <strong>Network</strong> แล้วกดรีเฟรชหน้า CSOP 1 ครั้ง</li>
+                    <li>คลิกขวาที่รายการแรกสุด (เช่น <code>Home</code> หรือ <code>csopupload</code>) &gt; เลือก <strong>Copy</strong> &gt; <strong>Copy as cURL</strong></li>
+                    <li>นำมาวางในช่องด้านล่างนี้ได้เลย (ระบบจะดึง <code>CSOP.AspNetCore.Cookie</code> ออกมาให้เองอัตโนมัติ)</li>
+                  </ol>
+                </div>
+                <div style={{ borderTop: '1px dashed #bae6fd', paddingTop: 6 }}>
+                  <strong>หรือติดตั้ง Chrome Extension คลิกเดียวดึงอัตโนมัติ:</strong>
+                  <div style={{ marginTop: 2 }}>
+                    ดาวน์โหลด <a href="/csop-extension.zip" download style={{ fontWeight: 700, color: '#0284c7', textDecoration: 'underline' }}>📥 csop-extension.zip</a> แตกไฟล์ แล้วไปที่ <code>chrome://extensions</code> เปิด Developer mode &gt; Load unpacked เพื่อกดส่งเซสชันได้ในคลิกเดียวโดยไม่ต้องเปิด F12
+                  </div>
+                </div>
               </div>
 
               {/* Input Form */}

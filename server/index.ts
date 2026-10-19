@@ -143,6 +143,8 @@ import { receivableSettlementRouter } from './routes/receivableSettlementRoutes.
 import { smtBudgetRouter } from './routes/smtBudgetRoutes.js';
 import { hsubRouter } from './routes/hsubRoutes.js';
 import { pcuHerbalRouter } from './routes/pcuHerbalRoutes.js';
+import { csopRouter } from './csopRoutes.js';
+import { closeCsopBrowserSession } from './csopBridge.js';
 import { executiveMonitorRouter } from './routes/executiveMonitorRoutes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, resetSystemUpdateLock, startDirectSystemUpdate, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
@@ -8084,6 +8086,7 @@ app.use('/api', claimTrackingRouter);
 app.use('/api', collaborationRouter);
 app.use('/api/reports/checkup', annualHealthCheckupRouter);
 app.use('/api/annual-checkup', annualHealthCheckupRouter);
+app.use('/api/csop', csopRouter);
 
 app.use('/api', apiNotFoundHandler);
 app.use(apiErrorHandler);
@@ -8124,6 +8127,7 @@ const shutdown = async (signal: string) => {
       try { await eclaimBrowserSession.browser.close(); } catch { /* best effort */ }
       eclaimBrowserSession = null;
     }
+    await closeCsopBrowserSession().catch(() => {});
     await closeDatabasePools();
     clearTimeout(forceExitTimer);
     if (error) {

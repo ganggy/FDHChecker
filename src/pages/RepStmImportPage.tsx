@@ -20,6 +20,7 @@ import {
 import { RepStmImportDetail } from '../components/RepStmImportDetail';
 import { collectRowHeaders, parseWorksheetRows } from '../utils/repstmWorksheetParsing';
 import { fetchMe } from '../services/authService';
+import { CsopSyncPanel } from '../components/CsopSyncPanel';
 
 const extractFiveDigitCodeFromText = (value: unknown): string => {
   if (value == null) return '';
@@ -2785,6 +2786,8 @@ export const RepStmImportPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      <CsopSyncPanel onImportTriggered={() => void loadData(dataType)} />
 
       <div className="card repstm-status-card" style={{ marginBottom: 16 }}>
         <div className="card-header" style={{ flexWrap: 'wrap', gap: 8 }}>

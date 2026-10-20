@@ -41,6 +41,12 @@ const loadDbAiSettings = async (): Promise<StoredAiSettings | null> => {
   }
 };
 
+const normalizeGeminiModel = (m?: string): string => {
+  const trimmed = m?.trim();
+  if (!trimmed || trimmed === 'gemini-3.8-flash') return 'gemini-3.5-flash-lite';
+  return trimmed;
+};
+
 export const resolveAiConfig = async () => {
   const envProvider = process.env.AI_PROVIDER?.trim().toLowerCase() as AiProvider | undefined;
   const envKey = (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY)?.trim();
@@ -50,7 +56,7 @@ export const resolveAiConfig = async () => {
     const apiKey = envKey || '';
     const model = (
       provider === 'gemini'
-        ? (process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite')
+        ? normalizeGeminiModel(process.env.GEMINI_MODEL)
         : provider === 'openai'
           ? (process.env.OPENAI_MODEL?.trim() || 'gpt-5.6-terra')
           : ollamaModel()
@@ -85,7 +91,7 @@ export const resolveAiConfig = async () => {
 
   const model = (
     provider === 'gemini'
-      ? (process.env.GEMINI_MODEL?.trim() || dbModel || 'gemini-3.5-flash-lite')
+      ? normalizeGeminiModel(process.env.GEMINI_MODEL || dbModel)
       : provider === 'openai'
         ? (process.env.OPENAI_MODEL?.trim() || dbModel || 'gpt-5.6-terra')
         : ollamaModel()
@@ -350,7 +356,7 @@ const callGemini = async (
     max_tokens: options?.maxTokens || 2_000,
   };
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
@@ -359,6 +365,18 @@ const callGemini = async (
     body: JSON.stringify(requestBody),
     signal: AbortSignal.timeout(requestTimeoutMs()),
   });
+  if (response.status === 429 && requestBody.model !== 'gemini-3.5-flash-lite') {
+    requestBody.model = 'gemini-3.5-flash-lite';
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(requestTimeoutMs()),
+    });
+  }
   const payload = await response.json() as Record<string, unknown>;
   if (!response.ok) {
     const error = payload.error && typeof payload.error === 'object'

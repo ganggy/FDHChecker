@@ -368,7 +368,7 @@ aiRouter.post('/chat', requireAiAuth, aiRequestRateLimit, aiAuditTrail, async (r
       : /timeout|aborted/i.test(message)
         ? 'AI ใช้เวลาประมวลผลนานเกินกำหนด กรุณาลองใหม่อีกครั้ง'
         : /Ollama|ECONNREFUSED|fetch failed/i.test(message)
-          ? 'ไม่สามารถเชื่อมต่อ Local AI ได้ชั่วคราว กรุณาลองใหม่อีกครั้ง'
+          ? 'ไม่สามารถเชื่อมต่อระบบ AI ได้ชั่วคราว กรุณาตรวจสอบอินเทอร์เน็ตหรือลองใหม่อีกครั้ง'
           : message;
     return res.status(503).json({ error: safeMessage });
   }

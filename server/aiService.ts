@@ -15,17 +15,25 @@ export type ReportSummaryInput = {
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultVaultPath = path.resolve(moduleDirectory, '..', 'knowlage', 'ksp-vault');
-const provider = (): AiProvider => {
-  const selected = process.env.AI_PROVIDER?.trim().toLowerCase();
-  if (selected === 'gemini') return 'gemini';
-  if (selected === 'openai') return 'openai';
-  return 'ollama';
-};
 const geminiBaseUrl = () => (
   process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
 ).replace(/\/+$/, '');
 const geminiModel = () => process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-const geminiApiKey = () => (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+const geminiApiKey = () => (
+  process.env.GEMINI_API_KEY ||
+  process.env.OPENAI_API_KEY ||
+  ''
+).trim();
+
+const provider = (): AiProvider => {
+  const selected = process.env.AI_PROVIDER?.trim().toLowerCase();
+  if (selected === 'openai') return 'openai';
+  if (selected === 'gemini') return 'gemini';
+  // Use Gemini as primary provider whenever Gemini key is present in env
+  if (geminiApiKey()) return 'gemini';
+  if (selected === 'ollama') return 'ollama';
+  return 'ollama';
+};
 const ollamaBaseUrl = () => (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const ollamaModel = () => process.env.OLLAMA_MODEL || 'qwen3:4b-instruct';
 const ollamaEmbeddingModel = () => process.env.OLLAMA_EMBED_MODEL || 'bge-m3';

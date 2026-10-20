@@ -81,13 +81,16 @@ export function AiReportWorkspacePage() {
   useEffect(() => {
     const load = async () => {
       let response = await fetch('/api/ai/status');
-      let payload = await response.json() as { ai?: { model?: string; embedModel?: string }; auth?: { authenticated?: boolean; trustedAutoLogin?: boolean } };
+      let payload = await response.json() as { ai?: { provider?: string; model?: string; embedModel?: string }; auth?: { authenticated?: boolean; trustedAutoLogin?: boolean } };
       if (!payload.auth?.authenticated && payload.auth?.trustedAutoLogin) {
         await fetch('/api/ai/session/auto', { method: 'POST' });
         response = await fetch('/api/ai/status');
         payload = await response.json();
       }
-      setModel([payload.ai?.model, payload.ai?.embedModel].filter(Boolean).join(' + ') || 'Local AI');
+      const modelLabel = payload.ai?.provider === 'gemini'
+        ? `Google Gemini (${payload.ai?.model || '3.8 Flash'})`
+        : [payload.ai?.model, payload.ai?.embedModel].filter(Boolean).join(' + ') || 'Local AI';
+      setModel(modelLabel);
       setAuthenticated(Boolean(payload.auth?.authenticated));
     };
     void load().catch(() => setAuthenticated(false));

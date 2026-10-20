@@ -156,7 +156,7 @@ export const parsePatientTopicFollowup = (question: string): Pick<PatientLookupI
 };
 
 const labeledIdentifier = (question: string, label: string, length = '{4,20}') => {
-  const match = question.match(new RegExp(`(?:^|\\s)(?:${label})\\s*[:#-]?\\s*([0-9]${length})(?=\\s|$|[,.?])`, 'i'));
+  const match = question.match(new RegExp(`(?:^|[\\s\\[\\("'])(?:${label})\\s*[:#\\[\\("'-]*([0-9]${length})(?=[\\s\\]\\)"',.?]|$)`, 'i'));
   return match?.[1] || '';
 };
 

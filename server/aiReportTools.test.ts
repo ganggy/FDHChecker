@@ -56,6 +56,12 @@ test('recognizes HN, VN, AN, CID and patient-name questions', () => {
 
 test('routes HN questions to labs, medication, appointment and diagnosis tools', () => {
   assert.equal(parsePatientReportIntent('ขอผล lab ของ HN 000123456', now)?.topic, 'labs');
+  assert.deepEqual(parsePatientReportIntent('ขอผลแล็บล่าสุดของ HN [000016048] พร้อมวันที่ตรวจ ชื่อรายการ ผล และค่าปกติ', now), {
+    kind: 'patient-lookup',
+    identifierType: 'hn',
+    identifier: '000016048',
+    topic: 'labs',
+  });
   assert.equal(parsePatientReportIntent('ดูยาล่าสุด HN 000123456', now)?.topic, 'medications');
   assert.equal(parsePatientReportIntent('HN 000123456 มีนัดเมื่อไร', now)?.topic, 'appointments');
   assert.deepEqual(parsePatientReportIntent('ทำ excel ประวัติวินิจฉัย HN 000123456', now), {

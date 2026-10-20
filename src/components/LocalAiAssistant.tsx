@@ -261,7 +261,7 @@ export function LocalAiAssistant({ avoidBottomActionBar = false }: LocalAiAssist
           <section className="local-ai-panel" aria-label="ผู้ช่วย FDH Local AI">
             <header className="local-ai-header">
               <div className="local-ai-header-info">
-                <strong>{status?.ai?.provider === 'gemini' ? `Google Gemini (${status?.ai?.model || '3.8 Flash'})` : status?.ai?.provider === 'openai' ? 'Jev AI (Gemini 3.7 Flash)' : 'FDH Local AI'}</strong>
+                <strong>{status?.ai?.provider === 'gemini' ? `Google Gemini (${status?.ai?.model || 'Gemini'})` : status?.ai?.provider === 'openai' ? 'Jev AI (Gemini 3.7 Flash)' : 'FDH Local AI'}</strong>
                 <span className={`local-ai-status ${status?.ai?.configured && status.auth?.authenticated ? 'is-ready' : ''}`}>
                   {status?.ai?.configured
                     ? `${status.ai.model || (status?.ai?.provider === 'gemini' ? 'Gemini' : 'Jev AI')}${status.ai.embedModel ? ` + ${status.ai.embedModel}` : ''} ${status.auth?.authenticated ? 'พร้อมใช้งาน' : 'รอ Access Key'}`

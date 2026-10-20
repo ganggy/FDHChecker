@@ -88,7 +88,7 @@ export function AiReportWorkspacePage() {
         payload = await response.json();
       }
       const modelLabel = payload.ai?.provider === 'gemini'
-        ? `Google Gemini (${payload.ai?.model || '3.8 Flash'})`
+        ? `Google Gemini (${payload.ai?.model || 'Gemini'})`
         : [payload.ai?.model, payload.ai?.embedModel].filter(Boolean).join(' + ') || 'Local AI';
       setModel(modelLabel);
       setAuthenticated(Boolean(payload.auth?.authenticated));

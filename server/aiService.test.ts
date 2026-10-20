@@ -36,7 +36,7 @@ test('reports Gemini provider status correctly when configured', async () => {
     const status = await getAiStatus();
     assert.equal(status.provider, 'gemini');
     assert.equal(status.configured, true);
-    assert.equal(status.model, process.env.GEMINI_MODEL || 'gemini-3.8-flash');
+    assert.equal(status.model, process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite');
   } finally {
     if (originalProvider === undefined) delete process.env.AI_PROVIDER;
     else process.env.AI_PROVIDER = originalProvider;

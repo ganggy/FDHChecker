@@ -134,6 +134,7 @@ export const fetchOllamaEmbeddings = async (
   texts: string[],
   model = embeddingModel(),
   baseUrl = ollamaBaseUrl(),
+  timeoutMs = Math.min(5_000, Math.max(1_000, Number(process.env.AI_EMBED_TIMEOUT_MS) || 2_500)),
 ): Promise<number[][] | null> => {
   if (!texts.length) return [];
   // 1. Try modern /api/embed batch endpoint
@@ -146,7 +147,7 @@ export const fetchOllamaEmbeddings = async (
         input: texts,
         keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
       }),
-      signal: AbortSignal.timeout(Math.max(10_000, Number(process.env.AI_TIMEOUT_MS) || 60_000)),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (response.ok) {
       const payload = await response.json() as { embeddings?: number[][] };
@@ -173,7 +174,7 @@ export const fetchOllamaEmbeddings = async (
           prompt: text,
           keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
         }),
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(Math.min(timeoutMs, 2_000)),
       });
       if (!response.ok) return null;
       const payload = await response.json() as { embedding?: number[] };

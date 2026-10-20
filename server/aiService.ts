@@ -50,7 +50,7 @@ export const resolveAiConfig = async () => {
     const apiKey = envKey || '';
     const model = (
       provider === 'gemini'
-        ? (process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash')
+        ? (process.env.GEMINI_MODEL?.trim() || 'gemini-3.5-flash-lite')
         : provider === 'openai'
           ? (process.env.OPENAI_MODEL?.trim() || 'gpt-5.6-terra')
           : ollamaModel()
@@ -85,7 +85,7 @@ export const resolveAiConfig = async () => {
 
   const model = (
     provider === 'gemini'
-      ? (process.env.GEMINI_MODEL?.trim() || dbModel || 'gemini-3.8-flash')
+      ? (process.env.GEMINI_MODEL?.trim() || dbModel || 'gemini-3.5-flash-lite')
       : provider === 'openai'
         ? (process.env.OPENAI_MODEL?.trim() || dbModel || 'gpt-5.6-terra')
         : ollamaModel()

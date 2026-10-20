@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compactPromptForContext, estimatePromptTokens, validateReportPayload } from './aiService.js';
+import { compactPromptForContext, estimatePromptTokens, getAiStatus, validateReportPayload } from './aiService.js';
 
 test('compacts oversized Thai prompts while preserving the newest question at the end', () => {
   const system = 'กฎระบบ'.repeat(600);
@@ -25,4 +25,22 @@ test('accepts patient-level fields for authenticated workflows', () => {
 test('rejects more than the configured aggregate row limit', () => {
   const rows = Array.from({ length: 51 }, (_, index) => ({ department: index, total: 1 }));
   assert.throws(() => validateReportPayload({ title: 'รายงาน', rows }), /limit of 50 rows/i);
+});
+
+test('reports Gemini provider status correctly when configured', async () => {
+  const originalProvider = process.env.AI_PROVIDER;
+  const originalKey = process.env.GEMINI_API_KEY;
+  try {
+    process.env.AI_PROVIDER = 'gemini';
+    process.env.GEMINI_API_KEY = 'test-key-123';
+    const status = await getAiStatus();
+    assert.equal(status.provider, 'gemini');
+    assert.equal(status.configured, true);
+    assert.equal(status.model, process.env.GEMINI_MODEL || 'gemini-3.8-flash');
+  } finally {
+    if (originalProvider === undefined) delete process.env.AI_PROVIDER;
+    else process.env.AI_PROVIDER = originalProvider;
+    if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = originalKey;
+  }
 });

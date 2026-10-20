@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { VaultKnowledgeBase, type VaultMatch } from './vaultKnowledge.js';
 
-export type AiProvider = 'ollama' | 'openai';
+export type AiProvider = 'ollama' | 'openai' | 'gemini';
 
 export type ReportSummaryInput = {
   title: string;
@@ -15,9 +15,17 @@ export type ReportSummaryInput = {
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultVaultPath = path.resolve(moduleDirectory, '..', 'knowlage', 'ksp-vault');
-const provider = (): AiProvider => process.env.AI_PROVIDER?.trim().toLowerCase() === 'openai'
-  ? 'openai'
-  : 'ollama';
+const provider = (): AiProvider => {
+  const selected = process.env.AI_PROVIDER?.trim().toLowerCase();
+  if (selected === 'gemini') return 'gemini';
+  if (selected === 'openai') return 'openai';
+  return 'ollama';
+};
+const geminiBaseUrl = () => (
+  process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
+).replace(/\/+$/, '');
+const geminiModel = () => process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+const geminiApiKey = () => (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
 const ollamaBaseUrl = () => (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const ollamaModel = () => process.env.OLLAMA_MODEL || 'qwen3:4b-instruct';
 const ollamaEmbeddingModel = () => process.env.OLLAMA_EMBED_MODEL || 'bge-m3';
@@ -244,15 +252,59 @@ const callOpenAI = async (
   return text;
 };
 
+const callGemini = async (
+  prompt: string,
+  systemInstructions = SYSTEM_INSTRUCTIONS,
+  options?: { json?: boolean; temperature?: number; maxTokens?: number },
+) => {
+  const apiKey = geminiApiKey();
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+  const rawBaseUrl = geminiBaseUrl();
+  const model = geminiModel();
+  const url = rawBaseUrl.endsWith('/chat/completions') ? rawBaseUrl : `${rawBaseUrl}/chat/completions`;
+
+  const requestBody = {
+    model,
+    messages: [
+      ...(systemInstructions ? [{ role: 'system', content: systemInstructions }] : []),
+      { role: 'user', content: prompt },
+    ],
+    ...(options?.json ? { response_format: { type: 'json_object' } } : {}),
+    temperature: options?.temperature ?? 0.2,
+    max_tokens: options?.maxTokens || 2_000,
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(requestBody),
+    signal: AbortSignal.timeout(requestTimeoutMs()),
+  });
+  const payload = await response.json() as Record<string, unknown>;
+  if (!response.ok) {
+    const error = payload.error && typeof payload.error === 'object'
+      ? String((payload.error as Record<string, unknown>).message || response.statusText)
+      : (typeof payload.error === 'string' ? payload.error : response.statusText);
+    throw new Error(`Gemini API ${response.status}: ${error}`);
+  }
+  const text = extractOpenAIText(payload);
+  if (!text) throw new Error('Gemini API returned no text');
+  return text;
+};
+
 const generateText = async (prompt: string) => {
   const selectedProvider = provider();
-  const selectedModel = selectedProvider === 'ollama' ? ollamaModel() : (process.env.OPENAI_MODEL || 'gpt-5.6-terra');
+  const selectedModel = selectedProvider === 'gemini' ? geminiModel() : selectedProvider === 'ollama' ? ollamaModel() : (process.env.OPENAI_MODEL || 'gpt-5.6-terra');
   const cacheKey = crypto.createHash('sha256').update(`${selectedProvider}:${selectedModel}:${prompt}`).digest('hex');
   const cached = responseCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.text;
   if (cached) responseCache.delete(cacheKey);
 
-  const text = selectedProvider === 'openai' ? await callOpenAI(prompt) : await callOllama(prompt);
+  const text = selectedProvider === 'gemini' ? await callGemini(prompt) : selectedProvider === 'openai' ? await callOpenAI(prompt) : await callOllama(prompt);
   const cacheDuration = responseCacheMs();
   if (cacheDuration > 0) {
     responseCache.set(cacheKey, { text, expiresAt: Date.now() + cacheDuration });
@@ -269,11 +321,12 @@ export const generateAgentText = async (
   systemInstructions: string,
   prompt: string,
   options?: { json?: boolean; temperature?: number; maxTokens?: number },
-) => (
-  provider() === 'openai'
-    ? callOpenAI(prompt, systemInstructions, options)
-    : callOllama(prompt, systemInstructions, options)
-);
+) => {
+  const selectedProvider = provider();
+  if (selectedProvider === 'gemini') return callGemini(prompt, systemInstructions, options);
+  if (selectedProvider === 'openai') return callOpenAI(prompt, systemInstructions, options);
+  return callOllama(prompt, systemInstructions, options);
+};
 
 export const answerGroundedQuestion = (question: string, matches: VaultMatch[], history: ConversationContext = []) => (
   generateText(buildGroundedPrompt(question, matches, history))
@@ -326,6 +379,16 @@ export const summarizeReport = async (input: ReportSummaryInput) => {
 
 export const getAiStatus = async () => {
   const selectedProvider = provider();
+  if (selectedProvider === 'gemini') {
+    const hasKey = Boolean(geminiApiKey());
+    return {
+      provider: selectedProvider,
+      model: geminiModel(),
+      baseUrl: geminiBaseUrl(),
+      configured: hasKey,
+      reachable: hasKey ? true : null,
+    };
+  }
   if (selectedProvider === 'openai') {
     const hasKey = Boolean(process.env.OPENAI_API_KEY?.trim());
     return {

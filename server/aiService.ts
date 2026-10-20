@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { VaultKnowledgeBase, type VaultMatch } from './vaultKnowledge.js';
+import { getAppSetting } from './repositories/system.repository.js';
 
 export type AiProvider = 'ollama' | 'openai' | 'gemini';
 
@@ -15,24 +16,90 @@ export type ReportSummaryInput = {
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultVaultPath = path.resolve(moduleDirectory, '..', 'knowlage', 'ksp-vault');
-const geminiBaseUrl = () => (
-  process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta/openai'
-).replace(/\/+$/, '');
-const geminiModel = () => process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-const geminiApiKey = () => (
-  process.env.GEMINI_API_KEY ||
-  process.env.OPENAI_API_KEY ||
-  ''
-).trim();
+type StoredAiSettings = {
+  provider?: AiProvider;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+};
 
-const provider = (): AiProvider => {
-  const selected = process.env.AI_PROVIDER?.trim().toLowerCase();
-  if (selected === 'openai') return 'openai';
-  if (selected === 'gemini') return 'gemini';
-  // Use Gemini as primary provider whenever Gemini key is present in env
-  if (geminiApiKey()) return 'gemini';
-  if (selected === 'ollama') return 'ollama';
-  return 'ollama';
+let cachedDbAiSettings: StoredAiSettings | null = null;
+let cachedDbAiSettingsExpiry = 0;
+
+const loadDbAiSettings = async (): Promise<StoredAiSettings | null> => {
+  const now = Date.now();
+  if (cachedDbAiSettings && cachedDbAiSettingsExpiry > now) {
+    return cachedDbAiSettings;
+  }
+  try {
+    const stored = await getAppSetting<StoredAiSettings>('ai_settings');
+    cachedDbAiSettings = stored || null;
+    cachedDbAiSettingsExpiry = now + 30_000;
+    return cachedDbAiSettings;
+  } catch {
+    return cachedDbAiSettings;
+  }
+};
+
+export const resolveAiConfig = async () => {
+  const envProvider = process.env.AI_PROVIDER?.trim().toLowerCase() as AiProvider | undefined;
+  const envKey = (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY)?.trim();
+
+  if (envProvider && (envKey || envProvider === 'ollama')) {
+    const provider = envProvider;
+    const apiKey = envKey || '';
+    const model = (
+      provider === 'gemini'
+        ? (process.env.GEMINI_MODEL?.trim() || 'gemini-3.8-flash')
+        : provider === 'openai'
+          ? (process.env.OPENAI_MODEL?.trim() || 'gpt-5.6-terra')
+          : ollamaModel()
+    );
+    const baseUrl = (
+      provider === 'gemini'
+        ? (process.env.GEMINI_BASE_URL?.trim() || 'https://generativelanguage.googleapis.com/v1beta/openai').replace(/\/+$/, '')
+        : provider === 'openai'
+          ? (process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1').replace(/\/+$/, '')
+          : ollamaBaseUrl()
+    );
+    return { provider, apiKey, model, baseUrl };
+  }
+
+  const dbSettings = await loadDbAiSettings();
+  const dbProvider = dbSettings?.provider?.toLowerCase() as AiProvider | undefined;
+  const dbKey = dbSettings?.apiKey?.trim();
+  const dbModel = dbSettings?.model?.trim();
+  const dbBaseUrl = dbSettings?.baseUrl?.trim();
+
+  const apiKey = envKey || dbKey || '';
+  const provider: AiProvider = (
+    envProvider === 'openai' ? 'openai'
+    : envProvider === 'gemini' ? 'gemini'
+    : dbProvider === 'gemini' ? 'gemini'
+    : dbProvider === 'openai' ? 'openai'
+    : apiKey ? 'gemini'
+    : envProvider === 'ollama' ? 'ollama'
+    : dbProvider === 'ollama' ? 'ollama'
+    : 'ollama'
+  );
+
+  const model = (
+    provider === 'gemini'
+      ? (process.env.GEMINI_MODEL?.trim() || dbModel || 'gemini-3.8-flash')
+      : provider === 'openai'
+        ? (process.env.OPENAI_MODEL?.trim() || dbModel || 'gpt-5.6-terra')
+        : ollamaModel()
+  );
+
+  const baseUrl = (
+    provider === 'gemini'
+      ? (process.env.GEMINI_BASE_URL?.trim() || dbBaseUrl || 'https://generativelanguage.googleapis.com/v1beta/openai').replace(/\/+$/, '')
+      : provider === 'openai'
+        ? (process.env.OPENAI_BASE_URL?.trim() || dbBaseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
+        : ollamaBaseUrl()
+  );
+
+  return { provider, apiKey, model, baseUrl };
 };
 const ollamaBaseUrl = () => (process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
 const ollamaModel = () => process.env.OLLAMA_MODEL || 'qwen3:4b-instruct';
@@ -265,11 +332,11 @@ const callGemini = async (
   systemInstructions = SYSTEM_INSTRUCTIONS,
   options?: { json?: boolean; temperature?: number; maxTokens?: number },
 ) => {
-  const apiKey = geminiApiKey();
-  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+  const config = await resolveAiConfig();
+  if (!config.apiKey) throw new Error('GEMINI_API_KEY is not configured');
 
-  const rawBaseUrl = geminiBaseUrl();
-  const model = geminiModel();
+  const rawBaseUrl = config.baseUrl;
+  const model = config.model;
   const url = rawBaseUrl.endsWith('/chat/completions') ? rawBaseUrl : `${rawBaseUrl}/chat/completions`;
 
   const requestBody = {
@@ -286,7 +353,7 @@ const callGemini = async (
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${config.apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(requestBody),
@@ -305,8 +372,9 @@ const callGemini = async (
 };
 
 const generateText = async (prompt: string) => {
-  const selectedProvider = provider();
-  const selectedModel = selectedProvider === 'gemini' ? geminiModel() : selectedProvider === 'ollama' ? ollamaModel() : (process.env.OPENAI_MODEL || 'gpt-5.6-terra');
+  const config = await resolveAiConfig();
+  const selectedProvider = config.provider;
+  const selectedModel = config.model;
   const cacheKey = crypto.createHash('sha256').update(`${selectedProvider}:${selectedModel}:${prompt}`).digest('hex');
   const cached = responseCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.text;
@@ -330,9 +398,9 @@ export const generateAgentText = async (
   prompt: string,
   options?: { json?: boolean; temperature?: number; maxTokens?: number },
 ) => {
-  const selectedProvider = provider();
-  if (selectedProvider === 'gemini') return callGemini(prompt, systemInstructions, options);
-  if (selectedProvider === 'openai') return callOpenAI(prompt, systemInstructions, options);
+  const config = await resolveAiConfig();
+  if (config.provider === 'gemini') return callGemini(prompt, systemInstructions, options);
+  if (config.provider === 'openai') return callOpenAI(prompt, systemInstructions, options);
   return callOllama(prompt, systemInstructions, options);
 };
 
@@ -386,23 +454,23 @@ export const summarizeReport = async (input: ReportSummaryInput) => {
 };
 
 export const getAiStatus = async () => {
-  const selectedProvider = provider();
-  if (selectedProvider === 'gemini') {
-    const hasKey = Boolean(geminiApiKey());
+  const config = await resolveAiConfig();
+  if (config.provider === 'gemini') {
+    const hasKey = Boolean(config.apiKey);
     return {
-      provider: selectedProvider,
-      model: geminiModel(),
-      baseUrl: geminiBaseUrl(),
+      provider: config.provider,
+      model: config.model,
+      baseUrl: config.baseUrl,
       configured: hasKey,
       reachable: hasKey ? true : null,
     };
   }
-  if (selectedProvider === 'openai') {
-    const hasKey = Boolean(process.env.OPENAI_API_KEY?.trim());
+  if (config.provider === 'openai') {
+    const hasKey = Boolean(config.apiKey);
     return {
-      provider: selectedProvider,
-      model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
-      baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+      provider: config.provider,
+      model: config.model,
+      baseUrl: config.baseUrl,
       configured: hasKey,
       reachable: hasKey ? true : null,
     };
@@ -418,7 +486,7 @@ export const getAiStatus = async () => {
     const chatConfigured = hasModel(ollamaModel());
     const embeddingConfigured = hasModel(ollamaEmbeddingModel());
     return {
-      provider: selectedProvider,
+      provider: config.provider,
       model: ollamaModel(),
       embedModel: ollamaEmbeddingModel(),
       configured: chatConfigured && embeddingConfigured,
@@ -430,7 +498,7 @@ export const getAiStatus = async () => {
     };
   } catch (error) {
     return {
-      provider: selectedProvider,
+      provider: config.provider,
       model: ollamaModel(),
       embedModel: ollamaEmbeddingModel(),
       configured: false,

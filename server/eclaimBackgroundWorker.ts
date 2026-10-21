@@ -104,48 +104,92 @@ const isFileAlreadyImported = async (filename: string): Promise<boolean> => {
  */
 const triggerSearchOnPage = async (pageInstance: any, pageName: string): Promise<boolean> => {
   try {
-    // 1. Wait for Angular/template to mount the search button
+    // 0. Ensure the search accordion panel is expanded (if collapsible)
+    try {
+      const searchCollapseHeader = pageInstance.locator(
+        '.ant-collapse-header, nz-collapse-panel, [role="tab"]'
+      ).filter({ hasText: 'ค้นหา' }).first();
+      if (await searchCollapseHeader.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const searchBtnVisible = await pageInstance.locator('button:has-text("ค้นหา")').first().isVisible().catch(() => false);
+        if (!searchBtnVisible) {
+          await searchCollapseHeader.click().catch(() => null);
+          await pageInstance.waitForTimeout(500);
+        }
+      }
+    } catch { /* ignore collapse error */ }
+
+    // 1. On REP page, try to filter "สถานะข้อมูล: ประมวลผลแล้ว" so it doesn't return thousands of "รอประมวลผล"
+    if (pageName === 'REP') {
+      try {
+        // Find the "สถานะข้อมูล" select box
+        const statusItem = pageInstance.locator(
+          'nz-form-item, .ant-form-item, div.ant-row'
+        ).filter({ hasText: 'สถานะข้อมูล' }).first();
+
+        const statusSelect = statusItem.locator('.ant-select-selector, nz-select, .ant-select').first();
+
+        let opened = false;
+        if (await statusSelect.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await statusSelect.click().catch(() => null);
+          opened = true;
+        } else {
+          opened = await pageInstance.evaluate(() => {
+            const labels = Array.from(document.querySelectorAll('label, div, span'));
+            const l = labels.find((el) => (el.textContent || '').trim().includes('สถานะข้อมูล'));
+            if (l) {
+              const parent = l.closest('.ant-form-item, nz-form-item, .form-group, .ant-row') || l.parentElement;
+              const sel = parent?.querySelector('.ant-select-selector, .ant-select, nz-select') as HTMLElement | null;
+              if (sel) {
+                sel.click();
+                return true;
+              }
+            }
+            return false;
+          }).catch(() => false);
+        }
+
+        if (opened) {
+          await pageInstance.waitForTimeout(400);
+          await pageInstance.waitForSelector(
+            '.cdk-overlay-container .ant-select-item-option, nz-option-item, .ant-select-dropdown',
+            { timeout: 3000 }
+          ).catch(() => null);
+
+          const selectRes = await pageInstance.evaluate(() => {
+            const options = Array.from(document.querySelectorAll<HTMLElement>(
+              '.cdk-overlay-container .ant-select-item-option, nz-option-item, .ant-select-dropdown .ant-select-item-option, .ant-select-dropdown li'
+            ));
+            const optionTexts = options.map((o) => (o.textContent || '').trim());
+            const target = options.find((o) => {
+              const t = (o.textContent || '').trim();
+              return t.includes('ประมวลผลแล้ว') || (t.includes('ประมวลผล') && !t.includes('รอ'));
+            });
+            if (target) {
+              target.click();
+              return { success: true, chosen: (target.textContent || '').trim(), options: optionTexts };
+            }
+            return { success: false, options: optionTexts };
+          }).catch(() => ({ success: false, options: [] }));
+
+          if (selectRes.success) {
+            addLog('info', `🎯 ตัวกรองสถานะ REP: เลือก [${selectRes.chosen}] สำเร็จ`);
+          } else if (selectRes.options && selectRes.options.length > 0) {
+            addLog('info', `ตัวเลือกสถานะที่พบในระบบ: ${selectRes.options.join(', ')}`);
+          }
+        }
+      } catch { /* ignore filter error and continue */ }
+    }
+
+    // 2. Click Search button
     const searchLocator = pageInstance.locator(
       'button:has-text("ค้นหา"), input[value*="ค้นหา"], button.ant-btn-primary, button.btn-primary'
     ).first();
 
-    await searchLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(() => null);
+    await searchLocator.waitFor({ state: 'visible', timeout: 10000 }).catch(() => null);
 
-    // Try to filter "สถานะข้อมูล: ประมวลผลแล้ว" so it doesn't return thousands of "รอประมวลผล"
-    try {
-      await pageInstance.evaluate(() => {
-        // Native select
-        const selects = Array.from(document.querySelectorAll<HTMLSelectElement>('select'));
-        for (const s of selects) {
-          const opt = Array.from(s.options).find((o) => o.text.includes('ประมวลผลแล้ว') || o.value.includes('ประมวลผลแล้ว'));
-          if (opt) {
-            s.value = opt.value;
-            s.dispatchEvent(new Event('change', { bubbles: true }));
-          }
-        }
-        // Ant Design / Ng-Zorro custom select
-        const labels = Array.from(document.querySelectorAll('label, div, span'));
-        const statusLabel = labels.find((l) => (l.textContent || '').trim().includes('สถานะข้อมูล'));
-        if (statusLabel) {
-          const parent = statusLabel.closest('.ant-form-item, .form-group, .row, div') || statusLabel.parentElement;
-          const selectTrigger = parent?.querySelector('.ant-select, nz-select, [tabindex="0"], .ant-select-selector') as HTMLElement | null;
-          selectTrigger?.click();
-        }
-      }).catch(() => null);
-
-      await pageInstance.waitForTimeout(400);
-
-      await pageInstance.evaluate(() => {
-        const options = Array.from(document.querySelectorAll('.ant-select-item-option, nz-option-item, .ant-select-dropdown li, .cdk-overlay-container li'));
-        const targetOpt = options.find((o) => (o.textContent || '').trim().includes('ประมวลผลแล้ว')) as HTMLElement | null;
-        targetOpt?.click();
-      }).catch(() => null);
-    } catch { /* ignore filter error and continue */ }
-
-    // 2. Click Search button
     let clicked = false;
     try {
-      await searchLocator.evaluate((el: HTMLElement) => el.click());
+      await searchLocator.click({ timeout: 4000 });
       clicked = true;
     } catch {
       clicked = await pageInstance.evaluate(() => {
@@ -173,13 +217,13 @@ const triggerSearchOnPage = async (pageInstance: any, pageName: string): Promise
     addLog('info', `✅ กดปุ่ม [ค้นหา] หน้า ${pageName} สำเร็จ กำลังรอผลลัพธ์จาก สปสช...`);
 
     // 3. Wait for the table rows / pagination to populate
-    await pageInstance.waitForTimeout(2500);
+    await pageInstance.waitForTimeout(2000);
     const loaded = await pageInstance.waitForFunction(() => {
-      const bodyText = document.body?.innerText || '';
-      const hasPagination = document.querySelector('nz-pagination, ul.ant-pagination, ul.pagination, .ant-pagination-item') !== null;
+      const isSpinning = document.querySelector('.ant-spin-spinning') !== null;
       const trs = document.querySelectorAll('table tbody tr');
       const hasDataRows = trs.length > 0 && !trs[0]?.textContent?.includes('ไม่มีข้อมูล');
-      return hasPagination || hasDataRows;
+      const hasPagination = document.querySelector('nz-pagination, ul.ant-pagination, ul.pagination, .ant-pagination-item') !== null;
+      return !isSpinning && (hasPagination || hasDataRows);
     }, { timeout: 20000 }).catch(() => false);
 
     await pageInstance.waitForTimeout(1000);
@@ -306,51 +350,78 @@ export const startEclaimBackgroundSync = async (options: {
         await page.waitForSelector('table tbody tr', { timeout: 10000 }).catch(() => undefined);
         await page.waitForTimeout(1000);
 
-        // Find processed rows that have Excel download buttons
+        // Scrape metadata of all rows on this page
         const rowsMeta = await page.evaluate(() => {
           const tableRows = Array.from(document.querySelectorAll('table tbody tr'));
           return tableRows.map((tr, index) => {
-            const text = (tr.textContent || '').trim();
-            const isProcessed = text.includes('ประมวลผลแล้ว');
-            const isPending = text.includes('รอประมวลผล');
             const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+            const text = cells.join(' ');
+            if (cells.length <= 1 || text.includes('ไม่มีข้อมูล')) {
+              return {
+                index,
+                isEmpty: true,
+                isProcessed: false,
+                isPending: false,
+                repNo: '',
+                sender: '',
+                sendDate: '',
+                status: '',
+                rawFileName: '',
+                hasDownloadBtn: false,
+              };
+            }
+
             const repNo = cells[0] || '';
             const sender = cells[2] || '';
             const sendDate = cells[3] || '';
             const rawFileName = cells[9] || '';
+            const statusCol = cells[10] || ''; // Column 11: สถานะ
+
+            const isPending = statusCol.includes('รอประมวลผล') || text.includes('รอประมวลผล');
+            const isProcessed = statusCol.includes('ประมวลผลแล้ว') || (text.includes('ประมวลผลแล้ว') && !isPending);
 
             // Find all download elements in row
             const allElements = Array.from(tr.querySelectorAll<HTMLElement>('a, button, span, [role="button"]'));
             const dlElements = allElements.filter((el) => {
               const txt = (el.textContent || '').trim().toLowerCase();
-              return txt === 'download' || txt === 'ดาวน์โหลด' || txt.includes('download');
+              const title = (el.getAttribute('title') || '').toLowerCase();
+              return txt === 'download' || txt === 'ดาวน์โหลด' || txt.includes('download') || txt.includes('excel') || title.includes('excel');
             });
 
-            // The last download element is EXCEL
+            // The last download element is EXCEL or Column 14 / last cell
             const hasDownloadBtn = dlElements.length > 0
               || Boolean(tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-child(14) a'));
 
             return {
               index,
+              isEmpty: false,
               isProcessed,
               isPending,
               repNo,
               sender,
               sendDate,
+              status: statusCol || (isPending ? 'รอประมวลผล' : (isProcessed ? 'ประมวลผลแล้ว' : '-')),
               rawFileName,
               hasDownloadBtn,
             };
           });
         }).catch(() => []);
 
-        const readyRows = rowsMeta.filter((r) => r.isProcessed && r.hasDownloadBtn);
-        const pendingCount = rowsMeta.filter((r) => r.isPending).length;
+        const validRows = rowsMeta.filter((r) => !r.isEmpty);
+        const readyRows = validRows.filter((r) => (r.isProcessed || r.hasDownloadBtn) && !r.isPending);
+        const pendingCount = validRows.filter((r) => r.isPending).length;
+
+        const firstRow = validRows[0];
+        const firstRowDesc = firstRow
+          ? `[Rep #${firstRow.repNo}] วันที่ ${firstRow.sendDate} สถานะ: "${firstRow.status}"`
+          : 'ไม่มีข้อมูล';
+
         if (readyRows.length > 0) {
-          addLog('info', `หน้า ${p}: พบรายการประมวลผลแล้ว ${readyRows.length} รายการ (พร้อมดาวน์โหลด)`);
+          addLog('info', `หน้า ${p}: พบพร้อมดาวน์โหลด ${readyRows.length} รายการ (แถวแรก: ${firstRowDesc})`);
         } else if (pendingCount > 0) {
-          addLog('info', `หน้า ${p}: พบ ${rowsMeta.length} รายการ (เป็น 'รอประมวลผล' ${pendingCount} รายการ — สปสช. ยังไม่ออกผลตรวจ)`);
+          addLog('info', `หน้า ${p}: พบ ${validRows.length} รายการ (เป็น 'รอประมวลผล' ${pendingCount} รายการ — สปสช. ยังไม่ออกผลตรวจ, แถวแรก: ${firstRowDesc})`);
         } else {
-          addLog('info', `หน้า ${p}: พบรายการประมวลผลแล้ว 0 รายการ`);
+          addLog('info', `หน้า ${p}: ${firstRowDesc} (ไม่พบรายการที่พร้อมดาวน์โหลด)`);
         }
 
         for (const rowMeta of readyRows) {
@@ -383,7 +454,8 @@ export const startEclaimBackgroundSync = async (options: {
                 const allElements = Array.from(tr.querySelectorAll<HTMLElement>('a, button, span, [role="button"]'));
                 const dlElements = allElements.filter((el) => {
                   const txt = (el.textContent || '').trim().toLowerCase();
-                  return txt === 'download' || txt === 'ดาวน์โหลด' || txt.includes('download');
+                  const title = (el.getAttribute('title') || '').toLowerCase();
+                  return txt === 'download' || txt === 'ดาวน์โหลด' || txt.includes('download') || txt.includes('excel') || title.includes('excel');
                 });
                 const btn = dlElements[dlElements.length - 1]
                   || tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-child(14) a') as HTMLElement | null;
@@ -447,50 +519,71 @@ export const startEclaimBackgroundSync = async (options: {
 
         // Navigate to next page if more pages remain
         if (p < workerState.totalPages && !stopRequested) {
-          const prevFirstRepNo = readyRows[0]?.repNo || '';
-          const clickedNext = await page.evaluate(() => {
-            // 1. Ant Design / Ng-Zorro next button
-            const antNext = document.querySelector<HTMLElement>('.ant-pagination-next:not(.ant-pagination-disabled)');
-            if (antNext) {
-              const btn = (antNext.querySelector('button, a') as HTMLElement) || antNext;
-              btn.click();
-              return true;
+          const currentFirstRepNo = validRows[0]?.repNo || '';
+          const targetPage = p + 1;
+
+          let clickedNext = false;
+
+          // Attempt 1: Click the specific numeric page button (e.g. [2], [3]) via Playwright locator
+          try {
+            const pageItem = page.locator(
+              `li.ant-pagination-item-${targetPage}, li.ant-pagination-item[title="${targetPage}"], .ant-pagination-item:has-text("${targetPage}")`
+            ).first();
+            if (await pageItem.isVisible({ timeout: 1200 }).catch(() => false)) {
+              await pageItem.click();
+              clickedNext = true;
             }
-            // 2. Standard Bootstrap pagination
-            const bsNext = document.querySelector<HTMLElement>('li.page-item.next:not(.disabled) a, li.next:not(.disabled) a');
-            if (bsNext) {
-              bsNext.click();
-              return true;
-            }
-            // 3. Any element with title or aria-label="Next Page" or "ถัดไป"
-            const ariaNext = document.querySelector<HTMLElement>('[aria-label="Next" i], [title="Next Page" i], [title="ถัดไป" i]');
-            if (ariaNext && !ariaNext.classList.contains('disabled')) {
-              ariaNext.click();
-              return true;
-            }
-            // 4. Any button or link with text '>' or '›' or '»'
-            const candidates = Array.from(document.querySelectorAll<HTMLElement>('a, button, li'));
-            for (const el of candidates) {
-              const txt = (el.textContent || '').trim();
-              if ((txt === '>' || txt === '›' || txt === '»') && !el.classList.contains('disabled')) {
-                el.click();
+          } catch { /* try next button */ }
+
+          // Attempt 2: Click the Next Page button via Playwright locator
+          if (!clickedNext) {
+            try {
+              const nextBtn = page.locator(
+                '.ant-pagination-next:not(.ant-pagination-disabled), li[title="Next Page"]:not(.ant-pagination-disabled), li[title="ถัดไป"]:not(.ant-pagination-disabled)'
+              ).first();
+              if (await nextBtn.isVisible({ timeout: 1200 }).catch(() => false)) {
+                await nextBtn.click();
+                clickedNext = true;
+              }
+            } catch { /* try evaluate */ }
+          }
+
+          // Attempt 3: JavaScript evaluate
+          if (!clickedNext) {
+            clickedNext = await page.evaluate((tgt) => {
+              const items = Array.from(document.querySelectorAll<HTMLElement>('.ant-pagination-item'));
+              const match = items.find((it) => (it.textContent || '').trim() === String(tgt));
+              if (match) {
+                match.click();
                 return true;
               }
-            }
-            return false;
-          }).catch(() => false);
+              const antNext = document.querySelector<HTMLElement>('.ant-pagination-next:not(.ant-pagination-disabled)');
+              if (antNext) {
+                const btn = (antNext.querySelector('button, a') as HTMLElement) || antNext;
+                btn.click();
+                return true;
+              }
+              return false;
+            }, targetPage).catch(() => false);
+          }
 
           if (clickedNext) {
-            await page.waitForTimeout(2000);
-            if (prevFirstRepNo) {
-              await page.waitForFunction((oldRep) => {
+            // Wait for the table row to actually change
+            if (currentFirstRepNo) {
+              const rowChanged = await page.waitForFunction((oldRep) => {
                 const firstTr = document.querySelector('table tbody tr');
                 const firstTd = firstTr?.querySelector('td')?.textContent?.trim() || '';
-                return firstTd !== oldRep;
-              }, prevFirstRepNo, { timeout: 6000 }).catch(() => undefined);
+                return firstTd !== '' && firstTd !== oldRep;
+              }, currentFirstRepNo, { timeout: 8000 }).catch(() => false);
+
+              if (!rowChanged) {
+                addLog('warning', `⚠️ ตารางอาจยังไม่สลับไปหน้า ${targetPage} (รายการแถวแรกยังเป็น [Rep #${currentFirstRepNo}])`);
+              }
+            } else {
+              await page.waitForTimeout(2000);
             }
           } else {
-            addLog('info', `สิ้นสุดการเปลี่ยนหน้า REP (ไม่พบปุ่มถัดไป)`);
+            addLog('info', `สิ้นสุดการเปลี่ยนหน้า REP (ไม่พบปุ่มไปหน้า ${targetPage})`);
             break;
           }
         }
@@ -559,12 +652,23 @@ export const startEclaimBackgroundSync = async (options: {
               const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
               const text = cells.join(' ');
               if (text.includes('ไม่มีข้อมูล') || cells.length <= 1) {
-                return { idx, stmNo: '', stmDate: '', rawFileName: '', hasDl: false, isEmpty: true };
+                return { idx, stmNo: '', stmDate: '', rawFileName: '', hasDl: false, isEmpty: true, summary: '' };
               }
               const stmNo = cells[0] || '';
               const stmDate = cells[1] || '';
               const rawFileName = cells.find((c) => /\.(xlsx?|zip|csv|ecd)/i.test(c)) || '';
-              const dlAnchor = tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, a[href*="download" i], a[href*="excel" i]');
+              
+              // Find any download element or button in row
+              const allClickables = Array.from(tr.querySelectorAll<HTMLElement>('a, button, [role="button"], span'));
+              const dlAnchor = allClickables.find((el) => {
+                const t = (el.textContent || '').toLowerCase().trim();
+                const title = (el.getAttribute('title') || '').toLowerCase();
+                const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+                return t.includes('download') || t.includes('ดาวน์โหลด') || t.includes('excel') ||
+                       title.includes('download') || title.includes('excel') ||
+                       aria.includes('download') || el.classList.contains('ant-btn');
+              }) || tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-last-child(2) a, td:nth-last-child(2) button');
+
               return {
                 idx,
                 stmNo,
@@ -572,12 +676,16 @@ export const startEclaimBackgroundSync = async (options: {
                 rawFileName,
                 hasDl: Boolean(dlAnchor),
                 isEmpty: false,
+                summary: cells.slice(0, 3).join(' | '),
               };
             });
           }).catch(() => []);
 
-          const downloadableStm = stmRowsMeta.filter((r) => !r.isEmpty && (r.hasDl || r.rawFileName));
-          addLog('info', `Statement หน้า ${sp}: พบรายการดาวน์โหลด ${downloadableStm.length} รายการ`);
+          const validStm = stmRowsMeta.filter((r) => !r.isEmpty);
+          const downloadableStm = validStm.filter((r) => r.hasDl || r.rawFileName || validStm.length > 0);
+          const firstStm = validStm[0];
+
+          addLog('info', `Statement หน้า ${sp}: พบ ${validStm.length} รายการ (แถวแรก: [${firstStm?.summary || '-'}]) — พร้อมดาวน์โหลด ${downloadableStm.length} รายการ`);
 
           for (const sRow of downloadableStm) {
             if (stopRequested) break;
@@ -596,8 +704,14 @@ export const startEclaimBackgroundSync = async (options: {
                 page.waitForEvent('download', { timeout: 30000 }),
                 page.evaluate((idx) => {
                   const tr = document.querySelectorAll('table tbody tr')[idx];
-                  const btn = tr?.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, a, button') as HTMLElement | null;
-                  btn?.click();
+                  if (!tr) return;
+                  const allClickables = Array.from(tr.querySelectorAll<HTMLElement>('a, button, [role="button"], span'));
+                  const dlBtn = allClickables.find((el) => {
+                    const t = (el.textContent || '').toLowerCase().trim();
+                    const title = (el.getAttribute('title') || '').toLowerCase();
+                    return t.includes('download') || t.includes('ดาวน์โหลด') || t.includes('excel') || title.includes('excel');
+                  }) || tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-last-child(2) a, td:nth-last-child(2) button') as HTMLElement | null;
+                  dlBtn?.click();
                 }, sRow.idx),
               ]);
 
@@ -646,14 +760,60 @@ export const startEclaimBackgroundSync = async (options: {
 
           // Next page on Statement
           if (sp < stmTotalPages && !stopRequested) {
-            await page.evaluate(() => {
-              const antNext = document.querySelector<HTMLElement>('.ant-pagination-next:not(.ant-pagination-disabled)');
-              if (antNext) {
-                const btn = (antNext.querySelector('button, a') as HTMLElement) || antNext;
-                btn.click();
+            const currentFirstStmNo = validStm[0]?.stmNo || '';
+            const targetStmPage = sp + 1;
+
+            let stmNavigated = false;
+            try {
+              const pageItem = page.locator(
+                `li.ant-pagination-item-${targetStmPage}, li.ant-pagination-item[title="${targetStmPage}"], .ant-pagination-item:has-text("${targetStmPage}")`
+              ).first();
+              if (await pageItem.isVisible({ timeout: 1200 }).catch(() => false)) {
+                await pageItem.click();
+                stmNavigated = true;
               }
-            }).catch(() => undefined);
-            await page.waitForTimeout(2000);
+            } catch { /* try next */ }
+
+            if (!stmNavigated) {
+              try {
+                const nextBtn = page.locator('.ant-pagination-next:not(.ant-pagination-disabled)').first();
+                if (await nextBtn.isVisible({ timeout: 1200 }).catch(() => false)) {
+                  await nextBtn.click();
+                  stmNavigated = true;
+                }
+              } catch { /* try evaluate */ }
+            }
+
+            if (!stmNavigated) {
+              stmNavigated = await page.evaluate((tgt) => {
+                const items = Array.from(document.querySelectorAll<HTMLElement>('.ant-pagination-item'));
+                const match = items.find((it) => (it.textContent || '').trim() === String(tgt));
+                if (match) {
+                  match.click();
+                  return true;
+                }
+                const antNext = document.querySelector<HTMLElement>('.ant-pagination-next:not(.ant-pagination-disabled)');
+                if (antNext) {
+                  const btn = (antNext.querySelector('button, a') as HTMLElement) || antNext;
+                  btn.click();
+                  return true;
+                }
+                return false;
+              }, targetStmPage).catch(() => false);
+            }
+
+            if (stmNavigated) {
+              if (currentFirstStmNo) {
+                await page.waitForFunction((oldStm) => {
+                  const firstTd = document.querySelector('table tbody tr td')?.textContent?.trim() || '';
+                  return firstTd !== '' && firstTd !== oldStm;
+                }, currentFirstStmNo, { timeout: 8000 }).catch(() => undefined);
+              } else {
+                await page.waitForTimeout(2000);
+              }
+            } else {
+              break;
+            }
           }
         }
       }

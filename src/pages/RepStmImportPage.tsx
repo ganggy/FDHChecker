@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { eclaimGlobalSyncState } from '../services/eclaimGlobalSyncState';
 import * as XLSX from 'xlsx';
 import {
   analyzeRepstmArchiveFile,
@@ -658,6 +660,29 @@ export const RepStmImportPage: React.FC = () => {
       unifiedItems: sortedUnified,
     };
   }, [eclaimFiles, eclaimPipeline, eclaimLoading, eclaimDownloading, importing, queueItems, overallProgress, eclaimPeriodProgress]);
+
+  useEffect(() => {
+    eclaimGlobalSyncState.set({
+      isWorking: liveDashboardStats.isWorking,
+      progress: liveDashboardStats.progressPercent,
+      currentStep: currentActiveStepLabel || eclaimSearchProgress || null,
+      totalFiles: liveDashboardStats.totalFiles,
+      newFilesCount: liveDashboardStats.newFilesCount,
+      downloadedCount: liveDashboardStats.successCount,
+      importedCount: liveDashboardStats.successCount,
+      alreadyCount: liveDashboardStats.duplicateCount,
+      errorCount: liveDashboardStats.errorCount,
+      isModalOpen: importModalOpen,
+      completed: !liveDashboardStats.isWorking && liveDashboardStats.totalFiles > 0,
+    });
+  }, [liveDashboardStats, importModalOpen, currentActiveStepLabel, eclaimSearchProgress]);
+
+  useEffect(() => {
+    const unsub = eclaimGlobalSyncState.subscribe((st) => {
+      setImportModalOpen((prev) => (prev !== st.isModalOpen ? st.isModalOpen : prev));
+    });
+    return unsub;
+  }, []);
 
   const loadData = async (type: ImportType) => {
     try {
@@ -2343,7 +2368,7 @@ export const RepStmImportPage: React.FC = () => {
             </div>
 
             {/* Centered Popup Modal for scanning ThaID QR Code */}
-            {eclaimQrModalOpen && eclaimBrowserAlive && !eclaimBrowserReady && (
+            {eclaimQrModalOpen && eclaimBrowserAlive && !eclaimBrowserReady && typeof document !== 'undefined' && createPortal(
               <div
                 style={{
                   position: 'fixed',
@@ -2487,7 +2512,8 @@ export const RepStmImportPage: React.FC = () => {
                     )}
                   </div>
                 </div>
-              </div>
+              </div>,
+              document.body
             )}
 
             {/* Step 2: Date range, File type, and Fund filters */}
@@ -3427,7 +3453,7 @@ export const RepStmImportPage: React.FC = () => {
       )}
 
       {/* Live Import & Auto-Sync Progress Popup Modal */}
-      {importModalOpen && (
+      {importModalOpen && typeof document !== 'undefined' && createPortal(
         <div
           style={{
             position: 'fixed',
@@ -3898,7 +3924,8 @@ export const RepStmImportPage: React.FC = () => {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {detailView ? (

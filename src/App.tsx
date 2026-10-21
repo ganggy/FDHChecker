@@ -6,6 +6,7 @@ import { checkSystemUpdateQuick, type QuickUpdateInfo } from './services/systemU
 import { LocalAiAssistant } from './components/LocalAiAssistant';
 import { TableScrollNavigator } from './components/TableScrollNavigator';
 import { GlobalEclaimSyncWidget } from './components/GlobalEclaimSyncWidget';
+import { eclaimGlobalSyncState } from './services/eclaimGlobalSyncState';
 import type { AppPage } from './utils/navigationState';
 
 import './App.css';
@@ -84,6 +85,7 @@ function App() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
   const navMenuRef = useRef<HTMLDivElement | null>(null);
+  const [repstmEverVisited, setRepstmEverVisited] = useState(false);
   const [siteSettings, setSiteSettings] = useState<{ hospital_name?: string; nhso_region?: string }>({});
   useEffect(() => {
     let active = true;
@@ -175,6 +177,20 @@ function App() {
 
   const firstAllowedPage = visiblePrimaryNavItems[0]?.page || visibleToolNavGroups[0]?.pages[0];
   const currentPage = canOpenPage(requestedPage) ? requestedPage : firstAllowedPage;
+
+  useEffect(() => {
+    if (currentPage === 'repstm') {
+      setRepstmEverVisited(true);
+    }
+  }, [currentPage]);
+
+  useEffect(() => {
+    return eclaimGlobalSyncState.subscribe((st) => {
+      if (st.isWorking || st.isModalOpen) {
+        setRepstmEverVisited(true);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -549,7 +565,11 @@ function App() {
         {currentPage === 'fdhImport' && <FDHImportStatusPage />}
         {currentPage === 'fdhClaimDetail' && <FdhClaimDetailImportPage />}
         {currentPage === 'nhsoClose' && <NhsoClosePage />}
-        {currentPage === 'repstm' && <RepStmImportPage />}
+        {(repstmEverVisited || currentPage === 'repstm') && (
+          <div style={{ display: currentPage === 'repstm' ? 'contents' : 'none' }}>
+            <RepStmImportPage />
+          </div>
+        )}
         {currentPage === 'repstmManage' && <RepStmManagePage />}
         {currentPage === 'sssExport' && <SssExportPage />}
         {currentPage === 'sssRepStm' && <SssRepStmPage />}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { eclaimGlobalSyncState, type EclaimForegroundStatus } from '../services/eclaimGlobalSyncState';
 import './GlobalEclaimSyncWidget.css';
 
 export interface EclaimWorkerProgress {
@@ -25,7 +26,14 @@ export const GlobalEclaimSyncWidget: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [selectedPages, setSelectedPages] = useState<number>(15);
+  const [fgStatus, setFgStatus] = useState<EclaimForegroundStatus>(() => eclaimGlobalSyncState.get());
   const logContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    return eclaimGlobalSyncState.subscribe((next) => {
+      setFgStatus({ ...next });
+    });
+  }, []);
 
   const fetchStatus = async () => {
     try {
@@ -83,6 +91,8 @@ export const GlobalEclaimSyncWidget: React.FC = () => {
     }
   };
 
+  const isFgRunning = fgStatus.isWorking;
+  const isFgCompleted = fgStatus.completed && fgStatus.totalFiles > 0 && !status?.running;
   const isRunning = Boolean(status?.running);
   const isCompleted = status?.phase === 'completed';
   const isError = status?.phase === 'error';
@@ -92,15 +102,52 @@ export const GlobalEclaimSyncWidget: React.FC = () => {
       {/* ── Top-Right Pill Trigger in Navbar ── */}
       <button
         type="button"
-        className={`nav-global-eclaim-pill ${isRunning ? 'is-running' : isCompleted ? 'is-completed' : isError ? 'is-error' : 'is-idle'}`}
-        onClick={() => setModalOpen(true)}
-        title="คลิกเพื่อดูสถานะการนำเข้าข้อมูล e-Claim ในพื้นหลัง"
+        className={`nav-global-eclaim-pill ${
+          isFgRunning || isRunning
+            ? 'is-running'
+            : isFgCompleted || isCompleted
+            ? 'is-completed'
+            : isError
+            ? 'is-error'
+            : 'is-idle'
+        }`}
+        onClick={() => {
+          if (isFgRunning || isFgCompleted) {
+            eclaimGlobalSyncState.toggleModal();
+          } else {
+            setModalOpen(true);
+          }
+        }}
+        title={
+          isFgRunning
+            ? `e-Claim Auto Sync (${fgStatus.progress}%): คลิกเพื่อเปิด/ย่อหน้าต่าง`
+            : isFgCompleted
+            ? `e-Claim สำเร็จ (+${fgStatus.importedCount || fgStatus.downloadedCount} ไฟล์): คลิกเพื่อดูสรุป`
+            : isRunning
+            ? 'e-Claim พื้นหลังกำลังทำงาน: คลิกเพื่อดูรายละเอียด'
+            : 'คลิกเพื่อดูสถานะการนำเข้าข้อมูล e-Claim'
+        }
       >
-        {isRunning ? (
+        {isFgRunning ? (
+          <>
+            <span className="eclaim-pill-spinner" />
+            <span className="eclaim-pill-text">
+              🚀 e-Claim: {fgStatus.progress > 0 ? `${fgStatus.progress}%` : 'กำลังดึง'}{' '}
+              ({fgStatus.downloadedCount}/{fgStatus.newFilesCount || fgStatus.totalFiles})
+            </span>
+          </>
+        ) : isRunning ? (
           <>
             <span className="eclaim-pill-spinner" />
             <span className="eclaim-pill-text">
               e-Claim: นำเข้าหน้า {status?.currentPage || 1}/{status?.totalPages || '...'} (+{status?.importedCount || 0})
+            </span>
+          </>
+        ) : isFgCompleted ? (
+          <>
+            <span>✅</span>
+            <span className="eclaim-pill-text">
+              e-Claim สำเร็จ (+{fgStatus.importedCount || fgStatus.downloadedCount || 0} ไฟล์)
             </span>
           </>
         ) : isCompleted ? (
@@ -263,6 +310,19 @@ export const GlobalEclaimSyncWidget: React.FC = () => {
                 >
                   📂 ไปที่หน้านำเข้า REP/STM
                 </button>
+                {(fgStatus.isWorking || fgStatus.totalFiles > 0) && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{ background: 'linear-gradient(135deg, #2563eb, #0891b2)', border: 'none' }}
+                    onClick={() => {
+                      setModalOpen(false);
+                      eclaimGlobalSyncState.openModal();
+                    }}
+                  >
+                    📋 หน้าต่าง All-in-One Auto Sync ({fgStatus.progress}%)
+                  </button>
+                )}
               </div>
               <button
                 type="button"

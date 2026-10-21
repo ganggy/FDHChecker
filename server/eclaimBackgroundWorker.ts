@@ -98,6 +98,42 @@ const isFileAlreadyImported = async (filename: string): Promise<boolean> => {
   }
 };
 
+/**
+ * Click the [ค้นหา] (Search) button on the new e-Claim Client portal pages
+ * so that the table actually populates with records (otherwise shows "ไม่มีข้อมูล").
+ */
+const triggerSearchOnPage = async (pageInstance: any): Promise<boolean> => {
+  const clicked = await pageInstance.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll<HTMLElement>(
+      'button, input[type="button"], input[type="submit"], .btn, a'
+    ));
+    const searchBtn = buttons.find((b) => {
+      const txt = (b.textContent || '').trim();
+      const val = (b.getAttribute('value') || '').trim();
+      const title = (b.getAttribute('title') || '').trim();
+      return txt === 'ค้นหา' || val === 'ค้นหา' || title === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง'));
+    });
+
+    if (searchBtn) {
+      searchBtn.click();
+      return true;
+    }
+    return false;
+  }).catch(() => false);
+
+  if (clicked) {
+    await pageInstance.waitForTimeout(2500);
+    // Wait for at least one data row to render
+    await pageInstance.waitForFunction(() => {
+      const trs = document.querySelectorAll('table tbody tr');
+      if (trs.length === 0) return false;
+      const firstRowText = trs[0]?.textContent || '';
+      return !firstRowText.includes('ไม่มีข้อมูล') && firstRowText.length > 5;
+    }, { timeout: 15000 }).catch(() => undefined);
+  }
+  return clicked;
+};
+
 export const startEclaimBackgroundSync = async (options: {
   maxPages?: number;
   downloadLimit?: number;
@@ -165,7 +201,11 @@ export const startEclaimBackgroundSync = async (options: {
         addLog('warning', `เข้า URL ตรงไม่สำเร็จ: ${e.message} กำลังลองใหม่...`);
       });
 
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(2000);
+
+      // Trigger [ค้นหา] button so the table populates!
+      addLog('info', '🔍 กำลังกดปุ่ม [ค้นหา] เพื่อดึงตารางผลตรวจ REP ทั้งหมด...');
+      await triggerSearchOnPage(page);
 
       // Scrape total pages robustly from text & pagination buttons
       const paginationInfo = await page.evaluate(() => {
@@ -391,7 +431,11 @@ export const startEclaimBackgroundSync = async (options: {
           addLog('warning', `เข้าหน้า Statement ไม่สำเร็จ: ${e.message}`);
         });
 
-        await page.waitForTimeout(2500);
+        await page.waitForTimeout(2000);
+
+        // Trigger [ค้นหา] on Statement page!
+        addLog('info', '🔍 กำลังกดปุ่ม [ค้นหา] เพื่อดึงตาราง Statement ทั้งหมด...');
+        await triggerSearchOnPage(page);
 
         // Scrape pagination for Statement
         const stmPagination = await page.evaluate(() => {
@@ -433,21 +477,26 @@ export const startEclaimBackgroundSync = async (options: {
             const trs = Array.from(document.querySelectorAll('table tbody tr'));
             return trs.map((tr, idx) => {
               const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+              const text = cells.join(' ');
+              if (text.includes('ไม่มีข้อมูล') || cells.length <= 1) {
+                return { idx, stmNo: '', stmDate: '', rawFileName: '', hasDl: false, isEmpty: true };
+              }
               const stmNo = cells[0] || '';
               const stmDate = cells[1] || '';
               const rawFileName = cells.find((c) => /\.(xlsx?|zip|csv|ecd)/i.test(c)) || '';
-              const dlAnchor = tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, a[href*="download" i], a[href*="excel" i], button:has-text("Download")');
+              const dlAnchor = tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, a[href*="download" i], a[href*="excel" i]');
               return {
                 idx,
                 stmNo,
                 stmDate,
                 rawFileName,
                 hasDl: Boolean(dlAnchor),
+                isEmpty: false,
               };
             });
           }).catch(() => []);
 
-          const downloadableStm = stmRowsMeta.filter((r) => r.hasDl || r.rawFileName);
+          const downloadableStm = stmRowsMeta.filter((r) => !r.isEmpty && (r.hasDl || r.rawFileName));
           addLog('info', `Statement หน้า ${sp}: พบรายการดาวน์โหลด ${downloadableStm.length} รายการ`);
 
           for (const sRow of downloadableStm) {

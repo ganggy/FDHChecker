@@ -7284,6 +7284,17 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         try {
           await page.goto(newRepUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => undefined);
           await page.waitForTimeout(2000);
+          // Click [ค้นหา] on the new portal so the records populate!
+          await page.evaluate(() => {
+            const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, input[type="button"], input[type="submit"], .btn, a'));
+            const searchBtn = buttons.find((b) => {
+              const txt = (b.textContent || '').trim();
+              const val = (b.getAttribute('value') || '').trim();
+              return txt === 'ค้นหา' || val === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง'));
+            });
+            if (searchBtn) searchBtn.click();
+          }).catch(() => undefined);
+          await page.waitForTimeout(2500);
 
           const clientPagesToScan = Math.min(maxPages, 10);
           for (let cp = 1; cp <= clientPagesToScan; cp += 1) {

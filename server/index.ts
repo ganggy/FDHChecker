@@ -7261,7 +7261,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         'input[type="submit"], button[type="submit"], input[type="button"][value*="ค้นหา"], input[type="button"][value*="แสดง"], button:text-matches("แสดง|ค้นหา|Search", "i")'
       ).catch(() => null);
       if (submitBtn) {
-        await submitBtn.click().catch(() => {/* ignore */});
+        await submitBtn.evaluate((el) => (el as HTMLElement).click()).catch(() => submitBtn.click().catch(() => {/* ignore */}));
         await page.waitForTimeout(850);
       }
     }
@@ -7889,7 +7889,7 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
           'input[type="submit"], button[type="submit"], input[type="button"][value*="ค้นหา"], input[type="button"][value*="แสดง"], button:text-matches("แสดง|ค้นหา|Search", "i")'
         ).catch(() => null);
         if (submitBtn) {
-          await submitBtn.click().catch(() => {/* ignore */});
+          await submitBtn.evaluate((el) => (el as HTMLElement).click()).catch(() => submitBtn.click().catch(() => {/* ignore */}));
           await page.waitForTimeout(900);
         }
       }
@@ -7948,7 +7948,19 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
       }
 
       if (bestAnchorIndex >= 0 && bestAnchorScore >= 40) {
-        await anchors.nth(bestAnchorIndex).click({ force: true, timeout: 10000 });
+        const bestAnchor = anchors.nth(bestAnchorIndex);
+        try {
+          await bestAnchor.evaluate((el) => {
+            try { (el as HTMLElement).scrollIntoView({ block: 'center', inline: 'center' }); } catch { /* ignore */ }
+            (el as HTMLElement).click();
+          });
+        } catch {
+          try {
+            await bestAnchor.dispatchEvent('click');
+          } catch {
+            await bestAnchor.click({ force: true, timeout: 5000 }).catch(() => undefined);
+          }
+        }
         clicked = true;
       } else if (cand.onclick) {
         await page.evaluate((onclick) => { (new Function(onclick))(); }, cand.onclick);

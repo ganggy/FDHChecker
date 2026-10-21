@@ -144,12 +144,12 @@ export const buildFdhClaimProgress = (
         stageDescription = `ส่งครบ ${submitted} รายการ ได้รับ REP แล้ว ${repReceived} รายการ`;
     } else if (statementReceived < submitted) {
         stage = 'awaiting-statement';
-        stageTitle = 'ได้รับ REP ครบ • รอ STM/INV';
-        stageDescription = `ได้รับ REP ครบ ${repReceived} รายการ พบ STM/INV แล้ว ${statementReceived} รายการ`;
+        stageTitle = 'ได้รับ REP ครบ • รอ STM';
+        stageDescription = `ได้รับ REP ครบ ${repReceived} รายการ พบ STM แล้ว ${statementReceived} รายการ`;
     } else {
         stage = 'completed';
-        stageTitle = 'ครบถึงขั้น STM/INV';
-        stageDescription = `รายการทั้ง ${submitted} รายการมีข้อมูล FDH, REP และ STM/INV แล้ว`;
+        stageTitle = 'ครบถึงขั้น STM';
+        stageDescription = `รายการทั้ง ${submitted} รายการมีข้อมูล FDH, REP และ STM แล้ว`;
     }
 
     return {

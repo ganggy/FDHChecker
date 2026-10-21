@@ -7331,7 +7331,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       }
 
       // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ---
-      if (fileType === 'ALL' || fileType === 'INV') {
+      if (fileType === 'INV') {
         const financeUrls = [
           `https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do`,
         ];

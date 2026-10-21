@@ -670,7 +670,7 @@ export const IPDPage: React.FC = () => {
                     <h1 className="page-title">🛏️ รายการผู้ป่วยใน (IPD Monitoring)</h1>
                     <p className="page-subtitle">แสดงรายการผู้ป่วยใน พร้อมตัวชี้วัดสำคัญ (DRG, RW, วันนอน) เพื่อการตรวจสอบการเบิกจ่าย</p>
                     <button className="btn btn-primary" type="button" style={{ marginTop: 10 }} onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'ipdClaimMonitor' } }))}>
-                        📡 เปิด Monitor FDH / REP / STM / INV
+                        📡 เปิด Monitor FDH / REP / STM
                     </button>
                     <button className="btn btn-secondary" type="button" style={{ marginTop: 10, marginLeft: 8 }} onClick={() => setShowPreAuditRules(true)}>
                         🛡️ ดูเงื่อนไข Pre-audit ที่ใช้

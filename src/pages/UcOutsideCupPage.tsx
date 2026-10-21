@@ -358,7 +358,7 @@ export const UcOutsideCupPage = () => {
           <p>
             {activeTab === 'audit'
               ? 'ตรวจสอบความถูกต้องของการลงรหัสโรค (ICD-10) หัตถการทันตกรรม/การแพทย์ (ICD-9) และรายการเบิก เพื่อป้องกันการติด C และการปฏิเสธจ่าย'
-              : 'ติดตามยอดเรียกเก็บและยอดตามจ่ายตาม HMAIN พร้อมหลักฐาน FDH, REP, STM และ INV ราย visit'}
+              : 'ติดตามยอดเรียกเก็บและยอดตามจ่ายตาม HMAIN พร้อมหลักฐาน FDH, REP และ STM ราย visit'}
           </p>
         </div>
         <div className="uc-cup-year" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -1055,9 +1055,11 @@ export const UcOutsideCupPage = () => {
           <section className="uc-cup-kpis">
             <article><span>จำนวน Visit</span><strong>{(summary?.total_visits || 0).toLocaleString('th-TH')}</strong><small>สิทธิการเงิน 07</small></article>
             <article><span>ยอดต้องเรียกเก็บ</span><strong>฿{money(summary?.total_claimable)}</strong><small>ยอดตั้งลูกหนี้จาก HOSxP</small></article>
-            <article><span>รับแล้วตาม STM</span><strong>฿{money(summary?.total_stm_paid)}</strong><small>{summary?.completed_inv || 0} visit มี INV แล้ว</small></article>
+            <article><span>รับแล้วตาม STM</span><strong>฿{money(summary?.total_stm_paid)}</strong><small>{summary?.completed_inv || 0} visit มี Statement แล้ว</small></article>
             <article className="is-warning"><span>ยอดคงค้างติดตาม</span><strong>฿{money(outstanding)}</strong><small>ตั้งลูกหนี้หักยอดรับแล้ว</small></article>
-            <article><span>ยอด INV / ตามจ่าย</span><strong>฿{money(summary?.total_inv)}</strong><small>อ้างอิงไฟล์ INV ที่นำเข้า</small></article>
+            {(summary?.total_inv || 0) > 0 && (
+              <article><span>ยอด INV / ตามจ่าย</span><strong>฿{money(summary?.total_inv)}</strong><small>อ้างอิงไฟล์ INV ที่นำเข้า</small></article>
+            )}
           </section>
 
           <section className="card uc-cup-groups">

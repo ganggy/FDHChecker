@@ -376,7 +376,7 @@ export const AdminDashboard: React.FC = () => {
       {
         label: 'ยอดจ่ายจริง STM',
         value: Number(reconciliationSummary.total_stm_paid || 0),
-        note: `รอ STM/INV ${reconciliationSummary.pending_stm.toLocaleString('th-TH')} visits`,
+        note: `รอ STM ${reconciliationSummary.pending_stm.toLocaleString('th-TH')} visits`,
         color: '#0f766e',
       },
       {

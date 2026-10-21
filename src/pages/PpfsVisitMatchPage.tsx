@@ -32,7 +32,7 @@ const STATUS_OPTIONS = [
   { value: 'ตรงกัน', label: 'ครบ/ตรงกัน' },
   { value: 'ยอดต่าง', label: 'ยอดต่าง' },
   { value: 'รอ REP', label: 'ยังไม่พบ REP' },
-  { value: 'รอ STM/INV', label: 'ยังไม่พบ STM/INV' },
+  { value: 'รอ STM', label: 'ยังไม่พบ STM' },
   { value: 'ไม่มีข้อมูล', label: 'ไม่มีข้อมูลรับกลับ' },
 ];
 
@@ -40,7 +40,7 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   'ตรงกัน': { bg: '#dcfce7', color: '#15803d' },
   'ยอดต่าง': { bg: '#fee2e2', color: '#b91c1c' },
   'รอ REP': { bg: '#fef3c7', color: '#b45309' },
-  'รอ STM/INV': { bg: '#ede9fe', color: '#7c3aed' },
+  'รอ STM': { bg: '#ede9fe', color: '#7c3aed' },
   'ไม่มีข้อมูล': { bg: '#f3f4f6', color: '#4b5563' },
 };
 
@@ -257,7 +257,7 @@ export const PpfsVisitMatchPage = () => {
           <SummaryCard label="ครบ/ตรงกัน" value={formatCount(summary.matched + (summary.completed_inv || 0))} tone="#15803d" />
           <SummaryCard label="ยอดต่าง" value={formatCount(summary.mismatched)} tone="#b91c1c" />
           <SummaryCard label="รอ REP" value={formatCount(summary.pending_rep)} tone="#b45309" />
-          <SummaryCard label="รอ STM/INV" value={formatCount(summary.pending_stm)} tone="#7c3aed" />
+          <SummaryCard label="รอ STM" value={formatCount(summary.pending_stm)} tone="#7c3aed" />
           <SummaryCard label="ยอดตั้ง PPFS" value={formatMoney(summary.total_claimable)} sub="บาท" />
           <SummaryCard label="ยอดรับ STM" value={formatMoney(summary.total_stm_paid)} sub="บาท" tone="#047857" />
           <SummaryCard label="STM จ่าย 0" value={formatCount(summary.stm_zero)} tone="#b91c1c" />

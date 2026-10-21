@@ -614,7 +614,7 @@ export const InsuranceOverviewPage = () => {
                 </thead>
                 <tbody>
                   {(repAnalytics?.import_health || []).length === 0 ? (
-                    <tr><td colSpan={5} className="empty-cell">ยังไม่พบการนำเข้า REP/STM/INV ในช่วงนี้</td></tr>
+                    <tr><td colSpan={5} className="empty-cell">ยังไม่พบการนำเข้า REP/STM ในช่วงนี้</td></tr>
                   ) : (repAnalytics?.import_health || []).map((row, index) => (
                     <tr key={`${row.data_type || 'unknown'}-${index}`}>
                       <td>{row.data_type || '-'}</td>
@@ -632,7 +632,7 @@ export const InsuranceOverviewPage = () => {
               <table className="data-table workflow-readable-table insurance-missing-table">
                 <thead>
                   <tr>
-                    <th>STM/INV Type</th>
+                    <th>STM Type</th>
                     <th>Rows</th>
                     <th>Matched</th>
                     <th>Unmatched</th>
@@ -642,7 +642,7 @@ export const InsuranceOverviewPage = () => {
                 </thead>
                 <tbody>
                   {(repAnalytics?.statement_match_summary || []).length === 0 ? (
-                    <tr><td colSpan={6} className="empty-cell">ยังไม่พบข้อมูล match ของ STM/INV ในช่วงนี้</td></tr>
+                    <tr><td colSpan={6} className="empty-cell">ยังไม่พบข้อมูล match ของ STM ในช่วงนี้</td></tr>
                   ) : (repAnalytics?.statement_match_summary || []).map((row, index) => (
                     <tr key={`${row.data_type || 'unknown'}-match-${index}`}>
                       <td>{row.data_type || '-'}</td>
@@ -661,14 +661,14 @@ export const InsuranceOverviewPage = () => {
               <table className="data-table workflow-readable-table insurance-missing-table">
                 <thead>
                   <tr>
-                    <th>STM/INV Top Error</th>
+                    <th>STM Top Error</th>
                     <th>จำนวน</th>
                     <th>Amount</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(repAnalytics?.statement_top_errors || []).length === 0 ? (
-                    <tr><td colSpan={3} className="empty-cell">ยังไม่พบ errorcode ของ STM/INV ในช่วงนี้</td></tr>
+                    <tr><td colSpan={3} className="empty-cell">ยังไม่พบ errorcode ของ STM ในช่วงนี้</td></tr>
                   ) : (repAnalytics?.statement_top_errors || []).map((row, index) => (
                     <tr key={`${row.data_type || 'unknown'}-${row.errorcode || 'err'}-${index}`}>
                       <td>{row.data_type || '-'}: {row.errorcode || '-'}</td>

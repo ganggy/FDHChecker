@@ -1386,7 +1386,7 @@ export const FDHCheckerPage: React.FC = () => {
                                 <th>สิทธิ์</th>
                                 <th style={{ textAlign: 'center' }}>CID</th>
                                 <th style={{ textAlign: 'center' }}>Diagnosis</th>
-                                <th style={{ textAlign: 'center' }}>Invoice</th>
+                                <th style={{ textAlign: 'center' }}>ใบเสร็จ / ยอดเงิน</th>
                                 <th style={{ minWidth: 150, textAlign: 'center' }}>Authen Code<br /><span style={{ fontSize: 10, fontWeight: 400 }}>FDH IPD</span></th>
                                 <th style={{ textAlign: 'center' }}>ปิดสิทธิ (EP)</th>
                                 <th className="fdh-fund-status-column">สถานะกองทุน (สปสช.)</th>

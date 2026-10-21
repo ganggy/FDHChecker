@@ -1803,9 +1803,9 @@ export const RepStmImportPage: React.FC = () => {
       <div className="page-header repstm-hero">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h1 className="page-title">📥 นำเข้า REP / STM / INV</h1>
+            <h1 className="page-title">📥 นำเข้า REP / STM</h1>
             <p className="page-subtitle">
-              อัปโหลดหลายไฟล์หรือทั้งโฟลเดอร์จาก NHSO แล้วให้ระบบตรวจชนิดไฟล์ <code>REP / STM / INV</code> อัตโนมัติ พร้อมเก็บลงฐาน <code>repstminv</code> เพื่อใช้ตรวจสอบและต่อยอดงาน reconciliation
+              อัปโหลดหลายไฟล์หรือทั้งโฟลเดอร์จาก NHSO แล้วให้ระบบตรวจชนิดไฟล์ <code>REP / STM</code> อัตโนมัติ พร้อมเก็บลงฐาน <code>repstminv</code> เพื่อใช้ตรวจสอบและต่อยอดงาน reconciliation
             </p>
           </div>
           {expectedHcode && (
@@ -2062,7 +2062,7 @@ export const RepStmImportPage: React.FC = () => {
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-header" style={{ cursor: 'pointer' }} onClick={() => setEclaimOpen((v) => !v)}>
           <div className="card-title">
-            🚀 NHSO All-in-One Auto Download (ดึงไฟล์ REP / STM / INV + ซิงค์งบโอนเงินอัตโนมัติในเว็บ)
+            🚀 NHSO All-in-One Auto Download (ดึงไฟล์ REP / STM + ซิงค์งบโอนเงิน e-Budget อัตโนมัติ)
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {eclaimBrowserReady && (
@@ -2473,10 +2473,10 @@ export const RepStmImportPage: React.FC = () => {
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">ประเภทไฟล์</label>
                 <select className="form-control" value={eclaimFileType} onChange={(e) => setEclaimFileType(e.target.value as typeof eclaimFileType)}>
-                  <option value="ALL">ทุกประเภท (REP + STM + INV)</option>
+                  <option value="ALL">ทุกประเภท (REP + STM)</option>
                   <option value="REP">REP (ผลการตรวจข้อมูล)</option>
                   <option value="STM">STM (Statement โอนเงิน)</option>
-                  <option value="INV">INV (รายงานการเงิน)</option>
+                  
                 </select>
               </div>
             </div>
@@ -2629,7 +2629,7 @@ export const RepStmImportPage: React.FC = () => {
                       checked={eclaimAutoImport}
                       onChange={(e) => setEclaimAutoImport(e.target.checked)}
                     />
-                    นำเข้า REP/STM/INV เข้าฐานข้อมูลทันที
+                    นำเข้า REP/STM เข้าฐานข้อมูลทันที
                   </label>
                   {eclaimFiles.length > 0 && (
                     <button
@@ -3681,7 +3681,7 @@ export const RepStmImportPage: React.FC = () => {
                   [
                     { key: 'REP', title: '📘 ไฟล์ REP (ใบตอบรับ)', accent: '#2563eb', bg: '#f8fafc' },
                     { key: 'STM', title: '📗 ไฟล์ STM (Statement)', accent: '#0891b2', bg: '#f8fafc' },
-                    { key: 'INV', title: '📙 ไฟล์ INV (Invoice)', accent: '#d97706', bg: '#f8fafc' },
+                    
                   ] as const
                 ).map(({ key, title, accent, bg }) => {
                   const stat = liveDashboardStats.byType[key];

@@ -111,6 +111,37 @@ const triggerSearchOnPage = async (pageInstance: any, pageName: string): Promise
 
     await searchLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(() => null);
 
+    // Try to filter "สถานะข้อมูล: ประมวลผลแล้ว" so it doesn't return thousands of "รอประมวลผล"
+    try {
+      await pageInstance.evaluate(() => {
+        // Native select
+        const selects = Array.from(document.querySelectorAll<HTMLSelectElement>('select'));
+        for (const s of selects) {
+          const opt = Array.from(s.options).find((o) => o.text.includes('ประมวลผลแล้ว') || o.value.includes('ประมวลผลแล้ว'));
+          if (opt) {
+            s.value = opt.value;
+            s.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+        // Ant Design / Ng-Zorro custom select
+        const labels = Array.from(document.querySelectorAll('label, div, span'));
+        const statusLabel = labels.find((l) => (l.textContent || '').trim().includes('สถานะข้อมูล'));
+        if (statusLabel) {
+          const parent = statusLabel.closest('.ant-form-item, .form-group, .row, div') || statusLabel.parentElement;
+          const selectTrigger = parent?.querySelector('.ant-select, nz-select, [tabindex="0"], .ant-select-selector') as HTMLElement | null;
+          selectTrigger?.click();
+        }
+      }).catch(() => null);
+
+      await pageInstance.waitForTimeout(400);
+
+      await pageInstance.evaluate(() => {
+        const options = Array.from(document.querySelectorAll('.ant-select-item-option, nz-option-item, .ant-select-dropdown li, .cdk-overlay-container li'));
+        const targetOpt = options.find((o) => (o.textContent || '').trim().includes('ประมวลผลแล้ว')) as HTMLElement | null;
+        targetOpt?.click();
+      }).catch(() => null);
+    } catch { /* ignore filter error and continue */ }
+
     // 2. Click Search button
     let clicked = false;
     try {
@@ -281,18 +312,28 @@ export const startEclaimBackgroundSync = async (options: {
           return tableRows.map((tr, index) => {
             const text = (tr.textContent || '').trim();
             const isProcessed = text.includes('ประมวลผลแล้ว');
+            const isPending = text.includes('รอประมวลผล');
             const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
             const repNo = cells[0] || '';
             const sender = cells[2] || '';
             const sendDate = cells[3] || '';
             const rawFileName = cells[9] || '';
-            // In the new portal, Column 13 is REP (EXCEL)
-            const excelDownloadAnchor = tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-child(14) a');
-            const hasDownloadBtn = Boolean(excelDownloadAnchor);
+
+            // Find all download elements in row
+            const allElements = Array.from(tr.querySelectorAll<HTMLElement>('a, button, span, [role="button"]'));
+            const dlElements = allElements.filter((el) => {
+              const txt = (el.textContent || '').trim().toLowerCase();
+              return txt === 'download' || txt === 'ดาวน์โหลด' || txt.includes('download');
+            });
+
+            // The last download element is EXCEL
+            const hasDownloadBtn = dlElements.length > 0
+              || Boolean(tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-child(14) a'));
 
             return {
               index,
               isProcessed,
+              isPending,
               repNo,
               sender,
               sendDate,
@@ -303,7 +344,14 @@ export const startEclaimBackgroundSync = async (options: {
         }).catch(() => []);
 
         const readyRows = rowsMeta.filter((r) => r.isProcessed && r.hasDownloadBtn);
-        addLog('info', `หน้า ${p}: พบรายการประมวลผลแล้ว ${readyRows.length} รายการ`);
+        const pendingCount = rowsMeta.filter((r) => r.isPending).length;
+        if (readyRows.length > 0) {
+          addLog('info', `หน้า ${p}: พบรายการประมวลผลแล้ว ${readyRows.length} รายการ (พร้อมดาวน์โหลด)`);
+        } else if (pendingCount > 0) {
+          addLog('info', `หน้า ${p}: พบ ${rowsMeta.length} รายการ (เป็น 'รอประมวลผล' ${pendingCount} รายการ — สปสช. ยังไม่ออกผลตรวจ)`);
+        } else {
+          addLog('info', `หน้า ${p}: พบรายการประมวลผลแล้ว 0 รายการ`);
+        }
 
         for (const rowMeta of readyRows) {
           if (stopRequested) break;
@@ -331,7 +379,14 @@ export const startEclaimBackgroundSync = async (options: {
               page.waitForEvent('download', { timeout: 30000 }),
               page.evaluate((idx) => {
                 const tr = document.querySelectorAll('table tbody tr')[idx];
-                const btn = tr?.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-child(14) a') as HTMLElement | null;
+                if (!tr) return;
+                const allElements = Array.from(tr.querySelectorAll<HTMLElement>('a, button, span, [role="button"]'));
+                const dlElements = allElements.filter((el) => {
+                  const txt = (el.textContent || '').trim().toLowerCase();
+                  return txt === 'download' || txt === 'ดาวน์โหลด' || txt.includes('download');
+                });
+                const btn = dlElements[dlElements.length - 1]
+                  || tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-child(14) a') as HTMLElement | null;
                 btn?.click();
               }, rowMeta.index),
             ]);

@@ -104,103 +104,67 @@ const isFileAlreadyImported = async (filename: string): Promise<boolean> => {
  */
 const triggerSearchOnPage = async (pageInstance: any, pageName: string): Promise<boolean> => {
   try {
-    // 0. Ensure the search accordion panel is expanded (if collapsible)
-    try {
-      const searchCollapseHeader = pageInstance.locator(
-        '.ant-collapse-header, nz-collapse-panel, [role="tab"]'
-      ).filter({ hasText: 'ค้นหา' }).first();
-      if (await searchCollapseHeader.isVisible({ timeout: 1500 }).catch(() => false)) {
-        const searchBtnVisible = await pageInstance.locator('button:has-text("ค้นหา")').first().isVisible().catch(() => false);
-        if (!searchBtnVisible) {
-          await searchCollapseHeader.click().catch(() => null);
-          await pageInstance.waitForTimeout(500);
-        }
-      }
-    } catch { /* ignore collapse error */ }
+    // 1. Wait a moment for Angular to settle after navigation
+    await pageInstance.waitForTimeout(1500);
 
-    // 1. On REP page, try to filter "สถานะข้อมูล: ประมวลผลแล้ว" so it doesn't return thousands of "รอประมวลผล"
+    // 2. Wait for the real [ค้นหา] button to mount in DOM
+    const searchBtn = pageInstance.locator('button').filter({ hasText: /^ค้นหา$/ }).first();
+    const isReady = await searchBtn.waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false);
+
+    if (!isReady) {
+      // Fallback: check button with ant-btn-primary and text ค้นหา
+      const fallbackBtn = pageInstance.locator('button.ant-btn-primary').filter({ hasText: 'ค้นหา' }).first();
+      const isFallbackReady = await fallbackBtn.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false);
+      if (!isFallbackReady) {
+        addLog('warning', `⚠️ ไม่พบปุ่ม [ค้นหา] บนหน้า ${pageName}`);
+        return false;
+      }
+    }
+
+    // 3. On REP page, try to filter "สถานะข้อมูล: ประมวลผลแล้ว"
     if (pageName === 'REP') {
       try {
-        // Find the "สถานะข้อมูล" select box
-        const statusItem = pageInstance.locator(
-          'nz-form-item, .ant-form-item, div.ant-row'
-        ).filter({ hasText: 'สถานะข้อมูล' }).first();
+        const statusItem = pageInstance.locator('nz-form-item, .ant-form-item, div.ant-row, div')
+          .filter({ hasText: 'สถานะข้อมูล' })
+          .locator('.ant-select-selector, nz-select, .ant-select')
+          .first();
 
-        const statusSelect = statusItem.locator('.ant-select-selector, nz-select, .ant-select').first();
-
-        let opened = false;
-        if (await statusSelect.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await statusSelect.click().catch(() => null);
-          opened = true;
-        } else {
-          opened = await pageInstance.evaluate(() => {
-            const labels = Array.from(document.querySelectorAll('label, div, span'));
-            const l = labels.find((el) => (el.textContent || '').trim().includes('สถานะข้อมูล'));
-            if (l) {
-              const parent = l.closest('.ant-form-item, nz-form-item, .form-group, .ant-row') || l.parentElement;
-              const sel = parent?.querySelector('.ant-select-selector, .ant-select, nz-select') as HTMLElement | null;
-              if (sel) {
-                sel.click();
-                return true;
-              }
-            }
-            return false;
-          }).catch(() => false);
-        }
-
-        if (opened) {
+        if (await statusItem.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await statusItem.click().catch(() => null);
           await pageInstance.waitForTimeout(400);
-          await pageInstance.waitForSelector(
-            '.cdk-overlay-container .ant-select-item-option, nz-option-item, .ant-select-dropdown',
-            { timeout: 3000 }
-          ).catch(() => null);
 
-          const selectRes = await pageInstance.evaluate(() => {
+          const chosen = await pageInstance.evaluate(() => {
             const options = Array.from(document.querySelectorAll<HTMLElement>(
-              '.cdk-overlay-container .ant-select-item-option, nz-option-item, .ant-select-dropdown .ant-select-item-option, .ant-select-dropdown li'
+              '.cdk-overlay-container .ant-select-item-option, nz-option-item, .ant-select-dropdown .ant-select-item-option'
             ));
-            const optionTexts = options.map((o) => (o.textContent || '').trim());
             const target = options.find((o) => {
               const t = (o.textContent || '').trim();
-              return t.includes('ประมวลผลแล้ว') || (t.includes('ประมวลผล') && !t.includes('รอ'));
+              return t === 'ประมวลผลแล้ว' || (t.includes('ประมวลผล') && !t.includes('รอ'));
             });
             if (target) {
               target.click();
-              return { success: true, chosen: (target.textContent || '').trim(), options: optionTexts };
+              return target.textContent?.trim();
             }
-            return { success: false, options: optionTexts };
-          }).catch(() => ({ success: false, options: [] }));
+            return null;
+          }).catch(() => null);
 
-          if (selectRes.success) {
-            addLog('info', `🎯 ตัวกรองสถานะ REP: เลือก [${selectRes.chosen}] สำเร็จ`);
-          } else if (selectRes.options && selectRes.options.length > 0) {
-            addLog('info', `ตัวเลือกสถานะที่พบในระบบ: ${selectRes.options.join(', ')}`);
+          if (chosen) {
+            addLog('info', `🎯 ตัวกรองสถานะ REP: เลือก [${chosen}] สำเร็จ`);
           }
         }
-      } catch { /* ignore filter error and continue */ }
+      } catch { /* ignore filter error */ }
     }
 
-    // 2. Click Search button
-    const searchLocator = pageInstance.locator(
-      'button:has-text("ค้นหา"), input[value*="ค้นหา"], button.ant-btn-primary, button.btn-primary'
-    ).first();
-
-    await searchLocator.waitFor({ state: 'visible', timeout: 10000 }).catch(() => null);
-
+    // 4. Click the search button
     let clicked = false;
     try {
-      await searchLocator.click({ timeout: 4000 });
+      const targetBtn = pageInstance.locator('button').filter({ hasText: /^ค้นหา$/ }).first();
+      await targetBtn.click({ timeout: 5000 });
       clicked = true;
     } catch {
       clicked = await pageInstance.evaluate(() => {
-        const buttons = Array.from(document.querySelectorAll<HTMLElement>(
-          'button, input[type="button"], input[type="submit"], .btn, a'
-        ));
-        const btn = buttons.find((b) => {
-          const txt = (b.textContent || '').trim();
-          const val = (b.getAttribute('value') || '').trim();
-          return (txt === 'ค้นหา' || val === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง')));
-        });
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'));
+        const btn = buttons.find((b) => (b.textContent || '').trim() === 'ค้นหา' && !b.closest('.ant-collapse-header'));
         if (btn) {
           btn.click();
           return true;
@@ -210,13 +174,13 @@ const triggerSearchOnPage = async (pageInstance: any, pageName: string): Promise
     }
 
     if (!clicked) {
-      addLog('warning', `⚠️ ไม่พบปุ่ม [ค้นหา] บนหน้า ${pageName}`);
+      addLog('warning', `⚠️ ไม่สามารถกดปุ่ม [ค้นหา] บนหน้า ${pageName}`);
       return false;
     }
 
     addLog('info', `✅ กดปุ่ม [ค้นหา] หน้า ${pageName} สำเร็จ กำลังรอผลลัพธ์จาก สปสช...`);
 
-    // 3. Wait for the table rows / pagination to populate
+    // 5. Wait for the table rows to populate
     await pageInstance.waitForTimeout(2000);
     const loaded = await pageInstance.waitForFunction(() => {
       const isSpinning = document.querySelector('.ant-spin-spinning') !== null;

@@ -87,6 +87,21 @@ type MonitorRow = IpdOverviewRow & ReconciliationRow & {
 
 type StageKey = 'pending_fdh' | 'pending_rep' | 'rep_issue' | 'pending_statement' | 'inv_only' | 'stm_issue' | 'complete';
 
+type KpiSummary = {
+  total: number;
+  fdh: number;
+  rep: number;
+  inv: number;
+  stm: number;
+  complete: number;
+  attention: number;
+  preAuditRisk: number;
+  preAuditReview: number;
+  expected: number;
+  repAmount: number;
+  stmPaid: number;
+};
+
 const STAGES: Array<{ key: StageKey | 'all'; label: string }> = [
   { key: 'all', label: 'ทุกสถานะ' },
   { key: 'pending_fdh', label: 'รอ FDH' },
@@ -151,6 +166,120 @@ const stageTone = (key: StageKey) => {
   return 'info';
 };
 
+const calculateKpis = (rowsToSummarize: MonitorRow[]): KpiSummary => {
+  const total = rowsToSummarize.length;
+  const fdh = rowsToSummarize.filter((row) => row.fdh_found).length;
+  const rep = rowsToSummarize.filter((row) => Boolean(row.has_rep || row.rep_no)).length;
+  const inv = rowsToSummarize.filter((row) => row.has_inv).length;
+  const stm = rowsToSummarize.filter((row) => row.has_stm).length;
+  const complete = rowsToSummarize.filter((row) => row.stageKey === 'complete').length;
+  const attention = rowsToSummarize.filter((row) => row.stageKey === 'rep_issue' || row.stageKey === 'stm_issue').length;
+  const preAuditRisk = rowsToSummarize.filter((row) => row.pre_audit?.status === 'risk').length;
+  const preAuditReview = rowsToSummarize.filter((row) => row.pre_audit?.status === 'review').length;
+  const expected = rowsToSummarize.reduce((sum, row) => sum + Number(row.expected_receivable || 0), 0);
+  const repAmount = rowsToSummarize.reduce((sum, row) => sum + Number(row.rep_amount || 0), 0);
+  const stmPaid = rowsToSummarize.reduce((sum, row) => sum + Number(row.stm_paid_amount || 0), 0);
+  return { total, fdh, rep, inv, stm, complete, attention, preAuditRisk, preAuditReview, expected, repAmount, stmPaid };
+};
+
+const IpdKpiGrid = ({
+  kpi,
+  auditFilter,
+  onAuditFilterChange,
+  onStageFilterChange,
+}: {
+  kpi: KpiSummary;
+  auditFilter?: 'all' | 'clear' | 'review' | 'risk';
+  onAuditFilterChange?: (filter: 'risk' | 'review') => void;
+  onStageFilterChange?: (stage: StageKey | 'all') => void;
+}) => (
+  <div className="ipd-monitor-kpi-grid">
+    <div
+      className={`ipd-monitor-kpi ipd-monitor-kpi--slate ${onStageFilterChange ? 'is-clickable' : ''}`}
+      onClick={() => onStageFilterChange?.('all')}
+      title={onStageFilterChange ? 'คลิกเพื่อดูทุกเคส' : undefined}
+    >
+      <span>จำหน่ายทั้งหมด</span>
+      <strong>{kpi.total.toLocaleString('th-TH')}</strong>
+      <small>เคสในช่วงวันที่</small>
+    </div>
+    <div
+      className={`ipd-monitor-kpi ipd-monitor-kpi--blue ${onStageFilterChange ? 'is-clickable' : ''}`}
+      onClick={() => onStageFilterChange?.('all')}
+      title={onStageFilterChange ? 'คลิกเพื่อดูรายการ' : undefined}
+    >
+      <span>พบใน FDH</span>
+      <strong>{kpi.fdh.toLocaleString('th-TH')}</strong>
+      <small>{kpi.total ? Math.round((kpi.fdh / kpi.total) * 100) : 0}% ของเคส</small>
+    </div>
+    <div
+      className={`ipd-monitor-kpi ipd-monitor-kpi--violet ${onStageFilterChange ? 'is-clickable' : ''}`}
+      onClick={() => onStageFilterChange?.('all')}
+      title={onStageFilterChange ? 'คลิกเพื่อดูรายการ' : undefined}
+    >
+      <span>ได้รับ REP</span>
+      <strong>{kpi.rep.toLocaleString('th-TH')}</strong>
+      <small>{kpi.fdh ? Math.round((kpi.rep / kpi.fdh) * 100) : 0}% จาก FDH</small>
+    </div>
+    <div
+      className={`ipd-monitor-kpi ipd-monitor-kpi--cyan ${onStageFilterChange ? 'is-clickable' : ''}`}
+      onClick={() => onStageFilterChange?.('inv_only')}
+      title={onStageFilterChange ? 'คลิกเพื่อกรองเฉพาะรายการ INV' : undefined}
+    >
+      <span>ได้รับ INV</span>
+      <strong>{kpi.inv.toLocaleString('th-TH')}</strong>
+      <small>ใบแจ้งยอด</small>
+    </div>
+    <div
+      className={`ipd-monitor-kpi ipd-monitor-kpi--green ${onStageFilterChange ? 'is-clickable' : ''}`}
+      onClick={() => onStageFilterChange?.('complete')}
+      title={onStageFilterChange ? 'คลิกเพื่อกรองเคสที่มีผลจ่าย STM' : undefined}
+    >
+      <span>ได้รับ STM</span>
+      <strong>{kpi.stm.toLocaleString('th-TH')}</strong>
+      <small>ผลการจ่าย</small>
+    </div>
+    <div
+      className={`ipd-monitor-kpi ipd-monitor-kpi--emerald ${onStageFilterChange ? 'is-clickable' : ''}`}
+      onClick={() => onStageFilterChange?.('complete')}
+      title={onStageFilterChange ? 'คลิกเพื่อกรองเคสครบกระบวนการ' : undefined}
+    >
+      <span>ครบกระบวนการ</span>
+      <strong>{kpi.complete.toLocaleString('th-TH')}</strong>
+      <small>FDH + REP + STM</small>
+    </div>
+    <div
+      className={`ipd-monitor-kpi ipd-monitor-kpi--rose ${onStageFilterChange ? 'is-clickable' : ''}`}
+      onClick={() => onStageFilterChange?.('rep_issue')}
+      title={onStageFilterChange ? 'คลิกเพื่อกรองเคสที่ต้องตรวจสอบ' : undefined}
+    >
+      <span>ต้องตรวจสอบ</span>
+      <strong>{kpi.attention.toLocaleString('th-TH')}</strong>
+      <small>REP/STM ผิดปกติ</small>
+    </div>
+    <button
+      className={`ipd-monitor-kpi ipd-monitor-kpi--rose ${auditFilter === 'risk' ? 'is-active' : ''}`}
+      type="button"
+      onClick={() => onAuditFilterChange?.('risk')}
+      title="คลิกเพื่อกรองเฉพาะ Pre-audit เสี่ยง"
+    >
+      <span>Pre-audit เสี่ยง</span>
+      <strong>{kpi.preAuditRisk.toLocaleString('th-TH')}</strong>
+      <small>ข้อมูล/รหัสอาจไม่ผ่านเกณฑ์</small>
+    </button>
+    <button
+      className={`ipd-monitor-kpi ipd-monitor-kpi--cyan ${auditFilter === 'review' ? 'is-active' : ''}`}
+      type="button"
+      onClick={() => onAuditFilterChange?.('review')}
+      title="คลิกเพื่อกรองเฉพาะทบทวน Chart"
+    >
+      <span>ทบทวน Chart</span>
+      <strong>{kpi.preAuditReview.toLocaleString('th-TH')}</strong>
+      <small>หลักฐานทั่วไปหรือกฎ S1</small>
+    </button>
+  </div>
+);
+
 export const IpdClaimMonitorPage = () => {
   const [startDate, setStartDate] = useState(firstDayOfMonth());
   const [endDate, setEndDate] = useState(formatLocalDateInput());
@@ -164,6 +293,9 @@ export const IpdClaimMonitorPage = () => {
   const [wardFilter, setWardFilter] = useState('all');
   const [auditFilter, setAuditFilter] = useState<'all' | 'clear' | 'review' | 'risk'>('all');
   const [detailVisit, setDetailVisit] = useState<MonitorRow | null>(null);
+
+  const [wardViewMode, setWardViewMode] = useState<'tabs' | 'all'>('tabs');
+  const [activeWardTab, setActiveWardTab] = useState<string>('');
 
   const loadData = async () => {
     setLoading(true);
@@ -214,37 +346,59 @@ export const IpdClaimMonitorPage = () => {
   const wardOptions = useMemo(() => Array.from(new Set(
     rows.map((row) => String(row.ward || '').trim()).filter(Boolean),
   )).sort((a, b) => a.localeCompare(b, 'th')), [rows]);
-  const scopedRows = useMemo(() => {
+
+  // Base rows filtered by search, rights, and pre_audit (independent of wardFilter for ward breakdown)
+  const baseWardRows = useMemo(() => {
     const term = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (rightFilter !== 'all' && String(row.hipdata_code || 'ไม่ระบุ') !== rightFilter) return false;
-      if (wardFilter !== 'all' && String(row.ward || '').trim() !== wardFilter) return false;
       if (auditFilter !== 'all' && (row.pre_audit?.status || 'clear') !== auditFilter) return false;
       if (!term) return true;
       return [row.an, row.vn, row.hn, row.patient_name, row.ward, row.pttype_name, row.hipdata_code, row.rep_no, row.stm_statement_no, row.inv_statement_no]
         .some((value) => String(value || '').toLowerCase().includes(term));
     });
-  }, [auditFilter, rightFilter, rows, search, wardFilter]);
+  }, [auditFilter, rightFilter, rows, search]);
+
+  // Scoped rows also apply wardFilter for the data table and overall filtered count
+  const scopedRows = useMemo(() => {
+    if (wardFilter === 'all') return baseWardRows;
+    return baseWardRows.filter((row) => String(row.ward || '').trim() === wardFilter);
+  }, [baseWardRows, wardFilter]);
 
   const filteredRows = useMemo(() => (
     stageFilter === 'all' ? scopedRows : scopedRows.filter((row) => row.stageKey === stageFilter)
   ), [scopedRows, stageFilter]);
 
-  const summary = useMemo(() => {
-    const total = scopedRows.length;
-    const fdh = scopedRows.filter((row) => row.fdh_found).length;
-    const rep = scopedRows.filter((row) => Boolean(row.has_rep || row.rep_no)).length;
-    const inv = scopedRows.filter((row) => row.has_inv).length;
-    const stm = scopedRows.filter((row) => row.has_stm).length;
-    const complete = scopedRows.filter((row) => row.stageKey === 'complete').length;
-    const attention = scopedRows.filter((row) => row.stageKey === 'rep_issue' || row.stageKey === 'stm_issue').length;
-    const preAuditRisk = scopedRows.filter((row) => row.pre_audit?.status === 'risk').length;
-    const preAuditReview = scopedRows.filter((row) => row.pre_audit?.status === 'review').length;
-    const expected = scopedRows.reduce((sum, row) => sum + Number(row.expected_receivable || 0), 0);
-    const repAmount = scopedRows.reduce((sum, row) => sum + Number(row.rep_amount || 0), 0);
-    const stmPaid = scopedRows.reduce((sum, row) => sum + Number(row.stm_paid_amount || 0), 0);
-    return { total, fdh, rep, inv, stm, complete, attention, preAuditRisk, preAuditReview, expected, repAmount, stmPaid };
-  }, [scopedRows]);
+  // Summary for overall hospital (combined)
+  const overallSummary = useMemo(() => calculateKpis(baseWardRows), [baseWardRows]);
+  // Summary for current filtered rows
+  const summary = useMemo(() => calculateKpis(scopedRows), [scopedRows]);
+
+  // Ward breakdown summaries
+  const wardSummaries = useMemo<Array<KpiSummary & { ward: string }>>(() => {
+    const map = new Map<string, MonitorRow[]>();
+    baseWardRows.forEach((row) => {
+      const wardName = String(row.ward || '').trim() || 'ไม่ระบุตึก';
+      const list = map.get(wardName) || [];
+      list.push(row);
+      map.set(wardName, list);
+    });
+
+    const results: Array<KpiSummary & { ward: string }> = [];
+    map.forEach((wardRows, wardName) => {
+      results.push({
+        ward: wardName,
+        ...calculateKpis(wardRows),
+      });
+    });
+
+    return results.sort((a, b) => b.total - a.total || a.ward.localeCompare(b.ward, 'th'));
+  }, [baseWardRows]);
+
+  const selectedWardSummary = useMemo(() => {
+    if (!wardSummaries.length) return null;
+    return wardSummaries.find((w) => w.ward === activeWardTab) || wardSummaries[0];
+  }, [activeWardTab, wardSummaries]);
 
   const stageCounts = useMemo(() => scopedRows.reduce<Record<string, number>>((acc, row) => {
     acc[row.stageKey] = (acc[row.stageKey] || 0) + 1;
@@ -322,17 +476,176 @@ export const IpdClaimMonitorPage = () => {
         </div>
       </details>
 
-      <div className="ipd-monitor-kpi-grid">
-        <div className="ipd-monitor-kpi ipd-monitor-kpi--slate"><span>จำหน่ายทั้งหมด</span><strong>{summary.total.toLocaleString('th-TH')}</strong><small>เคสในช่วงวันที่</small></div>
-        <div className="ipd-monitor-kpi ipd-monitor-kpi--blue"><span>พบใน FDH</span><strong>{summary.fdh.toLocaleString('th-TH')}</strong><small>{summary.total ? Math.round(summary.fdh / summary.total * 100) : 0}% ของเคส</small></div>
-        <div className="ipd-monitor-kpi ipd-monitor-kpi--violet"><span>ได้รับ REP</span><strong>{summary.rep.toLocaleString('th-TH')}</strong><small>{summary.fdh ? Math.round(summary.rep / summary.fdh * 100) : 0}% จาก FDH</small></div>
-        <div className="ipd-monitor-kpi ipd-monitor-kpi--cyan"><span>ได้รับ INV</span><strong>{summary.inv.toLocaleString('th-TH')}</strong><small>ใบแจ้งยอด</small></div>
-        <div className="ipd-monitor-kpi ipd-monitor-kpi--green"><span>ได้รับ STM</span><strong>{summary.stm.toLocaleString('th-TH')}</strong><small>ผลการจ่าย</small></div>
-        <div className="ipd-monitor-kpi ipd-monitor-kpi--emerald"><span>ครบกระบวนการ</span><strong>{summary.complete.toLocaleString('th-TH')}</strong><small>FDH + REP + STM</small></div>
-        <div className="ipd-monitor-kpi ipd-monitor-kpi--rose"><span>ต้องตรวจสอบ</span><strong>{summary.attention.toLocaleString('th-TH')}</strong><small>REP/STM ผิดปกติ</small></div>
-        <button className="ipd-monitor-kpi ipd-monitor-kpi--rose" type="button" onClick={() => setAuditFilter(auditFilter === 'risk' ? 'all' : 'risk')}><span>Pre-audit เสี่ยง</span><strong>{summary.preAuditRisk.toLocaleString('th-TH')}</strong><small>ข้อมูล/รหัสอาจไม่ผ่านเกณฑ์</small></button>
-        <button className="ipd-monitor-kpi ipd-monitor-kpi--cyan" type="button" onClick={() => setAuditFilter(auditFilter === 'review' ? 'all' : 'review')}><span>ทบทวน Chart</span><strong>{summary.preAuditReview.toLocaleString('th-TH')}</strong><small>หลักฐานทั่วไปหรือกฎ S1</small></button>
-      </div>
+      {/* 1. สรุปภาพรวมผู้ป่วยในทั้งโรงพยาบาล (รวมทุกหอผู้ป่วย) - คงไว้เหมือนเดิม */}
+      <section className="ipd-monitor-section">
+        <div className="ipd-monitor-section-header">
+          <div className="ipd-monitor-section-title">
+            <h3>🏥 ภาพรวมเคลมผู้ป่วยใน (รวมทุกหอผู้ป่วย)</h3>
+            <span className="ipd-section-badge">{overallSummary.total.toLocaleString('th-TH')} เคส</span>
+            {wardFilter !== 'all' && (
+              <span className="ipd-section-filter-tag">
+                กำลังกรองตึก: <strong>{wardFilter}</strong>
+              </span>
+            )}
+          </div>
+          <div className="ipd-monitor-section-meta">
+            <span>คาดรับ: <strong>{money(overallSummary.expected)} บาท</strong></span>
+            <span>· ยอด REP: <strong>{money(overallSummary.repAmount)} บาท</strong></span>
+            <span>· ยอดจ่าย STM: <strong>{money(overallSummary.stmPaid)} บาท</strong></span>
+          </div>
+        </div>
+
+        <IpdKpiGrid
+          kpi={wardFilter === 'all' ? overallSummary : summary}
+          auditFilter={auditFilter}
+          onAuditFilterChange={(filter) => setAuditFilter(auditFilter === filter ? 'all' : filter)}
+          onStageFilterChange={(stage) => setStageFilter(stageFilter === stage ? 'all' : stage)}
+        />
+      </section>
+
+      {/* 2. การ์ดสรุปแยกตามหอผู้ป่วย (Ward Claims Breakdown) */}
+      {wardSummaries.length > 0 && (
+        <section className="card ipd-ward-breakdown-card">
+          <div className="card-header ipd-ward-breakdown-header">
+            <div>
+              <strong className="ipd-ward-title">🏢 สรุปสถานะเคลมแยกตามหอผู้ป่วย (Ward Claims Monitor)</strong>
+              <span className="ipd-ward-subtitle">
+                พบข้อมูล {wardSummaries.length} หอผู้ป่วย · คลิกที่การ์ดเพื่อกรองดูรายการของตึกนั้นในตาราง
+              </span>
+            </div>
+            <div className="ipd-ward-view-controls">
+              <button
+                type="button"
+                className={`btn btn-sm ${wardViewMode === 'tabs' ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setWardViewMode('tabs')}
+              >
+                📑 ดูทีละหอ
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${wardViewMode === 'all' ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setWardViewMode('all')}
+              >
+                🗂️ แสดงทุกหอพร้อมกัน
+              </button>
+            </div>
+          </div>
+
+          {wardViewMode === 'tabs' ? (
+            <div className="card-body ipd-ward-tab-view">
+              <div className="ipd-ward-tabs">
+                {wardSummaries.map((w) => {
+                  const isSelected = (activeWardTab || wardSummaries[0]?.ward) === w.ward;
+                  const isFiltered = wardFilter === w.ward;
+                  return (
+                    <button
+                      key={w.ward}
+                      type="button"
+                      className={`ipd-ward-tab-btn ${isSelected ? 'is-active' : ''} ${isFiltered ? 'is-filtered' : ''}`}
+                      onClick={() => setActiveWardTab(w.ward)}
+                    >
+                      <span className="ipd-ward-tab-name">🏥 {w.ward}</span>
+                      <span className="ipd-ward-tab-count">{w.total.toLocaleString('th-TH')}</span>
+                      {w.attention > 0 && (
+                        <span className="ipd-ward-tab-alert" title={`มี ${w.attention} เคสต้องตรวจสอบ`}>
+                          ⚠️ {w.attention}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedWardSummary && (
+                <div className="ipd-ward-selected-container">
+                  <div className="ipd-ward-selected-bar">
+                    <div className="ipd-ward-selected-info">
+                      <h4>🏥 {selectedWardSummary.ward}</h4>
+                      <div className="ipd-ward-selected-stats">
+                        <span>จำหน่าย: <strong>{selectedWardSummary.total.toLocaleString('th-TH')} เคส</strong></span>
+                        <span>· คาดรับ: <strong>{money(selectedWardSummary.expected)} บาท</strong></span>
+                        <span>· REP: <strong>{money(selectedWardSummary.repAmount)} บาท</strong></span>
+                        <span>· จ่าย STM: <strong>{money(selectedWardSummary.stmPaid)} บาท</strong></span>
+                      </div>
+                    </div>
+                    <div className="ipd-ward-selected-actions">
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${wardFilter === selectedWardSummary.ward ? 'btn-warning' : 'btn-primary'}`}
+                        onClick={() => {
+                          setWardFilter(wardFilter === selectedWardSummary.ward ? 'all' : selectedWardSummary.ward);
+                        }}
+                      >
+                        {wardFilter === selectedWardSummary.ward ? '✕ ยกเลิกกรองเฉพาะหอนี้' : '🔍 กรองตารางเฉพาะหอนี้'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <IpdKpiGrid
+                    kpi={selectedWardSummary}
+                    auditFilter={wardFilter === selectedWardSummary.ward ? auditFilter : 'all'}
+                    onAuditFilterChange={(filter) => {
+                      setWardFilter(selectedWardSummary.ward);
+                      setAuditFilter(auditFilter === filter ? 'all' : filter);
+                    }}
+                    onStageFilterChange={(stage) => {
+                      setWardFilter(selectedWardSummary.ward);
+                      setStageFilter(stage);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="card-body ipd-ward-all-view">
+              <div className="ipd-ward-boxes-grid">
+                {wardSummaries.map((w) => {
+                  const isFiltered = wardFilter === w.ward;
+                  return (
+                    <div key={w.ward} className={`ipd-ward-box ${isFiltered ? 'is-filtered' : ''}`}>
+                      <div className="ipd-ward-box-header">
+                        <div className="ipd-ward-box-title">
+                          <h4>🏥 {w.ward}</h4>
+                          <span className="ipd-ward-box-badge">{w.total.toLocaleString('th-TH')} เคส</span>
+                          {w.attention > 0 && (
+                            <span className="ipd-ward-tab-alert">
+                              ⚠️ {w.attention} ต้องตรวจ
+                            </span>
+                          )}
+                        </div>
+                        <div className="ipd-ward-box-meta">
+                          <span>คาดรับ {money(w.expected)} บ.</span>
+                          <span>· STM {money(w.stmPaid)} บ.</span>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${isFiltered ? 'btn-warning' : 'btn-outline'}`}
+                            onClick={() => setWardFilter(isFiltered ? 'all' : w.ward)}
+                          >
+                            {isFiltered ? '✕ ยกเลิกกรอง' : '🔍 กรองตาราง'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <IpdKpiGrid
+                        kpi={w}
+                        auditFilter={wardFilter === w.ward ? auditFilter : 'all'}
+                        onAuditFilterChange={(filter) => {
+                          setWardFilter(w.ward);
+                          setAuditFilter(auditFilter === filter ? 'all' : filter);
+                        }}
+                        onStageFilterChange={(stage) => {
+                          setWardFilter(w.ward);
+                          setStageFilter(stage);
+                        }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       <div className="ipd-monitor-pipeline card">
         <div className="card-header"><strong>ตำแหน่งงานในกระบวนการ</strong><span>กดการ์ดเพื่อกรองรายการ</span></div>
@@ -362,7 +675,12 @@ export const IpdClaimMonitorPage = () => {
       </div>
 
       <div className="card workflow-table-card ipd-monitor-table-card">
-        <div className="card-header"><span className="workflow-table-title">รายการติดตามผู้ป่วยใน</span><span className="workflow-table-meta">แสดง {filteredRows.length.toLocaleString('th-TH')} / {rows.length.toLocaleString('th-TH')} เคส</span></div>
+        <div className="card-header">
+          <span className="workflow-table-title">
+            รายการติดตามผู้ป่วยใน {wardFilter !== 'all' ? `(หอผู้ป่วย: ${wardFilter})` : ''}
+          </span>
+          <span className="workflow-table-meta">แสดง {filteredRows.length.toLocaleString('th-TH')} / {rows.length.toLocaleString('th-TH')} เคส</span>
+        </div>
         <div className="table-responsive">
           <table className="data-table ipd-monitor-table">
             <thead><tr><th>#</th><th>AN / HN</th><th>ผู้ป่วย / สิทธิ</th><th>ตึกผู้ป่วย</th><th>D/C</th><th>ยอดคาดรับ</th><th>IPD Pre-audit</th><th>FDH</th><th>REP</th><th>INV</th><th>STM</th><th>สถานะปัจจุบัน</th><th>รายละเอียด</th></tr></thead>

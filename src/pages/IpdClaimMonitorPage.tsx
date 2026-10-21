@@ -85,13 +85,12 @@ type MonitorRow = IpdOverviewRow & ReconciliationRow & {
   stageNote: string;
 };
 
-type StageKey = 'pending_fdh' | 'pending_rep' | 'rep_issue' | 'pending_statement' | 'inv_only' | 'stm_issue' | 'complete';
+type StageKey = 'pending_fdh' | 'pending_rep' | 'rep_issue' | 'pending_statement' | 'stm_issue' | 'complete';
 
 type KpiSummary = {
   total: number;
   fdh: number;
   rep: number;
-  inv: number;
   stm: number;
   complete: number;
   attention: number;
@@ -107,10 +106,9 @@ const STAGES: Array<{ key: StageKey | 'all'; label: string }> = [
   { key: 'pending_fdh', label: 'รอ FDH' },
   { key: 'pending_rep', label: 'รอ REP' },
   { key: 'rep_issue', label: 'REP ติด C/Deny' },
-  { key: 'pending_statement', label: 'รอ INV/STM' },
-  { key: 'inv_only', label: 'มี INV รอ STM' },
+  { key: 'pending_statement', label: 'รอผลโอน STM' },
   { key: 'stm_issue', label: 'STM ผิดปกติ' },
-  { key: 'complete', label: 'ครบกระบวนการ' },
+  { key: 'complete', label: 'ครบกระบวนการ (มี STM)' },
 ];
 
 const firstDayOfMonth = () => {
@@ -143,20 +141,16 @@ const formatDateTime = (value?: string | null) => {
 
 const resolveStage = (row: IpdOverviewRow & ReconciliationRow): Pick<MonitorRow, 'stageKey' | 'stageLabel' | 'stageNote'> => {
   const hasRep = Boolean(row.has_rep || row.rep_no);
-  const invAmount = Number(row.inv_amount || 0);
-  const invCompleted = Boolean(row.has_inv && Number.isFinite(invAmount) && invAmount > 0);
   const repIssue = meaningfulCode(row.rep_errorcode || row.errorcode) || meaningfulCode(row.rep_verifycode);
   const stmIssue = meaningfulCode(row.stm_errorcode) || meaningfulCode(row.stm_verifycode)
     || (row.has_stm === true && row.stm_paid_amount != null && Math.abs(Number(row.stm_paid_amount)) < 0.01);
 
-  if (invCompleted) return { stageKey: 'complete', stageLabel: 'ครบกระบวนการ (INV)', stageNote: `ได้รับยอดสุทธิ INV ${money(invAmount)} บาท` };
   if (!row.fdh_found) return { stageKey: 'pending_fdh', stageLabel: 'รอ FDH', stageNote: row.fdh_followup_note || 'ยังไม่พบรายการใน FDH' };
   if (!hasRep) return { stageKey: 'pending_rep', stageLabel: 'รอ REP', stageNote: 'พบ FDH แล้ว แต่ยังไม่พบ REP' };
   if (repIssue) return { stageKey: 'rep_issue', stageLabel: 'REP ติด C/Deny', stageNote: [row.rep_errorcode || row.errorcode, row.rep_verifycode].filter(meaningfulCode).join(' / ') };
   if (row.has_stm && stmIssue) return { stageKey: 'stm_issue', stageLabel: 'STM ผิดปกติ', stageNote: [row.stm_errorcode, row.stm_verifycode, Number(row.stm_paid_amount || 0) === 0 ? 'ยอดจ่าย 0' : ''].filter(Boolean).join(' / ') };
-  if (row.has_stm) return { stageKey: 'complete', stageLabel: 'ครบกระบวนการ', stageNote: 'FDH, REP และ STM ครบแล้ว' };
-  if (row.has_inv) return { stageKey: 'inv_only', stageLabel: 'มี INV รอ STM', stageNote: 'ได้รับ INV แล้ว รอผลจ่าย STM' };
-  return { stageKey: 'pending_statement', stageLabel: 'รอ INV/STM', stageNote: 'REP ผ่านแล้ว แต่ยังไม่พบ INV หรือ STM' };
+  if (row.has_stm) return { stageKey: 'complete', stageLabel: 'ครบกระบวนการ (มี STM)', stageNote: 'FDH, REP และผลจ่าย STM ครบแล้ว' };
+  return { stageKey: 'pending_statement', stageLabel: 'รอผลโอน STM', stageNote: 'REP ผ่านแล้ว รอการโอนเงินและ Statement (STM)' };
 };
 
 const stageTone = (key: StageKey) => {
@@ -170,7 +164,6 @@ const calculateKpis = (rowsToSummarize: MonitorRow[]): KpiSummary => {
   const total = rowsToSummarize.length;
   const fdh = rowsToSummarize.filter((row) => row.fdh_found).length;
   const rep = rowsToSummarize.filter((row) => Boolean(row.has_rep || row.rep_no)).length;
-  const inv = rowsToSummarize.filter((row) => row.has_inv).length;
   const stm = rowsToSummarize.filter((row) => row.has_stm).length;
   const complete = rowsToSummarize.filter((row) => row.stageKey === 'complete').length;
   const attention = rowsToSummarize.filter((row) => row.stageKey === 'rep_issue' || row.stageKey === 'stm_issue').length;
@@ -179,7 +172,7 @@ const calculateKpis = (rowsToSummarize: MonitorRow[]): KpiSummary => {
   const expected = rowsToSummarize.reduce((sum, row) => sum + Number(row.expected_receivable || 0), 0);
   const repAmount = rowsToSummarize.reduce((sum, row) => sum + Number(row.rep_amount || 0), 0);
   const stmPaid = rowsToSummarize.reduce((sum, row) => sum + Number(row.stm_paid_amount || 0), 0);
-  return { total, fdh, rep, inv, stm, complete, attention, preAuditRisk, preAuditReview, expected, repAmount, stmPaid };
+  return { total, fdh, rep, stm, complete, attention, preAuditRisk, preAuditReview, expected, repAmount, stmPaid };
 };
 
 const IpdKpiGrid = ({
@@ -222,22 +215,13 @@ const IpdKpiGrid = ({
       <small>{kpi.fdh ? Math.round((kpi.rep / kpi.fdh) * 100) : 0}% จาก FDH</small>
     </div>
     <div
-      className={`ipd-monitor-kpi ipd-monitor-kpi--cyan ${onStageFilterChange ? 'is-clickable' : ''}`}
-      onClick={() => onStageFilterChange?.('inv_only')}
-      title={onStageFilterChange ? 'คลิกเพื่อกรองเฉพาะรายการ INV' : undefined}
-    >
-      <span>ได้รับ INV</span>
-      <strong>{kpi.inv.toLocaleString('th-TH')}</strong>
-      <small>ใบแจ้งยอด</small>
-    </div>
-    <div
       className={`ipd-monitor-kpi ipd-monitor-kpi--green ${onStageFilterChange ? 'is-clickable' : ''}`}
       onClick={() => onStageFilterChange?.('complete')}
       title={onStageFilterChange ? 'คลิกเพื่อกรองเคสที่มีผลจ่าย STM' : undefined}
     >
       <span>ได้รับ STM</span>
       <strong>{kpi.stm.toLocaleString('th-TH')}</strong>
-      <small>ผลการจ่าย</small>
+      <small>ผลการจ่าย/โอนเงิน</small>
     </div>
     <div
       className={`ipd-monitor-kpi ipd-monitor-kpi--emerald ${onStageFilterChange ? 'is-clickable' : ''}`}
@@ -428,8 +412,6 @@ export const IpdClaimMonitorPage = () => {
       REP_No: row.rep_no || '',
       REP_Error: [row.rep_errorcode || row.errorcode, row.rep_verifycode].filter(meaningfulCode).join(' / '),
       ยอด_REP: row.rep_amount || 0,
-      INV_No: row.inv_statement_no || '',
-      ยอด_INV: row.inv_amount || 0,
       STM_No: row.stm_statement_no || '',
       ยอดจ่าย_STM: row.stm_paid_amount || 0,
       สถานะปัจจุบัน: row.stageLabel,
@@ -440,7 +422,7 @@ export const IpdClaimMonitorPage = () => {
     }));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(exportRows), 'IPD Claim Monitor');
-    XLSX.writeFile(workbook, `ipd_fdh_rep_stm_inv_${startDate}_${endDate}.xlsx`);
+    XLSX.writeFile(workbook, `ipd_claim_monitor_${startDate}_${endDate}.xlsx`);
   };
 
   const goToIpd = () => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'ipd' } }));
@@ -450,7 +432,7 @@ export const IpdClaimMonitorPage = () => {
       <div className="page-header ipd-monitor-hero">
         <div>
           <h1 className="page-title">📡 IPD Claim Monitor</h1>
-          <p className="page-subtitle">ติดตามผู้ป่วยในตั้งแต่ตรวจความพร้อมเวชระเบียนและกฎ S1 ส่ง FDH รับ REP และผล INV/STM พร้อมชี้งานค้างในหน้าจอเดียว</p>
+          <p className="page-subtitle">ติดตามผู้ป่วยในตั้งแต่ตรวจความพร้อมเวชระเบียนและกฎ S1 ส่ง FDH รับ REP และผลโอน STM พร้อมเชื่อมโยงงบโอนเงิน e-Budget ในหน้าจอเดียว</p>
         </div>
         <div className="ipd-monitor-hero__actions">
           <button className="btn btn-outline" type="button" onClick={goToIpd}>← รายการผู้ป่วยใน</button>
@@ -737,8 +719,18 @@ export const IpdClaimMonitorPage = () => {
           <span>ยอดจาก REP {wardFilter !== 'all' ? `(${wardFilter})` : '(รวมทุกหอ)'}</span>
           <strong>{money(summary.repAmount)} บาท</strong>
         </div>
-        <div className="card">
-          <span>ยอดจ่าย STM {wardFilter !== 'all' ? `(${wardFilter})` : '(รวมทุกหอ)'}</span>
+        <div className="card ipd-stm-money-card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>ยอดจ่าย STM {wardFilter !== 'all' ? `(${wardFilter})` : '(รวมทุกหอ)'}</span>
+            <button
+              type="button"
+              className="ipd-ebudget-pill-btn"
+              onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'smtBudget' } }))}
+              title="ตรวจสอบงวดเงินโอนเข้าบัญชี สปสช. (e-Budget / SMT)"
+            >
+              🏦 ตรวจสอบ e-Budget ➔
+            </button>
+          </div>
           <strong>{money(summary.stmPaid)} บาท</strong>
         </div>
         <div className="card">
@@ -750,10 +742,20 @@ export const IpdClaimMonitorPage = () => {
       </div>
 
       <div className="ipd-monitor-import-health">
-        {['REP', 'INV', 'STM'].map((type) => {
+        {['REP', 'STM'].map((type) => {
           const item = importHealth.find((entry) => String(entry.data_type).toUpperCase() === type);
           return <div key={type}><strong>{type}</strong><span>นำเข้าล่าสุด {formatDateTime(item?.last_import_at)}</span><small>{Number(item?.row_count || 0).toLocaleString('th-TH')} แถวสะสมในช่วง</small></div>;
         })}
+        <div
+          className="is-clickable"
+          onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'smtBudget' } }))}
+          title="คลิกเพื่อเปิดระบบตัดหนี้ SMT / e-Budget สปสช."
+          style={{ cursor: 'pointer' }}
+        >
+          <strong>SMT / e-Budget</strong>
+          <span>เชื่อมโยงงบโอนเงิน สปสช.</span>
+          <small style={{ color: '#0f766e', fontWeight: 600 }}>เปิดหน้างวดเงินโอน e-Budget ➔</small>
+        </div>
       </div>
 
       {/* 5. ตารางรายการเคส (อัปเดตตามหอผู้ป่วยที่เลือกทันที) */}
@@ -766,9 +768,9 @@ export const IpdClaimMonitorPage = () => {
         </div>
         <div className="table-responsive">
           <table className="data-table ipd-monitor-table">
-            <thead><tr><th>#</th><th>AN / HN</th><th>ผู้ป่วย / สิทธิ</th><th>ตึกผู้ป่วย</th><th>D/C</th><th>ยอดคาดรับ</th><th>IPD Pre-audit</th><th>FDH</th><th>REP</th><th>INV</th><th>STM</th><th>สถานะปัจจุบัน</th><th>รายละเอียด</th></tr></thead>
+            <thead><tr><th>#</th><th>AN / HN</th><th>ผู้ป่วย / สิทธิ</th><th>ตึกผู้ป่วย</th><th>D/C</th><th>ยอดคาดรับ</th><th>IPD Pre-audit</th><th>FDH</th><th>REP</th><th>STM</th><th>สถานะปัจจุบัน</th><th>รายละเอียด</th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={13} className="empty-cell">กำลังตรวจข้อมูลและกฎ S1...</td></tr> : filteredRows.length === 0 ? <tr><td colSpan={13} className="empty-cell">ไม่พบรายการตามเงื่อนไข</td></tr> : filteredRows.map((row, index) => (
+              {loading ? <tr><td colSpan={12} className="empty-cell">กำลังตรวจข้อมูลและกฎ S1...</td></tr> : filteredRows.length === 0 ? <tr><td colSpan={12} className="empty-cell">ไม่พบรายการตามเงื่อนไข</td></tr> : filteredRows.map((row, index) => (
                 <tr key={visitKey(row)}>
                   <td>{index + 1}</td>
                   <td><strong className="ipd-monitor-id">{row.an || '-'}</strong><small>HN {row.hn || '-'}</small></td>
@@ -784,10 +786,9 @@ export const IpdClaimMonitorPage = () => {
                   </td>
                   <td><span className={`insurance-status insurance-status--${row.fdh_found ? 'success' : 'warning'}`}>{row.fdh_found ? 'พบ FDH' : 'ยังไม่พบ'}</span><small>{row.fdh_status || row.fdh_followup_note || '-'}</small><small>{row.days_dch_to_fdh == null ? '' : `${row.days_dch_to_fdh} วันหลัง D/C`}</small></td>
                   <td><span className={`insurance-status insurance-status--${row.has_rep || row.rep_no ? (meaningfulCode(row.rep_errorcode || row.errorcode) || meaningfulCode(row.rep_verifycode) ? 'danger' : 'success') : 'muted'}`}>{row.rep_no || 'รอ REP'}</span><small>{[row.rep_errorcode || row.errorcode, row.rep_verifycode].filter(meaningfulCode).join(' / ') || `${money(row.rep_amount)} บาท`}</small></td>
-                  <td><span className={`insurance-status insurance-status--${row.has_inv ? 'success' : 'muted'}`}>{row.has_inv ? 'มี INV' : 'รอ INV'}</span><small>{row.inv_statement_no || (row.has_inv ? `${money(row.inv_amount)} บาท` : '-')}</small></td>
                   <td><span className={`insurance-status insurance-status--${row.has_stm ? (row.stageKey === 'stm_issue' ? 'danger' : 'success') : 'muted'}`}>{row.has_stm ? 'มี STM' : 'รอ STM'}</span><small>{row.stm_statement_no || (row.has_stm ? `จ่าย ${money(row.stm_paid_amount)} บาท` : '-')}</small></td>
                   <td><span className={`insurance-status insurance-status--${stageTone(row.stageKey)}`}>{row.stageLabel}</span><small>{row.stageNote}</small></td>
-                  <td><button className="btn btn-outline btn-sm" type="button" onClick={() => setDetailVisit(row)}>ดู REP/STM/INV</button></td>
+                  <td><button className="btn btn-outline btn-sm" type="button" onClick={() => setDetailVisit(row)}>ดู REP/STM</button></td>
                 </tr>
               ))}
             </tbody>

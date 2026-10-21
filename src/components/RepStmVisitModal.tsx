@@ -14,7 +14,7 @@ type Props = {
   onClose: () => void;
 };
 
-type DataType = 'REP' | 'STM' | 'INV';
+type DataType = 'REP' | 'STM';
 type VisitData = Record<DataType, Record<string, unknown>[]>;
 type CodeNotes = Record<string, string>;
 
@@ -33,10 +33,6 @@ const detailFields: Record<DataType, Array<[string, string]>> = {
   STM: [
     ['statement_no', 'Statement No.'], ['stm_no', 'STM No.'], ['amount', 'ยอดเงิน'], ['paid_amount', 'ยอดจ่าย'],
     ['errorcode', 'Error/C'], ['verifycode', 'Verify/Deny'], ['service_date', 'วันที่บริการ'], ['source_filename', 'ไฟล์ต้นทาง'],
-  ],
-  INV: [
-    ['invoice_no', 'Invoice No.'], ['inv_no', 'INV No.'], ['paid_amount', 'ยอดรับสุทธิ'], ['amount', 'ยอดเงิน INV'], ['service_date', 'วันที่บริการ'],
-    ['source_filename', 'ไฟล์ต้นทาง'],
   ],
 };
 
@@ -97,18 +93,6 @@ const normalizeRow = (row: Record<string, unknown>, type: DataType) => {
     setFallback('service_date', ['วันเข้ารักษา', 'วันที่รับบริการ', 'service_date', 'date_serv']);
   }
 
-  if (type === 'INV') {
-    const paymentCandidates = [
-      'ชดเชยสุทธิ', 'ยอดรับสุทธิ', 'ยอดเงินสุทธิ', 'ยอดชดเชยหลังหักเงินเดือน',
-      'ยอดชดเชยทั้งสิ้น', 'จ่ายชดเชย', 'พึงรับทั้งหมด', 'พึงรับ', 'amount',
-    ];
-    setFallback('amount', paymentCandidates, true);
-    setFallback('paid_amount', paymentCandidates, true);
-    setFallback('invoice_amount', ['ยอดเรียกเก็บ', 'เรียกเก็บ (1)', 'เรียกเก็บ', 'invoice_amount'], true);
-    setFallback('service_date', ['วันเข้ารักษา', 'วันที่รับบริการ', 'service_date', 'date_serv']);
-    setFallback('invoice_no', ['INVOICE NO', 'INVOICE', 'เลขที่ใบแจ้งหนี้']);
-  }
-
   return normalized;
 };
 
@@ -134,16 +118,16 @@ const getErrorExplanation = (row: Record<string, unknown>, code: string, notes: 
 
 export const RepStmVisitModal = ({ visit, onClose }: Props) => {
   const hasVisitKey = Boolean(visit.vn || visit.an);
-  const [data, setData] = useState<VisitData>({ REP: [], STM: [], INV: [] });
+  const [data, setData] = useState<VisitData>({ REP: [], STM: [] });
   const [loading, setLoading] = useState(hasVisitKey);
-  const [error, setError] = useState(hasVisitKey ? '' : 'visit นี้ไม่มี VN หรือ AN จึงไม่สามารถจับคู่ REP/STM/INV อย่างปลอดภัยได้');
+  const [error, setError] = useState(hasVisitKey ? '' : 'visit นี้ไม่มี VN หรือ AN จึงไม่สามารถจับคู่ REP/STM อย่างปลอดภัยได้');
   const [codeNotes, setCodeNotes] = useState<CodeNotes>({});
   const [errorCatalog, setErrorCatalog] = useState<Record<string, RepErrorCatalogEntry>>({});
 
   useEffect(() => {
     let active = true;
     if (!hasVisitKey) return () => { active = false; };
-    Promise.all((['REP', 'STM', 'INV'] as DataType[]).map(async (type) => {
+    Promise.all((['REP', 'STM'] as DataType[]).map(async (type) => {
       const result = await fetchRcmdbData(type, 100, visit);
       return [type, Array.isArray(result?.data) ? result.data : []] as const;
     }))
@@ -161,10 +145,10 @@ export const RepStmVisitModal = ({ visit, onClose }: Props) => {
 
   return (
     <div className="modal-overlay" onMouseDown={onClose} role="presentation">
-      <div className="modal-content repstm-visit-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="รายละเอียด REP STM INV">
+      <div className="modal-content repstm-visit-modal" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="รายละเอียด REP STM">
         <div className="repstm-visit-modal__header">
           <div>
-            <h2>ตรวจสอบ REP / STM / INV</h2>
+            <h2>ตรวจสอบ REP / STM</h2>
             <div>เฉพาะ Visit: VN {visit.vn || '-'} · AN {visit.an || '-'} · HN {visit.hn || '-'} {visit.patientName ? `· ${visit.patientName}` : ''}</div>
             <small>จับคู่ด้วย VN/AN เท่านั้น · หากส่ง visit เดิมหลายครั้ง ระบบจะแสดงทุกครั้ง</small>
           </div>
@@ -173,9 +157,25 @@ export const RepStmVisitModal = ({ visit, onClose }: Props) => {
 
         {loading && <div className="repstm-visit-modal__state">กำลังอ่านข้อมูล...</div>}
         {error && <div className="repstm-visit-modal__state repstm-visit-modal__state--error">{error}</div>}
-        {!loading && !error && (['REP', 'STM', 'INV'] as DataType[]).map((type) => (
+        {!loading && !error && (['REP', 'STM'] as DataType[]).map((type) => (
           <section className="repstm-visit-section" key={type}>
-            <h3>{type} <span className="badge badge-info">{data[type].length} รายการ</span></h3>
+            <h3>
+            {type} <span className="badge badge-info">{data[type].length} รายการ</span>
+            {type === 'STM' && (
+              <button
+                type="button"
+                className="ipd-ebudget-pill-btn"
+                style={{ marginLeft: 12, verticalAlign: 'middle' }}
+                onClick={() => {
+                  onClose();
+                  window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'smtBudget' } }));
+                }}
+                title="เปิดหน้างวดเงินโอน e-Budget / SMT สปสช."
+              >
+                🏦 ตรวจสอบงวดเงินโอน e-Budget ➔
+              </button>
+            )}
+          </h3>
             {data[type].length === 0 ? (
               <div className="repstm-visit-empty">ไม่พบข้อมูล {type} ของ visit นี้</div>
             ) : data[type].map((sourceRow, index) => {

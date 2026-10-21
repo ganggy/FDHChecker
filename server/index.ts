@@ -7278,6 +7278,58 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       let usedUrl = '';
       let pageTitle = '';
 
+      // --- Strategy 0: New e-Claim Client portal (REP: /Client/service/download-validated) ---
+      if (!skipRep && (fileType === 'ALL' || fileType === 'REP')) {
+        const newRepUrl = 'https://eclaim.nhso.go.th/Client/service/download-validated';
+        try {
+          await page.goto(newRepUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => undefined);
+          await page.waitForTimeout(1800);
+
+          const clientRows = await page.evaluate(() => {
+            const tableRows = Array.from(document.querySelectorAll('table tbody tr'));
+            return tableRows.map((tr, index) => {
+              const text = (tr.textContent || '').trim();
+              const isProcessed = text.includes('ประมวลผลแล้ว');
+              const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+              const repNo = cells[0] || '';
+              const sender = cells[2] || '';
+              const sendDate = cells[3] || '';
+              const rawFileName = cells[9] || '';
+              const excelAnchor = tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, a:has-text("Download")');
+              return {
+                index,
+                isProcessed,
+                repNo,
+                sender,
+                sendDate,
+                rawFileName,
+                hasExcel: Boolean(excelAnchor),
+                excelHref: (excelAnchor as HTMLAnchorElement)?.href || '',
+                excelOnclick: (excelAnchor as HTMLElement)?.getAttribute('onclick') || '',
+              };
+            });
+          }).catch(() => []);
+
+          const processed = clientRows.filter((r) => r.isProcessed && (r.hasExcel || r.rawFileName));
+          for (const item of processed) {
+            const base = (item.rawFileName || `REP_${item.repNo}.xls`).replace(/\.ecd$/i, '.xls');
+            periodFiles.push({
+              filename: base,
+              downloadHref: item.excelHref,
+              downloadOnclick: item.excelOnclick,
+              detectedType: 'REP',
+              period,
+              fund: item.rawFileName.includes('OPCS') ? 'OPCS' : item.rawFileName.includes('OPLGO') ? 'LGO' : item.rawFileName.includes('OPBKK') ? 'BKK' : 'UCS',
+              cells: [item.repNo, item.sender, item.sendDate, item.rawFileName, 'ประมวลผลแล้ว'],
+              sourcePage: newRepUrl,
+            });
+          }
+          if (processed.length > 0) {
+            usedUrl = newRepUrl;
+          }
+        } catch { /* continue to legacy strategies */ }
+      }
+
       // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ---
       if (fileType === 'ALL' || fileType === 'INV') {
         const financeUrls = [

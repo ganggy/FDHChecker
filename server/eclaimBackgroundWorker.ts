@@ -102,36 +102,61 @@ const isFileAlreadyImported = async (filename: string): Promise<boolean> => {
  * Click the [ค้นหา] (Search) button on the new e-Claim Client portal pages
  * so that the table actually populates with records (otherwise shows "ไม่มีข้อมูล").
  */
-const triggerSearchOnPage = async (pageInstance: any): Promise<boolean> => {
-  const clicked = await pageInstance.evaluate(() => {
-    const buttons = Array.from(document.querySelectorAll<HTMLElement>(
-      'button, input[type="button"], input[type="submit"], .btn, a'
-    ));
-    const searchBtn = buttons.find((b) => {
-      const txt = (b.textContent || '').trim();
-      const val = (b.getAttribute('value') || '').trim();
-      const title = (b.getAttribute('title') || '').trim();
-      return txt === 'ค้นหา' || val === 'ค้นหา' || title === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง'));
-    });
+const triggerSearchOnPage = async (pageInstance: any, pageName: string): Promise<boolean> => {
+  try {
+    // 1. Wait for Angular/template to mount the search button
+    const searchLocator = pageInstance.locator(
+      'button:has-text("ค้นหา"), input[value*="ค้นหา"], button.ant-btn-primary, button.btn-primary'
+    ).first();
 
-    if (searchBtn) {
-      searchBtn.click();
-      return true;
+    await searchLocator.waitFor({ state: 'visible', timeout: 15000 }).catch(() => null);
+
+    // 2. Click Search button
+    let clicked = false;
+    try {
+      await searchLocator.evaluate((el: HTMLElement) => el.click());
+      clicked = true;
+    } catch {
+      clicked = await pageInstance.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll<HTMLElement>(
+          'button, input[type="button"], input[type="submit"], .btn, a'
+        ));
+        const btn = buttons.find((b) => {
+          const txt = (b.textContent || '').trim();
+          const val = (b.getAttribute('value') || '').trim();
+          return (txt === 'ค้นหา' || val === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง')));
+        });
+        if (btn) {
+          btn.click();
+          return true;
+        }
+        return false;
+      }).catch(() => false);
     }
-    return false;
-  }).catch(() => false);
 
-  if (clicked) {
+    if (!clicked) {
+      addLog('warning', `⚠️ ไม่พบปุ่ม [ค้นหา] บนหน้า ${pageName}`);
+      return false;
+    }
+
+    addLog('info', `✅ กดปุ่ม [ค้นหา] หน้า ${pageName} สำเร็จ กำลังรอผลลัพธ์จาก สปสช...`);
+
+    // 3. Wait for the table rows / pagination to populate
     await pageInstance.waitForTimeout(2500);
-    // Wait for at least one data row to render
-    await pageInstance.waitForFunction(() => {
+    const loaded = await pageInstance.waitForFunction(() => {
+      const bodyText = document.body?.innerText || '';
+      const hasPagination = document.querySelector('nz-pagination, ul.ant-pagination, ul.pagination, .ant-pagination-item') !== null;
       const trs = document.querySelectorAll('table tbody tr');
-      if (trs.length === 0) return false;
-      const firstRowText = trs[0]?.textContent || '';
-      return !firstRowText.includes('ไม่มีข้อมูล') && firstRowText.length > 5;
-    }, { timeout: 15000 }).catch(() => undefined);
+      const hasDataRows = trs.length > 0 && !trs[0]?.textContent?.includes('ไม่มีข้อมูล');
+      return hasPagination || hasDataRows;
+    }, { timeout: 20000 }).catch(() => false);
+
+    await pageInstance.waitForTimeout(1000);
+    return Boolean(loaded);
+  } catch (err: any) {
+    addLog('warning', `เกิดข้อผิดพลาดในการกดค้นหา: ${err.message}`);
+    return false;
   }
-  return clicked;
 };
 
 export const startEclaimBackgroundSync = async (options: {
@@ -205,7 +230,7 @@ export const startEclaimBackgroundSync = async (options: {
 
       // Trigger [ค้นหา] button so the table populates!
       addLog('info', '🔍 กำลังกดปุ่ม [ค้นหา] เพื่อดึงตารางผลตรวจ REP ทั้งหมด...');
-      await triggerSearchOnPage(page);
+      await triggerSearchOnPage(page, 'REP');
 
       // Scrape total pages robustly from text & pagination buttons
       const paginationInfo = await page.evaluate(() => {
@@ -435,7 +460,7 @@ export const startEclaimBackgroundSync = async (options: {
 
         // Trigger [ค้นหา] on Statement page!
         addLog('info', '🔍 กำลังกดปุ่ม [ค้นหา] เพื่อดึงตาราง Statement ทั้งหมด...');
-        await triggerSearchOnPage(page);
+        await triggerSearchOnPage(page, 'Statement');
 
         // Scrape pagination for Statement
         const stmPagination = await page.evaluate(() => {

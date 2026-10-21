@@ -1160,8 +1160,33 @@ export const RepStmImportPage: React.FC = () => {
             setEclaimBrowserPhase('waiting_thaid');
             setEclaimBrowserMessage('สแกน QR Code ด้านล่างด้วยแอป ThaID บนมือถือเพื่อยืนยันตัวตน');
             setEclaimQrModalOpen(true);
-            setEclaimError(`เซสชัน e-Claim หมดอายุที่งวด ${period} (สแกนได้แล้ว ${accumulatedFiles.length} ไฟล์) กรุณาสแกน ThaID ใหม่`);
-            break;
+            setEclaimSearchProgress(`⚠️ เซสชันหมดอายุที่งวด ${period} — กรุณาสแกน QR ThaID บนหน้าจอเพื่อทำงานต่ออัตโนมัติ...`);
+
+            // Wait for user to scan QR Code (poll status up to 3 minutes)
+            const deadline = Date.now() + 180000;
+            let reloggedIn = false;
+            while (Date.now() < deadline && !eclaimStopSearchRef.current) {
+              await new Promise((r) => setTimeout(r, 2000));
+              try {
+                const checkRes = await fetch('/api/nhso-eclaim/browser-status', { cache: 'no-store' });
+                const checkData = await checkRes.json() as { ready?: boolean };
+                if (checkData.ready) {
+                  reloggedIn = true;
+                  break;
+                }
+              } catch { /* retry */ }
+            }
+
+            if (reloggedIn) {
+              setEclaimQrModalOpen(false);
+              setEclaimBrowserReady(true);
+              setEclaimSearchProgress(`✅ ยืนยันตัวตนสำเร็จ! กำลังสแกนงวด ${period} ต่อทันที...`);
+              idx -= 1; // Retry the same period!
+              continue;
+            } else {
+              setEclaimError(`หมดเวลารอสแกน ThaID ที่งวด ${period} (สแกนได้แล้ว ${accumulatedFiles.length} ไฟล์)`);
+              break;
+            }
           }
           // Non-auth error on this specific period: warn and continue to next period!
           setEclaimError(`งวด ${period}: ${json.error || 'ค้นหาไม่สำเร็จ'} (ข้ามไปสแกนงวดถัดไป...)`);

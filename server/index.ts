@@ -449,6 +449,29 @@ type EclaimBrowserSession = {
 let eclaimBrowserSession: EclaimBrowserSession | null = null;
 export const getEclaimBrowserSession = () => eclaimBrowserSession;
 
+let eclaimKeepAliveTimer: NodeJS.Timeout | null = null;
+
+const startEclaimSessionKeepAlive = () => {
+  if (eclaimKeepAliveTimer) return;
+  eclaimKeepAliveTimer = setInterval(async () => {
+    if (!eclaimBrowserSession?.ready || !eclaimBrowserSession.browser.isConnected()) return;
+    try {
+      // Ping e-claim via browser context request every 2 mins to prevent idle session timeout
+      await eclaimBrowserSession.context.request.get(
+        'https://eclaim.nhso.go.th/webComponent/main/MainWebAction.do',
+        { timeout: 10000 }
+      ).catch(() => undefined);
+    } catch { /* best effort */ }
+  }, 2 * 60 * 1000);
+};
+
+const stopEclaimSessionKeepAlive = () => {
+  if (eclaimKeepAliveTimer) {
+    clearInterval(eclaimKeepAliveTimer);
+    eclaimKeepAliveTimer = null;
+  }
+};
+
 const tryPasswordLoginOnEclaim = async (
   page: import('playwright').Page,
   username: string,
@@ -715,6 +738,7 @@ const monitorEclaimThaIdLogin = async (session: EclaimBrowserSession) => {
         session.phase = 'ready';
         session.message = 'เข้าสู่ระบบ NHSO e-Claim สำเร็จ พร้อมค้นหาและดาวน์โหลดไฟล์อัตโนมัติ';
         session.repPageUrl = session.page.url();
+        startEclaimSessionKeepAlive();
         return;
       }
 
@@ -6526,6 +6550,7 @@ app.post('/api/nhso-eclaim/browser-close', async (_req, res) => {
     error: null,
   };
   if (eclaimBrowserSession) {
+    stopEclaimSessionKeepAlive();
     try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
     eclaimBrowserSession = null;
   }
@@ -6536,6 +6561,7 @@ app.post('/api/nhso-eclaim/browser-close', async (_req, res) => {
 app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
   // Close any existing session first
   if (eclaimBrowserSession) {
+    stopEclaimSessionKeepAlive();
     try { await eclaimBrowserSession.browser.close(); } catch { /* ignore */ }
     eclaimBrowserSession = null;
   }

@@ -5,6 +5,7 @@ import { changePassword, fetchMe, logout, type AuthSession } from './services/au
 import { checkSystemUpdateQuick, type QuickUpdateInfo } from './services/systemUpdateStatus';
 import { LocalAiAssistant } from './components/LocalAiAssistant';
 import { TableScrollNavigator } from './components/TableScrollNavigator';
+import { GlobalEclaimSyncWidget } from './components/GlobalEclaimSyncWidget';
 import type { AppPage } from './utils/navigationState';
 
 import './App.css';
@@ -325,6 +326,7 @@ function App() {
               <div>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</div>
               <div>{new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
             </div>
+            <GlobalEclaimSyncWidget />
             {updateInfo?.available && (
               <button
                 type="button"

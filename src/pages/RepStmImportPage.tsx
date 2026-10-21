@@ -2569,6 +2569,31 @@ export const RepStmImportPage: React.FC = () => {
                         ? '🚀 All-in-One Auto Sync (ดึงไฟล์ใหม่ + นำเข้า REP/STM + ซิงค์ SMT)'
                         : '🔍 ค้นหาไฟล์จาก NHSO e-Claim'}
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    disabled={!eclaimBrowserReady}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/nhso-eclaim/worker-start', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ maxPages: 5, importedBy }),
+                        });
+                        const data = await res.json() as { success: boolean; message: string };
+                        if (data.success) {
+                          alert('🚀 เริ่มการซิงค์ข้อมูลในพื้นหลังแล้ว!\nคุณสามารถคลิกเปลี่ยนไปทำงานหน้าอื่นได้ทันที และดูความคืบหน้าสดได้ที่แถบมุมบนขวา');
+                        } else {
+                          alert(data.message || 'เริ่มงานไม่สำเร็จ');
+                        }
+                      } catch (err: any) {
+                        alert(err.message);
+                      }
+                    }}
+                    title="สั่งให้ระบบทำงานในพื้นหลัง คุณสามารถสลับไปทำงานหน้าอื่นได้ทันที"
+                  >
+                    ⚡ เริ่มซิงค์ในพื้นหลัง (Background Sync)
+                  </button>
                   {eclaimLoading && (
                     <button
                       type="button"

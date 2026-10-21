@@ -213,6 +213,11 @@ import {
 } from './ancDentalCompletion.js';
 import { completeHerbalDiagnoses, previewHerbalDiagnosisCompletion } from './herbalDiagnosisCompletion.js';
 import { annualHealthCheckupRouter } from './annualHealthCheckup.js';
+import {
+  getEclaimWorkerStatus,
+  startEclaimBackgroundSync,
+  stopEclaimWorker,
+} from './eclaimBackgroundWorker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -442,6 +447,7 @@ type EclaimBrowserSession = {
   loginMode?: 'auto' | 'password' | 'thaid';
 };
 let eclaimBrowserSession: EclaimBrowserSession | null = null;
+export const getEclaimBrowserSession = () => eclaimBrowserSession;
 
 const tryPasswordLoginOnEclaim = async (
   page: import('playwright').Page,
@@ -6409,6 +6415,23 @@ const captureEclaimVisualState = async (session: EclaimBrowserSession | null): P
     qrRefCode: qrMeta.qrRefCode,
   };
 };
+
+/** GET /api/nhso-eclaim/worker-status — live progress of background sync worker */
+app.get('/api/nhso-eclaim/worker-status', (_req, res) => {
+  return res.json({ success: true, ...getEclaimWorkerStatus() });
+});
+
+/** POST /api/nhso-eclaim/worker-start — start the background sync job */
+app.post('/api/nhso-eclaim/worker-start', async (req, res) => {
+  const result = await startEclaimBackgroundSync(req.body || {});
+  return res.json(result);
+});
+
+/** POST /api/nhso-eclaim/worker-stop — stop the background sync job */
+app.post('/api/nhso-eclaim/worker-stop', (_req, res) => {
+  const stopped = stopEclaimWorker();
+  return res.json({ success: stopped, message: stopped ? 'สั่งหยุดการทำงานแล้ว' : 'ไม่มีงานที่กำลังรัน' });
+});
 
 /** GET /api/nhso-eclaim/browser-status — check if browser session is alive and ready */
 app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {

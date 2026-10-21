@@ -1,0 +1,339 @@
+/* Top navbar trigger button */
+.nav-global-eclaim-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  white-space: nowrap;
+}
+
+.nav-global-eclaim-pill:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.nav-global-eclaim-pill.is-running {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+  animation: pulse-border 2s infinite;
+}
+
+.nav-global-eclaim-pill.is-completed {
+  background: #059669;
+  border-color: #34d399;
+  color: #ffffff;
+}
+
+.nav-global-eclaim-pill.is-error {
+  background: #dc2626;
+  border-color: #f87171;
+  color: #ffffff;
+}
+
+@keyframes pulse-border {
+  0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.6); }
+  70% { box-shadow: 0 0 0 8px rgba(56, 189, 248, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+}
+
+.eclaim-pill-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Modal Backdrop */
+.eclaim-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Floating Modal Box */
+.eclaim-floating-panel {
+  background: #ffffff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 680px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  border: 1px solid #cbd5e1;
+  overflow: hidden;
+  animation: scaleUp 0.2s ease;
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* Header */
+.eclaim-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #fff;
+}
+
+.eclaim-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.eclaim-panel-icon {
+  font-size: 24px;
+}
+
+.eclaim-panel-title strong {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.eclaim-panel-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.eclaim-panel-close {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.eclaim-panel-close:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Body */
+.eclaim-panel-body {
+  padding: 18px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: #f8fafc;
+}
+
+/* Banner */
+.eclaim-status-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.eclaim-status-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.eclaim-phase-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.phase-idle { background: #f1f5f9; color: #475569; }
+.phase-starting, .phase-navigating, .phase-scraping { background: #e0f2fe; color: #0369a1; }
+.phase-downloading, .phase-importing { background: #dbeafe; color: #1d4ed8; }
+.phase-completed { background: #dcfce7; color: #15803d; }
+.phase-stopped { background: #fef3c7; color: #b45309; }
+.phase-error { background: #fee2e2; color: #b91c1c; }
+
+.eclaim-banner-msg {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.eclaim-status-time {
+  font-size: 11px;
+  color: #64748b;
+}
+
+/* Metrics Grid */
+.eclaim-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.eclaim-metric-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eclaim-metric-card span {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.eclaim-metric-card strong {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.eclaim-metric-card.metric-success strong {
+  color: #16a34a;
+}
+
+.eclaim-metric-card.metric-muted strong {
+  color: #64748b;
+}
+
+/* Current File */
+.eclaim-current-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #1e293b;
+  padding: 8px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+}
+
+.file-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #93c5fd;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Logs Box */
+.eclaim-logs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.eclaim-logs-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.eclaim-logs-title small {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.eclaim-logs-box {
+  background: #0f172a;
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.eclaim-log-empty {
+  color: #64748b;
+  text-align: center;
+  padding: 12px;
+}
+
+.eclaim-log-entry {
+  display: flex;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.log-time {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.log-info .log-text { color: #cbd5e1; }
+.log-success .log-text { color: #4ade80; font-weight: 600; }
+.log-warning .log-text { color: #fbbf24; }
+.log-error .log-text { color: #f87171; font-weight: 600; }
+
+/* Footer */
+.eclaim-panel-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.eclaim-footer-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

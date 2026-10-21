@@ -23,6 +23,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/config\/ipd-los-settings(\/|$)/, pages: ['settings', 'ipd'] },
   { pattern: /^\/nhso\/authen(\/|$)/, pages: ['authenSync'] },
   { pattern: /^\/nhso\/close(\/|$)/, pages: ['nhsoClose'] },
+  { pattern: /^\/nhso-eclaim\/worker-/, authenticated: true },
   { pattern: /^\/nhso-eclaim(\/|$)/, pages: ['repstm'] },
   { pattern: /^\/uc-outside-cup(\/|$)/, pages: ['ucOutsideCup'] },
   { pattern: /^\/dental-audit(\/|$)/, pages: ['dentalAudit'] },

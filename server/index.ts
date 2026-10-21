@@ -7283,48 +7283,82 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         const newRepUrl = 'https://eclaim.nhso.go.th/Client/service/download-validated';
         try {
           await page.goto(newRepUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => undefined);
-          await page.waitForTimeout(1800);
+          await page.waitForTimeout(2000);
 
-          const clientRows = await page.evaluate(() => {
-            const tableRows = Array.from(document.querySelectorAll('table tbody tr'));
-            return tableRows.map((tr, index) => {
-              const text = (tr.textContent || '').trim();
-              const isProcessed = text.includes('ประมวลผลแล้ว');
-              const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
-              const repNo = cells[0] || '';
-              const sender = cells[2] || '';
-              const sendDate = cells[3] || '';
-              const rawFileName = cells[9] || '';
-              const excelAnchor = tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, a:has-text("Download")');
-              return {
-                index,
-                isProcessed,
-                repNo,
-                sender,
-                sendDate,
-                rawFileName,
-                hasExcel: Boolean(excelAnchor),
-                excelHref: (excelAnchor as HTMLAnchorElement)?.href || '',
-                excelOnclick: (excelAnchor as HTMLElement)?.getAttribute('onclick') || '',
-              };
-            });
-          }).catch(() => []);
+          const clientPagesToScan = Math.min(maxPages, 10);
+          for (let cp = 1; cp <= clientPagesToScan; cp += 1) {
+            const clientRows = await page.evaluate(() => {
+              const tableRows = Array.from(document.querySelectorAll('table tbody tr'));
+              return tableRows.map((tr, index) => {
+                const text = (tr.textContent || '').trim();
+                const isProcessed = text.includes('ประมวลผลแล้ว');
+                const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+                const repNo = cells[0] || '';
+                const sender = cells[2] || '';
+                const sendDate = cells[3] || '';
+                const rawFileName = cells[9] || '';
+                const excelAnchor = tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button, td:nth-child(14) a');
+                return {
+                  index,
+                  isProcessed,
+                  repNo,
+                  sender,
+                  sendDate,
+                  rawFileName,
+                  hasExcel: Boolean(excelAnchor),
+                  excelHref: (excelAnchor as HTMLAnchorElement)?.href || '',
+                  excelOnclick: (excelAnchor as HTMLElement)?.getAttribute('onclick') || '',
+                };
+              });
+            }).catch(() => []);
 
-          const processed = clientRows.filter((r) => r.isProcessed && (r.hasExcel || r.rawFileName));
-          for (const item of processed) {
-            const base = (item.rawFileName || `REP_${item.repNo}.xls`).replace(/\.ecd$/i, '.xls');
-            periodFiles.push({
-              filename: base,
-              downloadHref: item.excelHref,
-              downloadOnclick: item.excelOnclick,
-              detectedType: 'REP',
-              period,
-              fund: item.rawFileName.includes('OPCS') ? 'OPCS' : item.rawFileName.includes('OPLGO') ? 'LGO' : item.rawFileName.includes('OPBKK') ? 'BKK' : 'UCS',
-              cells: [item.repNo, item.sender, item.sendDate, item.rawFileName, 'ประมวลผลแล้ว'],
-              sourcePage: newRepUrl,
-            });
+            const processed = clientRows.filter((r) => r.isProcessed && (r.hasExcel || r.rawFileName));
+            for (const item of processed) {
+              const base = (item.rawFileName || `REP_${item.repNo}.xls`).replace(/\.ecd$/i, '.xls');
+              periodFiles.push({
+                filename: base,
+                downloadHref: item.excelHref,
+                downloadOnclick: item.excelOnclick,
+                detectedType: 'REP',
+                period,
+                fund: item.rawFileName.includes('OPCS') ? 'OPCS' : item.rawFileName.includes('OPLGO') ? 'LGO' : item.rawFileName.includes('OPBKK') ? 'BKK' : 'UCS',
+                cells: [item.repNo, item.sender, item.sendDate, item.rawFileName, 'ประมวลผลแล้ว'],
+                sourcePage: newRepUrl,
+              });
+            }
+
+            if (cp < clientPagesToScan) {
+              const movedNext = await page.evaluate(() => {
+                const antNext = document.querySelector<HTMLElement>('.ant-pagination-next:not(.ant-pagination-disabled)');
+                if (antNext) {
+                  const btn = (antNext.querySelector('button, a') as HTMLElement) || antNext;
+                  btn.click();
+                  return true;
+                }
+                const ariaNext = document.querySelector<HTMLElement>('[aria-label="Next" i], [title="Next Page" i], [title="ถัดไป" i]');
+                if (ariaNext && !ariaNext.classList.contains('disabled')) {
+                  ariaNext.click();
+                  return true;
+                }
+                const candidates = Array.from(document.querySelectorAll<HTMLElement>('a, button, li'));
+                for (const el of candidates) {
+                  const txt = (el.textContent || '').trim();
+                  if ((txt === '>' || txt === '›') && !el.classList.contains('disabled')) {
+                    el.click();
+                    return true;
+                  }
+                }
+                return false;
+              }).catch(() => false);
+
+              if (movedNext) {
+                await page.waitForTimeout(1800);
+              } else {
+                break;
+              }
+            }
           }
-          if (processed.length > 0) {
+          if (periodFiles.length > 0) {
             usedUrl = newRepUrl;
           }
         } catch { /* continue to legacy strategies */ }

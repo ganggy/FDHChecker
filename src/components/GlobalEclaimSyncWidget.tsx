@@ -24,6 +24,7 @@ export const GlobalEclaimSyncWidget: React.FC = () => {
   const [status, setStatus] = useState<EclaimWorkerProgress | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [selectedPages, setSelectedPages] = useState<number>(15);
   const logContainerRef = useRef<HTMLDivElement>(null);
 
   const fetchStatus = async () => {
@@ -229,14 +230,28 @@ export const GlobalEclaimSyncWidget: React.FC = () => {
                     🛑 หยุดการทำงาน
                   </button>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    onClick={() => handleStart(5)}
-                    disabled={actionLoading}
-                  >
-                    🚀 เริ่มซิงค์ 5 หน้าล่าสุด
-                  </button>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <select
+                      className="form-control"
+                      style={{ width: 'auto', fontSize: 12, padding: '4px 8px', height: 32 }}
+                      value={selectedPages}
+                      onChange={(e) => setSelectedPages(Number(e.target.value))}
+                    >
+                      <option value={5}>5 หน้า (100 รายการ)</option>
+                      <option value={15}>15 หน้า (300 รายการ)</option>
+                      <option value={30}>30 หน้า (600 รายการ)</option>
+                      <option value={50}>50 หน้า (1,000 รายการ)</option>
+                      <option value={100}>100 หน้า (2,000 รายการ)</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleStart(selectedPages)}
+                      disabled={actionLoading}
+                    >
+                      🚀 เริ่มซิงค์ {selectedPages} หน้า
+                    </button>
+                  </div>
                 )}
                 <button
                   type="button"

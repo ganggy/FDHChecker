@@ -358,6 +358,7 @@ export const RepStmImportPage: React.FC = () => {
   const [eclaimStartDate, setEclaimStartDate] = useState(prevFiscalStart);
   const [eclaimEndDate, setEclaimEndDate] = useState(todayStr);
   const [eclaimFileType, setEclaimFileType] = useState<'REP' | 'STM' | 'INV' | 'ALL'>('ALL');
+  const [workerMaxPages, setWorkerMaxPages] = useState<number>(15);
   const [eclaimBrowserLoading, setEclaimBrowserLoading] = useState(false);
   const [eclaimBrowserReady, setEclaimBrowserReady] = useState(false);
   const [eclaimBrowserAlive, setEclaimBrowserAlive] = useState(false);
@@ -2569,31 +2570,46 @@ export const RepStmImportPage: React.FC = () => {
                         ? '🚀 All-in-One Auto Sync (ดึงไฟล์ใหม่ + นำเข้า REP/STM + ซิงค์ SMT)'
                         : '🔍 ค้นหาไฟล์จาก NHSO e-Claim'}
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-success"
-                    disabled={!eclaimBrowserReady}
-                    onClick={async () => {
-                      try {
-                        const res = await fetch('/api/nhso-eclaim/worker-start', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ maxPages: 5, importedBy }),
-                        });
-                        const data = await res.json() as { success: boolean; message: string };
-                        if (data.success) {
-                          alert('🚀 เริ่มการซิงค์ข้อมูลในพื้นหลังแล้ว!\nคุณสามารถคลิกเปลี่ยนไปทำงานหน้าอื่นได้ทันที และดูความคืบหน้าสดได้ที่แถบมุมบนขวา');
-                        } else {
-                          alert(data.message || 'เริ่มงานไม่สำเร็จ');
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <select
+                      className="form-control"
+                      style={{ width: 'auto', fontSize: 13, height: 38 }}
+                      value={workerMaxPages}
+                      onChange={(e) => setWorkerMaxPages(Number(e.target.value))}
+                      title="จำนวนหน้าที่ต้องการให้ Background Worker สแกน"
+                    >
+                      <option value={5}>ตรวจ 5 หน้าล่าสุด (100 รายการ)</option>
+                      <option value={15}>ตรวจ 15 หน้าล่าสุด (300 รายการ)</option>
+                      <option value={30}>ตรวจ 30 หน้าล่าสุด (600 รายการ)</option>
+                      <option value={50}>ตรวจ 50 หน้าล่าสุด (1,000 รายการ)</option>
+                      <option value={100}>ตรวจ 100 หน้า (2,000 รายการ)</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn-success"
+                      disabled={!eclaimBrowserReady}
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/nhso-eclaim/worker-start', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ maxPages: workerMaxPages, importedBy }),
+                          });
+                          const data = await res.json() as { success: boolean; message: string };
+                          if (data.success) {
+                            alert(`🚀 เริ่มการซิงค์ข้อมูลในพื้นหลัง ${workerMaxPages} หน้าแล้ว!\nคุณสามารถคลิกเปลี่ยนไปทำงานหน้าอื่นได้ทันที และดูความคืบหน้าสดได้ที่แถบมุมบนขวา`);
+                          } else {
+                            alert(data.message || 'เริ่มงานไม่สำเร็จ');
+                          }
+                        } catch (err: any) {
+                          alert(err.message);
                         }
-                      } catch (err: any) {
-                        alert(err.message);
-                      }
-                    }}
-                    title="สั่งให้ระบบทำงานในพื้นหลัง คุณสามารถสลับไปทำงานหน้าอื่นได้ทันที"
-                  >
-                    ⚡ เริ่มซิงค์ในพื้นหลัง (Background Sync)
-                  </button>
+                      }}
+                      title="สั่งให้ระบบทำงานในพื้นหลัง คุณสามารถสลับไปทำงานหน้าอื่นได้ทันที"
+                    >
+                      ⚡ เริ่มซิงค์ในพื้นหลัง (Background Sync)
+                    </button>
+                  </div>
                   {eclaimLoading && (
                     <button
                       type="button"

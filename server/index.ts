@@ -588,13 +588,30 @@ const checkEclaimSessionReady = async (session: EclaimBrowserSession): Promise<b
     return false;
   }
 
-  // If user landed on the new /Client/home portal after SSO, hop once through LoginSSOAction.do so /webComponent gets its JSESSIONID cookie
+  // If user landed on the new /Client/ portal after SSO:
   if (currentUrl.includes('/Client/') && !currentUrl.includes('/Client/login')) {
-    await session.page.goto('https://eclaim.nhso.go.th/webComponent/LoginSSOAction.do', {
-      waitUntil: 'domcontentloaded',
-      timeout: 25000,
-    }).catch(() => undefined);
-    await session.page.waitForTimeout(800).catch(() => undefined);
+    const isReadyOnClient = await session.page.evaluate(() => {
+      const bodyText = (document.body?.innerText || document.body?.textContent || '').trim();
+      const hasNewMenu = Boolean(
+        document.querySelector('a[href*="download-validated"], a[href*="download-statement"], a[href*="/service/"], .sidebar, [class*="eclaim"]')
+        || bodyText.includes('รับชุดข้อมูลผลการตรวจสอบ')
+        || bodyText.includes('รับชุดข้อมูลสรุปผล')
+        || bodyText.includes('ผู้ป่วยนอก')
+        || bodyText.includes('ผู้ป่วยใน')
+        || bodyText.includes('บริการ')
+        || bodyText.includes('E-CLAIM')
+        || bodyText.includes('ออกจากระบบ')
+      );
+      const isLoginOrError = bodyText.includes('เข้าสู่ระบบ') && bodyText.includes('รหัสผ่าน');
+      return hasNewMenu && !isLoginOrError;
+    }).catch(() => false);
+
+    if (isReadyOnClient) {
+      session.repPageUrl = currentUrl.includes('download-validated')
+        ? currentUrl
+        : 'https://eclaim.nhso.go.th/Client/service/download-validated';
+      return true;
+    }
   }
 
   const cookies = await session.context.cookies().catch(() => []);

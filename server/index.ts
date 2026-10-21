@@ -7004,9 +7004,9 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         return '';
       };
       const buildRowFilename = (cells: string[], href: string, onclick: string, p: string): string => {
-        // 1. Explicit filename with supported extension in cell text (excluding .ecd/.pdf)
-        const extCell = cells.find((t) => /\.(?:xlsx?|zip|csv|txt|rep|stm)$/i.test(t) && !/\.ecd$/i.test(t));
-        if (extCell) return extCell;
+        // 1. Explicit filename with supported extension in cell text (including .ecd which downloads as .xls)
+        const extCell = cells.find((t) => /\.(?:xlsx?|zip|csv|txt|rep|stm|ecd)$/i.test(t));
+        if (extCell) return extCell.replace(/\.ecd$/i, '.xls');
         // 2. Extracted from href or onclick arguments
         const fromCode = extractFilenameFromCode(`${href} ${onclick}`);
         if (fromCode) return fromCode;

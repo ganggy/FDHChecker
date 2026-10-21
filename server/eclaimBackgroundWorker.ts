@@ -78,24 +78,44 @@ export const stopEclaimWorker = (): boolean => {
   return false;
 };
 
-const isFileAlreadyImported = async (filename: string): Promise<boolean> => {
+let importedCache: Set<string> | null = null;
+
+const loadImportedFilesCache = async (): Promise<Set<string>> => {
+  const set = new Set<string>();
   try {
     const conn = await getRepstmConnection();
     try {
-      const [rows] = await conn.query(
-        `SELECT id FROM repstm_import_batch 
-         WHERE LOWER(source_filename) = LOWER(?) 
-            OR LOWER(source_filename) = LOWER(?)
-         LIMIT 1`,
-        [filename, filename.replace(/\.(xlsx?|zip|csv|ecd)$/i, '')]
-      );
-      return Array.isArray(rows) && rows.length > 0;
+      const [rows] = await conn.query('SELECT source_filename FROM repstm_import_batch');
+      if (Array.isArray(rows)) {
+        for (const r of rows as any[]) {
+          const fn = String(r.source_filename || '').trim().toLowerCase();
+          if (!fn) continue;
+          set.add(fn);
+          set.add(fn.replace(/\.(xlsx?|zip|csv|ecd)$/i, ''));
+        }
+      }
     } finally {
       conn.release();
     }
-  } catch {
-    return false;
+  } catch { /* best effort */ }
+  importedCache = set;
+  return set;
+};
+
+const isFileAlreadyImported = async (filename: string): Promise<boolean> => {
+  if (!importedCache) {
+    await loadImportedFilesCache();
   }
+  const lower = filename.trim().toLowerCase();
+  const stem = lower.replace(/\.(xlsx?|zip|csv|ecd)$/i, '');
+  return Boolean(importedCache?.has(lower) || importedCache?.has(stem));
+};
+
+const registerImportedFileInCache = (filename: string) => {
+  if (!importedCache) importedCache = new Set<string>();
+  const lower = filename.trim().toLowerCase();
+  importedCache.add(lower);
+  importedCache.add(lower.replace(/\.(xlsx?|zip|csv|ecd)$/i, ''));
 };
 
 /**
@@ -251,6 +271,9 @@ export const startEclaimBackgroundSync = async (options: {
         fs.mkdirSync(downloadArchiveDir, { recursive: true });
       }
 
+      // Preload imported files cache for instant duplicate checks
+      await loadImportedFilesCache();
+
       // ─────────────────────────────────────────────────────────────
       // PART 1: REP - รับชุดข้อมูลผลการตรวจสอบ (REP) จากเว็บใหม่ (/Client/service/download-validated)
       // ─────────────────────────────────────────────────────────────
@@ -388,21 +411,34 @@ export const startEclaimBackgroundSync = async (options: {
           addLog('info', `หน้า ${p}: ${firstRowDesc} (ไม่พบรายการที่พร้อมดาวน์โหลด)`);
         }
 
+        // Pre-filter ready rows: quickly skip already imported files in memory
+        const unimportedRows: typeof readyRows = [];
         for (const rowMeta of readyRows) {
+          const baseFilename = rowMeta.rawFileName || `REP_${rowMeta.repNo}.xls`;
+          const expectedExcelName = baseFilename.replace(/\.ecd$/i, '.xls');
+          if (await isFileAlreadyImported(expectedExcelName)) {
+            workerState.skippedCount += 1;
+          } else {
+            unimportedRows.push(rowMeta);
+          }
+        }
+
+        if (readyRows.length > 0 && unimportedRows.length === 0) {
+          addLog('info', `⏭️ หน้า ${p}: ทั้ง ${readyRows.length} รายการมีในระบบแล้ว (ข้ามหน้าทันที)`);
+        } else if (unimportedRows.length > 0) {
+          const skippedCount = readyRows.length - unimportedRows.length;
+          if (skippedCount > 0) {
+            addLog('info', `หน้า ${p}: มีในระบบแล้ว ${skippedCount} รายการ (ข้าม) — กำลังดาวน์โหลด ${unimportedRows.length} ไฟล์ใหม่...`);
+          }
+        }
+
+        for (const rowMeta of unimportedRows) {
           if (stopRequested) break;
 
           const baseFilename = rowMeta.rawFileName || `REP_${rowMeta.repNo}.xls`;
           const expectedExcelName = baseFilename.replace(/\.ecd$/i, '.xls');
           workerState.currentFilename = expectedExcelName;
           workerState.totalFound += 1;
-
-          // Check if already in database
-          const alreadyImported = await isFileAlreadyImported(expectedExcelName);
-          if (alreadyImported) {
-            workerState.skippedCount += 1;
-            addLog('info', `⏭️ ${expectedExcelName} (${rowMeta.repNo}) มีในระบบแล้ว (ข้าม)`);
-            continue;
-          }
 
           // Trigger download in Playwright
           workerState.phase = 'downloading';
@@ -465,6 +501,8 @@ export const startEclaimBackgroundSync = async (options: {
 
               if (importRes.success) {
                 workerState.importedCount += 1;
+                registerImportedFileInCache(actualName);
+                registerImportedFileInCache(expectedExcelName);
                 addLog('success', `✅ นำเข้าสำเร็จ: ${actualName} (+${parsedRows.length} รายการ)`);
               } else {
                 addLog('warning', `⚠️ นำเข้า ${actualName}: ${importRes.message || 'ข้าม'}`);
@@ -651,16 +689,31 @@ export const startEclaimBackgroundSync = async (options: {
 
           addLog('info', `Statement หน้า ${sp}: พบ ${validStm.length} รายการ (แถวแรก: [${firstStm?.summary || '-'}]) — พร้อมดาวน์โหลด ${downloadableStm.length} รายการ`);
 
+          // Pre-filter Statement rows: quickly skip already imported files in memory
+          const unimportedStm: typeof downloadableStm = [];
           for (const sRow of downloadableStm) {
+            const baseName = sRow.rawFileName || `STM_${sRow.stmNo || sp}_${sRow.idx}.xls`;
+            const expectedName = baseName.replace(/\.ecd$/i, '.xls');
+            if (await isFileAlreadyImported(expectedName)) {
+              workerState.skippedCount += 1;
+            } else {
+              unimportedStm.push(sRow);
+            }
+          }
+
+          if (downloadableStm.length > 0 && unimportedStm.length === 0) {
+            addLog('info', `⏭️ Statement หน้า ${sp}: ทั้ง ${downloadableStm.length} รายการมีในระบบแล้ว (ข้ามหน้าทันที)`);
+          } else if (unimportedStm.length > 0) {
+            const stmSkipped = downloadableStm.length - unimportedStm.length;
+            if (stmSkipped > 0) {
+              addLog('info', `Statement หน้า ${sp}: มีในระบบแล้ว ${stmSkipped} รายการ (ข้าม) — กำลังดาวน์โหลด ${unimportedStm.length} ไฟล์ใหม่...`);
+            }
+          }
+
+          for (const sRow of unimportedStm) {
             if (stopRequested) break;
             const baseName = sRow.rawFileName || `STM_${sRow.stmNo || sp}_${sRow.idx}.xls`;
             const expectedName = baseName.replace(/\.ecd$/i, '.xls');
-            const already = await isFileAlreadyImported(expectedName);
-            if (already) {
-              workerState.skippedCount += 1;
-              addLog('info', `⏭️ ${expectedName} มีในระบบแล้ว (ข้าม)`);
-              continue;
-            }
 
             try {
               addLog('info', `⬇️ กำลังดาวน์โหลด Statement: ${expectedName}`);
@@ -711,6 +764,8 @@ export const startEclaimBackgroundSync = async (options: {
 
                   if (importRes.success) {
                     workerState.importedCount += 1;
+                    registerImportedFileInCache(actualName);
+                    registerImportedFileInCache(expectedName);
                     addLog('success', `✅ นำเข้า STM สำเร็จ: ${actualName} (+${parsed.length} รายการ)`);
                   } else {
                     addLog('warning', `⚠️ นำเข้า STM ${actualName}: ${importRes.message || 'ข้าม'}`);

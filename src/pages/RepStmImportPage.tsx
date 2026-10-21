@@ -1160,8 +1160,12 @@ export const RepStmImportPage: React.FC = () => {
             setEclaimBrowserPhase('waiting_thaid');
             setEclaimBrowserMessage('สแกน QR Code ด้านล่างด้วยแอป ThaID บนมือถือเพื่อยืนยันตัวตน');
             setEclaimQrModalOpen(true);
+            setEclaimError(`เซสชัน e-Claim หมดอายุที่งวด ${period} (สแกนได้แล้ว ${accumulatedFiles.length} ไฟล์) กรุณาสแกน ThaID ใหม่`);
+            break;
           }
-          throw new Error(json.error || `ค้นหางวด ${period} ไม่สำเร็จ`);
+          // Non-auth error on this specific period: warn and continue to next period!
+          setEclaimError(`งวด ${period}: ${json.error || 'ค้นหาไม่สำเร็จ'} (ข้ามไปสแกนงวดถัดไป...)`);
+          continue;
         }
         if (idx === 0 && json.repHasPeriodFilter !== undefined) {
           repSupportsPeriodFilter = Boolean(json.repHasPeriodFilter);

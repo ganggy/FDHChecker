@@ -168,7 +168,7 @@ export const buildSssIpdExportZip = async (options: SssCandidateOptions & { ans:
     const [chargeRows] = await connection.query(`SELECT oo.an,oo.rxdate,oo.income,oo.icode,sd.oldcode,COALESCE(NULLIF(sd.name,''),oo.icode) item_name,oo.qty,oo.unitprice,oo.sum_price amount,CASE WHEN oo.paidst='04' THEN oo.sum_price ELSE 0 END discount,oo.paidst,oo.item_type,COALESCE(inc.group1,0) income_group,COALESCE(sd.tpu_code_list,'') tmt_code,COALESCE(sd.tmlt_code,'') tmlt_code,COALESCE(sd.nhso_adp_code,'') adp_code FROM opitemrece oo LEFT JOIN income inc ON inc.income=oo.income LEFT JOIN s_drugitems sd ON sd.icode=oo.icode WHERE oo.an IN (${placeholders}) AND COALESCE(oo.sum_price,0)<>0 ORDER BY oo.an,oo.rxdate,oo.icode`,ans);
     const diagnoses = Array.isArray(diagRows)?diagRows as Record<string,unknown>[]:[];
     const operations = Array.isArray(opRows)?opRows as Record<string,unknown>[]:[];
-    const charges = Array.isArray(chargeRows)?chargeRows as Record<string,unknown>[]:[];
+    const charges = (Array.isArray(chargeRows)?chargeRows as Record<string,unknown>[]:[]).filter((c) => text(c.adp_code).toUpperCase() !== 'WALKIN' && !text(c.item_name).toUpperCase().includes('WALKIN'));
     const codes = [...new Set(charges.map((item)=>text(item.icode)).filter(Boolean))];
     const [claimCatalog,drugCatalog,labCatalog] = await Promise.all([loadCatalog('claimcat',codes),loadCatalog('chi_drugcatalog',codes),loadCatalog('labitem',codes)]);
     const drugMap = new Map(drugCatalog.map((item)=>[text(item.hospdrugcode),item]));

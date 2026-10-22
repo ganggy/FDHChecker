@@ -263,3 +263,29 @@ test('OPD export scope clears AN across INS, CHT, CHA, AER, ADP, DRU to prevent 
   assert.equal(scoped.INS[0].SEQ, '691234567890');
 });
 
+test('IPD export scope strips WALKIN from ADP', () => {
+  const data: FdhExportData = {
+    ...validIpdData(),
+    ADP: [
+      { HN: '0002', AN: 'AN001', DATEOPD: '20260801', TYPE: '4', CODE: 'WALKIN', QTY: 1, RATE: 0, SEQ: 'VN2', TOTAL: 0 },
+      { HN: '0002', AN: 'AN001', DATEOPD: '20260801', TYPE: '1', CODE: '12003', QTY: 1, RATE: 100, SEQ: 'VN2', TOTAL: 100 },
+    ],
+  };
+
+  const scoped = scopeFdhData(data, 'IPD');
+  assert.equal(scoped.ADP.length, 1);
+  assert.equal(scoped.ADP[0].CODE, '12003');
+});
+
+test('preflight rejects WALKIN in ADP for IPD', () => {
+  const data: FdhExportData = {
+    ...validIpdData(),
+    ADP: [
+      { HN: '0002', AN: 'AN001', DATEOPD: '20260801', TYPE: '4', CODE: 'WALKIN', QTY: 1, RATE: 0, SEQ: 'VN2', TOTAL: 0 },
+    ],
+  };
+
+  const result = validateFdhData(data, 'standard', '11101');
+  assert.equal(result.errors.some((issue) => issue.code === 'IPD_WALKIN_NOT_ALLOWED'), true);
+});
+

@@ -17,6 +17,7 @@ import { normalizeImportCellValue, formatTrackingDateTime, latestTrackingDateTim
 import { resolveStatementVisitKeys } from '../repstmVisitKeys.js';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from '../receivableMapping.js';
 import { mergeFdhClaimDetails } from '../fdhClaimDetailMerge.js';
+import { deleteIpdWalkinFees } from '../ipdWalkinClean.js';
 import { attachLatestFdhClaimDetails } from './claims.repository.js';
 import {
   ANC_DENTAL_CLEAN_ICD9,
@@ -3593,6 +3594,11 @@ export const getEligibleIPD = async (
   const connection = await getUTFConnection();
   try {
     await ensureFdhClaimStatusSchema(connection);
+    try {
+      await deleteIpdWalkinFees(connection, { startDate, endDate });
+    } catch (cleanErr) {
+      console.warn('⚠️ Auto-clean IPD walkin fees warning:', cleanErr);
+    }
     await ensureRepstmTables();
     const [auditTableRows] = await connection.query("SHOW TABLES LIKE 'z_fdh_audit_log'");
     const hasAuditTable = Array.isArray(auditTableRows) && auditTableRows.length > 0;

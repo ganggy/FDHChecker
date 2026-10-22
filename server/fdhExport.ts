@@ -154,7 +154,14 @@ export const consolidateFdhOopRows = (input: FdhRow[]): FdhOopConsolidationResul
 export const scopeFdhData = (input: Partial<FdhExportData>, patientType: FdhPatientType): FdhExportData => {
   const data = Object.fromEntries(FDH_FILE_CODES.map((file) => [file, Array.isArray(input[file]) ? input[file]! : []])) as FdhExportData;
   if (patientType === 'IPD') {
-    return { ...data, OPD: [], ORF: [], ODX: [], OOP: [] };
+    return {
+      ...data,
+      OPD: [], ORF: [], ODX: [], OOP: [],
+      ADP: (data.ADP || []).filter((r) => {
+        const code = String(r.CODE || '').trim().toUpperCase();
+        return code !== 'WALKIN' && !code.includes('WALKIN');
+      }),
+    };
   }
   if (patientType === 'OPD') {
     const clearAn = (rows: FdhRow[]) => rows.map((r) => ('AN' in r ? { ...r, AN: '' } : r));
@@ -169,7 +176,17 @@ export const scopeFdhData = (input: Partial<FdhExportData>, patientType: FdhPati
       DRU: clearAn(data.DRU),
     };
   }
-  return data;
+  return {
+    ...data,
+    ADP: (data.ADP || []).filter((r) => {
+      const an = String(r.AN || '').trim();
+      const code = String(r.CODE || '').trim().toUpperCase();
+      if (an && (code === 'WALKIN' || code.includes('WALKIN'))) {
+        return false;
+      }
+      return true;
+    }),
+  };
 };
 
 export const serializeFdhFile = (
@@ -379,6 +396,20 @@ export const validateFdhData = (
     const hn = value(row, 'HN');
     if (!data.INS.some((ins) => value(ins, 'HN') === hn && value(ins, 'AN') === an)) add({ code: 'IPD_INS_LINK', file: 'IPD', row: index + 1, key: an, message: `IPD AN ${an} ไม่พบใน INS` });
     if (!data.CHT.some((cht) => value(cht, 'HN') === hn && value(cht, 'AN') === an)) add({ code: 'IPD_CHT_LINK', file: 'IPD', row: index + 1, key: an, message: `IPD AN ${an} ไม่พบใน CHT` });
+  });
+
+  // IPD (ผู้ป่วยใน) ต้องไม่ส่งค่าบริการ WALKIN ในแฟ้ม ADP เด็ดขาด
+  data.ADP.forEach((row, index) => {
+    const an = value(row, 'AN');
+    const code = value(row, 'CODE').toUpperCase();
+    if ((an || counts.IPD > 0) && (code === 'WALKIN' || code.includes('WALKIN'))) {
+      add({
+        code: 'IPD_WALKIN_NOT_ALLOWED',
+        file: 'ADP',
+        row: index + 1,
+        message: `ADP แถว ${index + 1}: พบค่าบริการ WALKIN ในผู้ป่วยใน (${an ? `AN ${an}` : 'เคส IPD'}) ซึ่งผิดเงื่อนไข สปสช. ห้ามส่งค่าบริการ WALKIN ในผู้ป่วยใน`,
+      });
+    }
   });
 
   for (const file of ['ORF', 'ODX', 'OOP', 'AER', 'ADP', 'CHA', 'DRU'] as FdhFileCode[]) {

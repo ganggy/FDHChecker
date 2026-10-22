@@ -2260,6 +2260,29 @@ app.get('/api/hosxp/ipd-list', async (req, res) => {
   }
 });
 
+// API สำหรับลบรายการค่าบริการ WALKIN ออกจากผู้ป่วยใน (opitemrece) ทันที
+app.post('/api/hosxp/ipd/clean-walkin', async (req, res) => {
+  try {
+    const { deleteIpdWalkinFees } = await import('./ipdWalkinClean.js');
+    const connection = await getUTFConnection();
+    try {
+      const result = await deleteIpdWalkinFees(connection, {
+        ans: Array.isArray(req.body?.ans) ? req.body.ans : undefined,
+        vns: Array.isArray(req.body?.vns) ? req.body.vns : undefined,
+        startDate: req.body?.startDate ? String(req.body.startDate) : undefined,
+        endDate: req.body?.endDate ? String(req.body.endDate) : undefined,
+        actor: String((req as any).authUser?.username || 'clean_walkin_endpoint'),
+      });
+      return res.json({ success: true, data: result });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error('Error cleaning IPD walkin fees:', error);
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
 app.post('/api/fdh/ipd/authen/sync', async (req, res) => {
   try {
     const startDate = String(req.body?.startDate || '').trim();

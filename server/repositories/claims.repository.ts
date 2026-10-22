@@ -24,6 +24,7 @@ import { normalizeImportCellValue, parseFlexibleDateTime } from '../utils/dataNo
 import { fetchWithTimeout } from '../httpClient.js';
 import { getApVaccineRule, validateApVaccineEligibility } from '../mophVaccineRules.js';
 import { consolidateFdhOopRows, type FdhExportProfile } from '../fdhExport.js';
+import { deleteIpdWalkinFees, isWalkinAdpItem } from '../ipdWalkinClean.js';
 import { readVisitItems, readVisitClinical } from '../visitDetails.js';
 import { attachFundEligibility } from '../fundEligibility.js';
 import businessRules from '../config/business_rules.json';
@@ -3165,6 +3166,14 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       // safe fallback
     }
 
+    if (isIpdExport) {
+      try {
+        await deleteIpdWalkinFees(connection, { vns });
+      } catch (cleanErr) {
+        console.warn('⚠️ Auto-clean IPD walkin fees warning:', cleanErr);
+      }
+    }
+
     // Helper to wrap queries for debugging
     const runQuery = async (name: string, query: string, params: any[]) => {
       try {
@@ -3891,7 +3900,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     });
 
     // 🚑 Auto-inject WALKIN in ADP for eligible UC Walk-in OPD visits lacking walk-in
-    if (walkinPttypes.length > 0) {
+    if (!isIpdExport && walkinPttypes.length > 0) {
       const adpWalkinSeqs = new Set<string>();
       for (const row of normalizedAdp) {
         const seq = String(row.SEQ || '');
@@ -3990,10 +3999,15 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
     }
 
     const filteredAdp = normalizedAdp.filter((row) => {
+      const an = String(row.AN || '').trim();
       const seq = String(row.SEQ || '');
       const code = String(row.CODE || '').trim().toUpperCase();
       const rawIcode = String(row._ICODE || '').trim().toUpperCase();
       const uuc = opdUucMap.get(seq);
+      // 🚑 ในส่งออกผู้ป่วยใน (IPD): ต้องไม่ส่งค่าบริการ walkin ออกไปเด็ดขาด
+      if ((isIpdExport || Boolean(an)) && isWalkinAdpItem(code, rawIcode, walkinIcode)) {
+        return false;
+      }
       const isReferAmbulance = code === 'S1801' || String(row.TYPE || '') === '17';
       if (uuc === '2' && isReferAmbulance) {
         return false;

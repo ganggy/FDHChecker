@@ -27,6 +27,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'collaboration', icon: '💬', label: 'ศูนย์ตรวจสอบ (LINE)' },
   { page: 'aiReports', icon: '✨', label: 'FDH AI Analytics' },
   { page: 'hospitalReports', icon: '📑', label: 'ศูนย์รายงานโรงพยาบาล' },
+  { page: 'ssjRawServ', icon: '📊', label: 'รายงานส่ง สสจ (RawServ)' },
   { page: 'annualCheckupReport', icon: '🩺', label: 'หลักฐานเบิกตรวจสุขภาพ' },
   { page: 'officialReceivable', icon: '🏛️', label: 'แบบลูกหนี้ราชการ 4 แบบ' },
   { page: 'receivableStandardReport', icon: '📑', label: 'รายงานลูกหนี้ 6 รูปแบบ' },
@@ -84,7 +85,7 @@ export const toolNavGroups: NavGroup[] = [
   { label: 'ลูกหนี้ & บัญชี', icon: '💰', pages: ['receivable', 'receivableSettlement', 'smtBudget', 'hsubPayment', 'pcuHerbal', 'pcuPayout', 'pcuCaseCost', 'officialReceivable', 'receivableStandardReport', 'accountingRevenueBudget'] },
   { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['fundFdh', 'fund43', 'fundKtb', 'dentalAudit', 'mophDmht', 'mophVaccine', 'fsMonitor', 'monitor', 'specific', 'fundOther'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
-  { label: 'ผู้บริหาร/วิเคราะห์', icon: '📊', pages: ['executiveMonitor', 'insuranceOverview', 'admin', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'revenueOpportunity', 'ppfsBenchmark', 'ppfsVisitMatch', 'ucOutsideCup'] },
+  { label: 'ผู้บริหาร/วิเคราะห์', icon: '📊', pages: ['executiveMonitor', 'insuranceOverview', 'admin', 'aiReports', 'hospitalReports', 'ssjRawServ', 'annualCheckupReport', 'revenueOpportunity', 'ppfsBenchmark', 'ppfsVisitMatch', 'ucOutsideCup'] },
   { label: 'ระบบ/อ้างอิง', icon: '⚙️', pages: ['memberAdmin', 'repstmManage', 'icd9Lookup', 'guide'] },
 ];
 

@@ -1,0 +1,344 @@
+.ssj-rawserv-page {
+  padding: 1.5rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  color: var(--text-color, #1e293b);
+}
+
+.ssj-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.ssj-title-block h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 0.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ssj-subtitle {
+  font-size: 0.875rem;
+  color: #64748b;
+  margin: 0;
+}
+
+.ssj-badge-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: #dcfce7;
+  color: #15803d;
+  margin-left: 0.5rem;
+}
+
+.ssj-badge-live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #22c55e;
+}
+
+.ssj-controls-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.ssj-controls-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+}
+
+.ssj-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ssj-control-group label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.ssj-select, .ssj-input {
+  height: 38px;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #cbd5e1;
+  background-color: #f8fafc;
+  color: #1e293b;
+  font-size: 0.875rem;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.ssj-select:focus, .ssj-input:focus {
+  border-color: #3b82f6;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.ssj-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 38px;
+  padding: 0 1.2rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.ssj-btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+.ssj-btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.ssj-btn-success {
+  background: #059669;
+  color: #ffffff;
+}
+.ssj-btn-success:hover:not(:disabled) {
+  background: #047857;
+}
+
+.ssj-btn-secondary {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+}
+.ssj-btn-secondary:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+.ssj-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ssj-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.ssj-kpi-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+.ssj-kpi-card.kpi-opd {
+  border-left: 4px solid #3b82f6;
+}
+
+.ssj-kpi-card.kpi-ipd {
+  border-left: 4px solid #8b5cf6;
+}
+
+.ssj-kpi-card.kpi-rw {
+  border-left: 4px solid #f59e0b;
+}
+
+.ssj-kpi-card.kpi-los {
+  border-left: 4px solid #10b981;
+}
+
+.ssj-kpi-title {
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.ssj-kpi-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.ssj-kpi-sub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
+}
+
+.ssj-table-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.5rem;
+}
+
+.ssj-table-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  background: #f8fafc;
+}
+
+.ssj-table-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ssj-tab-btn {
+  padding: 0.35rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.ssj-tab-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+.ssj-table-wrapper {
+  overflow-x: auto;
+}
+
+.ssj-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.ssj-table th {
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.ssj-table td {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.ssj-table tr:hover td {
+  background-color: #f8fafc;
+}
+
+.ssj-table tr.row-total td {
+  background-color: #f0fdf4;
+  font-weight: 700;
+  color: #166534;
+  border-top: 1px solid #bbf7d0;
+  border-bottom: 2px solid #bbf7d0;
+}
+
+.ssj-badge-type {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.ssj-badge-type.opd {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.ssj-badge-type.ipd {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.ssj-badge-right {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.right-uc { background: #e0f2fe; color: #0369a1; }
+.right-sss { background: #fee2e2; color: #b91c1c; }
+.right-ofc { background: #fef3c7; color: #b45309; }
+.right-lgo { background: #ede9fe; color: #6d28d9; }
+.right-stp { background: #f3e8ff; color: #7e22ce; }
+.right-fwf { background: #fce7f3; color: #be185d; }
+.right-pay { background: #ecfdf5; color: #047857; }
+.right-other { background: #f1f5f9; color: #475569; }
+.right-total { background: #dcfce7; color: #15803d; font-weight: 700; }
+
+.ssj-amount-cell {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.95rem;
+  text-align: right;
+  font-weight: 600;
+}
+
+.ssj-audit-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  margin-top: 1.5rem;
+}
+
+.ssj-audit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ssj-audit-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

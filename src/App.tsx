@@ -69,6 +69,7 @@ const Icd9LookupPage = lazyNamed(() => import('./pages/Icd9LookupPage'), 'Icd9Lo
 const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage');
 const MemberAdminPage = lazyNamed(() => import('./pages/MemberAdminPage'), 'MemberAdminPage');
 const AnnualHealthCheckupReportPage = lazyNamed(() => import('./pages/AnnualHealthCheckupReportPage'), 'AnnualHealthCheckupReportPage');
+const SsjRawServReportPage = lazyNamed(() => import('./pages/SsjRawServReportPage'), 'SsjRawServReportPage');
 const OfficialReceivablePage = lazyNamed(() => import('./pages/OfficialReceivablePage'), 'OfficialReceivablePage');
 const ReceivableStandardReportPage = lazyNamed(() => import('./pages/ReceivableStandardReportPage'), 'ReceivableStandardReportPage');
 
@@ -558,6 +559,7 @@ function App() {
         {currentPage === 'collaboration' && <CollaborationHubPage currentUser={authSession.user} />}
         {currentPage === 'aiReports' && <AiReportWorkspacePage />}
         {currentPage === 'hospitalReports' && <HospitalReportHubPage />}
+        {currentPage === 'ssjRawServ' && <SsjRawServReportPage />}
         {currentPage === 'annualCheckupReport' && <AnnualHealthCheckupReportPage />}
         {currentPage === 'officialReceivable' && <OfficialReceivablePage />}
         {currentPage === 'receivableStandardReport' && <ReceivableStandardReportPage />}

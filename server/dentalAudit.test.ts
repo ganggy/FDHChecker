@@ -161,3 +161,52 @@ test('Dental Audit: male patient with 2330010 (oral exam) does NOT flag ANC issu
   assert.equal(result.audit_status, 'valid');
   assert.equal(result.issues.find((i) => i.code === 'C-808-ANC-PROC-MIXED'), undefined);
 });
+
+test('syncDentalIcdAndVnStat: synchronizes dental_icd, vn_stat, and dtmain with ovstdiag', async () => {
+  const executedSql: Array<{ sql: string; params?: any[] }> = [];
+  const mockConn = {
+    query: async (sql: string, params?: any[]) => {
+      executedSql.push({ sql, params });
+      if (sql.includes('SELECT ovst_diag_id, icd10, diagtype, doctor FROM ovstdiag')) {
+        return [[
+          { ovst_diag_id: 101, icd10: 'K021', diagtype: '1', doctor: '2608' },
+          { ovst_diag_id: 102, icd10: 'Z012', diagtype: '2', doctor: '2608' },
+          { ovst_diag_id: 103, icd10: 'K081', diagtype: '2', doctor: '2608' },
+        ]];
+      }
+      if (sql.includes('SELECT vn, tmcode, icd, dxtype, ovst_diag_id FROM dental_icd')) {
+        return [[
+          { vn: 'VN001', tmcode: '1038', icd: 'K021', dxtype: '2', ovst_diag_id: null },
+          { vn: 'VN001', tmcode: '3002', icd: 'Z012', dxtype: '1', ovst_diag_id: null },
+        ]];
+      }
+      if (sql.includes('SELECT tmcode FROM dental_icd') && sql.includes('LIMIT 1')) {
+        return [[{ tmcode: '1038' }]];
+      }
+      return [{ affectedRows: 1 }];
+    },
+  };
+
+  const { syncDentalIcdAndVnStat } = await import('./dentalAudit.js');
+  await syncDentalIcdAndVnStat(mockConn, 'VN001', '2608');
+
+  // Verify vn_stat updated with pdx and secondary dx
+  const vnStatUpdate = executedSql.find(e => e.sql.includes('UPDATE vn_stat SET pdx = ?'));
+  assert.ok(vnStatUpdate);
+  assert.equal(vnStatUpdate.params?.[0], 'K021');
+  assert.equal(vnStatUpdate.params?.[1], 'Z012');
+  assert.equal(vnStatUpdate.params?.[2], 'K081');
+
+  // Verify dental_icd demoted old PDX
+  const demoteUpdate = executedSql.find(e => e.sql.includes('UPDATE dental_icd') && e.sql.includes("SET dxtype = '2'"));
+  assert.ok(demoteUpdate);
+
+  // Verify dental_icd promoted new PDX
+  const promoteUpdate = executedSql.find(e => e.sql.includes('UPDATE dental_icd') && e.sql.includes("SET dxtype = '1'"));
+  assert.ok(promoteUpdate);
+
+  // Verify dtmain.icd updated
+  const dtmainUpdate = executedSql.find(e => e.sql.includes('UPDATE dtmain SET icd = ?'));
+  assert.ok(dtmainUpdate);
+  assert.equal(dtmainUpdate.params?.[0], 'K021');
+});

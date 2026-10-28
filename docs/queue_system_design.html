@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FDH Checker — ออกแบบระบบ Queue ประสิทธิภาพสูง</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg0:#070b1a; --bg1:#0d1430; --card:rgba(255,255,255,.055); --card2:rgba(255,255,255,.09);
+  --line:rgba(255,255,255,.12); --txt:#e8ecff; --mut:#9aa6d1; --dim:#6b77a6;
+  --teal:#2dd4bf; --cyan:#38bdf8; --vio:#a78bfa; --pink:#f472b6; --amb:#fbbf24; --red:#f87171; --grn:#34d399; --org:#fb923c;
+  --font:'IBM Plex Sans Thai','Leelawadee UI','Tahoma',sans-serif; --mono:'JetBrains Mono',Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg0);color:var(--txt);font-family:var(--font);overflow:hidden}
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(1100px 600px at 85% -10%,rgba(167,139,250,.22),transparent 60%),
+             radial-gradient(900px 600px at -10% 110%,rgba(45,212,191,.18),transparent 60%),
+             linear-gradient(160deg,var(--bg0),var(--bg1));}
+body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.35;
+  background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);
+  background-size:44px 44px;mask-image:radial-gradient(ellipse at center,#000 30%,transparent 80%)}
+.deck{position:relative;z-index:1;height:100%;width:100%}
+.slide{position:absolute;inset:0;padding:56px 72px 84px;display:flex;flex-direction:column;opacity:0;visibility:hidden;
+  transform:translateX(40px) scale(.985);transition:opacity .45s ease,transform .45s ease,visibility .45s;overflow-y:auto}
+.slide.active{opacity:1;visibility:visible;transform:none}
+.slide.prev{transform:translateX(-40px) scale(.985)}
+.kicker{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--teal);font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+.kicker::before{content:"";width:28px;height:2px;background:linear-gradient(90deg,var(--teal),var(--vio))}
+h1{font-size:54px;line-height:1.15;font-weight:700;letter-spacing:-.01em}
+h2{font-size:36px;line-height:1.25;font-weight:700;margin-bottom:8px}
+h3{font-size:19px;font-weight:600;margin-bottom:8px}
+.lead{font-size:18px;color:var(--mut);max-width:1050px;line-height:1.7}
+.grad{background:linear-gradient(90deg,var(--teal),var(--cyan) 40%,var(--vio) 75%,var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent}
+.body{flex:1;display:flex;flex-direction:column;justify-content:center;gap:22px;margin-top:22px}
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g4{grid-template-columns:repeat(4,1fr)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px 22px;backdrop-filter:blur(8px);position:relative;overflow:hidden}
+.card p,.card li{color:var(--mut);font-size:15px;line-height:1.65}
+.card ul{padding-left:18px} .card li{margin:3px 0}
+.card .ico{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:20px;margin-bottom:12px;background:var(--card2)}
+.card.accent::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c,var(--teal))}
+.tag{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--mut);margin:2px 4px 2px 0;font-weight:500}
+.tag.t{color:var(--teal);border-color:rgba(45,212,191,.4);background:rgba(45,212,191,.08)}
+.tag.v{color:var(--vio);border-color:rgba(167,139,250,.4);background:rgba(167,139,250,.08)}
+.tag.r{color:var(--red);border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.08)}
+.tag.a{color:var(--amb);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08)}
+.tag.g{color:var(--grn);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
+code,.mono{font-family:var(--mono);font-size:.88em}
+code{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:6px;color:#c7d2fe}
+pre{font-family:var(--mono);font-size:13px;line-height:1.6;background:rgba(3,6,18,.75);border:1px solid var(--line);border-radius:14px;padding:16px 18px;overflow:auto;color:#cbd5ff}
+pre .k{color:var(--vio)} pre .s{color:var(--grn)} pre .c{color:var(--dim);font-style:italic} pre .n{color:var(--amb)} pre .f{color:var(--cyan)}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:14.5px}
+th{font-weight:600;color:var(--mut);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;letter-spacing:.03em}
+td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.06);color:#d6dcfa;vertical-align:top}
+tr:hover td{background:rgba(255,255,255,.025)}
+.big{font-size:44px;font-weight:700;line-height:1}
+.muted{color:var(--mut)} .dim{color:var(--dim)}
+.src{font-size:12px;color:var(--dim);margin-top:6px} .src code{font-size:11.5px}
+.flex{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.pill-row{display:flex;gap:10px;flex-wrap:wrap}
+.note{border:1px dashed rgba(251,191,36,.45);background:rgba(251,191,36,.06);border-radius:14px;padding:12px 16px;color:#fde68a;font-size:14px;line-height:1.6}
+.note.info{border-color:rgba(56,189,248,.45);background:rgba(56,189,248,.06);color:#bae6fd}
+/* Title slide */
+.hero{justify-content:center}
+.hero h1{font-size:58px;max-width:980px}
+.hero .lead{max-width:960px}
+.hero .meta{display:flex;gap:28px;margin-top:34px;flex-wrap:wrap}
+.hero .meta div{border-left:2px solid var(--line);padding-left:14px}
+.hero .meta b{display:block;font-size:22px} .hero .meta span{color:var(--mut);font-size:13px}
+.orb{position:absolute;right:6%;top:50%;transform:translateY(-50%);width:420px;height:420px;pointer-events:none}
+/* nav */
+.nav{position:fixed;z-index:5;bottom:22px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;
+  background:rgba(13,20,48,.75);border:1px solid var(--line);border-radius:999px;padding:6px 8px;backdrop-filter:blur(10px)}
+.nav button{background:transparent;border:0;color:var(--txt);width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:16px}
+.nav button:hover{background:var(--card2)}
+.nav .count{font-family:var(--mono);font-size:13px;color:var(--mut);min-width:64px;text-align:center}
+.nav .mode{width:auto;padding:0 14px;border-radius:999px;font-family:var(--font);font-size:13px}
+.progress{position:fixed;z-index:5;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--teal),var(--vio),var(--pink));transition:width .4s}
+.brand{position:fixed;z-index:5;top:20px;right:28px;font-size:12px;color:var(--dim);letter-spacing:.12em}
+.toc{position:fixed;z-index:6;left:0;top:0;bottom:0;width:320px;background:rgba(7,11,26,.96);border-right:1px solid var(--line);
+  transform:translateX(-100%);transition:transform .3s;padding:28px 18px;overflow:auto}
+.toc.open{transform:none}
+.toc a{display:block;color:var(--mut);text-decoration:none;padding:8px 12px;border-radius:10px;font-size:14px}
+.toc a:hover,.toc a.on{background:var(--card2);color:var(--txt)}
+.toc a span{font-family:var(--mono);color:var(--dim);margin-right:8px;font-size:12px}
+/* scroll mode */
+body.scroll{overflow:auto}
+body.scroll .slide{position:relative;inset:auto;opacity:1;visibility:visible;transform:none;min-height:100vh;border-bottom:1px solid var(--line)}
+body.scroll .deck{height:auto}
+/* state machine */
+.sm{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.st{padding:9px 14px;border-radius:12px;font-size:14px;font-weight:600;border:1px solid var(--c);color:var(--c);background:color-mix(in srgb,var(--c) 12%,transparent);white-space:nowrap}
+.arr{color:var(--dim);font-size:18px}
+/* bars */
+.bar{height:12px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:999px;background:var(--c);width:0;transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
+.slide.active .bar i{width:var(--w)}
+/* timeline */
+.tl{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;position:relative}
+.tl::before{content:"";position:absolute;top:22px;left:4%;right:4%;height:2px;background:linear-gradient(90deg,var(--teal),var(--vio),var(--pink))}
+.tl .ph{position:relative;padding-top:52px}
+.tl .dot{position:absolute;top:10px;left:0;width:26px;height:26px;border-radius:50%;background:var(--bg1);border:3px solid var(--c);box-shadow:0 0 18px var(--c)}
+.tl .ph h3{font-size:16px} .tl .ph .when{font-size:12px;color:var(--c);font-weight:600;letter-spacing:.06em;margin-bottom:4px}
+.tl .ph ul{padding-left:16px} .tl .ph li{font-size:13.5px;color:var(--mut);line-height:1.6}
+svg text{font-family:var(--font)}
+.fade-in>*{opacity:0;transform:translateY(12px);transition:opacity .5s,transform .5s}
+.slide.active .fade-in>*{opacity:1;transform:none}
+.slide.active .fade-in>*:nth-child(2){transition-delay:.08s} .slide.active .fade-in>*:nth-child(3){transition-delay:.16s}
+.slide.active .fade-in>*:nth-child(4){transition-delay:.24s} .slide.active .fade-in>*:nth-child(5){transition-delay:.32s}
+.slide.active .fade-in>*:nth-child(6){transition-delay:.4s}
+@media (max-width:1100px){.g3,.g4{grid-template-columns:repeat(2,1fr)}.slide{padding:40px 28px 90px}h1{font-size:40px}.hero h1{font-size:44px}.orb{display:none}.tl{grid-template-columns:1fr 1fr}.tl::before{display:none}}
+@media print{html,body{overflow:visible;background:#0b1024}.nav,.progress,.toc,.brand{display:none}.slide{position:relative;opacity:1;visibility:visible;transform:none;page-break-after:always;min-height:100vh}.deck{height:auto}}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="brand">FDH CHECKER · QUEUE ARCHITECTURE</div>
+<nav class="toc" id="toc"></nav>
+
+<main class="deck" id="deck">
+
+<!-- 1 TITLE -->
+<section class="slide hero" data-title="หน้าปก">
+  <svg class="orb" viewBox="0 0 400 400" aria-hidden="true">
+    <defs>
+      <linearGradient id="og" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2dd4bf"/><stop offset=".5" stop-color="#a78bfa"/><stop offset="1" stop-color="#f472b6"/></linearGradient>
+    </defs>
+    <g fill="none" stroke="url(#og)" stroke-width="1.4" opacity=".75">
+      <circle cx="200" cy="200" r="180" stroke-dasharray="4 8"><animateTransform attributeName="transform" type="rotate" from="0 200 200" to="360 200 200" dur="60s" repeatCount="indefinite"/></circle>
+      <circle cx="200" cy="200" r="130"/>
+      <circle cx="200" cy="200" r="80" stroke-dasharray="2 6"><animateTransform attributeName="transform" type="rotate" from="360 200 200" to="0 200 200" dur="40s" repeatCount="indefinite"/></circle>
+    </g>
+    <g>
+      <rect x="120" y="170" width="34" height="60" rx="8" fill="#2dd4bf" opacity=".9"/>
+      <rect x="164" y="170" width="34" height="60" rx="8" fill="#38bdf8" opacity=".8"/>
+      <rect x="208" y="170" width="34" height="60" rx="8" fill="#a78bfa" opacity=".7"/>
+      <rect x="252" y="170" width="34" height="60" rx="8" fill="#f472b6" opacity=".55"><animate attributeName="opacity" values=".2;.8;.2" dur="2.4s" repeatCount="indefinite"/></rect>
+    </g>
+    <circle r="7" fill="#fff"><animateMotion dur="7s" repeatCount="indefinite" path="M200,20 a180,180 0 1,1 -0.1,0"/></circle>
+  </svg>
+  <div class="kicker">System Design Proposal · ตุลาคม 2569</div>
+  <h1>ออกแบบระบบ <span class="grad">Queue</span><br>ให้ FDH Checker ทำงานเร็ว เสถียร และตรวจสอบได้</h1>
+  <p class="lead" style="margin-top:18px">รวม <b>Job Queue</b> (งานเบื้องหลังของเครื่อง) และ <b>Work Queue</b> (คิวงานเคลมของเจ้าหน้าที่) ให้อยู่บนแพลตฟอร์มเดียว
+  ใช้ MySQL ที่มีอยู่แล้ว ไม่ต้องเพิ่มโครงสร้างพื้นฐานใหม่ในระยะแรก</p>
+  <div class="meta">
+    <div><b>6</b><span>กลไกคิวที่พบในระบบปัจจุบัน</span></div>
+    <div><b>1,022</b><span>รหัส REP error ใน Vault ใช้จัดเส้นทางงาน</span></div>
+    <div><b>0</b><span>infra ใหม่ที่ต้องติดตั้ง (Phase 0–3)</span></div>
+    <div><b>5</b><span>เฟสการปรับใช้แบบค่อยเป็นค่อยไป</span></div>
+  </div>
+</section>
+
+<!-- 2 INVENTORY -->
+<section class="slide" data-title="สำรวจคิวที่มีอยู่">
+  <div class="kicker">01 · As-Is Inventory</div>
+  <h2>ระบบปัจจุบันมี “คิว” กระจายอยู่ 6 จุด แต่ละจุดเขียนแยกกัน</h2>
+  <p class="lead">ข้อมูลจากโค้ดจริงใน <code>server/</code>, <code>src/</code> และ <code>deploy/</code> ไม่ได้อ้างอิงจากรายงาน FINAL/COMPLETE เก่า</p>
+  <div class="body">
+    <div class="card" style="padding:6px 8px">
+    <table>
+      <thead><tr><th>กลไก</th><th>ทำอะไร</th><th>เก็บสถานะที่ไหน</th><th>รูปแบบการรัน</th><th>ไฟล์</th></tr></thead>
+      <tbody>
+        <tr><td><b>e-Claim Background Sync</b></td><td>ดาวน์โหลดไฟล์ REP/STM จากเว็บ สปสช. ผ่าน Playwright แล้วนำเข้าฐานข้อมูล</td><td><span class="tag r">หน่วยความจำ</span> <code>workerState</code></td><td>ทำทีละไฟล์ต่อกัน ใช้ <code>void (async…)</code></td><td><code>eclaimBackgroundWorker.ts</code></td></tr>
+        <tr><td><b>UC Walk-in Auto Batch</b></td><td>ตรวจและเติม WALKIN และแก้ปัญหา clinical อัตโนมัติ</td><td><span class="tag r">หน่วยความจำ</span> <code>isExecuting</code></td><td><code>setInterval</code> ทุก 30 นาที</td><td><code>ucWalkinAutoBatchService.ts</code></td></tr>
+        <tr><td><b>NHSO Auto Close</b></td><td>ปิดสิทธิ์ผู้ป่วยนอกที่กลับบ้านแล้ว</td><td><span class="tag r">หน่วยความจำ</span></td><td><code>setInterval</code> ทุก 3 นาที</td><td><code>nhsoAutoCloseService.ts</code></td></tr>
+        <tr><td><b>e-Claim Keep-alive</b></td><td>ping session ทุก 2 นาที</td><td><span class="tag r">หน่วยความจำ</span></td><td><code>setInterval</code></td><td><code>index.ts</code></td></tr>
+        <tr><td><b>REP/STM Import Queue</b></td><td>อ่านไฟล์ หาไฟล์ซ้ำ และนำเข้าทีละไฟล์</td><td><span class="tag a">state ใน browser</span></td><td>รันฝั่ง client ถ้าปิดแท็บ งานจะหาย</td><td><code>RepStmImportPage.tsx</code></td></tr>
+        <tr><td><b>Work Queue (คิวงาน VN)</b></td><td>ติดตามงานเคลมของคน มี 7 สถานะ</td><td><span class="tag g">MySQL</span> <code>claim_work_queue</code></td><td>CRUD ผ่าน REST</td><td><code>claimTrackingRoutes.ts</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="note info">ข้อมูล runtime: PM2 <code>instances: 1</code>, <code>exec_mode: fork</code>, <code>max_memory_restart: 1G</code> · MySQL pool <code>connectionLimit: 10</code> · ยังไม่มี Redis หรือ message broker</div>
+  </div>
+</section>
+
+<!-- 3 PAIN POINTS -->
+<section class="slide" data-title="ปัญหาหลัก">
+  <div class="kicker">02 · Pain Points</div>
+  <h2>สิ่งที่ทำให้คิวช้า เปราะบาง และตรวจสอบย้อนหลังไม่ได้</h2>
+  <div class="body grid g3 fade-in">
+    <div class="card accent" style="--c:var(--red)"><div class="ico">💥</div><h3>สถานะหายเมื่อ restart</h3>
+      <p>สถานะงาน, log 100 บรรทัด และ flag <code>isExecuting</code> อยู่ในหน่วยความจำ ถ้า PM2 restart (เช่น หน่วยความจำเกิน 1G) งานที่ทำค้างจะหายโดยไม่มีประวัติ</p></div>
+    <div class="card accent" style="--c:var(--org)"><div class="ico">🐢</div><h3>ทำงานต่อกันเป็นเส้นเดียว</h3>
+      <p>Sync worker ดาวน์โหลด แปลง xlsx และ INSERT ในลูปเดียวกัน browser ต้องรอ DB ทุกไฟล์ และมี <code>waitForTimeout</code> แบบรอตายตัวหลายจุด</p></div>
+    <div class="card accent" style="--c:var(--amb)"><div class="ico">🔁</div><h3>ไม่มีการลองใหม่ หรือ Dead-letter</h3>
+      <p>ไฟล์ที่ดาวน์โหลดไม่สำเร็จจะเพิ่มแค่ <code>errorCount</code> ไม่มี backoff ไม่มีการลองซ้ำ และไม่มีที่ให้กดลองใหม่</p></div>
+    <div class="card accent" style="--c:var(--vio)"><div class="ico">🗝️</div><h3>คีย์ Work Queue ไม่ครอบคลุม IPD</h3>
+      <p>มี <code>UNIQUE KEY uk_vn (vn)</code> อย่างเดียว ไม่แยก OPD/IPD (AN) และไม่แยก hcode <code>assigned_to</code> เป็นข้อความอิสระ และไม่มีประวัติการเปลี่ยนสถานะ</p></div>
+    <div class="card accent" style="--c:var(--cyan)"><div class="ico">🧮</div><h3>ตัวเลขสรุปไม่ตรงจริง</h3>
+      <p>หน้า <code>WorkQueuePage</code> นับสถานะจากรายการที่โหลดมาไม่เกิน 500 แถว ถ้างานค้างมากกว่านั้น ตัวเลขสรุปจะต่ำกว่าจริง</p></div>
+    <div class="card accent" style="--c:var(--pink)"><div class="ico">🐌</div><h3>คำสั่ง SQL ที่สิ้นเปลือง</h3>
+      <p>รัน <code>CREATE TABLE IF NOT EXISTS</code> ทุก request, bulk insert ทีละแถว (สูงสุด 2,000 round-trip), ค้นหาแบบ <code>LIKE '%…%'</code> ที่ต้องสแกนทั้งตาราง และมี DDL ซ้ำ 2 ไฟล์</p></div>
+  </div>
+  <p class="src">อ้างอิง: <code>claims.repository.ts#L1920-2054</code>, <code>collaboration.ts#L59</code>, <code>schema.ts#L385</code>, <code>eclaimBackgroundWorker.ts</code>, <code>deploy/pm2/ecosystem.config.cjs</code></p>
+</section>
+
+<!-- 4 PRINCIPLES -->
+<section class="slide" data-title="หลักการออกแบบ">
+  <div class="kicker">03 · Design Principles</div>
+  <h2>หลักการ 6 ข้อของ Unified Queue</h2>
+  <div class="body grid g3 fade-in">
+    <div class="card"><div class="ico">💾</div><h3>Durable</h3><p>ทุกงานต้องบันทึกใน MySQL ก่อนลงมือทำ ถ้า restart งานจะไม่หาย และรู้ว่าหยุดอยู่ขั้นไหน</p></div>
+    <div class="card"><div class="ico">🧷</div><h3>Idempotent</h3><p>ทุกงานมี <code>dedupe_key</code> เช่น SHA-256 ของไฟล์ REP กดซ้ำหรือลองใหม่ก็ไม่ทำให้ข้อมูลซ้ำ</p></div>
+    <div class="card"><div class="ico">🛣️</div><h3>Lane isolation</h3><p>แยกช่องทำงานตามทรัพยากร เช่น browser, hosxp-db, external-api งานหนักในช่องหนึ่งจะไม่ไปบล็อกช่องอื่น</p></div>
+    <div class="card"><div class="ico">🔭</div><h3>Observable</h3><p>มีความยาวคิว อายุงานที่เก่าที่สุด อัตราล้มเหลว และ p95 duration แสดงบน dashboard และแจ้งเตือนได้</p></div>
+    <div class="card"><div class="ico">🛡️</div><h3>Secure by default</h3><p>payload เก็บแค่ reference (VN/batch id/path) ไม่เก็บชื่อหรือ CID ผู้ใช้ที่สั่งงานมาจาก session และงานภายนอกต้องผ่านสิทธิ์ระดับ action</p></div>
+    <div class="card"><div class="ico">🧱</div><h3>No new infra first</h3><p>ใช้ MySQL + Node process เดิม (PM2 fork) ถ้าในอนาคตต้องขยาย ค่อยเปลี่ยนเป็น Redis/BullMQ ผ่าน interface เดียวกัน</p></div>
+  </div>
+</section>
+
+<!-- 5 ARCHITECTURE -->
+<section class="slide" data-title="สถาปัตยกรรมเป้าหมาย">
+  <div class="kicker">04 · Target Architecture</div>
+  <h2>ภาพรวมสถาปัตยกรรม: แยกการรับงานออกจากการประมวลผล</h2>
+  <div class="body">
+    <div class="card" style="padding:14px">
+    <svg viewBox="0 0 1200 470" width="100%" role="img" aria-label="Architecture diagram">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b77a6"/></marker>
+        <linearGradient id="gq" x1="0" x2="1"><stop offset="0" stop-color="#2dd4bf" stop-opacity=".25"/><stop offset="1" stop-color="#a78bfa" stop-opacity=".25"/></linearGradient>
+      </defs>
+      <!-- producers -->
+      <text x="20" y="28" fill="#9aa6d1" font-size="13" font-weight="600">PRODUCERS</text>
+      <g font-size="14" fill="#e8ecff">
+        <rect x="20" y="44" width="200" height="54" rx="12" fill="rgba(56,189,248,.12)" stroke="#38bdf8"/><text x="120" y="76" text-anchor="middle">🖥️ React UI / API</text>
+        <rect x="20" y="114" width="200" height="54" rx="12" fill="rgba(56,189,248,.12)" stroke="#38bdf8"/><text x="120" y="146" text-anchor="middle">⏰ Scheduler (DB-driven)</text>
+        <rect x="20" y="184" width="200" height="54" rx="12" fill="rgba(56,189,248,.12)" stroke="#38bdf8"/><text x="120" y="216" text-anchor="middle">⛓️ Job ที่สร้าง Job ลูก</text>
+        <rect x="20" y="254" width="200" height="54" rx="12" fill="rgba(56,189,248,.12)" stroke="#38bdf8"/><text x="120" y="286" text-anchor="middle">📥 REP import → errors</text>
+      </g>
+      <!-- queue store -->
+      <rect x="290" y="44" width="300" height="264" rx="18" fill="url(#gq)" stroke="#a78bfa"/>
+      <text x="440" y="74" text-anchor="middle" fill="#e8ecff" font-size="16" font-weight="700">MySQL · Queue Store</text>
+      <g font-size="13" fill="#cbd5ff" font-family="JetBrains Mono,monospace">
+        <rect x="310" y="90" width="260" height="36" rx="8" fill="rgba(0,0,0,.35)"/><text x="440" y="113" text-anchor="middle">job_queue</text>
+        <rect x="310" y="134" width="260" height="36" rx="8" fill="rgba(0,0,0,.35)"/><text x="440" y="157" text-anchor="middle">job_event (progress/log)</text>
+        <rect x="310" y="178" width="260" height="36" rx="8" fill="rgba(0,0,0,.35)"/><text x="440" y="201" text-anchor="middle">job_schedule</text>
+        <rect x="310" y="222" width="260" height="36" rx="8" fill="rgba(0,0,0,.35)"/><text x="440" y="245" text-anchor="middle">work_item + work_item_event</text>
+      </g>
+      <text x="440" y="290" text-anchor="middle" fill="#9aa6d1" font-size="12">lease + claim_token · dedupe_key UNIQUE</text>
+      <!-- runner -->
+      <rect x="660" y="44" width="300" height="264" rx="18" fill="rgba(45,212,191,.08)" stroke="#2dd4bf"/>
+      <text x="810" y="74" text-anchor="middle" fill="#e8ecff" font-size="16" font-weight="700">Job Runner (ใน fdh-backend)</text>
+      <g font-size="13" fill="#e8ecff">
+        <rect x="680" y="90" width="260" height="38" rx="10" fill="rgba(244,114,182,.15)" stroke="#f472b6"/><text x="810" y="114" text-anchor="middle">Lane: browser  · concurrency 1</text>
+        <rect x="680" y="136" width="260" height="38" rx="10" fill="rgba(251,191,36,.12)" stroke="#fbbf24"/><text x="810" y="160" text-anchor="middle">Lane: import   · concurrency 2</text>
+        <rect x="680" y="182" width="260" height="38" rx="10" fill="rgba(56,189,248,.12)" stroke="#38bdf8"/><text x="810" y="206" text-anchor="middle">Lane: hosxp-db · concurrency 1</text>
+        <rect x="680" y="228" width="260" height="38" rx="10" fill="rgba(52,211,153,.12)" stroke="#34d399"/><text x="810" y="252" text-anchor="middle">Lane: external-api · rate-limited</text>
+      </g>
+      <text x="810" y="290" text-anchor="middle" fill="#9aa6d1" font-size="12">heartbeat · backoff+jitter · graceful drain</text>
+      <!-- targets -->
+      <text x="1020" y="28" fill="#9aa6d1" font-size="13" font-weight="600">TARGETS</text>
+      <g font-size="13.5" fill="#e8ecff">
+        <rect x="1010" y="44" width="170" height="46" rx="10" fill="rgba(255,255,255,.05)" stroke="#6b77a6"/><text x="1095" y="72" text-anchor="middle">NHSO e-Claim</text>
+        <rect x="1010" y="100" width="170" height="46" rx="10" fill="rgba(255,255,255,.05)" stroke="#6b77a6"/><text x="1095" y="128" text-anchor="middle">REP/STM DB</text>
+        <rect x="1010" y="156" width="170" height="46" rx="10" fill="rgba(255,255,255,.05)" stroke="#6b77a6"/><text x="1095" y="184" text-anchor="middle">HOSxP (HIS)</text>
+        <rect x="1010" y="212" width="170" height="46" rx="10" fill="rgba(255,255,255,.05)" stroke="#6b77a6"/><text x="1095" y="240" text-anchor="middle">FDH / MOPH API</text>
+        <rect x="1010" y="268" width="170" height="40" rx="10" fill="rgba(255,255,255,.05)" stroke="#6b77a6"/><text x="1095" y="293" text-anchor="middle">LINE (แจ้งเตือน)</text>
+      </g>
+      <!-- arrows -->
+      <g stroke="#6b77a6" stroke-width="1.6" fill="none" marker-end="url(#ah)">
+        <path d="M222,71 L288,120"/><path d="M222,141 L288,190"/><path d="M222,211 L288,200"/><path d="M222,281 L288,240"/>
+        <path d="M592,150 L658,150"/><path d="M658,200 L592,200" stroke-dasharray="4 4"/>
+        <path d="M942,109 L1008,67"/><path d="M942,155 L1008,123"/><path d="M942,201 L1008,179"/><path d="M942,247 L1008,235"/>
+      </g>
+      <text x="625" y="140" text-anchor="middle" fill="#9aa6d1" font-size="11">claim</text>
+      <text x="625" y="218" text-anchor="middle" fill="#9aa6d1" font-size="11">ack/fail</text>
+      <!-- consumers bottom -->
+      <rect x="290" y="350" width="670" height="96" rx="18" fill="rgba(255,255,255,.04)" stroke="#6b77a6" stroke-dasharray="5 5"/>
+      <text x="625" y="378" text-anchor="middle" fill="#e8ecff" font-size="15" font-weight="700">Read side · สิ่งที่ผู้ใช้เห็น</text>
+      <g font-size="13" fill="#cbd5ff">
+        <text x="400" y="412" text-anchor="middle">📡 SSE progress</text>
+        <text x="560" y="412" text-anchor="middle">📊 Queue dashboard</text>
+        <text x="720" y="412" text-anchor="middle">🧑‍⚕️ Work Queue v2</text>
+        <text x="870" y="412" text-anchor="middle">🔔 SLA alert</text>
+      </g>
+      <path d="M440,310 L440,348" stroke="#6b77a6" stroke-width="1.6" marker-end="url(#ah)"/>
+    </svg>
+    </div>
+  </div>
+</section>
+
+<!-- 6 DATA MODEL -->
+<section class="slide" data-title="Job Queue Data Model">
+  <div class="kicker">05 · Job Queue Schema</div>
+  <h2>ตาราง <code>job_queue</code>: คิวที่ไม่หาย และไม่ถูกหยิบซ้ำ</h2>
+  <div class="body grid g2" style="align-items:start">
+<pre><span class="k">CREATE TABLE</span> job_queue (
+  id            <span class="f">BIGINT</span> AUTO_INCREMENT <span class="k">PRIMARY KEY</span>,
+  hcode         <span class="f">VARCHAR</span>(10)  <span class="k">NOT NULL</span>,
+  job_type      <span class="f">VARCHAR</span>(64)  <span class="k">NOT NULL</span>, <span class="c">-- eclaim.sync.rep, repstm.import.file …</span>
+  lane          <span class="f">VARCHAR</span>(32)  <span class="k">NOT NULL</span>, <span class="c">-- browser | import | hosxp-db | external-api</span>
+  status        <span class="f">ENUM</span>(<span class="s">'queued','running','succeeded',
+                     'failed','dead','cancelled'</span>) <span class="k">NOT NULL</span>,
+  priority      <span class="f">TINYINT</span> <span class="k">NOT NULL DEFAULT</span> <span class="n">5</span>,
+  run_at        <span class="f">DATETIME</span>(3) <span class="k">NOT NULL</span>,
+  attempts      <span class="f">SMALLINT</span> <span class="k">DEFAULT</span> <span class="n">0</span>, max_attempts <span class="f">SMALLINT</span> <span class="k">DEFAULT</span> <span class="n">5</span>,
+  dedupe_key    <span class="f">VARCHAR</span>(191) <span class="k">NULL</span>,     <span class="c">-- sha256 ไฟล์ / type+range</span>
+  parent_id     <span class="f">BIGINT</span> <span class="k">NULL</span>,
+  payload_json  <span class="f">JSON</span> <span class="k">NOT NULL</span>,        <span class="c">-- reference only, ห้ามมี PII</span>
+  progress_json <span class="f">JSON</span> <span class="k">NULL</span>, last_error <span class="f">VARCHAR</span>(1000),
+  claim_token   <span class="f">CHAR</span>(36) <span class="k">NULL</span>, locked_by <span class="f">VARCHAR</span>(64),
+  lease_until   <span class="f">DATETIME</span>(3) <span class="k">NULL</span>,
+  created_by    <span class="f">INT</span> <span class="k">NULL</span>,              <span class="c">-- user id จาก session</span>
+  created_at, started_at, finished_at <span class="f">DATETIME</span>(3),
+  <span class="k">UNIQUE KEY</span> uk_dedupe (job_type, dedupe_key),
+  <span class="k">KEY</span> ix_pick (status, lane, run_at, priority),
+  <span class="k">KEY</span> ix_parent (parent_id)
+);</pre>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="card"><h3>🎯 การ Claim แบบ portable (MySQL 5.7+/MariaDB)</h3>
+<pre style="margin-top:8px"><span class="k">UPDATE</span> job_queue
+   <span class="k">SET</span> status=<span class="s">'running'</span>, claim_token=?, locked_by=?,
+       lease_until=NOW(3)+<span class="k">INTERVAL</span> ? <span class="k">SECOND</span>,
+       attempts=attempts+<span class="n">1</span>, started_at=NOW(3)
+ <span class="k">WHERE</span> status=<span class="s">'queued'</span> <span class="k">AND</span> lane=? <span class="k">AND</span> run_at&lt;=NOW(3)
+ <span class="k">ORDER BY</span> priority <span class="k">DESC</span>, id
+ <span class="k">LIMIT</span> <span class="n">1</span>;
+<span class="k">SELECT</span> * <span class="k">FROM</span> job_queue <span class="k">WHERE</span> claim_token=?;</pre>
+        <p style="margin-top:8px">UPDATE แถวเดียวเป็น atomic อยู่แล้ว จึงไม่มีทางที่ 2 worker หยิบงานเดียวกันได้ ถ้าใช้ MySQL 8 สามารถเปลี่ยนเป็น <code>FOR UPDATE SKIP LOCKED</code> เพื่อรับปริมาณงานได้มากขึ้น</p></div>
+      <div class="card"><h3>♻️ Reaper ทุก 30 วินาที</h3><p>งานที่ <code>status='running'</code> แต่ <code>lease_until &lt; NOW()</code> (process ตายหรือค้าง) จะถูกคืนเป็น <code>queued</code> พร้อม backoff ถ้าลองครบ <code>max_attempts</code> แล้วจะย้ายเป็น <code>dead</code></p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 7 LIFECYCLE -->
+<section class="slide" data-title="Job Lifecycle & Retry">
+  <div class="kicker">06 · Lifecycle · Retry · DLQ</div>
+  <h2>วงจรชีวิตงาน และนโยบายลองใหม่</h2>
+  <div class="body">
+    <div class="card">
+      <div class="sm" style="justify-content:center;font-size:15px">
+        <span class="st" style="--c:var(--cyan)">queued</span><span class="arr">→</span>
+        <span class="st" style="--c:var(--amb)">running</span><span class="arr">→</span>
+        <span class="st" style="--c:var(--grn)">succeeded</span>
+      </div>
+      <div class="sm" style="justify-content:center;margin-top:14px">
+        <span class="dim">running ✕ error →</span>
+        <span class="st" style="--c:var(--org)">failed (retryable)</span><span class="arr">→ backoff →</span>
+        <span class="st" style="--c:var(--cyan)">queued</span>
+        <span class="dim">· ครบ max_attempts →</span>
+        <span class="st" style="--c:var(--red)">dead (DLQ)</span>
+        <span class="dim">· ผู้ใช้กดหยุด →</span>
+        <span class="st" style="--c:var(--dim)">cancelled</span>
+      </div>
+    </div>
+    <div class="grid g3">
+      <div class="card"><h3>⏱️ Exponential backoff + jitter</h3>
+        <pre style="margin-top:6px">delay = min(cap, base × 2^attempt)
+      × random(0.5 … 1.0)
+base = 30s · cap = 30m</pre>
+        <p>ป้องกันการยิงซ้ำพร้อมกันทั้งชุดตอนเว็บ สปสช. หรือ FDH ล่ม</p></div>
+      <div class="card"><h3>🧭 แยกประเภท error</h3>
+        <ul>
+          <li><span class="tag a">retryable</span> timeout, 5xx, เบราว์เซอร์ค้าง, DB deadlock</li>
+          <li><span class="tag r">fatal</span> ไฟล์เสีย, hcode ไม่ตรง, schema ผิด → ย้ายเป็น dead ทันที</li>
+          <li><span class="tag v">auth</span> FDH 401 “Token หมดอายุ” หรือ e-Claim session หมด → หยุดทั้ง lane แล้วแจ้งให้ login</li>
+        </ul></div>
+      <div class="card"><h3>🪦 Dead-letter = งานที่ต้องมีคนดู</h3>
+        <p>หน้า Admin แสดงงาน dead พร้อม <code>last_error</code> และปุ่ม <b>Retry</b> / <b>Cancel</b> ทุกการกดบันทึกลง audit event และสรุปส่ง LINE วันละ 1 ครั้ง (ไม่มี PII)</p></div>
+    </div>
+    <p class="src">ข้อความ 401 “Token หมดอายุ” อ้างอิง MOPH FDH Manual V3 หัวข้อ 3.3.1 ใน Vault (<code>knowlage/vault/MOPH_FDH_MANUAL_V3.md</code>)</p>
+  </div>
+</section>
+
+<!-- 8 LANES -->
+<section class="slide" data-title="Job Types & Lanes">
+  <div class="kicker">07 · Job Catalog</div>
+  <h2>ประเภทงาน, ช่องทำงาน (lane) และนโยบายของแต่ละงาน</h2>
+  <div class="body">
+    <div class="card" style="padding:6px 8px">
+    <table>
+      <thead><tr><th>job_type</th><th>มาจาก (ของเดิม)</th><th>Lane</th><th>Conc.</th><th>Timeout / Lease</th><th>Retry</th><th>dedupe_key</th></tr></thead>
+      <tbody>
+        <tr><td><code>eclaim.sync.scan</code></td><td>ส่วน scraping ใน <code>eclaimBackgroundWorker</code></td><td><span class="tag v">browser</span></td><td>1</td><td>30 นาที / 2 นาที</td><td>3</td><td><code>scan:{date}</code></td></tr>
+        <tr><td><code>eclaim.download.file</code></td><td>ลูปดาวน์โหลดทีละแถว</td><td><span class="tag v">browser</span></td><td>1</td><td>60 วิ</td><td>5</td><td><code>{repNo|stmNo}</code></td></tr>
+        <tr><td><code>repstm.import.file</code></td><td><code>importRepstmRows</code> และหน้า Import</td><td><span class="tag a">import</span></td><td>2</td><td>5 นาที</td><td>3</td><td><code>sha256(file)</code></td></tr>
+        <tr><td><code>workqueue.route.rep</code></td><td>ใหม่: สร้าง work item จาก REP error</td><td><span class="tag a">import</span></td><td>2</td><td>2 นาที</td><td>3</td><td><code>batch:{id}</code></td></tr>
+        <tr><td><code>uc.walkin.batch</code></td><td><code>ucWalkinAutoBatchService</code></td><td><span class="tag t">hosxp-db</span></td><td>1</td><td>15 นาที</td><td>2</td><td><code>{startDate}:{endDate}</code></td></tr>
+        <tr><td><code>nhso.autoclose.cycle</code></td><td><code>nhsoAutoCloseService</code></td><td><span class="tag g">external-api</span></td><td>1</td><td>5 นาที</td><td>2</td><td><code>slot:{yyyyMMddHHmm}</code></td></tr>
+        <tr><td><code>fdh.export.package</code></td><td>สร้าง ZIP แบ่ง batch ใน request (<code>index.ts#L3075</code>)</td><td><span class="tag a">import</span></td><td>1</td><td>10 นาที</td><td>1</td><td><code>hash(vns+profile)</code></td></tr>
+        <tr><td><code>notify.line.digest</code></td><td>รายงาน LINE</td><td><span class="tag g">external-api</span></td><td>1</td><td>1 นาที</td><td>5</td><td><code>{report}:{date}</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="grid g2">
+      <div class="note">⚠️ งานที่มีผลภายนอก (ปิดสิทธิ์ NHSO, ส่ง FDH, ส่ง LINE) ต้องผ่านการตรวจสิทธิ์ระดับ action และสวิตช์ <code>enabled</code> เดิม การย้ายมาใช้ queue <b>ไม่ได้เปิดงานอัตโนมัติใหม่เอง</b></div>
+      <div class="note info">💡 lane <b>browser</b> ต้องเป็น concurrency 1 เพราะมี Playwright session เดียว (<code>getEclaimBrowserSession</code>) ส่วนการแปลงไฟล์และ INSERT ย้ายไป lane <b>import</b> เพื่อให้ browser ไม่ต้องรอ DB</div>
+    </div>
+  </div>
+</section>
+
+<!-- 9 SCHEDULER -->
+<section class="slide" data-title="Scheduler">
+  <div class="kicker">08 · Scheduler</div>
+  <h2>เปลี่ยน <code>setInterval</code> 3 ตัว เป็น Scheduler ตัวเดียวที่เก็บค่าใน DB</h2>
+  <div class="body grid g2" style="align-items:start">
+    <div class="card"><h3>ก่อน: แต่ละ service ทำ scheduler ของตัวเอง</h3>
+<pre style="margin-top:8px"><span class="c">// ucWalkinAutoBatchService.ts</span>
+schedulerTimer = <span class="f">setInterval</span>(() =&gt; {
+  <span class="k">void</span> runUcWalkinBatchJob(<span class="s">'scheduler'</span>) …
+}, intervalMs);          <span class="c">// isExecuting อยู่ใน RAM</span>
+
+<span class="c">// nhsoAutoCloseService.ts</span>
+schedulerTimer = <span class="f">setInterval</span>(<span class="k">async</span> () =&gt; {
+  <span class="k">if</span> (isExecuting) <span class="k">return</span>; …
+}, intervalMs);          <span class="c">// ทุก 3 นาที</span></pre>
+      <ul style="margin-top:10px">
+        <li>ถ้าเปิด 2 instance งานจะรันซ้ำ เพราะ lock อยู่ใน RAM</li>
+        <li>ไม่มีประวัติว่ารอบไหนพลาด หรือใช้เวลาเท่าไร</li>
+        <li>รอบที่พลาดตอน restart จะไม่ถูกรันชดเชย</li>
+      </ul></div>
+    <div class="card"><h3>หลัง: <code>job_schedule</code> + leader lock</h3>
+<pre style="margin-top:8px"><span class="k">CREATE TABLE</span> job_schedule (
+  name <span class="f">VARCHAR</span>(64) <span class="k">PRIMARY KEY</span>,
+  job_type <span class="f">VARCHAR</span>(64), cron_expr <span class="f">VARCHAR</span>(64),
+  enabled <span class="f">BOOLEAN</span>, next_run_at <span class="f">DATETIME</span>(3),
+  last_job_id <span class="f">BIGINT</span>, payload_json <span class="f">JSON</span>
+);
+<span class="c">-- tick ทุก 15 วินาที (เฉพาะ leader)</span>
+<span class="k">SELECT</span> GET_LOCK(<span class="s">'fdh_scheduler_leader'</span>, <span class="n">0</span>);
+<span class="c">-- เลือก schedule ที่ next_run_at &lt;= NOW() แล้วใส่เป็นงานใน job_queue</span>
+<span class="c">-- dedupe_key = name:slot  →  ไม่สร้างงานซ้ำในรอบเดียวกัน</span></pre>
+      <ul style="margin-top:10px">
+        <li>ค่าการตั้งเวลาเดิม (<code>app_setting</code>) ย้ายมาเก็บใน <code>job_schedule</code> และยังแก้จากหน้าเดิมได้</li>
+        <li>systemd timer <code>fdh-duplicate-appointment</code> ย้ายเข้ามาภายหลังได้ (ไม่บังคับ)</li>
+      </ul></div>
+  </div>
+</section>
+
+<!-- 10 ECLAIM REDESIGN -->
+<section class="slide" data-title="e-Claim Sync Pipeline">
+  <div class="kicker">09 · Case Study · e-Claim Sync</div>
+  <h2>e-Claim Sync: เปลี่ยนจากลูปยาวลูปเดียว เป็น pipeline ที่มีงานแม่และงานลูก</h2>
+  <div class="body">
+    <div class="card" style="padding:16px">
+    <svg viewBox="0 0 1200 250" width="100%" role="img" aria-label="Pipeline">
+      <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9aa6d1"/></marker></defs>
+      <g font-size="14" fill="#e8ecff" text-anchor="middle">
+        <rect x="10" y="80" width="190" height="80" rx="14" fill="rgba(167,139,250,.15)" stroke="#a78bfa"/>
+        <text x="105" y="114" font-weight="700">eclaim.sync.scan</text><text x="105" y="138" fill="#9aa6d1" font-size="12">อ่านตาราง REP/STM ทุกหน้า</text>
+        <rect x="270" y="80" width="190" height="80" rx="14" fill="rgba(56,189,248,.12)" stroke="#38bdf8"/>
+        <text x="365" y="114" font-weight="700">กรองซ้ำใน DB</text><text x="365" y="138" fill="#9aa6d1" font-size="12">dedupe_key = repNo</text>
+        <g>
+          <rect x="530" y="20" width="200" height="52" rx="12" fill="rgba(244,114,182,.13)" stroke="#f472b6"/><text x="630" y="51">download.file #1</text>
+          <rect x="530" y="94" width="200" height="52" rx="12" fill="rgba(244,114,182,.13)" stroke="#f472b6"/><text x="630" y="125">download.file #2</text>
+          <rect x="530" y="168" width="200" height="52" rx="12" fill="rgba(244,114,182,.13)" stroke="#f472b6"/><text x="630" y="199">download.file #n</text>
+        </g>
+        <g>
+          <rect x="800" y="20" width="200" height="52" rx="12" fill="rgba(251,191,36,.12)" stroke="#fbbf24"/><text x="900" y="51">import.file (sha256)</text>
+          <rect x="800" y="94" width="200" height="52" rx="12" fill="rgba(251,191,36,.12)" stroke="#fbbf24"/><text x="900" y="125">import.file (sha256)</text>
+          <rect x="800" y="168" width="200" height="52" rx="12" fill="rgba(251,191,36,.12)" stroke="#fbbf24"/><text x="900" y="199">import.file (sha256)</text>
+        </g>
+        <rect x="1060" y="80" width="130" height="80" rx="14" fill="rgba(52,211,153,.12)" stroke="#34d399"/>
+        <text x="1125" y="114" font-weight="700">route.rep</text><text x="1125" y="138" fill="#9aa6d1" font-size="12">→ Work Queue</text>
+      </g>
+      <g stroke="#9aa6d1" stroke-width="1.6" fill="none" marker-end="url(#ah2)">
+        <path d="M202,120 L268,120"/><path d="M462,120 L528,46"/><path d="M462,120 L528,120"/><path d="M462,120 L528,194"/>
+        <path d="M732,46 L798,46"/><path d="M732,120 L798,120"/><path d="M732,194 L798,194"/>
+        <path d="M1002,46 L1058,110"/><path d="M1002,120 L1058,120"/><path d="M1002,194 L1058,130"/>
+      </g>
+      <text x="630" y="242" text-anchor="middle" fill="#f472b6" font-size="12">lane: browser (ทีละ 1)</text>
+      <text x="900" y="242" text-anchor="middle" fill="#fbbf24" font-size="12">lane: import (ขนาน 2)</text>
+    </svg>
+    </div>
+    <div class="grid g4">
+      <div class="card"><h3>⚡ ทำงานซ้อนกัน</h3><p>ระหว่างที่ browser โหลดไฟล์ถัดไป ไฟล์ก่อนหน้าก็กำลังถูกนำเข้า ทำให้เวลารวมลดลงตามสัดส่วนเวลาที่ใช้ parse และ INSERT</p></div>
+      <div class="card"><h3>🔁 ลองใหม่เฉพาะไฟล์ที่พัง</h3><p>ไฟล์ที่ 37 พัง ไม่ต้องเริ่มสแกนใหม่ทั้งหมด ลองใหม่เฉพาะ <code>download.file</code> ตัวนั้น</p></div>
+      <div class="card"><h3>💾 Resume ได้</h3><p>ไฟล์บันทึกอยู่ใน <code>downloads/nhso-repstm</code> แล้ว ถ้า restart หลังดาวน์โหลดเสร็จ จะนำเข้าต่อได้โดยไม่ต้องโหลดใหม่</p></div>
+      <div class="card"><h3>🧠 เลิกโหลด cache ทั้งตาราง</h3><p>แทน <code>SELECT source_filename</code> ทั้งตาราง ด้วยการตรวจ <code>UNIQUE(job_type, dedupe_key)</code> ทีละชุด แบบ <code>WHERE IN (…)</code></p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 11 WORK QUEUE V2 -->
+<section class="slide" data-title="Work Queue v2">
+  <div class="kicker">10 · Human Work Queue</div>
+  <h2>Work Queue v2: state machine ที่มีเงื่อนไขกำกับ และมีประวัติทุกการเปลี่ยนสถานะ</h2>
+  <div class="body">
+    <div class="card">
+      <div class="sm" style="justify-content:center">
+        <span class="st" style="--c:var(--dim)">new / triage</span><span class="arr">→</span>
+        <span class="st" style="--c:#f59e0b">รอแก้เวชระเบียน</span>
+        <span class="st" style="--c:#8b5cf6">รอ Authen Code</span>
+        <span class="st" style="--c:#6366f1">รอ ICD/ICD9</span>
+        <span class="st" style="--c:#f97316">รอการเงิน</span><span class="arr">→</span>
+        <span class="st" style="--c:#10b981">พร้อมส่ง</span><span class="arr">→</span>
+        <span class="st" style="--c:#3b82f6">ส่งแล้ว</span><span class="arr">→</span>
+        <span class="st" style="--c:#ef4444">ตีกลับ ↺</span>
+        <span class="dim">/</span>
+        <span class="st" style="--c:var(--grn)">ปิดงาน</span>
+      </div>
+      <p class="src" style="text-align:center;margin-top:12px">ยังใช้ 7 สถานะเดิมจาก <code>WorkQueuePage.tsx</code> ทุกตัว เพิ่มแค่ <b>new/triage</b> และ <b>ปิดงาน</b> จึงใช้กับข้อมูลเดิมได้</p>
+    </div>
+    <div class="grid g3">
+      <div class="card"><h3>🔑 คีย์และโครงสร้างใหม่</h3>
+<pre style="margin-top:6px;font-size:12px"><span class="k">UNIQUE</span> (hcode, visit_type, visit_ref)
+<span class="c">-- visit_type: OPD|IPD · visit_ref: VN|AN</span>
+assigned_user_id <span class="f">INT</span>  <span class="c">-- แทนข้อความอิสระ</span>
+team <span class="f">VARCHAR</span>(32), reason_code, reason_type
+priority_score <span class="f">INT</span>, due_at <span class="f">DATETIME</span>
+version <span class="f">INT</span>          <span class="c">-- optimistic lock</span>
+<span class="k">KEY</span> (hcode, queue_status, priority_score)</pre></div>
+      <div class="card"><h3>🚦 เงื่อนไขก่อนเปลี่ยนสถานะ</h3>
+        <ul>
+          <li>จะเปลี่ยนเป็น <b>ส่งแล้ว</b> ต้องมีเลขอ้างอิงการส่ง หรือผลตอบกลับ (ตามคู่มือระบบข้อ 11)</li>
+          <li>จะเปลี่ยนเป็น <b>พร้อมส่ง</b> ต้องผ่าน pre-submit validation รอบล่าสุด</li>
+          <li>ส่ง <code>PUT</code> พร้อม <code>version</code> ถ้าคนอื่นแก้ไปก่อนจะได้ 409 ป้องกันการเขียนทับกัน</li>
+        </ul></div>
+      <div class="card"><h3>📜 <code>work_item_event</code> (append-only)</h3>
+        <p>บันทึก from → to, actor_user_id (จาก session), เวลา และหมายเหตุ ใช้คำนวณ SLA/aging และตอบโจทย์ <b>Audit trail (P0)</b> ใน BACKLOG ได้พร้อมกัน</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 ROUTING FROM VAULT -->
+<section class="slide" data-title="Auto-routing จาก Vault">
+  <div class="kicker">11 · Knowledge-driven Routing</div>
+  <h2>ใช้ REP Error Catalog ใน Vault ส่ง work item ไปทีมที่ถูกต้องอัตโนมัติ</h2>
+  <div class="body grid g2" style="align-items:start">
+    <div class="card">
+      <h3>องค์ประกอบของ Catalog (1,022 รหัส)</h3>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:14px">
+        <div><div class="flex" style="justify-content:space-between"><span><span class="tag a">Corrective</span> ต้องแก้ข้อมูลแล้วส่งใหม่</span><b>730</b></div><div class="bar" style="margin-top:6px"><i style="--w:71.4%;--c:var(--amb)"></i></div></div>
+        <div><div class="flex" style="justify-content:space-between"><span><span class="tag r">Deny</span> ปฏิเสธการจ่าย</span><b>175</b></div><div class="bar" style="margin-top:6px"><i style="--w:17.1%;--c:var(--red)"></i></div></div>
+        <div><div class="flex" style="justify-content:space-between"><span><span class="tag v">Verify</span> ต้องตรวจสอบ/ยืนยัน</span><b>117</b></div><div class="bar" style="margin-top:6px"><i style="--w:11.4%;--c:var(--vio)"></i></div></div>
+      </div>
+      <p class="src">ที่มา: <code>knowlage/vault/REP_ERROR_CODE_CATALOG.md</code> (C_Validate 2026-03-29, สปสช.)</p>
+      <div class="note info" style="margin-top:14px">คอลัมน์ <b>Guide</b> ใน catalog แสดงในหน้า work item ทันที ผู้แก้ไม่ต้องเปิดค้นเอง ส่วนผู้ช่วย AI ค้นข้อมูลจาก Vault ด้วยวิธีเดิม (read-only)</div>
+    </div>
+    <div class="card">
+      <h3>ตาราง routing (ตั้งค่าได้ ไม่ฝังในโค้ด)</h3>
+      <table style="margin-top:8px">
+        <thead><tr><th>เงื่อนไข</th><th>สถานะเริ่มต้น</th><th>ทีม</th></tr></thead>
+        <tbody>
+          <tr><td>Corrective · ข้อมูลผู้ป่วย/การรับจำหน่าย <span class="dim">(เช่น 101–113)</span></td><td>รอแก้เวชระเบียน</td><td>เวชระเบียน</td></tr>
+          <tr><td>Corrective · ข้อมูลการใช้สิทธิ <span class="dim">(เช่น 115)</span></td><td>รอ Authen Code</td><td>สิทธิ/Authen</td></tr>
+          <tr><td>Corrective · วินิจฉัย/หัตถการ</td><td>รอ ICD/ICD9</td><td>Coder</td></tr>
+          <tr><td>Corrective · ราคา/รายการค่าใช้จ่าย</td><td>รอการเงิน</td><td>การเงิน</td></tr>
+          <tr><td>Deny</td><td>triage</td><td>หัวหน้างานเคลม</td></tr>
+          <tr><td>Verify</td><td>triage</td><td>ผู้ตรวจสอบ</td></tr>
+        </tbody>
+      </table>
+      <div class="note" style="margin-top:12px">⚠️ การจับคู่ช่วงรหัสกับทีมเป็น <b>ข้อเสนอเริ่มต้น</b> ทีมเคลมต้องตรวจทานกับ catalog ก่อนใช้งานจริง และต้องเก็บประวัติเวอร์ชันของ mapping (สอดคล้องกับ Rule catalog ใน P2)</div>
+    </div>
+  </div>
+</section>
+
+<!-- 13 PRIORITY & SLA -->
+<section class="slide" data-title="Priority & SLA">
+  <div class="kicker">12 · Priority · SLA · Aging</div>
+  <h2>จัดลำดับงานด้วยคะแนน ให้ทีมเห็นงานที่ควรทำก่อน</h2>
+  <div class="body grid g2" style="align-items:start">
+    <div class="card">
+      <h3>สูตรคะแนนความสำคัญ (ปรับน้ำหนักได้)</h3>
+      <p style="font-size:20px;color:var(--txt);margin:14px 0;font-family:var(--mono);text-align:center">
+        score = w₁·Age + w₂·Amount + w₃·Due + w₄·Type
+      </p>
+      <ul>
+        <li><b>Age</b>: จำนวนวันตั้งแต่ service_date (normalize เป็น 0–1)</li>
+        <li><b>Amount</b>: ยอดเรียกเก็บของรายการ (normalize ตาม percentile ของรอบ)</li>
+        <li><b>Due</b>: ความใกล้ถึงกำหนดส่งที่โรงพยาบาลตั้งไว้ต่อกองทุน</li>
+        <li><b>Type</b>: น้ำหนักตามประเภท Deny / Corrective / Verify</li>
+      </ul>
+      <div class="note" style="margin-top:12px">กำหนดส่งและน้ำหนักต้องให้<b>โรงพยาบาลเป็นผู้กำหนด</b> ระบบไม่สร้างกติกาการจ่ายหรือเส้นตายของกองทุนขึ้นมาเอง เก็บเป็นค่าตั้งค่าที่มีแหล่งอ้างอิง</div>
+    </div>
+    <div class="card">
+      <h3>ตัวอย่าง Dashboard Aging <span class="tag">ข้อมูลจำลอง</span></h3>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:12px">
+        <div><div class="flex" style="justify-content:space-between"><span>0–3 วัน</span><span class="muted">42</span></div><div class="bar"><i style="--w:84%;--c:var(--grn)"></i></div></div>
+        <div><div class="flex" style="justify-content:space-between"><span>4–7 วัน</span><span class="muted">27</span></div><div class="bar"><i style="--w:54%;--c:var(--cyan)"></i></div></div>
+        <div><div class="flex" style="justify-content:space-between"><span>8–14 วัน</span><span class="muted">15</span></div><div class="bar"><i style="--w:30%;--c:var(--amb)"></i></div></div>
+        <div><div class="flex" style="justify-content:space-between"><span>&gt; 14 วัน (เกิน SLA)</span><span class="muted">6</span></div><div class="bar"><i style="--w:12%;--c:var(--red)"></i></div></div>
+      </div>
+      <div class="grid g3" style="margin-top:18px;gap:10px">
+        <div class="card" style="padding:12px;text-align:center"><div class="big" style="font-size:28px">90</div><div class="dim" style="font-size:12px">งานเปิด</div></div>
+        <div class="card" style="padding:12px;text-align:center"><div class="big" style="font-size:28px;color:var(--amb)">5.2</div><div class="dim" style="font-size:12px">วันค้างเฉลี่ย</div></div>
+        <div class="card" style="padding:12px;text-align:center"><div class="big" style="font-size:28px;color:var(--red)">6.7%</div><div class="dim" style="font-size:12px">เกิน SLA</div></div>
+      </div>
+      <p class="src">ตัวเลขบนสไลด์นี้เป็นข้อมูลจำลองเพื่อแสดงหน้าตา dashboard (ตรงกับ “Dashboard SLA/aging” ใน BACKLOG P2)</p>
+    </div>
+  </div>
+</section>
+
+<!-- 14 QUICK WINS -->
+<section class="slide" data-title="Quick Wins (Phase 0)">
+  <div class="kicker">13 · Quick Wins · ทำได้ทันที</div>
+  <h2>ปรับประสิทธิภาพ Work Queue ได้ทันที โดยยังไม่ต้องเปลี่ยนสถาปัตยกรรม</h2>
+  <div class="body grid g2" style="align-items:start">
+    <div class="card"><h3>1 · Bulk insert แบบหลายแถว</h3>
+<pre style="margin-top:6px"><span class="c">// ก่อน: วนลูป INSERT ทีละแถว (สูงสุด 2,000 ครั้ง)</span>
+<span class="k">for</span> (<span class="k">const</span> item <span class="k">of</span> items) <span class="k">await</span> connection.query(<span class="s">`INSERT …`</span>)
+
+<span class="c">// หลัง: แบ่งก้อนละ 500 แถว ทำใน transaction เดียว</span>
+<span class="k">await</span> conn.beginTransaction();
+<span class="k">for</span> (<span class="k">const</span> chunk <span class="k">of</span> chunks(items, <span class="n">500</span>))
+  <span class="k">await</span> conn.query(<span class="s">`INSERT INTO claim_work_queue (…) VALUES ?
+    ON DUPLICATE KEY UPDATE …`</span>, [chunk.map(toRow)]);
+<span class="k">await</span> conn.commit();</pre>
+      <p>round-trip ลดจาก N เหลือ ⌈N/500⌉ ครั้ง และถ้าล้มกลางทาง ข้อมูลจะไม่ค้างครึ่งๆ กลางๆ</p></div>
+    <div class="card"><h3>2 · เลิกสั่ง DDL ทุก request</h3>
+<pre style="margin-top:6px"><span class="c">// ก่อน: ทุก GET/PUT/bulk</span>
+<span class="k">await</span> connection.query(CLAIM_WORK_QUEUE_TABLE_SQL);
+<span class="c">// หลัง: ใช้ versioned migration ครั้งเดียว (ตาม BACKLOG P1)</span>
+<span class="c">//       หรืออย่างน้อย memoize ด้วย ensureOnce()</span></pre>
+      <h3 style="margin-top:14px">3 · Endpoint นับสถานะที่ฝั่งเซิร์ฟเวอร์</h3>
+<pre style="margin-top:6px"><span class="k">SELECT</span> queue_status, <span class="k">COUNT</span>(*) <span class="k">FROM</span> claim_work_queue
+ <span class="k">WHERE</span> service_date <span class="k">BETWEEN</span> ? <span class="k">AND</span> ? <span class="k">GROUP BY</span> queue_status;</pre>
+      <h3 style="margin-top:14px">4 · Index และ pagination</h3>
+      <ul><li>composite <code>(queue_status, service_date, id)</code> + keyset pagination แทน <code>LIMIT 500</code></li>
+          <li>ค้น VN/HN แบบ prefix (<code>LIKE 'x%'</code>) ส่วนการค้นชื่อแยกเป็นตัวเลือกเพิ่ม</li>
+          <li>ลบ DDL ที่ซ้ำกันใน <code>collaboration.ts</code> ให้เหลือที่เดียว</li></ul></div>
+  </div>
+</section>
+
+<!-- 15 OBSERVABILITY & SECURITY -->
+<section class="slide" data-title="Observability & Security">
+  <div class="kicker">14 · Observability · Security</div>
+  <h2>วัดผลได้ ตรวจสอบได้ และไม่ทำให้ข้อมูลผู้ป่วยรั่ว</h2>
+  <div class="body grid g2" style="align-items:start">
+    <div class="card"><h3>📈 Metrics หลัก (endpoint <code>/api/queue/metrics</code>)</h3>
+      <table style="margin-top:6px">
+        <tr><td><code>queue_depth{lane,status}</code></td><td class="muted">จำนวนงานในคิวแยกตาม lane และสถานะ</td></tr>
+        <tr><td><code>oldest_queued_age_seconds</code></td><td class="muted">อายุงานที่รอนานที่สุด ใช้ตรวจว่าคิวติดหรือไม่</td></tr>
+        <tr><td><code>job_duration_p95{type}</code></td><td class="muted">ใช้ตั้ง timeout และ lease ตามข้อมูลจริง</td></tr>
+        <tr><td><code>job_failure_rate{type}</code></td><td class="muted">อัตราล้มเหลวของแต่ละประเภทงาน</td></tr>
+        <tr><td><code>dead_jobs_total</code></td><td class="muted">ถ้ามากกว่า 0 ให้แจ้งผู้ดูแล</td></tr>
+        <tr><td><code>work_items_sla_breach</code></td><td class="muted">จำนวน work item ที่เกิน SLA แยกตามทีม</td></tr>
+      </table>
+      <p style="margin-top:10px">หน้าจอแสดง progress ผ่าน <b>SSE</b> (<code>/api/jobs/:id/stream</code>) แทนการ poll <code>worker-status</code> ซ้ำๆ</p></div>
+    <div class="card"><h3>🛡️ กติกาความปลอดภัย</h3>
+      <ul>
+        <li><b>payload_json</b> เก็บแค่ reference เช่น batch id, path หรือช่วงวันที่ <b>ห้ามมี</b> ชื่อ, CID หรือ HN</li>
+        <li><b>last_error</b> และ log ต้องผ่าน redaction ก่อนบันทึก (สอดคล้อง P1 Structured logging)</li>
+        <li><b>created_by / actor</b> มาจาก authenticated session เท่านั้น ไม่รับค่าจาก body</li>
+        <li>สิทธิ์ระดับ action: <span class="tag">job:view</span><span class="tag">job:retry</span><span class="tag">job:cancel</span><span class="tag r">job:external</span></li>
+        <li>ไฟล์ export (<code>fdh.export.package</code>) มี TTL ดาวน์โหลดได้เฉพาะเจ้าของงานหรือ admin</li>
+        <li>Retention: ลบงาน succeeded หลัง 30 วัน และ event หลัง 90 วัน <span class="dim">(ค่าเริ่มต้นที่เสนอ ต้องยืนยันกับนโยบายโรงพยาบาล)</span></li>
+        <li>ขอบเขต AI read-only และ SQL validation <b>ไม่เปลี่ยน</b> AI อ่านสถานะคิวได้ แต่สั่งงานไม่ได้</li>
+      </ul></div>
+  </div>
+</section>
+
+<!-- 16 ROADMAP -->
+<section class="slide" data-title="Roadmap">
+  <div class="kicker">15 · Roadmap</div>
+  <h2>แผนปรับใช้ 5 เฟส: ทุกเฟส deploy แยกได้ และ rollback ได้</h2>
+  <div class="body">
+    <div class="tl">
+      <div class="ph" style="--c:var(--teal)"><span class="dot"></span><div class="when">PHASE 0 · ~1 สัปดาห์</div><h3>Quick wins</h3>
+        <ul><li>bulk insert แบบหลายแถว</li><li>ลบ DDL ที่รันทุก request</li><li>endpoint นับสถานะ</li><li>composite index + keyset pagination</li></ul></div>
+      <div class="ph" style="--c:var(--cyan)"><span class="dot"></span><div class="when">PHASE 1 · ~2 สัปดาห์</div><h3>Job core</h3>
+        <ul><li>migration <code>job_queue/event/schedule</code></li><li>Runner + lanes + reaper</li><li>ย้าย UC Walk-in และ Auto Close</li><li>หน้า Admin Jobs / DLQ</li></ul></div>
+      <div class="ph" style="--c:var(--vio)"><span class="dot"></span><div class="when">PHASE 2 · ~2–3 สัปดาห์</div><h3>e-Claim & Import</h3>
+        <ul><li>แยก scan / download / import</li><li>ย้าย REP Import จาก browser ไปเซิร์ฟเวอร์</li><li>FDH export เป็นงานเบื้องหลัง</li><li>SSE progress</li></ul></div>
+      <div class="ph" style="--c:var(--pink)"><span class="dot"></span><div class="when">PHASE 3 · ~3 สัปดาห์</div><h3>Work Queue v2</h3>
+        <ul><li>คีย์ hcode+type+ref</li><li>state guard + version</li><li>routing จาก REP catalog</li><li>priority + SLA dashboard</li></ul></div>
+      <div class="ph" style="--c:var(--amb)"><span class="dot"></span><div class="when">PHASE 4 · เมื่อจำเป็น</div><h3>Scale-out</h3>
+        <ul><li>แยก worker process ใน PM2</li><li>MySQL 8 <code>SKIP LOCKED</code></li><li>ทางเลือก Redis/BullMQ ผ่าน interface เดิม</li></ul></div>
+    </div>
+    <div class="grid g3" style="margin-top:6px">
+      <div class="card"><h3>✅ Definition of Done ต่อเฟส</h3><p>มี unit test (claim/lease/backoff/dedupe/guard), ผ่าน <code>npm run check</code>, มี migration + rollback note และอัปเดต README/BACKLOG ตาม BACKLOG “Definition of done”</p></div>
+      <div class="card"><h3>🔀 ย้ายระบบแบบเปิด/ปิดได้</h3><p>ใช้ feature flag ต่องาน (<code>QUEUE_ENGINE=legacy|jobs</code>) รันคู่กับของเดิม 1 รอบ เปรียบเทียบผล แล้วค่อยปิดของเดิม</p></div>
+      <div class="card"><h3>⏳ ระยะเวลาโดยประมาณ</h3><p>ประเมินสำหรับนักพัฒนา 1 คนที่รู้จักโค้ดชุดนี้ ต้องปรับตามผลการวัดจริงหลัง Phase 0</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 17 KPI & DECISIONS -->
+<section class="slide" data-title="KPI & การตัดสินใจ">
+  <div class="kicker">16 · Success Metrics · Decisions</div>
+  <h2>วัดความสำเร็จอย่างไร และต้องตัดสินใจอะไรบ้าง</h2>
+  <div class="body grid g2" style="align-items:start">
+    <div class="card"><h3>🎯 KPI (วัดค่าฐานก่อนเริ่ม Phase 0)</h3>
+      <table style="margin-top:6px">
+        <thead><tr><th>ตัวชี้วัด</th><th>เป้าหมาย</th></tr></thead>
+        <tbody>
+          <tr><td>งานหายหลัง restart</td><td><span class="tag g">0 งาน</span></td></tr>
+          <tr><td>นำเข้าไฟล์ซ้ำ</td><td><span class="tag g">0 (มี dedupe_key)</span></td></tr>
+          <tr><td>เวลารวมของ e-Claim sync</td><td><span class="tag t">ลดลงเมื่อเทียบค่าฐาน</span></td></tr>
+          <tr><td>p95 ของ <code>/api/work-queue</code></td><td><span class="tag t">ลดลงเมื่อเทียบค่าฐาน</span></td></tr>
+          <tr><td>ตัวเลขสรุปสถานะตรงกับ DB</td><td><span class="tag g">100%</span></td></tr>
+          <tr><td>work item ที่ไม่มีเจ้าของ &gt; 1 วัน</td><td><span class="tag a">แนวโน้มลดลง</span></td></tr>
+        </tbody>
+      </table>
+      <p class="src">ไม่ได้ใส่ตัวเลขเปอร์เซ็นต์ล่วงหน้า เพราะยังไม่มีค่าฐานจาก production ต้องวัดก่อนแล้วจึงตั้งเป้า</p></div>
+    <div class="card"><h3>❓ เรื่องที่ต้องตัดสินใจ</h3>
+      <ol style="padding-left:20px;color:var(--mut);line-height:1.9;font-size:15px">
+        <li>เวอร์ชันฐานข้อมูล REP/STM เป็น MySQL 8 / MariaDB ≥10.6 หรือไม่ (ถ้าใช่ ใช้ <code>SKIP LOCKED</code> ได้)</li>
+        <li>ทีมเคลมยืนยัน <b>routing table</b> รหัส REP → ทีม</li>
+        <li>โรงพยาบาลกำหนด <b>SLA และกำหนดส่ง</b> ของแต่ละกองทุน</li>
+        <li>นโยบาย <b>retention</b> ของงาน, event และไฟล์ export</li>
+        <li>จะย้าย Work Queue ไปตารางใหม่ (<code>work_item</code>) หรือ ALTER ตารางเดิม</li>
+      </ol>
+      <div class="note info" style="margin-top:12px">ข้อเสนอ: เริ่ม <b>Phase 0</b> ก่อน เพราะเสี่ยงต่ำ ไม่เปลี่ยนพฤติกรรมที่ผู้ใช้เห็น และได้ค่าฐานสำหรับวัดผลเฟสถัดไป</div>
+    </div>
+  </div>
+</section>
+
+<!-- 18 END -->
+<section class="slide hero" data-title="สรุป">
+  <div class="kicker">Summary</div>
+  <h1>จาก <span style="color:var(--red)">6 คิวที่แยกกัน</span><br>สู่ <span class="grad">Unified Queue</span> เดียว</h1>
+  <div class="grid g4" style="margin-top:36px;max-width:1150px">
+    <div class="card"><div class="ico">💾</div><h3>ไม่หาย</h3><p>บันทึกใน MySQL ใช้ lease และ reaper</p></div>
+    <div class="card"><div class="ico">⚡</div><h3>เร็วขึ้น</h3><p>แยก lane ทำงานซ้อนกันได้ และลด round-trip</p></div>
+    <div class="card"><div class="ico">🧭</div><h3>ส่งงานถูกทีม</h3><p>routing จาก REP catalog ใน Vault</p></div>
+    <div class="card"><div class="ico">🔍</div><h3>ตรวจสอบได้</h3><p>มี event log, metrics และ SLA</p></div>
+  </div>
+  <p class="lead" style="margin-top:30px">กด <code>←</code> <code>→</code> เพื่อเปลี่ยนสไลด์ · <code>T</code> เปิดสารบัญ · <code>S</code> สลับเป็นโหมดเลื่อนอ่าน</p>
+</section>
+
+</main>
+
+<div class="nav">
+  <button id="tocBtn" title="สารบัญ (T)">☰</button>
+  <button id="prev" title="ก่อนหน้า">‹</button>
+  <span class="count" id="count">1 / 1</span>
+  <button id="next" title="ถัดไป">›</button>
+  <button class="mode" id="mode" title="สลับโหมด (S)">โหมดเลื่อนอ่าน</button>
+</div>
+
+<script>
+(() => {
+  const slides = [...document.querySelectorAll('.slide')];
+  const count = document.getElementById('count');
+  const progress = document.getElementById('progress');
+  const toc = document.getElementById('toc');
+  let i = Math.max(0, Math.min(slides.length - 1, (parseInt(location.hash.slice(1), 10) || 1) - 1));
+
+  toc.innerHTML = '<div class="kicker" style="margin:0 12px 14px">สารบัญ</div>' +
+    slides.map((s, n) => `<a href="#${n + 1}" data-n="${n}"><span>${String(n + 1).padStart(2, '0')}</span>${s.dataset.title || ''}</a>`).join('');
+
+  const show = (n) => {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => {
+      s.classList.toggle('active', k === i);
+      s.classList.toggle('prev', k < i);
+    });
+    count.textContent = `${i + 1} / ${slides.length}`;
+    progress.style.width = `${((i + 1) / slides.length) * 100}%`;
+    toc.querySelectorAll('a').forEach((a) => a.classList.toggle('on', Number(a.dataset.n) === i));
+    if (!document.body.classList.contains('scroll')) history.replaceState(null, '', `#${i + 1}`);
+  };
+
+  const toggleScroll = () => {
+    document.body.classList.toggle('scroll');
+    const on = document.body.classList.contains('scroll');
+    document.getElementById('mode').textContent = on ? 'โหมดสไลด์' : 'โหมดเลื่อนอ่าน';
+    if (on) { slides.forEach((s) => s.classList.add('active')); slides[i].scrollIntoView(); }
+    else show(i);
+  };
+
+  document.getElementById('prev').onclick = () => show(i - 1);
+  document.getElementById('next').onclick = () => show(i + 1);
+  document.getElementById('mode').onclick = toggleScroll;
+  document.getElementById('tocBtn').onclick = () => toc.classList.toggle('open');
+  toc.addEventListener('click', (e) => {
+    const a = e.target.closest('a'); if (!a) return;
+    e.preventDefault(); toc.classList.remove('open');
+    const n = Number(a.dataset.n);
+    if (document.body.classList.contains('scroll')) { i = n; slides[n].scrollIntoView({ behavior: 'smooth' }); }
+    else show(n);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest('input,textarea')) return;
+    if (document.body.classList.contains('scroll') && !['s', 'S', 't', 'T'].includes(e.key)) return;
+    if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); show(i + 1); }
+    else if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); show(i - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key === 's' || e.key === 'S') toggleScroll();
+    else if (e.key === 't' || e.key === 'T') toc.classList.toggle('open');
+    else if (e.key === 'Escape') toc.classList.remove('open');
+  });
+
+  let tx = null;
+  document.addEventListener('touchstart', (e) => { tx = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (tx === null || document.body.classList.contains('scroll')) return;
+    const dx = e.changedTouches[0].clientX - tx;
+    if (Math.abs(dx) > 60) show(i + (dx < 0 ? 1 : -1));
+    tx = null;
+  });
+
+  show(i);
+})();
+</script>
+</body>
+</html>

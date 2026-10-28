@@ -940,6 +940,104 @@ export const getDentalClinicalAudit = async (input: {
   }
 };
 
+/**
+ * Synchronizes dental_icd, vn_stat (pdx, dx0..dx5) and dtmain with ovstdiag so that
+ * HOSxP's dental window ("บันทึกหัตถการทันตกรรม") and reports display exactly what was
+ * updated on the web without any discrepancies or risk of being overwritten upon saving in HOSxP.
+ */
+export const syncDentalIcdAndVnStat = async (
+  connection: any,
+  vn: string,
+  doctor?: string
+) => {
+  // 1. Fetch current diagnoses from ovstdiag
+  const [ovstdiags]: any = await connection.query(
+    `SELECT ovst_diag_id, icd10, diagtype, doctor FROM ovstdiag WHERE vn = ? ORDER BY diagtype ASC, ovst_diag_id ASC`,
+    [vn]
+  );
+  if (!Array.isArray(ovstdiags) || ovstdiags.length === 0) return;
+
+  const pdxItem = ovstdiags.find((d: any) => String(d.diagtype) === '1');
+  const secondaryItems = ovstdiags.filter((d: any) => String(d.diagtype) !== '1');
+  const doc = doctor || pdxItem?.doctor || '2608';
+  const pdx = pdxItem ? String(pdxItem.icd10 || '').trim() : '';
+
+  // 2. Sync vn_stat (pdx, dx0..dx5)
+  if (pdx) {
+    const dx0 = secondaryItems[0] ? String(secondaryItems[0].icd10 || '') : '';
+    const dx1 = secondaryItems[1] ? String(secondaryItems[1].icd10 || '') : '';
+    const dx2 = secondaryItems[2] ? String(secondaryItems[2].icd10 || '') : '';
+    const dx3 = secondaryItems[3] ? String(secondaryItems[3].icd10 || '') : '';
+    const dx4 = secondaryItems[4] ? String(secondaryItems[4].icd10 || '') : '';
+    const dx5 = secondaryItems[5] ? String(secondaryItems[5].icd10 || '') : '';
+
+    await connection.query(
+      `UPDATE vn_stat SET pdx = ?, dx0 = ?, dx1 = ?, dx2 = ?, dx3 = ?, dx4 = ?, dx5 = ? WHERE vn = ?`,
+      [pdx, dx0, dx1, dx2, dx3, dx4, dx5, vn]
+    ).catch(() => {});
+  }
+
+  // 3. Sync dental_icd (the table HOSxP dental screen displays)
+  const [existingDentalIcd]: any = await connection.query(
+    `SELECT vn, tmcode, icd, dxtype, ovst_diag_id FROM dental_icd WHERE vn = ?`,
+    [vn]
+  );
+
+  if (Array.isArray(existingDentalIcd) && existingDentalIcd.length > 0) {
+    if (pdx) {
+      // Demote old PDX in dental_icd to '2' if it is not the new pdx
+      await connection.query(
+        `UPDATE dental_icd 
+         SET dxtype = '2' 
+         WHERE vn = ? AND dxtype = '1' AND (icd <> ? AND REPLACE(icd, '.', '') <> ?)`,
+        [vn, pdx, pdx]
+      ).catch(() => {});
+
+      // Promote the new PDX in dental_icd to '1'
+      const [matchedPdxRow]: any = await connection.query(
+        `SELECT tmcode FROM dental_icd WHERE vn = ? AND (icd = ? OR REPLACE(icd, '.', '') = ?) LIMIT 1`,
+        [vn, pdx, pdx]
+      );
+      if (Array.isArray(matchedPdxRow) && matchedPdxRow.length > 0) {
+        await connection.query(
+          `UPDATE dental_icd 
+           SET dxtype = '1', ovst_diag_id = COALESCE(ovst_diag_id, ?) 
+           WHERE vn = ? AND (icd = ? OR REPLACE(icd, '.', '') = ?)`,
+          [pdxItem?.ovst_diag_id || null, vn, pdx, pdx]
+        ).catch(() => {});
+      } else {
+        // If not yet in dental_icd, insert it with the active tmcode
+        const tmcode = String(existingDentalIcd[0]?.tmcode || '1038');
+        await connection.query(
+          `INSERT INTO dental_icd (vn, tmcode, icd, dxtype, doctor, ovst_diag_id, dtmain_id)
+           VALUES (?, ?, ?, '1', ?, ?, 0)
+           ON DUPLICATE KEY UPDATE dxtype = '1', ovst_diag_id = VALUES(ovst_diag_id)`,
+          [vn, tmcode, pdx, doc, pdxItem?.ovst_diag_id || null]
+        ).catch(() => {});
+      }
+    }
+
+    // Also update secondary diagnoses in dental_icd
+    for (const od of secondaryItems) {
+      const icdClean = String(od.icd10 || '').trim();
+      await connection.query(
+        `UPDATE dental_icd 
+         SET dxtype = IF(dxtype = '1', '2', dxtype), ovst_diag_id = COALESCE(ovst_diag_id, ?) 
+         WHERE vn = ? AND (icd = ? OR REPLACE(icd, '.', '') = ?)`,
+        [od.ovst_diag_id, vn, icdClean, icdClean]
+      ).catch(() => {});
+    }
+  }
+
+  // 4. Sync dtmain.icd
+  if (pdx) {
+    await connection.query(
+      `UPDATE dtmain SET icd = ? WHERE vn = ? AND (icd = 'Z012' OR icd LIKE 'Z01.2%' OR icd IS NULL OR icd = '')`,
+      [pdx, vn]
+    ).catch(() => {});
+  }
+};
+
 export const fixDentalClinicalVisit = async (input: {
   vn: string;
   actorUserId?: number | null;
@@ -1106,6 +1204,21 @@ export const fixDentalClinicalVisit = async (input: {
             [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
           );
           executedActions.push('เพิ่มรหัสโรคเหงือกอักเสบ K05.1 (diagtype=2) สำหรับหัตถการขูดหินปูน');
+          // Sync to dental_icd if dental_icd exists
+          const [hasDentalK051]: any = await connection.query(
+            `SELECT tmcode, dtmain_id FROM dental_icd WHERE vn = ? LIMIT 1`,
+            [vn]
+          );
+          if (Array.isArray(hasDentalK051) && hasDentalK051.length > 0) {
+            const tmcode = String(hasDentalK051[0]?.tmcode || '1038');
+            const dtmainId = Number(hasDentalK051[0]?.dtmain_id || 0);
+            await connection.query(
+              `INSERT INTO dental_icd (vn, tmcode, icd, dxtype, doctor, ovst_diag_id, dtmain_id)
+               VALUES (?, ?, 'K051', '2', ?, ?, ?)
+               ON DUPLICATE KEY UPDATE dxtype = IF(dxtype = '1', '1', '2')`,
+              [vn, tmcode, ovstDoctor, diagId, dtmainId]
+            ).catch(() => {});
+          }
         }
       } else if (action === 'ADD_K021') {
         const [existsK021] = await connection.query(
@@ -1120,6 +1233,21 @@ export const fixDentalClinicalVisit = async (input: {
             [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
           );
           executedActions.push('เพิ่มรหัสโรคฟันผุ K02.1 (diagtype=2) สำหรับหัตถการอุดฟัน');
+          // Sync to dental_icd if dental_icd exists
+          const [hasDentalK021]: any = await connection.query(
+            `SELECT tmcode, dtmain_id FROM dental_icd WHERE vn = ? LIMIT 1`,
+            [vn]
+          );
+          if (Array.isArray(hasDentalK021) && hasDentalK021.length > 0) {
+            const tmcode = String(hasDentalK021[0]?.tmcode || '1038');
+            const dtmainId = Number(hasDentalK021[0]?.dtmain_id || 0);
+            await connection.query(
+              `INSERT INTO dental_icd (vn, tmcode, icd, dxtype, doctor, ovst_diag_id, dtmain_id)
+               VALUES (?, ?, 'K021', '2', ?, ?, ?)
+               ON DUPLICATE KEY UPDATE dxtype = IF(dxtype = '1', '1', '2')`,
+              [vn, tmcode, ovstDoctor, diagId, dtmainId]
+            ).catch(() => {});
+          }
         }
       } else if (action === 'ADD_K011') {
         const [existsK011] = await connection.query(
@@ -1134,6 +1262,21 @@ export const fixDentalClinicalVisit = async (input: {
             [diagId, vn, ovstHn, ovstVstdate, ovstVsttime, ovstDoctor, ovstStaff]
           );
           executedActions.push('เพิ่มรหัสฟันคุด K01.1 (diagtype=2) สำหรับหัตถการผ่าฟันคุด');
+          // Sync to dental_icd if dental_icd exists
+          const [hasDentalK011]: any = await connection.query(
+            `SELECT tmcode, dtmain_id FROM dental_icd WHERE vn = ? LIMIT 1`,
+            [vn]
+          );
+          if (Array.isArray(hasDentalK011) && hasDentalK011.length > 0) {
+            const tmcode = String(hasDentalK011[0]?.tmcode || '1038');
+            const dtmainId = Number(hasDentalK011[0]?.dtmain_id || 0);
+            await connection.query(
+              `INSERT INTO dental_icd (vn, tmcode, icd, dxtype, doctor, ovst_diag_id, dtmain_id)
+               VALUES (?, ?, 'K011', '2', ?, ?, ?)
+               ON DUPLICATE KEY UPDATE dxtype = IF(dxtype = '1', '1', '2')`,
+              [vn, tmcode, ovstDoctor, diagId, dtmainId]
+            ).catch(() => {});
+          }
         }
       } else if (action === 'SWAP_Z012') {
         // Find best curative disease code
@@ -1167,7 +1310,20 @@ export const fixDentalClinicalVisit = async (input: {
           );
         }
         await connection.query(`UPDATE vn_stat SET pdx = ? WHERE vn = ?`, [newPdx, vn]).catch(() => {});
-        executedActions.push(`สลับรหัสโรคหลักจาก Z01.2 เป็น ${newPdx} และเปลี่ยน Z01.2 เป็นโรครอง (diagtype=2)`);
+        // In dental_icd: demote Z012 to '2' and promote newPdx to '1' (exact HOSxP transaction)
+        await connection.query(
+          `UPDATE dental_icd SET dxtype = '2' WHERE vn = ? AND (icd = 'Z012' OR icd LIKE 'Z01.2%')`,
+          [vn]
+        ).catch(() => {});
+        await connection.query(
+          `UPDATE dental_icd SET dxtype = '1' WHERE vn = ? AND (icd = ? OR REPLACE(icd, '.', '') = ?)`,
+          [vn, newPdx, newPdx]
+        ).catch(() => {});
+        await connection.query(
+          `UPDATE dtmain SET icd = ? WHERE vn = ? AND (icd = 'Z012' OR icd LIKE 'Z01.2%')`,
+          [newPdx, vn]
+        ).catch(() => {});
+        executedActions.push(`สลับรหัสโรคหลักจาก Z01.2 เป็น ${newPdx} และเปลี่ยน Z01.2 เป็นโรครอง (diagtype=2) พร้อมอัปเดต dental_icd`);
       } else if (action === 'ADD_DENTAL_PDX') {
         // Determine appropriate dental PDX based on procedures
         let dentalPdx = 'Z012';
@@ -1202,7 +1358,16 @@ export const fixDentalClinicalVisit = async (input: {
 
         await connection.query(`UPDATE vn_stat SET pdx = ? WHERE vn = ?`, [dentalPdx, vn]).catch(() => {});
         await connection.query(`UPDATE dtmain SET icd = ? WHERE vn = ? AND (icd IS NULL OR icd = '')`, [dentalPdx, vn]).catch(() => {});
-        executedActions.push(`เพิ่มรหัสวินิจฉัยหลักทันตกรรม (${dentalPdx}) ใน ovstdiag, vn_stat และ dtmain`);
+        // In dental_icd: demote others to '2' and promote/insert dentalPdx as '1'
+        await connection.query(
+          `UPDATE dental_icd SET dxtype = '2' WHERE vn = ? AND dxtype = '1' AND (icd <> ? AND REPLACE(icd, '.', '') <> ?)`,
+          [vn, dentalPdx, dentalPdx]
+        ).catch(() => {});
+        await connection.query(
+          `UPDATE dental_icd SET dxtype = '1' WHERE vn = ? AND (icd = ? OR REPLACE(icd, '.', '') = ?)`,
+          [vn, dentalPdx, dentalPdx]
+        ).catch(() => {});
+        executedActions.push(`เพิ่มรหัสวินิจฉัยหลักทันตกรรม (${dentalPdx}) ใน ovstdiag, vn_stat, dtmain และ dental_icd`);
       } else if (action === 'SYNC_DENTAL_PROC') {
         const [numDxRows] = await connection.query(
           `SELECT ovst_diag_id, icd10, diagtype, doctor FROM ovstdiag WHERE vn = ? AND icd10 REGEXP '^[0-9]'`,
@@ -1387,11 +1552,18 @@ export const fixDentalClinicalVisit = async (input: {
           );
           const delCount = Number((delDupRes as { affectedRows?: number }).affectedRows || 0);
           if (delCount > 0) {
-            executedActions.push(`ลบรหัสโรคที่ซ้ำกับโรคหลัก (${pdxCode}) จำนวน ${delCount} รายการ ออกจาก ovstdiag`);
+            await connection.query(
+              `DELETE FROM dental_icd WHERE vn = ? AND dxtype != '1' AND (icd = ? OR REPLACE(icd, '.', '') = ?)`,
+              [vn, pdxCode, pdxCode]
+            ).catch(() => {});
+            executedActions.push(`ลบรหัสโรคที่ซ้ำกับโรคหลัก (${pdxCode}) จำนวน ${delCount} รายการ ออกจาก ovstdiag และ dental_icd`);
           }
         }
       }
     }
+
+    // Comprehensive sync across ovstdiag, dental_icd, vn_stat (pdx, dx0..dx5), and dtmain
+    await syncDentalIcdAndVnStat(connection, vn, ovstDoctor);
 
     await connection.query('COMMIT');
 

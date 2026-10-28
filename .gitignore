@@ -49,3 +49,4 @@ skills-lock.json
 *.xlsx
 
 !server/templates/*.xlsx
+cookies.txt

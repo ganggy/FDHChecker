@@ -1972,95 +1972,174 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         const evaluateStatus = getStatusForFundRef.current;
         return items.map((item, index) => {
             const status = evaluateStatus(item, fundId);
-            const baseRow: Record<string, string | number> = {
-                '##': index + 1,
+
+            // 1. Common front columns (matching headers 1-5 of UI table)
+            const frontCols: Record<string, string | number> = {
+                '#': index + 1,
                 'VN': item.vn || '',
                 'HN': item.hn || '',
                 'ชื่อผู้ป่วย': item.patientName || '',
                 'CID': item.cid || '',
-                'สิทธิ์': item.pttypename || '',
+                'สิทธิ์ (PTTYPE)': item.pttypename || '',
+                'HIP Data': item.hipdata_code || '-',
                 'วันที่รับบริการ': item.serviceDate || '',
-                'สถานะการส่งเบิก': getEffectiveSendStatusLabel(item),
+                'เวลาที่รับบริการ': item.vsttime || '',
+            };
+
+            // 2. Fund-specific middle columns (matching the exact table columns on screen)
+            const fundSpecificCols: Record<string, string | number> = {};
+
+            if (fundId === 'instrument') {
+                fundSpecificCols['รายการอุปกรณ์'] = item.instrument_items || '-';
+                fundSpecificCols['กลุ่ม'] = item.has_oa === 'Y' ? 'ผ่าข้อเข่า (OA)' : item.has_dm === 'Y' ? 'อุปกรณ์ DM' : 'ทั่วไป';
+                fundSpecificCols['ยอดรวม (฿)'] = item.instrument_price != null ? Number(item.instrument_price) : 0;
+            } else if (fundId === 'palliative') {
+                const review = getPalliativeReview(item);
+                fundSpecificCols['ผลตรวจ Palliative'] = review.visitKindLabel;
+                fundSpecificCols['เข้าเกณฑ์ Palliative'] = review.qualifiesForService ? 'ใช่' : 'ไม่ใช่';
+                fundSpecificCols['Diag หลัก'] = item.pdx || '';
+                fundSpecificCols['Diag (Z515)'] = item.z515_code || '';
+                fundSpecificCols['Diag (Z718)'] = item.z718_code || '';
+                fundSpecificCols['ADP Code'] = [item.has_30001 === 'Y' ? '30001' : '', item.has_cons01 === 'Y' ? 'Cons01' : '', item.has_eva001 === 'Y' ? 'Eva001' : ''].filter(Boolean).join(', ');
+                fundSpecificCols['มอร์ฟีน'] = review.morphineNames || '';
+                fundSpecificCols['โรคในบัญชีที่พบ'] = item.eligible_palliative_diag_codes || '';
+                fundSpecificCols['เหตุผลที่ต้องตรวจ'] = review.reasons.join(' | ');
+            } else if (fundId === 'telemedicine') {
+                fundSpecificCols['การมา (Ovstist)'] = item.ovstist_export_code || '';
+                fundSpecificCols['ADP Code'] = item.has_telmed ? 'TELMED' : '';
+            } else if (fundId === 'drugp') {
+                fundSpecificCols['ADP Code'] = item.drugp_adp_codes || '';
+                fundSpecificCols['รายการยา'] = item.drugp_item_names || '';
+            } else if (fundId === 'herb') {
+                const herbAssessment = evaluateHerbalMedicationMatch(
+                    [item?.diag_codes, item?.pdx, item?.main_diag, item?.diag_list, item?.diagnosis_list],
+                    item?.herb_items,
+                );
+                fundSpecificCols['Diag หลัก'] = item.pdx || '';
+                fundSpecificCols['Diagnosis ทั้งหมด'] = herbAssessment.diagnosisCodes.join(', ');
+                fundSpecificCols['รายการยาสมุนไพร'] = item.herb_items || '';
+                fundSpecificCols['ตรวจยา/โรค'] = herbAssessment.status === 'valid' ? 'ถูกต้อง' : herbAssessment.status === 'invalid' ? 'ยาไม่สัมพันธ์กับโรค' : 'ต้องตรวจสอบ';
+                fundSpecificCols['กลุ่มอาการที่ตรง'] = herbAssessment.matchedSymptoms.join(', ');
+                fundSpecificCols['ยอดรวม (฿)'] = item.herb_total_price || '';
+                fundSpecificCols['รายละเอียดการตรวจ'] = herbAssessment.reasons.join(' | ');
+            } else if (fundId === 'knee') {
+                fundSpecificCols['อายุ'] = item.age ?? '';
+                fundSpecificCols['Diag M17 + U57.53'] = item.has_knee_diag ? 'มี' : 'ขาด';
+                fundSpecificCols['หัตถการพอกเข่า'] = item.has_knee_procedure ? 'มี' : 'ขาด';
+                fundSpecificCols['ครั้ง/2 สัปดาห์'] = item.knee_biweekly_count ?? '';
+            } else if (['ttm_massage', 'ttm_compress', 'ttm_steam', 'ttm_postnatal'].includes(fundId)) {
+                fundSpecificCols['หัตถการ 43 แฟ้ม'] = item.ttm_code || '';
+                fundSpecificCols['ชื่อหัตถการ'] = item.ttm_name || '';
+                fundSpecificCols['Diag ที่สัมพันธ์'] = item.ttm_diag || '';
+                fundSpecificCols['ผู้ให้บริการ/ใบประกอบ'] = item.provider_name || '';
+                fundSpecificCols['เวลาบริการ'] = item.service_duration || '';
+            } else if (fundId === 'fecal_fit_test') {
+                fundSpecificCols['อายุ'] = item.age ?? '';
+                fundSpecificCols['ผลตรวจ Fit Test'] = item.fit_test_result || '';
+                fundSpecificCols['รายการบริการ/ADP'] = item.fit_service_names || item.fit_adp_codes || '';
+            } else if (fundId === 'ncd_screening') {
+                fundSpecificCols['อายุ'] = item.age ?? '';
+                fundSpecificCols['ความดัน (BP)'] = (item.bps && item.bpd) ? `${item.bps}/${item.bpd}` : '';
+                fundSpecificCols['BMI'] = item.bmi || '';
+                fundSpecificCols['น้ำตาล (FBS/DTX)'] = item.fbs || '';
+            } else if (fundId === 'dspm_screening') {
+                fundSpecificCols['อายุเด็ก'] = item.age || '';
+                fundSpecificCols['รหัส DSPM'] = item.dspm_code || '';
+                fundSpecificCols['ผลการประเมินพัฒนาการ'] = item.dspm_result || '';
+            } else if (fundId === 'retinopathy_screening' || fundId === 'foot_screening') {
+                fundSpecificCols['เบาหวาน (DM)'] = item.has_dm_diag ? 'มี' : 'ไม่มี';
+                fundSpecificCols['การตรวจคัดกรองภาวะแทรกซ้อน'] = fundId === 'retinopathy_screening' ? (item.retinopathy_service_names || '') : (item.foot_service_names || '');
+            } else if (fundId === 'preg_test') {
+                fundSpecificCols['รหัส 31101 (Lab)'] = item.preg_lab_name || (toFlag(item?.has_preg_lab) ? 'มี 31101' : 'ขาด 31101');
+                fundSpecificCols['รหัส 30014 (ADP)'] = item.preg_item_name || (toFlag(item?.has_preg_item) ? 'มี 30014' : 'ขาด 30014');
+                fundSpecificCols['ผลแล็ป UPT'] = item.preg_result || (toFlag(item?.has_preg_lab) ? 'พบผลแล็ป' : 'ไม่พบผลแล็ป');
+            } else if (fundId === 'anc' || fundId === 'anc_ultrasound') {
+                fundSpecificCols['Diag ฝากครรภ์'] = item.anc_diags || '';
+                fundSpecificCols['รหัส ANC'] = item.anc_adp_codes || '';
+                if (fundId === 'anc_ultrasound') {
+                    fundSpecificCols['อัลตราซาวนด์'] = item.has_anc_us ? 'มี' : 'ไม่มี';
+                }
+            } else if (fundId === 'anc_dental_exam' || fundId === 'anc_dental_clean') {
+                fundSpecificCols['Diag ฝากครรภ์'] = item.anc_diags || '';
+                fundSpecificCols['ADP Code'] = item.anc_adp_codes || '';
+                fundSpecificCols['หัตถการทันตกรรม'] = item.dental_procedure_names || '';
+                fundSpecificCols['รหัสหัตถการทันตกรรม'] = item.dental_procedure_codes || '';
+                fundSpecificCols['คู่รหัส ICD10TM:ICD-9'] = item.dental_procedure_pairs || '';
+                fundSpecificCols['บันทึกช่องปาก'] = toFlag(item.has_dental_care_record) ? 'มี' : 'ไม่มี';
+            } else if (fundId === 'cacervix') {
+                fundSpecificCols['Diag (Z124/Z014)'] = item.ca_diags || '';
+                fundSpecificCols['รหัสคัดกรอง CA'] = item.ca_adp_codes || '';
+            } else if (fundId === 'fp') {
+                fundSpecificCols['Diag คุมกำเนิด'] = item.fp_diags || (item.pdx === 'Z308' ? 'Z308' : '');
+                fundSpecificCols['รหัสอุปกรณ์/ยา'] = item.fp_adp_codes || '';
+                fundSpecificCols['ICD9 Code'] = item.icd9_code || '';
+            } else if (fundId === 'postnatal_care') {
+                fundSpecificCols['Diag หลังคลอด'] = item.postnatal_diags || '';
+                fundSpecificCols['รหัส 30015'] = item.has_30015 ? 'มี' : 'ไม่มี';
+            } else if (fundId === 'er_emergency') {
+                fundSpecificCols['Project Code'] = item.project_code || '';
+            } else if (fundId === 'chemo') {
+                fundSpecificCols['Diag เคมีบำบัด'] = item.chemo_diags || '';
+            } else if (fundId === 'hepc' || fundId === 'hepb') {
+                fundSpecificCols['เกิดก่อน 2535'] = item.born_before_2535 ? 'ใช่' : 'ไม่ใช่';
+                fundSpecificCols['Dx Z11.5'] = item.has_z115 ? 'มี' : 'ไม่มี';
+                fundSpecificCols[fundId === 'hepc' ? 'Lab Anti-HCV' : 'Lab HBsAg'] = fundId === 'hepc' ? (item.anti_hcv_result || '') : (item.hbsag_result || '');
+            } else if (fundId === 'rehab') {
+                fundSpecificCols['Diag ฟื้นฟู'] = item.rehab_diags || '';
+            } else if (fundId === 'crrt') {
+                fundSpecificCols['Diag ฟอกเลือด'] = item.crrt_diags || '';
+            } else if (fundId === 'robot') {
+                fundSpecificCols['หัตถการ Robot'] = item.robot_procedures || '';
+            } else if (fundId === 'proton') {
+                fundSpecificCols['Diag รังสีรักษา'] = item.proton_diags || '';
+            } else if (fundId === 'cxr') {
+                fundSpecificCols['รายการอ่านฟิล์ม'] = item.cxr_findings || '';
+            } else if (['fpg_screening', 'cholesterol_screening', 'anemia_screening', 'iron_supplement', 'ferrokid_child'].includes(fundId) ||
+                       fundId?.startsWith('anc_') || fundId?.startsWith('postnatal_') || ['fluoride', 'contraceptive_pill', 'condom'].includes(fundId)) {
+                fundSpecificCols['อายุ'] = item.age ?? '';
+                fundSpecificCols['Diag หลัก'] = item.pdx || '';
+                fundSpecificCols['Authen Code'] = item.authencode || '';
+            } else if (fundId === 'syphilis_screening_male') {
+                fundSpecificCols['เพศ'] = item.sex === '1' ? 'ชาย' : item.sex === '2' ? 'หญิง' : '';
+                fundSpecificCols['Lab ซิฟิลิส'] = item.syphilis_result || '';
+                fundSpecificCols['Authen Code'] = item.authencode || '';
+            }
+
+            // 3. Common trailing columns (matching columns from SUBFUNDS TAGS to STM/INV)
+            const failureGuidance = getFdhFailureGuidance(item, status);
+            const fdhFileReason = [getImportedFdhLabel(item), failureGuidance].filter(Boolean).join(' - ');
+
+            const backCols: Record<string, string | number> = {
+                'SUBFUNDS TAGS': status.subfunds.join(' | ') || '',
+                'สถานะ': status.status,
+                'สถานะส่งเบิก': getEffectiveSendStatusLabel(item),
                 'สถานะ FDH': getFdhStatusLabel(item),
-                'FDH Status': item.fdh_claim_status_message || '',
+                'FDH STATUS': item.fdh_claim_status_message || '',
+                'ไฟล์ FDH / เหตุผล': fdhFileReason,
+                'REP': getRepImportLabel(item),
+                'STM/INV': getStatementImportLabel(item),
+                'ยอดชดเชย STM (฿)': item.stm_paid_amount != null ? Number(item.stm_paid_amount) : '',
+                'ยอดสุทธิ INV (฿)': Number(item.inv_net_amount ?? 0) > 0 ? Number(item.inv_net_amount) : '',
+                'เลขที่ REP': item.rep_no || '',
+                'ยอดชดเชย REP (฿)': item.rep_amount ?? '',
+                'ข้อผิดพลาด REP': [item.rep_errorcode, item.rep_verifycode].filter(Boolean).join(' / '),
+                'เลขที่ STM/INV': item.stm_statement_no || '',
+                'ยอดชดเชย STM ทั้งสิ้น (฿)': item.stm_amount ?? '',
+                'ข้อผิดพลาด STM': [item.stm_errorcode, item.stm_verifycode].filter(Boolean).join(' / '),
                 'Fdh_Stm_Period': item.fdh_stm_period || '',
                 'Fdh_Act_Amt': item.fdh_act_amt != null ? Number(item.fdh_act_amt) : '',
-                'FDH File Status': item.fdh_import_status || '',
                 'FDH Claim Code': item.fdh_import_claim_code || '',
-                'REP No': item.rep_no || '',
-                'REP Amount': item.rep_amount ?? '',
-                'REP Error': [item.rep_errorcode, item.rep_verifycode].filter(Boolean).join(' / '),
-                'STM/INV No': item.stm_statement_no || '',
-                'STM Amount': item.stm_amount ?? '',
-                'STM Paid': item.stm_paid_amount ?? '',
-                'STM Error': [item.stm_errorcode, item.stm_verifycode].filter(Boolean).join(' / '),
                 'Fdh_Settle_At': item.fdh_settle_at || '',
-                'สถานะ': status.status,
-                'บริการ': status.subfunds.join(' | ') || '',
                 'เงื่อนไขที่ตรง': status.matchedConditions?.join(' | ') || '',
                 'เงื่อนไขที่ขาด': status.missingConditions?.join(' | ') || '',
                 'หลักฐานเอกสารที่ต้องตรวจ': status.manualEvidenceConditions?.join(' | ') || '',
             };
 
-            if (fundId === 'palliative') {
-                const review = getPalliativeReview(item);
-                return {
-                    ...baseRow,
-                    'Diag หลัก': item.pdx || '',
-                    'Diag Z515': item.z515_code || '',
-                    'Diag Z718': item.z718_code || '',
-                    'ADP Code': [item.has_30001 === 'Y' ? '30001' : '', item.has_cons01 === 'Y' ? 'Cons01' : '', item.has_eva001 === 'Y' ? 'Eva001' : ''].filter(Boolean).join(', '),
-                    'ประเภท visit': review.visitKindLabel,
-                    'เข้าเกณฑ์บริการ Palliative': review.qualifiesForService ? 'ใช่' : 'ไม่ใช่',
-                    'เหตุผลที่ต้องตรวจ': review.reasons.join(' | '),
-                    'โรคในบัญชีที่พบ': item.eligible_palliative_diag_codes || '',
-                };
-            }
-            if (fundId === 'telemedicine') {
-                return {
-                    ...baseRow,
-                    'Ovstist Code': item.ovstist_export_code || '',
-                    'ADP Code': item.has_telmed ? 'TELMED' : '',
-                };
-            }
-            if (fundId === 'herb') {
-                const herbAssessment = evaluateHerbalMedicationMatch(
-                    [item?.diag_codes, item?.pdx, item?.main_diag, item?.diag_list, item?.diagnosis_list],
-                    item?.herb_items,
-                );
-                return {
-                    ...baseRow,
-                    'Diag หลัก': item.pdx || '',
-                    'Diagnosis ทั้งหมด': herbAssessment.diagnosisCodes.join(', '),
-                    'รายการสมุนไพร': item.herb_items || '',
-                    'ยอดรวม': item.herb_total_price || '',
-                    'ผลตรวจยา/โรค': herbAssessment.status === 'valid' ? 'ถูกต้อง' : herbAssessment.status === 'invalid' ? 'ยาไม่สัมพันธ์กับโรค' : 'ต้องตรวจสอบ',
-                    'กลุ่มอาการที่ตรง': herbAssessment.matchedSymptoms.join(', '),
-                    'รายละเอียดการตรวจ': herbAssessment.reasons.join(' | '),
-                };
-            }
-            if (fundId === 'fp') {
-                return {
-                    ...baseRow,
-                    'Z308': item.pdx === 'Z308' || item.fp_diags?.includes('Z308') ? 'Z308' : '',
-                    'ICD9 Code': item.icd9_code || '',
-                    'ADP Codes': item.fp_adp_codes || '',
-                };
-            }
-            if (fundId === 'anc_dental_exam' || fundId === 'anc_dental_clean') {
-                return {
-                    ...baseRow,
-                    'Diagnosis ฝากครรภ์': item.anc_diags || '',
-                    'ADP Codes': item.anc_adp_codes || '',
-                    'คู่รหัส ICD10TM:ICD-9': item.dental_procedure_pairs || '',
-                    'ชื่อรายการ ADP': item.adp_names || '',
-                    'รหัสหัตถการทันตกรรม': item.dental_procedure_codes || '',
-                    'หัตถการทันตกรรม': item.dental_procedure_names || '',
-                    'บันทึกตรวจช่องปาก': toFlag(item.has_dental_care_record) ? 'มี' : 'ไม่มี',
-                };
-            }
-
-            return baseRow;
+            return {
+                ...frontCols,
+                ...fundSpecificCols,
+                ...backCols,
+            };
         });
     // The label helpers are pure formatters declared in this component; export data is
     // evaluated only when the user clicks export, so recreating this callback adds no value.

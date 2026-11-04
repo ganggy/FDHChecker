@@ -339,7 +339,7 @@ function App() {
               </div>
             </div>
             <div className="navbar-time navbar-meta-card">
-              <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>ระบบตรวจสอบเบิกจ่าย v1.0.2</div>
+              <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>ระบบตรวจสอบเบิกจ่าย v1.0.3</div>
               <div>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</div>
               <div>{new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
             </div>

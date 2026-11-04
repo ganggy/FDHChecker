@@ -15,6 +15,7 @@ export interface NhsoCloseConfig {
   autoCloseEnabled?: boolean;
   autoCloseDelayMinutes?: number;
   autoCloseIntervalMinutes?: number;
+  autoCloseScope?: 'all' | 'dressing_injection_only';
 }
 
 export interface NhsoAutoCloseSummary {
@@ -30,6 +31,7 @@ export interface NhsoAutoCloseStatus {
   enabled: boolean;
   delayMinutes: number;
   intervalMinutes: number;
+  scope: 'all' | 'dressing_injection_only';
   isRunning: boolean;
   isSchedulerActive: boolean;
   lastRunAt: string | null;
@@ -55,16 +57,33 @@ const getTodayDateString = () => new Date().toISOString().slice(0, 10);
  * 2. เป็นผู้ป่วยนอก (OPD: an IS NULL OR an = '')
  * 3. มีเลขประจำตัวประชาชน 13 หลัก
  * 4. ยังไม่มีการปิดสิทธิ์ (ยังไม่มี EP... หรือ nhso_status <> 'Y')
- * 5. เวลาจำหน่าย/การเงิน/ตรวจเสร็จ ผ่านไปแล้วเกิน delayMinutes (ค่าเริ่มต้น 15 นาที)
+ * 5. เวลาจำหน่าย/การเงิน/ตรวจเสร็จ ผ่านไปแล้วเกิน delayMinutes (ค่าเริ่มต้น 20 นาที)
+ * 6. รองรับการคัดกรองหรือจัดลำดับเคสล้างแผล ฉีดยาต่อเนื่อง ที่ไม่ได้พบแพทย์ก่อนเป็นพิเศษ
  */
 export const getNhsoAutoCloseCandidates = async (options: {
   delayMinutes: number;
   limit?: number;
+  scope?: 'all' | 'dressing_injection_only';
 }): Promise<Record<string, unknown>[]> => {
   const connection = await getUTFConnection();
   try {
-    const delayMinutes = Math.max(1, Number(options.delayMinutes || 15));
+    const delayMinutes = Math.max(1, Number(options.delayMinutes || 20));
     const limit = Math.max(1, Math.min(Number(options.limit || 50), 200));
+    const scope = options.scope === 'dressing_injection_only' ? 'dressing_injection_only' : 'all';
+
+    const dressingCondition = `
+      AND (
+        (
+          EXISTS (SELECT 1 FROM ovstdiag od WHERE od.vn = o.vn AND od.icd10 IN ('Z480', 'Z519', 'Z488', 'Z489', 'Z48.0', 'Z51.9'))
+          OR o.ovstist = '07'
+        )
+        AND (
+          IFNULL((SELECT licenseno FROM doctor WHERE code = o.doctor), '') NOT LIKE 'ว%'
+          OR o.doctor IS NULL
+          OR o.doctor = ''
+        )
+      )
+    `;
 
     const [rows] = await connection.query(
       `SELECT
@@ -95,7 +114,18 @@ export const getNhsoAutoCloseCandidates = async (options: {
              TIMESTAMP(o.vstdate, COALESCE(o.cur_dep_time, o.vsttime))
            ),
            NOW()
-         ) AS minutes_since_dismiss
+         ) AS minutes_since_dismiss,
+         CASE
+           WHEN (
+             EXISTS (SELECT 1 FROM ovstdiag od WHERE od.vn = o.vn AND od.icd10 IN ('Z480', 'Z519', 'Z488', 'Z489', 'Z48.0', 'Z51.9'))
+             OR o.ovstist = '07'
+           ) AND (
+             IFNULL((SELECT licenseno FROM doctor WHERE code = o.doctor), '') NOT LIKE 'ว%'
+             OR o.doctor IS NULL
+             OR o.doctor = ''
+           ) THEN 1
+           ELSE 0
+         END AS is_dressing_nurse
        FROM ovst o
        LEFT JOIN patient pt ON pt.hn = o.hn
        LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
@@ -112,6 +142,7 @@ export const getNhsoAutoCloseCandidates = async (options: {
            AND IFNULL((SELECT claim_code FROM authenhos ah2 WHERE ah2.vn = o.vn AND ah2.claim_code REGEXP '^EP' LIMIT 1), '') = ''
            AND IFNULL((SELECT auth_code FROM visit_pttype vp2 WHERE vp2.vn = o.vn AND vp2.auth_code REGEXP '^EP' LIMIT 1), '') = ''
          )
+         ${scope === 'dressing_injection_only' ? dressingCondition : ''}
          AND TIMESTAMPDIFF(
            MINUTE,
            COALESCE(
@@ -120,7 +151,7 @@ export const getNhsoAutoCloseCandidates = async (options: {
            ),
            NOW()
          ) >= ?
-       ORDER BY o.vstdate ASC, o.vsttime ASC
+       ORDER BY is_dressing_nurse DESC, o.vstdate ASC, o.vsttime ASC
        LIMIT ?`,
       [delayMinutes, limit]
     );
@@ -168,7 +199,8 @@ export const runNhsoAutoCloseCycle = async (
   const sourceId = String(savedConfig.sourceId || 'KSPAPI').trim() || 'KSPAPI';
   const claimServiceCode = String(savedConfig.claimServiceCode || 'PG0060001').trim() || 'PG0060001';
   const environment = String(savedConfig.environment || 'prd') === 'uat' ? 'uat' : 'prd';
-  const delayMinutes = Math.max(1, Number(savedConfig.autoCloseDelayMinutes || 15));
+  const delayMinutes = Math.max(1, Number(savedConfig.autoCloseDelayMinutes || 20));
+  const scope = savedConfig.autoCloseScope === 'dressing_injection_only' ? 'dressing_injection_only' : 'all';
 
   if (!token || !recorderPid) {
     lastError = 'ยังไม่ได้ตั้งค่า Token หรือ Recorder PID ในการปิดสิทธิ์ NHSO';
@@ -205,6 +237,7 @@ export const runNhsoAutoCloseCycle = async (
     const candidates = await getNhsoAutoCloseCandidates({
       delayMinutes,
       limit: 50,
+      scope,
     });
 
     const nowIso = new Date().toISOString();
@@ -297,8 +330,9 @@ export const getNhsoAutoCloseStatus = async (): Promise<NhsoAutoCloseStatus> => 
   const savedConfig = (await getAppSetting<Record<string, unknown>>(NHSO_CLOSE_SETTINGS_KEY)) || {};
   return {
     enabled: savedConfig.autoCloseEnabled === true,
-    delayMinutes: Math.max(1, Number(savedConfig.autoCloseDelayMinutes || 15)),
+    delayMinutes: Math.max(1, Number(savedConfig.autoCloseDelayMinutes || 20)),
     intervalMinutes: Math.max(1, Number(savedConfig.autoCloseIntervalMinutes || 3)),
+    scope: (savedConfig.autoCloseScope === 'dressing_injection_only' ? 'dressing_injection_only' : 'all'),
     isRunning: isExecuting,
     isSchedulerActive: schedulerTimer !== null,
     lastRunAt,
@@ -322,8 +356,9 @@ export const startNhsoAutoCloseScheduler = async () => {
 
   const intervalMinutes = Math.max(1, Number(savedConfig.autoCloseIntervalMinutes || 3));
   const intervalMs = intervalMinutes * 60 * 1000;
+  const scope = savedConfig.autoCloseScope === 'dressing_injection_only' ? 'dressing_injection_only' : 'all';
 
-  console.log(`[NhsoAutoClose] Scheduler started: check every ${intervalMinutes} min, delay >= ${savedConfig.autoCloseDelayMinutes || 15} min`);
+  console.log(`[NhsoAutoClose] Scheduler started: check every ${intervalMinutes} min, delay >= ${savedConfig.autoCloseDelayMinutes || 20} min, scope=${scope}`);
 
   schedulerTimer = setInterval(async () => {
     if (isExecuting) return;

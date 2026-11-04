@@ -819,8 +819,9 @@ const getDefaultNhsoCloseConfig = () => ({
   recorderPid: '',
   maxDays: 4,
   autoCloseEnabled: false,
-  autoCloseDelayMinutes: 15,
+  autoCloseDelayMinutes: 20,
   autoCloseIntervalMinutes: 3,
+  autoCloseScope: 'all',
 });
 
 const getDefaultNhsoEclaimConfig = () => ({
@@ -5898,8 +5899,9 @@ app.post('/api/config/nhso-close-settings', async (req, res) => {
       autoCloseEnabled: typeof req.body?.autoCloseEnabled === 'boolean'
         ? req.body.autoCloseEnabled
         : (current.autoCloseEnabled === true),
-      autoCloseDelayMinutes: Math.max(1, Number(req.body?.autoCloseDelayMinutes || current.autoCloseDelayMinutes || 15)),
+      autoCloseDelayMinutes: Math.max(1, Number(req.body?.autoCloseDelayMinutes || current.autoCloseDelayMinutes || 20)),
       autoCloseIntervalMinutes: Math.max(1, Number(req.body?.autoCloseIntervalMinutes || current.autoCloseIntervalMinutes || 3)),
+      autoCloseScope: req.body?.autoCloseScope === 'dressing_injection_only' ? 'dressing_injection_only' : (current.autoCloseScope || 'all'),
     };
     await setAppSetting(NHSO_CLOSE_SETTINGS_KEY, payload);
     void startNhsoAutoCloseScheduler();

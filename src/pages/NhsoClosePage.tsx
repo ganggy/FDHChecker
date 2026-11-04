@@ -12,6 +12,7 @@ interface NhsoCloseSettings {
   autoCloseEnabled?: boolean;
   autoCloseDelayMinutes?: number;
   autoCloseIntervalMinutes?: number;
+  autoCloseScope?: 'all' | 'dressing_injection_only';
 }
 
 interface NhsoAutoCloseStatusState {
@@ -19,6 +20,7 @@ interface NhsoAutoCloseStatusState {
   delayMinutes: number;
   intervalMinutes: number;
   isRunning: boolean;
+  scope?: 'all' | 'dressing_injection_only';
   isSchedulerActive: boolean;
   lastRunAt: string | null;
   lastSummary: {
@@ -97,8 +99,9 @@ const defaultSettings: NhsoCloseSettings = {
   recorderPid: '',
   maxDays: 4,
   autoCloseEnabled: false,
-  autoCloseDelayMinutes: 15,
+  autoCloseDelayMinutes: 20,
   autoCloseIntervalMinutes: 3,
+  autoCloseScope: 'all',
 };
 
 const bangkokDateTimeFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -475,7 +478,8 @@ export const NhsoClosePage: React.FC = () => {
               </div>
               <div style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8 }}>
                 <div>สำเร็จวันนี้: <strong style={{ color: 'var(--primary)' }}>{autoCloseStatus?.todayCount ?? 0}</strong> รายการ</div>
-                <div>หน่วงเวลา: <strong>{autoCloseStatus?.delayMinutes ?? settings.autoCloseDelayMinutes ?? 15} นาที</strong>หลังกลับบ้าน</div>
+                <div>หน่วงเวลา: <strong>{autoCloseStatus?.delayMinutes ?? settings.autoCloseDelayMinutes ?? 20} นาที</strong>หลังเสร็จสิ้นบริการ</div>
+                <div>ขอบเขต: <strong>{(autoCloseStatus?.scope ?? settings.autoCloseScope) === 'dressing_injection_only' ? 'เฉพาะล้างแผล/ฉีดยา (ไม่พบแพทย์)' : 'ทุกเคส OPD (เน้นล้างแผล/ฉีดยาก่อน)'}</strong></div>
                 <div>ความถี่: ตรวจทุก <strong>{autoCloseStatus?.intervalMinutes ?? settings.autoCloseIntervalMinutes ?? 3} นาที</strong></div>
                 {autoCloseStatus?.lastRunAt && (
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
@@ -520,7 +524,7 @@ export const NhsoClosePage: React.FC = () => {
                   {autoCloseStatus?.isRunning && <span className="badge badge-warning">กำลังประมวลผล...</span>}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  ระบบเบื้องหลัง (Background Worker) จะสแกนค้นหาผู้ป่วย OPD ที่แพทย์หรือห้องยา/การเงินบันทึกสถานะ 'กลับบ้าน' เกินเวลาที่กำหนด แล้วปิดสิทธิ์ให้อัตโนมัติ (ไม่ต้องใช้ AI / ประหยัดทรัพยากร)
+                  ระบบเบื้องหลัง (Background Worker) จะสแกนและปิดสิทธิ์ให้อัตโนมัติ สำหรับเคสที่เสร็จสิ้นบริการเกินเวลาที่กำหนด โดยจัดลำดับความสำคัญให้กับเคสล้างแผลและฉีดยาต่อเนื่องที่ไม่พบแพทย์ (ปิดสิทธิ์ภายใน 20 นาทีหลังเสร็จบริการ)
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -556,7 +560,7 @@ export const NhsoClosePage: React.FC = () => {
                   max={120}
                   value={settings.autoCloseDelayMinutes ?? 15}
                   onChange={(e) => setSettings((prev) => ({ ...prev, autoCloseDelayMinutes: Math.max(1, Number(e.target.value) || 15) }))}
-                  placeholder="เช่น 15"
+                  placeholder="เช่น 20"
                 />
               </div>
 
@@ -571,6 +575,17 @@ export const NhsoClosePage: React.FC = () => {
                   onChange={(e) => setSettings((prev) => ({ ...prev, autoCloseIntervalMinutes: Math.max(1, Number(e.target.value) || 3) }))}
                   placeholder="เช่น 3"
                 />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: 12, marginBottom: 4 }}>ขอบเขตเคสเป้าหมาย</label>
+                <select
+                  className="form-control"
+                  value={settings.autoCloseScope || 'all'}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, autoCloseScope: e.target.value as 'all' | 'dressing_injection_only' }))}
+                >
+                  <option value="all">ทุกเคส OPD (เน้นล้างแผล/ฉีดยาก่อน)</option>
+                  <option value="dressing_injection_only">เฉพาะเคสล้างแผล/ฉีดยาต่อเนื่อง (ไม่พบแพทย์)</option>
+                </select>
               </div>
 
               <div>

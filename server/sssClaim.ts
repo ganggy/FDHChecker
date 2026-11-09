@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import iconv from 'iconv-lite';
 import type mysql from 'mysql2/promise';
 import { getRepstmConnection, getUTFConnection } from './db.js';
+import { getAppSetting, setAppSetting } from './repositories/system.repository.js';
 
 export type SssNetworkType = 'ALL' | 'IN' | 'OUT';
 export type SssImportType = 'REP' | 'STM';
@@ -185,7 +186,63 @@ const claimDocument = (hcode: string, hospitalName: string, sessionNo: string, r
   `${sections}\r\n</ClaimRec>\r\n`
 );
 
-export const buildSssExportZip = async (options: SssCandidateOptions & { vns: string[]; hcode: string; hospitalName: string }) => {
+export interface SssBatchSettings {
+  last_ssop_batch?: number;
+  last_aipn_batch?: number;
+}
+
+export const getSssBatchSettings = async (): Promise<{ last_ssop_batch: number; last_aipn_batch: number }> => {
+  try {
+    const stored = await getAppSetting<SssBatchSettings>('sss_export_batch_settings');
+    return {
+      last_ssop_batch: Number(stored?.last_ssop_batch) || 1244,
+      last_aipn_batch: Number(stored?.last_aipn_batch) || 10251,
+    };
+  } catch {
+    return { last_ssop_batch: 1244, last_aipn_batch: 10251 };
+  }
+};
+
+export const saveSssLastBatchNo = async (type: 'SSOP' | 'AIPN', batchNo: number) => {
+  const current = await getSssBatchSettings();
+  const updated: SssBatchSettings = {
+    ...current,
+    [type === 'SSOP' ? 'last_ssop_batch' : 'last_aipn_batch']: batchNo,
+  };
+  await setAppSetting('sss_export_batch_settings', updated);
+  return updated;
+};
+
+export const updateSssBatchSettings = async (settings: Partial<SssBatchSettings>) => {
+  const current = await getSssBatchSettings();
+  const updated: SssBatchSettings = {
+    ...current,
+    ...(settings.last_ssop_batch != null ? { last_ssop_batch: Number(settings.last_ssop_batch) } : {}),
+    ...(settings.last_aipn_batch != null ? { last_aipn_batch: Number(settings.last_aipn_batch) } : {}),
+  };
+  await setAppSetting('sss_export_batch_settings', updated);
+  return updated;
+};
+
+export const formatSssTimestamp = (d = new Date()) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  const ss = pad(d.getSeconds());
+  return `${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
+};
+
+export interface SssExportZipOptions extends SssCandidateOptions {
+  vns: string[];
+  hcode: string;
+  hospitalName: string;
+  batchNo?: number | string;
+}
+
+export const buildSssExportZip = async (options: SssExportZipOptions) => {
   if (!/^\d{5}$/.test(options.hcode) || options.hcode === '00000') throw new Error('HCODE หน่วยบริการไม่ถูกต้อง');
   const candidates = await getSssCandidates(options);
   const requested = new Set(options.vns.map(text).filter(Boolean));
@@ -225,7 +282,12 @@ export const buildSssExportZip = async (options: SssCandidateOptions & { vns: st
     }, new Map());
     const chargeMap = byVisit(charges);
     const diagMap = byVisit(diagnoses);
-    const sessionNo = String(Date.now()).slice(-4);
+    const batchConfig = await getSssBatchSettings();
+    const rawBatch = options.batchNo != null && String(options.batchNo).trim() !== ''
+      ? Number(options.batchNo)
+      : (batchConfig.last_ssop_batch + 1);
+    const numericBatch = Number.isFinite(rawBatch) && rawBatch > 0 ? rawBatch : (batchConfig.last_ssop_batch + 1);
+    const sessionNo = String(numericBatch).padStart(4, '0');
 
     const billTran = selected.map((row) => {
       const claimAmount = Math.max(0, number(row.income) - number(row.paid_money));
@@ -267,11 +329,13 @@ export const buildSssExportZip = async (options: SssCandidateOptions & { vns: st
     ] as const;
     const zip = new AdmZip();
     files.forEach(([filename, content]) => zip.addFile(filename, iconv.encode(content, 'cp874')));
-    const dateStamp = options.endDate.replace(/-/g, '');
+    const dateStamp = formatSssTimestamp();
+    const filename = `${options.hcode}_SSOPBIL_${sessionNo}_01_${dateStamp}.ZIP`;
+    await saveSssLastBatchNo('SSOP', numericBatch);
     return {
       buffer: zip.toBuffer(),
-      filename: `${options.hcode}_SSOPBIL_${sessionNo}_01_${dateStamp}.zip`,
-      summary: { visitCount: selected.length, chargeCount: charges.length, diagnosisCount: diagnoses.length },
+      filename,
+      summary: { visitCount: selected.length, chargeCount: charges.length, diagnosisCount: diagnoses.length, batchNo: numericBatch },
     };
   } finally {
     connection.release();

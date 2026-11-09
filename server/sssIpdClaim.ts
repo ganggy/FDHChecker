@@ -2,7 +2,14 @@ import AdmZip from 'adm-zip';
 import crypto from 'crypto';
 import iconv from 'iconv-lite';
 import { getRepstmConnection, getUTFConnection } from './db.js';
-import type { SssCandidateOptions, SssNetworkType, SssValidationIssue } from './sssClaim.js';
+import { getSssBatchSettings, saveSssLastBatchNo, type SssCandidateOptions, type SssNetworkType, type SssValidationIssue } from './sssClaim.js';
+
+export interface SssIpdExportOptions extends SssCandidateOptions {
+  ans: string[];
+  hcode: string;
+  hospitalName: string;
+  batchNo?: number | string;
+}
 
 export interface SssIpdCandidate extends Record<string, unknown> {
   an: string;
@@ -152,7 +159,7 @@ export const buildAipnDocument = (options: { admission: Record<string, unknown>;
   return `<?xml version="1.0" encoding="windows-874"?>\r\n${body}<?EndNote HMAC="${checksum}"?>`;
 };
 
-export const buildSssIpdExportZip = async (options: SssCandidateOptions & { ans: string[]; hcode: string; hospitalName: string }) => {
+export const buildSssIpdExportZip = async (options: SssIpdExportOptions) => {
   if (!/^\d{5}$/.test(options.hcode) || options.hcode === '00000') throw new Error('HCODE หน่วยบริการไม่ถูกต้อง');
   const requested = new Set(options.ans.map(text).filter(Boolean));
   const selected = (await getSssIpdCandidates(options)).filter((row) => requested.has(row.an));
@@ -183,7 +190,15 @@ export const buildSssIpdExportZip = async (options: SssCandidateOptions & { ans:
     const byAn=(rows:Record<string,unknown>[])=>rows.reduce<Map<string,Record<string,unknown>[]>>((map,item)=>{const key=text(item.an);map.set(key,[...(map.get(key)||[]),item]);return map;},new Map());
     const diagMap=byAn(diagnoses),opMap=byAn(operations),itemMap=byAn(normalizedItems); const generatedAt=new Date(); const stamp=generatedAt.toISOString().replace(/[-:.TZ]/g,'').slice(0,14); const zip=new AdmZip();
     selected.forEach((admission)=>{const document=buildAipnDocument({admission,diagnoses:diagMap.get(admission.an)||[],operations:opMap.get(admission.an)||[],items:itemMap.get(admission.an)||[],hcode:options.hcode,hospitalName:options.hospitalName,generatedAt});zip.addFile(`${options.hcode}-AIPN-${admission.an.replace(/\//g,'=')}-${stamp}.XML`,iconv.encode(document,'cp874'));});
-    return {buffer:zip.toBuffer(),filename:`${options.hcode}AIPN${stamp.slice(-6)}.ZIP`,summary:{admissionCount:selected.length,diagnosisCount:diagnoses.length,operationCount:operations.length,chargeCount:charges.length}};
+    const batchConfig = await getSssBatchSettings();
+    const rawBatch = options.batchNo != null && String(options.batchNo).trim() !== ''
+      ? Number(options.batchNo)
+      : (batchConfig.last_aipn_batch + 1);
+    const numericBatch = Number.isFinite(rawBatch) && rawBatch > 0 ? rawBatch : (batchConfig.last_aipn_batch + 1);
+    const sessionNo = String(numericBatch).padStart(5, '0');
+    const filename = `${options.hcode}AIPN${sessionNo}.ZIP`;
+    await saveSssLastBatchNo('AIPN', numericBatch);
+    return {buffer:zip.toBuffer(),filename,summary:{admissionCount:selected.length,diagnosisCount:diagnoses.length,operationCount:operations.length,chargeCount:charges.length,batchNo:numericBatch}};
   } finally { connection.release(); }
 };
 

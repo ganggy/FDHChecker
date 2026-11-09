@@ -705,6 +705,7 @@ const parseCocdBilRep = (bilEntries: AdmZip.IZipEntry[]): RepstmArchiveDataset |
     }
 
     if (!line.includes('*|')) continue;
+    if (line.includes('รูปแบบรายการ')) continue;
     const payload = line.slice(line.indexOf('*|') + 2).trim();
     const [data, checkCode = ''] = payload.split('|', 2);
     const parts = splitCsvLine(data);
@@ -712,8 +713,10 @@ const parseCocdBilRep = (bilEntries: AdmZip.IZipEntry[]): RepstmArchiveDataset |
 
     const statStationTokens = (parts[0] || '').trim().split(/\s+/);
     const status = statStationTokens[0] || 'A';
+    if (!/^[ACPRE]/i.test(status)) continue;
     const station = statStationTokens[1] || '01';
     const lineNo = (parts[1] || '').trim();
+    if (!/^\d+$/.test(lineNo)) continue;
     const authCode = (parts[2] || '').replace(/_+$/, '').trim();
     const dttran = (parts[3] || '').trim();
     const invno = (parts[4] || '').replace(/_+$/, '').trim();
@@ -849,14 +852,18 @@ const parseSssBilRep = (bilEntries: AdmZip.IZipEntry[]): RepstmArchiveDataset | 
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
     if (!line.includes('*|')) continue;
+    if (line.includes('รูปแบบรายการ')) continue;
     const payload = line.slice(line.indexOf('*|') + 2).trim();
     const [data, checkCode = ''] = payload.split('|', 2);
     const parts = splitCsvLine(data);
-    if (parts.length < 5) continue;
+    if (parts.length < 5 || /^stat/i.test(parts[0].trim())) continue;
 
     const [statusStation = '', lineNo = '', rowHcode = '', hmain = '', authCode = '', dttran = '', invno = '', pid = '', bp = '', amount = '', claimAmt = ''] = parts;
     const status = statusStation.split(/\s+/)[0]?.trim() || 'A';
+    if (!/^[ACPRE]/i.test(status)) continue;
+    if (!/^\d+$/.test(lineNo.trim())) continue;
     if (!invno && !pid && !lineNo) continue;
+    if (/^(dttran|invno|pid)$/i.test(invno.trim()) || /^(pid|invno)$/i.test(pid.trim())) continue;
 
     let serviceDateIso = '';
     const dtParts = dttran.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}:\d{1,2}))?/);
@@ -959,7 +966,10 @@ const parseSssInpatientRep = (repEntries: AdmZip.IZipEntry[]): RepstmArchiveData
   const respMatch = text.match(/เลขตอบรับที่\s*[:=]\s*(\d+)/i);
   if (respMatch) responseNo = respMatch[1].trim();
 
-  const hcodeMatch = text.match(/(\d{5})/);
+  const hcodeMatch = text.match(/รหัส\s*ร\.?พ\.?\s*[:=]\s*(\d{5})/i)
+    || text.match(/HCare\s*[:=,]\s*(\d{5})/i)
+    || text.match(/สำหรับ.*?\((\d{5})\)/)
+    || text.match(/\((\d{5})\)/);
   if (hcodeMatch) hcode = hcodeMatch[1];
 
   const dateMatch = text.match(/วันที่ออกเอกสาร\s*[:=]\s*([^\r\n]+)/i);
@@ -976,7 +986,7 @@ const parseSssInpatientRep = (repEntries: AdmZip.IZipEntry[]): RepstmArchiveData
   const rows: Record<string, unknown>[] = [];
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
-    if (!line.startsWith('*|')) continue;
+    if (!line.startsWith('*|') || line.includes('รูปแบบ') || line.includes('AN , HN , Name')) continue;
     const m = line.match(/\*\|\s*([^,]+)\s*,\s*([^,]+)\s*,\s*([^(]+)\s*\(([^)]+)\)\s*,\s*([A-Za-z]+)(?:\s*\(([^)]*)\))?/);
     if (m) {
       const an = m[1].trim();
@@ -1026,10 +1036,11 @@ const parseSssInpatientRep = (repEntries: AdmZip.IZipEntry[]): RepstmArchiveData
     if (mainRep) {
       const mainText = iconv.decode(mainRep.getData(), 'tis620');
       for (const line of mainText.split(/\r?\n/)) {
-        if (!line.startsWith('*|')) continue;
+        if (!line.startsWith('*|') || line.includes('รูปแบบ') || line.includes('pcode tcode')) continue;
         const parts = line.slice(2).split(',');
         if (parts.length >= 4) {
           const statusPart = parts[0].trim();
+          if (/^pcode/i.test(statusPart) || /^stat/i.test(statusPart)) continue;
           const statusMatch = statusPart.match(/([A-Z])/);
           const status = statusMatch ? statusMatch[1] : 'A';
           const an = parts[3].trim();

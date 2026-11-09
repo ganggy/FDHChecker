@@ -4,12 +4,16 @@ import businessRules from '../config/business_rules.json';
 import { validateDateRange } from '../requestSafety.js';
 import {
   buildSssExportZip,
+  getSssBatchSettings,
   getSssCandidates,
   getSssImportHistory,
   importSssResponseRows,
+  updateSssBatchSettings,
   type SssNetworkType,
 } from '../sssClaim.js';
 import { buildSssIpdExportZip, getSssIpdCandidates } from '../sssIpdClaim.js';
+import { readHospitalIdentity } from '../siteProfile.js';
+import { getUTFConnection } from '../db.js';
 
 type AuthenticatedRequest = Request & {
   authUser?: { username?: string | null; display_name?: string | null };
@@ -32,12 +36,18 @@ const summarizeCandidates = (rows: Array<{
   return summary;
 }, { total: 0, inNetwork: 0, outNetwork: 0, ready: 0, warning: 0, error: 0, amount: 0 });
 
-const resolveHospitalIdentity = () => {
-  const siteSettings = (businessRules as { site_settings?: { hospital_code?: string; hospital_name?: string } }).site_settings || {};
-  return {
-    hcode: String(process.env.HOSXP_HCODE || siteSettings.hospital_code || '').trim(),
-    hospitalName: String(siteSettings.hospital_name || 'โรงพยาบาล').trim(),
-  };
+const resolveHospitalIdentity = async () => {
+  const conn = await getUTFConnection();
+  try {
+    const his = await readHospitalIdentity(conn).catch(() => ({ hospital_code: '', hospital_name: '' }));
+    const siteSettings = (businessRules as { site_settings?: { hospital_code?: string; hospital_name?: string } }).site_settings || {};
+    return {
+      hcode: String(his.hospital_code || process.env.HOSXP_HCODE || siteSettings.hospital_code || '11101').trim(),
+      hospitalName: String(his.hospital_name || siteSettings.hospital_name || 'โรงพยาบาลโคกศรีสุพรรณ').trim(),
+    };
+  } finally {
+    conn.release();
+  }
 };
 
 export const sssRouter = Router();
@@ -55,6 +65,41 @@ sssRouter.get('/candidates', async (req, res) => {
   }
 });
 
+sssRouter.get('/export-config', async (_req, res) => {
+  try {
+    const identity = await resolveHospitalIdentity();
+    const config = await getSssBatchSettings();
+    return res.json({
+      success: true,
+      hcode: identity.hcode,
+      hospitalName: identity.hospitalName,
+      ssop: {
+        lastBatchNo: config.last_ssop_batch,
+        nextBatchNo: config.last_ssop_batch + 1,
+      },
+      aipn: {
+        lastBatchNo: config.last_aipn_batch,
+        nextBatchNo: config.last_aipn_batch + 1,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
+sssRouter.put('/export-config', async (req, res) => {
+  try {
+    const { ssopBatchNo, aipnBatchNo } = req.body || {};
+    const updated = await updateSssBatchSettings({
+      last_ssop_batch: ssopBatchNo != null ? Number(ssopBatchNo) : undefined,
+      last_aipn_batch: aipnBatchNo != null ? Number(aipnBatchNo) : undefined,
+    });
+    return res.json({ success: true, data: updated, message: 'บันทึกเลขงวดสำเร็จ' });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: (error as Error).message });
+  }
+});
+
 sssRouter.post('/export', async (req, res) => {
   try {
     const startDate = String(req.body?.startDate || '').trim();
@@ -63,16 +108,19 @@ sssRouter.post('/export', async (req, res) => {
     const dateValidation = validateDateRange(startDate, endDate, 366);
     if (!dateValidation.ok) return res.status(400).json({ success: false, error: dateValidation.error });
     if (!vns.length || vns.length > 5000) return res.status(400).json({ success: false, error: 'กรุณาเลือก 1-5,000 รายการ' });
+    const identity = await resolveHospitalIdentity();
     const result = await buildSssExportZip({
       startDate,
       endDate,
       networkType: normalizeNetworkType(req.body?.networkType),
       vns,
-      ...resolveHospitalIdentity(),
+      batchNo: req.body?.batchNo,
+      ...identity,
     });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.setHeader('X-SSS-Visit-Count', String(result.summary.visitCount));
+    res.setHeader('X-SSS-Batch-No', String(result.summary.batchNo));
     return res.send(result.buffer);
   } catch (error) {
     console.error('Error exporting SSS SSOP:', error);
@@ -101,16 +149,19 @@ sssRouter.post('/ipd/export', async (req, res) => {
     const dateValidation = validateDateRange(startDate, endDate, 366);
     if (!dateValidation.ok) return res.status(400).json({ success: false, error: dateValidation.error });
     if (!ans.length || ans.length > 1000) return res.status(400).json({ success: false, error: 'กรุณาเลือก 1-1,000 AN' });
+    const identity = await resolveHospitalIdentity();
     const result = await buildSssIpdExportZip({
       startDate,
       endDate,
       networkType: normalizeNetworkType(req.body?.networkType),
       ans,
-      ...resolveHospitalIdentity(),
+      batchNo: req.body?.batchNo,
+      ...identity,
     });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
     res.setHeader('X-SSS-Admission-Count', String(result.summary.admissionCount));
+    res.setHeader('X-SSS-Batch-No', String(result.summary.batchNo));
     return res.send(result.buffer);
   } catch (error) {
     console.error('Error exporting SSS AIPN:', error);

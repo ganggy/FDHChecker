@@ -67,6 +67,32 @@ export const SssExportPage: React.FC = () => {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [batchNo, setBatchNo] = useState<string>('');
+  const [hcode, setHcode] = useState<string>('11101');
+  const [lastBatchNo, setLastBatchNo] = useState<number | null>(null);
+
+  const loadBatchConfig = useCallback(async (mode: ClaimMode) => {
+    try {
+      const response = await fetch('/api/sss/export-config');
+      const json = await response.json();
+      if (json.success) {
+        if (json.hcode) setHcode(json.hcode);
+        if (mode === 'OPD') {
+          setBatchNo(String(json.ssop?.nextBatchNo ?? 1245));
+          setLastBatchNo(json.ssop?.lastBatchNo ?? 1244);
+        } else {
+          setBatchNo(String(json.aipn?.nextBatchNo ?? 10252));
+          setLastBatchNo(json.aipn?.lastBatchNo ?? 10251);
+        }
+      }
+    } catch (err) {
+      console.warn('โหลดค่าเลขงวดส่งออกไม่สำเร็จ:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadBatchConfig(claimMode);
+  }, [claimMode, loadBatchConfig]);
 
   const loadCandidates = useCallback(async () => {
     try {
@@ -88,6 +114,16 @@ export const SssExportPage: React.FC = () => {
   }, [claimMode, endDate, networkType, startDate]);
 
   useEffect(() => { void loadCandidates(); }, [loadCandidates]);
+
+  const previewFilename = useMemo(() => {
+    const num = Number(batchNo) || 1;
+    if (claimMode === 'IPD') {
+      const padded = String(num).padStart(5, '0');
+      return `${hcode}AIPN${padded}.ZIP`;
+    }
+    const padded = String(num).padStart(4, '0');
+    return `${hcode}_SSOPBIL_${padded}_01_YYYYMMDD-HHmmss.ZIP`;
+  }, [batchNo, claimMode, hcode]);
 
   const filtered = useMemo(() => rows.filter((row) => {
     if (statusFilter !== 'ALL' && row.validation_status !== statusFilter) return false;
@@ -116,7 +152,13 @@ export const SssExportPage: React.FC = () => {
       const response = await fetch(claimMode === 'IPD' ? '/api/sss/ipd/export' : '/api/sss/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startDate, endDate, networkType, [claimMode === 'IPD' ? 'ans' : 'vns']: [...selected] }),
+        body: JSON.stringify({
+          startDate,
+          endDate,
+          networkType,
+          batchNo: Number(batchNo) || undefined,
+          [claimMode === 'IPD' ? 'ans' : 'vns']: [...selected],
+        }),
       });
       if (!response.ok) {
         const json = await response.json().catch(() => ({}));
@@ -130,7 +172,10 @@ export const SssExportPage: React.FC = () => {
       link.download = filename;
       link.click();
       URL.revokeObjectURL(link.href);
-      setMessage(`ส่งออก ${claimMode === 'IPD' ? 'AIPN' : 'SSOP'} สำเร็จ ${selected.size.toLocaleString()} ${claimMode === 'IPD' ? 'AN' : 'visit'}`);
+      const usedBatch = Number(batchNo) || 1;
+      setLastBatchNo(usedBatch);
+      setBatchNo(String(usedBatch + 1));
+      setMessage(`ส่งออก ${claimMode === 'IPD' ? 'AIPN' : 'SSOP'} สำเร็จ: ${filename} (จำนวน ${selected.size.toLocaleString()} ${claimMode === 'IPD' ? 'AN' : 'visit'})`);
     } catch (err) {
       setError(err instanceof Error ? err.message : `ส่งออก ${claimMode === 'IPD' ? 'AIPN' : 'SSOP'} ไม่สำเร็จ`);
     } finally {
@@ -177,6 +222,32 @@ export const SssExportPage: React.FC = () => {
 
       {error && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{error}</div>}
       {message && <div className="alert alert-success" style={{ marginBottom: 12 }}>{message}</div>}
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-body" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+              <span>🔢 เลขงวดส่งออก (Batch No.):</span>
+              <input
+                type="number"
+                min="1"
+                className="form-control"
+                style={{ width: 130, fontWeight: 700, fontSize: 16, textAlign: 'center' }}
+                value={batchNo}
+                onChange={(e) => setBatchNo(e.target.value)}
+                placeholder="ระบุเลขงวด"
+              />
+            </label>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              (งวดล่าสุด: <strong>{lastBatchNo ?? '-'}</strong> · แก้ไขเลขรันได้ตามต้องการ)
+            </span>
+          </div>
+          <div style={{ fontSize: 13, background: 'var(--bg-subtle, #f1f5f9)', padding: '6px 12px', borderRadius: 6 }}>
+            <span>🏷️ ตัวอย่างชื่อไฟล์: </span>
+            <code style={{ fontWeight: 700, color: '#0369a1' }}>{previewFilename}</code>
+          </div>
+        </div>
+      </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 12, alignItems: 'center' }}>
         <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={allSelected} onChange={toggleAll} /> เลือกทุกรายการที่ส่งได้ในผลลัพธ์ ({selectable.length})</label>

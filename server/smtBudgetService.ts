@@ -286,11 +286,27 @@ export async function getSmtBudgetSummary(budgetYear: string): Promise<SmtBudget
 
     const transferRows = (rows as any[]) || [];
 
-    // 2. Fetch imported STM filenames & settlement batches to match
+    // 2. Fetch imported STM statements & filenames, plus settlement batches to match
+    const [stmtRows] = await repConn.query(
+      `SELECT DISTINCT statement_no, filename FROM repstm_statement_data WHERE statement_no IS NOT NULL AND statement_no != ''`
+    );
+    const stmtMap = new Map<string, string>();
+    for (const s of (stmtRows as any[])) {
+      const stNo = String(s.statement_no || '').trim();
+      const fn = String(s.filename || '').trim();
+      if (stNo) {
+        stmtMap.set(stNo.toUpperCase(), fn);
+        stmtMap.set(stNo.replace(/[^A-Za-z0-9]/g, '').toUpperCase(), fn);
+      }
+    }
+
     const [batchRows] = await repConn.query(
       `SELECT DISTINCT source_filename FROM repstm_import_batch`
     );
-    const importedFilenames = new Set((batchRows as any[]).map(b => String(b.source_filename || '').toUpperCase()));
+    const importedFilenames = (batchRows as any[]).map(b => ({
+      original: String(b.source_filename || ''),
+      normalized: String(b.source_filename || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+    }));
 
     const [settledRows] = await repConn.query(
       `SELECT DISTINCT statement_no FROM receivable_settlement_batch`
@@ -316,22 +332,28 @@ export async function getSmtBudgetSummary(budgetYear: string): Promise<SmtBudget
       const refNormalized = refDoc.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
       // Check if settled
-      const isSettled = settledStatements.has(refDoc.toUpperCase());
+      const isSettled = settledStatements.has(refDoc.toUpperCase()) || (refNormalized ? settledStatements.has(refNormalized) : false);
       // Check if imported STM exists
       let matchedFile: string | null = null;
       if (!isSettled) {
-        for (const fn of importedFilenames) {
-          if (refNormalized && fn.includes(refNormalized)) {
-            matchedFile = fn;
-            break;
-          }
-          // Also check by batch or period if refDoc is like 6709_IP_02
-          const parts = refDoc.split('_');
-          if (parts.length >= 2) {
-            const shortCode = parts[0] + parts[1];
-            if (fn.includes(shortCode.toUpperCase())) {
-              matchedFile = fn;
+        // Priority 1: match statement_no in repstm_statement_data
+        matchedFile = stmtMap.get(refDoc.toUpperCase()) || (refNormalized ? stmtMap.get(refNormalized) : null) || null;
+
+        // Priority 2: match normalized filename in repstm_import_batch
+        if (!matchedFile) {
+          for (const fn of importedFilenames) {
+            if (refNormalized && fn.normalized.includes(refNormalized)) {
+              matchedFile = fn.original;
               break;
+            }
+            // Also check by batch or period if refDoc is like 6709_IP_02
+            const parts = refDoc.split('_');
+            if (parts.length >= 2) {
+              const shortCode = (parts[0] + parts[1]).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+              if (shortCode && fn.normalized.includes(shortCode)) {
+                matchedFile = fn.original;
+                break;
+              }
             }
           }
         }

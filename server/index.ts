@@ -145,6 +145,7 @@ import { hsubRouter } from './routes/hsubRoutes.js';
 import { pcuHerbalRouter } from './routes/pcuHerbalRoutes.js';
 import { executiveMonitorRouter } from './routes/executiveMonitorRoutes.js';
 import { ssjRawServRouter } from './routes/ssjRawServRoutes.js';
+import { unitCostRouter } from './routes/unitCostRoutes.js';
 import { getQuickUpdateCheck, getSystemUpdateInfo, resetSystemUpdateLock, startDirectSystemUpdate, startSystemRollback, startSystemUpdate } from './systemUpdate.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
@@ -1400,6 +1401,7 @@ app.use('/api/hsub', hsubRouter);
 app.use('/api/pcu-herbal', pcuHerbalRouter);
 app.use('/api/executive-monitor', executiveMonitorRouter);
 app.use('/api/ssj-rawserv', ssjRawServRouter);
+app.use('/api/unit-cost', unitCostRouter);
 
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);

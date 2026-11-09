@@ -222,7 +222,6 @@ export const startEclaimBackgroundSync = async (options: {
   maxPages?: number;
   downloadLimit?: number;
   importedBy?: string;
-  expectedHcode?: string;
 }): Promise<{ success: boolean; message: string; jobId?: string }> => {
   if (workerState.running) {
     return { success: false, message: 'มีงานดาวน์โหลดพื้นหลังกำลังทำงานอยู่แล้ว' };
@@ -496,7 +495,6 @@ export const startEclaimBackgroundSync = async (options: {
                 notes: `Auto-Sync from e-Claim Client (Rep #${rowMeta.repNo})`,
                 rows: parsedRows,
                 forceReimport: false,
-                expectedHcode: options.expectedHcode,
               });
 
               if (importRes.success) {
@@ -759,7 +757,6 @@ export const startEclaimBackgroundSync = async (options: {
                     notes: `Auto-Sync from e-Claim Client Statement (#${sRow.stmNo})`,
                     rows: parsed,
                     forceReimport: false,
-                    expectedHcode: options.expectedHcode,
                   });
 
                   if (importRes.success) {

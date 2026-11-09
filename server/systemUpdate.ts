@@ -310,7 +310,14 @@ export const getSystemUpdateInfo = async (refreshRemote = false): Promise<System
     ]);
     base.currentBranch = currentBranch;
     base.currentCommit = currentCommit;
-    base.dirty = Boolean(worktree && worktree.trim());
+    const dirtyLines = (worktree || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !/^[MADRCU?!]{1,2}\s+(server\/)?package-lock\.json$/i.test(line));
+    if (worktree && worktree.trim() && dirtyLines.length === 0) {
+      await runGit(['checkout', '--', 'package-lock.json', 'server/package-lock.json']).catch(() => undefined);
+    }
+    base.dirty = dirtyLines.length > 0;
 
     if (refreshRemote) {
       await runGit(['fetch', '--prune', 'origin', branch], 120_000);
@@ -539,7 +546,7 @@ export const startDirectSystemUpdate = async (options: {
 
   // 1. Install dependencies
   try {
-    await runNpm(['install', '--include=dev', '--no-audit'], 300_000, {
+    await runNpm(['install', '--no-package-lock', '--include=dev', '--no-audit'], 300_000, {
       NODE_ENV: 'development',
       npm_config_omit: '',
       npm_config_production: 'false',
@@ -583,6 +590,9 @@ export const startDirectSystemUpdate = async (options: {
   } catch {
     // Non-fatal if running directly via tsx
   }
+
+  // Ensure npm install / build did not leave tracked files (e.g. package-lock.json) dirty
+  await runGit(['reset', '--hard', 'HEAD']).catch(() => undefined);
 
   // Record completed job
   const jobId = `direct-${Date.now()}`;

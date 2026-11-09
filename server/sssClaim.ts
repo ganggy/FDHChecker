@@ -179,10 +179,22 @@ export const getSssCandidates = async (options: SssCandidateOptions): Promise<Ss
   }
 };
 
-const withChecksum = (document: string) => `${document}<?EndNote Checksum="${crypto.createHash('md5').update(document).digest('hex')}"?>`;
-const claimDocument = (hcode: string, hospitalName: string, sessionNo: string, recordCount: number, sections: string) => withChecksum(
+export const formatSssIsoDateTime = (d = new Date()) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+export const withChecksum = (document: string) => {
+  const cp874Bytes = iconv.encode(document, 'cp874');
+  const checksum = crypto.createHash('md5').update(cp874Bytes).digest('hex');
+  return `${document}<?EndNote Checksum="${checksum}"?>`;
+};
+
+const xmlSection = (tag: string, body: string) => body ? `<${tag}>\r\n${body}\r\n</${tag}>` : `<${tag}>\r\n</${tag}>`;
+
+export const claimDocument = (hcode: string, hospitalName: string, sessionNo: string, recordCount: number, sections: string, now = new Date()) => withChecksum(
   `<?xml version="1.0" encoding="windows-874"?>\r\n<ClaimRec System="OP" PayPlan="SS" Version="0.93" Prgs="FDHChecker" TFlag="A">\r\n` +
-  `<Header><HCODE>${xml(hcode)}</HCODE><HNAME>${xml(hospitalName)}</HNAME><DATETIME>${new Date().toISOString().replace(/\.\d{3}Z$/, '')}</DATETIME><SESSNO>${xml(sessionNo)}</SESSNO><RECCOUNT>${recordCount}</RECCOUNT></Header>\r\n` +
+  `<Header>\r\n<HCODE>${xml(hcode)}</HCODE>\r\n<HNAME>${xml(hospitalName)}</HNAME>\r\n<DATETIME>${formatSssIsoDateTime(now)}</DATETIME>\r\n<SESSNO>${xml(sessionNo)}</SESSNO>\r\n<RECCOUNT>${recordCount}</RECCOUNT>\r\n</Header>\r\n` +
   `${sections}\r\n</ClaimRec>\r\n`
 );
 
@@ -317,19 +329,20 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
     ]))).join('\r\n');
     const services = selected.map((row) => pipeRow([row.invoice_no || row.vn, row.vn, 'EC', options.hcode, row.hn,
       row.cid, '1', '01', '9', '9', '', row.doctor_license, row.clinic || '01', `${row.service_date}T${row.service_time}`,
-      row.end_datetime || `${row.service_date} ${row.service_time}`, '', '', '', '0.00', 'Y', '', 'OP1'])).join('\r\n');
+      text(row.end_datetime || `${row.service_date}T${row.service_time}`).replace(' ', 'T'), '', '', '', '0.00', 'Y', '', 'OP1'])).join('\r\n');
     const opdDx = selected.flatMap((row) => (diagMap.get(row.vn) || []).map((diag) => pipeRow([
       'EC', row.vn, diag.diagtype || '1', 'IT', text(diag.icd10).replace(/\./g, ''), '',
     ]))).join('\r\n');
 
+    const now = new Date();
     const files = [
-      ['BillTran.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, selected.length, `<BILLTRAN>\r\n${billTran}\r\n</BILLTRAN>\r\n<BillItems>\r\n${billItems}\r\n</BillItems>`)],
-      ['BillDisp.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, dispensing ? dispensing.split('\r\n').length : 0, `<Dispensing>\r\n${dispensing}\r\n</Dispensing>\r\n<DispensedItems>\r\n${dispensedItems}\r\n</DispensedItems>`)],
-      ['OPServices.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, selected.length, `<OPServices>\r\n${services}\r\n</OPServices>\r\n<OPDx>\r\n${opdDx}\r\n</OPDx>`)],
+      ['BillTran.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, selected.length, `${xmlSection('BILLTRAN', billTran)}\r\n${xmlSection('BillItems', billItems)}`, now)],
+      ['BillDisp.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, dispensing ? dispensing.split('\r\n').length : 0, `${xmlSection('Dispensing', dispensing)}\r\n${xmlSection('DispensedItems', dispensedItems)}`, now)],
+      ['OPServices.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, selected.length, `${xmlSection('OPServices', services)}\r\n${xmlSection('OPDx', opdDx)}`, now)],
     ] as const;
     const zip = new AdmZip();
     files.forEach(([filename, content]) => zip.addFile(filename, iconv.encode(content, 'cp874')));
-    const dateStamp = formatSssTimestamp();
+    const dateStamp = formatSssTimestamp(now);
     const filename = `${options.hcode}_SSOPBIL_${sessionNo}_01_${dateStamp}.ZIP`;
     await saveSssLastBatchNo('SSOP', numericBatch);
     return {

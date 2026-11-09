@@ -74,7 +74,15 @@ export const getNhsoAutoCloseCandidates = async (options: {
     const dressingCondition = `
       AND (
         (
-          EXISTS (SELECT 1 FROM ovstdiag od WHERE od.vn = o.vn AND od.icd10 IN ('Z480', 'Z519', 'Z488', 'Z489', 'Z48.0', 'Z51.9'))
+          EXISTS (
+            SELECT 1 FROM ovstdiag od
+            WHERE od.vn = o.vn
+              AND (
+                od.icd10 IN ('Z480', 'Z519', 'Z488', 'Z489', 'Z48.0', 'Z51.9', 'Z518', 'Z51.8', 'Z242', 'Z24.2', '9357', '9929')
+                OR od.icd10 LIKE 'Z48%'
+                OR od.icd10 LIKE 'Z51%'
+              )
+          )
           OR o.ovstist = '07'
         )
         AND (
@@ -117,7 +125,15 @@ export const getNhsoAutoCloseCandidates = async (options: {
          ) AS minutes_since_dismiss,
          CASE
            WHEN (
-             EXISTS (SELECT 1 FROM ovstdiag od WHERE od.vn = o.vn AND od.icd10 IN ('Z480', 'Z519', 'Z488', 'Z489', 'Z48.0', 'Z51.9'))
+             EXISTS (
+               SELECT 1 FROM ovstdiag od
+               WHERE od.vn = o.vn
+                 AND (
+                   od.icd10 IN ('Z480', 'Z519', 'Z488', 'Z489', 'Z48.0', 'Z51.9', 'Z518', 'Z51.8', 'Z242', 'Z24.2', '9357', '9929')
+                   OR od.icd10 LIKE 'Z48%'
+                   OR od.icd10 LIKE 'Z51%'
+                 )
+             )
              OR o.ovstist = '07'
            ) AND (
              IFNULL((SELECT licenseno FROM doctor WHERE code = o.doctor), '') NOT LIKE 'ว%'
@@ -134,7 +150,8 @@ export const getNhsoAutoCloseCandidates = async (options: {
        LEFT JOIN nhso_confirm_privilege ncp ON ncp.vn = o.vn
        WHERE o.vstdate BETWEEN DATE_SUB(CURDATE(), INTERVAL 1 DAY) AND CURDATE()
          AND (o.an IS NULL OR o.an = '')
-         AND TRIM(COALESCE(ost.name, '')) = 'กลับบ้าน'
+         AND (TRIM(COALESCE(ost.name, '')) IN ('กลับบ้าน', 'ตรวจแล้ว') OR o.ovstost IN ('99', '999') OR o.cur_dep = '999')
+         AND o.ovstost NOT IN ('01', '02', '03', '04', '05', '09', '52', '54')
          AND pt.cid IS NOT NULL AND CHAR_LENGTH(TRIM(pt.cid)) = 13
          AND (
            IFNULL(ncp.nhso_status, '') <> 'Y'
@@ -150,7 +167,25 @@ export const getNhsoAutoCloseCandidates = async (options: {
              TIMESTAMP(o.vstdate, COALESCE(o.cur_dep_time, o.vsttime))
            ),
            NOW()
-         ) >= ?
+         ) >= CASE
+           WHEN (
+             EXISTS (
+               SELECT 1 FROM ovstdiag od
+               WHERE od.vn = o.vn
+                 AND (
+                   od.icd10 IN ('Z480', 'Z519', 'Z488', 'Z489', 'Z48.0', 'Z51.9', 'Z518', 'Z51.8', 'Z242', 'Z24.2', '9357', '9929')
+                   OR od.icd10 LIKE 'Z48%'
+                   OR od.icd10 LIKE 'Z51%'
+                 )
+             )
+             OR o.ovstist = '07'
+           ) AND (
+             IFNULL((SELECT licenseno FROM doctor WHERE code = o.doctor), '') NOT LIKE 'ว%'
+             OR o.doctor IS NULL
+             OR o.doctor = ''
+           ) THEN 20
+           ELSE ?
+         END
        ORDER BY is_dressing_nurse DESC, o.vstdate ASC, o.vsttime ASC
        LIMIT ?`,
       [delayMinutes, limit]

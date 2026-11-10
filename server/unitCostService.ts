@@ -289,7 +289,7 @@ export async function getUnitCostReport(params: {
         const calculatedCost = unitCost > 0 ? qty * unitCost : Number(r.total_cost || 0);
         const calculatedRev = Number(r.total_revenue || 0);
 
-        let cat = r.item_cat as UnitCostItem['category'];
+        const cat = r.item_cat as UnitCostItem['category'];
         let catLabel = 'หัตถการบริการ';
         if (cat === 'herb_drug') catLabel = 'ยาสมุนไพร';
         else if (cat === 'ttm_procedure') catLabel = 'หัตถการแผนไทย';

@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import type { CheckRecord } from '../mockData';
+import '../styles/fundSummary.css';
 
 interface FundSummaryBarProps {
     data: CheckRecord[];
@@ -112,152 +113,84 @@ export const FundSummaryBar: React.FC<FundSummaryBarProps> = ({ data, selectedFu
     const grandValue = data.reduce((sum, i) => sum + (i.price || 0), 0);
 
     return (
-        <div style={{ marginBottom: 20 }}>
-            {/* Header */}
+        <div className="fsb">
             <div className="summary-toolbar">
                 <h2 className="section-title" style={{ flex: 1 }}>สรุปรายกองทุน</h2>
                 <div className="summary-toolbar-meta">
-                    <span>รวมทั้งหมด: <strong>{grandTotal}</strong> รายการ</span>
+                    <span>รวมทั้งหมด: <strong>{grandTotal.toLocaleString()}</strong> รายการ</span>
                     <span>•</span>
-                    <span>สมบูรณ์: <strong style={{ color: 'var(--success)' }}>{grandComplete}</strong></span>
+                    <span>สมบูรณ์: <strong style={{ color: 'var(--success)' }}>{grandComplete.toLocaleString()}</strong></span>
                     <span>•</span>
                     <span>มูลค่า: <strong style={{ color: 'var(--teal)' }}>{grandValue.toLocaleString()}</strong> บาท</span>
                 </div>
             </div>
 
-            {/* Fund Cards Scroll */}
-            <div className="fund-summary-scroll">
+            <div className="fsb-grid">
                 {fundSummaries.map(fund => {
                     const isSelected = selectedFund === fund.fund;
-                    const hasIssues = fund.incomplete > 0;
+                    const otherCount = fund.total - fund.opd - fund.ipd;
+                    const rateTone = fund.rate >= 80 ? 'good' : fund.rate >= 50 ? 'warn' : 'bad';
 
                     return (
-                        <div
+                        <button
+                            type="button"
                             key={fund.fund}
                             onClick={() => onSelectFund(isSelected ? '' : fund.fund)}
-                            className={`fund-summary-card${isSelected ? ' selected' : ''}`}
-                            style={{
-                                borderColor: isSelected ? fund.color : undefined,
-                                boxShadow: isSelected ? `0 4px 16px ${fund.color}30` : undefined,
-                            }}
+                            aria-pressed={isSelected}
+                            title={isSelected ? 'คลิกเพื่อยกเลิกการกรอง' : `คลิกเพื่อดูเฉพาะ ${fund.fund}`}
+                            className={`fund-summary-card fsb-card${isSelected ? ' selected' : ''}`}
+                            style={{ ['--fund-color' as string]: fund.color }}
                         >
-                            {/* Top accent */}
-                            <div className="fund-summary-card-topbar" style={{ background: fund.color }} />
+                            <span className="fund-summary-card-topbar" />
 
-                            {/* Fund Name Row */}
-                            <div className="fund-summary-card-header">
-                                <div>
-                                    <div style={{ fontSize: 15, fontWeight: 700, color: fund.color, display: 'flex', alignItems: 'center', gap: 5 }}>
-                                        <span>{fund.icon}</span>
+                            <span className="fsb-head">
+                                <span className="fsb-name-block">
+                                    <span className="fsb-name">
+                                        <span className="fsb-dot" aria-hidden="true" />
                                         <span>{fund.fund}</span>
-                                    </div>
-                                    {fund.fullName !== fund.fund && (
-                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{fund.fullName}</div>
-                                    )}
-                                    {fund.rateInfo && (
-                                        <div style={{ fontSize: 9, color: fund.color, opacity: 0.8, marginTop: 1, fontWeight: 500 }}>
-                                            📋 {fund.rateInfo}
-                                        </div>
-                                    )}
-                                </div>
-                                {hasIssues && (
-                                    <div style={{
-                                        background: '#fef2f2', color: '#dc2626',
-                                        borderRadius: 'var(--radius-full)',
-                                        padding: '2px 8px', fontSize: 10, fontWeight: 700,
-                                        border: '1px solid #fecaca',
-                                    }}>
-                                        ⚠️ {fund.incomplete}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Stats */}
-                            <div className="fund-summary-card-grid">
-                                <div className="fund-summary-mini">
-                                    <div style={{ fontSize: 18, fontWeight: 700 }}>{fund.total}</div>
-                                    <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 500 }}>รายการ</div>
-                                </div>
-                                <div className="fund-summary-mini">
-                                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)' }}>
-                                        {fund.totalValue >= 1000
-                                            ? `${(fund.totalValue / 1000).toFixed(1)}K`
-                                            : fund.totalValue.toLocaleString()}
-                                    </div>
-                                    <div style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 500 }}>บาท</div>
-                                </div>
-                            </div>
-
-                            {/* OPD/IPD Breakdown */}
-                            {(fund.opd > 0 || fund.ipd > 0) && (
-                                <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                                    {fund.opd > 0 && (
-                                        <span style={{
-                                            padding: '2px 8px', borderRadius: 'var(--radius-full)', fontSize: 10, fontWeight: 600,
-                                            background: '#dbeafe', color: '#1d4ed8',
-                                        }}>
-                                            OPD {fund.opd}
-                                        </span>
-                                    )}
-                                    {fund.ipd > 0 && (
-                                        <span style={{
-                                            padding: '2px 8px', borderRadius: 'var(--radius-full)', fontSize: 10, fontWeight: 600,
-                                            background: '#fce7f3', color: '#be185d',
-                                        }}>
-                                            IPD {fund.ipd}
-                                        </span>
-                                    )}
-                                    {fund.total - fund.opd - fund.ipd > 0 && (
-                                        <span style={{
-                                            padding: '2px 8px', borderRadius: 'var(--radius-full)', fontSize: 10, fontWeight: 600,
-                                            background: '#f3f4f6', color: '#6b7280',
-                                        }}>
-                                            อื่นๆ {fund.total - fund.opd - fund.ipd}
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Progress Bar */}
-                            <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 3 }}>
-                                    <span style={{ color: 'var(--text-muted)' }}>ความสมบูรณ์</span>
-                                    <span style={{ fontWeight: 700, color: fund.rate >= 80 ? 'var(--success)' : fund.rate >= 50 ? 'var(--warning)' : 'var(--danger)' }}>
-                                        {fund.rate}%
                                     </span>
-                                </div>
-                                <div style={{ height: 5, background: 'var(--surface-2)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
-                                    <div style={{
-                                        height: '100%',
-                                        width: `${fund.rate}%`,
-                                        background: fund.rate >= 80
-                                            ? 'linear-gradient(90deg, #16a34a, #22c55e)'
-                                            : fund.rate >= 50
-                                                ? 'linear-gradient(90deg, #d97706, #f59e0b)'
-                                                : 'linear-gradient(90deg, #dc2626, #f87171)',
-                                        borderRadius: 'var(--radius-full)',
-                                        transition: 'width 0.5s ease',
-                                    }} />
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, marginTop: 3, color: 'var(--text-muted)' }}>
-                                    <span style={{ color: 'var(--success)' }}>✓ {fund.complete}</span>
-                                    <span style={{ color: 'var(--danger)' }}>✗ {fund.incomplete}</span>
-                                </div>
-                            </div>
+                                    {fund.fullName !== fund.fund && <span className="fsb-fullname">{fund.fullName}</span>}
+                                    {fund.rateInfo && <span className="fsb-rate-info">{fund.rateInfo}</span>}
+                                </span>
+                                {isSelected ? (
+                                    <span className="fsb-badge fsb-badge--viewing">กำลังดู</span>
+                                ) : fund.incomplete > 0 ? (
+                                    <span className="fsb-badge fsb-badge--pending">รอแก้ {fund.incomplete.toLocaleString()}</span>
+                                ) : null}
+                            </span>
 
-                            {/* Selected indicator */}
-                            {isSelected && (
-                                <div style={{
-                                    position: 'absolute', bottom: 8, right: 8,
-                                    background: fund.color, color: 'white',
-                                    borderRadius: 'var(--radius-full)',
-                                    fontSize: 9, fontWeight: 700,
-                                    padding: '2px 6px',
-                                }}>
-                                    กำลังดู
-                                </div>
-                            )}
-                        </div>
+                            <span className="fsb-stats">
+                                <span>
+                                    <strong className="fsb-total">{fund.total.toLocaleString()}</strong>
+                                    <span className="fsb-unit">รายการ</span>
+                                </span>
+                                <span className="fsb-value">
+                                    {fund.totalValue.toLocaleString()} <span className="fsb-unit">บาท</span>
+                                </span>
+                            </span>
+
+                            <span className="fsb-progress">
+                                <span className="fsb-progress-label">
+                                    <span>ความสมบูรณ์</span>
+                                    <strong className={`fsb-tone--${rateTone}`}>{fund.rate}%</strong>
+                                </span>
+                                <span className="fsb-progress-track">
+                                    <span className={`fsb-progress-fill fsb-fill--${rateTone}`} style={{ width: `${fund.rate}%` }} />
+                                </span>
+                            </span>
+
+                            <span className="fsb-foot">
+                                {fund.opd > 0 && <span className="fsb-chip fsb-chip--opd">OPD {fund.opd.toLocaleString()}</span>}
+                                {fund.ipd > 0 && <span className="fsb-chip fsb-chip--ipd">IPD {fund.ipd.toLocaleString()}</span>}
+                                {(fund.opd > 0 || fund.ipd > 0) && otherCount > 0 && (
+                                    <span className="fsb-chip">อื่นๆ {otherCount.toLocaleString()}</span>
+                                )}
+                                <span className="fsb-counts">
+                                    <span className="fsb-tone--good">✓ {fund.complete.toLocaleString()}</span>
+                                    <span className="fsb-tone--bad">✗ {fund.incomplete.toLocaleString()}</span>
+                                </span>
+                            </span>
+                        </button>
                     );
                 })}
             </div>

@@ -11,6 +11,7 @@ import type { AppPage } from './utils/navigationState';
 
 import './App.css';
 import './styles/mobile.css';
+import './styles/navbar.css';
 
 const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
   loader: () => Promise<T>,
@@ -76,7 +77,9 @@ const ReceivableStandardReportPage = lazyNamed(() => import('./pages/ReceivableS
 
 function App() {
   const [requestedPage, setCurrentPage] = useState<AppPage>('staff');
-  const [openNavGroup, setOpenNavGroup] = useState<string | null>(null);
+  const [navPanel, setNavPanel] = useState<'tools' | 'user' | null>(null);
+  const [menuQuery, setMenuQuery] = useState('');
+  const [menuGroupFilter, setMenuGroupFilter] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -86,7 +89,12 @@ function App() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
-  const navMenuRef = useRef<HTMLDivElement | null>(null);
+  const navMenuRef = useRef<HTMLElement | null>(null);
+  const closeNavPanel = useCallback(() => {
+    setNavPanel(null);
+    setMenuQuery('');
+    setMenuGroupFilter('');
+  }, []);
   const [repstmEverVisited, setRepstmEverVisited] = useState(false);
   const [siteSettings, setSiteSettings] = useState<{ hospital_name?: string; nhso_region?: string }>({});
   useEffect(() => {
@@ -210,18 +218,30 @@ function App() {
     const handlePointerDown = (event: PointerEvent) => {
       if (!navMenuRef.current) return;
       if (!navMenuRef.current.contains(event.target as Node)) {
-        setOpenNavGroup(null);
+        closeNavPanel();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setNavPanel('tools');
+      } else if (event.key === 'Escape') {
+        closeNavPanel();
       }
     };
 
     window.addEventListener('pointerdown', handlePointerDown);
-    return () => window.removeEventListener('pointerdown', handlePointerDown);
-  }, []);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [closeNavPanel]);
 
   const goToPage = (page: AppPage) => {
     if (!canOpenPage(page)) return;
     setCurrentPage(page);
-    setOpenNavGroup(null);
+    closeNavPanel();
     setMobileMenuOpen(false);
   };
 
@@ -304,9 +324,33 @@ function App() {
   const mobilePrimaryPageSet = new Set(mobilePrimaryItems.map((item) => item.page));
   const mobileMoreActive = Boolean(currentPage && !mobilePrimaryPageSet.has(currentPage));
 
+  const userDisplayName = authSession.user.display_name || authSession.user.username;
+  const activeToolGroup = visibleToolNavGroups.find((group) => group.pages.includes(currentPage));
+  const visibleToolCount = visibleToolNavGroups.reduce((sum, group) => sum + group.pages.length, 0);
+  const menuKeyword = menuQuery.trim().toLowerCase();
+  const megaSections = [
+    // งานประจำแสดงในผลค้นหาเท่านั้น เพราะมีแท็บอยู่บนแถบเมนูแล้ว
+    ...(menuKeyword && !menuGroupFilter ? [{ label: 'งานประจำ', icon: '📋', items: visiblePrimaryNavItems }] : []),
+    ...visibleToolNavGroups
+      .filter((group) => !menuGroupFilter || group.label === menuGroupFilter)
+      .map((group) => ({
+        label: group.label,
+        icon: group.icon,
+        items: group.pages.flatMap((page) => {
+          const item = toolNavItemByPage.get(page);
+          return item ? [item] : [];
+        }),
+      })),
+  ]
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !menuKeyword || `${item.label} ${section.label}`.toLowerCase().includes(menuKeyword)),
+    }))
+    .filter((section) => section.items.length > 0);
+
   return (
     <div className="app-shell">
-      <nav className="navbar">
+      <nav className="navbar" ref={navMenuRef}>
         <div className="navbar-top">
           <div className="navbar-brand">
             <div className="brand-icon">🏥</div>
@@ -316,15 +360,21 @@ function App() {
             </div>
           </div>
 
+          <button
+            type="button"
+            className="nav2-search"
+            onClick={() => setNavPanel('tools')}
+            title="ค้นหาเมนู (Ctrl+K)"
+          >
+            <span aria-hidden="true">🔍</span>
+            <span className="nav2-search-text">ค้นหาเมนู เช่น REP, ลูกหนี้, 16 แฟ้ม</span>
+            <kbd>Ctrl K</kbd>
+          </button>
+
           <div className="navbar-end">
-            <div className="navbar-user navbar-meta-card">
-              <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>{authSession.user.display_name || authSession.user.username}</div>
-              <div>{authSession.user.group_name || (authSession.user.is_admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน')}</div>
-            </div>
-            <div className="navbar-time navbar-meta-card">
-              <div style={{ fontWeight: 700, color: 'rgba(255,255,255,0.94)' }}>ระบบตรวจสอบเบิกจ่าย v1.0.6</div>
-              <div>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</div>
-              <div>{new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+            <div className="nav2-meta">
+              <strong>{hospitalLabel}{regionLabel ? ` · ${regionLabel}` : ''}</strong>
+              <span>v{__APP_VERSION__} · {new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
             </div>
             <GlobalEclaimSyncWidget />
             {updateInfo?.available && (
@@ -341,35 +391,70 @@ function App() {
                 <span>มีอัปเดตใหม่ ({updateInfo.behind})</span>
               </button>
             )}
-            <a
-              href="/manual_system_overview.html"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="nav-btn nav-icon-btn"
-              title="คู่มือการใช้งานระบบ (เปิดคู่มือ HTML / ดาวน์โหลด PDF)"
-              style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              <span style={{ fontSize: '1.25rem' }}>📖</span>
-            </a>
-            <button className="nav-btn nav-icon-btn" onClick={() => setPasswordDialogOpen(true)} title="เปลี่ยนรหัสผ่าน">
-              <span style={{ fontSize: '1.15rem' }}>🔑</span>
-            </button>
-            {canOpenPage('settings') && (
+            <div className="nav2-user">
               <button
-                className={`nav-btn nav-icon-btn ${currentPage === 'settings' ? 'active' : ''}`}
-                onClick={() => {
-                  if (updateInfo?.available) window.sessionStorage.setItem('settings_target_tab', 'update');
-                  goToPage('settings');
-                }}
-                title={updateInfo?.available ? `ตั้งค่าระบบ — มีอัปเดตใหม่ (${updateInfo.behind} รายการ)` : 'ตั้งค่าระบบ'}
+                type="button"
+                className={`nav2-user-btn ${navPanel === 'user' ? 'is-open' : ''}`}
+                onClick={() => (navPanel === 'user' ? closeNavPanel() : setNavPanel('user'))}
+                aria-haspopup="menu"
+                aria-expanded={navPanel === 'user'}
               >
-                <span style={{ fontSize: '1.4rem' }}>⚙️</span>
-                {updateInfo?.available && <span className="nav-icon-badge-dot" />}
+                <span className="nav2-avatar" aria-hidden="true">{userDisplayName.charAt(0).toUpperCase()}</span>
+                <span className="nav2-user-copy">
+                  <strong>{userDisplayName}</strong>
+                  <span>{authSession.user.group_name || (authSession.user.is_admin ? 'ผู้ดูแลระบบ' : 'ผู้ใช้งาน')}</span>
+                </span>
+                <span className="nav2-chevron" aria-hidden="true">▾</span>
               </button>
-            )}
-            <button className="nav-btn nav-icon-btn" onClick={handleLogout} title="ออกจากระบบ">
-              <span style={{ fontSize: '1.15rem' }}>⏻</span>
-            </button>
+              {navPanel === 'user' && (
+                <div className="nav2-user-menu" role="menu">
+                  <div className="nav2-menu-caption">บัญชีและระบบ</div>
+                  <a
+                    href="/manual_system_overview.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    role="menuitem"
+                    className="nav2-user-item"
+                    onClick={closeNavPanel}
+                  >
+                    <span aria-hidden="true">📖</span>
+                    <span>คู่มือการใช้งานระบบ</span>
+                  </a>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="nav2-user-item"
+                    onClick={() => {
+                      closeNavPanel();
+                      setPasswordDialogOpen(true);
+                    }}
+                  >
+                    <span aria-hidden="true">🔑</span>
+                    <span>เปลี่ยนรหัสผ่าน</span>
+                  </button>
+                  {canOpenPage('settings') && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={`nav2-user-item ${currentPage === 'settings' ? 'active' : ''}`}
+                      onClick={() => {
+                        if (updateInfo?.available) window.sessionStorage.setItem('settings_target_tab', 'update');
+                        goToPage('settings');
+                      }}
+                    >
+                      <span aria-hidden="true">⚙️</span>
+                      <span>ตั้งค่าระบบ</span>
+                      {updateInfo?.available && <span className="nav2-item-badge">อัปเดต {updateInfo.behind}</span>}
+                    </button>
+                  )}
+                  <div className="nav2-menu-divider" />
+                  <button type="button" role="menuitem" className="nav2-user-item nav2-user-item--danger" onClick={handleLogout}>
+                    <span aria-hidden="true">⏻</span>
+                    <span>ออกจากระบบ</span>
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               className="nav-btn nav-icon-btn mobile-menu-toggle"
               type="button"
@@ -383,67 +468,111 @@ function App() {
           </div>
         </div>
 
-        <div className="navbar-menu-shell">
-          <div className="navbar-menu-group">
-            <div className="navbar-group-label">งานประจำ</div>
-            <div className="navbar-nav">
-              {visiblePrimaryNavItems.map((item) => (
-                <button
-                  key={item.page}
-                  className={`nav-btn ${item.divider ? 'nav-btn--divider' : ''} ${currentPage === item.page ? 'active' : ''}`}
-                  onClick={() => goToPage(item.page)}
-                >
-                  <span className="nav-btn-icon">{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
+        <div className="navbar-menu-shell nav2-bar">
+          {visiblePrimaryNavItems.length > 0 && <div className="nav2-label">งานประจำ</div>}
+          <div className="nav2-tabs" aria-label="งานประจำ">
+            {visiblePrimaryNavItems.map((item) => (
+              <button
+                key={item.page}
+                type="button"
+                className={`nav2-tab ${currentPage === item.page ? 'active' : ''}`}
+                aria-current={currentPage === item.page ? 'page' : undefined}
+                onClick={() => goToPage(item.page)}
+              >
+                <span className="nav2-tab-icon" aria-hidden="true">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
           </div>
-
-          <div className="navbar-menu-group navbar-menu-group--tools navbar-menu-group--compact" ref={navMenuRef}>
-            <div className="navbar-group-label">เครื่องมือ</div>
-            <div className="navbar-dropdown-row">
-              {visibleToolNavGroups.map((group) => {
-                const isGroupActive = group.pages.includes(currentPage);
-                const isOpen = openNavGroup === group.label;
-                return (
-                  <div className="navbar-dropdown" key={group.label}>
-                    <button
-                      type="button"
-                      className={`nav-btn navbar-dropdown-trigger ${isGroupActive ? 'active' : ''} ${isOpen ? 'is-open' : ''}`}
-                      onClick={() => setOpenNavGroup(isOpen ? null : group.label)}
-                      aria-expanded={isOpen}
-                    >
-                      <span className="nav-btn-icon">{group.icon}</span>
-                      <span>{group.label}</span>
-                      <span className="navbar-dropdown-chevron">▾</span>
-                    </button>
-                    {isOpen && (
-                      <div className="navbar-dropdown-menu">
-                        {group.pages.map((page) => {
-                          const item = toolNavItemByPage.get(page);
-                          if (!item) return null;
-                          return (
-                            <button
-                              key={item.page}
-                              type="button"
-                              className={`navbar-dropdown-item ${currentPage === item.page ? 'active' : ''}`}
-                              onClick={() => goToPage(item.page)}
-                            >
-                              <span className="nav-btn-icon">{item.icon}</span>
-                              <span>{item.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          {visibleToolCount > 0 && (
+            <button
+              type="button"
+              className={`nav2-tools-btn ${navPanel === 'tools' ? 'is-open' : ''} ${activeToolGroup ? 'has-active' : ''}`}
+              onClick={() => (navPanel === 'tools' ? closeNavPanel() : setNavPanel('tools'))}
+              aria-expanded={navPanel === 'tools'}
+              title="เครื่องมือทั้งหมด (Ctrl+K)"
+            >
+              <span aria-hidden="true">{activeToolGroup ? activeToolGroup.icon : '▦'}</span>
+              <span>{activeToolGroup ? activeToolGroup.label : 'เครื่องมือทั้งหมด'}</span>
+              {!activeToolGroup && <span className="nav2-count">{visibleToolCount}</span>}
+              <span className="nav2-chevron" aria-hidden="true">▾</span>
+            </button>
+          )}
         </div>
+
+        {navPanel === 'tools' && (
+          <div className="nav2-mega">
+            <div className="nav2-mega-head">
+              <input
+                type="search"
+                className="nav2-mega-search"
+                placeholder="🔍 พิมพ์ชื่อเมนูเพื่อค้นหา แล้วกด Enter"
+                value={menuQuery}
+                autoFocus
+                onChange={(event) => setMenuQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  const firstMatch = megaSections[0]?.items[0];
+                  if (event.key === 'Enter' && firstMatch) goToPage(firstMatch.page);
+                }}
+                aria-label="ค้นหาเมนู"
+              />
+              <div className="nav2-chips">
+                <button
+                  type="button"
+                  className={`nav2-chip ${menuGroupFilter === '' ? 'active' : ''}`}
+                  onClick={() => setMenuGroupFilter('')}
+                >
+                  ทั้งหมด
+                </button>
+                {visibleToolNavGroups.map((group) => (
+                  <button
+                    key={group.label}
+                    type="button"
+                    className={`nav2-chip ${menuGroupFilter === group.label ? 'active' : ''}`}
+                    onClick={() => setMenuGroupFilter(group.label)}
+                  >
+                    {group.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="nav2-mega-scroll">
+              {megaSections.length === 0 ? (
+                <div className="nav2-mega-empty">ไม่พบเมนูที่ตรงกับคำค้น</div>
+              ) : (
+                <div className="nav2-mega-body">
+                  {megaSections.map((section) => (
+                    <section className="nav2-mega-section" key={section.label}>
+                      <h3>
+                        <span className="nav2-mega-section-icon" aria-hidden="true">{section.icon}</span>
+                        <span>{section.label}</span>
+                        <span className="nav2-mega-section-count">{section.items.length}</span>
+                      </h3>
+                      {section.items.map((item) => (
+                        <button
+                          key={item.page}
+                          type="button"
+                          className={`nav2-mega-item ${currentPage === item.page ? 'active' : ''}`}
+                          onClick={() => goToPage(item.page)}
+                        >
+                          <span className="nav2-mega-item-icon" aria-hidden="true">{item.icon}</span>
+                          <span>{item.label}</span>
+                        </button>
+                      ))}
+                    </section>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="nav2-mega-foot">
+              <span><kbd>Ctrl K</kbd> เปิดค้นหา</span>
+              <span><kbd>Enter</kbd> เปิดเมนูแรกที่พบ</span>
+              <span><kbd>Esc</kbd> ปิด</span>
+            </div>
+          </div>
+        )}
       </nav>
+      {navPanel === 'tools' && <div className="nav2-scrim" aria-hidden="true" />}
 
       {mobileMenuOpen && (
         <div className="mobile-nav-layer">

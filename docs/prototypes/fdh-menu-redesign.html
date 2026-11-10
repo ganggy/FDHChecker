@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FDH Checker — ต้นแบบจัดระเบียบเมนู</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', '"IBM Plex Sans Thai"', 'system-ui', 'sans-serif'] },
+        boxShadow: {
+          card: '0 1px 2px rgba(15,23,42,.04), 0 6px 20px -10px rgba(15,23,42,.12)',
+          lift: '0 2px 4px rgba(15,23,42,.05), 0 20px 40px -18px rgba(30,64,175,.28)',
+          panel: '0 24px 60px -12px rgba(15,23,42,.30)',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  body { font-feature-settings: 'tnum' 1; -webkit-font-smoothing: antialiased; background: #f8fafc; }
+  /* โทนสีเดิมของระบบ: navy → blue gradient */
+  .nav-bg {
+    background:
+      radial-gradient(circle at 5% 0%, rgba(96,165,250,.28), transparent 30%),
+      radial-gradient(circle at 100% 0%, rgba(34,211,238,.18), transparent 28%),
+      linear-gradient(135deg, #172554 0%, #1e40af 52%, #2563eb 100%);
+  }
+  .ease { transition: all .25s cubic-bezier(.2,.7,.2,1); }
+  .bar { transition: width .9s cubic-bezier(.2,.7,.2,1); }
+  .tab { position: relative; white-space: nowrap; }
+  .tab[aria-current="page"]::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: -9px; height: 3px; border-radius: 3px 3px 0 0; background: #fff; }
+  .no-scrollbar::-webkit-scrollbar { display: none; } .no-scrollbar { scrollbar-width: none; }
+  select { -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; }
+  .field { height: 44px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #fff; padding: 0 14px; font-size: 14px; color: #0f172a; width: 100%; transition: border-color .2s, box-shadow .2s; }
+  .field:hover { border-color: #bfdbfe; }
+  .field:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 4px rgba(37,99,235,.14); }
+  .field::placeholder { color: #94a3b8; }
+  .label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #64748b; font-weight: 700; }
+  button:focus-visible, a:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .ease, .bar { transition: none; } }
+</style>
+</head>
+<body class="text-slate-900 font-sans">
+
+<!-- ═════════ Navbar (2 ชั้น: แบรนด์/ผู้ใช้ + เมนู) ═════════ -->
+<header id="nav" class="nav-bg sticky top-0 z-40 text-white shadow-[0_14px_36px_rgba(30,64,175,.26)]">
+  <div class="max-w-[1440px] mx-auto px-4 lg:px-8">
+
+    <!-- ชั้น 1 -->
+    <div class="h-16 flex items-center gap-4">
+      <a href="#" class="flex items-center gap-3 shrink-0">
+        <span class="w-10 h-10 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center text-lg shadow-inner">🏥</span>
+        <span class="leading-tight">
+          <span class="block text-[19px] font-extrabold tracking-tight">FDH Checker</span>
+          <span class="hidden sm:block text-[11px] text-white/65">ระบบตรวจสอบเบิกจ่ายและปิดสิทธิ</span>
+        </span>
+      </a>
+
+      <!-- ค้นหาเมนู -->
+      <button id="searchOpen" class="hidden md:flex ml-4 flex-1 max-w-md h-10 items-center gap-3 px-4 rounded-xl bg-white/10 border border-white/15 text-white/70 text-[13px] hover:bg-white/15 ease">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span>ค้นหาเมนู เช่น REP, ลูกหนี้, 16 แฟ้ม</span>
+        <kbd class="ml-auto text-[10px] px-1.5 py-0.5 rounded-md bg-white/15 border border-white/15 font-sans">Ctrl K</kbd>
+      </button>
+
+      <div class="flex-1 md:hidden"></div>
+
+      <!-- สถานะระบบ (รวมการ์ด meta เดิมเป็นแถวเดียว) -->
+      <div class="hidden xl:flex items-center gap-4 text-[11.5px] text-white/75 whitespace-nowrap ml-auto">
+        <span>โรงพยาบาลตัวอย่าง · v1.0.7</span>
+        <span class="flex items-center gap-1.5"><i class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,.22)]"></i>e-Claim Sync ปกติ</span>
+      </div>
+
+      <button class="hidden sm:flex h-8 px-3 items-center gap-2 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-100 text-[11.5px] font-semibold hover:bg-amber-400/30 ease whitespace-nowrap">
+        <i class="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse"></i>มีอัปเดตใหม่ (2)
+      </button>
+
+      <!-- เมนูผู้ใช้ (รวมปุ่ม 📖 🔑 ⚙️ ⏻ ไว้ในที่เดียว) -->
+      <div class="relative">
+        <button id="userBtn" aria-expanded="false" class="h-10 pl-1.5 pr-3 flex items-center gap-2.5 rounded-full bg-white/10 border border-white/15 hover:bg-white/20 ease">
+          <span class="w-7 h-7 rounded-full bg-white text-blue-700 text-[12px] font-bold flex items-center justify-center">W</span>
+          <span class="hidden sm:block text-left leading-tight">
+            <span class="block text-[12.5px] font-bold">war12oc</span>
+            <span class="block text-[10px] text-white/65">ผู้ดูแลระบบ</span>
+          </span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div id="userMenu" class="hidden absolute right-0 top-[calc(100%+10px)] w-60 p-2 rounded-2xl bg-white text-slate-700 border border-slate-200 shadow-panel">
+          <p class="px-3 pt-2 pb-1 label">บัญชีและระบบ</p>
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] hover:bg-blue-50 hover:text-blue-700 ease"><span class="w-5 text-center">📖</span>คู่มือการใช้งาน</a>
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] hover:bg-blue-50 hover:text-blue-700 ease"><span class="w-5 text-center">🔑</span>เปลี่ยนรหัสผ่าน</a>
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] hover:bg-blue-50 hover:text-blue-700 ease"><span class="w-5 text-center">⚙️</span>ตั้งค่าระบบ<i class="ml-auto w-2 h-2 rounded-full bg-amber-400"></i></a>
+          <div class="my-1 border-t border-slate-100"></div>
+          <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] text-red-600 hover:bg-red-50 ease"><span class="w-5 text-center">⏻</span>ออกจากระบบ</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ชั้น 2: งานประจำ + เครื่องมือทั้งหมด -->
+    <div class="border-t border-white/12 h-[52px] flex items-center gap-3">
+      <span class="hidden lg:block text-[10.5px] font-bold tracking-[.1em] text-white/55 uppercase pr-3 border-r border-white/15 whitespace-nowrap">งานประจำ</span>
+      <nav id="primary" class="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1 min-w-0 self-stretch" aria-label="งานประจำ"></nav>
+      <button id="megaBtn" aria-expanded="false" class="shrink-0 h-9 pl-3.5 pr-3 flex items-center gap-2 rounded-xl bg-white text-blue-700 text-[13px] font-bold shadow-sm hover:shadow-lg hover:-translate-y-px ease whitespace-nowrap">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+        <span>เครื่องมือทั้งหมด</span>
+        <span id="megaCount" class="text-[10.5px] px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700"></span>
+        <svg id="megaChev" class="ease" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mega menu -->
+  <div id="mega" class="hidden absolute inset-x-0 top-full">
+    <div class="max-w-[1440px] mx-auto px-4 lg:px-8 pt-2">
+      <div class="bg-white text-slate-800 rounded-2xl border border-slate-200 shadow-panel overflow-hidden">
+        <div class="flex flex-wrap items-center gap-3 px-5 py-4 border-b border-slate-100 bg-slate-50/70">
+          <span class="relative flex-1 min-w-[220px]">
+            <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="mq" class="field" style="padding-left:40px" placeholder="พิมพ์ชื่อเมนูเพื่อค้นหา แล้วกด Enter" autocomplete="off" />
+          </span>
+          <div id="groupChips" class="flex flex-wrap gap-1.5"></div>
+        </div>
+        <div class="max-h-[min(66vh,620px)] overflow-y-auto"><div id="megaBody" class="p-5 columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-6"></div></div>
+        <div class="px-5 py-2.5 border-t border-slate-100 text-[11.5px] text-slate-500 flex flex-wrap gap-x-5 gap-y-1">
+          <span><kbd class="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">Ctrl K</kbd> เปิดค้นหา</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">Enter</kbd> เปิดเมนูแรกที่พบ</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200">Esc</kbd> ปิด</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+<div id="scrim" class="hidden fixed inset-0 z-30 bg-slate-900/30 backdrop-blur-[2px]"></div>
+
+<main class="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-10">
+
+  <!-- หัวหน้า + breadcrumb -->
+  <section class="flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <p id="crumb" class="text-[12px] text-slate-500"></p>
+      <h1 id="title" class="text-[28px] font-extrabold tracking-tight mt-1"></h1>
+      <p id="note" class="text-[13px] text-slate-500 mt-1"></p>
+    </div>
+    <div class="flex items-center gap-2">
+      <button class="h-10 px-4 rounded-xl border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-700 ease">Export Excel</button>
+      <button class="h-10 px-4 rounded-xl bg-blue-600 text-white text-[13px] font-semibold hover:bg-blue-700 shadow-sm hover:shadow-lift ease">ดึงข้อมูลล่าสุด</button>
+    </div>
+  </section>
+
+  <section id="metrics" class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4"></section>
+
+  <section>
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
+      <h2 class="text-[18px] font-bold">สรุปรายกองทุน</h2>
+      <p class="text-[12.5px] text-slate-500">เลือกการ์ดเพื่อกรองข้อมูลทั้งหน้า</p>
+    </div>
+    <div id="funds" class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4"></div>
+  </section>
+
+  <section class="bg-white rounded-2xl border border-slate-200 shadow-card">
+    <div class="px-5 lg:px-6 pt-5 flex items-center justify-between gap-4">
+      <h2 class="text-[18px] font-bold">ค้นหาและกรองรายการ</h2>
+      <button id="reset" class="text-[12.5px] text-slate-500 hover:text-blue-700 ease">ล้างตัวกรอง</button>
+    </div>
+    <form id="controls" class="px-5 lg:px-6 py-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[1.6fr_1fr_1fr_1fr_auto] gap-3 items-end">
+      <label class="block"><span class="label block mb-1.5">ค้นหา</span>
+        <span class="relative block">
+          <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" class="field" style="padding-left:40px" placeholder="VN, HN, ชื่อ, สิทธิ์, DIAG" autocomplete="off" />
+        </span>
+      </label>
+      <label class="block"><span class="label block mb-1.5">กองทุน</span><select id="fFund" class="field"></select></label>
+      <label class="block"><span class="label block mb-1.5">ความสมบูรณ์</span>
+        <select id="fStatus" class="field"><option value="all">ทั้งหมด</option><option value="ready">ข้อมูลพร้อมส่ง</option><option value="pending">ข้อมูลรอแก้ไข</option></select>
+      </label>
+      <label class="block"><span class="label block mb-1.5">สถานะ FDH</span>
+        <select id="fFdh" class="field"><option value="all">ทุกสถานะ</option><option value="not-submitted">ยังไม่ส่ง</option><option value="submitted">ส่งแล้ว</option><option value="failed">ประมวลผลไม่ผ่าน</option></select>
+      </label>
+      <button type="submit" class="h-11 px-7 rounded-xl bg-blue-600 text-white text-[13px] font-bold hover:bg-blue-700 hover:shadow-lift ease md:col-span-2 xl:col-span-1">ตรวจสอบ</button>
+    </form>
+
+    <div class="px-5 lg:px-6 pb-4">
+      <p class="label mb-2">แฟ้มที่ต้องแก้ไข</p>
+      <div id="pills" class="flex flex-wrap gap-2"></div>
+    </div>
+
+    <div class="px-5 lg:px-6 py-3 flex items-center justify-between text-[13px] text-slate-500 border-t border-slate-100">
+      <span id="count"></span><span id="sum" class="font-bold text-slate-900"></span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full min-w-[840px] text-[13.5px]">
+        <thead>
+          <tr class="text-left label bg-slate-50 border-y border-slate-200">
+            <th class="py-3 pl-5 lg:pl-6">VN</th><th class="py-3">ผู้รับบริการ</th><th class="py-3">กองทุน</th><th class="py-3">ประเภท</th><th class="py-3">DIAG</th>
+            <th class="py-3 text-right">มูลค่า (บาท)</th><th class="py-3 pl-8">ความสมบูรณ์</th><th class="py-3 pr-5 lg:pr-6">FDH</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="py-5 text-center">
+      <button id="more" class="h-9 px-5 rounded-full border border-slate-200 text-[12.5px] text-slate-600 hover:border-blue-300 hover:text-blue-700 ease"></button>
+    </div>
+  </section>
+
+  <p class="text-center text-[12px] text-slate-400">ต้นแบบการออกแบบ · ข้อมูลจำลองทั้งหมด ไม่ใช่ข้อมูลผู้ป่วยจริง</p>
+</main>
+
+<script>
+/* ════════ เมนู (คัดลอกโครงสร้างจาก src/config/menuDefinitions.ts) ════════ */
+const PRIMARY = [
+  ['staff','📋','รายการ OPD'], ['fdh','📤','ส่งออก OPD'], ['ipd','🛏️','รายการ IPD'],
+  ['ipdExport','📤','ส่งออก IPD'], ['ipdClaimMonitor','📡','มอนิเตอร์เคลม IPD'], ['nhsoClose','🔐','ปิดสิทธิ สปสช.'],
+];
+const TOOLS = {
+  collaboration:['💬','ศูนย์ตรวจสอบ (LINE)'], aiReports:['✨','FDH AI Analytics'], hospitalReports:['📑','ศูนย์รายงานโรงพยาบาล'],
+  ssjRawServ:['📊','รายงานส่ง สสจ (RawServ)'], annualCheckupReport:['🩺','หลักฐานเบิกตรวจสุขภาพ'], officialReceivable:['🏛️','แบบลูกหนี้ราชการ 4 แบบ'],
+  receivableStandardReport:['📑','รายงานลูกหนี้ 6 รูปแบบ'], fdhImport:['📥','ดึงสถานะเคลม FDH'], fdhClaimDetail:['📄','รายละเอียดเคลม FDH'],
+  repstm:['🧾','นำเข้า REP/STM'], repstmManage:['🗃️','จัดการฐานข้อมูล REP/STM'], sssExport:['📦','ส่งออก SSOP (ประกันสังคม)'],
+  sssRepStm:['📥','REP/STM ประกันสังคม'], authenSync:['🪪','ตรวจสอบ Authen สปสช.'], ktbApproveCode:['🏦','นำเข้า Approve Code KTB (EDC)'],
+  preValidator:['✅','ตรวจความพร้อม 16 แฟ้ม'], workQueue:['📋','คิวงานส่งตรวจ'], rejectTracking:['🔴','ติดตามเคส Reject'],
+  uuc1Tracking:['📌','เคสบัตรทองรอเบิก (UUC1)'], receivable:['💼','บัญชีลูกหนี้สิทธิ'], receivableSettlement:['💳','ตัดรับรู้ลูกหนี้'],
+  reconciliation:['🔄','กระทบยอด REP/STM'], stmZeroAudit:['🔎','ตรวจ STM 0'], repSheetZeroAudit:['📄','ตรวจ REP Data Sheet 0'],
+  repDailySummary:['📊','สรุป REP รายวัน'], ppfsBenchmark:['📈','เทียบยอดจัดสรร PPFS'], ppfsVisitMatch:['🔎','จับคู่บริการ PPFS'],
+  executiveMonitor:['🏛️','มอนิเตอร์ผู้บริหาร (สิทธิ x บริการ)'], insuranceOverview:['🧭','ภาพรวมประกันสุขภาพ'],
+  accountingRevenueBudget:['🧮','รายงานบัญชี / ประมาณการรายได้'], smtBudget:['🏦','ตัดลูกหนี้ SMT / e-Budget'], hsubPayment:['🏥','พึงจ่าย รพ.สต. (H-Sub)'],
+  pcuHerbal:['🌿','จ่ายยาสมุนไพร 46 รายการ (รพ.สต.)'], pcuPayout:['💳','คำนวณจ่ายเงิน รพ.สต.'], pcuCaseCost:['📦','จำนวน Case & ราคาทุน (รพ.สต.)'],
+  unitCostProfit:['⚖️','คำนวณต้นทุน & กำไรขาดทุนรายหน่วย'], ucOutsideCup:['🏥','UC นอก CUP (WALKIN)'], dentalAudit:['🦷','ตรวจสอบงานห้องฟัน'],
+  repDeny:['⚠️','รายการติด C / ปฏิเสธจ่าย'], admin:['📊','Dashboard ภาพรวม'], memberAdmin:['👥','สมาชิกและสิทธิ์เมนู'],
+  fundFdh:['📤','กองทุน FDH / e-Claim'], fund43:['🗂️','กองทุน 43 แฟ้ม'], fundKtb:['🏦','กองทุน KTB / NTIP'], fundOther:['🧩','กองทุนอื่นๆ'],
+  specific:['🎯','รวมภาพรวมทุกกองทุน'], monitor:['📈','มอนิเตอร์กองทุนพิเศษ'], fsMonitor:['💰','มอนิเตอร์ Fee Schedule'],
+  revenueOpportunity:['🧭','โอกาสสร้างรายได้'], mophDmht:['🧪','MOPH DMHT'], mophVaccine:['💉','MOPH Vaccine'],
+  icd9Lookup:['🔍','ค้นหารหัสหัตถการ ICD-9'], guide:['📚','คู่มือกองทุน'],
+};
+const GROUPS = [
+  ['นำเข้า/ตรวจสิทธิ','📥','#2563eb',['authenSync','ktbApproveCode','fdhImport','fdhClaimDetail','preValidator']],
+  ['ติดตามงาน','🔎','#dc2626',['workQueue','rejectTracking','uuc1Tracking','repDeny','collaboration']],
+  ['REP/STM & กระทบยอด','🧾','#0d9488',['repstm','reconciliation','stmZeroAudit','repSheetZeroAudit','repDailySummary']],
+  ['ลูกหนี้ & บัญชี','💰','#d97706',['receivable','receivableSettlement','smtBudget','hsubPayment','pcuHerbal','pcuPayout','pcuCaseCost','unitCostProfit','officialReceivable','receivableStandardReport','accountingRevenueBudget']],
+  ['กองทุนเฉพาะ','🎯','#7c3aed',['fundFdh','fund43','fundKtb','dentalAudit','mophDmht','mophVaccine','fsMonitor','monitor','specific','fundOther']],
+  ['ประกันสังคม','🔵','#2563eb',['sssExport','sssRepStm']],
+  ['ผู้บริหาร/วิเคราะห์','📊','#16a34a',['executiveMonitor','insuranceOverview','admin','aiReports','hospitalReports','ssjRawServ','annualCheckupReport','revenueOpportunity','ppfsBenchmark','ppfsVisitMatch','ucOutsideCup']],
+  ['ระบบ/อ้างอิง','⚙️','#64748b',['memberAdmin','repstmManage','icd9Lookup','guide']],
+];
+
+const $ = id => document.getElementById(id);
+const N = { cur: 'staff', q: '', group: '', open: false };
+const groupOf = p => GROUPS.find(g => g[3].includes(p));
+
+function renderPrimary() {
+  $('primary').innerHTML = PRIMARY.map(([p, ic, lb]) => {
+    const on = N.cur === p;
+    return `<button data-page="${p}" ${on ? 'aria-current="page"' : ''} class="tab h-9 px-3.5 flex items-center gap-2 rounded-xl text-[13px] ease ${on ? 'bg-white/20 font-bold text-white' : 'font-medium text-white/80 hover:bg-white/10 hover:text-white'}"><span class="text-[14px]">${ic}</span>${lb}</button>`;
+  }).join('');
+  const g = groupOf(N.cur);
+  $('megaBtn').querySelector('span').textContent = g ? g[0] : 'เครื่องมือทั้งหมด';
+  $('megaCount').textContent = g ? '' : Object.keys(TOOLS).length;
+  $('megaCount').style.display = g ? 'none' : '';
+}
+
+function megaMatches() {
+  const q = N.q.toLowerCase();
+  return GROUPS.filter(g => !N.group || g[0] === N.group)
+    .map(g => [g, g[3].filter(p => !q || (TOOLS[p][1] + ' ' + g[0]).toLowerCase().includes(q))])
+    .filter(([, items]) => items.length);
+}
+function renderMega() {
+  $('groupChips').innerHTML = [['', 'ทั้งหมด']].concat(GROUPS.map(g => [g[0], g[0]])).map(([v, l]) =>
+    `<button data-group="${v}" class="h-8 px-3 rounded-full text-[12px] font-semibold border ease ${N.group === v ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300 hover:text-blue-700'}">${l}</button>`).join('');
+  const m = megaMatches();
+  $('megaBody').innerHTML = m.length ? m.map(([g, items]) => `
+    <section class="break-inside-avoid mb-6">
+      <h3 class="flex items-center gap-2.5 pb-2 mb-1.5 border-b border-slate-100">
+        <span class="w-7 h-7 rounded-lg flex items-center justify-center text-[13px]" style="background:${g[2]}14">${g[1]}</span>
+        <span class="text-[13px] font-bold text-slate-900">${g[0]}</span>
+        <span class="ml-auto text-[11px] font-semibold text-slate-400">${items.length}</span>
+      </h3>
+      ${items.map(p => { const on = N.cur === p; return `
+        <button data-page="${p}" class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left text-[13px] ease ${on ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-700 hover:bg-slate-50 hover:text-blue-700'}">
+          <span class="w-5 text-center text-[13px] shrink-0">${TOOLS[p][0]}</span><span class="truncate">${TOOLS[p][1]}</span>
+          ${on ? '<i class="ml-auto w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></i>' : ''}
+        </button>`; }).join('')}
+    </section>`).join('')
+    : '<p class="py-10 text-center text-slate-400 text-[13px]" style="column-span:all">ไม่พบเมนูที่ตรงกับคำค้น</p>';
+}
+function setMega(open, focus) {
+  N.open = open;
+  $('mega').classList.toggle('hidden', !open); $('scrim').classList.toggle('hidden', !open);
+  $('megaBtn').setAttribute('aria-expanded', open); $('megaChev').style.transform = open ? 'rotate(180deg)' : '';
+  if (open) { $('userMenu').classList.add('hidden'); renderMega(); if (focus) $('mq').focus(); }
+  else { N.q = ''; N.group = ''; $('mq').value = ''; }
+}
+function go(page) {
+  N.cur = page; setMega(false); renderPrimary();
+  const prim = PRIMARY.find(x => x[0] === page), g = groupOf(page);
+  $('title').textContent = prim ? prim[2] : TOOLS[page][1];
+  $('crumb').innerHTML = (prim ? 'งานประจำ' : 'เครื่องมือ <span class="mx-1 text-slate-300">/</span> ' + g[0]) + ' <span class="mx-1 text-slate-300">/</span> <span class="text-blue-700 font-semibold">' + $('title').textContent + '</span>';
+  $('note').textContent = page === 'staff' ? 'ตรวจความสมบูรณ์ของข้อมูลก่อนส่งเบิก' : 'ต้นแบบนี้แสดงเนื้อหาตัวอย่างของหน้า "รายการ OPD" ในทุกเมนู';
+}
+$('primary').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (b) go(b.dataset.page); });
+$('megaBody').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (b) go(b.dataset.page); });
+$('groupChips').addEventListener('click', e => { const b = e.target.closest('[data-group]'); if (b) { N.group = b.dataset.group; renderMega(); } });
+$('megaBtn').addEventListener('click', () => setMega(!N.open, false));
+$('searchOpen').addEventListener('click', () => setMega(true, true));
+$('scrim').addEventListener('click', () => setMega(false));
+$('mq').addEventListener('input', e => { N.q = e.target.value.trim(); renderMega(); });
+$('mq').addEventListener('keydown', e => { if (e.key === 'Enter') { const m = megaMatches(); if (m.length) go(m[0][1][0]); } });
+$('userBtn').addEventListener('click', e => { e.stopPropagation(); setMega(false); const h = $('userMenu').classList.toggle('hidden'); $('userBtn').setAttribute('aria-expanded', !h); });
+document.addEventListener('click', e => { if (!e.target.closest('#userMenu')) $('userMenu').classList.add('hidden'); });
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setMega(true, true); }
+  if (e.key === 'Escape') { setMega(false); $('userMenu').classList.add('hidden'); }
+});
+
+/* ════════ ข้อมูลจำลองของหน้า (deterministic) ════════ */
+const FUNDS = [
+  { code: 'UCS', name: 'บัตรทองทั่วไป', w: 52, c: '#f59e0b' },
+  { code: 'OFC', name: 'ข้าราชการ', w: 16, c: '#8b5cf6' },
+  { code: 'SSS', name: 'ประกันสังคม', w: 13, c: '#3b82f6' },
+  { code: 'LGO', name: 'อปท.', w: 9, c: '#10b981' },
+  { code: 'สิทธิว่าง', name: 'ชำระเงินเอง', w: 10, c: '#94a3b8' },
+];
+const FILES = ['INS','PAT','OPD','ORF','ODX','OOP','IPD','IRF','IDX','IOP','CHT','CHA','AER','ADP','LVD','DRU'];
+const DIAGS = ['J00','I10','E119','K297','M545','A099','N390','J209','R509','U778'];
+let seed = 20261110;
+const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+const pick = a => a[Math.floor(rnd() * a.length)];
+const pickFund = () => { let r = rnd() * 100; for (const f of FUNDS) { if ((r -= f.w) < 0) return f.code; } return 'UCS'; };
+const DATA = Array.from({ length: 96 }, (_, i) => {
+  const ipd = rnd() < 0.14, ready = rnd() < 0.72, fdhR = rnd();
+  return {
+    vn: '6911' + String(100001 + i * 7), hn: 'T' + String(40001 + Math.floor(rnd() * 9000)),
+    name: 'ผู้ป่วยทดสอบ ' + String(i + 1).padStart(3, '0'), fund: pickFund(), type: ipd ? 'IPD' : 'OPD', diag: pick(DIAGS),
+    price: ipd ? 4000 + Math.floor(rnd() * 24000) : 120 + Math.floor(rnd() * 3200),
+    status: ready ? 'ready' : 'pending', reviewed: rnd() < 0.45,
+    file: ready ? null : pick(ipd ? ['IPD','IRF','IDX','IOP','CHA','DRU','INS'] : ['INS','ODX','OOP','ORF','CHT','ADP','DRU','AER']),
+    fdh: !ready ? (fdhR < 0.25 ? 'failed' : 'not-submitted') : (fdhR < 0.6 ? 'submitted' : 'not-submitted'),
+  };
+});
+
+const S = { q: '', fund: '', status: 'all', fdh: 'all', file: '', limit: 10 };
+const fmt = n => n.toLocaleString('en-US');
+const pct = (a, b) => b ? (a / b * 100) : 0;
+const tone = r => r >= 80 ? '#16a34a' : r >= 50 ? '#d97706' : '#dc2626';
+const scoped = () => DATA.filter(d => !S.fund || d.fund === S.fund);
+const filtered = () => scoped().filter(d =>
+  (S.status === 'all' || d.status === S.status) && (S.fdh === 'all' || d.fdh === S.fdh) && (!S.file || d.file === S.file) &&
+  (!S.q || [d.vn, d.hn, d.name, d.fund, d.diag].join(' ').toLowerCase().includes(S.q.toLowerCase())));
+
+function renderMetrics() {
+  const d = scoped(), total = d.length, ready = d.filter(x => x.status === 'ready').length, reviewed = d.filter(x => x.reviewed).length;
+  const value = d.reduce((s, x) => s + x.price, 0), rate = pct(ready, total);
+  const cards = [
+    ['จำนวนรายการทั้งหมด', fmt(total), 'รายการ', pct(total, DATA.length), S.fund || 'ทั้งหมด', '#2563eb', '📋'],
+    ['สมบูรณ์', fmt(ready), 'รายการ', rate, 'พร้อมส่ง', '#16a34a', '✅'],
+    ['ไม่สมบูรณ์', fmt(total - ready), 'รายการ', 100 - rate, 'รอแก้', '#dc2626', '⚠️'],
+    ['ตรวจสอบแล้ว', fmt(reviewed), 'รายการ', pct(reviewed, total), 'Review', '#d97706', '🔎'],
+    ['อัตราความสมบูรณ์', rate.toFixed(1), '%', rate, 'Quality', '#7c3aed', '📈'],
+    ['มูลค่ารวม', fmt(value), 'บาท', 100, 'Value', '#0d9488', '💰'],
+  ];
+  $('metrics').innerHTML = cards.map(([t, v, u, bar, chip, c, ic]) => `
+    <article class="bg-white rounded-2xl border border-slate-200 shadow-card hover:shadow-lift hover:-translate-y-0.5 ease p-5 flex flex-col min-h-[160px]">
+      <div class="flex items-center justify-between">
+        <span class="w-9 h-9 rounded-xl flex items-center justify-center text-[15px]" style="background:${c}14">${ic}</span>
+        <span class="text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap" style="color:${c};background:${c}12">${chip}</span>
+      </div>
+      <p class="text-[12.5px] text-slate-500 font-medium mt-3">${t}</p>
+      <p class="mt-auto pt-2 flex items-baseline gap-1.5 flex-wrap"><span class="text-[26px] leading-none font-extrabold tracking-tight" style="color:${c}">${v}</span><span class="text-[12px] text-slate-400">${u}</span></p>
+      <div class="mt-3 h-1 rounded-full bg-slate-100 overflow-hidden"><div class="bar h-full rounded-full" style="width:0;background:${c}" data-w="${bar.toFixed(1)}"></div></div>
+    </article>`).join('');
+}
+
+function renderFunds() {
+  $('funds').innerHTML = FUNDS.map(f => {
+    const d = DATA.filter(x => x.fund === f.code), ready = d.filter(x => x.status === 'ready').length;
+    const r = pct(ready, d.length), val = d.reduce((s, x) => s + x.price, 0), on = S.fund === f.code, ipd = d.filter(x => x.type === 'IPD').length;
+    return `
+    <button data-fund="${f.code}" aria-pressed="${on}" class="relative overflow-hidden text-left bg-white rounded-2xl p-5 border ease hover:-translate-y-0.5 hover:shadow-lift ${on ? 'shadow-lift' : 'border-slate-200 shadow-card'}" style="${on ? `border-color:${f.c};box-shadow:0 0 0 3px ${f.c}22, 0 16px 32px -16px ${f.c}66` : ''}">
+      <span class="absolute inset-x-0 top-0 h-1" style="background:${f.c}"></span>
+      <div class="flex items-start justify-between gap-3">
+        <div><p class="text-[16px] font-bold" style="color:${f.c}">${f.code}</p><p class="text-[11.5px] text-slate-500">${f.name}</p></div>
+        ${on ? `<span class="text-[10.5px] font-bold text-white px-2 py-0.5 rounded-full" style="background:${f.c}">กำลังดู</span>` : (d.length - ready ? `<span class="text-[10.5px] font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">รอแก้ ${d.length - ready}</span>` : '')}
+      </div>
+      <div class="mt-4 flex items-end justify-between">
+        <p><span class="text-[22px] font-extrabold leading-none">${fmt(d.length)}</span> <span class="text-[11px] text-slate-400">รายการ</span></p>
+        <p class="text-[13px] font-bold text-teal-600">฿${fmt(val)}</p>
+      </div>
+      <div class="mt-3 flex justify-between text-[11px]"><span class="text-slate-500">ความสมบูรณ์</span><span class="font-bold" style="color:${tone(r)}">${r.toFixed(0)}%</span></div>
+      <div class="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"><div class="bar h-full rounded-full" style="width:0;background:${tone(r)}" data-w="${r.toFixed(1)}"></div></div>
+      <div class="mt-3 flex gap-1.5 text-[10.5px] font-semibold">
+        <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">OPD ${d.length - ipd}</span>
+        ${ipd ? `<span class="px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">IPD ${ipd}</span>` : ''}
+      </div>
+    </button>`;
+  }).join('');
+}
+
+const FDH_LABEL = { 'submitted': ['ส่งแล้ว', 'text-green-600'], 'not-submitted': ['ยังไม่ส่ง', 'text-slate-400'], 'failed': ['ไม่ผ่าน', 'text-red-600'] };
+function renderRows() {
+  const d = filtered(), shown = d.slice(0, S.limit);
+  $('count').textContent = `พบ ${fmt(d.length)} จาก ${fmt(scoped().length)} รายการ`;
+  $('sum').textContent = `รวม ฿${fmt(d.reduce((s, x) => s + x.price, 0))}`;
+  $('rows').innerHTML = shown.length ? shown.map(x => `
+    <tr class="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+      <td class="py-3.5 pl-5 lg:pl-6 font-semibold">${x.vn}</td>
+      <td class="py-3.5"><span class="block">${x.name}</span><span class="block text-[11px] text-slate-400">HN ${x.hn}</span></td>
+      <td class="py-3.5 font-medium">${x.fund}</td><td class="py-3.5 text-slate-500">${x.type}</td><td class="py-3.5 text-slate-500">${x.diag}</td>
+      <td class="py-3.5 text-right font-semibold">${fmt(x.price)}</td>
+      <td class="py-3.5 pl-8">${x.status === 'ready'
+        ? '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-green-700 text-[11.5px] font-bold">พร้อมส่ง</span>'
+        : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-[11.5px] font-bold">รอแก้ไข · ${x.file}</span>`}</td>
+      <td class="py-3.5 pr-5 lg:pr-6 text-[12px] font-semibold ${FDH_LABEL[x.fdh][1]}">${FDH_LABEL[x.fdh][0]}</td>
+    </tr>`).join('')
+    : '<tr><td colspan="8" class="py-14 text-center text-slate-400">ไม่พบรายการตามเงื่อนไข — ลองล้างตัวกรอง</td></tr>';
+  const rest = d.length - shown.length;
+  $('more').style.display = d.length > 10 ? '' : 'none';
+  $('more').textContent = rest > 0 ? `แสดงเพิ่มอีก ${fmt(rest)} รายการ` : 'ย่อรายการ';
+}
+
+function renderPills() {
+  const d = scoped();
+  $('pills').innerHTML = FILES.map(f => {
+    const n = d.filter(x => x.file === f).length, on = S.file === f;
+    return `<button data-file="${f}" aria-pressed="${on}" ${n ? '' : 'disabled'} class="h-8 pl-3 pr-2 rounded-full border text-[12px] font-semibold flex items-center gap-2 ease
+      ${on ? 'bg-blue-600 border-blue-600 text-white' : n ? 'bg-white border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-700' : 'bg-slate-50 border-slate-100 text-slate-300 cursor-default'}">
+      ${f}<span class="min-w-[20px] h-5 px-1.5 rounded-full text-[10.5px] flex items-center justify-center ${on ? 'bg-white text-blue-700' : n ? 'bg-red-50 text-red-600' : 'bg-slate-100'}">${n}</span>
+    </button>`;
+  }).join('');
+}
+
+function animateBars() { requestAnimationFrame(() => requestAnimationFrame(() => document.querySelectorAll('.bar').forEach(b => b.style.width = b.dataset.w + '%'))); }
+function render() { renderMetrics(); renderFunds(); renderPills(); renderRows(); $('fFund').value = S.fund; animateBars(); }
+
+$('fFund').innerHTML = '<option value="">ทุกกองทุน</option>' + FUNDS.map(f => `<option value="${f.code}">${f.code} — ${f.name}</option>`).join('');
+$('funds').addEventListener('click', e => { const b = e.target.closest('[data-fund]'); if (!b) return; S.fund = S.fund === b.dataset.fund ? '' : b.dataset.fund; S.file = ''; S.limit = 10; render(); });
+$('pills').addEventListener('click', e => { const b = e.target.closest('[data-file]'); if (!b || b.disabled) return; S.file = S.file === b.dataset.file ? '' : b.dataset.file; S.limit = 10; renderPills(); renderRows(); });
+$('q').addEventListener('input', e => { S.q = e.target.value.trim(); S.limit = 10; renderRows(); });
+$('fFund').addEventListener('change', e => { S.fund = e.target.value; S.file = ''; S.limit = 10; render(); });
+$('fStatus').addEventListener('change', e => { S.status = e.target.value; S.limit = 10; renderRows(); });
+$('fFdh').addEventListener('change', e => { S.fdh = e.target.value; S.limit = 10; renderRows(); });
+$('controls').addEventListener('submit', e => { e.preventDefault(); renderRows(); });
+$('more').addEventListener('click', () => { S.limit = S.limit >= filtered().length ? 10 : Infinity; renderRows(); });
+$('reset').addEventListener('click', () => { Object.assign(S, { q: '', fund: '', status: 'all', fdh: 'all', file: '', limit: 10 }); $('q').value = ''; $('fStatus').value = 'all'; $('fFdh').value = 'all'; render(); });
+
+go('staff'); render();
+</script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { CheckRecord } from '../mockData';
 import '../styles/fundSummary.css';
 
@@ -64,16 +64,22 @@ const getFundType = (fund: string): { shortName: string; color: string; icon: st
     const meta = FUND_META[fund];
     if (meta) return meta;
 
-    // Fuzzy match
-    const key = Object.keys(FUND_META).find(k =>
-        fund.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(fund.toLowerCase())
-    );
+    // จับคู่แบบหลวม: รหัสอังกฤษ (UC, SSS, OFC ...) ต้องตรงทั้งคำ ไม่ใช่แค่เป็นส่วนหนึ่งของคำอื่น
+    // ส่วนชื่อไทยต้องปรากฏในชื่อกองทุน โดยลองคำที่ยาวกว่าก่อน
+    const tokens = fund.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+    const key = Object.keys(FUND_META)
+        .sort((a, b) => b.length - a.length)
+        .find(k => (/^[A-Za-z0-9]+$/.test(k) ? tokens.includes(k.toUpperCase()) : fund.includes(k)));
     if (key) return FUND_META[key];
 
     return { shortName: fund, color: '#64748b', icon: '⚫', fullName: fund, rateInfo: undefined };
 };
 
+/** จำนวนการ์ดที่แสดงตอนย่อ (ประมาณ 2 แถวบนจอกว้าง) */
+const COLLAPSED_LIMIT = 12;
+
 export const FundSummaryBar: React.FC<FundSummaryBarProps> = ({ data, selectedFund, onSelectFund }) => {
+    const [expanded, setExpanded] = useState(false);
     const fundSummaries = useMemo(() => {
         const fundMap = new Map<string, CheckRecord[]>();
 
@@ -112,10 +118,18 @@ export const FundSummaryBar: React.FC<FundSummaryBarProps> = ({ data, selectedFu
     const grandComplete = data.filter(i => i.status === 'ready').length;
     const grandValue = data.reduce((sum, i) => sum + (i.price || 0), 0);
 
+    const hiddenCount = Math.max(0, fundSummaries.length - COLLAPSED_LIMIT);
+    // ตอนย่อ: แสดงกองทุนที่มีรายการมากสุดก่อน และคงกองทุนที่กำลังเลือกไว้เสมอ
+    const visibleFunds = expanded || hiddenCount === 0
+        ? fundSummaries
+        : fundSummaries.filter((fund, index) => index < COLLAPSED_LIMIT || fund.fund === selectedFund);
+
     return (
         <div className="fsb">
             <div className="summary-toolbar">
-                <h2 className="section-title" style={{ flex: 1 }}>สรุปรายกองทุน</h2>
+                <h2 className="section-title" style={{ flex: 1 }}>
+                    สรุปรายกองทุน <span className="fsb-title-count">{fundSummaries.length} กองทุน</span>
+                </h2>
                 <div className="summary-toolbar-meta">
                     <span>รวมทั้งหมด: <strong>{grandTotal.toLocaleString()}</strong> รายการ</span>
                     <span>•</span>
@@ -126,10 +140,16 @@ export const FundSummaryBar: React.FC<FundSummaryBarProps> = ({ data, selectedFu
             </div>
 
             <div className="fsb-grid">
-                {fundSummaries.map(fund => {
+                {visibleFunds.map(fund => {
                     const isSelected = selectedFund === fund.fund;
                     const otherCount = fund.total - fund.opd - fund.ipd;
                     const rateTone = fund.rate >= 80 ? 'good' : fund.rate >= 50 ? 'warn' : 'bad';
+                    const tooltip = [
+                        fund.fullName !== fund.fund ? `${fund.fund} — ${fund.fullName}` : fund.fund,
+                        `OPD ${fund.opd.toLocaleString()} · IPD ${fund.ipd.toLocaleString()}${otherCount > 0 ? ` · อื่นๆ ${otherCount.toLocaleString()}` : ''}`,
+                        `สมบูรณ์ ${fund.complete.toLocaleString()} · รอแก้ ${fund.incomplete.toLocaleString()}`,
+                        isSelected ? 'คลิกเพื่อยกเลิกการกรอง' : 'คลิกเพื่อดูเฉพาะกองทุนนี้',
+                    ].join('\n');
 
                     return (
                         <button
@@ -137,63 +157,39 @@ export const FundSummaryBar: React.FC<FundSummaryBarProps> = ({ data, selectedFu
                             key={fund.fund}
                             onClick={() => onSelectFund(isSelected ? '' : fund.fund)}
                             aria-pressed={isSelected}
-                            title={isSelected ? 'คลิกเพื่อยกเลิกการกรอง' : `คลิกเพื่อดูเฉพาะ ${fund.fund}`}
-                            className={`fund-summary-card fsb-card${isSelected ? ' selected' : ''}`}
+                            title={tooltip}
+                            className={`fsb-card${isSelected ? ' selected' : ''}`}
                             style={{ ['--fund-color' as string]: fund.color }}
                         >
-                            <span className="fund-summary-card-topbar" />
-
                             <span className="fsb-head">
-                                <span className="fsb-name-block">
-                                    <span className="fsb-name">
-                                        <span className="fsb-dot" aria-hidden="true" />
-                                        <span>{fund.fund}</span>
-                                    </span>
-                                    {fund.fullName !== fund.fund && <span className="fsb-fullname">{fund.fullName}</span>}
-                                    {fund.rateInfo && <span className="fsb-rate-info">{fund.rateInfo}</span>}
-                                </span>
-                                {isSelected ? (
-                                    <span className="fsb-badge fsb-badge--viewing">กำลังดู</span>
-                                ) : fund.incomplete > 0 ? (
-                                    <span className="fsb-badge fsb-badge--pending">รอแก้ {fund.incomplete.toLocaleString()}</span>
-                                ) : null}
+                                <span className="fsb-dot" aria-hidden="true" />
+                                <span className="fsb-name">{fund.fund}</span>
+                                {fund.incomplete > 0 && (
+                                    <span className="fsb-badge">รอแก้ {fund.incomplete.toLocaleString()}</span>
+                                )}
                             </span>
 
                             <span className="fsb-stats">
-                                <span>
-                                    <strong className="fsb-total">{fund.total.toLocaleString()}</strong>
-                                    <span className="fsb-unit">รายการ</span>
+                                <span className="fsb-total">
+                                    <strong>{fund.total.toLocaleString()}</strong> รายการ
                                 </span>
-                                <span className="fsb-value">
-                                    {fund.totalValue.toLocaleString()} <span className="fsb-unit">บาท</span>
-                                </span>
+                                <span className="fsb-value">{fund.totalValue.toLocaleString()} บาท</span>
+                                <strong className={`fsb-rate fsb-tone--${rateTone}`}>{fund.rate}%</strong>
                             </span>
 
-                            <span className="fsb-progress">
-                                <span className="fsb-progress-label">
-                                    <span>ความสมบูรณ์</span>
-                                    <strong className={`fsb-tone--${rateTone}`}>{fund.rate}%</strong>
-                                </span>
-                                <span className="fsb-progress-track">
-                                    <span className={`fsb-progress-fill fsb-fill--${rateTone}`} style={{ width: `${fund.rate}%` }} />
-                                </span>
-                            </span>
-
-                            <span className="fsb-foot">
-                                {fund.opd > 0 && <span className="fsb-chip fsb-chip--opd">OPD {fund.opd.toLocaleString()}</span>}
-                                {fund.ipd > 0 && <span className="fsb-chip fsb-chip--ipd">IPD {fund.ipd.toLocaleString()}</span>}
-                                {(fund.opd > 0 || fund.ipd > 0) && otherCount > 0 && (
-                                    <span className="fsb-chip">อื่นๆ {otherCount.toLocaleString()}</span>
-                                )}
-                                <span className="fsb-counts">
-                                    <span className="fsb-tone--good">✓ {fund.complete.toLocaleString()}</span>
-                                    <span className="fsb-tone--bad">✗ {fund.incomplete.toLocaleString()}</span>
-                                </span>
+                            <span className="fsb-progress-track">
+                                <span className={`fsb-progress-fill fsb-fill--${rateTone}`} style={{ width: `${fund.rate}%` }} />
                             </span>
                         </button>
                     );
                 })}
             </div>
+
+            {hiddenCount > 0 && (
+                <button type="button" className="fsb-toggle" onClick={() => setExpanded(prev => !prev)} aria-expanded={expanded}>
+                    {expanded ? 'ย่อรายการกองทุน ▴' : `แสดงอีก ${fundSummaries.length - visibleFunds.length} กองทุน ▾`}
+                </button>
+            )}
 
             {/* Legend from NHSO documents */}
             <div className="fund-summary-legend">

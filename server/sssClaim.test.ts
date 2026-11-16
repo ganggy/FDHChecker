@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import iconv from 'iconv-lite';
-import { claimDocument, evaluateSssCandidate } from './sssClaim.js';
+import { claimDocument, cleanSssInvoiceNo, evaluateSssCandidate } from './sssClaim.js';
 
 const valid = {
   cid: '1234567890123', pdx: 'I10', clinic: '01', hospmain: '11101', income: 100,
@@ -44,4 +44,25 @@ test('SSS claimDocument calculates MD5 checksum using windows-874 (cp874) bytes 
   const expectedMd5 = crypto.createHash('md5').update(cp874Buf.subarray(0, endNoteIdx)).digest('hex');
   const endNoteText = cp874Buf.subarray(endNoteIdx).toString('ascii');
   assert.equal(endNoteText, `<?EndNote Checksum="${expectedMd5}"?>`);
+});
+
+test('cleanSssInvoiceNo sanitizes quotes, multiple debt IDs and falls back to VN', () => {
+  // Empty or quote strings should fall back to VN
+  assert.equal(cleanSssInvoiceNo('""', '691109000172'), '691109000172');
+  assert.equal(cleanSssInvoiceNo("''", '691109000172'), '691109000172');
+  assert.equal(cleanSssInvoiceNo('   ', '691109000172'), '691109000172');
+  assert.equal(cleanSssInvoiceNo(null, '691109000172'), '691109000172');
+  assert.equal(cleanSssInvoiceNo(undefined, '691109000172'), '691109000172');
+
+  // Single clean debt ID
+  assert.equal(cleanSssInvoiceNo('442526', '691109000172'), '442526');
+
+  // Quoted receipt string
+  assert.equal(cleanSssInvoiceNo("'1005:12'", '691109000172'), '1005:12');
+
+  // Multiple debt IDs should take the first one without quotes
+  assert.equal(cleanSssInvoiceNo('214432,214434', '691109000172'), '214432');
+
+  // Receipt with amount suffix should strip hash and amount
+  assert.equal(cleanSssInvoiceNo('148:0649#1,030.00', '691109000172'), '148:0649');
 });

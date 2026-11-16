@@ -90,6 +90,15 @@ const money = (value: unknown) => number(value).toFixed(2);
 const pipeValue = (value: unknown) => xml(value).replace(/[|\r\n]+/g, ' ').trim();
 const pipeRow = (values: unknown[]) => values.map(pipeValue).join('|');
 
+export const cleanSssInvoiceNo = (rawInv: unknown, vn: unknown): string => {
+  const clean = String(rawInv ?? '')
+    .replace(/['"\s]/g, '')
+    .split(',')[0]
+    .split('#')[0]
+    .trim();
+  return clean ? clean : String(vn ?? '').trim();
+};
+
 export const evaluateSssCandidate = (row: Record<string, unknown>): SssValidationIssue[] => {
   const issues: SssValidationIssue[] = [];
   const add = (severity: 'error' | 'warning', code: string, message: string) => issues.push({ severity, code, message });
@@ -129,7 +138,11 @@ export const buildSssCandidateSql = (networkType: SssNetworkType) => `
     COALESCE(v.pdx, '') AS pdx,
     COALESCE(ost.name, '') AS visit_outcome,
     COALESCE(doc.licenseno, '') AS doctor_license,
-    COALESCE(NULLIF(v.debt_id_list, ''), NULLIF(v.rcpno_list, ''), o.vn) AS invoice_no,
+    COALESCE(
+      NULLIF(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.debt_id_list, ''), '"', ''), "'", '')), ',', 1), ''),
+      NULLIF(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.rcpno_list, ''), '"', ''), "'", '')), ',', 1), '#', 1), ''),
+      o.vn
+    ) AS invoice_no,
     ROUND(COALESCE(v.income, 0), 2) AS income,
     ROUND(COALESCE(v.rcpt_money, 0), 2) AS receipt_money,
     ROUND(COALESCE((SELECT SUM(oi.sum_price) FROM opitemrece oi WHERE oi.vn = o.vn), 0), 2) AS charge_total,
@@ -301,24 +314,47 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
     const numericBatch = Number.isFinite(rawBatch) && rawBatch > 0 ? rawBatch : (batchConfig.last_ssop_batch + 1);
     const sessionNo = String(numericBatch).padStart(4, '0');
 
+    const usedInvNos = new Set<string>();
+    const invNoMap = new Map<string, string>();
+    selected.forEach((row) => {
+      const vnStr = text(row.vn);
+      let inv = cleanSssInvoiceNo(row.invoice_no, vnStr);
+      if (usedInvNos.has(inv)) {
+        inv = vnStr;
+      }
+      if (usedInvNos.has(inv)) {
+        inv = `${vnStr}_${usedInvNos.size + 1}`;
+      }
+      usedInvNos.add(inv);
+      invNoMap.set(vnStr, inv);
+    });
+
     const billTran = selected.map((row) => {
+      const vnStr = text(row.vn);
+      const invNo = invNoMap.get(vnStr) || vnStr;
       const claimAmount = Math.max(0, number(row.income) - number(row.paid_money));
-      return pipeRow(['01', '', `${row.service_date}T${row.service_time}`, options.hcode, row.invoice_no || row.vn,
-        row.invoice_no || row.vn, row.hn, '', money(row.income), money(row.paid_money), '', 'A', row.cid,
+      return pipeRow(['01', '', `${row.service_date}T${row.service_time}`, options.hcode, invNo,
+        invNo, row.hn, '', money(row.income), money(row.paid_money), '', 'A', row.cid,
         row.patient_name, row.hospmain, '80', money(claimAmount), '', '0.00']);
     }).join('\r\n');
-    const billItems = selected.flatMap((row) => (chargeMap.get(row.vn) || []).map((item) => {
-      const claim = ['01', '03'].includes(text(item.paidst)) ? 0 : number(item.sum_price);
-      return pipeRow([row.invoice_no || row.vn, row.service_date, item.bill_group, item.icode,
-        item.standard_code || item.tmt_code, item.item_name, item.qty, money(item.unitprice), money(item.sum_price),
-        money(claim > 0 ? item.unitprice : 0), money(claim), row.vn, 'OP1']);
-    })).join('\r\n');
+    const billItems = selected.flatMap((row) => {
+      const vnStr = text(row.vn);
+      const invNo = invNoMap.get(vnStr) || vnStr;
+      return (chargeMap.get(row.vn) || []).map((item) => {
+        const claim = ['01', '03'].includes(text(item.paidst)) ? 0 : number(item.sum_price);
+        return pipeRow([invNo, row.service_date, item.bill_group, item.icode,
+          item.standard_code || item.tmt_code, item.item_name, item.qty, money(item.unitprice), money(item.sum_price),
+          money(claim > 0 ? item.unitprice : 0), money(claim), row.vn, 'OP1']);
+      });
+    }).join('\r\n');
     const dispensing = selected.map((row) => {
       const items = (chargeMap.get(row.vn) || []).filter((item) => number(item.is_drug) === 1);
       if (!items.length) return '';
+      const vnStr = text(row.vn);
+      const invNo = invNoMap.get(vnStr) || vnStr;
       const charge = items.reduce((sum, item) => sum + number(item.sum_price), 0);
       const paid = items.filter((item) => ['01', '03'].includes(text(item.paidst))).reduce((sum, item) => sum + number(item.sum_price), 0);
-      return pipeRow([options.hcode, row.vn, row.invoice_no || row.vn, row.hn, row.cid,
+      return pipeRow([options.hcode, row.vn, invNo, row.hn, row.cid,
         `${row.service_date} ${row.service_time}`, `${row.service_date} ${row.service_time}`, row.doctor_license,
         items.length, money(charge), money(charge - paid), money(paid), '0.00', 'HP', 'SS', '1', row.vn, '']);
     }).filter(Boolean).join('\r\n');
@@ -327,9 +363,13 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
       item.drug_usage, item.qty, money(item.unitprice), money(item.sum_price), money(item.unitprice), money(item.sum_price),
       '', 'OD', 'OP1', '', '',
     ]))).join('\r\n');
-    const services = selected.map((row) => pipeRow([row.invoice_no || row.vn, row.vn, 'EC', options.hcode, row.hn,
-      row.cid, '1', '01', '9', '9', '', row.doctor_license, row.clinic || '01', `${row.service_date}T${row.service_time}`,
-      text(row.end_datetime || `${row.service_date}T${row.service_time}`).replace(' ', 'T'), '', '', '', '0.00', 'Y', '', 'OP1'])).join('\r\n');
+    const services = selected.map((row) => {
+      const vnStr = text(row.vn);
+      const invNo = invNoMap.get(vnStr) || vnStr;
+      return pipeRow([invNo, row.vn, 'EC', options.hcode, row.hn,
+        row.cid, '1', '01', '9', '9', '', row.doctor_license, row.clinic || '01', `${row.service_date}T${row.service_time}`,
+        text(row.end_datetime || `${row.service_date}T${row.service_time}`).replace(' ', 'T'), '', '', '', '0.00', 'Y', '', 'OP1']);
+    }).join('\r\n');
     const opdDx = selected.flatMap((row) => (diagMap.get(row.vn) || []).map((diag) => pipeRow([
       'EC', row.vn, diag.diagtype || '1', 'IT', text(diag.icd10).replace(/\./g, ''), '',
     ]))).join('\r\n');

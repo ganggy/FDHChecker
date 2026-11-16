@@ -46,6 +46,7 @@ const PcuHerbalReconcilePage = lazyNamed(() => import('./pages/PcuHerbalReconcil
 const PcuPayoutPage = lazyNamed(() => import('./pages/PcuPayoutPage'), 'PcuPayoutPage');
 const PcuCaseCostReportPage = lazyNamed(() => import('./pages/PcuCaseCostReportPage'), 'PcuCaseCostReportPage');
 const UnitCostProfitPage = lazyNamed(() => import('./pages/UnitCostProfitPage'), 'UnitCostProfitPage');
+const DailyClaimMonitorPage = lazyNamed(() => import('./pages/DailyClaimMonitorPage'), 'DailyClaimMonitorPage');
 const UcOutsideCupPage = lazyNamed(() => import('./pages/UcOutsideCupPage'), 'UcOutsideCupPage');
 const DentalAuditPage = lazyNamed(() => import('./pages/DentalAuditPage'), 'DentalAuditPage');
 const KtbApproveCodeImportPage = lazyNamed(() => import('./pages/KtbApproveCodeImportPage'), 'KtbApproveCodeImportPage');
@@ -140,6 +141,7 @@ function App() {
     // Same read workspace as the former reconciliation tab.
     if (pages.has('reconciliation')) { pages.add('stmZeroAudit'); pages.add('repSheetZeroAudit'); }
     if (pages.has('hsubPayment') || pages.has('pcuHerbal') || pages.has('receivable')) { pages.add('pcuHerbal'); pages.add('pcuPayout'); pages.add('pcuCaseCost'); pages.add('unitCostProfit'); }
+    if (pages.has('staff') || pages.has('workQueue') || pages.has('executiveMonitor')) { pages.add('dailyClaimMonitor'); }
     return pages;
   }, [authSession, isAdmin]);
   const hasAnyAllowedPage = allowedPageSet.size > 0;
@@ -699,6 +701,7 @@ function App() {
         {currentPage === 'pcuPayout' && <PcuPayoutPage />}
         {currentPage === 'pcuCaseCost' && <PcuCaseCostReportPage />}
         {currentPage === 'unitCostProfit' && <UnitCostProfitPage />}
+        {currentPage === 'dailyClaimMonitor' && <DailyClaimMonitorPage />}
         {currentPage === 'ucOutsideCup' && <UcOutsideCupPage />}
         {currentPage === 'dentalAudit' && <DentalAuditPage />}
         {currentPage === 'ktbApproveCode' && <KtbApproveCodeImportPage />}

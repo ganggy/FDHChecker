@@ -30,6 +30,9 @@ interface SssCandidate {
   income: number;
   validation_status: ValidationStatus;
   issues: SssIssue[];
+  export_status?: 'UNSENT' | 'SENT' | 'PASSED' | 'ERROR';
+  last_batch_no?: number | null;
+  last_error_code?: string;
 }
 
 interface SssSummary {
@@ -59,6 +62,7 @@ export const SssExportPage: React.FC = () => {
   const [endDate, setEndDate] = useState(today);
   const [networkType, setNetworkType] = useState<NetworkType>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | ValidationStatus>('ALL');
+  const [exportStatusFilter, setExportStatusFilter] = useState<'ALL' | 'UNSENT' | 'SENT' | 'PASSED' | 'ERROR'>('UNSENT');
   const [search, setSearch] = useState('');
   const [rows, setRows] = useState<SssCandidate[]>([]);
   const [summary, setSummary] = useState<SssSummary>(emptySummary);
@@ -127,10 +131,14 @@ export const SssExportPage: React.FC = () => {
 
   const filtered = useMemo(() => rows.filter((row) => {
     if (statusFilter !== 'ALL' && row.validation_status !== statusFilter) return false;
+    if (claimMode === 'OPD' && exportStatusFilter !== 'ALL') {
+      const expStat = row.export_status || 'UNSENT';
+      if (expStat !== exportStatusFilter) return false;
+    }
     if (!search.trim()) return true;
     const needle = search.trim().toLowerCase();
     return [row.an, row.vn, row.hn, row.cid, row.patient_name, row.pttype_name].some((value) => String(value || '').toLowerCase().includes(needle));
-  }), [rows, search, statusFilter]);
+  }), [rows, search, statusFilter, exportStatusFilter, claimMode]);
   const selectable = filtered.filter((row) => row.validation_status !== 'error');
   const allSelected = selectable.length > 0 && selectable.every((row) => selected.has(candidateId(row)));
 
@@ -175,6 +183,7 @@ export const SssExportPage: React.FC = () => {
       const usedBatch = Number(batchNo) || 1;
       setLastBatchNo(usedBatch);
       setBatchNo(String(usedBatch + 1));
+      await loadCandidates();
       setMessage(`ส่งออก ${claimMode === 'IPD' ? 'AIPN' : 'SSOP'} สำเร็จ: ${filename} (จำนวน ${selected.size.toLocaleString()} ${claimMode === 'IPD' ? 'AN' : 'visit'})`);
     } catch (err) {
       setError(err instanceof Error ? err.message : `ส่งออก ${claimMode === 'IPD' ? 'AIPN' : 'SSOP'} ไม่สำเร็จ`);
@@ -205,6 +214,9 @@ export const SssExportPage: React.FC = () => {
           <label className="form-group"><span className="form-label">{claimMode === 'IPD' ? 'วันที่จำหน่ายสิ้นสุด' : 'วันที่สิ้นสุด'}</span><input className="form-control" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></label>
           <label className="form-group"><span className="form-label">เครือข่าย</span><select className="form-control" value={networkType} onChange={(e) => setNetworkType(e.target.value as NetworkType)}><option value="ALL">ทั้งหมด</option><option value="IN">ในเครือข่าย</option><option value="OUT">นอกเครือข่าย</option></select></label>
           <label className="form-group"><span className="form-label">ผลตรวจ</span><select className="form-control" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}><option value="ALL">ทั้งหมด</option><option value="ready">พร้อมส่ง</option><option value="warning">ควรตรวจ</option><option value="error">ต้องแก้ไข</option></select></label>
+          {claimMode === 'OPD' && (
+            <label className="form-group"><span className="form-label">สถานะส่งออก</span><select className="form-control" value={exportStatusFilter} onChange={(e) => setExportStatusFilter(e.target.value as typeof exportStatusFilter)}><option value="UNSENT">ยังไม่เคยส่ง (ป้องกันส่งซ้ำ)</option><option value="ERROR">ติด Error จาก สปส.</option><option value="SENT">ส่งแล้วรอผล</option><option value="PASSED">ผ่านแล้ว (A)</option><option value="ALL">แสดงทั้งหมด</option></select></label>
+          )}
           <label className="form-group"><span className="form-label">ค้นหา {claimMode === 'IPD' ? 'AN / HN' : 'VN / HN'} / ชื่อ</span><input className="form-control" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="ค้นหา..." /></label>
           <button className="btn btn-primary" onClick={() => void loadCandidates()} disabled={loading}>{loading ? 'กำลังตรวจ...' : '🔄 ตรวจสอบข้อมูล'}</button>
         </div>
@@ -264,7 +276,18 @@ export const SssExportPage: React.FC = () => {
           <td>{claimMode === 'IPD' ? <><div>Admit {row.admit_date || '-'}</div><div style={{ fontSize: 11 }}>D/C {row.discharge_date || '-'}</div></> : <>{row.service_date}<div style={{ fontSize: 11 }}>{row.service_time}</div></>}</td>
           <td><div>{row.pttype}: {row.pttype_name}</div><span className={`badge ${row.network_type === 'IN' ? 'badge-info' : 'badge-warning'}`}>{row.network_type === 'IN' ? 'ในเครือข่าย' : 'นอกเครือข่าย'}</span></td>
           <td>{row.pdx || '-'}</td><td style={{ textAlign: 'right', fontWeight: 700 }}>{Number(row.income || 0).toLocaleString()}</td>
-          <td><span className={`badge ${row.validation_status === 'ready' ? 'badge-success' : row.validation_status === 'warning' ? 'badge-warning' : 'badge-danger'}`}>{statusLabel[row.validation_status]}</span>{row.issues.length > 0 && <details style={{ marginTop: 5, maxWidth: 310 }}><summary style={{ cursor: 'pointer', fontSize: 11 }}>{row.issues.length} จุด</summary>{row.issues.map((issue) => <div key={issue.code} style={{ fontSize: 11, color: issue.severity === 'error' ? '#b91c1c' : '#92400e', marginTop: 3 }}><strong>{issue.code}</strong> {issue.message}</div>)}</details>}</td>
+          <td>
+            <span className={`badge ${row.validation_status === 'ready' ? 'badge-success' : row.validation_status === 'warning' ? 'badge-warning' : 'badge-danger'}`}>{statusLabel[row.validation_status]}</span>
+            {claimMode === 'OPD' && (
+              <div style={{ marginTop: 4 }}>
+                {row.export_status === 'PASSED' && <span className="badge badge-success">✓ ผ่าน สปส. (A)</span>}
+                {row.export_status === 'ERROR' && <span className="badge badge-danger">✕ ติด Error: {row.last_error_code || 'C'}</span>}
+                {row.export_status === 'SENT' && <span className="badge badge-info">📤 ส่งแล้วงวด #{row.last_batch_no || '-'}</span>}
+                {(!row.export_status || row.export_status === 'UNSENT') && <span className="badge" style={{ background: '#f1f5f9', color: '#475569' }}>ยังไม่ส่ง</span>}
+              </div>
+            )}
+            {row.issues.length > 0 && <details style={{ marginTop: 5, maxWidth: 310 }}><summary style={{ cursor: 'pointer', fontSize: 11 }}>{row.issues.length} จุด</summary>{row.issues.map((issue) => <div key={issue.code} style={{ fontSize: 11, color: issue.severity === 'error' ? '#b91c1c' : '#92400e', marginTop: 3 }}><strong>{issue.code}</strong> {issue.message}</div>)}</details>}
+          </td>
         </tr>)}</tbody></table></div></div>
       )}
     </div>

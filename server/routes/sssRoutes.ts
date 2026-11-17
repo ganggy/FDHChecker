@@ -6,8 +6,11 @@ import {
   buildSssExportZip,
   getSssBatchSettings,
   getSssCandidates,
+  getSssErrorCases,
   getSssImportHistory,
   importSssResponseRows,
+  resubmitSssErrorCases,
+  saveSssClaimOverride,
   updateSssBatchSettings,
   type SssNetworkType,
 } from '../sssClaim.js';
@@ -115,6 +118,8 @@ sssRouter.post('/export', async (req, res) => {
       networkType: normalizeNetworkType(req.body?.networkType),
       vns,
       batchNo: req.body?.batchNo,
+      tflag: req.body?.tflag === 'E' ? 'E' : 'A',
+      exportedBy: (req as AuthenticatedRequest).authUser?.username || 'Staff',
       ...identity,
     });
     res.setHeader('Content-Type', 'application/zip');
@@ -125,6 +130,63 @@ sssRouter.post('/export', async (req, res) => {
   } catch (error) {
     console.error('Error exporting SSS SSOP:', error);
     return res.status(422).json({ success: false, error: (error as Error).message || 'ส่งออก SSOP ไม่สำเร็จ' });
+  }
+});
+
+sssRouter.get('/error-cases', async (req, res) => {
+  try {
+    const batchId = req.query.batchId ? Number(req.query.batchId) : undefined;
+    const rows = await getSssErrorCases(batchId && Number.isFinite(batchId) ? batchId : undefined);
+    return res.json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error loading SSS error cases:', error);
+    return res.status(500).json({ success: false, error: (error as Error).message || 'โหลดรายการ Error ไม่สำเร็จ' });
+  }
+});
+
+sssRouter.post('/error-cases/override', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.vn) return res.status(400).json({ success: false, error: 'กรุณาระบุ VN' });
+    const result = await saveSssClaimOverride({
+      vn: String(body.vn),
+      invoice_no: body.invoice_no != null ? String(body.invoice_no) : undefined,
+      clinic: body.clinic != null ? String(body.clinic) : undefined,
+      doctor_license: body.doctor_license != null ? String(body.doctor_license) : undefined,
+      hospmain: body.hospmain != null ? String(body.hospmain) : undefined,
+      pdx: body.pdx != null ? String(body.pdx) : undefined,
+      end_datetime: body.end_datetime != null ? String(body.end_datetime) : undefined,
+      tflag: body.tflag === 'A' ? 'A' : 'E',
+      note: body.note != null ? String(body.note) : undefined,
+      updatedBy: (req as AuthenticatedRequest).authUser?.username || 'Staff',
+    });
+    return res.json({ success: true, data: result, message: 'บันทึกการแก้ไขข้อมูลเรียบร้อยแล้ว' });
+  } catch (error) {
+    console.error('Error saving SSS override:', error);
+    return res.status(400).json({ success: false, error: (error as Error).message || 'บันทึกการแก้ไขไม่สำเร็จ' });
+  }
+});
+
+sssRouter.post('/error-cases/export', async (req, res) => {
+  try {
+    const vns = Array.isArray(req.body?.vns) ? req.body.vns.map(String).map((v: string) => v.trim()).filter(Boolean) : [];
+    if (!vns.length || vns.length > 5000) return res.status(400).json({ success: false, error: 'กรุณาเลือก 1-5,000 รายการที่ต้องการส่งออกซ้ำ' });
+    const identity = await resolveHospitalIdentity();
+    const result = await resubmitSssErrorCases({
+      vns,
+      batchNo: req.body?.batchNo,
+      tflag: req.body?.tflag === 'A' ? 'A' : 'E',
+      exportedBy: (req as AuthenticatedRequest).authUser?.username || 'Staff',
+      ...identity,
+    });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+    res.setHeader('X-SSS-Visit-Count', String(result.summary.visitCount));
+    res.setHeader('X-SSS-Batch-No', String(result.summary.batchNo));
+    return res.send(result.buffer);
+  } catch (error) {
+    console.error('Error resubmitting SSS error cases:', error);
+    return res.status(422).json({ success: false, error: (error as Error).message || 'ส่งออกรายการแก้ไขไม่สำเร็จ' });
   }
 });
 

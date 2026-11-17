@@ -73,9 +73,72 @@ const SSS_IMPORT_ROW_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
+const SSS_EXPORT_LOG_SQL = `
+  CREATE TABLE IF NOT EXISTS sss_export_log (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    claim_mode VARCHAR(8) NOT NULL DEFAULT 'OPD',
+    vn VARCHAR(32) NOT NULL,
+    an VARCHAR(32) NULL,
+    hn VARCHAR(32) NULL,
+    invoice_no VARCHAR(64) NOT NULL,
+    batch_no INT NOT NULL,
+    tflag CHAR(1) NOT NULL DEFAULT 'A',
+    filename VARCHAR(255) NOT NULL,
+    exported_by VARCHAR(128) NULL,
+    exported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_sss_exp_vn (vn),
+    INDEX idx_sss_exp_inv (invoice_no),
+    INDEX idx_sss_exp_batch (batch_no)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const SSS_CLAIM_OVERRIDE_SQL = `
+  CREATE TABLE IF NOT EXISTS sss_claim_override (
+    vn VARCHAR(32) NOT NULL PRIMARY KEY,
+    invoice_no VARCHAR(64) NULL,
+    clinic VARCHAR(16) NULL,
+    doctor_license VARCHAR(32) NULL,
+    hospmain VARCHAR(16) NULL,
+    pdx VARCHAR(16) NULL,
+    end_datetime VARCHAR(32) NULL,
+    tflag CHAR(1) NOT NULL DEFAULT 'E',
+    resolved_flag TINYINT(1) NOT NULL DEFAULT 0,
+    note TEXT NULL,
+    updated_by VARCHAR(128) NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
 const ensureSssImportTables = async (connection: HospitalConnection) => {
   await connection.query(SSS_IMPORT_BATCH_SQL);
   await connection.query(SSS_IMPORT_ROW_SQL);
+  await connection.query(SSS_EXPORT_LOG_SQL);
+  await connection.query(SSS_CLAIM_OVERRIDE_SQL);
+};
+
+const SSS_CHECK_CODE_DICT: Record<string, string> = {
+  C01: 'รหัส HospMain / สิทธิการรักษาไม่ตรงฐานข้อมูล สปส. (ตรวจ HospMain 5 หลักและสิทธิประกันสังคม)',
+  C02: 'ยอดเงินเรียกเก็บ (Amount/ClaimAmt) หรือหมวดบริการไม่สอดคล้อง (ตรวจรายการค่าใช้จ่าย opitemrece)',
+  C03: 'ข้อมูลผู้รับบริการ (PID/ชื่อ) ไม่ตรงฐานข้อมูล สปส.',
+  C04: 'วันที่รับบริการ (DTTran) ไม่อยู่ในช่วงที่มีสิทธิประกันสังคม',
+  W01: 'รหัสยา/เวชภัณฑ์ (TMT/Standard Code) ไม่ตรงมาตรฐานหรือยังไม่ Map',
+  W02: 'รหัสหัตถการ/วินิจฉัย (ICD-10) ไม่สมบูรณ์',
+  W05: 'รหัสคลินิก (Clinic) หรือเลขใบอนุญาตผู้ประกอบวิชาชีพ (ว./พว.) ไม่ถูกต้องหรือไม่ครบ',
+  W07: 'วัน-เวลาสิ้นสุดบริการ (EndDateTime) ไม่ถูกต้องหรือว่าง (ควรอยู่หลังเวลาเริ่มบริการ)',
+  B34: 'ขาดข้อมูลบังคับใน BILLTRAN (เช่น InvNo / PID / HMain)',
+  D34: 'ขาดข้อมูลบังคับใน BILLDISP (เช่น InvNo / DispID)',
+  P34: 'ขาดข้อมูลบังคับใน OPServices (เช่น InvNo / SvID / Clinic)',
+  T01: 'InvNo ซ้ำกับรายการอื่นในงวดเดียวกัน',
+  T02: 'InvNo ซ้ำกับรายการที่เคยส่งเบิกผ่านไปแล้ว',
+};
+
+export const explainSssCheckCode = (checkCode: string): string[] => {
+  const codes = String(checkCode || '')
+    .split(/[,;\s]+/)
+    .map((c) => c.trim().toUpperCase())
+    .filter(Boolean);
+  if (!codes.length) return [];
+  return codes.map((code) => SSS_CHECK_CODE_DICT[code] ? `${code}: ${SSS_CHECK_CODE_DICT[code]}` : `${code}: ตรวจสอบข้อมูลตามรหัสแจ้งเตือนของ สปส.`);
 };
 
 const text = (value: unknown) => String(value ?? '').trim();
@@ -170,25 +233,111 @@ export const buildSssCandidateSql = (networkType: SssNetworkType) => `
   ORDER BY o.vstdate DESC, o.vsttime DESC, o.vn DESC
 `;
 
+export type SssExportStatus = 'UNSENT' | 'SENT' | 'PASSED' | 'ERROR';
+
 export const getSssCandidates = async (options: SssCandidateOptions): Promise<SssCandidate[]> => {
   const connection = await getUTFConnection();
+  const repConn = await getRepstmConnection();
   try {
+    await ensureSssImportTables(repConn);
     const networkType = options.networkType || 'ALL';
     const [rows] = await connection.query(buildSssCandidateSql(networkType), [options.startDate, options.endDate]);
-    return (Array.isArray(rows) ? rows as Record<string, unknown>[] : []).map((row) => {
-      const issues = evaluateSssCandidate(row);
+    const list = Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
+
+    // Look up export log, import response status, and saved overrides in repstminv
+    const vnList = list.map((r) => text(r.vn)).filter(Boolean);
+    const invList = list.map((r) => cleanSssInvoiceNo(r.invoice_no, r.vn)).filter(Boolean);
+    const exportMap = new Map<string, { batch_no: number; invoice_no: string; tflag: string; exported_at: string }>();
+    const importMap = new Map<string, { status_code: string; check_code: string }>();
+    const overrideMap = new Map<string, Record<string, unknown>>();
+
+    if (vnList.length > 0) {
+      const vnPlaceholders = vnList.map(() => '?').join(',');
+      const [expRows] = await repConn.query(
+        `SELECT vn, invoice_no, batch_no, tflag, exported_at FROM sss_export_log WHERE claim_mode = 'OPD' AND vn IN (${vnPlaceholders}) ORDER BY id ASC`,
+        vnList
+      );
+      if (Array.isArray(expRows)) {
+        for (const er of expRows as Record<string, unknown>[]) {
+          exportMap.set(text(er.vn), {
+            batch_no: number(er.batch_no),
+            invoice_no: text(er.invoice_no),
+            tflag: text(er.tflag) || 'A',
+            exported_at: text(er.exported_at),
+          });
+        }
+      }
+
+      const [ovRows] = await repConn.query(
+        `SELECT * FROM sss_claim_override WHERE vn IN (${vnPlaceholders})`,
+        vnList
+      );
+      if (Array.isArray(ovRows)) {
+        for (const ov of ovRows as Record<string, unknown>[]) {
+          overrideMap.set(text(ov.vn), ov);
+        }
+      }
+
+      const invPlaceholders = invList.map(() => '?').join(',');
+      const [impRows] = await repConn.query(
+        `SELECT vn, invoice_no, status_code, check_code FROM sss_import_row WHERE vn IN (${vnPlaceholders}) ${invList.length ? `OR invoice_no IN (${invPlaceholders})` : ''} ORDER BY id ASC`,
+        invList.length ? [...vnList, ...invList] : vnList
+      );
+      if (Array.isArray(impRows)) {
+        for (const ir of impRows as Record<string, unknown>[]) {
+          const keyVn = text(ir.vn);
+          const keyInv = text(ir.invoice_no);
+          const val = { status_code: text(ir.status_code).toUpperCase(), check_code: text(ir.check_code) };
+          if (keyVn) importMap.set(`VN:${keyVn}`, val);
+          if (keyInv) importMap.set(`INV:${keyInv}`, val);
+        }
+      }
+    }
+
+    return list.map((row) => {
+      const vn = text(row.vn);
+      const ov = overrideMap.get(vn);
+      const merged: Record<string, unknown> = {
+        ...row,
+        ...(ov?.invoice_no ? { invoice_no: text(ov.invoice_no) } : {}),
+        ...(ov?.clinic ? { clinic: text(ov.clinic) } : {}),
+        ...(ov?.doctor_license ? { doctor_license: text(ov.doctor_license) } : {}),
+        ...(ov?.hospmain ? { hospmain: text(ov.hospmain) } : {}),
+        ...(ov?.pdx ? { pdx: text(ov.pdx) } : {}),
+        ...(ov?.end_datetime ? { end_datetime: text(ov.end_datetime) } : {}),
+      };
+
+      const cleanInv = cleanSssInvoiceNo(merged.invoice_no, vn);
+      const exp = exportMap.get(vn);
+      const imp = importMap.get(`VN:${vn}`) || importMap.get(`INV:${cleanInv}`) || (exp?.invoice_no ? importMap.get(`INV:${exp.invoice_no}`) : undefined);
+
+      let exportStatus: SssExportStatus = 'UNSENT';
+      if (imp) {
+        if (imp.status_code === 'A' && !imp.check_code) exportStatus = 'PASSED';
+        else if (imp.status_code === 'C' || imp.status_code === 'R' || imp.check_code) exportStatus = 'ERROR';
+        else exportStatus = 'SENT';
+      } else if (exp) {
+        exportStatus = 'SENT';
+      }
+
+      const issues = evaluateSssCandidate(merged);
       const hasError = issues.some((issue) => issue.severity === 'error');
       return {
-        ...row,
-        vn: text(row.vn),
-        network_type: text(row.network_type) === 'OUT' ? 'OUT' : 'IN',
+        ...merged,
+        vn,
+        invoice_no: cleanInv,
+        network_type: text(merged.network_type) === 'OUT' ? 'OUT' : 'IN',
         validation_status: hasError ? 'error' : issues.length ? 'warning' : 'ready',
         issues,
-        // Deliberately no EP/Authen/close-right validation in the SSS workflow.
+        export_status: exportStatus,
+        last_batch_no: exp?.batch_no || null,
+        last_error_code: imp?.check_code || '',
+        has_override: Boolean(ov),
       } as SssCandidate;
     });
   } finally {
     connection.release();
+    repConn.release();
   }
 };
 
@@ -205,8 +354,8 @@ export const withChecksum = (document: string) => {
 
 const xmlSection = (tag: string, body: string) => body ? `<${tag}>\r\n${body}\r\n</${tag}>` : `<${tag}>\r\n</${tag}>`;
 
-export const claimDocument = (hcode: string, hospitalName: string, sessionNo: string, recordCount: number, sections: string, now = new Date()) => withChecksum(
-  `<?xml version="1.0" encoding="windows-874"?>\r\n<ClaimRec System="OP" PayPlan="SS" Version="0.93" Prgs="FDHChecker" TFlag="A">\r\n` +
+export const claimDocument = (hcode: string, hospitalName: string, sessionNo: string, recordCount: number, sections: string, now = new Date(), tflag: 'A' | 'E' = 'A') => withChecksum(
+  `<?xml version="1.0" encoding="windows-874"?>\r\n<ClaimRec System="OP" PayPlan="SS" Version="0.93" Prgs="FDHChecker" TFlag="${tflag}">\r\n` +
   `<Header>\r\n<HCODE>${xml(hcode)}</HCODE>\r\n<HNAME>${xml(hospitalName)}</HNAME>\r\n<DATETIME>${formatSssIsoDateTime(now)}</DATETIME>\r\n<SESSNO>${xml(sessionNo)}</SESSNO>\r\n<RECCOUNT>${recordCount}</RECCOUNT>\r\n</Header>\r\n` +
   `${sections}\r\n</ClaimRec>\r\n`
 );
@@ -265,6 +414,8 @@ export interface SssExportZipOptions extends SssCandidateOptions {
   hcode: string;
   hospitalName: string;
   batchNo?: number | string;
+  tflag?: 'A' | 'E';
+  exportedBy?: string;
 }
 
 export const buildSssExportZip = async (options: SssExportZipOptions) => {
@@ -374,21 +525,40 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
       'EC', row.vn, diag.diagtype || '1', 'IT', text(diag.icd10).replace(/\./g, ''), '',
     ]))).join('\r\n');
 
+    const tflag: 'A' | 'E' = options.tflag === 'E' ? 'E' : 'A';
     const now = new Date();
     const files = [
-      ['BillTran.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, selected.length, `${xmlSection('BILLTRAN', billTran)}\r\n${xmlSection('BillItems', billItems)}`, now)],
-      ['BillDisp.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, dispensing ? dispensing.split('\r\n').length : 0, `${xmlSection('Dispensing', dispensing)}\r\n${xmlSection('DispensedItems', dispensedItems)}`, now)],
-      ['OPServices.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, selected.length, `${xmlSection('OPServices', services)}\r\n${xmlSection('OPDx', opdDx)}`, now)],
+      ['BillTran.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, selected.length, `${xmlSection('BILLTRAN', billTran)}\r\n${xmlSection('BillItems', billItems)}`, now, tflag)],
+      ['BillDisp.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, dispensing ? dispensing.split('\r\n').length : 0, `${xmlSection('Dispensing', dispensing)}\r\n${xmlSection('DispensedItems', dispensedItems)}`, now, tflag)],
+      ['OPServices.txt', claimDocument(options.hcode, options.hospitalName, sessionNo, selected.length, `${xmlSection('OPServices', services)}\r\n${xmlSection('OPDx', opdDx)}`, now, tflag)],
     ] as const;
     const zip = new AdmZip();
     files.forEach(([filename, content]) => zip.addFile(filename, iconv.encode(content, 'cp874')));
     const dateStamp = formatSssTimestamp(now);
     const filename = `${options.hcode}_SSOPBIL_${sessionNo}_01_${dateStamp}.ZIP`;
     await saveSssLastBatchNo('SSOP', numericBatch);
+
+    // Record exported VNs in sss_export_log to prevent duplicate re-export
+    const repConn = await getRepstmConnection();
+    try {
+      await ensureSssImportTables(repConn);
+      for (const row of selected) {
+        const vnStr = text(row.vn);
+        const invNo = invNoMap.get(vnStr) || vnStr;
+        await repConn.query(
+          `INSERT INTO sss_export_log (claim_mode, vn, hn, invoice_no, batch_no, tflag, filename, exported_by) VALUES ('OPD', ?, ?, ?, ?, ?, ?, ?)`,
+          [vnStr, text(row.hn) || null, invNo, numericBatch, tflag, filename, options.exportedBy || null]
+        );
+        await repConn.query(`UPDATE sss_claim_override SET resolved_flag = 1 WHERE vn = ?`, [vnStr]);
+      }
+    } finally {
+      repConn.release();
+    }
+
     return {
       buffer: zip.toBuffer(),
       filename,
-      summary: { visitCount: selected.length, chargeCount: charges.length, diagnosisCount: diagnoses.length, batchNo: numericBatch },
+      summary: { visitCount: selected.length, chargeCount: charges.length, diagnosisCount: diagnoses.length, batchNo: numericBatch, tflag },
     };
   } finally {
     connection.release();
@@ -462,5 +632,322 @@ export const getSssImportHistory = async (limit = 30) => {
   } finally {
     connection.release();
   }
+};
+
+export interface SssErrorCaseRow {
+  import_row_id: number;
+  batch_id: number;
+  source_filename: string;
+  imported_at: string;
+  status_code: string;
+  check_code: string;
+  error_explanations: string[];
+  import_invoice_no: string;
+  import_cid: string;
+  import_service_datetime: string;
+  import_hmain: string;
+  import_amount: number;
+  import_claim_amount: number;
+  vn: string;
+  hn: string;
+  patient_name: string;
+  service_date: string;
+  service_time: string;
+  clinic: string;
+  doctor_license: string;
+  hospmain: string;
+  pdx: string;
+  end_datetime: string;
+  invoice_no: string;
+  tflag: 'A' | 'E';
+  has_override: boolean;
+  resolved_flag: boolean;
+  last_resubmitted_batch: number | null;
+  note: string;
+}
+
+const parseThaiDateStr = (raw: string): string | null => {
+  // Supports "30/10/2569 13:14" or "2026-10-30T13:14:00"
+  const mThai = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (mThai) {
+    const dd = mThai[1].padStart(2, '0');
+    const mm = mThai[2].padStart(2, '0');
+    let yyyy = Number(mThai[3]);
+    if (yyyy > 2400) yyyy -= 543;
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const mIso = raw.match(/(\d{4})-(\d{2})-(\d{2})/);
+  return mIso ? `${mIso[1]}-${mIso[2]}-${mIso[3]}` : null;
+};
+
+export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRow[]> => {
+  const repConn = await getRepstmConnection();
+  const hosConn = await getUTFConnection();
+  try {
+    await ensureSssImportTables(repConn);
+    const params: unknown[] = [];
+    const whereBatch = batchId ? 'AND r.batch_id = ?' : '';
+    if (batchId) params.push(batchId);
+
+    const [errRowsRaw] = await repConn.query(
+      `SELECT r.id AS import_row_id, r.batch_id, b.source_filename, b.created_at AS imported_at,
+              r.status_code, r.check_code, r.invoice_no AS import_invoice_no, r.hn AS import_hn,
+              r.vn AS import_vn, r.cid AS import_cid, r.service_datetime AS import_service_datetime,
+              r.hmain AS import_hmain, r.amount AS import_amount, r.claim_amount AS import_claim_amount
+       FROM sss_import_row r
+       JOIN sss_import_batch b ON b.id = r.batch_id
+       WHERE (COALESCE(r.check_code, '') <> '' OR COALESCE(r.status_code, '') IN ('C', 'D', 'R'))
+       ${whereBatch}
+       ORDER BY r.batch_id DESC, r.row_no ASC
+       LIMIT 500`,
+      params,
+    );
+    const errRows = Array.isArray(errRowsRaw) ? (errRowsRaw as Record<string, unknown>[]) : [];
+    if (!errRows.length) return [];
+
+    // Resolve VNs from sss_export_log or direct VN or CID+Date
+    const invNos = errRows.map((r) => text(r.import_invoice_no)).filter(Boolean);
+    const invToVnMap = new Map<string, string>();
+    if (invNos.length) {
+      const [expLogs] = await repConn.query(
+        `SELECT invoice_no, vn FROM sss_export_log WHERE invoice_no IN (${invNos.map(() => '?').join(',')}) ORDER BY id DESC`,
+        invNos,
+      );
+      if (Array.isArray(expLogs)) {
+        for (const l of expLogs as Record<string, unknown>[]) {
+          const inv = text(l.invoice_no);
+          if (inv && !invToVnMap.has(inv)) invToVnMap.set(inv, text(l.vn));
+        }
+      }
+    }
+
+    const resolvedVns = new Map<number, string>();
+    for (const r of errRows) {
+      const rowId = number(r.import_row_id);
+      const directVn = text(r.import_vn);
+      const inv = text(r.import_invoice_no);
+      if (directVn) {
+        resolvedVns.set(rowId, directVn);
+      } else if (inv && invToVnMap.has(inv)) {
+        resolvedVns.set(rowId, invToVnMap.get(inv)!);
+      } else if (/^\d{12}$/.test(inv)) {
+        resolvedVns.set(rowId, inv);
+      } else {
+        // Fallback: lookup HOSxP by debt_id_list or CID + Date
+        const cid = text(r.import_cid);
+        const dtStr = parseThaiDateStr(text(r.import_service_datetime));
+        if (inv) {
+          const [vRows] = await hosConn.query(`SELECT vn FROM vn_stat WHERE debt_id_list = ? LIMIT 1`, [inv]);
+          if (Array.isArray(vRows) && vRows.length) {
+            resolvedVns.set(rowId, text((vRows[0] as Record<string, unknown>).vn));
+            continue;
+          }
+        }
+        if (cid && dtStr) {
+          const [oRows] = await hosConn.query(
+            `SELECT o.vn FROM ovst o JOIN patient pt ON pt.hn = o.hn WHERE pt.cid = ? AND o.vstdate = ? LIMIT 1`,
+            [cid, dtStr],
+          );
+          if (Array.isArray(oRows) && oRows.length) {
+            resolvedVns.set(rowId, text((oRows[0] as Record<string, unknown>).vn));
+          }
+        }
+      }
+    }
+
+    const allVns = Array.from(new Set(Array.from(resolvedVns.values()).filter(Boolean)));
+    const hosMap = new Map<string, Record<string, unknown>>();
+    const ovMap = new Map<string, Record<string, unknown>>();
+    const resubMap = new Map<string, { batch_no: number; exported_at: string }>();
+
+    if (allVns.length) {
+      const ph = allVns.map(() => '?').join(',');
+      const [hosRows] = await hosConn.query(
+        `SELECT o.vn, o.hn, DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
+                TIME_FORMAT(o.vsttime, '%H:%i:%s') AS service_time,
+                CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+                COALESCE(v.hospmain, '') AS hospmain,
+                COALESCE(sp.nhso_code, '') AS clinic,
+                COALESCE(v.pdx, '') AS pdx,
+                COALESCE(doc.licenseno, '') AS doctor_license,
+                COALESCE(
+                  NULLIF(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.debt_id_list, ''), '"', ''), "'", '')), ',', 1), ''),
+                  NULLIF(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.rcpno_list, ''), '"', ''), "'", '')), ',', 1), '#', 1), ''),
+                  o.vn
+                ) AS invoice_no,
+                DATE_FORMAT((SELECT MAX(CONCAT(pd.outdate, ' ', pd.outtime)) FROM ptdepart pd WHERE pd.vn = o.vn AND COALESCE(pd.outdepcode, '') <> ''), '%Y-%m-%d %H:%i:%s') AS end_datetime
+         FROM ovst o
+         JOIN patient pt ON pt.hn = o.hn
+         LEFT JOIN vn_stat v ON v.vn = o.vn
+         LEFT JOIN spclty sp ON sp.spclty = o.spclty
+         LEFT JOIN doctor doc ON doc.code = o.doctor
+         WHERE o.vn IN (${ph})`,
+        allVns,
+      );
+      if (Array.isArray(hosRows)) {
+        for (const hr of hosRows as Record<string, unknown>[]) {
+          hosMap.set(text(hr.vn), hr);
+        }
+      }
+
+      const [ovRows] = await repConn.query(`SELECT * FROM sss_claim_override WHERE vn IN (${ph})`, allVns);
+      if (Array.isArray(ovRows)) {
+        for (const ov of ovRows as Record<string, unknown>[]) {
+          ovMap.set(text(ov.vn), ov);
+        }
+      }
+
+      const [expRows] = await repConn.query(
+        `SELECT vn, batch_no, exported_at FROM sss_export_log WHERE vn IN (${ph}) ORDER BY id ASC`,
+        allVns,
+      );
+      if (Array.isArray(expRows)) {
+        for (const er of expRows as Record<string, unknown>[]) {
+          resubMap.set(text(er.vn), { batch_no: number(er.batch_no), exported_at: text(er.exported_at) });
+        }
+      }
+    }
+
+    return errRows.map((r) => {
+      const rowId = number(r.import_row_id);
+      const vn = resolvedVns.get(rowId) || '';
+      const hos = hosMap.get(vn) || {};
+      const ov = ovMap.get(vn);
+      const resub = resubMap.get(vn);
+      const importedAtMs = new Date(String(r.imported_at || 0)).getTime();
+      const resubAtMs = resub ? new Date(resub.exported_at).getTime() : 0;
+      const isResubmittedAfterImport = Boolean(resub && resubAtMs > importedAtMs);
+
+      const checkCode = text(r.check_code);
+      return {
+        import_row_id: rowId,
+        batch_id: number(r.batch_id),
+        source_filename: text(r.source_filename),
+        imported_at: text(r.imported_at),
+        status_code: text(r.status_code),
+        check_code: checkCode,
+        error_explanations: explainSssCheckCode(checkCode),
+        import_invoice_no: text(r.import_invoice_no),
+        import_cid: text(r.import_cid),
+        import_service_datetime: text(r.import_service_datetime),
+        import_hmain: text(r.import_hmain),
+        import_amount: number(r.import_amount),
+        import_claim_amount: number(r.import_claim_amount),
+        vn,
+        hn: text(hos.hn) || text(r.import_hn),
+        patient_name: text(hos.patient_name),
+        service_date: text(hos.service_date) || (parseThaiDateStr(text(r.import_service_datetime)) || ''),
+        service_time: text(hos.service_time),
+        clinic: text(ov?.clinic) || text(hos.clinic) || '01',
+        doctor_license: text(ov?.doctor_license) || text(hos.doctor_license),
+        hospmain: text(ov?.hospmain) || text(hos.hospmain) || text(r.import_hmain),
+        pdx: text(ov?.pdx) || text(hos.pdx),
+        end_datetime: text(ov?.end_datetime) || text(hos.end_datetime),
+        invoice_no: text(ov?.invoice_no) || text(r.import_invoice_no) || text(hos.invoice_no) || vn,
+        tflag: (text(ov?.tflag) === 'A' ? 'A' : 'E') as 'A' | 'E',
+        has_override: Boolean(ov),
+        resolved_flag: Boolean(ov?.resolved_flag) || isResubmittedAfterImport,
+        last_resubmitted_batch: isResubmittedAfterImport ? (resub?.batch_no || null) : null,
+        note: text(ov?.note),
+      };
+    });
+  } finally {
+    repConn.release();
+    hosConn.release();
+  }
+};
+
+export const saveSssClaimOverride = async (payload: {
+  vn: string;
+  invoice_no?: string;
+  clinic?: string;
+  doctor_license?: string;
+  hospmain?: string;
+  pdx?: string;
+  end_datetime?: string;
+  tflag?: 'A' | 'E';
+  note?: string;
+  updatedBy?: string;
+}) => {
+  const vn = text(payload.vn);
+  if (!vn) throw new Error('กรุณาระบุ VN');
+  const repConn = await getRepstmConnection();
+  try {
+    await ensureSssImportTables(repConn);
+    await repConn.query(
+      `INSERT INTO sss_claim_override (vn, invoice_no, clinic, doctor_license, hospmain, pdx, end_datetime, tflag, resolved_flag, note, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         invoice_no = VALUES(invoice_no),
+         clinic = VALUES(clinic),
+         doctor_license = VALUES(doctor_license),
+         hospmain = VALUES(hospmain),
+         pdx = VALUES(pdx),
+         end_datetime = VALUES(end_datetime),
+         tflag = VALUES(tflag),
+         resolved_flag = 0,
+         note = VALUES(note),
+         updated_by = VALUES(updated_by)`,
+      [
+        vn,
+        text(payload.invoice_no) || null,
+        text(payload.clinic) || null,
+        text(payload.doctor_license) || null,
+        text(payload.hospmain) || null,
+        text(payload.pdx) || null,
+        text(payload.end_datetime) || null,
+        payload.tflag === 'A' ? 'A' : 'E',
+        text(payload.note) || null,
+        payload.updatedBy || 'Staff',
+      ],
+    );
+    return { ok: true, vn };
+  } finally {
+    repConn.release();
+  }
+};
+
+export const resubmitSssErrorCases = async (options: {
+  vns: string[];
+  hcode: string;
+  hospitalName: string;
+  batchNo?: number | string;
+  tflag?: 'A' | 'E';
+  exportedBy?: string;
+}) => {
+  const cleanVns = Array.from(new Set(options.vns.map(text).filter(Boolean)));
+  if (!cleanVns.length) throw new Error('กรุณาเลือกอย่างน้อย 1 รายการเพื่อส่งออกซ้ำ');
+
+  const hosConn = await getUTFConnection();
+  let startDate = '';
+  let endDate = '';
+  try {
+    const ph = cleanVns.map(() => '?').join(',');
+    const [rangeRows] = await hosConn.query(
+      `SELECT DATE_FORMAT(MIN(vstdate), '%Y-%m-%d') AS min_date, DATE_FORMAT(MAX(vstdate), '%Y-%m-%d') AS max_date FROM ovst WHERE vn IN (${ph})`,
+      cleanVns,
+    );
+    if (Array.isArray(rangeRows) && rangeRows.length) {
+      const r = rangeRows[0] as Record<string, unknown>;
+      startDate = text(r.min_date);
+      endDate = text(r.max_date);
+    }
+  } finally {
+    hosConn.release();
+  }
+
+  if (!startDate || !endDate) throw new Error('ไม่พบข้อมูลวันที่รับบริการของ VN ที่เลือกใน HOSxP');
+
+  return buildSssExportZip({
+    startDate,
+    endDate,
+    networkType: 'ALL',
+    vns: cleanVns,
+    hcode: options.hcode,
+    hospitalName: options.hospitalName,
+    batchNo: options.batchNo,
+    tflag: options.tflag || 'E',
+    exportedBy: options.exportedBy,
+  });
 };
 

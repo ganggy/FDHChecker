@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import iconv from 'iconv-lite';
-import { claimDocument, cleanSssInvoiceNo, evaluateSssCandidate } from './sssClaim.js';
+import { claimDocument, cleanSssInvoiceNo, evaluateSssCandidate, explainSssCheckCode } from './sssClaim.js';
 
 const valid = {
   cid: '1234567890123', pdx: 'I10', clinic: '01', hospmain: '11101', income: 100,
@@ -65,4 +65,15 @@ test('cleanSssInvoiceNo sanitizes quotes, multiple debt IDs and falls back to VN
 
   // Receipt with amount suffix should strip hash and amount
   assert.equal(cleanSssInvoiceNo('148:0649#1,030.00', '691109000172'), '148:0649');
+});
+
+test('explainSssCheckCode translates SOCDBIL codes and claimDocument supports TFlag E', () => {
+  const explanations = explainSssCheckCode('C01,W05,W07,');
+  assert.equal(explanations.length, 3);
+  assert.ok(explanations[0].startsWith('C01:'));
+  assert.ok(explanations[1].startsWith('W05:'));
+  assert.ok(explanations[2].startsWith('W07:'));
+
+  const docE = claimDocument('11101', 'รพ.โคกศรีสุพรรณ', '1249', 1, '<BILLTRAN>\r\n</BILLTRAN>', new Date('2026-11-17T14:00:00'), 'E');
+  assert.ok(docE.includes('TFlag="E"'));
 });

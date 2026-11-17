@@ -124,6 +124,7 @@ export const SssRepStmPage: React.FC = () => {
   const [resubmitBatchNo, setResubmitBatchNo] = useState<string>('');
   const [resubmitTflag, setResubmitTflag] = useState<'E' | 'A'>('E');
   const [resubmitting, setResubmitting] = useState(false);
+  const [autoFixing, setAutoFixing] = useState(false);
 
   // Edit Override Modal State
   const [editingRow, setEditingRow] = useState<SssErrorCaseRow | null>(null);
@@ -308,6 +309,27 @@ export const SssRepStmPage: React.FC = () => {
     }
   };
 
+  const handleAutoFixAll = async () => {
+    try {
+      setAutoFixing(true);
+      setError('');
+      setSuccessMsg('');
+      const res = await fetch('/api/sss/error-cases/auto-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batchId: filterBatchId }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Auto-Fix ไม่สำเร็จ');
+      setSuccessMsg(json.message || 'แก้ไข Auto เรียบร้อยแล้ว');
+      await loadErrorCases(filterBatchId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Auto-Fix ไม่สำเร็จ');
+    } finally {
+      setAutoFixing(false);
+    }
+  };
+
   const handleResubmitSelected = async () => {
     if (!selectedVns.size) return setError('กรุณาเลือกอย่างน้อย 1 รายการที่ต้องการส่งออกซ้ำ');
     try {
@@ -452,6 +474,15 @@ export const SssRepStmPage: React.FC = () => {
                     <option value="A">A (ส่งใหม่)</option>
                   </select>
                 </label>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ marginTop: 18 }}
+                  disabled={autoFixing || selectableErrorCases.length === 0}
+                  onClick={() => void handleAutoFixAll()}
+                >
+                  {autoFixing ? '⏳ กำลัง Auto-Fix...' : `⚡ แก้ไข Auto (${selectableErrorCases.length})`}
+                </button>
                 <button
                   type="button"
                   className="btn"

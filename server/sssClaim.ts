@@ -117,14 +117,24 @@ const ensureSssImportTables = async (connection: HospitalConnection) => {
 };
 
 const SSS_CHECK_CODE_DICT: Record<string, string> = {
-  C01: 'รหัส HospMain / สิทธิการรักษาไม่ตรงฐานข้อมูล สปส. (ตรวจ HospMain 5 หลักและสิทธิประกันสังคม)',
-  C02: 'ยอดเงินเรียกเก็บ (Amount/ClaimAmt) หรือหมวดบริการไม่สอดคล้อง (ตรวจรายการค่าใช้จ่าย opitemrece)',
+  C01: 'รหัส HospMain / สิทธิการรักษาไม่ตรงฐานข้อมูล สปส. (ต้องตรวจสอบสิทธิ/แก้ HospMain 5 หลัก)',
+  C02: 'ยอดเงินเรียกเก็บ (Amount/ClaimAmt) หรือหมวดบริการไม่สอดคล้อง',
   C03: 'ข้อมูลผู้รับบริการ (PID/ชื่อ) ไม่ตรงฐานข้อมูล สปส.',
   C04: 'วันที่รับบริการ (DTTran) ไม่อยู่ในช่วงที่มีสิทธิประกันสังคม',
-  W01: 'รหัสยา/เวชภัณฑ์ (TMT/Standard Code) ไม่ตรงมาตรฐานหรือยังไม่ Map',
-  W02: 'รหัสหัตถการ/วินิจฉัย (ICD-10) ไม่สมบูรณ์',
-  W05: 'รหัสคลินิก (Clinic) หรือเลขใบอนุญาตผู้ประกอบวิชาชีพ (ว./พว.) ไม่ถูกต้องหรือไม่ครบ',
-  W07: 'วัน-เวลาสิ้นสุดบริการ (EndDateTime) ไม่ถูกต้องหรือว่าง (ควรอยู่หลังเวลาเริ่มบริการ)',
+  S15: 'เลขที่ใบประกอบวิชาชีพ (OPServices.SvPID) ไม่ถูกต้อง (Auto-Fix ได้)',
+  S17: 'ข้อมูลผู้ให้บริการหรือสถานพยาบาลใน OPServices ไม่ครบถ้วน',
+  S18: 'รหัสวินิจฉัย (OPDx ICD-10) ไม่ถูกต้องหรือไม่ตรง CodeSet IT (Auto-Fix ได้)',
+  S48: 'ข้อมูลรหัสบริการ/รายการย่อยใน OPServices ไม่สมบูรณ์',
+  R21: 'เลขที่ใบประกอบวิชาชีพผู้สั่งจ่ายยา (Dispensing.Prescb) ผิดรูปแบบ (Auto-Fix ได้)',
+  R24: 'ขาดข้อความวิธีใช้ยา (DispensedItems.Sigtext) (Auto-Fix ได้)',
+  R33: 'ยอดค่ายาใน BillTran/BillItems หมวด 3,5 ไม่ตรงกับ Dispensing (Auto-Fix ได้)',
+  R51: 'รหัสยา TMT / PrdCat ใน DispensedItems ไม่ตรงบัญชีมาตรฐาน (Auto-Fix ได้)',
+  R57: 'รายละเอียดรายการยาใน DispensedItems ไม่สอดคล้องกับ Dispensing',
+  T15: 'SVRefID ของรายการยาหมวด 3,5 ใน BillItems ไม่สัมพันธ์กับ OPServices/Dispensing (Auto-Fix ได้)',
+  W01: 'รหัสยา/เวชภัณฑ์ (TMT/Standard Code) ควรตรวจสอบความสมบูรณ์',
+  W05: 'รหัสคลินิก (Clinic) หรือเลขใบอนุญาตผู้ประกอบวิชาชีพไม่ครบถ้วน (Auto-Fix ได้)',
+  W07: 'วัน-เวลาสิ้นสุดบริการ (EndDateTime) ว่างหรือน้อยกว่าเวลาเริ่มบริการ (Auto-Fix ได้)',
+  W09: 'ข้อมูลรายละเอียดประกอบการจ่ายยา/บริการควรตรวจสอบเพิ่มเติม',
   B34: 'ขาดข้อมูลบังคับใน BILLTRAN (เช่น InvNo / PID / HMain)',
   D34: 'ขาดข้อมูลบังคับใน BILLDISP (เช่น InvNo / DispID)',
   P34: 'ขาดข้อมูลบังคับใน OPServices (เช่น InvNo / SvID / Clinic)',
@@ -160,6 +170,63 @@ export const cleanSssInvoiceNo = (rawInv: unknown, vn: unknown): string => {
     .split('#')[0]
     .trim();
   return clean ? clean : String(vn ?? '').trim();
+};
+
+/**
+ * แปลงเลขใบประกอบวิชาชีพให้ตรงมาตรฐาน สกส./สปส. (Annnnn: ตัวอักษร 1 ตัว + ตัวเลข ไม่มีจุด)
+ * เช่น "ว.12345" -> "ว12345", "พว.59110" -> "พ59110", ไม่มีเลข -> "-"
+ */
+export const normalizeSssDoctorLicense = (raw: unknown): string => {
+  let s = String(raw ?? '').replace(/[.\s\-_/]/g, '').trim();
+  if (!s) return '-';
+  // Normalize 2-char prefixes like นพ, พญ, ทพ, ทญ, ภก, ภญ, พว, พช
+  s = s
+    .replace(/^(นพ|พญ)/, 'ว')
+    .replace(/^(ทพ|ทญ)/, 'ท')
+    .replace(/^(ภก|ภญ)/, 'ภ')
+    .replace(/^(พว|พช)/, 'พ');
+  const m = s.match(/^([วทภพคจ])(\d{3,6})$/);
+  if (m) return `${m[1]}${m[2]}`;
+  const digitsOnly = s.match(/^(\d{4,6})$/);
+  if (digitsOnly) return `ว${digitsOnly[1]}`;
+  return '-';
+};
+
+export const normalizeSssClinic = (raw: unknown): string => {
+  const c = String(raw ?? '').trim().padStart(2, '0');
+  return /^(0[1-9]|1[0-2]|99)$/.test(c) ? c : '01';
+};
+
+export const normalizeSssEndDateTime = (serviceDate: string, serviceTime: string, rawEnd: unknown): string => {
+  const cleanTime = /^\d{2}:\d{2}:\d{2}$/.test(serviceTime) ? serviceTime : `${serviceTime || '08:00'}:00`.slice(0, 8);
+  const startIso = `${serviceDate}T${cleanTime}`;
+  const startMs = new Date(startIso).getTime();
+  const candidate = String(rawEnd ?? '').trim().replace(' ', 'T');
+  const endMs = candidate ? new Date(candidate).getTime() : NaN;
+  if (Number.isFinite(endMs) && Number.isFinite(startMs) && endMs > startMs) {
+    return candidate.slice(0, 19);
+  }
+  if (!Number.isFinite(startMs)) return startIso;
+  const plus15 = new Date(startMs + 15 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${plus15.getFullYear()}-${pad(plus15.getMonth() + 1)}-${pad(plus15.getDate())}T${pad(plus15.getHours())}:${pad(plus15.getMinutes())}:${pad(plus15.getSeconds())}`;
+};
+
+export const normalizeSssIcd10 = (raw: unknown): string => {
+  const clean = String(raw ?? '').replace(/[\s.]/g, '').toUpperCase().trim();
+  return /^[A-Z]\d{2}[A-Z0-9]{0,4}$/.test(clean) ? clean : '';
+};
+
+export const resolveSssDrugCategoryAndTmt = (rawTmt: unknown, rawStd: unknown): { prdCat: '1' | '4'; tmtId: string } => {
+  const tmtDigits = String(rawTmt ?? '').replace(/\D/g, '');
+  if (/^\d{6,7}$/.test(tmtDigits)) {
+    return { prdCat: '1', tmtId: tmtDigits };
+  }
+  const stdDigits = String(rawStd ?? '').replace(/\D/g, '');
+  if (/^\d{6,7}$/.test(stdDigits)) {
+    return { prdCat: '1', tmtId: stdDigits };
+  }
+  return { prdCat: '4', tmtId: '' };
 };
 
 export const evaluateSssCandidate = (row: Record<string, unknown>): SssValidationIssue[] => {
@@ -433,14 +500,16 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
     const [chargeRows] = await connection.query(
       `SELECT oi.vn, oi.icode, oi.qty, oi.unitprice, oi.sum_price, oi.paidst,
               COALESCE(g.cscd_group, '') AS bill_group, COALESCE(sd.nhso_adp_code, '') AS standard_code,
-              COALESCE(sd.tpu_code_list, '') AS tmt_code, COALESCE(sd.name, oi.icode) AS item_name,
-              COALESCE(oi.drugusage, oi.sp_use, '') AS drug_usage,
+              COALESCE(NULLIF(TRIM(sd.tpu_code_list), ''), NULLIF(TRIM(di.tmt_tp_code), ''), '') AS tmt_code,
+              COALESCE(sd.name, oi.icode) AS item_name,
+              COALESCE(NULLIF(TRIM(du.name1), ''), NULLIF(TRIM(du.shortlist), ''), NULLIF(TRIM(oi.drugusage), ''), NULLIF(TRIM(oi.sp_use), ''), 'ใช้ตามแพทย์สั่ง') AS drug_usage,
               CASE WHEN di.icode IS NULL THEN 0 ELSE 1 END AS is_drug
        FROM opitemrece oi
        LEFT JOIN income inc ON inc.income = oi.income
        LEFT JOIN income_report2 g ON g.group_id = inc.group2
        LEFT JOIN s_drugitems sd ON sd.icode = oi.icode
        LEFT JOIN drugitems di ON di.icode = oi.icode
+       LEFT JOIN drugusage du ON du.drugusage = oi.drugusage
        WHERE oi.vn IN (${placeholders}) AND COALESCE(oi.sum_price, 0) > 0
        ORDER BY oi.vn, oi.icode`,
       selected.map((row) => row.vn),
@@ -498,32 +567,52 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
           money(claim > 0 ? item.unitprice : 0), money(claim), row.vn, 'OP1']);
       });
     }).join('\r\n');
+    const isBillDrugItem = (item: Record<string, unknown>) => ['3', '5'].includes(text(item.bill_group));
+
     const dispensing = selected.map((row) => {
-      const items = (chargeMap.get(row.vn) || []).filter((item) => number(item.is_drug) === 1);
+      const items = (chargeMap.get(row.vn) || []).filter(isBillDrugItem);
       if (!items.length) return '';
       const vnStr = text(row.vn);
       const invNo = invNoMap.get(vnStr) || vnStr;
       const charge = items.reduce((sum, item) => sum + number(item.sum_price), 0);
       const paid = items.filter((item) => ['01', '03'].includes(text(item.paidst))).reduce((sum, item) => sum + number(item.sum_price), 0);
+      const docLic = normalizeSssDoctorLicense(row.doctor_license);
       return pipeRow([options.hcode, row.vn, invNo, row.hn, row.cid,
-        `${row.service_date} ${row.service_time}`, `${row.service_date} ${row.service_time}`, row.doctor_license,
+        `${row.service_date} ${row.service_time}`, `${row.service_date} ${row.service_time}`, docLic,
         items.length, money(charge), money(charge - paid), money(paid), '0.00', 'HP', 'SS', '1', row.vn, '']);
     }).filter(Boolean).join('\r\n');
-    const dispensedItems = selected.flatMap((row) => (chargeMap.get(row.vn) || []).filter((item) => number(item.is_drug) === 1).map((item) => pipeRow([
-      row.vn, '1', item.icode, item.tmt_code || item.standard_code, '', item.item_name, '-', item.drug_usage,
-      item.drug_usage, item.qty, money(item.unitprice), money(item.sum_price), money(item.unitprice), money(item.sum_price),
-      '', 'OD', 'OP1', '', '',
-    ]))).join('\r\n');
+    const dispensedItems = selected.flatMap((row) => (chargeMap.get(row.vn) || []).filter(isBillDrugItem).map((item) => {
+      const { prdCat, tmtId } = resolveSssDrugCategoryAndTmt(item.tmt_code, item.standard_code);
+      const sigText = text(item.drug_usage) || 'ใช้ตามแพทย์สั่ง';
+      return pipeRow([
+        row.vn, prdCat, item.icode, tmtId, '', item.item_name, '-', sigText,
+        sigText, item.qty, money(item.unitprice), money(item.sum_price), money(item.unitprice), money(item.sum_price),
+        '', 'OD', 'OP1', '', '',
+      ]);
+    })).join('\r\n');
     const services = selected.map((row) => {
       const vnStr = text(row.vn);
       const invNo = invNoMap.get(vnStr) || vnStr;
+      const docLic = normalizeSssDoctorLicense(row.doctor_license);
+      const clinicCode = normalizeSssClinic(row.clinic);
+      const endDt = normalizeSssEndDateTime(text(row.service_date), text(row.service_time), row.end_datetime);
       return pipeRow([invNo, row.vn, 'EC', options.hcode, row.hn,
-        row.cid, '1', '01', '9', '9', '', row.doctor_license, row.clinic || '01', `${row.service_date}T${row.service_time}`,
-        text(row.end_datetime || `${row.service_date}T${row.service_time}`).replace(' ', 'T'), '', '', '', '0.00', 'Y', '', 'OP1']);
+        row.cid, '1', '01', '9', '9', '', docLic, clinicCode, `${row.service_date}T${row.service_time}`,
+        endDt, '', '', '', '0.00', 'Y', '', 'OP1']);
     }).join('\r\n');
-    const opdDx = selected.flatMap((row) => (diagMap.get(row.vn) || []).map((diag) => pipeRow([
-      'EC', row.vn, diag.diagtype || '1', 'IT', text(diag.icd10).replace(/\./g, ''), '',
-    ]))).join('\r\n');
+    const opdDx = selected.flatMap((row) => {
+      const rawDiags = diagMap.get(row.vn) || [];
+      const validDiags: Array<{ diagtype?: unknown; cleanIcd: string }> = rawDiags
+        .map((diag) => ({ diagtype: diag.diagtype, cleanIcd: normalizeSssIcd10(diag.icd10) }))
+        .filter((diag) => Boolean(diag.cleanIcd));
+      if (!validDiags.length && text(row.pdx)) {
+        const cleanPdx = normalizeSssIcd10(row.pdx);
+        if (cleanPdx) validDiags.push({ diagtype: '1', cleanIcd: cleanPdx });
+      }
+      return validDiags.map((diag) => pipeRow([
+        'EC', row.vn, diag.diagtype || '1', 'IT', diag.cleanIcd, '',
+      ]));
+    }).join('\r\n');
 
     const tflag: 'A' | 'E' = options.tflag === 'E' ? 'E' : 'A';
     const now = new Date();
@@ -955,5 +1044,47 @@ export const resubmitSssErrorCases = async (options: {
     tflag: options.tflag || 'E',
     exportedBy: options.exportedBy,
   });
+};
+
+export const autoFixSssErrorCases = async (batchId?: number, updatedBy = 'AutoFix') => {
+  const cases = await getSssErrorCases(batchId);
+  const targets = cases.filter((c) => !c.is_warning_only && !c.resolved_flag && Boolean(c.vn));
+  let fixedCount = 0;
+  let manualRequiredCount = 0;
+
+  for (const row of targets) {
+    const fixedDoc = normalizeSssDoctorLicense(row.doctor_license);
+    const fixedClinic = normalizeSssClinic(row.clinic);
+    const fixedEnd = normalizeSssEndDateTime(row.service_date, row.service_time, row.end_datetime);
+    const fixedPdx = normalizeSssIcd10(row.pdx) || row.pdx;
+    const hasManualCode = /\b(C01|C03|C04)\b/i.test(row.check_code);
+
+    if (hasManualCode) {
+      manualRequiredCount += 1;
+    } else {
+      fixedCount += 1;
+    }
+
+    await saveSssClaimOverride({
+      vn: row.vn,
+      invoice_no: row.invoice_no,
+      clinic: fixedClinic,
+      doctor_license: fixedDoc,
+      hospmain: row.hospmain,
+      pdx: fixedPdx,
+      end_datetime: fixedEnd.replace('T', ' '),
+      tflag: 'E',
+      note: hasManualCode
+        ? `Auto-Fix รูปแบบข้อมูลแล้ว (ยังต้องตรวจ ${row.check_code} ด้วยตนเอง)`
+        : `Auto-Fix อัตโนมัติ (${row.check_code || 'SSOP'})`,
+      updatedBy,
+    });
+  }
+
+  return {
+    totalEvaluated: targets.length,
+    fixedCount,
+    manualRequiredCount,
+  };
 };
 

@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import businessRules from '../config/business_rules.json';
 import { validateDateRange } from '../requestSafety.js';
 import {
+  autoFixSssErrorCases,
   buildSssExportZip,
   getSssBatchSettings,
   getSssCandidates,
@@ -164,6 +165,24 @@ sssRouter.post('/error-cases/override', async (req, res) => {
   } catch (error) {
     console.error('Error saving SSS override:', error);
     return res.status(400).json({ success: false, error: (error as Error).message || 'บันทึกการแก้ไขไม่สำเร็จ' });
+  }
+});
+
+sssRouter.post('/error-cases/auto-fix', async (req, res) => {
+  try {
+    const batchId = req.body?.batchId && req.body.batchId !== 'ALL' ? Number(req.body.batchId) : undefined;
+    const summary = await autoFixSssErrorCases(
+      batchId && Number.isFinite(batchId) ? batchId : undefined,
+      (req as AuthenticatedRequest).authUser?.username || 'AutoFix',
+    );
+    return res.json({
+      success: true,
+      data: summary,
+      message: `แก้ไข Auto สำเร็จ ${summary.fixedCount} เคส${summary.manualRequiredCount > 0 ? ` (มี ${summary.manualRequiredCount} เคสที่ต้องตรวจ HospMain/สิทธิเพิ่มเติม)` : ''}`,
+    });
+  } catch (error) {
+    console.error('Error in SSS auto-fix:', error);
+    return res.status(500).json({ success: false, error: (error as Error).message || 'Auto-Fix ไม่สำเร็จ' });
   }
 });
 

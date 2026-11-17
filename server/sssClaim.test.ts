@@ -2,7 +2,17 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
 import iconv from 'iconv-lite';
-import { claimDocument, cleanSssInvoiceNo, evaluateSssCandidate, explainSssCheckCode } from './sssClaim.js';
+import {
+  claimDocument,
+  cleanSssInvoiceNo,
+  evaluateSssCandidate,
+  explainSssCheckCode,
+  normalizeSssClinic,
+  normalizeSssDoctorLicense,
+  normalizeSssEndDateTime,
+  normalizeSssIcd10,
+  resolveSssDrugCategoryAndTmt,
+} from './sssClaim.js';
 
 const valid = {
   cid: '1234567890123', pdx: 'I10', clinic: '01', hospmain: '11101', income: 100,
@@ -76,4 +86,30 @@ test('explainSssCheckCode translates SOCDBIL codes and claimDocument supports TF
 
   const docE = claimDocument('11101', 'รพ.โคกศรีสุพรรณ', '1249', 1, '<BILLTRAN>\r\n</BILLTRAN>', new Date('2026-11-17T14:00:00'), 'E');
   assert.ok(docE.includes('TFlag="E"'));
+});
+
+test('SSS Auto-Fix normalizers fix S15/R21, W05, W07, S18, and R51', () => {
+  // S15 / R21 Doctor license
+  assert.equal(normalizeSssDoctorLicense('ว.12345'), 'ว12345');
+  assert.equal(normalizeSssDoctorLicense('พว.59110'), 'พ59110');
+  assert.equal(normalizeSssDoctorLicense('นพ. 45678'), 'ว45678');
+  assert.equal(normalizeSssDoctorLicense(''), '-');
+
+  // W05 Clinic
+  assert.equal(normalizeSssClinic('1'), '01');
+  assert.equal(normalizeSssClinic('00'), '01');
+  assert.equal(normalizeSssClinic('12'), '12');
+
+  // W07 EndDateTime
+  assert.equal(normalizeSssEndDateTime('2026-11-03', '09:00:00', ''), '2026-11-03T09:15:00');
+  assert.equal(normalizeSssEndDateTime('2026-11-03', '09:00:00', '2026-11-03 09:00:00'), '2026-11-03T09:15:00');
+  assert.equal(normalizeSssEndDateTime('2026-11-03', '09:00:00', '2026-11-03 09:25:00'), '2026-11-03T09:25:00');
+
+  // S18 ICD-10
+  assert.equal(normalizeSssIcd10('J06.9'), 'J069');
+  assert.equal(normalizeSssIcd10('e11.9'), 'E119');
+
+  // R51 TMT / PrdCat
+  assert.deepEqual(resolveSssDrugCategoryAndTmt('123456', ''), { prdCat: '1', tmtId: '123456' });
+  assert.deepEqual(resolveSssDrugCategoryAndTmt('', ''), { prdCat: '4', tmtId: '' });
 });

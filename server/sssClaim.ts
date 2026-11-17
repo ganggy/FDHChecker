@@ -549,7 +549,16 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
   const selected = candidates.filter((row) => requested.has(row.vn));
   if (selected.length !== requested.size) throw new Error('มีบาง VN ไม่อยู่ในสิทธิ์/เครือข่าย/ช่วงวันที่ที่เลือก กรุณาดึงข้อมูลใหม่');
   const blocked = selected.filter((row) => row.validation_status === 'error');
-  if (blocked.length > 0) throw new Error(`มี ${blocked.length} รายการที่ยังติด Error และไม่สามารถส่งออกได้`);
+  if (blocked.length > 0) {
+    const details = blocked
+      .slice(0, 5)
+      .map((row) => {
+        const errs = row.issues.filter((i) => i.severity === 'error').map((i) => `${i.code} ${i.message}`).join(', ');
+        return `VN ${row.vn} (HN ${text(row.hn)}): ${errs}`;
+      })
+      .join(' | ');
+    throw new Error(`มี ${blocked.length} รายการที่ยังติด Error และไม่สามารถส่งออกได้: ${details}${blocked.length > 5 ? ' ...' : ''}`);
+  }
 
   const connection = await getUTFConnection();
   try {
@@ -812,6 +821,7 @@ export interface SssErrorCaseRow {
   resolved_flag: boolean;
   last_resubmitted_batch: number | null;
   note: string;
+  local_errors: string[];
 }
 
 const parseThaiDateStr = (raw: string): string | null => {
@@ -917,6 +927,9 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
         `SELECT o.vn, o.hn, DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
                 TIME_FORMAT(o.vsttime, '%H:%i:%s') AS service_time,
                 CONCAT(COALESCE(pt.pname, ''), COALESCE(pt.fname, ''), ' ', COALESCE(pt.lname, '')) AS patient_name,
+                COALESCE(NULLIF(pt.cid, ''), '') AS cid,
+                ROUND(COALESCE(v.income, 0), 2) AS income,
+                COALESCE(ost.name, '') AS visit_outcome,
                 COALESCE(v.hospmain, '') AS hospmain,
                 COALESCE(sp.nhso_code, '') AS clinic,
                 COALESCE(v.pdx, '') AS pdx,
@@ -932,6 +945,7 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
          JOIN patient pt ON pt.hn = o.hn
          LEFT JOIN vn_stat v ON v.vn = o.vn
          LEFT JOIN spclty sp ON sp.spclty = o.spclty
+         LEFT JOIN ovstost ost ON ost.ovstost = o.ovstost
          LEFT JOIN doctor doc ON doc.code = o.doctor
          LEFT JOIN doctor dxdoc ON dxdoc.code = v.dx_doctor
          WHERE o.vn IN (${ph})`,
@@ -973,6 +987,19 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
 
       const checkCode = text(r.check_code);
       const statusCode = text(r.status_code).toUpperCase();
+      const effClinic = text(ov?.clinic) || text(hos.clinic) || '01';
+      const effHospmain = text(ov?.hospmain) || text(hos.hospmain) || text(r.import_hmain);
+      const effPdx = text(ov?.pdx) || text(hos.pdx);
+      const effCid = text(hos.cid) || text(r.import_cid);
+      const effIncome = number(hos.income);
+      const localErrors: string[] = [];
+      if (!/^\d{13}$/.test(effCid)) localErrors.push('ไม่มีเลขบัตรประชาชน 13 หลัก (SSS-PAT01)');
+      if (!effPdx) localErrors.push('ไม่มี PDX (SSS-DX01)');
+      if (!/^(0[1-9]|1[0-2]|99)$/.test(effClinic)) localErrors.push('รหัสคลินิกไม่ตรง 01-12/99 (SSS-SVC01)');
+      if (!effHospmain) localErrors.push('ไม่มี HospMain (SSS-INS01)');
+      if (hos.vn && effIncome <= 0) localErrors.push('ค่าใช้จ่ายเป็นศูนย์ (SSS-CHG01)');
+      if (/ADMIT/i.test(text(hos.visit_outcome))) localErrors.push('ผลการรักษา Admit (SSS-VIS02)');
+
       return {
         import_row_id: rowId,
         batch_id: number(r.batch_id),
@@ -993,10 +1020,10 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
         patient_name: text(hos.patient_name),
         service_date: text(hos.service_date) || (parseThaiDateStr(text(r.import_service_datetime)) || ''),
         service_time: text(hos.service_time),
-        clinic: text(ov?.clinic) || text(hos.clinic) || '01',
+        clinic: effClinic,
         doctor_license: text(ov?.doctor_license) || text(hos.doctor_license),
-        hospmain: text(ov?.hospmain) || text(hos.hospmain) || text(r.import_hmain),
-        pdx: text(ov?.pdx) || text(hos.pdx),
+        hospmain: effHospmain,
+        pdx: effPdx,
         end_datetime: text(ov?.end_datetime) || text(hos.end_datetime),
         rx_datetime: text(hos.rx_datetime),
         invoice_no: text(ov?.invoice_no) || text(r.import_invoice_no) || text(hos.invoice_no) || vn,
@@ -1005,7 +1032,12 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
         resolved_flag: Boolean(ov?.resolved_flag) || isResubmittedAfterImport,
         last_resubmitted_batch: isResubmittedAfterImport ? (resub?.batch_no || null) : null,
         note: text(ov?.note),
+        local_errors: localErrors,
       };
+    }).sort((a, b) => {
+      const aScore = (a.local_errors.length > 0 ? 0 : 1) * 10 + (a.is_warning_only ? 2 : 0) + (a.resolved_flag ? 1 : 0);
+      const bScore = (b.local_errors.length > 0 ? 0 : 1) * 10 + (b.is_warning_only ? 2 : 0) + (b.resolved_flag ? 1 : 0);
+      return aScore - bScore;
     });
   } finally {
     repConn.release();

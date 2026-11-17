@@ -58,6 +58,7 @@ interface SssErrorCaseRow {
   resolved_flag: boolean;
   last_resubmitted_batch: number | null;
   note: string;
+  local_errors?: string[];
 }
 
 const splitCsvLine = (line: string) => {
@@ -120,6 +121,7 @@ export const SssRepStmPage: React.FC = () => {
   const [loadingErrors, setLoadingErrors] = useState(false);
   const [filterBatchId, setFilterBatchId] = useState<string>('ALL');
   const [onlyUnresolved, setOnlyUnresolved] = useState<boolean>(true);
+  const [errorFilterMode, setErrorFilterMode] = useState<'ERROR_ONLY' | 'BLOCKED_ONLY' | 'ALL'>('ERROR_ONLY');
   const [selectedVns, setSelectedVns] = useState<Set<string>>(new Set());
   const [resubmitBatchNo, setResubmitBatchNo] = useState<string>('');
   const [resubmitTflag, setResubmitTflag] = useState<'E' | 'A'>('E');
@@ -262,9 +264,11 @@ export const SssRepStmPage: React.FC = () => {
     return errorCases.filter((r) => {
       if (filterBatchId !== 'ALL' && String(r.batch_id) !== filterBatchId) return false;
       if (onlyUnresolved && r.resolved_flag) return false;
+      if (errorFilterMode === 'ERROR_ONLY' && r.is_warning_only) return false;
+      if (errorFilterMode === 'BLOCKED_ONLY' && !(r.local_errors && r.local_errors.length > 0)) return false;
       return true;
     });
-  }, [errorCases, filterBatchId, onlyUnresolved]);
+  }, [errorCases, filterBatchId, onlyUnresolved, errorFilterMode]);
 
   const selectableErrorCases = useMemo(
     () => visibleErrorCases.filter((r) => Boolean(r.vn) && !r.is_warning_only),
@@ -456,6 +460,15 @@ export const SssRepStmPage: React.FC = () => {
                   </select>
                 </label>
 
+                <label className="form-group" style={{ minWidth: 220 }}>
+                  <span className="form-label">ตัวกรองสถานะ</span>
+                  <select className="form-control" value={errorFilterMode} onChange={(e) => setErrorFilterMode(e.target.value as 'ERROR_ONLY' | 'BLOCKED_ONLY' | 'ALL')}>
+                    <option value="ERROR_ONLY">เฉพาะเคสไม่ผ่าน (C/R)</option>
+                    <option value="BLOCKED_ONLY">เฉพาะเคสที่ยังติดปัญหาส่งออกไม่ได้</option>
+                    <option value="ALL">ทั้งหมด (รวมผ่านแบบมี Warning A)</option>
+                  </select>
+                </label>
+
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18, fontWeight: 600 }}>
                   <input type="checkbox" checked={onlyUnresolved} onChange={(e) => setOnlyUnresolved(e.target.checked)} />
                   <span>แสดงเฉพาะเคสที่ยังไม่ส่งแก้ไขซ้ำ</span>
@@ -567,6 +580,11 @@ export const SssRepStmPage: React.FC = () => {
                                 {row.is_warning_only ? `✓ ผ่าน (A) · Warning: ${row.check_code}` : `✕ ไม่ผ่าน (${row.status_code}) · ${row.check_code || 'Error'}`}
                               </span>
                             </div>
+                            {row.local_errors && row.local_errors.length > 0 && (
+                              <div style={{ marginTop: 4, padding: '4px 6px', borderRadius: 4, background: '#fee2e2', color: '#991b1b', fontSize: 11, fontWeight: 700 }}>
+                                ⛔ ยังส่งออกไม่ได้: {row.local_errors.join(', ')}
+                              </div>
+                            )}
                             <ul style={{ margin: '4px 0 0 16px', padding: 0, fontSize: 11, color: row.is_warning_only ? '#92400e' : '#991b1b' }}>
                               {row.error_explanations.map((exp, idx) => <li key={idx}>{exp}</li>)}
                             </ul>

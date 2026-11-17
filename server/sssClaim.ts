@@ -641,6 +641,7 @@ export interface SssErrorCaseRow {
   imported_at: string;
   status_code: string;
   check_code: string;
+  is_warning_only: boolean;
   error_explanations: string[];
   import_invoice_no: string;
   import_cid: string;
@@ -725,8 +726,8 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
     for (const r of errRows) {
       const rowId = number(r.import_row_id);
       const directVn = text(r.import_vn);
-      const inv = text(r.import_invoice_no);
-      if (directVn) {
+      const inv = text(r.import_invoice_no) || (!/^\d{12}$/.test(directVn) ? directVn : '');
+      if (/^\d{12}$/.test(directVn)) {
         resolvedVns.set(rowId, directVn);
       } else if (inv && invToVnMap.has(inv)) {
         resolvedVns.set(rowId, invToVnMap.get(inv)!);
@@ -737,7 +738,10 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
         const cid = text(r.import_cid);
         const dtStr = parseThaiDateStr(text(r.import_service_datetime));
         if (inv) {
-          const [vRows] = await hosConn.query(`SELECT vn FROM vn_stat WHERE debt_id_list = ? LIMIT 1`, [inv]);
+          const [vRows] = await hosConn.query(
+            `SELECT vn FROM vn_stat WHERE debt_id_list = ? OR FIND_IN_SET(?, debt_id_list) > 0 LIMIT 1`,
+            [inv, inv],
+          );
           if (Array.isArray(vRows) && vRows.length) {
             resolvedVns.set(rowId, text((vRows[0] as Record<string, unknown>).vn));
             continue;
@@ -819,13 +823,15 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
       const isResubmittedAfterImport = Boolean(resub && resubAtMs > importedAtMs);
 
       const checkCode = text(r.check_code);
+      const statusCode = text(r.status_code).toUpperCase();
       return {
         import_row_id: rowId,
         batch_id: number(r.batch_id),
         source_filename: text(r.source_filename),
         imported_at: text(r.imported_at),
-        status_code: text(r.status_code),
+        status_code: statusCode,
         check_code: checkCode,
+        is_warning_only: statusCode === 'A',
         error_explanations: explainSssCheckCode(checkCode),
         import_invoice_no: text(r.import_invoice_no),
         import_cid: text(r.import_cid),

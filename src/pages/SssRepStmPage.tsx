@@ -34,6 +34,7 @@ interface SssErrorCaseRow {
   imported_at: string;
   status_code: string;
   check_code: string;
+  is_warning_only?: boolean;
   error_explanations: string[];
   import_invoice_no: string;
   import_cid: string;
@@ -264,7 +265,10 @@ export const SssRepStmPage: React.FC = () => {
     });
   }, [errorCases, filterBatchId, onlyUnresolved]);
 
-  const selectableErrorCases = useMemo(() => visibleErrorCases.filter((r) => Boolean(r.vn)), [visibleErrorCases]);
+  const selectableErrorCases = useMemo(
+    () => visibleErrorCases.filter((r) => Boolean(r.vn) && !r.is_warning_only),
+    [visibleErrorCases]
+  );
   const unresolvedTotal = useMemo(() => errorCases.filter((r) => !r.resolved_flag).length, [errorCases]);
 
   const handleOpenEdit = (row: SssErrorCaseRow) => {
@@ -496,7 +500,7 @@ export const SssRepStmPage: React.FC = () => {
                       <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>ไม่พบรายการติด Error ตามเงื่อนไขที่เลือก</td></tr>
                     ) : (
                       visibleErrorCases.map((row) => (
-                        <tr key={row.import_row_id} className={!row.resolved_flag ? 'row-danger' : ''}>
+                        <tr key={row.import_row_id} className={!row.resolved_flag && !row.is_warning_only ? 'row-danger' : ''}>
                           <td>
                             <input
                               type="checkbox"
@@ -527,8 +531,12 @@ export const SssRepStmPage: React.FC = () => {
                             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{row.service_date || row.import_service_datetime}</div>
                           </td>
                           <td style={{ maxWidth: 320 }}>
-                            <div><span className="badge badge-danger">{row.status_code} | {row.check_code || 'Error'}</span></div>
-                            <ul style={{ margin: '4px 0 0 16px', padding: 0, fontSize: 11, color: '#991b1b' }}>
+                            <div>
+                              <span className={`badge ${row.is_warning_only ? 'badge-warning' : 'badge-danger'}`}>
+                                {row.is_warning_only ? `✓ ผ่าน (A) · Warning: ${row.check_code}` : `✕ ไม่ผ่าน (${row.status_code}) · ${row.check_code || 'Error'}`}
+                              </span>
+                            </div>
+                            <ul style={{ margin: '4px 0 0 16px', padding: 0, fontSize: 11, color: row.is_warning_only ? '#92400e' : '#991b1b' }}>
                               {row.error_explanations.map((exp, idx) => <li key={idx}>{exp}</li>)}
                             </ul>
                           </td>

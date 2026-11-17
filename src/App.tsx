@@ -139,7 +139,9 @@ function App() {
     ? [...primaryNavItems, ...toolNavItems].map((item) => item.page).concat(adminOnlyPages)
     : (authSession?.user.menu_permissions || []).filter((page) => !adminOnlyPages.includes(page)));
     // Same read workspace as the former reconciliation tab.
-    if (pages.has('reconciliation')) { pages.add('stmZeroAudit'); pages.add('repSheetZeroAudit'); }
+    if (pages.has('reconciliation') || pages.has('repSheetZeroAudit')) { pages.add('stmZeroAudit'); pages.add('repSheetZeroAudit'); }
+    if (pages.has('fundFdh') || pages.has('fund43') || pages.has('fundKtb') || pages.has('fundOther')) { pages.add('specific'); }
+    if (pages.has('fsMonitor')) { pages.add('monitor'); }
     if (pages.has('hsubPayment') || pages.has('pcuHerbal') || pages.has('receivable')) { pages.add('pcuHerbal'); pages.add('pcuPayout'); pages.add('pcuCaseCost'); pages.add('unitCostProfit'); }
     if (pages.has('staff') || pages.has('workQueue') || pages.has('executiveMonitor')) { pages.add('dailyClaimMonitor'); }
     return pages;

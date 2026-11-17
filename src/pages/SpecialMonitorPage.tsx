@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { DetailKidneyModal } from '../components/DetailKidneyModal';
 import { OpReferMonitorPanel } from '../components/OpReferMonitorPanel';
+import { FsMonitorPage } from './FsMonitorPage';
 import type { KidneyMonitorRecord } from '../mockKidneyData';
 import businessRules from '../config/business_rules.json';
 import { formatLocalDateInput } from '../utils/dateUtils';
@@ -200,6 +201,12 @@ export const SpecialMonitorPage: React.FC = () => {
             name: 'OP Refer',
             icon: '⭐',
             description: 'ตรวจสิทธิรับส่งต่อ ข้อมูล Refer, Diagnosis, ค่าใช้จ่าย และการปิดสิทธิ',
+        },
+        {
+            id: 'fs',
+            name: 'Fee Schedule (PPFS)',
+            icon: '💰',
+            description: 'มอนิเตอร์ Fee Schedule 36 รายการ ตามอัตรา สปสช. ปีงบ 2569',
         },
     ];    const fetchMonitorData = useCallback(async (): Promise<void> => {
         setLoading(true);
@@ -723,6 +730,8 @@ export const SpecialMonitorPage: React.FC = () => {
                     </button>
                 ))}
             </nav>
+
+            {activeMonitor === 'fs' && <FsMonitorPage />}
 
             {/* Dialysis Service Summary Section - shown for kidney monitor */}
             {activeMonitor === 'kidney' && (

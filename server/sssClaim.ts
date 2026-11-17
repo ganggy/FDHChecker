@@ -197,7 +197,18 @@ export const normalizeSssClinic = (raw: unknown): string => {
   return /^(0[1-9]|1[0-2]|99)$/.test(c) ? c : '01';
 };
 
-export const normalizeSssEndDateTime = (serviceDate: string, serviceTime: string, rawEnd: unknown): string => {
+const formatIsoLocal = (ms: number): string => {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
+export const normalizeSssEndDateTime = (
+  serviceDate: string,
+  serviceTime: string,
+  rawEnd: unknown,
+  rxDateTime?: unknown,
+): string => {
   const cleanTime = /^\d{2}:\d{2}:\d{2}$/.test(serviceTime) ? serviceTime : `${serviceTime || '08:00'}:00`.slice(0, 8);
   const startIso = `${serviceDate}T${cleanTime}`;
   const startMs = new Date(startIso).getTime();
@@ -206,10 +217,17 @@ export const normalizeSssEndDateTime = (serviceDate: string, serviceTime: string
   if (Number.isFinite(endMs) && Number.isFinite(startMs) && endMs > startMs) {
     return candidate.slice(0, 19);
   }
+  const rxCandidate = String(rxDateTime ?? '').trim().replace(' ', 'T');
+  const rxMs = rxCandidate ? new Date(rxCandidate).getTime() : NaN;
+  if (Number.isFinite(rxMs)) {
+    const rxPlus30 = rxMs + 30 * 60 * 1000;
+    if (!Number.isFinite(startMs) || rxPlus30 > startMs) {
+      return formatIsoLocal(rxPlus30);
+    }
+    return formatIsoLocal(startMs + 30 * 60 * 1000);
+  }
   if (!Number.isFinite(startMs)) return startIso;
-  const plus15 = new Date(startMs + 15 * 60 * 1000);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${plus15.getFullYear()}-${pad(plus15.getMonth() + 1)}-${pad(plus15.getDate())}T${pad(plus15.getHours())}:${pad(plus15.getMinutes())}:${pad(plus15.getSeconds())}`;
+  return formatIsoLocal(startMs + 15 * 60 * 1000);
 };
 
 export const normalizeSssIcd10 = (raw: unknown): string => {
@@ -253,6 +271,11 @@ export const evaluateSssCandidate = (row: Record<string, unknown>): SssValidatio
   return issues;
 };
 
+const RX_DATETIME_SUBQUERY = `COALESCE(
+  DATE_FORMAT((SELECT MAX(CONCAT(oi.rxdate, ' ', oi.rxtime)) FROM opitemrece oi JOIN drugitems di ON di.icode = oi.icode WHERE oi.vn = o.vn AND oi.rxdate IS NOT NULL AND oi.rxtime IS NOT NULL), '%Y-%m-%d %H:%i:%s'),
+  DATE_FORMAT((SELECT MAX(CONCAT(oi.rxdate, ' ', oi.rxtime)) FROM opitemrece oi WHERE oi.vn = o.vn AND oi.rxdate IS NOT NULL AND oi.rxtime IS NOT NULL), '%Y-%m-%d %H:%i:%s')
+) AS rx_datetime`;
+
 export const buildSssCandidateSql = (networkType: SssNetworkType) => `
   SELECT
     o.vn, o.hn, DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS service_date,
@@ -283,7 +306,8 @@ export const buildSssCandidateSql = (networkType: SssNetworkType) => `
     (SELECT COUNT(*) FROM opitemrece oi WHERE oi.vn = o.vn AND COALESCE(oi.hn, o.hn) <> o.hn) AS mixed_hn_count,
     (SELECT COUNT(*) FROM opitemrece oi JOIN drugitems di ON di.icode = oi.icode WHERE oi.vn = o.vn AND COALESCE(TRIM(CONCAT(COALESCE(oi.drugusage,''), COALESCE(oi.sp_use,''))), '') = '') AS missing_drug_usage_count,
     (SELECT COUNT(*) FROM opitemrece oi JOIN income inc ON inc.income = oi.income LEFT JOIN s_drugitems sd ON sd.icode = oi.icode WHERE oi.vn = o.vn AND inc.group2 IN (6,7) AND (COALESCE(sd.tmlt_code,'') = '' OR sd.tmlt_code LIKE '%X%')) AS missing_tmlt_count,
-    DATE_FORMAT((SELECT MAX(CONCAT(pd.outdate, ' ', pd.outtime)) FROM ptdepart pd WHERE pd.vn = o.vn AND COALESCE(pd.outdepcode, '') <> ''), '%Y-%m-%d %H:%i:%s') AS end_datetime
+    DATE_FORMAT((SELECT MAX(CONCAT(pd.outdate, ' ', pd.outtime)) FROM ptdepart pd WHERE pd.vn = o.vn AND COALESCE(pd.outdepcode, '') <> ''), '%Y-%m-%d %H:%i:%s') AS end_datetime,
+    ${RX_DATETIME_SUBQUERY}
   FROM ovst o
   JOIN patient pt ON pt.hn = o.hn
   LEFT JOIN ptcardno pc ON pc.hn = pt.hn AND pc.cardtype = '02'
@@ -595,7 +619,7 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
       const invNo = invNoMap.get(vnStr) || vnStr;
       const docLic = normalizeSssDoctorLicense(row.doctor_license);
       const clinicCode = normalizeSssClinic(row.clinic);
-      const endDt = normalizeSssEndDateTime(text(row.service_date), text(row.service_time), row.end_datetime);
+      const endDt = normalizeSssEndDateTime(text(row.service_date), text(row.service_time), row.end_datetime, row.rx_datetime);
       return pipeRow([invNo, row.vn, 'EC', options.hcode, row.hn,
         row.cid, '1', '01', '9', '9', '', docLic, clinicCode, `${row.service_date}T${row.service_time}`,
         endDt, '', '', '', '0.00', 'Y', '', 'OP1']);
@@ -748,6 +772,7 @@ export interface SssErrorCaseRow {
   hospmain: string;
   pdx: string;
   end_datetime: string;
+  rx_datetime?: string;
   invoice_no: string;
   tflag: 'A' | 'E';
   has_override: boolean;
@@ -868,7 +893,8 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
                   NULLIF(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.rcpno_list, ''), '"', ''), "'", '')), ',', 1), '#', 1), ''),
                   o.vn
                 ) AS invoice_no,
-                DATE_FORMAT((SELECT MAX(CONCAT(pd.outdate, ' ', pd.outtime)) FROM ptdepart pd WHERE pd.vn = o.vn AND COALESCE(pd.outdepcode, '') <> ''), '%Y-%m-%d %H:%i:%s') AS end_datetime
+                DATE_FORMAT((SELECT MAX(CONCAT(pd.outdate, ' ', pd.outtime)) FROM ptdepart pd WHERE pd.vn = o.vn AND COALESCE(pd.outdepcode, '') <> ''), '%Y-%m-%d %H:%i:%s') AS end_datetime,
+                ${RX_DATETIME_SUBQUERY}
          FROM ovst o
          JOIN patient pt ON pt.hn = o.hn
          LEFT JOIN vn_stat v ON v.vn = o.vn
@@ -938,6 +964,7 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
         hospmain: text(ov?.hospmain) || text(hos.hospmain) || text(r.import_hmain),
         pdx: text(ov?.pdx) || text(hos.pdx),
         end_datetime: text(ov?.end_datetime) || text(hos.end_datetime),
+        rx_datetime: text(hos.rx_datetime),
         invoice_no: text(ov?.invoice_no) || text(r.import_invoice_no) || text(hos.invoice_no) || vn,
         tflag: (text(ov?.tflag) === 'A' ? 'A' : 'E') as 'A' | 'E',
         has_override: Boolean(ov),
@@ -1055,7 +1082,7 @@ export const autoFixSssErrorCases = async (batchId?: number, updatedBy = 'AutoFi
   for (const row of targets) {
     const fixedDoc = normalizeSssDoctorLicense(row.doctor_license);
     const fixedClinic = normalizeSssClinic(row.clinic);
-    const fixedEnd = normalizeSssEndDateTime(row.service_date, row.service_time, row.end_datetime);
+    const fixedEnd = normalizeSssEndDateTime(row.service_date, row.service_time, row.end_datetime, row.rx_datetime);
     const fixedPdx = normalizeSssIcd10(row.pdx) || row.pdx;
     const hasManualCode = /\b(C01|C03|C04)\b/i.test(row.check_code);
 
@@ -1078,6 +1105,72 @@ export const autoFixSssErrorCases = async (batchId?: number, updatedBy = 'AutoFi
         ? `Auto-Fix รูปแบบข้อมูลแล้ว (ยังต้องตรวจ ${row.check_code} ด้วยตนเอง)`
         : `Auto-Fix อัตโนมัติ (${row.check_code || 'SSOP'})`,
       updatedBy,
+    });
+  }
+
+  return {
+    totalEvaluated: targets.length,
+    fixedCount,
+    manualRequiredCount,
+  };
+};
+
+export const autoFixSssCandidates = async (options: {
+  startDate: string;
+  endDate: string;
+  networkType?: SssNetworkType;
+  vns?: string[];
+  updatedBy?: string;
+}) => {
+  const candidates = await getSssCandidates({
+    startDate: options.startDate,
+    endDate: options.endDate,
+    networkType: options.networkType || 'ALL',
+  });
+  const vnFilter = options.vns?.length ? new Set(options.vns.map((v) => v.trim()).filter(Boolean)) : null;
+  const targets = candidates.filter((row) => (!vnFilter || vnFilter.has(row.vn)) && row.validation_status !== 'ready');
+
+  let fixedCount = 0;
+  let manualRequiredCount = 0;
+
+  for (const row of targets) {
+    const currentDoc = text(row.doctor_license);
+    const normalizedDoc = currentDoc ? normalizeSssDoctorLicense(currentDoc) : '';
+    const fixedDoc = normalizedDoc && normalizedDoc !== '-' ? normalizedDoc : currentDoc;
+    const fixedClinic = normalizeSssClinic(row.clinic);
+    const fixedEnd = normalizeSssEndDateTime(text(row.service_date), text(row.service_time), row.end_datetime, row.rx_datetime);
+    const fixedPdx = normalizeSssIcd10(row.pdx) || text(row.pdx);
+    const fixedInv = cleanSssInvoiceNo(row.invoice_no, row.vn);
+
+    const changed = (
+      fixedClinic !== text(row.clinic) ||
+      fixedDoc !== currentDoc ||
+      fixedEnd.replace('T', ' ') !== text(row.end_datetime).replace('T', ' ') ||
+      fixedPdx !== text(row.pdx) ||
+      fixedInv !== text(row.invoice_no)
+    );
+
+    const hasUnfixableError = row.issues.some((iss) => iss.severity === 'error' && iss.code !== 'SSS-SVC01');
+
+    if (!changed) {
+      if (hasUnfixableError) manualRequiredCount += 1;
+      continue;
+    }
+
+    if (hasUnfixableError) manualRequiredCount += 1;
+    else fixedCount += 1;
+
+    await saveSssClaimOverride({
+      vn: row.vn,
+      invoice_no: fixedInv,
+      clinic: fixedClinic,
+      doctor_license: fixedDoc || undefined,
+      hospmain: text(row.hospmain) || undefined,
+      pdx: fixedPdx || undefined,
+      end_datetime: fixedEnd.replace('T', ' '),
+      tflag: row.export_status === 'ERROR' ? 'E' : 'A',
+      note: 'Auto-Fix ก่อนส่งออก SSOP',
+      updatedBy: options.updatedBy || 'AutoFix',
     });
   }
 

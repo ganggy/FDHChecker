@@ -104,6 +104,9 @@ test('SSS Auto-Fix normalizers fix S15/R21, W05, W07, S18, and R51', () => {
   assert.equal(normalizeSssEndDateTime('2026-11-03', '09:00:00', ''), '2026-11-03T09:15:00');
   assert.equal(normalizeSssEndDateTime('2026-11-03', '09:00:00', '2026-11-03 09:00:00'), '2026-11-03T09:15:00');
   assert.equal(normalizeSssEndDateTime('2026-11-03', '09:00:00', '2026-11-03 09:25:00'), '2026-11-03T09:25:00');
+  // Empty EndDateTime with drug order time (rxDateTime) should add +30 minutes from rxDateTime
+  assert.equal(normalizeSssEndDateTime('2026-11-03', '09:00:00', '', '2026-11-03 09:20:00'), '2026-11-03T09:50:00');
+  assert.equal(normalizeSssEndDateTime('2026-11-03', '09:00:00', null, '2026-11-03 08:25:00'), '2026-11-03T09:30:00');
 
   // S18 ICD-10
   assert.equal(normalizeSssIcd10('J06.9'), 'J069');

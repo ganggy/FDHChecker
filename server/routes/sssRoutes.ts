@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import businessRules from '../config/business_rules.json';
 import { validateDateRange } from '../requestSafety.js';
 import {
+  autoFixSssCandidates,
   autoFixSssErrorCases,
   buildSssExportZip,
   getSssBatchSettings,
@@ -66,6 +67,31 @@ sssRouter.get('/candidates', async (req, res) => {
   } catch (error) {
     console.error('Error loading SSS export candidates:', error);
     return res.status(500).json({ success: false, error: 'โหลดรายการสิทธิ์ประกันสังคมไม่สำเร็จ' });
+  }
+});
+
+sssRouter.post('/candidates/auto-fix', async (req, res) => {
+  try {
+    const startDate = String(req.body?.startDate || '').trim();
+    const endDate = String(req.body?.endDate || '').trim();
+    const dateValidation = validateDateRange(startDate, endDate, 366);
+    if (!dateValidation.ok) return res.status(400).json({ success: false, error: dateValidation.error });
+    const vns = Array.isArray(req.body?.vns) ? req.body.vns.map(String).map((v: string) => v.trim()).filter(Boolean) : undefined;
+    const summary = await autoFixSssCandidates({
+      startDate,
+      endDate,
+      networkType: normalizeNetworkType(req.body?.networkType),
+      vns,
+      updatedBy: (req as AuthenticatedRequest).authUser?.username || 'AutoFix',
+    });
+    return res.json({
+      success: true,
+      data: summary,
+      message: `Auto-Fix ก่อนส่งสำเร็จ ${summary.fixedCount} รายการ${summary.manualRequiredCount > 0 ? ` (มี ${summary.manualRequiredCount} รายการที่ต้องกดแก้ไขเพิ่มเติม)` : ''}`,
+    });
+  } catch (error) {
+    console.error('Error in SSS candidate auto-fix:', error);
+    return res.status(500).json({ success: false, error: (error as Error).message || 'Auto-Fix ก่อนส่งไม่สำเร็จ' });
   }
 });
 

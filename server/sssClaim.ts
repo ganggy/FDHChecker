@@ -172,24 +172,36 @@ export const cleanSssInvoiceNo = (rawInv: unknown, vn: unknown): string => {
   return clean ? clean : String(vn ?? '').trim();
 };
 
+export const DEFAULT_SSS_DOCTOR_LICENSE = 'ว51485'; // พญ.ณัฐปภัสร์ นวัตชัยศิริกุล
+
+const isDummyDoctorLicense = (raw: string): boolean => {
+  const compact = raw.replace(/[.\s_/]/g, '').trim();
+  if (!compact || compact === '-') return true;
+  if (/^-?(9{4,6}|0{4,6})$/.test(compact)) return true;
+  const digits = compact.replace(/^[ก-ฮ]+/, '');
+  return /^(9{4,6}|0{4,6})$/.test(digits);
+};
+
 /**
- * แปลงเลขใบประกอบวิชาชีพให้ตรงมาตรฐาน สกส./สปส. (Annnnn: ตัวอักษร 1 ตัว + ตัวเลข ไม่มีจุด)
- * เช่น "ว.12345" -> "ว12345", "พว.59110" -> "พ59110", ไม่มีเลข -> "-"
+ * แปลงเลขใบประกอบวิชาชีพให้ตรงมาตรฐาน สกส./สปส. (เช่น "ว.12345" -> "ว12345", "พว.59110" -> "พ59110")
+ * คัดกรองค่ารหัสจำลองใน HIS (-99999, 9999, 00000) ออกและคืนค่า fallback (ค่าเริ่มต้น "-")
  */
-export const normalizeSssDoctorLicense = (raw: unknown): string => {
-  let s = String(raw ?? '').replace(/[.\s\-_/]/g, '').trim();
-  if (!s) return '-';
+export const normalizeSssDoctorLicense = (raw: unknown, fallback = '-'): string => {
+  const rawStr = String(raw ?? '').trim();
+  if (isDummyDoctorLicense(rawStr)) return fallback;
+  let s = rawStr.replace(/[.\s\-_/]/g, '').trim();
+  if (!s) return fallback;
   // Normalize 2-char prefixes like นพ, พญ, ทพ, ทญ, ภก, ภญ, พว, พช
   s = s
     .replace(/^(นพ|พญ)/, 'ว')
     .replace(/^(ทพ|ทญ)/, 'ท')
     .replace(/^(ภก|ภญ)/, 'ภ')
     .replace(/^(พว|พช)/, 'พ');
-  const m = s.match(/^([วทภพคจ])(\d{3,6})$/);
-  if (m) return `${m[1]}${m[2]}`;
+  const m = s.match(/^([ก-ฮ]{1,3})(\d{3,6})$/);
+  if (m && !/^(9{4,6}|0{4,6})$/.test(m[2])) return `${m[1]}${m[2]}`;
   const digitsOnly = s.match(/^(\d{4,6})$/);
-  if (digitsOnly) return `ว${digitsOnly[1]}`;
-  return '-';
+  if (digitsOnly && !/^(9{4,6}|0{4,6})$/.test(digitsOnly[1])) return `ว${digitsOnly[1]}`;
+  return fallback;
 };
 
 export const normalizeSssClinic = (raw: unknown): string => {
@@ -262,14 +274,34 @@ export const evaluateSssCandidate = (row: Record<string, unknown>): SssValidatio
   if (number(row.missing_item_name_count) > 0) add('error', 'SSS-CHG04', 'มีรายการค่าใช้จ่ายที่ไม่มีชื่อรายการ');
   if (number(row.mixed_hn_count) > 0) add('error', 'SSS-VIS01', 'พบ HN อื่นในรายการค่าใช้จ่ายของ VN');
   if (/ADMIT/i.test(text(row.visit_outcome))) add('error', 'SSS-VIS02', 'ผลการรักษา Admit ต้องตรวจสอบเส้นทางเคลม');
-  if (!text(row.doctor_license)) add('warning', 'SSS-DOC01', 'ไม่พบเลขใบอนุญาตผู้ให้บริการ');
+  if (normalizeSssDoctorLicense(row.doctor_license) === '-') add('warning', 'SSS-DOC01', 'ไม่พบเลขใบอนุญาตผู้ให้บริการ');
   if (number(row.missing_drug_usage_count) > 0) add('warning', 'SSS-DRU01', 'มีรายการยาที่ไม่มีวิธีใช้ยา');
   if (number(row.missing_tmlt_count) > 0) add('warning', 'SSS-LAB01', 'มีรายการ LAB ที่ยังไม่ Map TMLT');
-  if (!text(row.end_datetime)) add('warning', 'SSS-SVC02', 'ไม่พบเวลาสิ้นสุดรับบริการ');
+  const cleanEnd = text(row.end_datetime);
+  if (!cleanEnd) {
+    add('warning', 'SSS-SVC02', 'ไม่พบเวลาสิ้นสุดรับบริการ');
+  } else {
+    const startMs = new Date(`${text(row.service_date)}T${text(row.service_time) || '00:00:00'}`).getTime();
+    const endMs = new Date(cleanEnd.replace(' ', 'T')).getTime();
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs <= startMs) {
+      add('warning', 'SSS-SVC02', 'เวลาสิ้นสุดบริการน้อยกว่าหรือเท่ากับเวลาเริ่มบริการ');
+    }
+  }
   if (!text(row.right_begin_date)) add('warning', 'SSS-INS02', 'ไม่มีวันที่เริ่มใช้สิทธิ์');
   if (!text(row.right_expire_date)) add('warning', 'SSS-INS03', 'ไม่มีวันหมดอายุสิทธิ์');
   return issues;
 };
+
+const validLicSql = (expr: string) =>
+  `CASE WHEN COALESCE(TRIM(${expr}), '') IN ('', '-', '-99999', '99999', '9999', '-9999', '00000', '0000') THEN NULL ELSE TRIM(${expr}) END`;
+
+const DOCTOR_LICENSE_SUBQUERY = `COALESCE(
+  ${validLicSql('doc.licenseno')},
+  ${validLicSql('dxdoc.licenseno')},
+  (SELECT ${validLicSql('odoc.licenseno')} FROM ovstdiag od JOIN doctor odoc ON odoc.code = od.doctor WHERE od.vn = o.vn AND ${validLicSql('odoc.licenseno')} IS NOT NULL ORDER BY od.diagtype ASC LIMIT 1),
+  (SELECT ${validLicSql('rdoc.licenseno')} FROM opitemrece oi JOIN doctor rdoc ON rdoc.code = oi.doctor WHERE oi.vn = o.vn AND ${validLicSql('rdoc.licenseno')} IS NOT NULL LIMIT 1),
+  ''
+) AS doctor_license`;
 
 const RX_DATETIME_SUBQUERY = `COALESCE(
   DATE_FORMAT((SELECT MAX(CONCAT(oi.rxdate, ' ', oi.rxtime)) FROM opitemrece oi JOIN drugitems di ON di.icode = oi.icode WHERE oi.vn = o.vn AND oi.rxdate IS NOT NULL AND oi.rxtime IS NOT NULL), '%Y-%m-%d %H:%i:%s'),
@@ -290,7 +322,7 @@ export const buildSssCandidateSql = (networkType: SssNetworkType) => `
     COALESCE(sp.nhso_code, '') AS clinic,
     COALESCE(v.pdx, '') AS pdx,
     COALESCE(ost.name, '') AS visit_outcome,
-    COALESCE(doc.licenseno, '') AS doctor_license,
+    ${DOCTOR_LICENSE_SUBQUERY},
     COALESCE(
       NULLIF(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.debt_id_list, ''), '"', ''), "'", '')), ',', 1), ''),
       NULLIF(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.rcpno_list, ''), '"', ''), "'", '')), ',', 1), '#', 1), ''),
@@ -316,6 +348,7 @@ export const buildSssCandidateSql = (networkType: SssNetworkType) => `
   LEFT JOIN spclty sp ON sp.spclty = o.spclty
   LEFT JOIN ovstost ost ON ost.ovstost = o.ovstost
   LEFT JOIN doctor doc ON doc.code = o.doctor
+  LEFT JOIN doctor dxdoc ON dxdoc.code = v.dx_doctor
   WHERE o.vstdate BETWEEN ? AND ?
     AND COALESCE(o.an, '') = ''
     AND (ptt.hipdata_code IN ('SSS','SSI','SS') OR ptt.pcode = 'A7' OR (ptt.name LIKE '%ประกันสังคม%' AND COALESCE(ptt.hipdata_code,'') <> 'A9'))
@@ -600,7 +633,7 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
       const invNo = invNoMap.get(vnStr) || vnStr;
       const charge = items.reduce((sum, item) => sum + number(item.sum_price), 0);
       const paid = items.filter((item) => ['01', '03'].includes(text(item.paidst))).reduce((sum, item) => sum + number(item.sum_price), 0);
-      const docLic = normalizeSssDoctorLicense(row.doctor_license);
+      const docLic = normalizeSssDoctorLicense(row.doctor_license, DEFAULT_SSS_DOCTOR_LICENSE);
       return pipeRow([options.hcode, row.vn, invNo, row.hn, row.cid,
         `${row.service_date} ${row.service_time}`, `${row.service_date} ${row.service_time}`, docLic,
         items.length, money(charge), money(charge - paid), money(paid), '0.00', 'HP', 'SS', '1', row.vn, '']);
@@ -617,7 +650,7 @@ export const buildSssExportZip = async (options: SssExportZipOptions) => {
     const services = selected.map((row) => {
       const vnStr = text(row.vn);
       const invNo = invNoMap.get(vnStr) || vnStr;
-      const docLic = normalizeSssDoctorLicense(row.doctor_license);
+      const docLic = normalizeSssDoctorLicense(row.doctor_license, DEFAULT_SSS_DOCTOR_LICENSE);
       const clinicCode = normalizeSssClinic(row.clinic);
       const endDt = normalizeSssEndDateTime(text(row.service_date), text(row.service_time), row.end_datetime, row.rx_datetime);
       return pipeRow([invNo, row.vn, 'EC', options.hcode, row.hn,
@@ -887,7 +920,7 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
                 COALESCE(v.hospmain, '') AS hospmain,
                 COALESCE(sp.nhso_code, '') AS clinic,
                 COALESCE(v.pdx, '') AS pdx,
-                COALESCE(doc.licenseno, '') AS doctor_license,
+                ${DOCTOR_LICENSE_SUBQUERY},
                 COALESCE(
                   NULLIF(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.debt_id_list, ''), '"', ''), "'", '')), ',', 1), ''),
                   NULLIF(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(REPLACE(REPLACE(COALESCE(v.rcpno_list, ''), '"', ''), "'", '')), ',', 1), '#', 1), ''),
@@ -900,6 +933,7 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
          LEFT JOIN vn_stat v ON v.vn = o.vn
          LEFT JOIN spclty sp ON sp.spclty = o.spclty
          LEFT JOIN doctor doc ON doc.code = o.doctor
+         LEFT JOIN doctor dxdoc ON dxdoc.code = v.dx_doctor
          WHERE o.vn IN (${ph})`,
         allVns,
       );
@@ -1080,7 +1114,7 @@ export const autoFixSssErrorCases = async (batchId?: number, updatedBy = 'AutoFi
   let manualRequiredCount = 0;
 
   for (const row of targets) {
-    const fixedDoc = normalizeSssDoctorLicense(row.doctor_license);
+    const fixedDoc = normalizeSssDoctorLicense(row.doctor_license, DEFAULT_SSS_DOCTOR_LICENSE);
     const fixedClinic = normalizeSssClinic(row.clinic);
     const fixedEnd = normalizeSssEndDateTime(row.service_date, row.service_time, row.end_datetime, row.rx_datetime);
     const fixedPdx = normalizeSssIcd10(row.pdx) || row.pdx;
@@ -1135,8 +1169,7 @@ export const autoFixSssCandidates = async (options: {
 
   for (const row of targets) {
     const currentDoc = text(row.doctor_license);
-    const normalizedDoc = currentDoc ? normalizeSssDoctorLicense(currentDoc) : '';
-    const fixedDoc = normalizedDoc && normalizedDoc !== '-' ? normalizedDoc : currentDoc;
+    const fixedDoc = normalizeSssDoctorLicense(currentDoc, DEFAULT_SSS_DOCTOR_LICENSE);
     const fixedClinic = normalizeSssClinic(row.clinic);
     const fixedEnd = normalizeSssEndDateTime(text(row.service_date), text(row.service_time), row.end_datetime, row.rx_datetime);
     const fixedPdx = normalizeSssIcd10(row.pdx) || text(row.pdx);
@@ -1164,7 +1197,7 @@ export const autoFixSssCandidates = async (options: {
       vn: row.vn,
       invoice_no: fixedInv,
       clinic: fixedClinic,
-      doctor_license: fixedDoc || undefined,
+      doctor_license: fixedDoc,
       hospmain: text(row.hospmain) || undefined,
       pdx: fixedPdx || undefined,
       end_datetime: fixedEnd.replace('T', ' '),

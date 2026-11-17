@@ -93,6 +93,12 @@ test('SSS Auto-Fix normalizers fix S15/R21, W05, W07, S18, and R51', () => {
   assert.equal(normalizeSssDoctorLicense('ว.12345'), 'ว12345');
   assert.equal(normalizeSssDoctorLicense('พว.59110'), 'พ59110');
   assert.equal(normalizeSssDoctorLicense('นพ. 45678'), 'ว45678');
+  assert.equal(normalizeSssDoctorLicense('พทว20328'), 'พทว20328');
+  assert.equal(normalizeSssDoctorLicense('-51485'), 'ว51485');
+  assert.equal(normalizeSssDoctorLicense('-99999'), '-');
+  assert.equal(normalizeSssDoctorLicense('9999'), '-');
+  assert.equal(normalizeSssDoctorLicense('-99999', 'ว51485'), 'ว51485');
+  assert.equal(normalizeSssDoctorLicense('', 'ว51485'), 'ว51485');
   assert.equal(normalizeSssDoctorLicense(''), '-');
 
   // W05 Clinic

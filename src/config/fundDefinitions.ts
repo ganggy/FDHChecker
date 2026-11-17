@@ -71,7 +71,12 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         description: 'วัสดุ/อุปกรณ์เบิกได้',
         claimChannel: 'FDH/e-Claim',
         recordingSystem: 'FDH/e-Claim',
-        conditions: ['มีอุปกรณ์กลุ่ม ADP Type 2', 'มียอดรายการอุปกรณ์ใน visit']
+        conditions: [
+            'มีอุปกรณ์กลุ่ม ADP Type 2 และมียอดรายการอุปกรณ์ใน visit',
+            'รหัส 4511 (4.5.11) แผ่นปิดหน้าอกกระตุ้นหัวใจ (2 แผ่น/ชุด): เบิกได้อัตรา UCS/LGO 2,850 บาท/ชุด, OFC/SSS 3,000 บาท/ชุด',
+            'ข้อบ่งชี้รหัส 4511: 1) กระตุกหัวใจชั่วคราวฉุกเฉิน (99.60-99.62/99.64/99.69) หรือ 2) ตรวจ EPS (37.26) หรือ 3) Monitor ระหว่างทำ PCI (00.66/36.0x) เฉพาะผู้ป่วยที่มี Cardiovascular Instability (R57/I46/I49.0) เท่านั้น',
+        ],
+        caution: 'รหัส 4511 หากใช้ monitor ระหว่างทำ PCI แต่ไม่มีภาวะ Cardiovascular Instability จะไม่เข้าเกณฑ์เบิกจ่าย',
     },
     {
         id: 'preg_test',

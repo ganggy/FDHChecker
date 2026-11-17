@@ -1245,7 +1245,12 @@ export const getSpecificFundData = async (
           SUM(oo.sum_price) as instrument_price,
           GROUP_CONCAT(DISTINCT d.name SEPARATOR ', ') as instrument_items,
           MAX(CASE WHEN d.nhso_adp_code REGEXP '^700[4-5]' THEN 'Y' ELSE 'N' END) as has_oa,
-          MAX(CASE WHEN d.nhso_adp_code REGEXP '^8612|^8813|^8814' THEN 'Y' ELSE 'N' END) as has_dm
+          MAX(CASE WHEN d.nhso_adp_code REGEXP '^8612|^8813|^8814' THEN 'Y' ELSE 'N' END) as has_dm,
+          MAX(CASE WHEN d.nhso_adp_code = '4511' THEN 'Y' ELSE 'N' END) as has_4511,
+          SUM(CASE WHEN d.nhso_adp_code = '4511' THEN COALESCE(oo.sum_price, 0) ELSE 0 END) as instrument_4511_price,
+          SUM(CASE WHEN d.nhso_adp_code = '4511' THEN COALESCE(oo.qty, 0) ELSE 0 END) as instrument_4511_qty,
+          (SELECT GROUP_CONCAT(DISTINCT dx.icd10 SEPARATOR ', ') FROM ovstdiag dx WHERE dx.vn = o.vn) as instrument_diags,
+          (SELECT GROUP_CONCAT(DISTINCT REPLACE(dro.icd9, '.', '') SEPARATOR ', ') FROM doctor_operation dro WHERE dro.vn = o.vn) as instrument_procs
         FROM ovst o
         JOIN patient pt ON o.hn = pt.hn
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype

@@ -3,6 +3,7 @@ import { pushLineMessages, type LineMessage } from './lineMessaging.js';
 import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { publishCollaborationBotMessages } from './collaboration.js';
 import { evaluateFamilyPlanningEvidence } from '../src/utils/familyPlanningRules.js';
+import { evaluateInstrument4511 } from './instrumentRules.js';
 
 type FundRow = Record<string, unknown>;
 
@@ -160,7 +161,14 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
       requireValue(missing, flag(row.has_knee_poultice), 'หัตถการ 873-78-35');
       requireValue(missing, Number(row.knee_poultice_14d_count ?? 0) <= 5, 'เกิน 5 ครั้งใน 2 สัปดาห์');
       break;
-    case 'instrument': requireValue(missing, Number(row.instrument_price ?? 0) > 0 || flag(row.has_instrument), 'อุปกรณ์/ยอดอวัยวะเทียม'); break;
+    case 'instrument': {
+      requireValue(missing, Number(row.instrument_price ?? 0) > 0 || flag(row.has_instrument), 'อุปกรณ์/ยอดอวัยวะเทียม');
+      const eval4511 = evaluateInstrument4511(row);
+      if (eval4511.has4511) {
+        missing.push(...eval4511.missing, ...eval4511.warnings);
+      }
+      break;
+    }
     case 'cacervix':
       addWebNearStatusMissing(
         missing,

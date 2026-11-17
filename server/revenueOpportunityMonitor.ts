@@ -1,3 +1,5 @@
+import { evaluateInstrument4511 } from './instrumentRules.js';
+
 export type RevenueMonitorStatus = 'data_error' | 'ready' | 'submitted' | 'paid';
 export type ReferBillingEligibility = 'claimable' | 'not_claimable' | 'review';
 export type ReferDataAction = 'no_fix_self' | 'no_fix_complete' | 'no_fix_not_claimable' | 'remove_transport_adp' | 'fix_ambulance' | 'fix_adp' | 'review';
@@ -224,6 +226,10 @@ const buildInstrumentItem = (row: SourceRow): RevenueMonitorItem => {
   const missing: string[] = [];
   if (!items) missing.push('ไม่พบชื่ออุปกรณ์/อวัยวะเทียม');
   if ((price ?? 0) <= 0) missing.push('ยอดอุปกรณ์เป็นศูนย์หรือไม่มีราคา');
+  const eval4511 = evaluateInstrument4511(row);
+  if (eval4511.has4511) {
+    missing.push(...eval4511.missing, ...eval4511.warnings);
+  }
   const tracking = trackingStatus(row, missing);
   return {
     id: `instrument:${text(row.vn)}`,
@@ -238,6 +244,7 @@ const buildInstrumentItem = (row: SourceRow): RevenueMonitorItem => {
       items ? `รายการ: ${items}` : '',
       flag(row.has_oa) ? 'กลุ่ม OA' : '',
       flag(row.has_dm) ? 'กลุ่ม DM' : '',
+      eval4511.has4511 ? `รหัส 4511 (เพดาน ${eval4511.fund}: ${eval4511.ceiling.toLocaleString()} บาท/ชุด)` : '',
       text(row.close_code) ? `ปิดสิทธิ: ${text(row.close_code)}` : '',
     ].filter(Boolean),
     missing,

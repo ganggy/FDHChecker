@@ -43,6 +43,7 @@ import {
   ANEMIA_HBHCT_REGEX,
   CHOL_DX_CODES,
   FPG_DX_CODES,
+  buildNoDmDiagnosisSql,
   GENDER_AFFIRMING_HORMONE_REGEX,
   HEP_B_SCREENING_REGEX,
   HEP_C_SCREENING_REGEX,
@@ -2351,11 +2352,13 @@ export const getCheckData = async (
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12003' LIMIT 1) THEN 1 ELSE 0 END as has_fpg_adp,
         CASE WHEN ${buildFpgLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_fpg_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', FPG_DX_CODES)} THEN 1 ELSE 0 END as has_fpg_diag,
+        CASE WHEN ${buildNoDmDiagnosisSql('ovst', 'v')} THEN 1 ELSE 0 END as no_fpg_dm_diag,
         CASE
           WHEN v.age_y BETWEEN 35 AND 59
             AND EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12003' LIMIT 1)
             AND ${buildFpgLabExistsSql('ovst')}
             AND ${buildDiagnosisMatchSql('ovst', 'v', FPG_DX_CODES)}
+            AND ${buildNoDmDiagnosisSql('ovst', 'v')}
             THEN 1
           ELSE 0
         END as has_fpg,
@@ -2786,11 +2789,13 @@ export const getEligibleVisits = async (
         CASE WHEN EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12003' LIMIT 1) THEN 1 ELSE 0 END as has_fpg_adp,
         CASE WHEN ${buildFpgLabExistsSql('ovst')} THEN 1 ELSE 0 END as has_fpg_lab,
         CASE WHEN ${buildDiagnosisMatchSql('ovst', 'v', FPG_DX_CODES)} THEN 1 ELSE 0 END as has_fpg_diag,
+        CASE WHEN ${buildNoDmDiagnosisSql('ovst', 'v')} THEN 1 ELSE 0 END as no_fpg_dm_diag,
         CASE
           WHEN v.age_y BETWEEN 35 AND 59
             AND EXISTS (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '12003' LIMIT 1)
             AND ${buildFpgLabExistsSql('ovst')}
             AND ${buildDiagnosisMatchSql('ovst', 'v', FPG_DX_CODES)}
+            AND ${buildNoDmDiagnosisSql('ovst', 'v')}
             THEN 1
           ELSE 0
         END as has_fpg,

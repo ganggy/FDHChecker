@@ -33,6 +33,7 @@ import {
   ANEMIA_HBHCT_REGEX,
   CHOL_DX_CODES,
   FPG_DX_CODES,
+  buildNoDmDiagnosisSql,
   GENDER_AFFIRMING_HORMONE_REGEX,
   HEP_B_SCREENING_REGEX,
   HEP_C_SCREENING_REGEX,
@@ -1655,6 +1656,7 @@ export const getSpecificFundData = async (
           v.pdx, v.dx0, v.dx1, v.dx2, v.dx3, v.dx4, v.dx5,
           CASE WHEN v.age_y BETWEEN 35 AND 59 THEN 'Y' ELSE 'N' END as age_eligible,
           CASE WHEN ${buildDiagnosisMatchSql('o', 'v', FPG_DX_CODES)} THEN 'Y' ELSE 'N' END as has_fpg_diag,
+          CASE WHEN ${buildNoDmDiagnosisSql('o', 'v')} THEN 'Y' ELSE 'N' END as no_dm_diag,
           CASE WHEN ${buildFpgLabExistsSql('o')} THEN 'Y' ELSE 'N' END as has_fpg_lab,
           CASE WHEN EXISTS (
             SELECT 1 FROM opitemrece oo 
@@ -1668,6 +1670,7 @@ export const getSpecificFundData = async (
         LEFT JOIN pttype ptt ON ptt.pttype = o.pttype
         LEFT JOIN vn_stat v ON v.vn = o.vn
         WHERE o.vstdate BETWEEN ? AND ?
+          AND ${buildNoDmDiagnosisSql('o', 'v')}
           AND (
             (
               v.age_y BETWEEN 35 AND 59

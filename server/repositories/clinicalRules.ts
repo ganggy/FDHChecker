@@ -88,6 +88,24 @@ export const buildAnemiaAgeEligibleSql = (visitAlias: string) => `
   )
 `;
 
+export const buildNoDmDiagnosisSql = (ovstAlias: string, vnStatAlias: string) => `
+  (
+    NOT EXISTS (
+      SELECT 1
+      FROM ovstdiag dx_dm
+      WHERE dx_dm.vn = ${ovstAlias}.vn
+        AND REPLACE(UPPER(COALESCE(dx_dm.icd10, '')), '.', '') REGEXP '^E1[0-4]'
+    )
+    AND REPLACE(UPPER(COALESCE(${vnStatAlias}.pdx, '')), '.', '') NOT REGEXP '^E1[0-4]'
+    AND REPLACE(UPPER(COALESCE(${vnStatAlias}.dx0, '')), '.', '') NOT REGEXP '^E1[0-4]'
+    AND REPLACE(UPPER(COALESCE(${vnStatAlias}.dx1, '')), '.', '') NOT REGEXP '^E1[0-4]'
+    AND REPLACE(UPPER(COALESCE(${vnStatAlias}.dx2, '')), '.', '') NOT REGEXP '^E1[0-4]'
+    AND REPLACE(UPPER(COALESCE(${vnStatAlias}.dx3, '')), '.', '') NOT REGEXP '^E1[0-4]'
+    AND REPLACE(UPPER(COALESCE(${vnStatAlias}.dx4, '')), '.', '') NOT REGEXP '^E1[0-4]'
+    AND REPLACE(UPPER(COALESCE(${vnStatAlias}.dx5, '')), '.', '') NOT REGEXP '^E1[0-4]'
+  )
+`;
+
 export const buildFpgLabExistsSql = (alias: string) => `
   (
     EXISTS (
@@ -96,7 +114,7 @@ export const buildFpgLabExistsSql = (alias: string) => `
       LEFT JOIN nondrugitems ndi ON ndi.icode = oo.icode
       LEFT JOIN s_drugitems sd ON sd.icode = oo.icode
       WHERE oo.vn = ${alias}.vn
-        AND UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP '(^|[^A-Z])(FPG|FBS)([^A-Z]|$)|FASTING PLASMA GLUCOSE|FASTING BLOOD SUGAR|GLUCOSE FASTING'
+        AND UPPER(COALESCE(ndi.name, sd.name, oo.icode)) REGEXP '(^|[^A-Z])(FPG|FBS|BS)([^A-Z]|$)|FASTING PLASMA GLUCOSE|FASTING BLOOD SUGAR|GLUCOSE FASTING|BLOOD SUGAR'
     )
     OR EXISTS (
       SELECT 1
@@ -106,7 +124,7 @@ export const buildFpgLabExistsSql = (alias: string) => `
       WHERE h.vn = ${alias}.vn
         AND lo.lab_order_result IS NOT NULL
         AND lo.lab_order_result <> ''
-        AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '(^|[^A-Z])(FPG|FBS)([^A-Z]|$)|FASTING PLASMA GLUCOSE|FASTING BLOOD SUGAR|GLUCOSE FASTING'
+        AND UPPER(COALESCE(li.lab_items_name, '')) REGEXP '(^|[^A-Z])(FPG|FBS|BS)([^A-Z]|$)|FASTING PLASMA GLUCOSE|FASTING BLOOD SUGAR|GLUCOSE FASTING|BLOOD SUGAR'
     )
   )
 `;

@@ -1129,16 +1129,18 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             const hasLab = toFlag(item?.has_fpg_lab);
             const hasDiag = toFlag(item?.has_fpg_diag) || hasDiagCodes(item, ['Z131', 'Z133', 'Z136']);
             const hasAdp = toFlag(item?.has_fpg_adp) || hasAnyCodeValue(item?.adp_names, ['12003']) || hasAnyCodeValue(item?.anc_adp_codes, ['12003']);
-            const isMatched = hasAge && hasLab && hasDiag && hasAdp;
-            const fpgServiceEvidence = hasAge && (hasLab || hasDiag || hasAdp);
+            const noDmDiag = item?.no_dm_diag !== undefined ? toFlag(item?.no_dm_diag) : ![item?.pdx, item?.dx0, item?.dx1, item?.dx2, item?.dx3, item?.dx4, item?.dx5].some((d) => /^E1[0-4]/i.test(String(d || '').replace(/\./g, '').trim()));
+            const isMatched = hasAge && hasLab && hasDiag && hasAdp && noDmDiag;
+            const fpgServiceEvidence = hasAge && noDmDiag && (hasLab || hasDiag || hasAdp);
             if (isMatched || fpgServiceEvidence) subfunds.push('🩸 คัดกรองเบาหวาน');
             return buildStatusResult(
                 subfunds,
                 getNearStatusMissing(hasAdp, ' ADP 12003', [
                     { met: hasAge, label: ' อายุ 35-59 ปี' },
-                    { met: hasLab, label: ' Lab FPG' },
+                    { met: hasLab, label: ' Lab FPG/FBS/BS' },
                     { met: hasDiag, label: ' Diagnosis Z131/Z133/Z136' },
-                ], hasAge && (hasLab || hasDiag)),
+                    { met: noDmDiag, label: ' ต้องไม่มี Dx. E100-E149' },
+                ], hasAge && noDmDiag && (hasLab || hasDiag)),
                 undefined,
                 isMatched
             );

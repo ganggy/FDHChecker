@@ -307,12 +307,16 @@ export const evaluateBillingLogic = (item: any) => {
         const hasFpgAdp = toBool(item?.has_fpg_adp) || hasAnyCodeValue(item?.adp_names, ['12003']) || hasAnyCodeValue(item?.anc_adp_codes, ['12003']);
         const hasFpgLab = toBool(item?.has_fpg_lab);
         const hasFpgDiag = toBool(item?.has_fpg_diag) || hasDiagCode(item, ['Z131', 'Z133', 'Z136']);
+        const noFpgDmDiag = item?.no_fpg_dm_diag !== undefined
+            ? toBool(item?.no_fpg_dm_diag)
+            : ![item?.pdx, item?.dx0, item?.dx1, item?.dx2, item?.dx3, item?.dx4, item?.dx5].some((d) => /^E1[0-4]/i.test(String(d || '').replace(/\./g, '').trim()));
         const fpgNearMissing = getNearFundMissingParts(hasFpgAdp, ' ADP 12003', [
             { met: hasFpgAge, label: ' อายุ 35-59 ปี' },
-            { met: hasFpgLab, label: ' Lab FPG' },
+            { met: hasFpgLab, label: ' Lab FPG/FBS/BS' },
             { met: hasFpgDiag, label: ' DX Z131/Z133/Z136' },
-        ], hasFpgAge && (hasFpgLab || hasFpgDiag));
-        if (hasFpgAge && hasFpgAdp && hasFpgLab && hasFpgDiag) {
+            { met: noFpgDmDiag, label: ' ต้องไม่มี Dx. E100-E149' },
+        ], hasFpgAge && noFpgDmDiag && (hasFpgLab || hasFpgDiag));
+        if (hasFpgAge && hasFpgAdp && hasFpgLab && hasFpgDiag && noFpgDmDiag) {
             fundNotes.push({ label: '🩸 คัดกรองเบาหวาน', kind: 'matched', group: 'other' });
         } else {
             addWarningFundNote(fundNotes, 'คัดกรองเบาหวาน', fpgNearMissing);

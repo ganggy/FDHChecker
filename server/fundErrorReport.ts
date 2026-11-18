@@ -252,11 +252,18 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
       addWebNearStatusMissing(missing, flag(row.has_specific_adp) || hasListedCode(row.fp_adp_codes, ['FP003_4']), 'ADP FP003_4', [{ met: hasCode(row, ['Z304']), label: 'Diagnosis Z304' }]);
       if (Number(row.fp_injection_year_count || 0) > 5) missing.push(`FP003_4 เกิน 5 ครั้ง/ปี (พบ ${Number(row.fp_injection_year_count)})`);
       break;
-    case 'fpg_screening':
+    case 'fpg_screening': {
+      const noDmDiag = row.no_dm_diag !== undefined
+        ? flag(row.no_dm_diag)
+        : !(['E10', 'E11', 'E12', 'E13', 'E14'].some((p) => hasPrefix(row, p)));
       addWebNearStatusMissing(missing, flag(row.has_fpg_adp), 'ADP 12003', [
-        { met: flag(row.age_eligible), label: 'อายุ 35-59 ปี' }, { met: flag(row.has_fpg_lab), label: 'Lab FPG' },
+        { met: flag(row.age_eligible), label: 'อายุ 35-59 ปี' },
+        { met: flag(row.has_fpg_lab), label: 'Lab FPG/FBS/BS' },
         { met: flag(row.has_fpg_diag) || hasCode(row, ['Z131','Z133','Z136']), label: 'Diagnosis Z131/Z133/Z136' },
-      ]); break;
+        { met: noDmDiag, label: 'ต้องไม่มี Dx. E100-E149' },
+      ]);
+      break;
+    }
     case 'cholesterol_screening':
       addWebNearStatusMissing(missing, flag(row.has_chol_adp), 'ADP 12004', [
         { met: flag(row.age_eligible), label: 'อายุ 45-70 ปี' }, { met: flag(row.has_chol_lab), label: 'Lab Total Cholesterol และ HDL' },

@@ -223,7 +223,12 @@ export const openSmtBrowserSession = async (): Promise<SmtBrowserSessionState> =
   const launchOpts = {
     headless: true,
     executablePath,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled',
+    ],
   };
   let browser: Browser;
   try {
@@ -237,10 +242,16 @@ export const openSmtBrowserSession = async (): Promise<SmtBrowserSessionState> =
       throw launchErr;
     }
   }
+  // Use standard desktop Chrome User-Agent so GDCC Security Center WAF on iam.nhso.go.th does not block HeadlessChrome
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
+    locale: 'th-TH',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     acceptDownloads: true,
     ignoreHTTPSErrors: true,
+  });
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
   const page = await context.newPage();
 

@@ -176,13 +176,33 @@ export const SmtBudgetReconcilePage: React.FC = () => {
   const openSmtAutoModal = async () => {
     setSmtModalOpen(true);
     setSmtBusy(true);
+    setSmtSession(null);
     try {
       const res = await fetch('/api/smt-budget/browser-open', { method: 'POST' });
       const json = await res.json();
-      if (json.success) setSmtSession(json.data);
-      else setError(json.error || 'เปิดหน้าต่าง SMT ไม่สำเร็จ');
+      if (json.success) {
+        setSmtSession(json.data);
+      } else {
+        const msg = String(json.error || 'เปิดหน้าต่าง SMT ไม่สำเร็จ').split('\n')[0];
+        setSmtSession({
+          phase: 'error',
+          currentUrl: '',
+          error: msg,
+          screenshotBase64: '',
+          logs: [{ time: new Date().toLocaleTimeString('th-TH', { hour12: false }), level: 'error', text: msg }],
+          progress: { totalBatches: 0, processedBatches: 0, downloadedFiles: 0, importedRows: 0, skippedFiles: 0 },
+        });
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'เปิดหน้าต่าง SMT ไม่สำเร็จ');
+      const msg = err instanceof Error ? err.message : 'เปิดหน้าต่าง SMT ไม่สำเร็จ';
+      setSmtSession({
+        phase: 'error',
+        currentUrl: '',
+        error: msg,
+        screenshotBase64: '',
+        logs: [{ time: new Date().toLocaleTimeString('th-TH', { hour12: false }), level: 'error', text: msg }],
+        progress: { totalBatches: 0, processedBatches: 0, downloadedFiles: 0, importedRows: 0, skippedFiles: 0 },
+      });
     } finally {
       setSmtBusy(false);
     }

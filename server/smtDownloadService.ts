@@ -164,17 +164,79 @@ export const closeSmtBrowserSession = async () => {
   return { ok: true };
 };
 
+const buildBrowserLaunchEnv = (): Record<string, string> => {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) env[k] = v;
+  }
+  const userLibsBase = path.join(os.homedir(), '.cache', 'ms-playwright', 'user-libs');
+  if (process.platform === 'linux' && fs.existsSync(userLibsBase)) {
+    const userLibFlatDir = path.join(userLibsBase, 'lib');
+    const userLibRootDir = path.join(userLibsBase, 'root');
+    const extraDirs = [
+      userLibFlatDir,
+      path.join(userLibRootDir, 'usr', 'lib', 'x86_64-linux-gnu'),
+      path.join(userLibRootDir, 'lib', 'x86_64-linux-gnu'),
+      path.join(userLibRootDir, 'usr', 'lib64'),
+      path.join(userLibRootDir, 'lib64'),
+      path.join(userLibRootDir, 'usr', 'lib'),
+      path.join(userLibRootDir, 'lib'),
+    ].filter((d) => fs.existsSync(d));
+    if (extraDirs.length > 0) {
+      const existingLd = String(env.LD_LIBRARY_PATH || '').trim();
+      env.LD_LIBRARY_PATH = [...extraDirs, ...(existingLd ? [existingLd] : [])].join(':');
+    }
+  }
+  return env;
+};
+
+const installMissingLinuxSharedLibs = async () => {
+  if (process.platform !== 'linux') return;
+  const { execFile } = await import('child_process');
+  const script = `
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+    BASE_DIR="$HOME/.cache/ms-playwright/user-libs"
+    DEB_DIR="$BASE_DIR/debs"
+    ROOT_DIR="$BASE_DIR/root"
+    LIB_DIR="$BASE_DIR/lib"
+    mkdir -p "$DEB_DIR" "$ROOT_DIR" "$LIB_DIR"
+    sudo -n npx playwright install-deps chromium >/dev/null 2>&1 || true
+    cd "$DEB_DIR" || exit 0
+    if command -v apt-get >/dev/null 2>&1 && command -v dpkg-deb >/dev/null 2>&1; then
+      CORE_PKGS="libgbm1 libnss3 libnspr4 libatk1.0-0 libatk1.0-0t64 libatk-bridge2.0-0 libatk-bridge2.0-0t64 libcups2 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libasound2 libasound2t64 libatspi2.0-0 libatspi2.0-0t64 libxshmfence1 libx11-xcb1 libxcb-dri3-0 libxcb-randr0 libwayland-server0 libwayland-client0 libpciaccess0 libx11-6 libxext6 libxi6 libxtst6 libxcb1 libexpat1 libpixman-1-0 libxcb-shm0 libxcb-render0 libxrender1"
+      for p in $CORE_PKGS; do apt-get download "$p" >/dev/null 2>&1 || true; done
+      for deb in "$DEB_DIR"/*.deb; do [ -f "$deb" ] && dpkg-deb -x "$deb" "$ROOT_DIR" 2>/dev/null || true; done
+      find "$ROOT_DIR" \\( -type f -o -type l \\) -name "*.so*" -exec cp -Pf {} "$LIB_DIR/" \\; 2>/dev/null || true
+    fi
+  `;
+  await new Promise<void>((resolve) => {
+    execFile('bash', ['-c', script], { timeout: 180_000 }, () => resolve());
+  });
+};
+
 export const openSmtBrowserSession = async (): Promise<SmtBrowserSessionState> => {
   if (activeSession) {
     await closeSmtBrowserSession();
   }
   const { chromium } = await import('playwright');
   const executablePath = resolveChromiumExecutable();
-  const browser = await chromium.launch({
+  const launchOpts = {
     headless: true,
     executablePath,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  });
+  };
+  let browser: Browser;
+  try {
+    browser = await chromium.launch({ ...launchOpts, env: buildBrowserLaunchEnv() });
+  } catch (launchErr) {
+    const msg = String((launchErr as Error)?.message || launchErr);
+    if (process.platform === 'linux' && /shared libraries|cannot open shared object/i.test(msg)) {
+      await installMissingLinuxSharedLibs();
+      browser = await chromium.launch({ ...launchOpts, env: buildBrowserLaunchEnv() });
+    } else {
+      throw launchErr;
+    }
+  }
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     acceptDownloads: true,

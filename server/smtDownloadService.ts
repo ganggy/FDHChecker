@@ -304,6 +304,9 @@ const importDownloadedBuffer = async (
   filename: string,
   importedBy: string,
 ): Promise<{ importedRows: number; skipped: boolean }> => {
+  if (/\.pdf$/i.test(filename)) {
+    return { importedRows: 0, skipped: true };
+  }
   const fileHash = crypto.createHash('sha256').update(buffer).digest('hex');
   if (/\.zip$/i.test(filename)) {
     const analysis = analyzeRepstmArchive(buffer, filename);
@@ -415,109 +418,141 @@ export const runSmtAutoDownload = async (budgetYear: string, importedBy = 'SMT-A
       pushLog(session, 'info', `เปิดงวด Batch ${b.batchNo} (${b.runDate})...`);
 
       await session.page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await session.page.waitForSelector('table tbody tr', { timeout: 12000 }).catch(() => undefined);
+      await session.page.waitForFunction(
+        (batch) => {
+          const text = document.body?.innerText || '';
+          return text.includes('รายงานแสดงรายละเอียดการเบิกจ่ายเงินแยกรายการ') && text.includes(batch);
+        },
+        b.batchNo,
+        { timeout: 15000 },
+      ).catch(() => undefined);
+      await session.page.waitForSelector('table tbody tr', { timeout: 10000 }).catch(() => undefined);
       await session.page.waitForTimeout(1000);
       await refreshScreenshotAndPhase(session);
+
+      // Find the exact column index for "รายบุคคล" (Download เอกสาร -> รายบุคคล)
+      const individualColIdx = await session.page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('table thead tr'));
+        for (const tr of rows) {
+          const cells = Array.from(tr.querySelectorAll('th, td'));
+          const idx = cells.findIndex((c) => /รายบุคคล/i.test(c.textContent || ''));
+          if (idx >= 0) {
+            // Account for rowspan on earlier columns in multi-row headers: measure from the right!
+            return { fromRight: cells.length - idx };
+          }
+        }
+        // Fallback: in summary-detail, รายบุคคล is 3rd from right (รายบุคคล | เอกสารเพิ่มเติม | หมายเหตุ/ผู้ติดต่อ)
+        return { fromRight: 3 };
+      });
 
       const rowCount = await session.page.locator('table tbody tr').count();
       for (let i = 0; i < rowCount; i += 1) {
         if (session.stopRequested) break;
         const rowLoc = session.page.locator('table tbody tr').nth(i);
         const rowText = (await rowLoc.innerText().catch(() => '')).trim();
-        if (!rowText) continue;
+        if (!rowText || /^รวม\b/.test(rowText)) continue;
 
-        // Check for DMIS external link (opens summary-detail-dmis) OR direct STM download icon in Download column
-        const downloadBtns = rowLoc.locator('td a, td button');
+        const cellCount = await rowLoc.locator('td').count();
+        const targetCellIdx = Math.max(0, cellCount - individualColIdx.fromRight);
+        const targetCell = rowLoc.locator('td').nth(targetCellIdx);
+        const downloadBtns = targetCell.locator('a, button, img, i, svg');
         const btnCount = await downloadBtns.count();
-        for (let j = 0; j < btnCount; j += 1) {
-          const btn = downloadBtns.nth(j);
-          const btnText = (await btn.innerText().catch(() => '')).trim();
-          const hasStmIcon = /stm/i.test(btnText) || (await btn.locator('img, i, svg').count()) > 0;
-          if (!hasStmIcon) continue;
+        if (btnCount === 0) continue;
 
-          // Skip last column ("หมายเหตุ/ผู้ติดต่อ") which is usually the rightmost button
-          if (j === btnCount - 1 && btnCount >= 2) continue;
+        // Click the main clickable element in the "รายบุคคล" cell
+        const clickable = targetCell.locator('a, button').first();
+        const btn = (await clickable.count()) > 0 ? clickable : downloadBtns.first();
+        if (!(await btn.isVisible().catch(() => false))) continue;
 
-          try {
-            const downloadPromise = session.page.waitForEvent('download', { timeout: 6000 }).catch(() => null);
-            const popupPromise = session.context.waitForEvent('page', { timeout: 6000 }).catch(() => null);
-            await btn.click({ timeout: 3000 });
+        try {
+          const downloadPromise = session.page.waitForEvent('download', { timeout: 6000 }).catch(() => null);
+          const popupPromise = session.context.waitForEvent('page', { timeout: 6000 }).catch(() => null);
+          await btn.click({ timeout: 3000 });
 
-            const [dl, popup] = await Promise.all([downloadPromise, popupPromise]);
-            if (dl) {
-              const fname = dl.suggestedFilename() || `SMT_${b.batchNo}_${i + 1}.xlsx`;
-              const savePath = path.join(tmpDir, fname);
-              await dl.saveAs(savePath);
-              const buf = fs.readFileSync(savePath);
-              fs.unlinkSync(savePath);
-              const res = await importDownloadedBuffer(buf, fname, importedBy);
-              session.progress.downloadedFiles += 1;
-              if (res.skipped) {
-                session.progress.skippedFiles += 1;
-                pushLog(session, 'warn', `ข้ามไฟล์ซ้ำ: ${fname}`);
-              } else {
-                session.progress.importedRows += res.importedRows;
-                pushLog(session, 'success', `นำเข้า ${fname} สำเร็จ (+${res.importedRows} รายการ)`);
-              }
-            } else if (popup) {
-              await popup.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => undefined);
-              await popup.waitForTimeout(1500);
-              const exportBtn = popup.locator('button:has-text("Export Excel"), a:has-text("Export Excel")').first();
-              if (await exportBtn.count().catch(() => 0)) {
-                const dmisDl = await Promise.all([
-                  popup.waitForEvent('download', { timeout: 25000 }).catch(() => null),
-                  exportBtn.click({ timeout: 5000 }),
-                ]).then(([d]) => d);
-                if (dmisDl) {
-                  const fname = dmisDl.suggestedFilename() || `DMIS_${b.batchNo}_${i + 1}.xlsx`;
-                  const savePath = path.join(tmpDir, fname);
-                  await dmisDl.saveAs(savePath);
-                  const buf = fs.readFileSync(savePath);
-                  fs.unlinkSync(savePath);
-                  const res = await importDownloadedBuffer(buf, fname, importedBy);
-                  session.progress.downloadedFiles += 1;
-                  if (res.skipped) {
-                    session.progress.skippedFiles += 1;
-                    pushLog(session, 'warn', `ข้ามไฟล์ซ้ำ: ${fname}`);
-                  } else {
-                    session.progress.importedRows += res.importedRows;
-                    pushLog(session, 'success', `นำเข้า DMIS ${fname} สำเร็จ (+${res.importedRows} รายการ)`);
-                  }
-                }
-              }
-              await popup.close().catch(() => undefined);
-            } else if (session.page.url().includes('summary-detail-dmis')) {
-              // Navigated in the same tab
-              await session.page.waitForTimeout(1500);
-              const exportBtn = session.page.locator('button:has-text("Export Excel"), a:has-text("Export Excel")').first();
-              if (await exportBtn.count().catch(() => 0)) {
-                const dmisDl = await Promise.all([
-                  session.page.waitForEvent('download', { timeout: 25000 }).catch(() => null),
-                  exportBtn.click({ timeout: 5000 }),
-                ]).then(([d]) => d);
-                if (dmisDl) {
-                  const fname = dmisDl.suggestedFilename() || `DMIS_${b.batchNo}_${i + 1}.xlsx`;
-                  const savePath = path.join(tmpDir, fname);
-                  await dmisDl.saveAs(savePath);
-                  const buf = fs.readFileSync(savePath);
-                  fs.unlinkSync(savePath);
-                  const res = await importDownloadedBuffer(buf, fname, importedBy);
-                  session.progress.downloadedFiles += 1;
-                  if (res.skipped) {
-                    session.progress.skippedFiles += 1;
-                    pushLog(session, 'warn', `ข้ามไฟล์ซ้ำ: ${fname}`);
-                  } else {
-                    session.progress.importedRows += res.importedRows;
-                    pushLog(session, 'success', `นำเข้า DMIS ${fname} สำเร็จ (+${res.importedRows} รายการ)`);
-                  }
-                }
-              }
-              await session.page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-              await session.page.waitForSelector('table tbody tr', { timeout: 10000 }).catch(() => undefined);
+          const [dl, popup] = await Promise.all([downloadPromise, popupPromise]);
+          if (dl) {
+            const fname = dl.suggestedFilename() || `SMT_${b.batchNo}_${i + 1}.xlsx`;
+            if (/\.pdf$/i.test(fname)) {
+              pushLog(session, 'warn', `ข้ามไฟล์ PDF (ไม่ใช่ไฟล์รายบุคคล): ${fname}`);
+              continue;
             }
-          } catch (itemErr) {
-            pushLog(session, 'warn', `แถวที่ ${i + 1} Batch ${b.batchNo}: ${(itemErr as Error).message}`);
+            const savePath = path.join(tmpDir, fname);
+            await dl.saveAs(savePath);
+            const buf = fs.readFileSync(savePath);
+            fs.unlinkSync(savePath);
+            const res = await importDownloadedBuffer(buf, fname, importedBy);
+            session.progress.downloadedFiles += 1;
+            if (res.skipped) {
+              session.progress.skippedFiles += 1;
+              pushLog(session, 'warn', `ข้ามไฟล์ซ้ำ: ${fname}`);
+            } else {
+              session.progress.importedRows += res.importedRows;
+              pushLog(session, 'success', `นำเข้า ${fname} สำเร็จ (+${res.importedRows} รายการ)`);
+            }
+          } else if (popup) {
+            await popup.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => undefined);
+            await popup.waitForTimeout(1500);
+            const exportBtn = popup.locator('button:has-text("Export Excel"), a:has-text("Export Excel")').first();
+            if (await exportBtn.count().catch(() => 0)) {
+              const dmisDl = await Promise.all([
+                popup.waitForEvent('download', { timeout: 25000 }).catch(() => null),
+                exportBtn.click({ timeout: 5000 }),
+              ]).then(([d]) => d);
+              if (dmisDl) {
+                const fname = dmisDl.suggestedFilename() || `DMIS_${b.batchNo}_${i + 1}.xlsx`;
+                const savePath = path.join(tmpDir, fname);
+                await dmisDl.saveAs(savePath);
+                const buf = fs.readFileSync(savePath);
+                fs.unlinkSync(savePath);
+                const res = await importDownloadedBuffer(buf, fname, importedBy);
+                session.progress.downloadedFiles += 1;
+                if (res.skipped) {
+                  session.progress.skippedFiles += 1;
+                  pushLog(session, 'warn', `ข้ามไฟล์ซ้ำ: ${fname}`);
+                } else {
+                  session.progress.importedRows += res.importedRows;
+                  pushLog(session, 'success', `นำเข้า DMIS ${fname} สำเร็จ (+${res.importedRows} รายการ)`);
+                }
+              }
+            }
+            await popup.close().catch(() => undefined);
+          } else if (session.page.url().includes('summary-detail-dmis')) {
+            await session.page.waitForTimeout(1500);
+            const exportBtn = session.page.locator('button:has-text("Export Excel"), a:has-text("Export Excel")').first();
+            if (await exportBtn.count().catch(() => 0)) {
+              const dmisDl = await Promise.all([
+                session.page.waitForEvent('download', { timeout: 25000 }).catch(() => null),
+                exportBtn.click({ timeout: 5000 }),
+              ]).then(([d]) => d);
+              if (dmisDl) {
+                const fname = dmisDl.suggestedFilename() || `DMIS_${b.batchNo}_${i + 1}.xlsx`;
+                const savePath = path.join(tmpDir, fname);
+                await dmisDl.saveAs(savePath);
+                const buf = fs.readFileSync(savePath);
+                fs.unlinkSync(savePath);
+                const res = await importDownloadedBuffer(buf, fname, importedBy);
+                session.progress.downloadedFiles += 1;
+                if (res.skipped) {
+                  session.progress.skippedFiles += 1;
+                  pushLog(session, 'warn', `ข้ามไฟล์ซ้ำ: ${fname}`);
+                } else {
+                  session.progress.importedRows += res.importedRows;
+                  pushLog(session, 'success', `นำเข้า DMIS ${fname} สำเร็จ (+${res.importedRows} รายการ)`);
+                }
+              }
+            }
+            await session.page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await session.page.waitForFunction(
+              (batch) => {
+                const text = document.body?.innerText || '';
+                return text.includes('รายงานแสดงรายละเอียดการเบิกจ่ายเงินแยกรายการ') && text.includes(batch);
+              },
+              b.batchNo,
+              { timeout: 15000 },
+            ).catch(() => undefined);
           }
+        } catch (itemErr) {
+          pushLog(session, 'warn', `แถวที่ ${i + 1} Batch ${b.batchNo}: ${(itemErr as Error).message}`);
         }
       }
 

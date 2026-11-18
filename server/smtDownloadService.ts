@@ -430,18 +430,16 @@ export const runSmtAutoDownload = async (budgetYear: string, importedBy = 'SMT-A
       await session.page.waitForTimeout(1000);
       await refreshScreenshotAndPhase(session);
 
-      // Find the exact column index for "รายบุคคล" (Download เอกสาร -> รายบุคคล)
+      // Find the exact column offset from the right using the top header row ("Download เอกสาร" -> 3rd from right)
       const individualColIdx = await session.page.evaluate(() => {
-        const rows = Array.from(document.querySelectorAll('table thead tr'));
-        for (const tr of rows) {
-          const cells = Array.from(tr.querySelectorAll('th, td'));
-          const idx = cells.findIndex((c) => /รายบุคคล/i.test(c.textContent || ''));
+        const firstRow = document.querySelector('table thead tr');
+        if (firstRow) {
+          const cells = Array.from(firstRow.querySelectorAll('th, td'));
+          const idx = cells.findIndex((c) => /Download\s*เอกสาร/i.test(c.textContent || ''));
           if (idx >= 0) {
-            // Account for rowspan on earlier columns in multi-row headers: measure from the right!
             return { fromRight: cells.length - idx };
           }
         }
-        // Fallback: in summary-detail, รายบุคคล is 3rd from right (รายบุคคล | เอกสารเพิ่มเติม | หมายเหตุ/ผู้ติดต่อ)
         return { fromRight: 3 };
       });
 

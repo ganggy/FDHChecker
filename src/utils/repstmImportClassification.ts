@@ -9,6 +9,9 @@ export const includeAuditSupplement = (sheetName: string, type: RepstmImportType
 export const isKidneyStmFileName = (fileName: string) =>
   /^(?:dckd\d*|lgo-hd\d*)[_-]/i.test(fileName.trim().split(' [')[0]);
 
+export const isSmtDmisStmFileName = (fileName: string) =>
+  /^(?:dckd|dmtb|ddsa|dnap|lgo-hd)\d*[_-]/i.test(fileName.trim().split(' [')[0]);
+
 const normalizeHeader = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const SHEET_TYPE_MAP: Record<string, RepstmImportType> = {
@@ -30,7 +33,7 @@ export const detectTypeFromFileName = (fileName: string): RepstmImportType | nul
   const name = fileName.trim().toLowerCase().split(' [')[0];
   // NHSO dialysis payment details are STM even when their Individual sheet
   // carries REP-like visit identifiers.
-  if (isKidneyStmFileName(name)) return 'STM';
+  if (isKidneyStmFileName(name) || isSmtDmisStmFileName(name)) return 'STM';
   // NHSO/BMS names the visit-level response eclaim_*. It is REP even when the
   // workbook also contains an empty Invoice column.
   if (/^(?:rep[_-])?eclaim[_-]/.test(name)) return 'REP';

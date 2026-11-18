@@ -24,7 +24,7 @@ import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from '../recei
 import { resolveStatementVisitKeys } from '../repstmVisitKeys.js';
 import { mergeFdhClaimDetails } from '../fdhClaimDetailMerge.js';
 import { activeHospitalDatabaseConfig, rethrowHospitalDatabaseError, type HospitalConnection } from '../hospitalDatabase.js';
-import { isKidneyStmFileName } from '../../src/utils/repstmImportClassification.js';
+import { isKidneyStmFileName, isSmtDmisStmFileName } from '../../src/utils/repstmImportClassification.js';
 import { pickImportColumn } from '../utils/importColumnLookup.js';
 import { resolveHospitalEncounter } from '../stmEncounterIdentity.js';
 
@@ -930,7 +930,7 @@ export const importStatementDataRows = async (
   await repConnection.query(REPSTM_STATEMENT_DATA_TABLE_SQL);
 
   const visitCodeCache = new Map<string, string>();
-  const kidneyReport = payload.dataType === 'STM' && isKidneyStmFileName(payload.sourceFilename);
+  const kidneyReport = payload.dataType === 'STM' && (isKidneyStmFileName(payload.sourceFilename) || isSmtDmisStmFileName(payload.sourceFilename));
 
   for (let index = 0; index < payload.rows.length; index += 1) {
     const row = payload.rows[index];

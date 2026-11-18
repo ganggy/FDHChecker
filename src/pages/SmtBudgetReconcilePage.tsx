@@ -109,6 +109,16 @@ export const SmtBudgetReconcilePage: React.FC = () => {
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(100);
   const [expandedBatches, setExpandedBatches] = useState<Set<string>>(new Set());
+  const [smtModalOpen, setSmtModalOpen] = useState(false);
+  const [smtBusy, setSmtBusy] = useState(false);
+  const [smtSession, setSmtSession] = useState<{
+    phase: string;
+    currentUrl: string;
+    error: string;
+    screenshotBase64: string;
+    logs: Array<{ time: string; level: string; text: string }>;
+    progress: { totalBatches: number; processedBatches: number; downloadedFiles: number; importedRows: number; skippedFiles: number };
+  } | null>(null);
 
   const availableYears = useMemo(() => {
     const base = Number(currentThaiYear);
@@ -135,6 +145,87 @@ export const SmtBudgetReconcilePage: React.FC = () => {
   useEffect(() => {
     loadSummary(selectedYear);
   }, [selectedYear]);
+
+  useEffect(() => {
+    if (!smtModalOpen) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/smt-budget/browser-status');
+        const json = await res.json();
+        if (!cancelled && json.success) {
+          setSmtSession((prev) => {
+            if (prev?.phase === 'downloading' && json.data?.phase === 'done') {
+              void loadSummary(selectedYear);
+            }
+            return json.data;
+          });
+        }
+      } catch {
+        // ignore transient polling error
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 1800);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [smtModalOpen, selectedYear]);
+
+  const openSmtAutoModal = async () => {
+    setSmtModalOpen(true);
+    setSmtBusy(true);
+    try {
+      const res = await fetch('/api/smt-budget/browser-open', { method: 'POST' });
+      const json = await res.json();
+      if (json.success) setSmtSession(json.data);
+      else setError(json.error || 'เปิดหน้าต่าง SMT ไม่สำเร็จ');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'เปิดหน้าต่าง SMT ไม่สำเร็จ');
+    } finally {
+      setSmtBusy(false);
+    }
+  };
+
+  const handleStartSmtDownload = async () => {
+    setSmtBusy(true);
+    try {
+      const res = await fetch('/api/smt-budget/auto-download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ budgetYear: selectedYear }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) setError(json.error || 'เริ่มดาวน์โหลดไม่สำเร็จ');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'เริ่มดาวน์โหลดไม่สำเร็จ');
+    } finally {
+      setSmtBusy(false);
+    }
+  };
+
+  const handleSmtPreviewClick = async (e: React.MouseEvent<HTMLImageElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 1280;
+    const y = ((e.clientY - rect.top) / rect.height) * 800;
+    try {
+      const res = await fetch('/api/smt-budget/browser-click', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x, y }),
+      });
+      const json = await res.json();
+      if (json.success) setSmtSession(json.data);
+    } catch {
+      // ignore
+    }
+  };
+
+  const closeSmtAutoModal = async () => {
+    setSmtModalOpen(false);
+    await fetch('/api/smt-budget/browser-close', { method: 'POST' }).catch(() => undefined);
+  };
 
   const handleSync = async () => {
     setSyncing(true);
@@ -367,6 +458,16 @@ export const SmtBudgetReconcilePage: React.FC = () => {
             className={`smt-btn-sync ${syncing ? 'loading' : ''}`}
           >
             {syncing ? '🔄 กำลังดึงข้อมูลจาก SMT...' : '⚡ ดึงข้อมูล Auto จาก SMT สปสช.'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void openSmtAutoModal()}
+            className="smt-btn-export"
+            style={{ background: '#eff6ff', borderColor: '#93c5fd', color: '#1d4ed8', fontWeight: 600 }}
+            title="เชื่อมต่อ ThaID เพื่อดาวน์โหลดไฟล์ STM / DMIS รายตัวอัตโนมัติ"
+          >
+            🤖 Auto Download รายตัว (ThaID)
           </button>
 
           {data && data.transfers.length > 0 && (
@@ -912,6 +1013,68 @@ export const SmtBudgetReconcilePage: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {smtModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 960, maxHeight: '92vh', overflowY: 'auto', padding: 20, boxShadow: '0 20px 50px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ margin: 0 }}>🤖 Auto Download รายตัวจาก SMT สปสช. (ThaID) — ปีงบ {selectedYear}</h3>
+              <button type="button" className="smt-btn-export" onClick={() => void closeSmtAutoModal()}>✕ ปิด</button>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+              <span className="status-tag imported">
+                สถานะ: {smtSession?.phase === 'ready' ? '✅ ยืนยัน ThaID สำเร็จ พร้อมดาวน์โหลด' : smtSession?.phase === 'downloading' ? '⏳ กำลังดาวน์โหลดและนำเข้า...' : smtSession?.phase === 'done' ? '🎉 เสร็จสิ้น' : '🔐 รอยืนยันตัวตน ThaID'}
+              </span>
+              {smtSession?.progress && smtSession.progress.totalBatches > 0 && (
+                <span className="status-tag missing">
+                  งวด: {smtSession.progress.processedBatches}/{smtSession.progress.totalBatches} | ไฟล์: {smtSession.progress.downloadedFiles} | นำเข้า: {smtSession.progress.importedRows.toLocaleString()} รายการ
+                </span>
+              )}
+              <button
+                type="button"
+                className="smt-btn-sync"
+                disabled={smtBusy || (smtSession?.phase !== 'ready' && smtSession?.phase !== 'done')}
+                onClick={() => void handleStartSmtDownload()}
+              >
+                {smtSession?.phase === 'downloading' ? '⏳ กำลังดาวน์โหลด...' : `🚀 เริ่มดาวน์โหลด & นำเข้างวดที่รอ STM (${data?.unimported_count || 0})`}
+              </button>
+            </div>
+
+            {smtSession?.error && (
+              <div className="smt-alert-box error" style={{ marginBottom: 10 }}>⚠️ {smtSession.error}</div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 12 }}>
+              <div style={{ border: '1px solid #cbd5e1', borderRadius: 8, overflow: 'hidden', background: '#0f172a', minHeight: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {smtSession?.screenshotBase64 ? (
+                  <img
+                    src={`data:image/png;base64,${smtSession.screenshotBase64}`}
+                    alt="SMT Browser Preview"
+                    onClick={handleSmtPreviewClick}
+                    style={{ width: '100%', height: 'auto', cursor: 'pointer', display: 'block' }}
+                    title="คลิกบนหน้าจอเพื่อกดปุ่มในหน้าเว็บ SMT"
+                  />
+                ) : (
+                  <span style={{ color: '#94a3b8' }}>กำลังเปิดหน้าต่าง SMT...</span>
+                )}
+              </div>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, background: '#f8fafc', maxHeight: 420, overflowY: 'auto', fontSize: 12 }}>
+                <strong style={{ display: 'block', marginBottom: 6 }}>บันทึกการทำงาน:</strong>
+                {(!smtSession?.logs || smtSession.logs.length === 0) ? (
+                  <div style={{ color: '#64748b' }}>สแกน QR Code ThaID หรือกดปุ่มเข้าสู่ระบบบนภาพด้านซ้าย</div>
+                ) : (
+                  smtSession.logs.map((l, idx) => (
+                    <div key={idx} style={{ marginBottom: 4, color: l.level === 'error' ? '#b91c1c' : l.level === 'success' ? '#15803d' : l.level === 'warn' ? '#b45309' : '#334155' }}>
+                      <span style={{ color: '#94a3b8' }}>[{l.time}]</span> {l.text}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

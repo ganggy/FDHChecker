@@ -293,10 +293,28 @@ export const clickSmtBrowserAt = async (x: number, y: number): Promise<SmtBrowse
   return getSmtBrowserStatus();
 };
 
-const toThaiYyyymmdd = (isoDate: string): string => {
-  const m = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return '';
-  return `${Number(m[1]) + 543}${m[2]}${m[3]}`;
+const toThaiYyyymmdd = (dateVal: unknown): string => {
+  if (!dateVal) return '';
+  if (dateVal instanceof Date && Number.isFinite(dateVal.getTime())) {
+    const y = dateVal.getFullYear();
+    const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+    const d = String(dateVal.getDate()).padStart(2, '0');
+    return `${y < 2400 ? y + 543 : y}${m}${d}`;
+  }
+  const s = String(dateVal).trim();
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const y = Number(iso[1]);
+    return `${y < 2400 ? y + 543 : y}${iso[2]}${iso[3]}`;
+  }
+  const parsed = new Date(s);
+  if (Number.isFinite(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y < 2400 ? y + 543 : y}${m}${d}`;
+  }
+  return '';
 };
 
 const importDownloadedBuffer = async (
@@ -375,14 +393,14 @@ export const runSmtAutoDownload = async (budgetYear: string, importedBy = 'SMT-A
   const batchMap = new Map<string, { batchNo: string; runDate: string; thaiDate: string; budgetSource: string; refs: Set<string> }>();
   for (const t of unimported) {
     const batchNo = String(t.batch_no || '').trim();
-    const runDate = String(t.run_date || '').slice(0, 10);
-    if (!batchNo || !runDate) continue;
-    const key = `${runDate}|${batchNo}`;
+    const thaiDate = toThaiYyyymmdd(t.run_date);
+    if (!batchNo || !thaiDate) continue;
+    const key = `${thaiDate}|${batchNo}`;
     if (!batchMap.has(key)) {
       batchMap.set(key, {
         batchNo,
-        runDate,
-        thaiDate: toThaiYyyymmdd(runDate),
+        runDate: thaiDate,
+        thaiDate,
         budgetSource: String((t as unknown as { budget_source?: string }).budget_source || 'UC').trim() || 'UC',
         refs: new Set(),
       });
@@ -418,14 +436,19 @@ export const runSmtAutoDownload = async (budgetYear: string, importedBy = 'SMT-A
       pushLog(session, 'info', `เปิดงวด Batch ${b.batchNo} (${b.runDate})...`);
 
       await session.page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await session.page.waitForFunction(
+      const loadedDetail = await session.page.waitForFunction(
         (batch) => {
           const text = document.body?.innerText || '';
           return text.includes('รายงานแสดงรายละเอียดการเบิกจ่ายเงินแยกรายการ') && text.includes(batch);
         },
         b.batchNo,
         { timeout: 15000 },
-      ).catch(() => undefined);
+      ).then(() => true).catch(() => false);
+      if (!loadedDetail) {
+        pushLog(session, 'warn', `ไม่สามารถเปิดหน้ารายละเอียดของ Batch ${b.batchNo} (${b.thaiDate}) ได้ ข้ามงวดนี้`);
+        session.progress.processedBatches += 1;
+        continue;
+      }
       await session.page.waitForSelector('table tbody tr', { timeout: 10000 }).catch(() => undefined);
       await session.page.waitForTimeout(1000);
       await refreshScreenshotAndPhase(session);

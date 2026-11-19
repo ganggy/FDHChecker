@@ -4,6 +4,7 @@ import iconv from 'iconv-lite';
 import * as XLSX from 'xlsx';
 import type mysql from 'mysql2/promise';
 import { getRepstmConnection, getUTFConnection } from './db.js';
+import { getAppSetting, setAppSetting } from './repositories/system.repository.js';
 import { readHospitalIdentity } from './siteProfile.js';
 
 export interface DrugCatalogIssue {
@@ -24,6 +25,8 @@ export interface DrugCatalogRow {
   Strength: string;
   Content: string;
   UnitPrice: number;
+  Price2?: number;
+  Price3?: number;
   Distributor: string;
   Manufacturer: string;
   ISED: 'E' | 'N';
@@ -134,32 +137,77 @@ export const getDrugCatalogItems = async (options: { includeInactive?: boolean }
   try {
     await ensureDrugCatalogTable(repConn);
 
-    const whereActive = options.includeInactive ? '' : `WHERE COALESCE(di.istatus, 'Y') = 'Y'`;
-    const [drugRows] = await hosConn.query(`
-      SELECT
-        di.icode,
-        COALESCE(di.istatus, 'Y') AS istatus,
-        COALESCE(NULLIF(TRIM(di.sks_product_category_id), ''), '1') AS product_cat,
-        COALESCE(NULLIF(TRIM(di.tpu_code_list), ''), NULLIF(TRIM(di.tmt_tp_code), ''), NULLIF(TRIM(di.sks_drug_code), ''), '') AS tmtid,
-        COALESCE(TRIM(di.sks_specprep), '') AS spec_prep,
-        COALESCE(NULLIF(TRIM(di.generic_name), ''), TRIM(di.name), '') AS generic_name,
-        COALESCE(NULLIF(TRIM(di.trade_name), ''), TRIM(di.name), '') AS trade_name,
-        COALESCE(TRIM(di.sks_dfs_code), '') AS dfs_code,
-        COALESCE(NULLIF(TRIM(di.sks_dfs_text), ''), TRIM(di.dosageform), '') AS dosage_form,
-        COALESCE(TRIM(di.strength), '') AS strength,
-        COALESCE(NULLIF(TRIM(di.capacity_name), ''), TRIM(di.units), '') AS content,
-        ROUND(COALESCE(NULLIF(di.sks_reimb_price, 0), di.unitprice, 0), 2) AS unit_price,
-        COALESCE(TRIM(di.drugaccount), '') AS drugaccount,
-        COALESCE(TRIM(di.did), '') AS ndc24,
-        COALESCE(di.packqty, 1) AS packqty,
-        di.last_update,
-        di.sks_rev_date,
-        di.begin_date,
-        di.finish_date
-      FROM drugitems di
-      ${whereActive}
-      ORDER BY di.icode ASC
-    `);
+    const whereActive = options.includeInactive ? '' : `WHERE COALESCE(di.istatus, 'Y') <> 'N' AND COALESCE(di.name, '') NOT LIKE 'ยา.%'`;
+    let drugRows: unknown;
+    try {
+      [drugRows] = await hosConn.query(`
+        SELECT
+          di.icode,
+          COALESCE(di.istatus, 'Y') AS istatus,
+          CASE
+            WHEN NULLIF(TRIM(di.sks_product_category_id), '') IS NOT NULL THEN TRIM(di.sks_product_category_id)
+            WHEN COALESCE(TRIM(di.did), '') LIKE '4%' THEN '3'
+            ELSE '1'
+          END AS product_cat,
+          COALESCE(NULLIF(TRIM(di.tpu_code_list), ''), NULLIF(TRIM(di.tmt_tp_code), ''), NULLIF(TRIM(di.sks_drug_code), ''), '') AS tmtid,
+          COALESCE(TRIM(di.sks_specprep), '') AS spec_prep,
+          COALESCE(NULLIF(TRIM(di.generic_name), ''), TRIM(di.name), '') AS generic_name,
+          COALESCE(NULLIF(TRIM(t.trade_name), ''), NULLIF(TRIM(di.trade_name), ''), TRIM(di.name), '') AS trade_name,
+          COALESCE(TRIM(di.sks_dfs_code), '') AS dfs_code,
+          COALESCE(NULLIF(TRIM(t.dosage_form), ''), NULLIF(TRIM(di.sks_dfs_text), ''), TRIM(di.dosageform), '') AS dosage_form,
+          COALESCE(TRIM(di.strength), '') AS strength,
+          COALESCE(NULLIF(CAST(di.packqty AS CHAR), ''), NULLIF(TRIM(di.capacity_name), ''), TRIM(di.units), '1') AS content,
+          ROUND(COALESCE(di.unitprice, 0), 2) AS unit_price,
+          ROUND(COALESCE(di.price2, di.unitprice, 0), 2) AS price2,
+          ROUND(COALESCE(di.price3, di.unitprice, 0), 2) AS price3,
+          COALESCE(TRIM(t.manufacturer), '') AS tmt_manufacturer,
+          COALESCE(TRIM(di.drugaccount), '') AS drugaccount,
+          COALESCE(TRIM(di.did), '') AS ndc24,
+          COALESCE(di.packqty, 1) AS packqty,
+          di.last_update,
+          di.sks_rev_date,
+          di.begin_date,
+          di.finish_date
+        FROM drugitems di
+        LEFT JOIN tmt_tpu_code t ON t.tpu_code = COALESCE(NULLIF(TRIM(di.tpu_code_list), ''), NULLIF(TRIM(di.sks_drug_code), ''))
+        ${whereActive}
+        ORDER BY di.icode ASC
+      `);
+    } catch {
+      // Fallback if tmt_tpu_code table does not exist in this HOSxP instance
+      [drugRows] = await hosConn.query(`
+        SELECT
+          di.icode,
+          COALESCE(di.istatus, 'Y') AS istatus,
+          CASE
+            WHEN NULLIF(TRIM(di.sks_product_category_id), '') IS NOT NULL THEN TRIM(di.sks_product_category_id)
+            WHEN COALESCE(TRIM(di.did), '') LIKE '4%' THEN '3'
+            ELSE '1'
+          END AS product_cat,
+          COALESCE(NULLIF(TRIM(di.tpu_code_list), ''), NULLIF(TRIM(di.tmt_tp_code), ''), NULLIF(TRIM(di.sks_drug_code), ''), '') AS tmtid,
+          COALESCE(TRIM(di.sks_specprep), '') AS spec_prep,
+          COALESCE(NULLIF(TRIM(di.generic_name), ''), TRIM(di.name), '') AS generic_name,
+          COALESCE(NULLIF(TRIM(di.trade_name), ''), TRIM(di.name), '') AS trade_name,
+          COALESCE(TRIM(di.sks_dfs_code), '') AS dfs_code,
+          COALESCE(NULLIF(TRIM(di.sks_dfs_text), ''), TRIM(di.dosageform), '') AS dosage_form,
+          COALESCE(TRIM(di.strength), '') AS strength,
+          COALESCE(NULLIF(CAST(di.packqty AS CHAR), ''), NULLIF(TRIM(di.capacity_name), ''), TRIM(di.units), '1') AS content,
+          ROUND(COALESCE(di.unitprice, 0), 2) AS unit_price,
+          ROUND(COALESCE(di.price2, di.unitprice, 0), 2) AS price2,
+          ROUND(COALESCE(di.price3, di.unitprice, 0), 2) AS price3,
+          '' AS tmt_manufacturer,
+          COALESCE(TRIM(di.drugaccount), '') AS drugaccount,
+          COALESCE(TRIM(di.did), '') AS ndc24,
+          COALESCE(di.packqty, 1) AS packqty,
+          di.last_update,
+          di.sks_rev_date,
+          di.begin_date,
+          di.finish_date
+        FROM drugitems di
+        ${whereActive}
+        ORDER BY di.icode ASC
+      `);
+    }
 
     const [ovRows] = await repConn.query(`SELECT * FROM fdh_drug_catalog_override`);
     const ovMap = new Map<string, Record<string, unknown>>();
@@ -219,8 +267,10 @@ export const getDrugCatalogItems = async (options: { includeInactive?: boolean }
         Strength: text(ov?.strength ?? r.strength),
         Content: text(ov?.content ?? r.content),
         UnitPrice: unitPrice,
-        Distributor: text(ov?.distributor),
-        Manufacturer: text(ov?.manufacturer),
+        Price2: num(r.price2),
+        Price3: num(r.price3),
+        Distributor: text(ov?.distributor ?? r.tmt_manufacturer),
+        Manufacturer: text(ov?.manufacturer ?? r.tmt_manufacturer),
         ISED: resolveIsed(r.drugaccount, ov?.ised),
         NDC24: text(ov?.ndc24 ?? r.ndc24).replace(/\D/g, ''),
         Packsize: packQty,
@@ -328,6 +378,163 @@ export const saveDrugCatalogOverride = async (payload: Partial<DrugCatalogRow> &
   } finally {
     repConn.release();
   }
+};
+
+export const getDrugCatalogChiSeq = async (): Promise<number> => {
+  const stored = await getAppSetting<{ chiSeq?: number }>('drug_catalog_chi_seq').catch(() => null);
+  return Number(stored?.chiSeq) || 8;
+};
+
+export const saveDrugCatalogChiSeq = async (seq: number) => {
+  await setAppSetting('drug_catalog_chi_seq', { chiSeq: seq });
+  return seq;
+};
+
+export type DrugCatalogExportTarget = 'nhso' | 'chi' | 'fdh';
+export type DrugCatalogPriceTier = 1 | 2 | 3;
+
+const pickExportPrice = (it: DrugCatalogRow, priceTier: DrugCatalogPriceTier): number => {
+  if (priceTier === 2 && it.Price2 != null && it.Price2 > 0) return Number(it.Price2.toFixed(2));
+  if (priceTier === 3 && it.Price3 != null && it.Price3 > 0) return Number(it.Price3.toFixed(2));
+  return Number(it.UnitPrice.toFixed(2));
+};
+
+export const buildDrugCatalogExportFile = async (
+  items: DrugCatalogRow[],
+  target: DrugCatalogExportTarget,
+  options: { priceTier?: DrugCatalogPriceTier; chiSeq?: number } = {},
+): Promise<{ buffer: Buffer; filename: string; contentType: string; usedChiSeq?: number }> => {
+  const hosConn = await getUTFConnection();
+  let hcode = '11101';
+  try {
+    const ident = await readHospitalIdentity(hosConn);
+    if (ident.hospital_code) hcode = ident.hospital_code;
+  } finally {
+    hosConn.release();
+  }
+
+  const priceTier: 1 | 2 | 3 = options.priceTier === 2 ? 2 : options.priceTier === 3 ? 3 : 1;
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0);
+
+  if (target === 'nhso') {
+    // 25 columns — exact NHSO format: {hcode}_Export_DrugCat.xls
+    const rows = items.map((it) => ({
+      HOSPDRUGCODE: it.HospDrugCode,
+      PRODUCTCAT: it.ProductCat,
+      TMTID: it.TMTID,
+      SPECPREP: it.SpecPrep,
+      GENERICNAME: it.GenericName,
+      TRADENAME: it.TradeName,
+      DFSCODE: it.DFSCode,
+      DOSAGEFORM: it.DosageForm,
+      STRENGTH: it.Strength,
+      CONTENT: it.Content || '1',
+      UNITPRICE: pickExportPrice(it, priceTier),
+      DISTRIBUTOR: it.Distributor,
+      MANUFACTURER: it.Manufacturer,
+      ISED: it.ISED,
+      NDC24: it.NDC24,
+      PACKSIZE: it.Packsize,
+      PACKPRICE: it.Packprice,
+      UPDATEFLAG: '',
+      DATECHANGE: '',
+      DATEUPDATE: '',
+      DATEEFFECTIVE: todayDate,
+      ISED_APPROVED: it.ISED,
+      NDC24_APPROVED: '',
+      DATE_APPROVED: todayDate,
+      ISED_STATUS: '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'DrugCatalog');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'biff8' }) as Buffer;
+    return {
+      buffer,
+      filename: `${hcode}_Export_DrugCat.xls`,
+      contentType: 'application/vnd.ms-excel',
+    };
+  }
+
+  if (target === 'chi') {
+    // 22 columns — exact CHI/สกส. format: {hcode}DrugN{seq:03d}.xls
+    const nextSeq = options.chiSeq != null && Number.isFinite(options.chiSeq)
+      ? Math.max(1, Math.floor(options.chiSeq))
+      : (await getDrugCatalogChiSeq()) + 1;
+    await saveDrugCatalogChiSeq(nextSeq);
+
+    const effectiveDate = new Date(2010, 9, 1); // 2010-10-01 as in hospital CHI template
+    const rows = items.map((it) => ({
+      HospDrugCode: it.HospDrugCode,
+      ProductCat: it.ProductCat,
+      TMTID: it.TMTID,
+      SpecPrep: it.SpecPrep,
+      GenericName: it.GenericName,
+      TradeName: it.TradeName,
+      DFSCode: it.DFSCode,
+      DosageForm: it.DosageForm,
+      Strength: it.Strength,
+      Content: it.Content || '1',
+      UnitPrice: pickExportPrice(it, priceTier),
+      Distributor: it.Distributor,
+      Manufacturer: it.Manufacturer,
+      ISED: it.ISED,
+      NDC24: it.NDC24,
+      PackSize: it.Packsize,
+      PackPrice: it.Packprice,
+      UpdateFlag: it.UpdateFlag || 'A',
+      DateChange: effectiveDate,
+      DateUpdate: '',
+      DateEffective: effectiveDate,
+      RP: '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows, { cellDates: true });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'DrugCatalog');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'biff8' }) as Buffer;
+    return {
+      buffer,
+      filename: `${hcode}DrugN${String(nextSeq).padStart(3, '0')}.xls`,
+      contentType: 'application/vnd.ms-excel',
+      usedChiSeq: nextSeq,
+    };
+  }
+
+  // target === 'fdh': 22 columns — exact FDH Thai headers: DrugCat4FDH.xlsx
+  const rows = items.map((it, idx) => ({
+    row: idx + 1,
+    'รหัสยา Hosp Drug Code': it.HospDrugCode,
+    'ประเภทยาและเวชภัณฑ์': it.ProductCat,
+    'รหัสยา TMT': it.TMTID,
+    'ชื่อยาสามัญ': it.GenericName,
+    'ชื่อทางการค้า': it.TradeName,
+    'DSF Code': it.DFSCode === '-' ? '' : it.DFSCode,
+    'ลักษณะยา': it.DosageForm,
+    'ปริมาณยาต่อหน่วยยา': it.Strength,
+    'ราคากลางต่อหน่วยที่เบิกได้': pickExportPrice(it, priceTier),
+    Distributor: it.Distributor,
+    Manufacturer: it.Manufacturer,
+    ISED: it.ISED,
+    'SPEC PREP': it.SpecPrep || '',
+    'รหัสยา 24 หลักจากหน่วยบริการ': it.NDC24,
+    'Pack Size': it.Packsize || '',
+    'Pack Price': it.Packprice || '',
+    'Date Change': '',
+    'Date Update': '',
+    'Date Effective': '',
+    'File Name': '',
+    'รหัสโรงพยาบาล': hcode,
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'DrugCatalog');
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  return {
+    buffer,
+    filename: 'DrugCat4FDH.xlsx',
+    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  };
 };
 
 export const buildDrugCatalogExcelBuffer = (items: DrugCatalogRow[]): Buffer => {

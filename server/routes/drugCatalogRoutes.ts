@@ -2,9 +2,13 @@ import { Router } from 'express';
 import type { Request } from 'express';
 import {
   buildDrugCatalogExcelBuffer,
+  buildDrugCatalogExportFile,
   buildDrugCatalogXmlZip,
+  getDrugCatalogChiSeq,
   getDrugCatalogItems,
   saveDrugCatalogOverride,
+  type DrugCatalogExportTarget,
+  type DrugCatalogPriceTier,
 } from '../drugCatalogService.js';
 
 type AuthenticatedRequest = Request & {
@@ -16,8 +20,11 @@ export const drugCatalogRouter = Router();
 drugCatalogRouter.get('/items', async (req, res) => {
   try {
     const includeInactive = req.query.includeInactive === 'true' || req.query.includeInactive === '1';
-    const result = await getDrugCatalogItems({ includeInactive });
-    return res.json({ success: true, data: result.items, summary: result.summary });
+    const [result, chiSeq] = await Promise.all([
+      getDrugCatalogItems({ includeInactive }),
+      getDrugCatalogChiSeq(),
+    ]);
+    return res.json({ success: true, data: result.items, summary: result.summary, chiSeq });
   } catch (error) {
     console.error('Error loading DrugCatalog items:', error);
     return res.status(500).json({ success: false, error: (error as Error).message || 'โหลดรายการ DrugCatalog ไม่สำเร็จ' });
@@ -43,8 +50,12 @@ drugCatalogRouter.post('/override', async (req, res) => {
 
 drugCatalogRouter.post('/export', async (req, res) => {
   try {
-    const format = String(req.body?.format || 'excel').toLowerCase();
+    const rawTarget = String(req.body?.target || req.body?.format || 'nhso').toLowerCase();
     const includeInactive = Boolean(req.body?.includeInactive);
+    const rawTier = Number(req.body?.priceTier);
+    const priceTier: DrugCatalogPriceTier = rawTier === 2 ? 2 : rawTier === 3 ? 3 : 1;
+    const rawChiSeq = req.body?.chiSeq !== undefined && req.body?.chiSeq !== '' ? Number(req.body.chiSeq) : undefined;
+    const chiSeq = rawChiSeq !== undefined && Number.isFinite(rawChiSeq) && rawChiSeq > 0 ? Math.floor(rawChiSeq) : undefined;
     const codes: string[] = Array.isArray(req.body?.codes)
       ? req.body.codes.map(String).map((s: string) => s.trim()).filter(Boolean)
       : [];
@@ -55,11 +66,25 @@ drugCatalogRouter.post('/export', async (req, res) => {
       return res.status(400).json({ success: false, error: 'ไม่พบรายการยาที่ต้องการส่งออก' });
     }
 
-    if (format === 'xml' || format === 'zip') {
+    if (rawTarget === 'xml' || rawTarget === 'zip') {
       const zipRes = await buildDrugCatalogXmlZip(selected);
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename="${zipRes.filename}"`);
       return res.send(zipRes.buffer);
+    }
+
+    if (rawTarget === 'nhso' || rawTarget === 'chi' || rawTarget === 'fdh') {
+      const exported = await buildDrugCatalogExportFile(selected, rawTarget as DrugCatalogExportTarget, {
+        priceTier,
+        chiSeq,
+      });
+      res.setHeader('Content-Type', exported.contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${exported.filename}"`);
+      if (exported.usedChiSeq !== undefined) {
+        res.setHeader('X-CHI-Seq', String(exported.usedChiSeq));
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, X-CHI-Seq');
+      }
+      return res.send(exported.buffer);
     }
 
     const buf = buildDrugCatalogExcelBuffer(selected);

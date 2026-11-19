@@ -18,6 +18,8 @@ interface DrugCatalogRow {
   Strength: string;
   Content: string;
   UnitPrice: number;
+  Price2?: number;
+  Price3?: number;
   Distributor: string;
   Manufacturer: string;
   ISED: 'E' | 'N';
@@ -72,6 +74,8 @@ export const DrugCatalogPage: React.FC = () => {
 
   const [editing, setEditing] = useState<DrugCatalogRow | null>(null);
   const [saving, setSaving] = useState(false);
+  const [priceTier, setPriceTier] = useState<1 | 2 | 3>(1);
+  const [chiSeq, setChiSeq] = useState<string>('9');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -84,6 +88,9 @@ export const DrugCatalogPage: React.FC = () => {
       if (!res.ok || !json.success) throw new Error(json.error || 'โหลดข้อมูล DrugCatalog ไม่สำเร็จ');
       setItems(Array.isArray(json.data) ? json.data : []);
       setSummary(json.summary || emptySummary);
+      if (typeof json.chiSeq === 'number' && Number.isFinite(json.chiSeq)) {
+        setChiSeq(String(json.chiSeq + 1));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'โหลดข้อมูล DrugCatalog ไม่สำเร็จ');
     } finally {
@@ -147,17 +154,24 @@ export const DrugCatalogPage: React.FC = () => {
     }
   };
 
-  const handleExport = async (format: 'excel' | 'xml') => {
+  const handleExport = async (target: 'nhso' | 'chi' | 'fdh' | 'xml') => {
     setExporting(true);
     setError('');
     setMessage('');
     try {
       const codes = selected.size > 0 ? [...selected] : filtered.map((it) => it.HospDrugCode);
       if (codes.length === 0) throw new Error('ไม่มีรายการยาที่จะส่งออก');
+      const parsedSeq = Number(chiSeq);
       const res = await fetch('/api/drug-catalog/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ format, includeInactive, codes }),
+        body: JSON.stringify({
+          target,
+          priceTier,
+          chiSeq: target === 'chi' && Number.isFinite(parsedSeq) && parsedSeq > 0 ? Math.floor(parsedSeq) : undefined,
+          includeInactive,
+          codes,
+        }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -165,12 +179,25 @@ export const DrugCatalogPage: React.FC = () => {
       }
       const blob = await res.blob();
       const disp = res.headers.get('Content-Disposition') || '';
-      const filename = disp.match(/filename="?([^";]+)"?/i)?.[1] || (format === 'xml' ? 'DrugCatalog.zip' : 'DrugCatalog.xlsx');
+      const defaultName =
+        target === 'nhso'
+          ? 'Export_DrugCat.xls'
+          : target === 'chi'
+            ? `DrugN${String(Math.max(1, Math.floor(parsedSeq || 1))).padStart(3, '0')}.xls`
+            : target === 'fdh'
+              ? 'DrugCat4FDH.xlsx'
+              : 'DrugCatalog.zip';
+      const filename = disp.match(/filename="?([^";]+)"?/i)?.[1] || defaultName;
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = filename;
       a.click();
       URL.revokeObjectURL(a.href);
+      if (target === 'chi') {
+        const usedSeqHeader = Number(res.headers.get('X-CHI-Seq'));
+        const usedSeq = Number.isFinite(usedSeqHeader) && usedSeqHeader > 0 ? usedSeqHeader : (Number.isFinite(parsedSeq) ? parsedSeq : 1);
+        setChiSeq(String(usedSeq + 1));
+      }
       setMessage(`ส่งออก ${filename} สำเร็จ (${codes.length.toLocaleString()} รายการ)`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ส่งออกไม่สำเร็จ');
@@ -179,12 +206,18 @@ export const DrugCatalogPage: React.FC = () => {
     }
   };
 
+  const displayPrice = (row: DrugCatalogRow): number => {
+    if (priceTier === 2) return row.Price2 && row.Price2 > 0 ? row.Price2 : row.UnitPrice;
+    if (priceTier === 3) return row.Price3 && row.Price3 > 0 ? row.Price3 : row.UnitPrice;
+    return row.UnitPrice;
+  };
+
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1 className="page-title">💊 จัดทำ DrugCatalog (มาตรฐาน 22 ฟิลด์ สกส. / สปสช. / สปส.)</h1>
+        <h1 className="page-title">💊 จัดทำ DrugCatalog (สปสช. / สกส. / FDH)</h1>
         <p className="page-subtitle">
-          ดึงทะเบียนยาจาก HOSxP ตรวจสอบความครบถ้วนของ TMTID, ProductCat, ISED, NDC24 และราคา พร้อมชี้รายการยาที่ติด Error R51 จาก สปส. ก่อนส่งออก Excel / XML
+          ดึงทะเบียนยาจาก HOSxP เชื่อมตาราง tmt_tpu_code ตรวจสอบ TMTID, ProductCat, ISED, NDC24 และยาติด R51 พร้อมส่งออกแยกไฟล์ตามโครงสร้างจริงของ สปสช. (.xls 25 คอลัมน์), สกส. (DrugN###.xls 22 คอลัมน์) และ FDH (.xlsx)
         </p>
       </div>
 
@@ -242,22 +275,50 @@ export const DrugCatalogPage: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button type="button" className="btn btn-sm btn-secondary" onClick={toggleSelectAllFiltered}>
-            ☑️ {selected.size > 0 && filtered.every((it) => selected.has(it.HospDrugCode)) ? 'ยกเลิกเลือกทั้งหมด' : `เลือกทั้งหมดในผลลัพธ์ (${filtered.length})`}
-          </button>
-          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-            เลือกแล้ว {selected.size > 0 ? `${selected.size.toLocaleString()} รายการ` : `ทั้งหมดในตัวกรอง (${filtered.length.toLocaleString()} รายการ)`}
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-success" disabled={exporting || filtered.length === 0} onClick={() => void handleExport('excel')}>
-            {exporting ? 'กำลังส่งออก...' : '📥 ส่งออก Excel (สกส./สปสช.)'}
-          </button>
-          <button type="button" className="btn btn-primary" disabled={exporting || filtered.length === 0} onClick={() => void handleExport('xml')}>
-            {exporting ? 'กำลังส่งออก...' : '📦 ส่งออก XML ZIP (สกส.)'}
-          </button>
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div className="card-body" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-sm btn-secondary" onClick={toggleSelectAllFiltered}>
+              ☑️ {selected.size > 0 && filtered.every((it) => selected.has(it.HospDrugCode)) ? 'ยกเลิกเลือกทั้งหมด' : `เลือกทั้งหมด (${filtered.length})`}
+            </button>
+            <label className="form-group" style={{ marginBottom: 0, minWidth: 165 }}>
+              <span className="form-label" style={{ fontSize: 12 }}>ราคาที่ส่งออก</span>
+              <select className="form-control" value={priceTier} onChange={(e) => setPriceTier(Number(e.target.value) as 1 | 2 | 3)}>
+                <option value={1}>1: ราคาทั่วไป (unitprice)</option>
+                <option value={2}>2: Special 1 (price2)</option>
+                <option value={3}>3: Special 2 (price3)</option>
+              </select>
+            </label>
+            <label className="form-group" style={{ marginBottom: 0, width: 120 }}>
+              <span className="form-label" style={{ fontSize: 12 }}>งวด สกส. (DrugN)</span>
+              <input
+                type="number"
+                min={1}
+                max={999}
+                className="form-control"
+                value={chiSeq}
+                onChange={(e) => setChiSeq(e.target.value)}
+                title="เลขลำดับไฟล์ สกส. เช่น 9 -> DrugN009.xls"
+              />
+            </label>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', paddingBottom: 8 }}>
+              เลือกแล้ว {selected.size > 0 ? `${selected.size.toLocaleString()} รายการ` : `ทั้งหมดในตัวกรอง (${filtered.length.toLocaleString()} รายการ)`}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-success" disabled={exporting || filtered.length === 0} onClick={() => void handleExport('nhso')}>
+              {exporting ? 'กำลังส่งออก...' : '📥 สปสช. (_Export_DrugCat.xls)'}
+            </button>
+            <button type="button" className="btn btn-primary" disabled={exporting || filtered.length === 0} onClick={() => void handleExport('chi')}>
+              {exporting ? 'กำลังส่งออก...' : `📥 สกส. (DrugN${String(Math.max(1, Math.floor(Number(chiSeq) || 1))).padStart(3, '0')}.xls)`}
+            </button>
+            <button type="button" className="btn btn-secondary" disabled={exporting || filtered.length === 0} onClick={() => void handleExport('fdh')}>
+              {exporting ? 'กำลังส่งออก...' : '📥 FDH (DrugCat4FDH.xlsx)'}
+            </button>
+            <button type="button" className="btn btn-secondary" disabled={exporting || filtered.length === 0} onClick={() => void handleExport('xml')}>
+              {exporting ? 'กำลังส่งออก...' : '📦 XML ZIP'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -314,7 +375,7 @@ export const DrugCatalogPage: React.FC = () => {
                       <div>{row.DosageForm || '-'} · {row.Strength || '-'}</div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Content: {row.Content || '-'}</div>
                     </td>
-                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{row.UnitPrice.toFixed(2)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700 }}>{displayPrice(row).toFixed(2)}</td>
                     <td style={{ fontSize: 11 }}>
                       <div><span className={`badge ${row.ISED === 'E' ? 'badge-success' : 'badge-warning'}`}>{row.ISED}</span></div>
                       <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>{row.NDC24 || '-'}</div>

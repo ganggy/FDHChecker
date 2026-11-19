@@ -6,6 +6,7 @@ import { checkSystemUpdateQuick, type QuickUpdateInfo } from './services/systemU
 import { LocalAiAssistant } from './components/LocalAiAssistant';
 import { TableScrollNavigator } from './components/TableScrollNavigator';
 import { GlobalEclaimSyncWidget } from './components/GlobalEclaimSyncWidget';
+import { OneClickUpdateModal } from './components/OneClickUpdateModal';
 import { eclaimGlobalSyncState } from './services/eclaimGlobalSyncState';
 import type { AppPage } from './utils/navigationState';
 
@@ -109,16 +110,49 @@ function App() {
   }, [authSession]);
 
   const [updateInfo, setUpdateInfo] = useState<QuickUpdateInfo | null>(null);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateSuccessToast, setUpdateSuccessToast] = useState<string | null>(() => {
+    try {
+      const msg = window.sessionStorage.getItem('fdh-update-success-banner');
+      if (msg) window.sessionStorage.removeItem('fdh-update-success-banner');
+      return msg;
+    } catch {
+      return null;
+    }
+  });
+  const autoPromptedUpdateRef = useRef(false);
+
+  useEffect(() => {
+    if (!updateSuccessToast) return;
+    const t = window.setTimeout(() => setUpdateSuccessToast(null), 10000);
+    return () => window.clearTimeout(t);
+  }, [updateSuccessToast]);
+
   useEffect(() => {
     if (!authSession) {
       setUpdateInfo(null);
+      setUpdateModalOpen(false);
+      autoPromptedUpdateRef.current = false;
       return;
     }
     let active = true;
     const checkUpdate = async (refresh = false) => {
       try {
         const result = await checkSystemUpdateQuick(refresh);
-        if (active) setUpdateInfo(result);
+        if (!active) return;
+        setUpdateInfo(result);
+        if (result.available && authSession.user.is_admin && !autoPromptedUpdateRef.current) {
+          autoPromptedUpdateRef.current = true;
+          try {
+            const today = new Date().toISOString().slice(0, 10);
+            const snoozedDate = window.localStorage.getItem('fdh_update_snooze_date');
+            if (snoozedDate !== today) {
+              setUpdateModalOpen(true);
+            }
+          } catch {
+            setUpdateModalOpen(true);
+          }
+        }
       } catch {
         // silent check error
       }
@@ -131,6 +165,15 @@ function App() {
       window.clearInterval(timer);
     };
   }, [authSession]);
+
+  const handleSnoozeUpdateToday = () => {
+    try {
+      window.localStorage.setItem('fdh_update_snooze_date', new Date().toISOString().slice(0, 10));
+    } catch {
+      // ignore
+    }
+    setUpdateModalOpen(false);
+  };
 
   const hospitalLabel = siteSettings.hospital_name || 'FDH Checker';
   const regionLabel = siteSettings.nhso_region ? `เขต ${siteSettings.nhso_region}` : '';
@@ -386,14 +429,11 @@ function App() {
               <button
                 type="button"
                 className="nav-update-badge"
-                onClick={() => {
-                  window.sessionStorage.setItem('settings_target_tab', 'update');
-                  goToPage('settings');
-                }}
-                title={`มีอัปเดตใหม่ (${updateInfo.behind} รายการ) — คลิกเพื่อไปยังหน้าอัปเดตระบบ`}
+                onClick={() => setUpdateModalOpen(true)}
+                title={`มีอัปเดตใหม่ (${updateInfo.behind} รายการ) — คลิกเพื่ออัปเดตทันที 1 คลิก`}
               >
                 <span className="update-pulse-dot" />
-                <span>มีอัปเดตใหม่ ({updateInfo.behind})</span>
+                <span>อัปเดตทันที ({updateInfo.behind})</span>
               </button>
             )}
             <div className="nav2-user">
@@ -788,6 +828,46 @@ function App() {
         <LocalAiAssistant avoidBottomActionBar={currentPage === 'fdh' || currentPage === 'ipdExport'} />
       )}
       {!mobileMenuOpen && <TableScrollNavigator />}
+      {updateSuccessToast && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 16,
+            right: 16,
+            zIndex: 2500,
+            background: '#16a34a',
+            color: '#fff',
+            padding: '12px 16px',
+            borderRadius: 12,
+            boxShadow: '0 10px 30px rgba(22, 163, 74, 0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            fontWeight: 600,
+            fontSize: 13.5,
+          }}
+        >
+          <span>✅ {updateSuccessToast} (v{__APP_VERSION__})</span>
+          <button
+            type="button"
+            onClick={() => setUpdateSuccessToast(null)}
+            style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 15 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      <OneClickUpdateModal
+        open={updateModalOpen}
+        isAdmin={isAdmin}
+        behindHint={updateInfo?.behind || 0}
+        onClose={() => setUpdateModalOpen(false)}
+        onSnoozeToday={handleSnoozeUpdateToday}
+        onOpenAdvancedSettings={() => {
+          window.sessionStorage.setItem('settings_target_tab', 'update');
+          goToPage('settings');
+        }}
+      />
     </div>
   );
 }

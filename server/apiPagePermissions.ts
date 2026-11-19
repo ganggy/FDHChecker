@@ -48,6 +48,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/moph\/dmht(\/|$)/, pages: ['mophDmht'] },
   { pattern: /^\/moph\/vaccine(\/|$)/, pages: ['mophVaccine'] },
   { pattern: /^\/accounting(\/|$)/, pages: ['accountingRevenueBudget'] },
+  { pattern: /^\/drug-catalog(\/|$)/, pages: ['drugCatalog', 'sssRepStm', 'sssExport', 'settings'] },
   { pattern: /^\/insurance(\/|$)/, pages: ['insuranceOverview', 'receivable'] },
   { pattern: /^\/fdh\/claim-detail(\/|$)/, pages: ['fdhClaimDetail', 'reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/fdh\/import-status(\/|$)/, pages: ['fdhImport', 'fdh', 'reconciliation', 'ucOutsideCup'] },

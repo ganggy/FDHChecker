@@ -37,6 +37,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'repstmManage', icon: '🗃️', label: 'จัดการฐานข้อมูล REP/STM' },
   { page: 'sssExport', icon: '📦', label: 'ส่งออก SSOP (ประกันสังคม)' },
   { page: 'sssRepStm', icon: '📥', label: 'REP/STM ประกันสังคม' },
+  { page: 'drugCatalog', icon: '💊', label: 'จัดทำ DrugCatalog (สกส./สปสช.)' },
   { page: 'authenSync', icon: '🪪', label: 'ตรวจสอบ Authen สปสช.' },
   { page: 'ktbApproveCode', icon: '🏦', label: 'นำเข้า Approve Code KTB (EDC)' },
   { page: 'preValidator', icon: '✅', label: 'ตรวจความพร้อม 16 แฟ้ม' },
@@ -86,7 +87,7 @@ export const toolNavGroups: NavGroup[] = [
   { label: 'REP/STM & กระทบยอด', icon: '🧾', pages: ['repstm', 'reconciliation', 'stmZeroAudit', 'repDailySummary'] },
   { label: 'ลูกหนี้ & บัญชี', icon: '💰', pages: ['receivable', 'receivableSettlement', 'smtBudget', 'hsubPayment', 'pcuHerbal', 'pcuPayout', 'pcuCaseCost', 'unitCostProfit', 'officialReceivable', 'receivableStandardReport', 'accountingRevenueBudget'] },
   { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['specific', 'monitor', 'dentalAudit', 'mophDmht', 'mophVaccine'] },
-  { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm'] },
+  { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm', 'drugCatalog'] },
   { label: 'ผู้บริหาร/วิเคราะห์', icon: '📊', pages: ['dailyClaimMonitor', 'executiveMonitor', 'insuranceOverview', 'admin', 'aiReports', 'hospitalReports', 'ssjRawServ', 'annualCheckupReport', 'revenueOpportunity', 'ppfsBenchmark', 'ppfsVisitMatch', 'ucOutsideCup'] },
   { label: 'ระบบ/อ้างอิง', icon: '⚙️', pages: ['memberAdmin', 'repstmManage', 'icd9Lookup', 'guide'] },
 ];

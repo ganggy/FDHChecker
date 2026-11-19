@@ -136,6 +136,7 @@ import { hospitalReportRouter } from './hospitalReportRoutes.js';
 import { accountingRevenueRouter } from './accountingRevenueRoutes.js';
 import { createHealthRouter } from './routes/healthRoutes.js';
 import { sssRouter } from './routes/sssRoutes.js';
+import { drugCatalogRouter } from './routes/drugCatalogRoutes.js';
 import { icd9Router } from './routes/icd9Routes.js';
 import { receivableReportRouter } from './routes/receivableReportRoutes.js';
 import { officialReceivableRouter } from './routes/officialReceivableRoutes.js';
@@ -1408,6 +1409,7 @@ app.use('/api/daily-claim-monitor', dailyClaimMonitorRouter);
 // Protect HOSxP from accidental multi-year scans while retaining fiscal-year reports elsewhere.
 app.use('/api', dateRangeGuard);
 app.use('/api/sss', sssRouter);
+app.use('/api/drug-catalog', drugCatalogRouter);
 
 const getResolvedHospitalCode = async (): Promise<string> => {
   const connection = await getUTFConnection();

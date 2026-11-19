@@ -59,6 +59,7 @@ interface SssErrorCaseRow {
   last_resubmitted_batch: number | null;
   note: string;
   local_errors?: string[];
+  drug_issues?: Array<{ icode: string; name: string; tmt_code: string; unitprice: number; reason: string }>;
 }
 
 const splitCsvLine = (line: string) => {
@@ -489,6 +490,14 @@ export const SssRepStmPage: React.FC = () => {
                 </label>
                 <button
                   type="button"
+                  className="btn btn-secondary"
+                  style={{ marginTop: 18 }}
+                  onClick={() => window.dispatchEvent(new CustomEvent('fdh:navigate', { detail: { page: 'drugCatalog' } }))}
+                >
+                  💊 จัดทำ DrugCatalog
+                </button>
+                <button
+                  type="button"
                   className="btn btn-primary"
                   style={{ marginTop: 18 }}
                   disabled={autoFixing || selectableErrorCases.length === 0}
@@ -588,6 +597,16 @@ export const SssRepStmPage: React.FC = () => {
                             <ul style={{ margin: '4px 0 0 16px', padding: 0, fontSize: 11, color: row.is_warning_only ? '#92400e' : '#991b1b' }}>
                               {row.error_explanations.map((exp, idx) => <li key={idx}>{exp}</li>)}
                             </ul>
+                            {row.drug_issues && row.drug_issues.length > 0 && (
+                              <details open style={{ marginTop: 6, background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 4, padding: '4px 6px', fontSize: 11 }}>
+                                <summary style={{ cursor: 'pointer', fontWeight: 700, color: '#92400e' }}>💊 รายการยาที่ต้องตรวจ DrugCatalog ({row.drug_issues.length})</summary>
+                                {row.drug_issues.map((d, i) => (
+                                  <div key={i} style={{ marginTop: 3, color: '#78350f' }}>
+                                    <code>{d.icode}</code> {d.name} · TMT: <strong>{d.tmt_code}</strong> · {d.unitprice}฿ — <span style={{ color: '#b91c1c' }}>{d.reason}</span>
+                                  </div>
+                                ))}
+                              </details>
+                            )}
                           </td>
                           <td style={{ fontSize: 12 }}>
                             <div>HMain: <strong>{row.hospmain || '-'}</strong> | Clinic: <strong>{row.clinic || '-'}</strong></div>

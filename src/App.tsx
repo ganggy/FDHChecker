@@ -34,6 +34,7 @@ const RepStmImportPage = lazyNamed(() => import('./pages/RepStmImportPage'), 'Re
 const RepStmManagePage = lazyNamed(() => import('./pages/RepStmManagePage'), 'RepStmManagePage');
 const SssExportPage = lazyNamed(() => import('./pages/SssExportPage'), 'SssExportPage');
 const SssRepStmPage = lazyNamed(() => import('./pages/SssRepStmPage'), 'SssRepStmPage');
+const DrugCatalogPage = lazyNamed(() => import('./pages/DrugCatalogPage'), 'DrugCatalogPage');
 const AuthenSyncPage = lazyNamed(() => import('./pages/AuthenSyncPage'), 'AuthenSyncPage');
 const ReceivablePage = lazyNamed(() => import('./pages/ReceivablePage'), 'ReceivablePage');
 const ReceivableSettlementPage = lazyNamed(() => import('./pages/ReceivableSettlementPage'), 'ReceivableSettlementPage');
@@ -691,6 +692,7 @@ function App() {
         {currentPage === 'repstmManage' && <RepStmManagePage />}
         {currentPage === 'sssExport' && <SssExportPage />}
         {currentPage === 'sssRepStm' && <SssRepStmPage />}
+        {currentPage === 'drugCatalog' && <DrugCatalogPage />}
         {currentPage === 'authenSync' && <AuthenSyncPage />}
         {currentPage === 'receivable' && <ReceivablePage />}
         {currentPage === 'receivableSettlement' && <ReceivableSettlementPage />}

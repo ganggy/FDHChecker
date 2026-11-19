@@ -128,7 +128,7 @@ const SSS_CHECK_CODE_DICT: Record<string, string> = {
   R21: 'เลขที่ใบประกอบวิชาชีพผู้สั่งจ่ายยา (Dispensing.Prescb) ผิดรูปแบบ (Auto-Fix ได้)',
   R24: 'ขาดข้อความวิธีใช้ยา (DispensedItems.Sigtext) (Auto-Fix ได้)',
   R33: 'ยอดค่ายาใน BillTran/BillItems หมวด 3,5 ไม่ตรงกับ Dispensing (Auto-Fix ได้)',
-  R51: 'รหัสยา TMT / PrdCat ใน DispensedItems ไม่ตรงบัญชีมาตรฐาน (Auto-Fix ได้)',
+  R51: 'รหัสยา / TMTID / ราคาใน DispensedItems ไม่ตรงกับ DrugCatalog ที่ขึ้นทะเบียนกับ สกส./สปส. (ตรวจสอบและส่งออก DrugCatalog)',
   R57: 'รายละเอียดรายการยาใน DispensedItems ไม่สอดคล้องกับ Dispensing',
   T15: 'SVRefID ของรายการยาหมวด 3,5 ใน BillItems ไม่สัมพันธ์กับ OPServices/Dispensing (Auto-Fix ได้)',
   W01: 'รหัสยา/เวชภัณฑ์ (TMT/Standard Code) ควรตรวจสอบความสมบูรณ์',
@@ -822,6 +822,7 @@ export interface SssErrorCaseRow {
   last_resubmitted_batch: number | null;
   note: string;
   local_errors: string[];
+  drug_issues?: Array<{ icode: string; name: string; tmt_code: string; unitprice: number; reason: string }>;
 }
 
 const parseThaiDateStr = (raw: string): string | null => {
@@ -975,6 +976,49 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
       }
     }
 
+    const drugIssuesByVn = new Map<string, Array<{ icode: string; name: string; tmt_code: string; unitprice: number; reason: string }>>();
+    const drugErrorVns = Array.from(new Set(
+      errRows
+        .filter((r) => /\b(R51|R33|R24|T15)\b/i.test(text(r.check_code)))
+        .map((r) => resolvedVns.get(number(r.import_row_id)) || '')
+        .filter(Boolean)
+    ));
+    if (drugErrorVns.length > 0) {
+      const dPh = drugErrorVns.map(() => '?').join(',');
+      const [drugRows] = await hosConn.query(
+        `SELECT oi.vn, oi.icode, COALESCE(NULLIF(di.name, ''), NULLIF(sd.name, ''), oi.icode) AS drug_name,
+                COALESCE(NULLIF(TRIM(di.tpu_code_list), ''), NULLIF(TRIM(di.tmt_tp_code), ''), NULLIF(TRIM(di.sks_drug_code), ''), '') AS tmt_code,
+                COALESCE(di.did, '') AS ndc24,
+                ROUND(COALESCE(oi.unitprice, di.unitprice, 0), 2) AS unitprice
+         FROM opitemrece oi
+         JOIN drugitems di ON di.icode = oi.icode
+         LEFT JOIN s_drugitems sd ON sd.icode = oi.icode
+         WHERE oi.vn IN (${dPh})
+         GROUP BY oi.vn, oi.icode, drug_name, tmt_code, ndc24, unitprice`,
+        drugErrorVns,
+      ).catch(() => [[]]);
+      if (Array.isArray(drugRows)) {
+        for (const dr of drugRows as Record<string, unknown>[]) {
+          const vnKey = text(dr.vn);
+          const tmt = text(dr.tmt_code).replace(/\D/g, '');
+          const reasons: string[] = [];
+          if (!/^\d{6,7}$/.test(tmt)) reasons.push('ไม่มีรหัส TMT 6 หลัก');
+          if (!/^\d{24}$/.test(text(dr.ndc24).replace(/\D/g, ''))) reasons.push('ไม่มี NDC24');
+          if (number(dr.unitprice) <= 0) reasons.push('ราคา 0 บาท');
+          if (reasons.length === 0) reasons.push('ยังไม่ขึ้นทะเบียน/ราคาไม่ตรงใน DrugCatalog สกส.');
+          const arr = drugIssuesByVn.get(vnKey) || [];
+          arr.push({
+            icode: text(dr.icode),
+            name: text(dr.drug_name),
+            tmt_code: tmt || '-',
+            unitprice: number(dr.unitprice),
+            reason: reasons.join(', '),
+          });
+          drugIssuesByVn.set(vnKey, arr);
+        }
+      }
+    }
+
     return errRows.map((r) => {
       const rowId = number(r.import_row_id);
       const vn = resolvedVns.get(rowId) || '';
@@ -1029,10 +1073,11 @@ export const getSssErrorCases = async (batchId?: number): Promise<SssErrorCaseRo
         invoice_no: text(ov?.invoice_no) || text(r.import_invoice_no) || text(hos.invoice_no) || vn,
         tflag: (text(ov?.tflag) === 'A' ? 'A' : 'E') as 'A' | 'E',
         has_override: Boolean(ov),
-        resolved_flag: Boolean(ov?.resolved_flag) || isResubmittedAfterImport,
+        resolved_flag: isResubmittedAfterImport,
         last_resubmitted_batch: isResubmittedAfterImport ? (resub?.batch_no || null) : null,
         note: text(ov?.note),
         local_errors: localErrors,
+        drug_issues: drugIssuesByVn.get(vn) || [],
       };
     }).sort((a, b) => {
       const aScore = (a.local_errors.length > 0 ? 0 : 1) * 10 + (a.is_warning_only ? 2 : 0) + (a.resolved_flag ? 1 : 0);

@@ -59,7 +59,7 @@ export const APP_SESSION_TABLE_SQL = `
 export const DEFAULT_MENU_PAGES = [
   'staff', 'ipd', 'ipdExport', 'ipdClaimMonitor', 'collaboration', 'aiReports', 'hospitalReports', 'annualCheckupReport', 'officialReceivable', 'receivableStandardReport',
   'admin', 'fdh', 'fdhImport', 'fdhClaimDetail', 'nhsoClose', 'repstm', 'repstmManage',
-  'sssExport', 'sssRepStm',
+  'sssExport', 'sssRepStm', 'drugCatalog',
   'receivable', 'receivableSettlement', 'insuranceOverview', 'executiveMonitor', 'accountingRevenueBudget', 'smtBudget', 'repDeny', 'specific', 'fundFdh', 'fund43', 'fundKtb',
   'fundOther', 'monitor', 'fsMonitor', 'revenueOpportunity', 'mophDmht', 'mophVaccine', 'guide', 'settings',
   'memberAdmin', 'authenSync', 'ktbApproveCode', 'preValidator', 'workQueue', 'rejectTracking', 'reconciliation', 'stmZeroAudit', 'repSheetZeroAudit',
@@ -68,7 +68,7 @@ export const DEFAULT_MENU_PAGES = [
 ];
 
 export const DEFAULT_STAFF_MENU_PAGES = [
-  'staff', 'ipd', 'aiReports', 'hospitalReports', 'fdh', 'nhsoClose', 'sssExport', 'sssRepStm', 'preValidator', 'workQueue', 'guide'
+  'staff', 'ipd', 'aiReports', 'hospitalReports', 'fdh', 'nhsoClose', 'sssExport', 'sssRepStm', 'drugCatalog', 'preValidator', 'workQueue', 'guide'
 ];
 
 export const DEFAULT_PCU_MENU_PAGES = [

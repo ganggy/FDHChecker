@@ -4,11 +4,14 @@ import {
   buildDrugCatalogExcelBuffer,
   buildDrugCatalogExportFile,
   buildDrugCatalogXmlZip,
+  clearDrugCatalogReplySource,
   getDrugCatalogChiSeq,
   getDrugCatalogItems,
+  importDrugCatalogReplyFile,
   saveDrugCatalogOverride,
   type DrugCatalogExportTarget,
   type DrugCatalogPriceTier,
+  type DrugCatalogReplySource,
 } from '../drugCatalogService.js';
 
 type AuthenticatedRequest = Request & {
@@ -24,10 +27,66 @@ drugCatalogRouter.get('/items', async (req, res) => {
       getDrugCatalogItems({ includeInactive }),
       getDrugCatalogChiSeq(),
     ]);
-    return res.json({ success: true, data: result.items, summary: result.summary, chiSeq });
+    return res.json({
+      success: true,
+      data: result.items,
+      summary: result.summary,
+      replyMeta: result.replyMeta,
+      chiSeq,
+    });
   } catch (error) {
     console.error('Error loading DrugCatalog items:', error);
     return res.status(500).json({ success: false, error: (error as Error).message || 'โหลดรายการ DrugCatalog ไม่สำเร็จ' });
+  }
+});
+
+drugCatalogRouter.post('/import-reply', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const filename = String(body.filename || '').trim();
+    const contentBase64 = String(body.contentBase64 || '').trim();
+    if (!filename || !contentBase64) {
+      return res.status(400).json({ success: false, error: 'กรุณาเลือกไฟล์ตอบกลับที่ต้องการนำเข้า' });
+    }
+    const rawSource = String(body.source || 'auto').toLowerCase();
+    const source: 'auto' | DrugCatalogReplySource =
+      rawSource === 'nhso' || rawSource === 'chi' ? rawSource : 'auto';
+    const replaceExisting = body.replaceExisting !== false;
+
+    const result = await importDrugCatalogReplyFile({
+      filename,
+      contentBase64,
+      source,
+      replaceExisting,
+      importedBy: (req as AuthenticatedRequest).authUser?.username || 'Staff',
+    });
+    const sourceLabel = result.source === 'nhso' ? 'สปสช. (NHSO)' : 'สกส. (CHI)';
+    return res.json({
+      success: true,
+      data: result,
+      message: `นำเข้าไฟล์ตอบกลับ ${sourceLabel} (${result.filename}) สำเร็จ ${result.totalRows.toLocaleString()} รายการ${result.errorCount > 0 ? ` (พบ Error/ไม่ผ่าน ${result.errorCount} รายการ)` : ''}`,
+    });
+  } catch (error) {
+    console.error('Error importing DrugCatalog reply:', error);
+    return res.status(400).json({ success: false, error: (error as Error).message || 'นำเข้าไฟล์ตอบกลับไม่สำเร็จ' });
+  }
+});
+
+drugCatalogRouter.delete('/reply/:source', async (req, res) => {
+  try {
+    const rawSource = String(req.params.source || '').toLowerCase();
+    if (rawSource !== 'nhso' && rawSource !== 'chi') {
+      return res.status(400).json({ success: false, error: 'ระบุ source ไม่ถูกต้อง (ต้องเป็น nhso หรือ chi)' });
+    }
+    const result = await clearDrugCatalogReplySource(rawSource);
+    return res.json({
+      success: true,
+      data: result,
+      message: `ล้างข้อมูลไฟล์ตอบกลับ ${rawSource === 'nhso' ? 'สปสช.' : 'สกส.'} เรียบร้อยแล้ว`,
+    });
+  } catch (error) {
+    console.error('Error clearing DrugCatalog reply:', error);
+    return res.status(500).json({ success: false, error: (error as Error).message || 'ล้างข้อมูลไฟล์ตอบกลับไม่สำเร็จ' });
   }
 });
 

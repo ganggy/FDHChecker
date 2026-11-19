@@ -7,6 +7,42 @@ import { getRepstmConnection, getUTFConnection } from './db.js';
 import { getAppSetting, setAppSetting } from './repositories/system.repository.js';
 import { readHospitalIdentity } from './siteProfile.js';
 
+export type DrugCatalogReplySource = 'nhso' | 'chi';
+
+export interface DrugCatalogReplyComparison {
+  found: boolean;
+  tmtid: string;
+  genericName: string;
+  unitPrice: number | null;
+  ised: string;
+  isedApproved: string;
+  isedStatus: string;
+  ndc24Approved: string;
+  updateFlag: string;
+  dateEffective: string;
+  dateApproved: string;
+  rp: string;
+  status: string;
+  error: string;
+  tmtMismatch: boolean;
+  priceMismatch: boolean;
+  isedMismatch: boolean;
+  hasError: boolean;
+}
+
+export interface DrugCatalogReplySourceMeta {
+  filename: string;
+  rowCount: number;
+  errorCount: number;
+  importedAt: string;
+  importedBy: string;
+}
+
+export interface DrugCatalogReplyMeta {
+  nhso?: DrugCatalogReplySourceMeta;
+  chi?: DrugCatalogReplySourceMeta;
+}
+
 export interface DrugCatalogIssue {
   severity: 'error' | 'warning';
   code: string;
@@ -41,6 +77,8 @@ export interface DrugCatalogRow {
   active: boolean;
   has_override: boolean;
   r51_flagged: boolean;
+  nhso?: DrugCatalogReplyComparison | null;
+  chi?: DrugCatalogReplyComparison | null;
   validation_status: 'ready' | 'warning' | 'error';
   issues: DrugCatalogIssue[];
 }
@@ -71,6 +109,33 @@ const DRUG_CATALOG_OVERRIDE_SQL = `
     date_expiry VARCHAR(32) NULL,
     updated_by VARCHAR(128) NULL,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+const DRUG_CATALOG_REPLY_SQL = `
+  CREATE TABLE IF NOT EXISTS fdh_drug_catalog_reply (
+    source VARCHAR(16) NOT NULL,
+    hosp_drug_code VARCHAR(32) NOT NULL,
+    tmtid VARCHAR(24) NULL,
+    generic_name VARCHAR(255) NULL,
+    trade_name VARCHAR(255) NULL,
+    unit_price DECIMAL(15,2) NULL,
+    ised VARCHAR(8) NULL,
+    ised_approved VARCHAR(8) NULL,
+    ised_status VARCHAR(64) NULL,
+    ndc24 VARCHAR(32) NULL,
+    ndc24_approved VARCHAR(32) NULL,
+    update_flag VARCHAR(8) NULL,
+    date_effective VARCHAR(32) NULL,
+    date_approved VARCHAR(32) NULL,
+    rp VARCHAR(32) NULL,
+    reply_status VARCHAR(64) NULL,
+    reply_error TEXT NULL,
+    source_filename VARCHAR(255) NULL,
+    imported_by VARCHAR(128) NULL,
+    imported_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (source, hosp_drug_code),
+    KEY idx_dcr_source (source)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
@@ -129,6 +194,7 @@ export const validateDrugCatalogRow = (row: Omit<DrugCatalogRow, 'validation_sta
 
 const ensureDrugCatalogTable = async (repConn: mysql.PoolConnection) => {
   await repConn.query(DRUG_CATALOG_OVERRIDE_SQL);
+  await repConn.query(DRUG_CATALOG_REPLY_SQL);
 };
 
 export const getDrugCatalogItems = async (options: { includeInactive?: boolean } = {}) => {
@@ -217,6 +283,95 @@ export const getDrugCatalogItems = async (options: { includeInactive?: boolean }
       }
     }
 
+    const [replyRows] = await repConn.query(`SELECT * FROM fdh_drug_catalog_reply`);
+    const nhsoReplyMap = new Map<string, Record<string, unknown>>();
+    const chiReplyMap = new Map<string, Record<string, unknown>>();
+    if (Array.isArray(replyRows)) {
+      for (const rr of replyRows as Record<string, unknown>[]) {
+        const src = text(rr.source).toLowerCase();
+        const code = text(rr.hosp_drug_code);
+        if (!code) continue;
+        if (src === 'nhso') nhsoReplyMap.set(code, rr);
+        else if (src === 'chi') chiReplyMap.set(code, rr);
+      }
+    }
+    const replyMeta = (await getAppSetting<DrugCatalogReplyMeta>('drug_catalog_reply_meta').catch(() => null)) || {};
+    const hasNhsoReply = nhsoReplyMap.size > 0;
+    const hasChiReply = chiReplyMap.size > 0;
+
+    const buildReplyComparison = (
+      rec: Record<string, unknown> | undefined,
+      hospTmt: string,
+      hospPrice: number,
+      hospIsed: 'E' | 'N',
+      hasDataset: boolean,
+    ): DrugCatalogReplyComparison | null => {
+      if (!hasDataset) return null;
+      if (!rec) {
+        return {
+          found: false,
+          tmtid: '',
+          genericName: '',
+          unitPrice: null,
+          ised: '',
+          isedApproved: '',
+          isedStatus: '',
+          ndc24Approved: '',
+          updateFlag: '',
+          dateEffective: '',
+          dateApproved: '',
+          rp: '',
+          status: '',
+          error: '',
+          tmtMismatch: false,
+          priceMismatch: false,
+          isedMismatch: false,
+          hasError: false,
+        };
+      }
+      const repTmt = text(rec.tmtid).replace(/\D/g, '');
+      const repPrice = rec.unit_price !== null && rec.unit_price !== undefined && text(rec.unit_price) !== ''
+        ? Number(num(rec.unit_price).toFixed(2))
+        : null;
+      const repIsed = text(rec.ised).toUpperCase();
+      const repIsedApproved = text(rec.ised_approved).toUpperCase();
+      const effectiveRepIsed = repIsedApproved || repIsed;
+      const repStatus = text(rec.reply_status || rec.ised_status);
+      const repError = text(rec.reply_error);
+      const tmtMismatch = Boolean(hospTmt && repTmt && hospTmt !== repTmt) || Boolean(!repTmt && hospTmt);
+      const priceMismatch = repPrice !== null && Math.abs(repPrice - Number(hospPrice.toFixed(2))) >= 0.01;
+      const isedMismatch = Boolean(effectiveRepIsed && (effectiveRepIsed === 'E' || effectiveRepIsed === 'N') && effectiveRepIsed !== hospIsed);
+      const statusLower = repStatus.toLowerCase();
+      const hasError = Boolean(
+        repError ||
+        statusLower.includes('error') ||
+        statusLower.includes('reject') ||
+        statusLower.includes('fail') ||
+        statusLower.includes('ไม่ผ่าน') ||
+        statusLower.includes('ปฏิเสธ')
+      );
+      return {
+        found: true,
+        tmtid: repTmt,
+        genericName: text(rec.generic_name),
+        unitPrice: repPrice,
+        ised: repIsed,
+        isedApproved: repIsedApproved,
+        isedStatus: text(rec.ised_status),
+        ndc24Approved: text(rec.ndc24_approved),
+        updateFlag: text(rec.update_flag),
+        dateEffective: text(rec.date_effective),
+        dateApproved: text(rec.date_approved),
+        rp: text(rec.rp),
+        status: repStatus,
+        error: repError,
+        tmtMismatch,
+        priceMismatch,
+        isedMismatch,
+        hasError,
+      };
+    };
+
     // Detect drug icodes involved in SSS R51 errors
     const r51Icodes = new Set<string>();
     try {
@@ -255,6 +410,10 @@ export const getDrugCatalogItems = async (options: { includeInactive?: boolean }
       const updateFlag: 'A' | 'E' | 'U' | 'D' =
         updateFlagRaw === 'E' || updateFlagRaw === 'U' || updateFlagRaw === 'D' ? updateFlagRaw : 'A';
 
+      const isedResolved = resolveIsed(r.drugaccount, ov?.ised);
+      const nhsoComp = buildReplyComparison(nhsoReplyMap.get(code), rawTmt, unitPrice, isedResolved, hasNhsoReply);
+      const chiComp = buildReplyComparison(chiReplyMap.get(code), rawTmt, unitPrice, isedResolved, hasChiReply);
+
       const base: Omit<DrugCatalogRow, 'validation_status' | 'issues'> = {
         HospDrugCode: code,
         ProductCat: productCat,
@@ -271,7 +430,7 @@ export const getDrugCatalogItems = async (options: { includeInactive?: boolean }
         Price3: num(r.price3),
         Distributor: text(ov?.distributor ?? r.tmt_manufacturer),
         Manufacturer: text(ov?.manufacturer ?? r.tmt_manufacturer),
-        ISED: resolveIsed(r.drugaccount, ov?.ised),
+        ISED: isedResolved,
         NDC24: text(ov?.ndc24 ?? r.ndc24).replace(/\D/g, ''),
         Packsize: packQty,
         Packprice: text(ov?.packprice),
@@ -283,6 +442,8 @@ export const getDrugCatalogItems = async (options: { includeInactive?: boolean }
         active: text(r.istatus).toUpperCase() === 'Y',
         has_override: Boolean(ov),
         r51_flagged: r51Icodes.has(code),
+        nhso: nhsoComp,
+        chi: chiComp,
       };
 
       const issues = validateDrugCatalogRow(base);
@@ -300,12 +461,39 @@ export const getDrugCatalogItems = async (options: { includeInactive?: boolean }
         acc[it.validation_status] += 1;
         if (it.ProductCat === '1' && !/^\d{6,7}$/.test(it.TMTID)) acc.missingTmt += 1;
         if (it.r51_flagged) acc.r51Flagged += 1;
+        if (it.nhso) {
+          if (it.nhso.found) acc.nhsoFound += 1;
+          else acc.nhsoMissing += 1;
+          if (it.nhso.tmtMismatch || it.nhso.priceMismatch || it.nhso.isedMismatch) acc.nhsoMismatch += 1;
+          if (it.nhso.hasError) acc.nhsoError += 1;
+        }
+        if (it.chi) {
+          if (it.chi.found) acc.chiFound += 1;
+          else acc.chiMissing += 1;
+          if (it.chi.tmtMismatch || it.chi.priceMismatch || it.chi.isedMismatch) acc.chiMismatch += 1;
+          if (it.chi.hasError) acc.chiError += 1;
+        }
         return acc;
       },
-      { total: 0, ready: 0, warning: 0, error: 0, missingTmt: 0, r51Flagged: 0 },
+      {
+        total: 0,
+        ready: 0,
+        warning: 0,
+        error: 0,
+        missingTmt: 0,
+        r51Flagged: 0,
+        nhsoFound: 0,
+        nhsoMissing: 0,
+        nhsoMismatch: 0,
+        nhsoError: 0,
+        chiFound: 0,
+        chiMissing: 0,
+        chiMismatch: 0,
+        chiError: 0,
+      },
     );
 
-    return { items, summary };
+    return { items, summary, replyMeta };
   } finally {
     hosConn.release();
     repConn.release();
@@ -375,6 +563,397 @@ export const saveDrugCatalogOverride = async (payload: Partial<DrugCatalogRow> &
       ],
     );
     return { ok: true, HospDrugCode: code };
+  } finally {
+    repConn.release();
+  }
+};
+
+interface ParsedReplyRow {
+  hospDrugCode: string;
+  tmtid: string;
+  genericName: string;
+  tradeName: string;
+  unitPrice: number | null;
+  ised: string;
+  isedApproved: string;
+  isedStatus: string;
+  ndc24: string;
+  ndc24Approved: string;
+  updateFlag: string;
+  dateEffective: string;
+  dateApproved: string;
+  rp: string;
+  replyStatus: string;
+  replyError: string;
+}
+
+const formatExcelOrTextDate = (raw: unknown): string => {
+  if (raw === null || raw === undefined || raw === '') return '';
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 20000 && raw < 80000) {
+    // Excel serial date (days since 1899-12-30)
+    const utcMs = Math.round((raw - 25569) * 86400 * 1000);
+    const d = new Date(utcMs);
+    if (Number.isFinite(d.getTime())) {
+      return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${d.getUTCFullYear()}`;
+    }
+  }
+  const s = text(raw);
+  if (/^\d{5}$/.test(s)) {
+    const n = Number(s);
+    if (n > 20000 && n < 80000) return formatExcelOrTextDate(n);
+  }
+  return formatDateSlash(raw, false) || s;
+};
+
+const normKey = (k: string) => k.toLowerCase().replace(/[^a-z0-9ก-๙]/g, '');
+
+const pickField = (row: Record<string, unknown>, normalizedMap: Map<string, string>, aliases: string[]): unknown => {
+  for (const alias of aliases) {
+    const actualKey = normalizedMap.get(alias);
+    if (actualKey !== undefined) {
+      const val = row[actualKey];
+      if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+    }
+  }
+  return '';
+};
+
+const detectReplySource = (
+  headers: string[],
+  filename: string,
+  requested: 'auto' | DrugCatalogReplySource,
+): DrugCatalogReplySource => {
+  if (requested === 'nhso' || requested === 'chi') return requested;
+  const normHeaders = new Set(headers.map(normKey));
+  const lowerName = filename.toLowerCase();
+  if (
+    normHeaders.has('isedapproved') ||
+    normHeaders.has('ndc24approved') ||
+    normHeaders.has('dateapproved') ||
+    normHeaders.has('isedstatus') ||
+    lowerName.includes('export_drugcat') ||
+    lowerName.includes('eclaim') ||
+    lowerName.includes('nhso')
+  ) {
+    return 'nhso';
+  }
+  if (
+    normHeaders.has('rp') ||
+    /drugn\d+/i.test(lowerName) ||
+    lowerName.includes('chi') ||
+    lowerName.includes('sks') ||
+    lowerName.includes('csmbs')
+  ) {
+    return 'chi';
+  }
+  // Fallback: UPPERCASE HOSPDRUGCODE -> nhso, CamelCase HospDrugCode -> chi
+  if (headers.includes('HOSPDRUGCODE')) return 'nhso';
+  if (headers.includes('HospDrugCode')) return 'chi';
+  return 'nhso';
+};
+
+const parsePipeXmlReply = (buf: Buffer): { headers: string[]; rows: ParsedReplyRow[] } => {
+  const utf8Text = buf.toString('utf8');
+  const content = /encoding=["']windows-874["']|encoding=["']tis-620["']/i.test(utf8Text)
+    ? iconv.decode(buf, 'cp874')
+    : utf8Text;
+  const rows: ParsedReplyRow[] = [];
+  const itemsMatch = content.match(/<Items[^>]*>([\s\S]*?)<\/Items>/i);
+  const body = itemsMatch ? itemsMatch[1] : content;
+  for (const rawLine of body.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('<') || !line.includes('|')) continue;
+    const cols = line.split('|').map((c) => c.trim());
+    const code = cols[0] || '';
+    if (!code || /^hospdrugcode$/i.test(code)) continue;
+    const rawPrice = cols[10];
+    const parsedPrice = rawPrice !== undefined && rawPrice !== '' && Number.isFinite(Number(rawPrice))
+      ? Number(Number(rawPrice).toFixed(2))
+      : null;
+    rows.push({
+      hospDrugCode: code,
+      tmtid: (cols[2] || '').replace(/\D/g, ''),
+      genericName: cols[4] || '',
+      tradeName: cols[5] || '',
+      unitPrice: parsedPrice,
+      ised: (cols[13] || '').toUpperCase(),
+      isedApproved: '',
+      isedStatus: '',
+      ndc24: (cols[14] || '').replace(/\D/g, ''),
+      ndc24Approved: '',
+      updateFlag: (cols[17] || '').toUpperCase(),
+      dateEffective: formatExcelOrTextDate(cols[20] || ''),
+      dateApproved: '',
+      rp: cols[21] || '',
+      replyStatus: cols[22] || '',
+      replyError: cols[23] || '',
+    });
+  }
+  return { headers: ['HospDrugCode', 'RP'], rows };
+};
+
+const parseSpreadsheetReply = (buf: Buffer): { headers: string[]; rows: ParsedReplyRow[] } => {
+  const wb = XLSX.read(buf, { type: 'buffer' });
+  let bestHeaders: string[] = [];
+  let rawRows: Record<string, unknown>[] = [];
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    const sheetRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+    if (sheetRows.length === 0) continue;
+    const headers = Object.keys(sheetRows[0] || {});
+    const normSet = new Set(headers.map(normKey));
+    if (
+      normSet.has('hospdrugcode') ||
+      normSet.has('icode') ||
+      normSet.has('รหัสยาhospdrugcode') ||
+      normSet.has('drugcode')
+    ) {
+      bestHeaders = headers;
+      rawRows = sheetRows;
+      break;
+    }
+    if (rawRows.length === 0) {
+      bestHeaders = headers;
+      rawRows = sheetRows;
+    }
+  }
+
+  const normalizedMap = new Map<string, string>();
+  for (const h of bestHeaders) {
+    normalizedMap.set(normKey(h), h);
+  }
+
+  const parsed: ParsedReplyRow[] = [];
+  for (const r of rawRows) {
+    const code = text(pickField(r, normalizedMap, ['hospdrugcode', 'icode', 'drugcode', 'รหัสยาhospdrugcode', 'รหัสยา']));
+    if (!code) continue;
+    const rawPriceVal = pickField(r, normalizedMap, ['unitprice', 'price', 'ราคากลางต่อหน่วยที่เบิกได้', 'ราคา']);
+    const parsedPrice =
+      rawPriceVal !== '' && Number.isFinite(Number(String(rawPriceVal).replace(/,/g, '')))
+        ? Number(Number(String(rawPriceVal).replace(/,/g, '')).toFixed(2))
+        : null;
+
+    const isedStatus = text(pickField(r, normalizedMap, ['isedstatus', 'statusised']));
+    const replyStatus = text(
+      pickField(r, normalizedMap, ['status', 'approvestatus', 'result', 'approve', 'สถานะ', 'ผลการตรวจ', 'isedstatus']),
+    );
+    const replyError = text(
+      pickField(r, normalizedMap, [
+        'error',
+        'errormsg',
+        'errormessage',
+        'errdesc',
+        'errordesc',
+        'remark',
+        'reason',
+        'comment',
+        'note',
+        'detail',
+        'หมายเหตุ',
+        'สาเหตุ',
+        'ข้อผิดพลาด',
+      ]),
+    );
+
+    parsed.push({
+      hospDrugCode: code,
+      tmtid: text(pickField(r, normalizedMap, ['tmtid', 'tmt', 'tpucode', 'รหัสยาtmt'])).replace(/\D/g, ''),
+      genericName: text(pickField(r, normalizedMap, ['genericname', 'generic', 'ชื่อยาสามัญ'])),
+      tradeName: text(pickField(r, normalizedMap, ['tradename', 'trade', 'ชื่อทางการค้า'])),
+      unitPrice: parsedPrice,
+      ised: text(pickField(r, normalizedMap, ['ised', 'ed', 'ned'])).toUpperCase(),
+      isedApproved: text(pickField(r, normalizedMap, ['isedapproved'])).toUpperCase(),
+      isedStatus,
+      ndc24: text(pickField(r, normalizedMap, ['ndc24', 'did', 'รหัสยา24หลักจากหน่วยบริการ'])).replace(/\D/g, ''),
+      ndc24Approved: text(pickField(r, normalizedMap, ['ndc24approved'])).replace(/\D/g, ''),
+      updateFlag: text(pickField(r, normalizedMap, ['updateflag', 'flag'])).toUpperCase(),
+      dateEffective: formatExcelOrTextDate(pickField(r, normalizedMap, ['dateeffective'])),
+      dateApproved: formatExcelOrTextDate(pickField(r, normalizedMap, ['dateapproved'])),
+      rp: text(pickField(r, normalizedMap, ['rp'])),
+      replyStatus,
+      replyError,
+    });
+  }
+
+  return { headers: bestHeaders, rows: parsed };
+};
+
+export const parseDrugCatalogReplyFile = (
+  buffer: Buffer,
+  filename: string,
+  requestedSource: 'auto' | DrugCatalogReplySource = 'auto',
+): { source: DrugCatalogReplySource; rows: ParsedReplyRow[] } => {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.zip')) {
+    const zip = new AdmZip(buffer);
+    const entries = zip
+      .getEntries()
+      .filter((e) => !e.isDirectory && /\.(xls|xlsx|csv|xml|txt)$/i.test(e.entryName));
+    if (entries.length === 0) {
+      throw new Error('ไม่พบไฟล์ .xls / .xlsx / .csv / .xml ภายในไฟล์ ZIP');
+    }
+    const allRows: ParsedReplyRow[] = [];
+    let detectedSource: DrugCatalogReplySource | null = null;
+    for (const entry of entries) {
+      const sub = parseDrugCatalogReplyFile(entry.getData(), entry.entryName, requestedSource);
+      if (!detectedSource) detectedSource = sub.source;
+      allRows.push(...sub.rows);
+    }
+    return { source: detectedSource || (requestedSource === 'chi' ? 'chi' : 'nhso'), rows: allRows };
+  }
+
+  const parsed = lower.endsWith('.xml') || lower.endsWith('.txt')
+    ? parsePipeXmlReply(buffer)
+    : parseSpreadsheetReply(buffer);
+
+  const source = detectReplySource(parsed.headers, filename, requestedSource);
+  return { source, rows: parsed.rows };
+};
+
+export const importDrugCatalogReplyFile = async (payload: {
+  filename: string;
+  contentBase64: string;
+  source?: 'auto' | DrugCatalogReplySource;
+  replaceExisting?: boolean;
+  importedBy?: string;
+}) => {
+  const filename = text(payload.filename) || 'reply.xls';
+  const rawB64 = text(payload.contentBase64).replace(/^data:[^;]+;base64,/, '');
+  if (!rawB64) throw new Error('ไม่พบเนื้อหาไฟล์ที่อัปโหลด');
+  const buffer = Buffer.from(rawB64, 'base64');
+  if (buffer.length === 0) throw new Error('ไฟล์ว่างเปล่า');
+
+  const requestedSource = payload.source === 'nhso' || payload.source === 'chi' ? payload.source : 'auto';
+  const { source, rows } = parseDrugCatalogReplyFile(buffer, filename, requestedSource);
+  if (rows.length === 0) {
+    throw new Error('ไม่พบรายการยาในไฟล์ที่อัปโหลด กรุณาตรวจสอบว่ามีคอลัมน์ HospDrugCode / HOSPDRUGCODE');
+  }
+
+  // Deduplicate by hospDrugCode (last row wins)
+  const deduped = new Map<string, ParsedReplyRow>();
+  for (const r of rows) {
+    deduped.set(r.hospDrugCode, r);
+  }
+  const uniqueRows = [...deduped.values()];
+
+  const replaceExisting = payload.replaceExisting !== false;
+  const importedBy = text(payload.importedBy) || 'Staff';
+  const repConn = await getRepstmConnection();
+  try {
+    await ensureDrugCatalogTable(repConn);
+    if (replaceExisting) {
+      await repConn.query(`DELETE FROM fdh_drug_catalog_reply WHERE source = ?`, [source]);
+    }
+
+    const batchSize = 200;
+    for (let i = 0; i < uniqueRows.length; i += batchSize) {
+      const chunk = uniqueRows.slice(i, i + batchSize);
+      const placeholders = chunk
+        .map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .join(',');
+      const values: unknown[] = [];
+      for (const r of chunk) {
+        values.push(
+          source,
+          r.hospDrugCode,
+          r.tmtid || null,
+          r.genericName || null,
+          r.tradeName || null,
+          r.unitPrice,
+          r.ised || null,
+          r.isedApproved || null,
+          r.isedStatus || null,
+          r.ndc24 || null,
+          r.ndc24Approved || null,
+          r.updateFlag || null,
+          r.dateEffective || null,
+          r.dateApproved || null,
+          r.rp || null,
+          r.replyStatus || null,
+          r.replyError || null,
+          filename,
+          importedBy,
+        );
+      }
+      await repConn.query(
+        `INSERT INTO fdh_drug_catalog_reply (
+           source, hosp_drug_code, tmtid, generic_name, trade_name, unit_price,
+           ised, ised_approved, ised_status, ndc24, ndc24_approved, update_flag,
+           date_effective, date_approved, rp, reply_status, reply_error, source_filename, imported_by
+         ) VALUES ${placeholders}
+         ON DUPLICATE KEY UPDATE
+           tmtid = VALUES(tmtid),
+           generic_name = VALUES(generic_name),
+           trade_name = VALUES(trade_name),
+           unit_price = VALUES(unit_price),
+           ised = VALUES(ised),
+           ised_approved = VALUES(ised_approved),
+           ised_status = VALUES(ised_status),
+           ndc24 = VALUES(ndc24),
+           ndc24_approved = VALUES(ndc24_approved),
+           update_flag = VALUES(update_flag),
+           date_effective = VALUES(date_effective),
+           date_approved = VALUES(date_approved),
+           rp = VALUES(rp),
+           reply_status = VALUES(reply_status),
+           reply_error = VALUES(reply_error),
+           source_filename = VALUES(source_filename),
+           imported_by = VALUES(imported_by),
+           imported_at = CURRENT_TIMESTAMP`,
+        values,
+      );
+    }
+
+    const errorCount = uniqueRows.filter((r) => {
+      const st = r.replyStatus.toLowerCase();
+      return Boolean(
+        r.replyError ||
+        st.includes('error') ||
+        st.includes('reject') ||
+        st.includes('fail') ||
+        st.includes('ไม่ผ่าน') ||
+        st.includes('ปฏิเสธ')
+      );
+    }).length;
+
+    const importedAt = new Date().toISOString();
+    const existingMeta = (await getAppSetting<DrugCatalogReplyMeta>('drug_catalog_reply_meta').catch(() => null)) || {};
+    const nextMeta: DrugCatalogReplyMeta = {
+      ...existingMeta,
+      [source]: {
+        filename,
+        rowCount: uniqueRows.length,
+        errorCount,
+        importedAt,
+        importedBy,
+      },
+    };
+    await setAppSetting('drug_catalog_reply_meta', nextMeta);
+
+    return {
+      source,
+      filename,
+      totalRows: uniqueRows.length,
+      errorCount,
+      importedAt,
+      replyMeta: nextMeta,
+    };
+  } finally {
+    repConn.release();
+  }
+};
+
+export const clearDrugCatalogReplySource = async (source: DrugCatalogReplySource) => {
+  const repConn = await getRepstmConnection();
+  try {
+    await ensureDrugCatalogTable(repConn);
+    await repConn.query(`DELETE FROM fdh_drug_catalog_reply WHERE source = ?`, [source]);
+    const existingMeta = (await getAppSetting<DrugCatalogReplyMeta>('drug_catalog_reply_meta').catch(() => null)) || {};
+    const nextMeta: DrugCatalogReplyMeta = { ...existingMeta };
+    delete nextMeta[source];
+    await setAppSetting('drug_catalog_reply_meta', nextMeta);
+    return { ok: true, source, replyMeta: nextMeta };
   } finally {
     repConn.release();
   }

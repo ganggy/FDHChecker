@@ -1,5 +1,39 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+interface DrugCatalogReplyComparison {
+  found: boolean;
+  tmtid: string;
+  genericName: string;
+  unitPrice: number | null;
+  ised: string;
+  isedApproved: string;
+  isedStatus: string;
+  ndc24Approved: string;
+  updateFlag: string;
+  dateEffective: string;
+  dateApproved: string;
+  rp: string;
+  status: string;
+  error: string;
+  tmtMismatch: boolean;
+  priceMismatch: boolean;
+  isedMismatch: boolean;
+  hasError: boolean;
+}
+
+interface DrugCatalogReplySourceMeta {
+  filename: string;
+  rowCount: number;
+  errorCount: number;
+  importedAt: string;
+  importedBy: string;
+}
+
+interface DrugCatalogReplyMeta {
+  nhso?: DrugCatalogReplySourceMeta;
+  chi?: DrugCatalogReplySourceMeta;
+}
+
 interface DrugCatalogIssue {
   severity: 'error' | 'warning';
   code: string;
@@ -34,6 +68,8 @@ interface DrugCatalogRow {
   active: boolean;
   has_override: boolean;
   r51_flagged: boolean;
+  nhso?: DrugCatalogReplyComparison | null;
+  chi?: DrugCatalogReplyComparison | null;
   validation_status: 'ready' | 'warning' | 'error';
   issues: DrugCatalogIssue[];
 }
@@ -45,9 +81,32 @@ interface DrugCatalogSummary {
   error: number;
   missingTmt: number;
   r51Flagged: number;
+  nhsoFound?: number;
+  nhsoMissing?: number;
+  nhsoMismatch?: number;
+  nhsoError?: number;
+  chiFound?: number;
+  chiMissing?: number;
+  chiMismatch?: number;
+  chiError?: number;
 }
 
-const emptySummary: DrugCatalogSummary = { total: 0, ready: 0, warning: 0, error: 0, missingTmt: 0, r51Flagged: 0 };
+const emptySummary: DrugCatalogSummary = {
+  total: 0,
+  ready: 0,
+  warning: 0,
+  error: 0,
+  missingTmt: 0,
+  r51Flagged: 0,
+  nhsoFound: 0,
+  nhsoMissing: 0,
+  nhsoMismatch: 0,
+  nhsoError: 0,
+  chiFound: 0,
+  chiMissing: 0,
+  chiMismatch: 0,
+  chiError: 0,
+};
 
 const PRODUCT_CAT_LABELS: Record<string, string> = {
   '1': '1: ยาแผนปัจจุบัน (ทางการค้า)',
@@ -62,10 +121,16 @@ const PRODUCT_CAT_LABELS: Record<string, string> = {
 export const DrugCatalogPage: React.FC = () => {
   const [items, setItems] = useState<DrugCatalogRow[]>([]);
   const [summary, setSummary] = useState<DrugCatalogSummary>(emptySummary);
+  const [replyMeta, setReplyMeta] = useState<DrugCatalogReplyMeta>({});
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importingReply, setImportingReply] = useState(false);
+  const [replySourceChoice, setReplySourceChoice] = useState<'auto' | 'nhso' | 'chi'>('auto');
+  const [replaceExistingReply, setReplaceExistingReply] = useState(true);
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'R51' | 'error' | 'warning' | 'missing_tmt' | 'ready'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'R51' | 'error' | 'warning' | 'missing_tmt' | 'ready' | 'nhso_mismatch' | 'nhso_missing' | 'chi_mismatch' | 'chi_missing' | 'reply_error'
+  >('ALL');
   const [isedFilter, setIsedFilter] = useState<'ALL' | 'E' | 'N'>('ALL');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -88,6 +153,7 @@ export const DrugCatalogPage: React.FC = () => {
       if (!res.ok || !json.success) throw new Error(json.error || 'โหลดข้อมูล DrugCatalog ไม่สำเร็จ');
       setItems(Array.isArray(json.data) ? json.data : []);
       setSummary(json.summary || emptySummary);
+      setReplyMeta(json.replyMeta || {});
       if (typeof json.chiSeq === 'number' && Number.isFinite(json.chiSeq)) {
         setChiSeq(String(json.chiSeq + 1));
       }
@@ -108,6 +174,11 @@ export const DrugCatalogPage: React.FC = () => {
       if (statusFilter === 'R51' && !it.r51_flagged) return false;
       if (statusFilter === 'missing_tmt' && !(it.ProductCat === '1' && !/^\d{6,7}$/.test(it.TMTID))) return false;
       if ((statusFilter === 'error' || statusFilter === 'warning' || statusFilter === 'ready') && it.validation_status !== statusFilter) return false;
+      if (statusFilter === 'nhso_mismatch' && !(it.nhso?.found && (it.nhso.tmtMismatch || it.nhso.priceMismatch || it.nhso.isedMismatch))) return false;
+      if (statusFilter === 'nhso_missing' && !(it.nhso && !it.nhso.found)) return false;
+      if (statusFilter === 'chi_mismatch' && !(it.chi?.found && (it.chi.tmtMismatch || it.chi.priceMismatch || it.chi.isedMismatch))) return false;
+      if (statusFilter === 'chi_missing' && !(it.chi && !it.chi.found)) return false;
+      if (statusFilter === 'reply_error' && !(it.nhso?.hasError || it.chi?.hasError)) return false;
       if (isedFilter !== 'ALL' && it.ISED !== isedFilter) return false;
       if (!q) return true;
       return [it.HospDrugCode, it.GenericName, it.TradeName, it.TMTID, it.NDC24, it.DosageForm]
@@ -206,6 +277,56 @@ export const DrugCatalogPage: React.FC = () => {
     }
   };
 
+  const handleImportReplyFile = async (file: File | null) => {
+    if (!file) return;
+    setImportingReply(true);
+    setError('');
+    setMessage('');
+    try {
+      const contentBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch('/api/drug-catalog/import-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          contentBase64,
+          source: replySourceChoice,
+          replaceExisting: replaceExistingReply,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'นำเข้าไฟล์ตอบกลับไม่สำเร็จ');
+      setMessage(json.message || `นำเข้าไฟล์ ${file.name} สำเร็จ`);
+      await loadItems();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'นำเข้าไฟล์ตอบกลับไม่สำเร็จ');
+    } finally {
+      setImportingReply(false);
+    }
+  };
+
+  const handleClearReply = async (source: 'nhso' | 'chi') => {
+    setError('');
+    setMessage('');
+    try {
+      const res = await fetch(`/api/drug-catalog/reply/${source}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'ล้างข้อมูลไม่สำเร็จ');
+      setMessage(json.message || 'ล้างข้อมูลไฟล์ตอบกลับแล้ว');
+      await loadItems();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ล้างข้อมูลไม่สำเร็จ');
+    }
+  };
+
+  const hasNhsoReply = Boolean(replyMeta.nhso);
+  const hasChiReply = Boolean(replyMeta.chi);
+
   const displayPrice = (row: DrugCatalogRow): number => {
     if (priceTier === 2) return row.Price2 && row.Price2 > 0 ? row.Price2 : row.UnitPrice;
     if (priceTier === 3) return row.Price3 && row.Price3 > 0 ? row.Price3 : row.UnitPrice;
@@ -241,6 +362,96 @@ export const DrugCatalogPage: React.FC = () => {
       {message && <div className="alert alert-success" style={{ marginBottom: 12 }}>✅ {message}</div>}
 
       <div className="card" style={{ marginBottom: 14 }}>
+        <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <strong>📤 นำเข้าไฟล์ตอบกลับ / ไฟล์อนุมัติ DrugCatalog (สปสช. / สกส.)</strong>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                รองรับไฟล์ .xls, .xlsx, .csv, .xml, .zip เพื่อเทียบชน TMTID, ราคา และ ISED กับทะเบียนยา HOSxP อัตโนมัติ
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <select
+                className="form-control"
+                style={{ width: 200 }}
+                value={replySourceChoice}
+                onChange={(e) => setReplySourceChoice(e.target.value as 'auto' | 'nhso' | 'chi')}
+              >
+                <option value="auto">ตรวจจับกองทุนอัตโนมัติ</option>
+                <option value="nhso">สปสช. (NHSO / e-Claim)</option>
+                <option value="chi">สกส. (CHI / สปส.)</option>
+              </select>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, margin: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={replaceExistingReply}
+                  onChange={(e) => setReplaceExistingReply(e.target.checked)}
+                />
+                <span>แทนที่ข้อมูลเดิมของกองทุนนี้</span>
+              </label>
+              <label className="btn btn-primary" style={{ margin: 0, cursor: importingReply ? 'wait' : 'pointer' }}>
+                {importingReply ? 'กำลังนำเข้า...' : '📂 เลือกไฟล์ตอบกลับ'}
+                <input
+                  type="file"
+                  accept=".xls,.xlsx,.csv,.xml,.zip,.txt"
+                  disabled={importingReply}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    e.target.value = '';
+                    void handleImportReplyFile(f);
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          {(replyMeta.nhso || replyMeta.chi) && (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
+              {replyMeta.nhso && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '6px 10px' }}>
+                  <span><strong>สปสช.:</strong> {replyMeta.nhso.filename} ({replyMeta.nhso.rowCount.toLocaleString()} รายการ)</span>
+                  <span className="badge badge-success">พบ {summary.nhsoFound || 0}</span>
+                  {(summary.nhsoMismatch || 0) > 0 && (
+                    <span className="badge badge-warning" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('nhso_mismatch')}>
+                      ไม่ตรง {summary.nhsoMismatch}
+                    </span>
+                  )}
+                  {(summary.nhsoMissing || 0) > 0 && (
+                    <span className="badge badge-danger" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('nhso_missing')}>
+                      ยังไม่มี {summary.nhsoMissing}
+                    </span>
+                  )}
+                  <button type="button" className="btn btn-sm btn-secondary" style={{ padding: '2px 6px', fontSize: 11 }} onClick={() => void handleClearReply('nhso')}>
+                    ล้าง
+                  </button>
+                </div>
+              )}
+              {replyMeta.chi && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 10px' }}>
+                  <span><strong>สกส.:</strong> {replyMeta.chi.filename} ({replyMeta.chi.rowCount.toLocaleString()} รายการ)</span>
+                  <span className="badge badge-success">พบ {summary.chiFound || 0}</span>
+                  {(summary.chiMismatch || 0) > 0 && (
+                    <span className="badge badge-warning" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('chi_mismatch')}>
+                      ไม่ตรง {summary.chiMismatch}
+                    </span>
+                  )}
+                  {(summary.chiMissing || 0) > 0 && (
+                    <span className="badge badge-danger" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('chi_missing')}>
+                      ยังไม่มี {summary.chiMissing}
+                    </span>
+                  )}
+                  <button type="button" className="btn btn-sm btn-secondary" style={{ padding: '2px 6px', fontSize: 11 }} onClick={() => void handleClearReply('chi')}>
+                    ล้าง
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 14 }}>
         <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, alignItems: 'end' }}>
           <label className="form-group">
             <span className="form-label">ตัวกรองสถานะ</span>
@@ -251,6 +462,13 @@ export const DrugCatalogPage: React.FC = () => {
               <option value="missing_tmt">🔍 ขาด TMTID ({summary.missingTmt})</option>
               <option value="warning">⚠️ ควรตรวจ ({summary.warning})</option>
               <option value="ready">✓ พร้อมส่ง ({summary.ready})</option>
+              {hasNhsoReply && <option value="nhso_mismatch">⚠️ สปสช. ไม่ตรง (TMT/ราคา/ISED) ({summary.nhsoMismatch || 0})</option>}
+              {hasNhsoReply && <option value="nhso_missing">🆕 ยังไม่มีใน สปสช. ({summary.nhsoMissing || 0})</option>}
+              {hasChiReply && <option value="chi_mismatch">⚠️ สกส. ไม่ตรง (TMT/ราคา/ISED) ({summary.chiMismatch || 0})</option>}
+              {hasChiReply && <option value="chi_missing">🆕 ยังไม่มีใน สกส. ({summary.chiMissing || 0})</option>}
+              {(hasNhsoReply || hasChiReply) && (
+                <option value="reply_error">❌ ติด Error จากไฟล์ตอบกลับ ({(summary.nhsoError || 0) + (summary.chiError || 0)})</option>
+              )}
             </select>
           </label>
           <label className="form-group">
@@ -338,6 +556,8 @@ export const DrugCatalogPage: React.FC = () => {
                   <th>รูปแบบ / ความแรง / บรรจุ</th>
                   <th style={{ textAlign: 'right' }}>ราคา (฿)</th>
                   <th>ISED / NDC24</th>
+                  {hasNhsoReply && <th>เทียบ สปสช.</th>}
+                  {hasChiReply && <th>เทียบ สกส.</th>}
                   <th>ผลตรวจ</th>
                   <th>จัดการ</th>
                 </tr>
@@ -380,6 +600,58 @@ export const DrugCatalogPage: React.FC = () => {
                       <div><span className={`badge ${row.ISED === 'E' ? 'badge-success' : 'badge-warning'}`}>{row.ISED}</span></div>
                       <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>{row.NDC24 || '-'}</div>
                     </td>
+                    {hasNhsoReply && (
+                      <td style={{ fontSize: 11, minWidth: 140 }}>
+                        {!row.nhso?.found ? (
+                          <span className="badge badge-danger">✕ ยังไม่มีใน สปสช.</span>
+                        ) : (
+                          <div>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span className={`badge ${row.nhso.hasError ? 'badge-danger' : (row.nhso.tmtMismatch || row.nhso.priceMismatch || row.nhso.isedMismatch) ? 'badge-warning' : 'badge-success'}`}>
+                                {row.nhso.hasError ? '❌ Error' : (row.nhso.tmtMismatch || row.nhso.priceMismatch || row.nhso.isedMismatch) ? '⚠️ ไม่ตรง' : '✓ ตรง'}
+                              </span>
+                              {row.nhso.isedApproved && <span style={{ color: 'var(--text-muted)' }}>ISED:{row.nhso.isedApproved}</span>}
+                            </div>
+                            <div style={{ color: row.nhso.tmtMismatch ? '#b91c1c' : 'var(--text-muted)', fontWeight: row.nhso.tmtMismatch ? 700 : 400 }}>
+                              TMT: {row.nhso.tmtid || '-'}
+                            </div>
+                            <div style={{ color: row.nhso.priceMismatch ? '#b45309' : 'var(--text-muted)', fontWeight: row.nhso.priceMismatch ? 700 : 400 }}>
+                              ราคา: {row.nhso.unitPrice != null ? row.nhso.unitPrice.toFixed(2) : '-'}
+                            </div>
+                            {row.nhso.isedMismatch && <div style={{ color: '#b91c1c', fontWeight: 700 }}>ISED ต่าง ({row.nhso.isedApproved || row.nhso.ised})</div>}
+                            {(row.nhso.error || row.nhso.isedStatus) && (
+                              <div style={{ color: '#b91c1c' }}>{row.nhso.error || row.nhso.isedStatus}</div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    )}
+                    {hasChiReply && (
+                      <td style={{ fontSize: 11, minWidth: 140 }}>
+                        {!row.chi?.found ? (
+                          <span className="badge badge-danger">✕ ยังไม่มีใน สกส.</span>
+                        ) : (
+                          <div>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <span className={`badge ${row.chi.hasError ? 'badge-danger' : (row.chi.tmtMismatch || row.chi.priceMismatch || row.chi.isedMismatch) ? 'badge-warning' : 'badge-success'}`}>
+                                {row.chi.hasError ? '❌ Error' : (row.chi.tmtMismatch || row.chi.priceMismatch || row.chi.isedMismatch) ? '⚠️ ไม่ตรง' : '✓ ตรง'}
+                              </span>
+                              {row.chi.updateFlag && <span style={{ color: 'var(--text-muted)' }}>Flag:{row.chi.updateFlag}</span>}
+                            </div>
+                            <div style={{ color: row.chi.tmtMismatch ? '#b91c1c' : 'var(--text-muted)', fontWeight: row.chi.tmtMismatch ? 700 : 400 }}>
+                              TMT: {row.chi.tmtid || '-'}
+                            </div>
+                            <div style={{ color: row.chi.priceMismatch ? '#b45309' : 'var(--text-muted)', fontWeight: row.chi.priceMismatch ? 700 : 400 }}>
+                              ราคา: {row.chi.unitPrice != null ? row.chi.unitPrice.toFixed(2) : '-'}
+                            </div>
+                            {row.chi.isedMismatch && <div style={{ color: '#b91c1c', fontWeight: 700 }}>ISED ต่าง ({row.chi.ised})</div>}
+                            {(row.chi.error || row.chi.status) && (
+                              <div style={{ color: '#b91c1c' }}>{row.chi.error || row.chi.status}</div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    )}
                     <td style={{ maxWidth: 240 }}>
                       <span className={`badge ${row.validation_status === 'ready' ? 'badge-success' : row.validation_status === 'warning' ? 'badge-warning' : 'badge-danger'}`}>
                         {row.validation_status === 'ready' ? 'พร้อมส่ง' : row.validation_status === 'warning' ? 'ควรตรวจ' : 'ต้องแก้'}

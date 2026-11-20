@@ -1725,6 +1725,10 @@ export const fixWalkinClinicalVisit = async (
 
       if (existingDiag) {
         await connection.query(
+          `UPDATE ovstdiag SET diagtype = '2' WHERE vn = ? AND diagtype = '1' AND ovst_diag_id <> ?`,
+          [vn, existingDiag.ovst_diag_id]
+        );
+        await connection.query(
           `UPDATE ovstdiag SET diagtype = '1' WHERE vn = ? AND ovst_diag_id = ?`,
           [vn, existingDiag.ovst_diag_id]
         );

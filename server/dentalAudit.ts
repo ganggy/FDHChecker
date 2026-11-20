@@ -1336,13 +1336,30 @@ export const fixDentalClinicalVisit = async (input: {
         else if (hasFillingOrExt) dentalPdx = 'K021';
         else dentalPdx = 'Z012';
 
+        const [existingSameCodeRows] = await connection.query(
+          `SELECT ovst_diag_id, diagtype FROM ovstdiag WHERE vn = ? AND REPLACE(UPPER(icd10), '.', '') = ? LIMIT 1`,
+          [vn, dentalPdx]
+        );
+        const existingSameCode = (Array.isArray(existingSameCodeRows) ? existingSameCodeRows[0] : null) as Record<string, unknown> | null;
+
         const [curPdx] = await connection.query(
           `SELECT ovst_diag_id, icd10 FROM ovstdiag WHERE vn = ? AND diagtype = '1' LIMIT 1`,
           [vn]
         );
         const curPdxRow = (Array.isArray(curPdx) ? curPdx[0] : null) as Record<string, unknown> | null;
 
-        if (curPdxRow) {
+        if (existingSameCode) {
+          if (curPdxRow && Number(curPdxRow.ovst_diag_id) !== Number(existingSameCode.ovst_diag_id)) {
+            await connection.query(
+              `UPDATE ovstdiag SET diagtype = '2' WHERE vn = ? AND ovst_diag_id = ?`,
+              [vn, curPdxRow.ovst_diag_id]
+            );
+          }
+          await connection.query(
+            `UPDATE ovstdiag SET diagtype = '1' WHERE vn = ? AND ovst_diag_id = ?`,
+            [vn, existingSameCode.ovst_diag_id]
+          );
+        } else if (curPdxRow) {
           await connection.query(
             `UPDATE ovstdiag SET icd10 = ? WHERE vn = ? AND ovst_diag_id = ?`,
             [dentalPdx, vn, curPdxRow.ovst_diag_id]

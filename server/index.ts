@@ -216,6 +216,7 @@ import {
   previewAncDentalCompletion,
 } from './ancDentalCompletion.js';
 import { completeHerbalDiagnoses, previewHerbalDiagnosisCompletion } from './herbalDiagnosisCompletion.js';
+import { completeFpgScreeningVisit, completeFpgScreeningVisitsBulk } from './fpgScreeningCompletion.js';
 import { annualHealthCheckupRouter } from './annualHealthCheckup.js';
 import {
   getEclaimWorkerStatus,
@@ -2595,6 +2596,56 @@ app.post('/api/hosxp/herbal-diagnosis-completion/:vn', async (req: Authenticated
     return res.status(422).json({
       success: false,
       error: error instanceof Error ? error.message : 'เติม Diagnosis ยาสมุนไพรไม่สำเร็จ',
+    });
+  }
+});
+
+app.post('/api/hosxp/fpg-screening-completion/bulk', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vns = Array.isArray(req.body?.vns) ? req.body.vns.map((v: unknown) => String(v || '').trim()).filter((v: string) => /^\d{1,13}$/.test(v)) : [];
+    if (vns.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการ VN ที่ถูกต้องสำหรับเติมข้อมูล' });
+    const user = req.authUser;
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions) && !user.fund_permissions.includes('fpg_screening')) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนคัดกรองเบาหวาน' });
+    }
+    const result = await completeFpgScreeningVisitsBulk(
+      vns,
+      { id: user?.id, name: user?.display_name || user?.username },
+      { diagCode: req.body?.diagCode },
+    );
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to bulk complete FPG screening visits:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เติมข้อมูลคัดกรองเบาหวานอัตโนมัติไม่สำเร็จ',
+    });
+  }
+});
+
+app.post('/api/hosxp/fpg-screening-completion/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const user = req.authUser;
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions) && !user.fund_permissions.includes('fpg_screening')) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนคัดกรองเบาหวาน' });
+    }
+    const result = await completeFpgScreeningVisit(
+      vn,
+      { id: user?.id, name: user?.display_name || user?.username },
+      { diagCode: req.body?.diagCode },
+    );
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to complete FPG screening visit:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'เติมข้อมูลคัดกรองเบาหวานอัตโนมัติไม่สำเร็จ',
     });
   }
 });

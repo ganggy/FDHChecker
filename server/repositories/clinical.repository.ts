@@ -1674,7 +1674,7 @@ export const getSpecificFundData = async (
           AND (
             (
               v.age_y BETWEEN 35 AND 59
-              AND ${buildDiagnosisMatchSql('o', 'v', FPG_DX_CODES)}
+              /* Condition 1+2+3 (age 35-59 + FPG/FBS/BS lab + no DM Dx) included even when Z131/ADP 12003 missing */
               AND ${buildFpgLabExistsSql('o')}
             )
             OR EXISTS (

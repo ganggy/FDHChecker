@@ -172,6 +172,9 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [ancDentalCompletionMessage, setAncDentalCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const [herbalCompletingVn, setHerbalCompletingVn] = useState<string | null>(null);
     const [herbalCompletionMessage, setHerbalCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+    const [fpgCompletingVn, setFpgCompletingVn] = useState<string | null>(null);
+    const [fpgBulkCompleting, setFpgBulkCompleting] = useState(false);
+    const [fpgCompletionMessage, setFpgCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
     const [deletingPalliativeVn, setDeletingPalliativeVn] = useState<string | null>(null);
     const [markingPalliativeHomeVn, setMarkingPalliativeHomeVn] = useState<string | null>(null);
     const [palliativeActionMessage, setPalliativeActionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
@@ -1970,6 +1973,102 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
             : actionableData;
 
+    const isFpgAutoCompletable = useCallback((item: any) => {
+        const hasAge = toFlag(item?.age_eligible);
+        const hasLab = toFlag(item?.has_fpg_lab);
+        const noDmDiag = item?.no_dm_diag !== undefined
+            ? toFlag(item?.no_dm_diag)
+            : ![item?.pdx, item?.dx0, item?.dx1, item?.dx2, item?.dx3, item?.dx4, item?.dx5]
+                .some((d) => /^E1[0-4]/i.test(String(d || '').replace(/\./g, '').trim()));
+        const hasDiag = toFlag(item?.has_fpg_diag) || hasDiagCodes(item, ['Z131', 'Z133', 'Z136']);
+        const hasAdp = toFlag(item?.has_fpg_adp) || hasAnyCodeValue(item?.adp_names, ['12003']) || hasAnyCodeValue(item?.anc_adp_codes, ['12003']);
+        return hasAge && hasLab && noDmDiag && (!hasDiag || !hasAdp);
+    }, []);
+
+    const fpgAutoCompletableVisits = useMemo(() => {
+        if (activeFund !== 'fpg_screening') return [];
+        return filteredData.filter(isFpgAutoCompletable);
+    }, [activeFund, filteredData, isFpgAutoCompletable]);
+
+    const handleFpgAutoCompleteOne = async (item: any) => {
+        const vn = String(item?.vn || '').trim();
+        if (!vn) return;
+        const missingDiag = !(toFlag(item?.has_fpg_diag) || hasDiagCodes(item, ['Z131', 'Z133', 'Z136']));
+        const missingAdp = !(toFlag(item?.has_fpg_adp) || hasAnyCodeValue(item?.adp_names, ['12003']));
+        const parts = [missingDiag ? 'Diagnosis Z131' : '', missingAdp ? 'ADP 12003' : ''].filter(Boolean).join(' และ ');
+        if (!window.confirm(`ยืนยันเติมข้อมูลที่ขาดอัตโนมัติสำหรับ VN ${vn} (${item.patientName || ''})?\nระบบจะเติม: ${parts}`)) return;
+
+        setFpgCompletingVn(vn);
+        setFpgCompletionMessage(null);
+        try {
+            const res = await fetch(`/api/hosxp/fpg-screening-completion/${encodeURIComponent(vn)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ diagCode: 'Z131' }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok || payload?.success === false) {
+                throw new Error(payload?.error || 'เติมข้อมูลคัดกรองเบาหวานไม่สำเร็จ');
+            }
+            const added: string[] = [];
+            if (payload?.result?.insertedDiag) added.push(`Diag ${payload.result.insertedDiag}`);
+            if (payload?.result?.insertedAdp) added.push(`ADP 12003 (${payload.result.insertedAdp.icode})`);
+            setFpgCompletionMessage({
+                kind: 'success',
+                text: `✅ เติมข้อมูล VN ${vn} สำเร็จ: ${added.length > 0 ? added.join(' + ') : 'ข้อมูลครบแล้ว'}`,
+            });
+            await fetchFundData();
+        } catch (err) {
+            setFpgCompletionMessage({
+                kind: 'warning',
+                text: `⚠️ VN ${vn}: ${err instanceof Error ? err.message : 'เติมข้อมูลไม่สำเร็จ'}`,
+            });
+        } finally {
+            setFpgCompletingVn(null);
+        }
+    };
+
+    const handleFpgAutoCompleteBulk = async () => {
+        if (fpgAutoCompletableVisits.length === 0) return;
+        const missingDiagCount = fpgAutoCompletableVisits.filter((it) => !(toFlag(it?.has_fpg_diag) || hasDiagCodes(it, ['Z131', 'Z133', 'Z136']))).length;
+        const missingAdpCount = fpgAutoCompletableVisits.filter((it) => !(toFlag(it?.has_fpg_adp) || hasAnyCodeValue(it?.adp_names, ['12003']))).length;
+        if (!window.confirm(
+            `ยืนยันเติมข้อมูลคัดกรองเบาหวานอัตโนมัติทั้งหมด ${fpgAutoCompletableVisits.length} รายการ?\n` +
+            `- เติม Diagnosis Z131: ${missingDiagCount} รายการ\n` +
+            `- เติม ADP 12003: ${missingAdpCount} รายการ\n\n` +
+            `(ระบบจะตรวจซ้ำเงื่อนไข อายุ 35-59 ปี + มี Lab FPG/FBS/BS + ไม่มี E100-E149 ก่อนบันทึกทุกรายการ)`
+        )) return;
+
+        setFpgBulkCompleting(true);
+        setFpgCompletionMessage(null);
+        try {
+            const vns = fpgAutoCompletableVisits.map((it) => String(it.vn || '').trim()).filter(Boolean);
+            const res = await fetch('/api/hosxp/fpg-screening-completion/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vns, diagCode: 'Z131' }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok || payload?.success === false) {
+                throw new Error(payload?.error || 'เติมข้อมูลคัดกรองเบาหวานอัตโนมัติไม่สำเร็จ');
+            }
+            const r = payload.result || {};
+            const failedNote = r.failedCount > 0 ? ` | ไม่สำเร็จ ${r.failedCount} รายการ (${r.failed?.[0]?.error || ''})` : '';
+            setFpgCompletionMessage({
+                kind: r.failedCount > 0 && r.updatedCount === 0 ? 'warning' : 'success',
+                text: `✅ เติมข้อมูลอัตโนมัติสำเร็จ ${r.updatedCount || 0} รายการ (เพิ่ม Z131: ${r.diagAddedCount || 0}, เพิ่ม ADP 12003: ${r.adpAddedCount || 0}, ข้ามที่ครบแล้ว: ${r.skippedCount || 0})${failedNote}`,
+            });
+            await fetchFundData();
+        } catch (err) {
+            setFpgCompletionMessage({
+                kind: 'warning',
+                text: `⚠️ ${err instanceof Error ? err.message : 'เติมข้อมูลอัตโนมัติไม่สำเร็จ'}`,
+            });
+        } finally {
+            setFpgBulkCompleting(false);
+        }
+    };
+
     const buildExportRows = useCallback((items: any[], fundId: string): Array<Record<string, string | number>> => {
         const evaluateStatus = getStatusForFundRef.current;
         return items.map((item, index) => {
@@ -3017,6 +3116,45 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                         {activeFund === 'herb' && herbalCompletionMessage && (
                             <div className={`alert ${herbalCompletionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
                                 {herbalCompletionMessage.text}
+                            </div>
+                        )}
+                        {activeFund === 'fpg_screening' && fpgCompletionMessage && (
+                            <div className={`alert ${fpgCompletionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
+                                {fpgCompletionMessage.text}
+                            </div>
+                        )}
+                        {activeFund === 'fpg_screening' && fpgAutoCompletableVisits.length > 0 && (
+                            <div className="alert" style={{
+                                background: '#ecfdf5',
+                                borderColor: '#a7f3d0',
+                                color: '#065f46',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                flexWrap: 'wrap',
+                                gap: '12px',
+                                padding: '12px 16px',
+                                borderRadius: '8px',
+                                marginBottom: '16px',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{ fontSize: '20px' }}>⚡</span>
+                                    <div>
+                                        <strong>พบเคสผ่านเงื่อนไข 1+2+3 (อายุ 35-59 ปี + มี Lab FPG/FBS/BS + ไม่มี E100-E149) แต่ยังขาด Z131 หรือ ADP 12003 จำนวน {fpgAutoCompletableVisits.length.toLocaleString()} รายการ</strong>
+                                        <div style={{ fontSize: '12px', color: '#047857', marginTop: '2px' }}>
+                                            ขาด Diag Z131: {fpgAutoCompletableVisits.filter((it) => !(toFlag(it?.has_fpg_diag) || hasDiagCodes(it, ['Z131', 'Z133', 'Z136']))).length} รายการ · ขาด ADP 12003: {fpgAutoCompletableVisits.filter((it) => !(toFlag(it?.has_fpg_adp) || hasAnyCodeValue(it?.adp_names, ['12003']))).length} รายการ
+                                        </div>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-success"
+                                    style={{ fontSize: '13px', padding: '8px 14px', fontWeight: 700 }}
+                                    disabled={fpgBulkCompleting || Boolean(fpgCompletingVn)}
+                                    onClick={() => void handleFpgAutoCompleteBulk()}
+                                >
+                                    {fpgBulkCompleting ? '⏳ กำลังเติมข้อมูลอัตโนมัติ...' : `⚡ เติมข้อมูลที่ขาดอัตโนมัติทั้งหมด (${fpgAutoCompletableVisits.length})`}
+                                </button>
                             </div>
                         )}
                         {activeFund === 'palliative' && palliativeActionMessage && (
@@ -4098,7 +4236,24 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             {item.pdx ? <span className="badge badge-primary">{item.pdx}</span> : '-'}
                                                         </td>
                                                         <td style={{ textAlign: 'center' }}>
-                                                            <span className="badge badge-success">{item.authencode || '-'}</span>
+                                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                                                                <span className="badge badge-success">{item.authencode || '-'}</span>
+                                                                {isFpgAutoCompletable(item) && (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-sm btn-success"
+                                                                        style={{ fontSize: 11, padding: '2px 8px', fontWeight: 700 }}
+                                                                        disabled={fpgBulkCompleting || fpgCompletingVn === item.vn}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            void handleFpgAutoCompleteOne(item);
+                                                                        }}
+                                                                        title="เติม Z131 และ/หรือ ADP 12003 ที่ขาดอัตโนมัติลง HOSxP"
+                                                                    >
+                                                                        {fpgCompletingVn === item.vn ? '⏳ กำลังเติม...' : '⚡ เติม Auto'}
+                                                                    </button>
+                                                                )}
+                                                            </div>
                                                         </td>
                                                     </>
                                                 )}

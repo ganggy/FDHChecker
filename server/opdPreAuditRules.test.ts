@@ -83,3 +83,22 @@ test('OPD audit returns a summarized API result', () => {
   assert.equal(blocked?.blockingCount, 1);
   assert.equal(blocked?.reviewCount, 2);
 });
+
+
+test('OPD audit catches secondary S/T injury lacking V/W/X/Y and blocks V/W/X/Y as PDX', () => {
+  const secondaryInjury = evaluateOpdPreAudit({
+    has_provider: 1,
+    has_clinical_note: 1,
+    main_diag: 'J00',
+    diagnosis_codes: 'J00, S0180',
+  });
+  assert.equal(secondaryInjury.some((i) => i.code === 'OPD-DX02'), true);
+
+  const externalAsPdx = evaluateOpdPreAudit({
+    has_provider: 1,
+    has_clinical_note: 1,
+    main_diag: 'W1909',
+    diagnosis_codes: 'W1909',
+  });
+  assert.equal(externalAsPdx.some((i) => i.code === 'OPD-DX03' && i.severity === 'blocking'), true);
+});

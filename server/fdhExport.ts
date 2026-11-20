@@ -425,6 +425,56 @@ export const validateFdhData = (
     });
   }
 
+  // ตรวจรหัสอุบัติเหตุ/บาดเจ็บ (S00-T98) ต้องมีรหัสสาเหตุภายนอก (V01-Y98 / Diagtype 5) ร่วมด้วย และห้ามใช้ V/W/X/Y เป็นโรคหลัก (DXTYPE=1)
+  const checkAccidentExternalCause = (file: 'ODX' | 'IDX', keyField: 'SEQ' | 'AN') => {
+    const groups = new Map<string, Array<{ rowIndex: number; hn: string; keyId: string; diag: string; dxtype: string }>>();
+    data[file].forEach((row, index) => {
+      const hn = value(row, 'HN');
+      const keyId = value(row, keyField);
+      const diag = value(row, 'DIAG').toUpperCase().replace(/\./g, '');
+      const dxtype = value(row, 'DXTYPE');
+      if (!keyId || !diag) return;
+      const gKey = `${hn}|${keyId}`;
+      const list = groups.get(gKey) || [];
+      list.push({ rowIndex: index + 1, hn, keyId, diag, dxtype });
+      groups.set(gKey, list);
+    });
+
+    groups.forEach((rows, gKey) => {
+      const injuryCodes = [...new Set(rows.map((r) => r.diag).filter((d) => /^[ST]\d{2}/.test(d)))];
+      const externalCodes = rows.filter((r) => /^[VWXY]\d{2}/.test(r.diag));
+
+      // ห้ามใช้ V/W/X/Y เป็นโรคหลัก (DXTYPE=1)
+      for (const ext of externalCodes) {
+        if (ext.dxtype === '1') {
+          add({
+            code: `${file}_EXTERNAL_CAUSE_AS_PDX`,
+            file,
+            row: ext.rowIndex,
+            field: 'DIAG',
+            key: gKey,
+            message: `${file} HN ${ext.hn}, ${keyField} ${ext.keyId}: ห้ามใช้รหัสสาเหตุภายนอก (${ext.diag}) เป็นโรคหลัก (DXTYPE=1) ต้องใช้รหัสการบาดเจ็บ (S/T) เป็นโรคหลัก และใส่ V/W/X/Y เป็น DXTYPE=5 (C-801)`,
+          });
+        }
+      }
+
+      // ถ้ามีรหัสอุบัติเหตุ/บาดเจ็บ (S00-T98) ต้องมีรหัสสาเหตุภายนอก (V/W/X/Y) ร่วมด้วยเสมอ
+      if (injuryCodes.length > 0 && externalCodes.length === 0) {
+        const first = rows[0];
+        add({
+          code: `${file}_EXTERNAL_CAUSE_REQUIRED`,
+          file,
+          row: first.rowIndex,
+          field: 'DIAG',
+          key: gKey,
+          message: `${file} HN ${first.hn}, ${keyField} ${first.keyId}: พบวินิจฉัยอุบัติเหตุ/บาดเจ็บ (${injuryCodes.join(', ')}) แต่ไม่มีรหัสสาเหตุภายนอก (V/W/X/Y, DXTYPE=5) ร่วมด้วย (C-231/C-232)`,
+        });
+      }
+    });
+  };
+  checkAccidentExternalCause('ODX', 'SEQ');
+  checkAccidentExternalCause('IDX', 'AN');
+
   const chaTotals = new Map<string, number>();
   data.CHA.forEach((row) => {
     const key = keyOf(row, ['HN', 'AN', 'SEQ']);

@@ -99,11 +99,25 @@ export const evaluateOpdPreAudit = (row: Record<string, unknown>): OpdPreAuditIs
   const allDx = diagnosisCodes(row);
   const primaryDx = normalizeDiagnosisCode(row.main_diag ?? row.pdx ?? row.dx0 ?? '');
   const isInjuryPdx = primaryDx.startsWith('S') || primaryDx.startsWith('T');
+  const injuryOtherDx = allDx.filter((code) => /^[ST]\d{2}/.test(code) && code !== primaryDx);
   const hasExternalCause = allDx.some((code) => /^[VWXY]/.test(code));
+  if (/^[VWXY]/.test(primaryDx)) {
+    issues.push({
+      code: 'OPD-DX03',
+      message: `ห้ามใช้รหัสสาเหตุภายนอก (${primaryDx}) เป็นโรคหลัก (PDX) ต้องใช้รหัสการบาดเจ็บ (S/T) เป็นโรคหลัก และใส่ V/W/X/Y เป็น Diagtype 5 (e-Claim C-801)`,
+      severity: 'blocking',
+    });
+  }
   if (isInjuryPdx && !hasExternalCause) {
     issues.push({
       code: 'OPD-DX02',
       message: `รหัสวินิจฉัยหลักกลุ่มบาดเจ็บ (${primaryDx}) ต้องมีรหัสสาเหตุภายนอก (V, W, X, Y) ร่วมด้วย (e-Claim C-232)`,
+      severity: 'warning',
+    });
+  } else if (injuryOtherDx.length > 0 && !hasExternalCause) {
+    issues.push({
+      code: 'OPD-DX02',
+      message: `พบวินิจฉัยร่วมกลุ่มอุบัติเหตุ/บาดเจ็บ (${injuryOtherDx.join(', ')}) ต้องมีรหัสสาเหตุภายนอก (V, W, X, Y, Diagtype 5) ร่วมด้วย (e-Claim C-232)`,
       severity: 'warning',
     });
   }

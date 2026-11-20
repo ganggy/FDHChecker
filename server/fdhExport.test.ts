@@ -289,3 +289,28 @@ test('preflight rejects WALKIN in ADP for IPD', () => {
   assert.equal(result.errors.some((issue) => issue.code === 'IPD_WALKIN_NOT_ALLOWED'), true);
 });
 
+
+
+test('preflight blocks accident/injury diagnosis (S00-T98) without external cause (V/W/X/Y) in ODX and IDX', () => {
+  const opdMissing = validFwfData();
+  opdMissing.ODX = [
+    { HN: '0001', DATEDX: '20260720', CLINIC: '00100', DIAG: 'S018', DXTYPE: '1', DRDX: '12345', PERSON_ID: '1234567890123', SEQ: 'VN1' },
+  ];
+  const res1 = validateFdhData(opdMissing, 'fwf-migrants', '11101');
+  assert.equal(res1.errors.some((i) => i.code === 'ODX_EXTERNAL_CAUSE_REQUIRED'), true);
+
+  const opdComplete = validFwfData();
+  opdComplete.ODX = [
+    { HN: '0001', DATEDX: '20260720', CLINIC: '00100', DIAG: 'S018', DXTYPE: '1', DRDX: '12345', PERSON_ID: '1234567890123', SEQ: 'VN1' },
+    { HN: '0001', DATEDX: '20260720', CLINIC: '00100', DIAG: 'W1909', DXTYPE: '5', DRDX: '12345', PERSON_ID: '1234567890123', SEQ: 'VN1' },
+  ];
+  const res2 = validateFdhData(opdComplete, 'fwf-migrants', '11101');
+  assert.equal(res2.errors.some((i) => i.code === 'ODX_EXTERNAL_CAUSE_REQUIRED'), false);
+
+  const extAsPdx = validFwfData();
+  extAsPdx.ODX = [
+    { HN: '0001', DATEDX: '20260720', CLINIC: '00100', DIAG: 'V2999', DXTYPE: '1', DRDX: '12345', PERSON_ID: '1234567890123', SEQ: 'VN1' },
+  ];
+  const res3 = validateFdhData(extAsPdx, 'fwf-migrants', '11101');
+  assert.equal(res3.errors.some((i) => i.code === 'ODX_EXTERNAL_CAUSE_AS_PDX'), true);
+});

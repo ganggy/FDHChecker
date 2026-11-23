@@ -1,9 +1,11 @@
 export const AI_ALLOWED_HOSXP_TABLES = new Set([
-  'patient', 'ovst', 'vn_stat', 'ipt', 'an_stat', 'ovstdiag', 'opdscreen',
+  'patient', 'ovst', 'vn_stat', 'ipt', 'an_stat', 'ovstdiag', 'iptdiag', 'opdscreen',
   'opitemrece', 'drugitems', 's_drugitems', 'nondrugitems', 'income',
   'lab_head', 'lab_order', 'lab_items', 'oapp', 'clinic', 'kskdepartment',
-  'pttype', 'ward', 'doctor', 'doctor_operation', 'icd101', 'icd9cm1',
-  'dtmain', 'dttm', 'er_regist_oper', 'er_oper_code', 'referin', 'referout',
+  'pttype', 'pttype_group', 'ward', 'doctor', 'doctor_operation', 'iptoprt', 'icd101', 'icd9cm1',
+  'dtmain', 'dttm', 'er_regist', 'er_regist_oper', 'er_oper_code',
+  'referin', 'referout', 'hospcode', 'refer_cause', 'rfrcs',
+  'person_anc', 'person_anc_service', 'ovst_seq',
   'authenhos', 'visit_pttype', 'nhso_confirm_privilege', 'fdh_claim_status',
   'ovstist', 'spclty',
 ]);
@@ -21,9 +23,22 @@ export const HOSXP_SEMANTIC_CATALOG = `
 
 วินิจฉัยและอาการ
 - ovstdiag d: vn, icd10, diagtype (diagtype='1' คือวินิจฉัยหลัก)
+- iptdiag id: an, icd10, diagtype (วินิจฉัยผู้ป่วยใน)
 - opdscreen os: vn, cc, hpi, bw, height, bps, bpd, pulse, temperature
 - icd101: code, name
-- doctor_operation: vn, icd9; icd9cm1: code, name
+- doctor_operation: vn, icd9; iptoprt io: an, icd9, opdate, optime, doctor; icd9cm1: code, name
+
+การส่งต่อ (Refer) และโรงพยาบาล
+- referout r: vn, hn, refer_date, refer_time, refer_hospcode, hospcode, refer_number, refer_cause, pre_diagnosis, pdx, doctor, department, pttype
+- referin ri: vn, hn, refer_date, refer_hospcode, hospcode, refer_number, icd10, refer_point
+- hospcode h: hospcode, name, hosptype, chwpart, amppart (ชื่อ รพ.ปลายทาง/ต้นทาง เช่น h.name LIKE '%ศิริราช%')
+ความสัมพันธ์: COALESCE(NULLIF(r.refer_hospcode,''), r.hospcode) = h.hospcode (หรือ r.refer_hospcode = h.hospcode), r.hn = patient.hn
+
+ฉุกเฉิน ฝากครรภ์ (ANC) และกลุ่มสิทธิ
+- er_regist er: vn, vstdate, er_pt_type, er_emergency_type, er_dch_type
+- person_anc pa: person_anc_id, person_id, preg_no, lmp, edc
+- person_anc_service pas: person_anc_id, vn, anc_service_date
+- pttype_group pg: pttype_group, name
 
 ยา บริการ และค่าใช้จ่าย
 - opitemrece oi: vn, an, hn, icode, qty, unitprice, sum_price, income
@@ -61,6 +76,23 @@ export const HOSXP_SEMANTIC_CATALOG = `
 - นัดที่ยังใช้งาน: COALESCE(oapp_status_id,1) <> 4
 - ชื่อเต็ม: CONCAT(COALESCE(pname,''),COALESCE(fname,''),' ',COALESCE(lname,''))
 - ระบุช่วงวันที่เสมอเมื่อคำถามเกี่ยวข้องกับเวลา และใช้ parameter เป็นค่าวันที่ literal รูปแบบ YYYY-MM-DD
-- ปีงบประมาณไทย XXXX คือ 1 ตุลาคมของปีคริสต์ศักราช (XXXX-544) ถึง 30 กันยายนของปีคริสต์ศักราช (XXXX-543); เช่น ปีงบประมาณ 2569 คือ 2025-10-01 ถึง 2026-09-30
+- ปีงบประมาณไทย XXXX คือ 1 ตุลาคมของปีคริสต์ศักราช (XXXX-544) ถึง 30 กันยายนของปีคริสต์ศักราช (XXXX-543); เช่น ปีงบประมาณ 2569 คือ 2025-10-01 ถึง 2026-09-30 และ 2570 คือ 2026-10-01 ถึง 2027-09-30
 - ผลลัพธ์ต้องไม่เกิน 200 แถว
+
+ตัวอย่าง SQL อ้างอิง (Few-Shot)
+1) ค้นหา HN/รายชื่อคนไข้ที่ Refer ไป รพ.ปลายทาง:
+SELECT DISTINCT r.hn, CONCAT(COALESCE(p.pname,''),COALESCE(p.fname,''),' ',COALESCE(p.lname,'')) AS patient_name, r.refer_date, r.pdx, h.name AS hosp_name
+FROM referout r
+JOIN patient p ON p.hn = r.hn
+JOIN hospcode h ON h.hospcode = COALESCE(NULLIF(r.refer_hospcode,''), r.hospcode)
+WHERE h.name LIKE '%ศิริราช%' AND r.refer_date BETWEEN '2026-10-01' AND '2026-11-23'
+ORDER BY r.refer_date DESC LIMIT 200
+
+2) สรุปจำนวนครั้ง/ยอดค่าใช้จ่าย/การเบิกจ่ายแยกตามสิทธิ:
+SELECT pt.name AS pttype_name, COUNT(DISTINCT o.vn) AS visits, SUM(COALESCE(v.income, 0)) AS total_income
+FROM ovst o
+LEFT JOIN vn_stat v ON v.vn = o.vn
+LEFT JOIN pttype pt ON pt.pttype = o.pttype
+WHERE o.vstdate BETWEEN '2026-10-01' AND '2026-10-31'
+GROUP BY pt.name ORDER BY visits DESC LIMIT 50
 `.trim();

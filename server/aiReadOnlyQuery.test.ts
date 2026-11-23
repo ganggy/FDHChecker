@@ -43,3 +43,17 @@ test('rejects unknown tables and system schemas', () => {
 test('does not treat blocked words inside quoted values as commands', () => {
   assert.doesNotThrow(() => validateReadOnlySql("SELECT 'update delete' AS note FROM patient LIMIT 1"));
 });
+
+
+test('accepts referout joined with hospcode and iptdiag/er_regist queries', () => {
+  const result = validateReadOnlySql(
+    `SELECT r.hn, h.name FROM referout r JOIN hospcode h ON h.hospcode = r.refer_hospcode WHERE h.name LIKE '%ศิริราช%'`,
+  );
+  assert.deepEqual(result.tables, ['referout', 'hospcode']);
+  assert.match(result.sql, /LIMIT 200$/);
+
+  const ipdResult = validateReadOnlySql(
+    `SELECT COUNT(DISTINCT id.an) AS cases FROM iptdiag id JOIN er_regist er ON er.vn = id.an`,
+  );
+  assert.deepEqual(ipdResult.tables, ['iptdiag', 'er_regist']);
+});

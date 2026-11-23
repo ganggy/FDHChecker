@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   clearConversationState,
+  extractThaiDateHints,
   formatVerifiedAggregateAnswer,
   getConversationLastAction,
   getConversationHistory,
@@ -99,4 +100,13 @@ test('binds follow-up clinical questions to a confirmed HN and can clear it', ()
   });
   setConversationPatientContext(key, null);
   assert.equal(getConversationPatientContext(key), null);
+});
+
+
+test('extracts Buddhist Era Thai dates into explicit AD YYYY-MM-DD planner hints', () => {
+  const hints1 = extractThaiDateHints('ต้องการทราบ HN คนไข้ที่ refer ไป รพ.ศิริราช ตั้งแต่ 1 ต.ค.69 ถึง 23 พ.ย.69');
+  assert.deepEqual(hints1, ['1 ต.ค.69 = 2026-10-01', '23 พ.ย.69 = 2026-11-23']);
+
+  const hints2 = extractThaiDateHints('ยอดผู้ป่วยถึงวันที่ 30 ก.ย. 2570 และ 15 มกราคม 2569');
+  assert.deepEqual(hints2, ['30 ก.ย. 2570 = 2027-09-30', '15 มกราคม 2569 = 2026-01-15']);
 });

@@ -112,7 +112,6 @@ const loadCatalogItemsFor12003 = async (connection: HospitalConnection): Promise
           ORDER BY recent.vstdate DESC, recent.vsttime DESC, recent.item_no DESC
           LIMIT 1
         ),
-        sd.price,
         50
       ) AS unitprice,
       COALESCE(
@@ -123,7 +122,6 @@ const loadCatalogItemsFor12003 = async (connection: HospitalConnection): Promise
           ORDER BY recent.vstdate DESC, recent.vsttime DESC, recent.item_no DESC
           LIMIT 1
         ),
-        NULLIF(sd.income, ''),
         '07'
       ) AS income,
       (

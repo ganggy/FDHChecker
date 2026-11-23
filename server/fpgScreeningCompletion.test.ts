@@ -34,14 +34,14 @@ test('blocks auto-completion when visit has diabetes diagnosis (E100-E149)', () 
   assert.ok(result.blockers.some((b) => b.includes('E100-E149')));
 });
 
-test('blocks auto-completion when age is outside 35-59 or FPG/FBS/BS lab is missing', () => {
+test('blocks auto-completion when age is outside 35-59 or FPG/FBS lab is missing', () => {
   const wrongAge = assessFpgScreeningCompletion(baseSnapshot({ age: 30, ageEligible: false }));
   assert.equal(wrongAge.canComplete, false);
   assert.ok(wrongAge.blockers.some((b) => b.includes('35-59')));
 
   const noLab = assessFpgScreeningCompletion(baseSnapshot({ hasFpgLab: false }));
   assert.equal(noLab.canComplete, false);
-  assert.ok(noLab.blockers.some((b) => b.includes('Lab FPG/FBS/BS')));
+  assert.ok(noLab.blockers.some((b) => b.includes('Lab FPG/FBS')));
 });
 
 test('blocks auto-completion when ADP 12003 is missing and hospital catalog has no 12003 item', () => {

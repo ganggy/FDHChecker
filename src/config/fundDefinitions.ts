@@ -202,10 +202,10 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
     {
         id: 'fpg_screening',
         name: 'คัดกรองเบาหวาน',
-        description: 'กลุ่มเสี่ยงอายุ 35-59 ปี ด้วย FPG/FBS/BS (ต้องไม่มี Dx. E100-E149)',
+        description: 'กลุ่มเสี่ยงอายุ 35-59 ปี ด้วย FPG/FBS (ต้องไม่มี Dx. E100-E149)',
         claimChannel: 'e-Claim',
         recordingSystem: 'ช่องทางที่ตั้งค่าไว้: ผ่าน e-Claim หรือช่องทาง PPFS ที่ประกาศกำหนด',
-        conditions: ['อายุ 35-59 ปี', 'Lab FPG/FBS/BS', 'ต้องไม่มี Dx. E100-E149', 'Diagnosis Z131 หรือ Z133 หรือ Z136', 'ADP 12003', 'อัตรา 50 บาทต่อครั้ง']
+        conditions: ['อายุ 35-59 ปี', 'Lab FPG/FBS', 'ต้องไม่มี Dx. E100-E149', 'Diagnosis Z131 หรือ Z133 หรือ Z136', 'ADP 12003', 'อัตรา 50 บาทต่อครั้ง']
     },
     {
         id: 'cholesterol_screening',

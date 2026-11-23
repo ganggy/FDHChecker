@@ -312,7 +312,7 @@ export const evaluateBillingLogic = (item: any) => {
             : ![item?.pdx, item?.dx0, item?.dx1, item?.dx2, item?.dx3, item?.dx4, item?.dx5].some((d) => /^E1[0-4]/i.test(String(d || '').replace(/\./g, '').trim()));
         const fpgNearMissing = getNearFundMissingParts(hasFpgAdp, ' ADP 12003', [
             { met: hasFpgAge, label: ' อายุ 35-59 ปี' },
-            { met: hasFpgLab, label: ' Lab FPG/FBS/BS' },
+            { met: hasFpgLab, label: ' Lab FPG/FBS' },
             { met: hasFpgDiag, label: ' DX Z131/Z133/Z136' },
             { met: noFpgDmDiag, label: ' ต้องไม่มี Dx. E100-E149' },
         ], hasFpgAge && noFpgDmDiag && (hasFpgLab || hasFpgDiag));

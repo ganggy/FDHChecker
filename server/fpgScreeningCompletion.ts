@@ -59,7 +59,7 @@ export const assessFpgScreeningCompletion = (
 
   const blockers: string[] = [];
   if (!snapshot.ageEligible) blockers.push('ไม่ผ่านเงื่อนไข 1: อายุไม่อยู่ในช่วง 35-59 ปี');
-  if (!snapshot.hasFpgLab) blockers.push('ไม่ผ่านเงื่อนไข 2: ไม่พบผลตรวจ Lab FPG/FBS/BS ใน visit นี้');
+  if (!snapshot.hasFpgLab) blockers.push('ไม่ผ่านเงื่อนไข 2: ไม่พบผลตรวจ Lab FPG/FBS ใน visit นี้');
   if (!snapshot.noDmDiag) blockers.push('ไม่ผ่านเงื่อนไข 3: พบการวินิจฉัยโรคเบาหวาน (E100-E149) ใน visit นี้');
   if (!snapshot.hasFpgAdp && !selectedCatalogItem) {
     blockers.push('ไม่พบรายการค่าบริการที่ผูก ADP 12003 ใน s_drugitems ของโรงพยาบาล');

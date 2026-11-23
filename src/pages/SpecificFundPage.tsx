@@ -1142,7 +1142,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 if (!hasAdp) missingFpg.push(' ADP 12003');
             } else if (hasAdp && !isMatched) {
                 if (!hasAge) missingFpg.push(' อายุ 35-59 ปี');
-                if (!hasLab) missingFpg.push(' Lab FPG/FBS/BS');
+                if (!hasLab) missingFpg.push(' Lab FPG/FBS');
                 if (!hasDiag) missingFpg.push(' Diagnosis Z131/Z133/Z136');
                 if (!noDmDiag) missingFpg.push(' ต้องไม่มี Dx. E100-E149');
             }
@@ -2037,7 +2037,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             `ยืนยันเติมข้อมูลคัดกรองเบาหวานอัตโนมัติทั้งหมด ${fpgAutoCompletableVisits.length} รายการ?\n` +
             `- เติม Diagnosis Z131: ${missingDiagCount} รายการ\n` +
             `- เติม ADP 12003: ${missingAdpCount} รายการ\n\n` +
-            `(ระบบจะตรวจซ้ำเงื่อนไข อายุ 35-59 ปี + มี Lab FPG/FBS/BS + ไม่มี E100-E149 ก่อนบันทึกทุกรายการ)`
+            `(ระบบจะตรวจซ้ำเงื่อนไข อายุ 35-59 ปี + มี Lab FPG/FBS + ไม่มี E100-E149 ก่อนบันทึกทุกรายการ)`
         )) return;
 
         setFpgBulkCompleting(true);
@@ -3143,7 +3143,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                     <div>
                                         <strong>
                                             {fpgAutoCompletableVisits.length > 0
-                                                ? `พบเคสผ่านเงื่อนไข 1+2+3 (อายุ 35-59 ปี + มี Lab FPG/FBS/BS + ไม่มี E100-E149) แต่ยังขาด Z131 หรือ ADP 12003 จำนวน ${fpgAutoCompletableVisits.length.toLocaleString()} รายการ`
+                                                ? `พบเคสผ่านเงื่อนไข 1+2+3 (อายุ 35-59 ปี + มี Lab FPG/FBS + ไม่มี E100-E149) แต่ยังขาด Z131 หรือ ADP 12003 จำนวน ${fpgAutoCompletableVisits.length.toLocaleString()} รายการ`
                                                 : 'ระบบเติมข้อมูลอัตโนมัติ (Z131 + ADP 12003) พร้อมใช้งาน — ช่วงวันที่นี้ไม่มีเคสที่ผ่านเงื่อนไข 1+2+3 และขาดข้อมูล'}
                                         </strong>
                                         {fpgAutoCompletableVisits.length > 0 && (

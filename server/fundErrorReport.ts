@@ -258,7 +258,7 @@ export const getFundMissingConditions = (fundId: string, row: FundRow) => {
         : !(['E10', 'E11', 'E12', 'E13', 'E14'].some((p) => hasPrefix(row, p)));
       addWebNearStatusMissing(missing, flag(row.has_fpg_adp), 'ADP 12003', [
         { met: flag(row.age_eligible), label: 'อายุ 35-59 ปี' },
-        { met: flag(row.has_fpg_lab), label: 'Lab FPG/FBS/BS' },
+        { met: flag(row.has_fpg_lab), label: 'Lab FPG/FBS' },
         { met: flag(row.has_fpg_diag) || hasCode(row, ['Z131','Z133','Z136']), label: 'Diagnosis Z131/Z133/Z136' },
         { met: noDmDiag, label: 'ต้องไม่มี Dx. E100-E149' },
       ]);

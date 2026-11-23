@@ -1,9 +1,42 @@
 import type { HospitalConnection } from './hospitalDatabase.js';
 import { readHospitalSchema } from './hospitalSchema.js';
 
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+export const toIsoDate = (raw: unknown): string => {
+  if (raw instanceof Date && Number.isFinite(raw.getTime())) {
+    return `${raw.getFullYear()}-${pad2(raw.getMonth() + 1)}-${pad2(raw.getDate())}`;
+  }
+  const s = String(raw ?? '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+};
+
+export const getThaiFiscalYearRange = (rawDate: unknown): { fiscalYear: number; start: string; end: string } | null => {
+  const iso = toIsoDate(rawDate);
+  if (!iso) return null;
+  const [yStr, mStr, dStr] = iso.split('-');
+  const year = Number(yStr);
+  const month = Number(mStr);
+  const day = Number(dStr);
+  if (!Number.isFinite(year) || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const startYear = month >= 10 ? year : year - 1;
+  return {
+    fiscalYear: startYear + 1,
+    start: `${startYear}-10-01`,
+    end: `${startYear + 1}-09-30`,
+  };
+};
+
+export const FPG_EXCLUDED_DM_CODES = [
+  'E10', 'E11', 'E12', 'E13', 'E14',
+  ...['E10', 'E11', 'E12', 'E13', 'E14'].flatMap((prefix) =>
+    Array.from({ length: 10 }, (_, n) => `${prefix}${n}`)
+  ),
+];
+
 export const excludedScreeningCode = (fund: string, value: unknown) => {
   const code = String(value || '').toUpperCase().replace(/[.\s]/g, '');
-  return fund === 'fpg_screening' ? /^E11\d$/.test(code)
+  return fund === 'fpg_screening' ? /^E1[0-4]\d?$/.test(code)
     : fund === 'cholesterol_screening' && /^(I10|I11\d?|I120)$/.test(code);
 };
 const blocked = (row: Record<string, unknown>, reason: string, review = false) => ({
@@ -14,13 +47,16 @@ export async function attachFundEligibility(connection: HospitalConnection, fund
   if (!rows.length || !['fpg_screening', 'cholesterol_screening', 'anc_ultrasound'].includes(fund)) return rows;
   const query = async (sql: string, values: unknown[]) => (await connection.query(sql, values))[0] as Record<string, unknown>[];
   if (fund !== 'anc_ultrasound') {
-    const has = await readHospitalSchema(connection, ['ovstdiag', 'ovst', 'iptdiag', 'ipt', 'vn_stat', 'an_stat']);
+    const schemaTables = fund === 'fpg_screening'
+      ? ['ovstdiag', 'ovst', 'iptdiag', 'ipt', 'vn_stat', 'an_stat', 'opitemrece', 's_drugitems']
+      : ['ovstdiag', 'ovst', 'iptdiag', 'ipt', 'vn_stat', 'an_stat'];
+    const has = await readHospitalSchema(connection, schemaTables);
     const sources: string[] = [];
     const hns = [...new Set(rows.map(row => String(row.hn || '')).filter(Boolean))];
     if (!hns.length) return rows.map(row => blocked(row, 'ไม่พบ HN สำหรับตรวจประวัติวินิจฉัย', true));
     const placeholders = hns.map(() => '?').join(',');
     const excludedCodes = fund === 'fpg_screening'
-      ? Array.from({ length: 10 }, (_, n) => `E11${n}`)
+      ? FPG_EXCLUDED_DM_CODES
       : ['I10', 'I11', ...Array.from({ length: 10 }, (_, n) => `I11${n}`), 'I120'];
     const codeFilter = excludedCodes.map(code => `'${code}'`).join(',');
     for (const [diag, visit, key] of [['ovstdiag', 'ovst', 'vn'], ['iptdiag', 'ipt', 'an']]) {
@@ -40,10 +76,76 @@ export async function attachFundEligibility(connection: HospitalConnection, fund
       const hn = String(item.hn); const codes = matches.get(hn) || new Set<string>();
       codes.add(code); matches.set(hn, codes);
     }
+
+    const fyMap = new Map<string, Array<{ vn: string; vstdate: string }>>();
+    if (
+      fund === 'fpg_screening' &&
+      completeHistory &&
+      has('opitemrece', 'vn', 'icode') &&
+      has('s_drugitems', 'icode', 'nhso_adp_code') &&
+      has('ovst', 'vn', 'hn', 'vstdate')
+    ) {
+      const candidateHnsSet = new Set<string>();
+      let minStart = '';
+      let maxEnd = '';
+      for (const row of rows) {
+        const hn = String(row.hn || '');
+        if (!hn || matches.get(hn)?.size) continue;
+        const fy = getThaiFiscalYearRange(row.serviceDate ?? row.vstdate);
+        if (!fy) continue;
+        candidateHnsSet.add(hn);
+        if (!minStart || fy.start < minStart) minStart = fy.start;
+        if (!maxEnd || fy.end > maxEnd) maxEnd = fy.end;
+      }
+      const candidateHns = [...candidateHnsSet];
+      if (candidateHns.length > 0 && minStart && maxEnd) {
+        const fyPlaceholders = candidateHns.map(() => '?').join(',');
+        const fyRows = await query(
+          `SELECT DISTINCT v.hn, v.vn, DATE_FORMAT(v.vstdate, '%Y-%m-%d') AS vstdate
+           FROM opitemrece oo
+           JOIN s_drugitems sd ON sd.icode = oo.icode
+           JOIN ovst v ON v.vn = oo.vn
+           WHERE v.hn IN (${fyPlaceholders})
+             AND TRIM(sd.nhso_adp_code) = '12003'
+             AND v.vstdate BETWEEN ? AND ?
+           ORDER BY v.vstdate ASC, v.vn ASC`,
+          [...candidateHns, minStart, maxEnd],
+        );
+        for (const r of fyRows) {
+          const rDate = toIsoDate(r.vstdate);
+          const fy = getThaiFiscalYearRange(rDate);
+          const rHn = String(r.hn || '');
+          const rVn = String(r.vn || '');
+          if (!fy || !rHn || !rVn) continue;
+          const key = `${rHn}|${fy.fiscalYear}`;
+          const list = fyMap.get(key) || [];
+          list.push({ vn: rVn, vstdate: rDate });
+          fyMap.set(key, list);
+        }
+      }
+    }
+
     return rows.map(row => {
       const codes = matches.get(String(row.hn));
       if (codes?.size) return blocked(row, `ไม่เข้าเกณฑ์คัดกรอง: พบประวัติวินิจฉัย ${[...codes].sort().join(', ')} ในประวัติผู้ป่วย`);
       if (!completeHistory) return blocked(row, 'ตรวจประวัติวินิจฉัย OPD/IPD ได้ไม่ครบ กรุณาตรวจสอบก่อนเบิก', true);
+      if (fund === 'fpg_screening') {
+        const fy = getThaiFiscalYearRange(row.serviceDate ?? row.vstdate);
+        if (fy) {
+          const rowVn = String(row.vn || '');
+          const rowDate = toIsoDate(row.serviceDate ?? row.vstdate);
+          const list = fyMap.get(`${String(row.hn)}|${fy.fiscalYear}`) || [];
+          const prior = list.find(
+            (rec) => rec.vn !== rowVn && (rec.vstdate < rowDate || (rec.vstdate === rowDate && (!rowVn || rec.vn < rowVn))),
+          );
+          if (prior) {
+            return blocked(
+              row,
+              `ไม่เข้าเกณฑ์คัดกรอง: เคยได้รับบริการคัดกรองเบาหวาน (ADP 12003) แล้วในปีงบประมาณนี้ (VN ${prior.vn} วันที่ ${prior.vstdate}) — เบิกได้ 1 ครั้ง/ปีงบประมาณ`,
+            );
+          }
+        }
+      }
       return { ...row, eligibility_blocked: false };
     });
   }

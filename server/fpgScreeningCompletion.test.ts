@@ -63,3 +63,16 @@ test('normalizes FPG diagnosis code safely to Z131/Z133/Z136', () => {
   assert.equal(normalizeFpgDiagCode('z13.6'), 'Z136');
   assert.equal(normalizeFpgDiagCode('E119'), 'Z131');
 });
+
+
+test('blocks auto-completion when patient has prior DM history (E100-E149) or prior ADP 12003 in same fiscal year', () => {
+  const priorDm = assessFpgScreeningCompletion(baseSnapshot({ priorDmCodes: ['E109'] }));
+  assert.equal(priorDm.canComplete, false);
+  assert.equal(priorDm.ready, false);
+  assert.ok(priorDm.blockers.some((b) => b.includes('E109')));
+
+  const priorFy = assessFpgScreeningCompletion(baseSnapshot({ priorFiscalYear12003: { vn: '6910050001', vstdate: '2026-10-05' } }));
+  assert.equal(priorFy.canComplete, false);
+  assert.equal(priorFy.ready, false);
+  assert.ok(priorFy.blockers.some((b) => b.includes('1 ครั้ง/ปีงบประมาณ') && b.includes('6910050001')));
+});

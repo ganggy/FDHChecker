@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { HospitalConnection } from './hospitalDatabase.js';
 import { readVisitClinical, readVisitItems } from './visitDetails.js';
-import { attachFundEligibility, excludedScreeningCode } from './fundEligibility.js';
+import { attachFundEligibility, excludedScreeningCode, getThaiFiscalYearRange } from './fundEligibility.js';
 import { parseSiteWalkinSettings, parseVillageScope, readHospitalIdentity } from './siteProfile.js';
 import { PGlite } from '@electric-sql/pglite';
 import { compilePostgresQuery } from './postgresSql.js';
@@ -45,8 +45,8 @@ test('items survive missing s_drugitems mappings and zero-price medications', as
 });
 
 test('screening ranges normalize dots and preserve the requested endpoints', () => {
-  for (const code of ['E11.0', 'e119']) assert.equal(excludedScreeningCode('fpg_screening', code), true);
-  for (const code of ['E109', 'E120']) assert.equal(excludedScreeningCode('fpg_screening', code), false);
+  for (const code of ['E10.0', 'E109', 'E11.0', 'e119', 'E120', 'E139', 'E149']) assert.equal(excludedScreeningCode('fpg_screening', code), true);
+  for (const code of ['E15', 'E169']) assert.equal(excludedScreeningCode('fpg_screening', code), false);
   for (const code of ['I10', 'I11.0', 'I119', 'I12.0']) assert.equal(excludedScreeningCode('cholesterol_screening', code), true);
   assert.equal(excludedScreeningCode('cholesterol_screening', 'I129'), false);
 });
@@ -136,4 +136,40 @@ test('portable detail and eligibility SQL execute on an isolated PostgreSQL sche
     const anc = await attachFundEligibility(connection, 'anc_ultrasound', [{ hn: 'test-hn', vn: 'anc' }]);
     assert.equal(anc[0].eligibility_blocked, false);
   } finally { await db.close(); }
+});
+
+
+test('fpg_screening enforces 1/Thai-fiscal-year quota for ADP 12003 without self-blocking the first visit', async () => {
+  assert.deepEqual(getThaiFiscalYearRange('2026-09-30'), { fiscalYear: 2026, start: '2025-10-01', end: '2026-09-30' });
+  assert.deepEqual(getThaiFiscalYearRange('2026-10-01'), { fiscalYear: 2027, start: '2026-10-01', end: '2027-09-30' });
+
+  const schema = {
+    ovstdiag: ['vn', 'icd10'],
+    ovst: ['vn', 'hn', 'vstdate'],
+    iptdiag: ['an', 'icd10'],
+    ipt: ['an', 'hn'],
+    opitemrece: ['vn', 'icode'],
+    s_drugitems: ['icode', 'nhso_adp_code'],
+  };
+  const connection = fakeConnection(schema, (sql) => {
+    if (sql.includes("nhso_adp_code) = '12003'")) {
+      return [
+        { hn: 'hn-repeat', vn: '6910050001', vstdate: '2026-10-05' },
+        { hn: 'hn-prevfy', vn: '6909150001', vstdate: '2026-09-15' },
+      ];
+    }
+    return [];
+  });
+
+  const rows = await attachFundEligibility(connection, 'fpg_screening', [
+    { hn: 'hn-repeat', vn: '6910050001', serviceDate: '2026-10-05' }, // first visit in FY 2570 -> allowed
+    { hn: 'hn-repeat', vn: '6911230001', serviceDate: '2026-11-23' }, // 2nd visit in FY 2570 -> blocked
+    { hn: 'hn-prevfy', vn: '6911230002', serviceDate: '2026-11-23' }, // FY 2570 after FY 2569 (2026-09-15) -> allowed
+  ]);
+
+  assert.equal(rows[0].eligibility_blocked, false);
+  assert.equal(rows[1].eligibility_blocked, true);
+  assert.match(String(rows[1].eligibility_reason), /1 ครั้ง\/ปีงบประมาณ/);
+  assert.match(String(rows[1].eligibility_reason), /6910050001/);
+  assert.equal(rows[2].eligibility_blocked, false);
 });

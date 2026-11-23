@@ -2,6 +2,13 @@ import type { RowDataPacket } from 'mysql2/promise';
 import { activeHospitalDatabaseConfig, type HospitalConnection } from './hospitalDatabase.js';
 import { getUTFConnection } from './db.js';
 import {
+  FPG_EXCLUDED_DM_CODES,
+  excludedScreeningCode,
+  getThaiFiscalYearRange,
+  toIsoDate,
+} from './fundEligibility.js';
+import { readHospitalSchema } from './hospitalSchema.js';
+import {
   FPG_DX_CODES,
   buildDiagnosisMatchSql,
   buildFpgLabExistsSql,
@@ -28,6 +35,8 @@ export type FpgScreeningCompletionSnapshot = {
   noDmDiag: boolean;
   hasFpgDiag: boolean;
   hasFpgAdp: boolean;
+  priorDmCodes?: string[];
+  priorFiscalYear12003?: { vn: string; vstdate: string } | null;
   catalogItems: FpgCatalogItem[];
 };
 
@@ -40,7 +49,7 @@ export type FpgScreeningCompletionAssessment = FpgScreeningCompletionSnapshot & 
   selectedCatalogItem: FpgCatalogItem | null;
 };
 
-const sqlDate = (value: unknown) => (value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? '').slice(0, 10));
+const sqlDate = (value: unknown) => toIsoDate(value);
 
 export const normalizeFpgDiagCode = (value: unknown): FpgDiagCode => {
   const code = String(value ?? 'Z131').trim().toUpperCase().replace(/\./g, '');
@@ -61,11 +70,26 @@ export const assessFpgScreeningCompletion = (
   if (!snapshot.ageEligible) blockers.push('ไม่ผ่านเงื่อนไข 1: อายุไม่อยู่ในช่วง 35-59 ปี');
   if (!snapshot.hasFpgLab) blockers.push('ไม่ผ่านเงื่อนไข 2: ไม่พบผลตรวจ Lab FPG/FBS ใน visit นี้');
   if (!snapshot.noDmDiag) blockers.push('ไม่ผ่านเงื่อนไข 3: พบการวินิจฉัยโรคเบาหวาน (E100-E149) ใน visit นี้');
+  if (snapshot.priorDmCodes && snapshot.priorDmCodes.length > 0) {
+    blockers.push(`ไม่ผ่านเงื่อนไข 3: พบประวัติวินิจฉัยโรคเบาหวานเดิม (${snapshot.priorDmCodes.join(', ')}) ในประวัติผู้ป่วย`);
+  }
+  if (snapshot.priorFiscalYear12003) {
+    blockers.push(
+      `ไม่ผ่านเกณฑ์ 1 ครั้ง/ปีงบประมาณ: เคยได้รับ ADP 12003 แล้วในปีงบประมาณนี้ (VN ${snapshot.priorFiscalYear12003.vn} วันที่ ${snapshot.priorFiscalYear12003.vstdate})`,
+    );
+  }
   if (!snapshot.hasFpgAdp && !selectedCatalogItem) {
     blockers.push('ไม่พบรายการค่าบริการที่ผูก ADP 12003 ใน s_drugitems ของโรงพยาบาล');
   }
 
-  const ready = snapshot.ageEligible && snapshot.hasFpgLab && snapshot.noDmDiag && snapshot.hasFpgDiag && snapshot.hasFpgAdp;
+  const ready =
+    snapshot.ageEligible &&
+    snapshot.hasFpgLab &&
+    snapshot.noDmDiag &&
+    !(snapshot.priorDmCodes && snapshot.priorDmCodes.length > 0) &&
+    !snapshot.priorFiscalYear12003 &&
+    snapshot.hasFpgDiag &&
+    snapshot.hasFpgAdp;
   return {
     ...snapshot,
     adpCode: '12003',
@@ -156,17 +180,80 @@ const loadSnapshot = async (
   if (!visit) throw new Error(`ไม่พบ visit ${vn} ใน HOSxP`);
 
   const catalogItems = catalogItemsCache ?? (await loadCatalogItemsFor12003(connection));
+  const hn = String(visit.hn);
+  const serviceDate = sqlDate(visit.vstdate);
+
+  const hasSchema = await readHospitalSchema(connection, ['ovstdiag', 'ovst', 'iptdiag', 'ipt', 'vn_stat', 'an_stat']);
+  const codeFilter = FPG_EXCLUDED_DM_CODES.map((code) => `'${code}'`).join(',');
+  const historySources: string[] = [];
+  for (const [diag, tbl, key] of [['ovstdiag', 'ovst', 'vn'], ['iptdiag', 'ipt', 'an']]) {
+    if (hasSchema(diag, key, 'icd10') && hasSchema(tbl, key, 'hn')) {
+      historySources.push(
+        `SELECT DISTINCT d.icd10 FROM ${diag} d JOIN ${tbl} v ON v.${key} = d.${key} WHERE v.hn = ? AND REPLACE(UPPER(TRIM(d.icd10)), '.', '') IN (${codeFilter})`,
+      );
+    }
+  }
+  for (const tbl of ['vn_stat', 'an_stat']) {
+    const columns = ['pdx', 'dx0', 'dx1', 'dx2', 'dx3', 'dx4', 'dx5'].filter((col) => hasSchema(tbl, col));
+    if (hasSchema(tbl, 'hn') && columns.length) {
+      historySources.push(
+        `SELECT DISTINCT CONCAT_WS(',', ${columns.map((col) => `s.${col}`).join(',')}) AS icd10 FROM ${tbl} s WHERE s.hn = ? AND (${columns.map((col) => `REPLACE(UPPER(TRIM(s.${col})), '.', '') IN (${codeFilter})`).join(' OR ')})`,
+      );
+    }
+  }
+  const priorDmSet = new Set<string>();
+  if (historySources.length > 0) {
+    const [dmRows] = await connection.query<RowDataPacket[]>(
+      historySources.join(' UNION ALL '),
+      historySources.map(() => hn),
+    );
+    for (const r of dmRows) {
+      for (const code of String(r.icd10 || '').split(',')) {
+        const cleaned = code.trim();
+        if (cleaned && excludedScreeningCode('fpg_screening', cleaned)) {
+          priorDmSet.add(cleaned);
+        }
+      }
+    }
+  }
+
+  let priorFiscalYear12003: { vn: string; vstdate: string } | null = null;
+  const fyRange = getThaiFiscalYearRange(serviceDate);
+  if (fyRange) {
+    const [fyRows] = await connection.query<RowDataPacket[]>(
+      `SELECT v.vn, DATE_FORMAT(v.vstdate, '%Y-%m-%d') AS vstdate
+       FROM opitemrece oo
+       JOIN s_drugitems sd ON sd.icode = oo.icode
+       JOIN ovst v ON v.vn = oo.vn
+       WHERE v.hn = ?
+         AND v.vn <> ?
+         AND TRIM(sd.nhso_adp_code) = '12003'
+         AND v.vstdate BETWEEN ? AND ?
+         AND (v.vstdate < ? OR (v.vstdate = ? AND v.vn < ?))
+       ORDER BY v.vstdate ASC, v.vn ASC
+       LIMIT 1`,
+      [hn, String(visit.vn), fyRange.start, fyRange.end, serviceDate, serviceDate, String(visit.vn)],
+    );
+    if (fyRows[0]) {
+      priorFiscalYear12003 = {
+        vn: String(fyRows[0].vn),
+        vstdate: sqlDate(fyRows[0].vstdate),
+      };
+    }
+  }
 
   return {
     vn: String(visit.vn),
-    hn: String(visit.hn),
-    serviceDate: sqlDate(visit.vstdate),
+    hn,
+    serviceDate,
     age: visit.age == null ? null : Number(visit.age),
     ageEligible: Boolean(Number(visit.age_eligible || 0)),
     hasFpgLab: Boolean(Number(visit.has_fpg_lab || 0)),
     noDmDiag: Boolean(Number(visit.no_dm_diag || 0)),
     hasFpgDiag: Boolean(Number(visit.has_fpg_diag || 0)),
     hasFpgAdp: Boolean(Number(visit.has_fpg_adp || 0)),
+    priorDmCodes: [...priorDmSet].sort(),
+    priorFiscalYear12003,
     catalogItems,
   };
 };

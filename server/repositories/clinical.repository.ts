@@ -18,6 +18,7 @@ import { resolveStatementVisitKeys } from '../repstmVisitKeys.js';
 import { RECEIVABLE_RIGHT_MAPPINGS, type ReceivableRightMapping } from '../receivableMapping.js';
 import { mergeFdhClaimDetails } from '../fdhClaimDetailMerge.js';
 import { deleteIpdWalkinFees } from '../ipdWalkinClean.js';
+import { evaluateInstrumentVisit2569 } from '../instrumentRules.js';
 import { attachLatestFdhClaimDetails } from './claims.repository.js';
 import {
   ANC_DENTAL_CLEAN_ICD9,
@@ -1250,6 +1251,16 @@ export const getSpecificFundData = async (
           MAX(CASE WHEN d.nhso_adp_code = '4511' THEN 'Y' ELSE 'N' END) as has_4511,
           SUM(CASE WHEN d.nhso_adp_code = '4511' THEN COALESCE(oo.sum_price, 0) ELSE 0 END) as instrument_4511_price,
           SUM(CASE WHEN d.nhso_adp_code = '4511' THEN COALESCE(oo.qty, 0) ELSE 0 END) as instrument_4511_qty,
+          GROUP_CONCAT(
+            CONCAT(
+              COALESCE(TRIM(d.nhso_adp_code), ''), '::',
+              oo.icode, '::',
+              REPLACE(REPLACE(LEFT(COALESCE(d.name, ''), 40), '|', ' '), ':', ' '), '::',
+              COALESCE(oo.qty, 1), '::',
+              COALESCE(oo.unitprice, 0), '::',
+              COALESCE(oo.sum_price, 0)
+            ) SEPARATOR '||'
+          ) as instrument_raw_items,
           (SELECT GROUP_CONCAT(DISTINCT dx.icd10 SEPARATOR ', ') FROM ovstdiag dx WHERE dx.vn = o.vn) as instrument_diags,
           (SELECT GROUP_CONCAT(DISTINCT REPLACE(dro.icd9, '.', '') SEPARATOR ', ') FROM doctor_operation dro WHERE dro.vn = o.vn) as instrument_procs
         FROM ovst o
@@ -1262,7 +1273,32 @@ export const getSpecificFundData = async (
         GROUP BY o.vn
         ORDER BY o.vstdate DESC
       `, [startDate, endDate]);
-      return await finalizeRows(rows as Record<string, unknown>[]);
+      const finalizedRows = await finalizeRows(rows as Record<string, unknown>[]);
+      return finalizedRows.map((row) => {
+        const rawItems = String(row.instrument_raw_items ?? '').trim();
+        const parsedItems = rawItems
+          ? rawItems
+              .split('||')
+              .map((entry) => entry.split('::'))
+              .filter((parts) => parts.length >= 6)
+              .map(([adpCode, icode, name, qty, unitprice, sumPrice]) => ({
+                adpCode,
+                icode,
+                name,
+                qty: Number(qty) || 1,
+                unitprice: Number(unitprice) || 0,
+                sumPrice: Number(sumPrice) || 0,
+              }))
+          : [];
+        return {
+          ...row,
+          instrument_2569_audit: evaluateInstrumentVisit2569(
+            parsedItems,
+            String(row.hipdata_code ?? ''),
+            String(row.pttypename ?? '')
+          ),
+        };
+      });
     }
 
 

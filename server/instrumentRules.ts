@@ -1,3 +1,18 @@
+import adpType2Catalog2569 from './config/nhsoAdpType2_2569.json';
+
+export type InstrumentFundKey = 'OFC' | 'UCS' | 'SSS' | 'LGO';
+
+export interface InstrumentType2RateSpec {
+  code: string;
+  name: string;
+  OFC: number;
+  UCS: number;
+  SSS: number;
+  LGO: number;
+  FS: number;
+  UCEP: number;
+}
+
 export interface InstrumentRuleSpec {
   adpCode: string;
   itemNo: string;
@@ -20,7 +35,7 @@ export interface InstrumentRuleSpec {
 
 /**
  * กติกาการเบิกจ่ายรหัส 4511 (4.5.11): แผ่นปิดหน้าอกเพื่อรับหรือปล่อยไฟฟ้าในการกระตุ้นหัวใจ
- * ตามประกาศบัญชีรายการอุปกรณ์/อวัยวะเทียม สปสช. (UCS 2,850 บาท/ชุด), กรมบัญชีกลาง/สปส. (OFC/SSS 3,000 บาท/ชุด)
+ * ตามประกาศบัญชีรายการอุปกรณ์/อวัยวะเทียม สปสช. ปี 2569 (UCS 2,850 บาท/ชุด), กรมบัญชีกลาง/สปส./อปท. (OFC/SSS/LGO 3,000 บาท/ชุด)
  */
 export const INSTRUMENT_RULE_4511: InstrumentRuleSpec = {
   adpCode: '4511',
@@ -31,7 +46,7 @@ export const INSTRUMENT_RULE_4511: InstrumentRuleSpec = {
   unit: 'ชุดละ (2 แผ่น)',
   rates: {
     UCS: 2850,
-    LGO: 2850,
+    LGO: 3000,
     OFC: 3000,
     SSS: 3000,
   },
@@ -59,22 +74,27 @@ const splitCodes = (raw: unknown): string[] =>
     .map((s) => normalizeCode(s))
     .filter(Boolean);
 
-export function get4511CeilingByFund(hipdataCode: string, pttypeName: string): {
-  fund: 'UCS' | 'OFC' | 'SSS' | 'LGO';
-  ceiling: number;
-} {
+export function resolveInstrumentFundKey(hipdataCode: string, pttypeName: string): InstrumentFundKey {
   const hip = String(hipdataCode || '').toUpperCase();
   const name = String(pttypeName || '');
   if (hip === 'OFC' || hip === 'OF' || name.includes('ข้าราชการ') || name.includes('เบิกตรง')) {
-    return { fund: 'OFC', ceiling: INSTRUMENT_RULE_4511.rates.OFC };
+    return 'OFC';
   }
   if (hip === 'SSS' || hip === 'SSI' || hip === 'SS' || name.includes('ประกันสังคม')) {
-    return { fund: 'SSS', ceiling: INSTRUMENT_RULE_4511.rates.SSS };
+    return 'SSS';
   }
   if (hip === 'LGO' || hip === 'LG' || name.includes('อปท') || name.includes('ท้องถิ่น')) {
-    return { fund: 'LGO', ceiling: INSTRUMENT_RULE_4511.rates.LGO };
+    return 'LGO';
   }
-  return { fund: 'UCS', ceiling: INSTRUMENT_RULE_4511.rates.UCS };
+  return 'UCS';
+}
+
+export function get4511CeilingByFund(hipdataCode: string, pttypeName: string): {
+  fund: InstrumentFundKey;
+  ceiling: number;
+} {
+  const fund = resolveInstrumentFundKey(hipdataCode, pttypeName);
+  return { fund, ceiling: INSTRUMENT_RULE_4511.rates[fund] };
 }
 
 export interface Instrument4511Evaluation {
@@ -132,4 +152,175 @@ export function evaluateInstrument4511(row: {
   }
 
   return { has4511: true, missing, warnings, fund, ceiling };
+}
+
+export const INSTRUMENT_TYPE2_2569_CATALOG: InstrumentType2RateSpec[] =
+  adpType2Catalog2569 as InstrumentType2RateSpec[];
+
+const normalizeAdpCode = (code: unknown): string => String(code ?? '').trim().toUpperCase();
+
+export const INSTRUMENT_TYPE2_2569_MAP: ReadonlyMap<string, InstrumentType2RateSpec> = new Map(
+  INSTRUMENT_TYPE2_2569_CATALOG.map((spec) => [normalizeAdpCode(spec.code), spec])
+);
+
+export function getInstrumentType2Spec2569(adpCode: unknown): InstrumentType2RateSpec | undefined {
+  const key = normalizeAdpCode(adpCode);
+  return key ? INSTRUMENT_TYPE2_2569_MAP.get(key) : undefined;
+}
+
+export interface InstrumentVisitItemInput {
+  adpCode?: unknown;
+  icode?: unknown;
+  name?: unknown;
+  qty?: unknown;
+  unitprice?: unknown;
+  sumPrice?: unknown;
+}
+
+export interface InstrumentAuditItemIssue {
+  adpCode: string;
+  icode: string;
+  name: string;
+  qty: number;
+  unitprice: number;
+  sumPrice: number;
+  ceiling: number;
+  excessAmount: number;
+  eligibleAmount: number;
+}
+
+export interface InstrumentVisit2569Audit {
+  fund: InstrumentFundKey;
+  checkedCount: number;
+  totalBilled: number;
+  eligibleAmount: number;
+  excessAmount: number;
+  unclaimableItems: InstrumentAuditItemIssue[];
+  overCeilingItems: InstrumentAuditItemIssue[];
+  unknownCodeItems: Array<{
+    adpCode: string;
+    icode: string;
+    name: string;
+    qty: number;
+    unitprice: number;
+    sumPrice: number;
+  }>;
+  errors: string[];
+  warnings: string[];
+}
+
+const roundBaht = (n: number): number => Math.round(n * 100) / 100;
+const FUND_KEYS: InstrumentFundKey[] = ['OFC', 'UCS', 'SSS', 'LGO'];
+
+/**
+ * ตรวจรายการอุปกรณ์/อวัยวะเทียม หมวด 2 (nhso_adp_type_id = 2) เทียบตารางเพดานสิทธิ สปสช./กรมบัญชีกลาง ปี 2569 รายสิทธิ
+ */
+export function evaluateInstrumentVisit2569(
+  items: InstrumentVisitItemInput[],
+  hipdataCode: string,
+  pttypeName: string
+): InstrumentVisit2569Audit {
+  const fund = resolveInstrumentFundKey(hipdataCode, pttypeName);
+  const unclaimableItems: InstrumentAuditItemIssue[] = [];
+  const overCeilingItems: InstrumentAuditItemIssue[] = [];
+  const unknownCodeItems: InstrumentVisit2569Audit['unknownCodeItems'] = [];
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  let totalBilled = 0;
+  let eligibleAmount = 0;
+  let excessAmount = 0;
+
+  for (const item of items) {
+    const adpCode = normalizeAdpCode(item.adpCode);
+    const icode = String(item.icode ?? '').trim();
+    const rawName = String(item.name ?? '').trim();
+    const rawQty = Number(item.qty ?? 1);
+    const qty = Number.isFinite(rawQty) && rawQty > 0 ? rawQty : 1;
+
+    const hasExplicitSum =
+      item.sumPrice !== undefined &&
+      item.sumPrice !== null &&
+      String(item.sumPrice).trim() !== '' &&
+      Number.isFinite(Number(item.sumPrice));
+    const rawUnit = Number(item.unitprice ?? 0);
+    const hasPositiveUnit = Number.isFinite(rawUnit) && rawUnit > 0;
+    const sumPrice = roundBaht(
+      hasExplicitSum ? Math.max(0, Number(item.sumPrice)) : hasPositiveUnit ? rawUnit * qty : 0
+    );
+    const unitprice = roundBaht(hasPositiveUnit ? rawUnit : sumPrice > 0 ? sumPrice / qty : 0);
+
+    totalBilled = roundBaht(totalBilled + sumPrice);
+
+    const spec = getInstrumentType2Spec2569(adpCode);
+    if (!spec) {
+      const displayName = rawName || adpCode || icode || '-';
+      unknownCodeItems.push({ adpCode, icode, name: displayName, qty, unitprice, sumPrice });
+      warnings.push(
+        `รหัส ${adpCode || '(ไม่มีรหัส ADP)'} (${displayName}) ไม่พบในบัญชีอวัยวะเทียม/อุปกรณ์ หมวด 2 ปี 2569`
+      );
+      continue;
+    }
+
+    const ceiling = spec[fund];
+    const displayName = rawName || spec.name;
+
+    if (ceiling <= 0) {
+      const claimableFunds = FUND_KEYS.filter((k) => spec[k] > 0);
+      unclaimableItems.push({
+        adpCode,
+        icode,
+        name: displayName,
+        qty,
+        unitprice,
+        sumPrice,
+        ceiling: 0,
+        excessAmount: sumPrice,
+        eligibleAmount: 0,
+      });
+      excessAmount = roundBaht(excessAmount + sumPrice);
+      const allowHint = claimableFunds.length > 0 ? `, เบิกได้เฉพาะ ${claimableFunds.join('/')}` : '';
+      errors.push(
+        `รหัส ${adpCode} (${displayName}) สิทธิ ${fund} เบิกไม่ได้ตามบัญชี 2569 (เพดาน 0 บ.${allowHint})`
+      );
+      continue;
+    }
+
+    const maxAllowed = roundBaht(ceiling * qty);
+    const itemEligible = roundBaht(Math.min(sumPrice, maxAllowed));
+    const itemExcess = roundBaht(Math.max(0, sumPrice - maxAllowed));
+
+    eligibleAmount = roundBaht(eligibleAmount + itemEligible);
+    excessAmount = roundBaht(excessAmount + itemExcess);
+
+    if (unitprice > ceiling + 0.01 || itemExcess > 0.01) {
+      overCeilingItems.push({
+        adpCode,
+        icode,
+        name: displayName,
+        qty,
+        unitprice,
+        sumPrice,
+        ceiling,
+        excessAmount: itemExcess,
+        eligibleAmount: itemEligible,
+      });
+      warnings.push(
+        `รหัส ${adpCode} (${displayName}) ราคา ${unitprice.toLocaleString()} บ./หน่วย เกินเพดาน ${fund} (${ceiling.toLocaleString()} บ.${itemExcess > 0 ? `, ส่วนเกิน ${itemExcess.toLocaleString()} บ.` : ''})`
+      );
+    }
+  }
+
+  return {
+    fund,
+    checkedCount: items.length,
+    totalBilled,
+    eligibleAmount,
+    excessAmount,
+    unclaimableItems,
+    overCeilingItems,
+    unknownCodeItems,
+    errors,
+    warnings,
+  };
 }

@@ -1101,9 +1101,26 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         }
 
         if (fundId === 'instrument') {
-            const hasInstrument = Number(item?.instrument_price || 0) > 0 || toFlag(item?.has_instrument);
+            const audit = item?.instrument_2569_audit;
+            const hasInstrument = Number(item?.instrument_price || 0) > 0 || toFlag(item?.has_instrument) || Number(audit?.checkedCount || 0) > 0;
             if (hasInstrument) subfunds.push('🦾 อวัยวะเทียม');
-            return buildStatusResult(subfunds, [hasInstrument ? '' : ' อุปกรณ์/ยอดอวัยวะเทียม'].filter(Boolean));
+            if (!hasInstrument) {
+                return buildStatusResult(subfunds, [' อุปกรณ์/ยอดอวัยวะเทียม']);
+            }
+            if (Array.isArray(audit?.errors) && audit.errors.length > 0) {
+                return buildStatusResult(subfunds, audit.errors, audit.errors.join(' | '), false);
+            }
+            if (Array.isArray(audit?.warnings) && audit.warnings.length > 0) {
+                return {
+                    status: audit.warnings.join(' | '),
+                    class: 'badge-warning',
+                    icon: '⚠️',
+                    subfunds,
+                    matchedConditions: [],
+                    missingConditions: audit.warnings,
+                };
+            }
+            return buildStatusResult(subfunds, [], undefined, true);
         }
 
         if (fundId === 'cacervix') {
@@ -2092,9 +2109,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             const fundSpecificCols: Record<string, string | number> = {};
 
             if (fundId === 'instrument') {
+                const audit = item.instrument_2569_audit;
                 fundSpecificCols['รายการอุปกรณ์'] = item.instrument_items || '-';
                 fundSpecificCols['กลุ่ม'] = item.has_oa === 'Y' ? 'ผ่าข้อเข่า (OA)' : item.has_dm === 'Y' ? 'อุปกรณ์ DM' : 'ทั่วไป';
                 fundSpecificCols['ยอดรวม (฿)'] = item.instrument_price != null ? Number(item.instrument_price) : 0;
+                fundSpecificCols['เบิกได้ตามเกณฑ์ 2569 (฿)'] = audit ? Number(audit.eligibleAmount || 0) : (item.instrument_price != null ? Number(item.instrument_price) : 0);
+                fundSpecificCols['ส่วนเกิน/เบิกไม่ได้ (฿)'] = audit ? Number(audit.excessAmount || 0) : 0;
             } else if (fundId === 'palliative') {
                 const review = getPalliativeReview(item);
                 fundSpecificCols['ผลตรวจ Palliative'] = review.visitKindLabel;
@@ -4008,6 +4028,11 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                         </td>
                                                         <td style={{ textAlign: 'right' }}>
                                                             {item.instrument_price ? <strong style={{ color: 'var(--teal)' }}>{Number(item.instrument_price).toLocaleString()} ฿</strong> : '0 ฿'}
+                                                            {Number(item.instrument_2569_audit?.excessAmount || 0) > 0 && (
+                                                                <div style={{ fontSize: 11, color: '#b26a00', marginTop: 2 }}>
+                                                                    เบิกได้ ~{Number(item.instrument_2569_audit.eligibleAmount || 0).toLocaleString()}฿ (เกิน {Number(item.instrument_2569_audit.excessAmount).toLocaleString()}฿)
+                                                                </div>
+                                                            )}
                                                         </td>
                                                     </>
                                                 )}

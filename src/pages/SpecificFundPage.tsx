@@ -1916,7 +1916,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         setTrackResult(null);
         setTrackProgress({ done: 0, total: vns.length, updated: 0, errors: 0 });
         try {
-            const chunkSize = 50;
+            const chunkSize = 15;
             let totalUpdated = 0;
             let totalErrors = 0;
             for (let i = 0; i < vns.length; i += chunkSize) {

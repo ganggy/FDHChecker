@@ -4226,6 +4226,7 @@ export const importFdhStatusForDateRange = async (options: {
 
 export type FdhTrackResult = {
   vn: string;
+  found: boolean;
   message: string;
   stmPeriod: string;
   actAmt: number | null;
@@ -4289,6 +4290,7 @@ export const trackFdhStatusForVns = async (options: {
         summary.skipped += 1;
         summary.results.push({
           vn: key,
+          found: false,
           message: 'ไม่พบ HN ในระบบ HOSxP',
           stmPeriod: '',
           actAmt: null,
@@ -4323,6 +4325,7 @@ export const trackFdhStatusForVns = async (options: {
           if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${key}: ${parsed.errorMessage}`);
           summary.results.push({
             vn: key,
+            found: false,
             message: parsed.errorMessage,
             stmPeriod: '',
             actAmt: null,
@@ -4347,6 +4350,7 @@ export const trackFdhStatusForVns = async (options: {
         summary.updated += 1;
         summary.results.push({
           vn: key,
+          found: parsed.found,
           message: parsed.message,
           stmPeriod: parsed.stmPeriod,
           actAmt: parsed.actAmt,
@@ -4358,7 +4362,7 @@ export const trackFdhStatusForVns = async (options: {
         summary.errors += 1;
         const msg = err instanceof Error ? err.message : String(err);
         if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${key}: ${msg}`);
-        summary.results.push({ vn: key, message: `ผิดพลาด: ${msg}`, stmPeriod: '', actAmt: null, settleAt: '', httpStatus, raw: null });
+        summary.results.push({ vn: key, found: false, message: `ผิดพลาด: ${msg}`, stmPeriod: '', actAmt: null, settleAt: '', httpStatus, raw: null });
       }
     });
   } finally {
@@ -4367,6 +4371,46 @@ export const trackFdhStatusForVns = async (options: {
   return summary;
 };
 
+
+
+export const listFdhTrackCandidates = async (options: {
+  startDate: string;
+  endDate: string;
+  scope?: 'uc' | 'all';
+}): Promise<Array<{ vn: string; an: string; vstdate: string; hipdataCode: string; pttypeName: string }>> => {
+  const connection = await getUTFConnection();
+  try {
+    const scope = options.scope === 'all' ? 'all' : 'uc';
+    const scopeClause =
+      scope === 'uc'
+        ? "AND UPPER(COALESCE(p.hipdata_code, '')) IN ('UCS', 'WEL', 'PUC', 'DIS')"
+        : "";
+    const [rows] = await connection.query(
+      `SELECT
+         o.vn,
+         COALESCE(i.an, '') AS an,
+         DATE_FORMAT(o.vstdate, '%Y-%m-%d') AS vstdate,
+         UPPER(COALESCE(p.hipdata_code, '')) AS hipdata_code,
+         COALESCE(p.name, '') AS pttype_name
+       FROM ovst o
+       LEFT JOIN ipt i ON i.vn = o.vn
+       LEFT JOIN pttype p ON p.pttype = o.pttype
+       WHERE o.vstdate BETWEEN ? AND ?
+         ${scopeClause}
+       ORDER BY o.vstdate ASC, o.vn ASC`,
+      [options.startDate, options.endDate]
+    );
+    return (Array.isArray(rows) ? (rows as Record<string, unknown>[]) : []).map((r) => ({
+      vn: normalizeImportCellValue(r.vn),
+      an: normalizeImportCellValue(r.an),
+      vstdate: normalizeImportCellValue(r.vstdate),
+      hipdataCode: normalizeImportCellValue(r.hipdata_code),
+      pttypeName: normalizeImportCellValue(r.pttype_name),
+    })).filter((r) => Boolean(r.vn));
+  } finally {
+    connection.release();
+  }
+};
 
 export const recordFdhExportSend = async (options: {
   vns: string[];

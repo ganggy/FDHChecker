@@ -107,6 +107,8 @@ import {
   testNhsoClosePrivilegeToken,
   submitNhsoClosePrivileges,
   importFdhStatusForDateRange,
+  listFdhTrackCandidates,
+  trackFdhStatusForVns,
   deleteNonQualifyingPalliativeDiagnoses,
   deleteNonQualifyingPalliativeItems,
   markPalliativeVisitAsHomeVisit,
@@ -6270,6 +6272,64 @@ app.post('/api/fdh/import-status-by-date', async (req, res) => {
 
 // ─── FDH track-vns (on-demand single/bulk VN tracking) ───────────────────────
 
+const fdhAccessTokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+const getCachedFdhAccessToken = async (fdhConfig: Record<string, unknown>): Promise<string> => {
+  const tokenUrl = String(fdhConfig.tokenUrl || '').trim();
+  const username = String(fdhConfig.username || '').trim();
+  const password = String(fdhConfig.password || '');
+  const hospitalCode = String(fdhConfig.hcode || '').trim();
+  const passDigest = crypto.createHash('sha256').update(password, 'utf8').digest('hex').slice(0, 16);
+  const cacheKey = `${tokenUrl}|${username}|${hospitalCode}|${passDigest}`;
+  const cached = fdhAccessTokenCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.token;
+  }
+
+  const tokenEndpoint = getFdhTokenEndpoint(tokenUrl);
+  const passwordHashCandidates = getPasswordHashCandidates(password);
+  for (const passwordHash of passwordHashCandidates) {
+    try {
+      const query = new URLSearchParams({
+        Action: 'get_moph_access_token',
+        user: username,
+        password_hash: passwordHash,
+        hospital_code: hospitalCode,
+      }).toString();
+      const tokenRes = await fetchWithTimeout(`${tokenEndpoint}?${query}`, { method: 'POST' });
+      const rawText = await tokenRes.text();
+      let parsed: unknown = {};
+      try { parsed = JSON.parse(rawText); } catch { /* raw */ }
+      const token = extractTokenFromPayload(parsed) || (rawText.trim().startsWith('{') ? null : rawText.trim() || null);
+      if (tokenRes.ok && token) {
+        fdhAccessTokenCache.set(cacheKey, { token, expiresAt: Date.now() + 10 * 60 * 1000 });
+        return token;
+      }
+    } catch { /* try next */ }
+  }
+  throw new Error('ไม่สามารถขอ FDH token ได้ — กรุณาตรวจสอบ username/password ในการตั้งค่า FDH API');
+};
+
+/** GET /api/fdh/import-status/candidates — list visits in date range for chunked progress import */
+app.get('/api/fdh/import-status/candidates', async (req, res) => {
+  try {
+    const startDate = String(req.query.startDate || '').trim();
+    const endDate = String(req.query.endDate || '').trim();
+    const scope = String(req.query.scope || 'uc').trim().toLowerCase() === 'all' ? 'all' : 'uc';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุ startDate และ endDate ในรูปแบบ YYYY-MM-DD' });
+    }
+    const items = await listFdhTrackCandidates({ startDate, endDate, scope });
+    return res.json({ success: true, total: items.length, scope, items });
+  } catch (error) {
+    console.error('Error listing FDH import candidates:', error);
+    return res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'ไม่สามารถดึงรายชื่อเคสสำหรับตรวจสอบสถานะได้',
+    });
+  }
+});
+
 /** POST /api/fdh/track-vns — check FDH claim status for given list of VNs */
 app.post('/api/fdh/track-vns', async (req, res) => {
   try {
@@ -6298,37 +6358,15 @@ app.post('/api/fdh/track-vns', async (req, res) => {
       return res.status(400).json({ success: false, error: 'ยังไม่พบ Hospital Code' });
     }
 
-    // Get FDH token
-    const tokenEndpoint = getFdhTokenEndpoint(tokenUrl);
-    const passwordHashCandidates = getPasswordHashCandidates(password);
-    let fdhToken: string | null = null;
-
-    for (const passwordHash of passwordHashCandidates) {
-      if (fdhToken) break;
-      try {
-        const query = new URLSearchParams({
-          Action: 'get_moph_access_token',
-          user: username,
-          password_hash: passwordHash,
-          hospital_code: hospitalCode,
-        }).toString();
-        const tokenRes = await fetchWithTimeout(`${tokenEndpoint}?${query}`, { method: 'POST' });
-        const rawText = await tokenRes.text();
-        let parsed: unknown = {};
-        try { parsed = JSON.parse(rawText); } catch { /* raw */ }
-        fdhToken = extractTokenFromPayload(parsed) ||
-          (rawText.trim().startsWith('{') ? null : rawText.trim() || null);
-      } catch { /* try next */ }
-    }
-
-    if (!fdhToken) {
+    let fdhToken: string;
+    try {
+      fdhToken = await getCachedFdhAccessToken(fdhConfig);
+    } catch (tokenErr) {
       return res.status(400).json({
         success: false,
-        error: 'ไม่สามารถขอ FDH token ได้ — กรุณาตรวจสอบ username/password ในการตั้งค่า FDH API',
+        error: tokenErr instanceof Error ? tokenErr.message : 'ไม่สามารถขอ FDH token ได้',
       });
     }
-
-    const { trackFdhStatusForVns } = await import('./db.js');
     const summary = await trackFdhStatusForVns({ token: fdhToken, apiBaseUrl, hospitalCode, vns });
 
     return res.json({ success: true, summary });

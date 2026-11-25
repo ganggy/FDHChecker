@@ -7,6 +7,7 @@ import {
   scopeFdhData,
   serializeFdhFile,
   buildFdhFiles,
+  buildFdhPasswordHashCandidates,
   consolidateFdhOopRows,
   selectFdhUploadFiles,
   uploadFdhFiles,
@@ -313,4 +314,17 @@ test('preflight blocks accident/injury diagnosis (S00-T98) without external caus
   ];
   const res3 = validateFdhData(extAsPdx, 'fwf-migrants', '11101');
   assert.equal(res3.errors.some((i) => i.code === 'ODX_EXTERNAL_CAUSE_AS_PDX'), true);
+});
+
+test('buildFdhPasswordHashCandidates prioritizes MOPH HMAC-SHA256 ($jwt@moph#) before plain SHA-256 and preserves 64-hex hashes', () => {
+  const candidates = buildFdhPasswordHashCandidates('synthetic-pass');
+  assert.equal(candidates.length, 4);
+  assert.equal(candidates[0], 'BCD791DD6EBF371D60AA77A90C368A9CF920C237CE26C544200F5933F9B940CE');
+  assert.equal(candidates[1], candidates[0].toLowerCase());
+  assert.equal(candidates[2], '29A2EF988761480FE757214515405201A3BF3E221693177B5C8B164BE051390A');
+  assert.equal(candidates[3], '29a2ef988761480fe757214515405201a3bf3e221693177b5c8b164be051390a');
+  const preHashed = 'A'.repeat(64);
+  const preCandidates = buildFdhPasswordHashCandidates(preHashed);
+  assert.equal(preCandidates[0], preHashed);
+  assert.equal(preCandidates[1], preHashed.toLowerCase());
 });

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import iconv from 'iconv-lite';
 import { hasApproveCode, isLgoRight, isOfcLgoRight } from '../src/utils/ofcApproveCode.js';
 import { THAI_MED_CATALOG, isThaiMedSameDayCode, type ThaiMedSameDayCode } from '../src/utils/thaiTraditionalMedicineRules.js';
@@ -632,4 +633,24 @@ export const uploadFdhFiles = async (
   } finally {
     clearTimeout(timeout);
   }
+};
+
+export const buildFdhPasswordHashCandidates = (password: string): string[] => {
+  const trimmed = password.trim();
+  const candidates: string[] = [];
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    candidates.push(trimmed.toUpperCase(), trimmed.toLowerCase());
+  }
+  const hmacUpper = crypto
+    .createHmac('sha256', '$jwt@moph#')
+    .update(password, 'utf8')
+    .digest('hex')
+    .toUpperCase();
+  const sha256Upper = crypto
+    .createHash('sha256')
+    .update(password, 'utf8')
+    .digest('hex')
+    .toUpperCase();
+  candidates.push(hmacUpper, hmacUpper.toLowerCase(), sha256Upper, sha256Upper.toLowerCase());
+  return Array.from(new Set(candidates));
 };

@@ -154,6 +154,7 @@ import { buildRevenueOpportunityMonitor } from './revenueOpportunityMonitor.js';
 import { validateApVaccineEligibility } from './mophVaccineRules.js';
 import {
   buildFdhFiles,
+  buildFdhPasswordHashCandidates,
   normalizeFdhProfile,
   projectFdhData,
   scopeFdhData,
@@ -1549,14 +1550,8 @@ const getFdhTokenEndpoint = (tokenUrlInput: string) => {
   }
 };
 
-const getPasswordHashCandidates = (password: string) => {
-  const sha256Lower = crypto.createHash('sha256').update(password, 'utf8').digest('hex');
-  const sha256Upper = sha256Lower.toUpperCase();
-  return Array.from(new Set([
-    sha256Lower,
-    sha256Upper,
-  ]));
-};
+const getPasswordHashCandidates = (password: string) =>
+  buildFdhPasswordHashCandidates(password);
 
 type FdhConnectionTestResult = {
   token: string;

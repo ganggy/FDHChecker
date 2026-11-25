@@ -654,3 +654,87 @@ export const buildFdhPasswordHashCandidates = (password: string): string[] => {
   candidates.push(hmacUpper, hmacUpper.toLowerCase(), sha256Upper, sha256Upper.toLowerCase());
   return Array.from(new Set(candidates));
 };
+
+export const buildFdhTrackRequestPayload = (options: {
+  hcode: string;
+  hn: string;
+  vn?: string;
+  an?: string;
+}): Record<string, string> => {
+  const hcode = String(options.hcode || '').trim();
+  const hn = String(options.hn || '').trim();
+  const an = String(options.an || '').trim();
+  const vn = String(options.vn || '').trim();
+  if (an) {
+    return { hcode, hn, an };
+  }
+  return { hcode, hn, seq: vn };
+};
+
+export interface ParsedFdhTrackResult {
+  isError: boolean;
+  found: boolean;
+  errorMessage: string;
+  message: string;
+  stmPeriod: string;
+  actAmt: number | null;
+  settleAt: string;
+  errorCode: string;
+}
+
+export const parseFdhTrackResponse = (payload: unknown, httpStatus: number): ParsedFdhTrackResult => {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const dataRaw = record.data;
+  const dataArr = Array.isArray(dataRaw)
+    ? (dataRaw as Record<string, unknown>[])
+    : dataRaw && typeof dataRaw === 'object'
+      ? [dataRaw as Record<string, unknown>]
+      : [];
+  const dataItem = (dataArr[dataArr.length - 1] || {}) as Record<string, unknown>;
+
+  if (httpStatus >= 400 && httpStatus !== 404) {
+    const errorMessage = String(record.message_th || record.message || record.error || `HTTP ${httpStatus}`).trim();
+    return {
+      isError: true,
+      found: false,
+      errorMessage,
+      message: '',
+      stmPeriod: '',
+      actAmt: null,
+      settleAt: '',
+      errorCode: String(record.error || '').trim(),
+    };
+  }
+
+  const itemStatus = String(dataItem.status_message_th ?? dataItem.status ?? dataItem.process_status ?? '').trim();
+  const topMsg = String(record.message_th ?? record.message ?? '').trim();
+  const notFound =
+    httpStatus === 404 ||
+    (dataArr.length === 0 && !itemStatus) ||
+    /not found|ไม่พบข้อมูล/i.test(`${itemStatus} ${topMsg}`);
+
+  if (notFound) {
+    return {
+      isError: false,
+      found: false,
+      errorMessage: '',
+      message: 'ยังไม่พบข้อมูลใน FDH',
+      stmPeriod: '',
+      actAmt: null,
+      settleAt: '',
+      errorCode: '',
+    };
+  }
+
+  const parsedAmt = dataItem.act_amt != null && String(dataItem.act_amt).trim() !== '' ? Number(dataItem.act_amt) : null;
+  return {
+    isError: false,
+    found: true,
+    errorMessage: '',
+    message: itemStatus || topMsg || 'ส่งข้อมูลสำเร็จ',
+    stmPeriod: String(dataItem.stm_period ?? '').trim(),
+    actAmt: parsedAmt != null && Number.isFinite(parsedAmt) ? parsedAmt : null,
+    settleAt: String(dataItem.settle_at ?? '').trim(),
+    errorCode: String(dataItem.error_code ?? dataItem.errorcode ?? '').trim(),
+  };
+};

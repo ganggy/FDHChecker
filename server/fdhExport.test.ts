@@ -8,6 +8,8 @@ import {
   serializeFdhFile,
   buildFdhFiles,
   buildFdhPasswordHashCandidates,
+  buildFdhTrackRequestPayload,
+  parseFdhTrackResponse,
   consolidateFdhOopRows,
   selectFdhUploadFiles,
   uploadFdhFiles,
@@ -327,4 +329,36 @@ test('buildFdhPasswordHashCandidates prioritizes MOPH HMAC-SHA256 ($jwt@moph#) b
   const preCandidates = buildFdhPasswordHashCandidates(preHashed);
   assert.equal(preCandidates[0], preHashed);
   assert.equal(preCandidates[1], preHashed.toLowerCase());
+});
+
+test('buildFdhTrackRequestPayload selects seq for OPD and an for IPD with required hcode and hn', () => {
+  assert.deepEqual(
+    buildFdhTrackRequestPayload({ hcode: '11101', hn: '00001', vn: '691125000001' }),
+    { hcode: '11101', hn: '00001', seq: '691125000001' }
+  );
+  assert.deepEqual(
+    buildFdhTrackRequestPayload({ hcode: '11101', hn: '00001', vn: '691125000001', an: '690001' }),
+    { hcode: '11101', hn: '00001', an: '690001' }
+  );
+});
+
+test('parseFdhTrackResponse extracts 200 approved status, maps 404 to waiting state, and flags 400 API errors', () => {
+  const okRes = parseFdhTrackResponse(
+    { status: 200, message: 'success', data: [{ status: 'approved', status_message_th: 'อนุมัติชดเชย', stm_period: '256910', act_amt: 1500 }] },
+    200
+  );
+  assert.equal(okRes.isError, false);
+  assert.equal(okRes.found, true);
+  assert.equal(okRes.message, 'อนุมัติชดเชย');
+  assert.equal(okRes.stmPeriod, '256910');
+  assert.equal(okRes.actAmt, 1500);
+
+  const notFoundRes = parseFdhTrackResponse({ status: 404, message: 'not found' }, 404);
+  assert.equal(notFoundRes.isError, false);
+  assert.equal(notFoundRes.found, false);
+  assert.equal(notFoundRes.message, 'ยังไม่พบข้อมูลใน FDH');
+
+  const badReqRes = parseFdhTrackResponse({ status: 400, message: 'hn is required', message_th: 'กรุณากรอก hn' }, 400);
+  assert.equal(badReqRes.isError, true);
+  assert.equal(badReqRes.errorMessage, 'กรุณากรอก hn');
 });

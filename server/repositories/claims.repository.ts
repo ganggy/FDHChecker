@@ -23,7 +23,7 @@ import { getAppSetting } from './system.repository.js';
 import { normalizeImportCellValue, parseFlexibleDateTime } from '../utils/dataNormalization.js';
 import { fetchWithTimeout } from '../httpClient.js';
 import { getApVaccineRule, validateApVaccineEligibility } from '../mophVaccineRules.js';
-import { consolidateFdhOopRows, type FdhExportProfile } from '../fdhExport.js';
+import { buildFdhTrackRequestPayload, consolidateFdhOopRows, parseFdhTrackResponse, type FdhExportProfile } from '../fdhExport.js';
 import { deleteIpdWalkinFees, isWalkinAdpItem } from '../ipdWalkinClean.js';
 import { readVisitItems, readVisitClinical } from '../visitDetails.js';
 import { attachFundEligibility } from '../fundEligibility.js';
@@ -4103,34 +4103,49 @@ const upsertFdhClaimStatusFromApi = async (
   actAmt: number | null,
   settleAt: string,
   rawPayload: unknown,
+  errorCode = '',
 ) => {
-  // Try UPDATE first, then INSERT
+  const rawJson = JSON.stringify(rawPayload ?? {});
   const [upd] = await connection.query(
     `UPDATE fdh_claim_status
      SET fdh_claim_status_message = ?,
+         error_code = COALESCE(NULLIF(?, ''), error_code),
          fdh_stm_period = ?,
          fdh_act_amt = ?,
          fdh_settle_at = ?,
          raw_payload = ?,
          updated_at = NOW()
      WHERE vn = ?`,
-    [message || null, stmPeriod || null, actAmt ?? null, settleAt || null,
-     JSON.stringify(rawPayload ?? {}), vn]
+    [message || null, errorCode, stmPeriod || null, actAmt ?? null, settleAt || null, rawJson, vn]
   ) as mysql.ResultSetHeader[];
   const affected = (upd as unknown as { affectedRows?: number }).affectedRows ?? 0;
   if (affected === 0) {
-    // No existing row — insert new one
     const transactionUid = `track_${vn}`;
     await connection.query(
       `INSERT IGNORE INTO fdh_claim_status
-         (vn, transaction_uid, hcode, fdh_claim_status_message, fdh_stm_period, fdh_act_amt, fdh_settle_at, raw_payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [vn, transactionUid, hcode,
-       message || null, stmPeriod || null, actAmt ?? null, settleAt || null,
-       JSON.stringify(rawPayload ?? {})]
+         (vn, transaction_uid, hcode, fdh_claim_status_message, error_code, fdh_stm_period, fdh_act_amt, fdh_settle_at, raw_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [vn, transactionUid, hcode, message || null, errorCode || null, stmPeriod || null, actAmt ?? null, settleAt || null, rawJson]
     );
   }
 };
+
+async function runFdhTrackBatch<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let nextIdx = 0;
+  const runWorker = async () => {
+    while (nextIdx < items.length) {
+      const idx = nextIdx++;
+      await worker(items[idx]);
+    }
+  };
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+}
 
 export const importFdhStatusForDateRange = async (options: {
   token: string;
@@ -4144,10 +4159,10 @@ export const importFdhStatusForDateRange = async (options: {
   try {
     await ensureFdhClaimStatusSchema(connection);
 
-    // Query all OPD visits in the date range
     const [visitRows] = await connection.query(
-      `SELECT o.vn, o.hn, DATE_FORMAT(o.vstdate,'%Y-%m-%d') AS vstdate
+      `SELECT o.vn, o.hn, COALESCE(i.an, '') AS an, DATE_FORMAT(o.vstdate,'%Y-%m-%d') AS vstdate
        FROM ovst o
+       LEFT JOIN ipt i ON i.vn = o.vn
        WHERE o.vstdate BETWEEN ? AND ?
        ORDER BY o.vstdate, o.vn`,
       [options.startDate, options.endDate]
@@ -4157,42 +4172,52 @@ export const importFdhStatusForDateRange = async (options: {
 
     const trackUrl = `${options.apiBaseUrl.replace(/\/+$/, '')}/api/v1/ucs/track_trans`;
 
-    for (const row of visits) {
+    await runFdhTrackBatch(visits, 5, async (row) => {
       const vn = normalizeImportCellValue(row.vn);
-      if (!vn) { summary.skipped += 1; continue; }
+      const hn = normalizeImportCellValue(row.hn);
+      const an = normalizeImportCellValue(row.an);
+      if (!vn || !hn) {
+        summary.skipped += 1;
+        return;
+      }
       try {
         const res = await fetchWithTimeout(trackUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${options.token}`,
+            Authorization: `Bearer ${options.token}`,
           },
-          body: JSON.stringify({ hcode: options.hospitalCode, vn }),
+          body: JSON.stringify(buildFdhTrackRequestPayload({ hcode: options.hospitalCode, hn, vn, an })),
           signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
         });
 
-        let payload: Record<string, unknown> = {};
-        try { payload = await res.json() as Record<string, unknown>; } catch { /* ignore */ }
+        let payload: unknown = {};
+        try { payload = await res.json(); } catch { /* ignore */ }
+        const parsed = parseFdhTrackResponse(payload, res.status);
+        if (parsed.isError) {
+          summary.errors += 1;
+          if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${vn}: ${parsed.errorMessage}`);
+          return;
+        }
 
-        const dataArr = Array.isArray(payload.data)
-          ? (payload.data as Record<string, unknown>[])
-          : (payload.data && typeof payload.data === 'object' ? [payload.data as Record<string, unknown>] : []);
-        const dataItem = dataArr[0] || {};
-
-        const message = normalizeImportCellValue(dataItem.status ?? payload.message ?? payload.message_th ?? '');
-        const stmPeriod = normalizeImportCellValue(dataItem.stm_period ?? '');
-        const actAmt = dataItem.act_amt != null ? Number(dataItem.act_amt) : null;
-        const settleAt = normalizeImportCellValue(dataItem.settle_at ?? '');
-
-        await upsertFdhClaimStatusFromApi(connection, vn, options.hospitalCode,
-          message, stmPeriod, actAmt, settleAt, payload);
+        await upsertFdhClaimStatusFromApi(
+          connection,
+          vn,
+          options.hospitalCode,
+          parsed.message,
+          parsed.stmPeriod,
+          parsed.actAmt,
+          parsed.settleAt,
+          payload,
+          parsed.errorCode,
+        );
         summary.updated += 1;
       } catch (err) {
         summary.errors += 1;
         const msg = err instanceof Error ? err.message : String(err);
         if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${vn}: ${msg}`);
       }
-    }
+    });
   } finally {
     connection.release();
   }
@@ -4209,7 +4234,7 @@ export type FdhTrackResult = {
   raw: unknown;
 };
 
-/** Track FDH claim status for a specific list of VNs (on-demand from UI) */
+/** Track FDH claim status for a specific list of VNs or ANs (on-demand from UI) */
 export const trackFdhStatusForVns = async (options: {
   token: string;
   apiBaseUrl: string;
@@ -4219,45 +4244,123 @@ export const trackFdhStatusForVns = async (options: {
   const summary: FdhImportSummary & { results: FdhTrackResult[] } = {
     total: 0, updated: 0, skipped: 0, errors: 0, errorMessages: [], results: [],
   };
+  const uniqueKeys = Array.from(new Set(options.vns.map((v) => String(v || '').trim()).filter(Boolean)));
+  summary.total = uniqueKeys.length;
+  if (uniqueKeys.length === 0) return summary;
+
   const connection = await getUTFConnection();
   try {
+    await ensureFdhClaimStatusSchema(connection);
+
+    const lookupMap = new Map<string, { vn: string; hn: string; an: string }>();
+    const [ovstRows] = await connection.query(
+      `SELECT o.vn, o.hn, COALESCE(i.an, '') AS an
+       FROM ovst o
+       LEFT JOIN ipt i ON i.vn = o.vn
+       WHERE o.vn IN (?)`,
+      [uniqueKeys]
+    );
+    for (const r of (Array.isArray(ovstRows) ? ovstRows : []) as Record<string, unknown>[]) {
+      const vn = normalizeImportCellValue(r.vn);
+      const hn = normalizeImportCellValue(r.hn);
+      const an = normalizeImportCellValue(r.an);
+      if (vn && hn) lookupMap.set(vn, { vn, hn, an });
+    }
+
+    const missingKeys = uniqueKeys.filter((k) => !lookupMap.has(k));
+    if (missingKeys.length > 0) {
+      const [iptRows] = await connection.query(
+        `SELECT i.vn, i.hn, i.an FROM ipt i WHERE i.an IN (?)`,
+        [missingKeys]
+      );
+      for (const r of (Array.isArray(iptRows) ? iptRows : []) as Record<string, unknown>[]) {
+        const vn = normalizeImportCellValue(r.vn);
+        const hn = normalizeImportCellValue(r.hn);
+        const an = normalizeImportCellValue(r.an);
+        if (an && hn) lookupMap.set(an, { vn: vn || an, hn, an });
+      }
+    }
+
     const trackUrl = `${options.apiBaseUrl.replace(/\/+$/, '')}/api/v1/ucs/track_trans`;
-    summary.total = options.vns.length;
-    for (const vn of options.vns) {
-      if (!vn?.trim()) { summary.skipped += 1; continue; }
+
+    await runFdhTrackBatch(uniqueKeys, 5, async (key) => {
+      const matched = lookupMap.get(key);
+      if (!matched || !matched.hn) {
+        summary.skipped += 1;
+        summary.results.push({
+          vn: key,
+          message: 'ไม่พบ HN ในระบบ HOSxP',
+          stmPeriod: '',
+          actAmt: null,
+          settleAt: '',
+          httpStatus: 0,
+          raw: null,
+        });
+        return;
+      }
+
       let httpStatus = 0;
       try {
         const apiRes = await fetchWithTimeout(trackUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${options.token}` },
-          body: JSON.stringify({ seq: vn }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${options.token}` },
+          body: JSON.stringify(
+            buildFdhTrackRequestPayload({
+              hcode: options.hospitalCode,
+              hn: matched.hn,
+              vn: matched.vn,
+              an: matched.an,
+            })
+          ),
           signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined,
         });
         httpStatus = apiRes.status;
-        let payload: Record<string, unknown> = {};
-        try { payload = await apiRes.json() as Record<string, unknown>; } catch { /* ignore */ }
-        const dataArr = Array.isArray(payload.data)
-          ? (payload.data as Record<string, unknown>[])
-          : (payload.data && typeof payload.data === 'object' ? [payload.data as Record<string, unknown>] : []);
-        const dataItem = dataArr[dataArr.length - 1] || {};
-        const message = normalizeImportCellValue(
-          dataItem.status ?? payload.message_th ?? payload.message ?? payload.messagecode ?? ''
-        );
-        const stmPeriod = normalizeImportCellValue(dataItem.stm_period ?? '');
-        const actAmt = dataItem.act_amt != null ? Number(dataItem.act_amt) : null;
-        const settleAt = normalizeImportCellValue(dataItem.settle_at ?? '');
+        let payload: unknown = {};
+        try { payload = await apiRes.json(); } catch { /* ignore */ }
+        const parsed = parseFdhTrackResponse(payload, httpStatus);
+        if (parsed.isError) {
+          summary.errors += 1;
+          if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${key}: ${parsed.errorMessage}`);
+          summary.results.push({
+            vn: key,
+            message: parsed.errorMessage,
+            stmPeriod: '',
+            actAmt: null,
+            settleAt: '',
+            httpStatus,
+            raw: payload,
+          });
+          return;
+        }
+
         await upsertFdhClaimStatusFromApi(
-          connection, vn, options.hospitalCode, message, stmPeriod, actAmt, settleAt, payload
+          connection,
+          matched.vn,
+          options.hospitalCode,
+          parsed.message,
+          parsed.stmPeriod,
+          parsed.actAmt,
+          parsed.settleAt,
+          payload,
+          parsed.errorCode,
         );
         summary.updated += 1;
-        summary.results.push({ vn, message, stmPeriod, actAmt, settleAt, httpStatus, raw: payload });
+        summary.results.push({
+          vn: key,
+          message: parsed.message,
+          stmPeriod: parsed.stmPeriod,
+          actAmt: parsed.actAmt,
+          settleAt: parsed.settleAt,
+          httpStatus,
+          raw: payload,
+        });
       } catch (err) {
         summary.errors += 1;
         const msg = err instanceof Error ? err.message : String(err);
-        if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${vn}: ${msg}`);
-        summary.results.push({ vn, message: `ผิดพลาด: ${msg}`, stmPeriod: '', actAmt: null, settleAt: '', httpStatus, raw: null });
+        if (summary.errorMessages.length < 10) summary.errorMessages.push(`VN ${key}: ${msg}`);
+        summary.results.push({ vn: key, message: `ผิดพลาด: ${msg}`, stmPeriod: '', actAmt: null, settleAt: '', httpStatus, raw: null });
       }
-    }
+    });
   } finally {
     connection.release();
   }

@@ -4171,7 +4171,7 @@ app.post('/api/fdh/import-status', async (req, res) => {
     }
 
     const uniqueTransactionUids = Array.from(new Set(transactionUids.map(item => String(item).trim()).filter(Boolean)));
-    const endpoint = `${apiBaseUrl}/api/v2/reservation/get`;
+    const endpoint = `${apiBaseUrl.replace(/\/+$/, '')}/api/v2/reservation/get`;
 
     const responses = await Promise.all(uniqueTransactionUids.map(async (transactionUid) => {
       const requestPayload = {

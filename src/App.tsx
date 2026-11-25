@@ -43,6 +43,7 @@ const InsuranceOverviewPage = lazyNamed(() => import('./pages/InsuranceOverviewP
 const ExecutiveMonitorPage = lazyNamed(() => import('./pages/ExecutiveMonitorPage'), 'ExecutiveMonitorPage');
 const AccountingRevenueBudgetPage = lazyNamed(() => import('./pages/AccountingRevenueBudgetPage'), 'AccountingRevenueBudgetPage');
 const SmtBudgetReconcilePage = lazyNamed(() => import('./pages/SmtBudgetReconcilePage'), 'SmtBudgetReconcilePage');
+const MisHosComparePage = lazyNamed(() => import('./pages/MisHosComparePage'), 'MisHosComparePage');
 const HsubPaymentReconcilePage = lazyNamed(() => import('./pages/HsubPaymentReconcilePage'), 'HsubPaymentReconcilePage');
 const PcuHerbalReconcilePage = lazyNamed(() => import('./pages/PcuHerbalReconcilePage'), 'PcuHerbalReconcilePage');
 const PcuPayoutPage = lazyNamed(() => import('./pages/PcuPayoutPage'), 'PcuPayoutPage');
@@ -740,6 +741,7 @@ function App() {
         {currentPage === 'executiveMonitor' && <ExecutiveMonitorPage />}
         {currentPage === 'accountingRevenueBudget' && <AccountingRevenueBudgetPage />}
         {currentPage === 'smtBudget' && <SmtBudgetReconcilePage />}
+        {currentPage === 'misCompare' && <MisHosComparePage />}
         {currentPage === 'hsubPayment' && <HsubPaymentReconcilePage />}
         {currentPage === 'pcuHerbal' && <PcuHerbalReconcilePage />}
         {currentPage === 'pcuPayout' && <PcuPayoutPage />}

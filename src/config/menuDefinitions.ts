@@ -57,6 +57,7 @@ export const toolNavItems: NavItem[] = [
   { page: 'insuranceOverview', icon: '🧭', label: 'ภาพรวมประกันสุขภาพ' },
   { page: 'accountingRevenueBudget', icon: '🧮', label: 'รายงานบัญชี / ประมาณการรายได้' },
   { page: 'smtBudget', icon: '🏦', label: 'ตัดลูกหนี้ SMT / e-Budget' },
+  { page: 'misCompare', icon: '📊', label: 'เทียบ MIS HOS vs STM/SMT' },
   { page: 'hsubPayment', icon: '🏥', label: 'พึงจ่าย รพ.สต. (H-Sub)' },
   { page: 'pcuHerbal', icon: '🌿', label: 'จ่ายยาสมุนไพร 46 รายการ (รพ.สต.)' },
   { page: 'pcuPayout', icon: '💳', label: 'คำนวณจ่ายเงิน รพ.สต.' },
@@ -85,10 +86,10 @@ export const toolNavGroups: NavGroup[] = [
   { label: 'นำเข้า/ตรวจสิทธิ', icon: '📥', pages: ['authenSync', 'ktbApproveCode', 'fdhImport', 'fdhClaimDetail', 'preValidator'] },
   { label: 'ติดตามงาน', icon: '🔎', pages: ['dailyClaimMonitor', 'workQueue', 'rejectTracking', 'uuc1Tracking', 'repDeny', 'collaboration'] },
   { label: 'REP/STM & กระทบยอด', icon: '🧾', pages: ['repstm', 'reconciliation', 'stmZeroAudit', 'repDailySummary'] },
-  { label: 'ลูกหนี้ & บัญชี', icon: '💰', pages: ['receivable', 'receivableSettlement', 'smtBudget', 'hsubPayment', 'pcuHerbal', 'pcuPayout', 'pcuCaseCost', 'unitCostProfit', 'officialReceivable', 'receivableStandardReport', 'accountingRevenueBudget'] },
+  { label: 'ลูกหนี้ & บัญชี', icon: '💰', pages: ['receivable', 'receivableSettlement', 'smtBudget', 'misCompare', 'hsubPayment', 'pcuHerbal', 'pcuPayout', 'pcuCaseCost', 'unitCostProfit', 'officialReceivable', 'receivableStandardReport', 'accountingRevenueBudget'] },
   { label: 'กองทุนเฉพาะ', icon: '🎯', pages: ['specific', 'monitor', 'dentalAudit', 'mophDmht', 'mophVaccine'] },
   { label: 'ประกันสังคม', icon: '🔵', pages: ['sssExport', 'sssRepStm', 'drugCatalog'] },
-  { label: 'ผู้บริหาร/วิเคราะห์', icon: '📊', pages: ['dailyClaimMonitor', 'executiveMonitor', 'insuranceOverview', 'admin', 'aiReports', 'hospitalReports', 'ssjRawServ', 'annualCheckupReport', 'revenueOpportunity', 'ppfsBenchmark', 'ppfsVisitMatch', 'ucOutsideCup'] },
+  { label: 'ผู้บริหาร/วิเคราะห์', icon: '📊', pages: ['dailyClaimMonitor', 'executiveMonitor', 'insuranceOverview', 'misCompare', 'admin', 'aiReports', 'hospitalReports', 'ssjRawServ', 'annualCheckupReport', 'revenueOpportunity', 'ppfsBenchmark', 'ppfsVisitMatch', 'ucOutsideCup'] },
   { label: 'ระบบ/อ้างอิง', icon: '⚙️', pages: ['memberAdmin', 'repstmManage', 'icd9Lookup', 'guide'] },
 ];
 

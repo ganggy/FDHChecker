@@ -707,6 +707,22 @@ export const ensureHsubPaymentSchema = async (connection: any): Promise<void> =>
   await connection.query(HSUB_PAYMENT_ITEM_TABLE_SQL);
 };
 
+export const MIS_HOS_SNAPSHOT_CACHE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS mis_hos_snapshot_cache (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    hcode VARCHAR(16) NOT NULL,
+    budget_year VARCHAR(8) NOT NULL,
+    page_key VARCHAR(64) NOT NULL,
+    payload_json LONGTEXT NOT NULL,
+    fetched_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_mis_hos_cache (hcode, budget_year, page_key)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+export const ensureMisHosCacheSchema = async (connection: any): Promise<void> => {
+  await connection.query(MIS_HOS_SNAPSHOT_CACHE_TABLE_SQL);
+};
+
 export const ensureFdhClaimStatusSchema = async (connection: any): Promise<void> => {
   if (activeHospitalDatabaseConfig.type === 'postgresql') {
     await connection.query('SELECT vn, transaction_uid FROM fdh_claim_status LIMIT 0');

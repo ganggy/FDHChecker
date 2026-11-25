@@ -127,15 +127,89 @@ export const saveFdhStatusImportLog = async (entry: {
 export const getFdhStatusImportLogs = async (limit = 50): Promise<Record<string, unknown>[]> => {
   const connection = await getUTFConnection();
   try {
-    await connection.query(FDH_STATUS_IMPORT_LOG_TABLE_SQL);
-    const [rows] = await connection.query(
-      `SELECT id, transaction_uid, hcode, environment, response_status, response_message, response_message_th, request_payload, response_payload, imported_at
-       FROM fdh_status_import_log
-       ORDER BY imported_at DESC
-       LIMIT ?`,
-      [limit]
-    );
-    return Array.isArray(rows) ? (rows as Record<string, unknown>[]) : [];
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(Number(limit) || 50)));
+    const combined: Record<string, unknown>[] = [];
+
+    try {
+      await connection.query(FDH_STATUS_IMPORT_LOG_TABLE_SQL);
+      const [rows] = await connection.query(
+        `SELECT
+           id,
+           transaction_uid,
+           hcode,
+           environment,
+           response_status,
+           response_message,
+           response_message_th,
+           DATE_FORMAT(imported_at, '%Y-%m-%d %H:%i:%s') AS imported_at
+         FROM fdh_status_import_log
+         ORDER BY imported_at DESC
+         LIMIT ?`,
+        [safeLimit]
+      );
+      if (Array.isArray(rows)) {
+        for (const row of rows as Record<string, unknown>[]) {
+          combined.push({
+            ...row,
+            imported_at: String(row.imported_at || ''),
+            source: 'reservation',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error reading fdh_status_import_log:', err);
+    }
+
+    try {
+      await ensureFdhClaimStatusSchema(connection);
+      const [claimStatusRows] = await connection.query(
+        `SELECT
+           COALESCE(NULLIF(vn, ''), transaction_uid) AS transaction_uid,
+           COALESCE(vn, '') AS vn,
+           COALESCE(hcode, '') AS hcode,
+           COALESCE(NULLIF(environment, ''), 'prd') AS environment,
+           COALESCE(fdh_stm_period, '') AS fdh_stm_period,
+           COALESCE(NULLIF(fdh_claim_status_message, ''), NULLIF(fdh_reservation_status, ''), '-') AS response_message_th,
+           COALESCE(error_code, '') AS error_code,
+           DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS imported_at
+         FROM fdh_claim_status
+         WHERE updated_at IS NOT NULL
+           AND (
+             NULLIF(TRIM(COALESCE(fdh_claim_status_message, '')), '') IS NOT NULL
+             OR NULLIF(TRIM(COALESCE(fdh_reservation_status, '')), '') IS NOT NULL
+           )
+         ORDER BY updated_at DESC
+         LIMIT ?`,
+        [safeLimit]
+      );
+      if (Array.isArray(claimStatusRows)) {
+        for (const row of claimStatusRows as Record<string, unknown>[]) {
+          const vn = String(row.vn || '').trim();
+          const txUid = String(row.transaction_uid || '').trim();
+          const messageTh = String(row.response_message_th || '-').trim() || '-';
+          const errorCode = String(row.error_code || '').trim();
+          const stmPeriod = String(row.fdh_stm_period || '').trim();
+          const importedAt = String(row.imported_at || '');
+          const responseStatus = messageTh.includes('ไม่พบ') ? 404 : errorCode ? 400 : 200;
+          combined.push({
+            id: `fcs_${vn || txUid}_${importedAt}`,
+            transaction_uid: vn ? `VN ${vn}` : (txUid || '-'),
+            hcode: String(row.hcode || ''),
+            environment: String(row.environment || 'prd'),
+            response_status: responseStatus,
+            response_message: stmPeriod ? `STM ${stmPeriod}` : 'track_trans',
+            response_message_th: messageTh,
+            imported_at: importedAt,
+            source: 'track_trans',
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error reading fdh_claim_status import logs:', err);
+    }
+
+    combined.sort((a, b) => String(b.imported_at || '').localeCompare(String(a.imported_at || '')));
+    return combined.slice(0, safeLimit);
   } catch (error) {
     console.error('Error reading FDH status import logs:', error);
     return [];
@@ -4108,7 +4182,9 @@ const upsertFdhClaimStatusFromApi = async (
   const rawJson = JSON.stringify(rawPayload ?? {});
   const [upd] = await connection.query(
     `UPDATE fdh_claim_status
-     SET fdh_claim_status_message = ?,
+     SET hcode = COALESCE(NULLIF(?, ''), hcode),
+         environment = COALESCE(NULLIF(environment, ''), 'prd'),
+         fdh_claim_status_message = ?,
          error_code = COALESCE(NULLIF(?, ''), error_code),
          fdh_stm_period = ?,
          fdh_act_amt = ?,
@@ -4116,7 +4192,7 @@ const upsertFdhClaimStatusFromApi = async (
          raw_payload = ?,
          updated_at = NOW()
      WHERE vn = ?`,
-    [message || null, errorCode, stmPeriod || null, actAmt ?? null, settleAt || null, rawJson, vn]
+    [hcode, message || null, errorCode, stmPeriod || null, actAmt ?? null, settleAt || null, rawJson, vn]
   ) as mysql.ResultSetHeader[];
   const affected = (upd as unknown as { affectedRows?: number }).affectedRows ?? 0;
   if (affected === 0) {

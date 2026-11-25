@@ -11,7 +11,7 @@ interface ImportResultItem {
 }
 
 interface ImportLogItem {
-  id: number;
+  id: number | string;
   transaction_uid: string;
   hcode: string;
   environment: string;
@@ -19,6 +19,7 @@ interface ImportLogItem {
   response_message?: string;
   response_message_th?: string;
   imported_at: string;
+  source?: 'track_trans' | 'reservation' | string;
 }
 
 interface FdhApiSettings {
@@ -235,9 +236,11 @@ export const FDHImportStatusPage: React.FC = () => {
     abortDateImportRef.current = controller;
     const startedAt = Date.now();
     const CHUNK_SIZE = 10;
+    let hadAnyProcessed = false;
 
     try {
       setDateRangeImporting(true);
+      setResults([]);
       setDateRangeResult({ done: false });
       setDateImportProgress({
         phase: 'listing',
@@ -285,6 +288,7 @@ export const FDHImportStatusPage: React.FC = () => {
       let skipped = 0;
       let errors = 0;
       const allErrorMessages: string[] = [];
+      let latestResults: ImportResultItem[] = [];
       let recentFeed: Array<{
         vn: string;
         vstdate: string;
@@ -335,11 +339,20 @@ export const FDHImportStatusPage: React.FC = () => {
         const itemMap = new Map(chunk.map((c) => [c.vn, c]));
         let batchFound = 0;
         let batchNotFound = 0;
+        const batchResultItems: ImportResultItem[] = [];
         const newFeedItems = resultsArr.map((r) => {
           const meta = itemMap.get(r.vn);
           const isFound = Boolean(r.found);
           if (isFound) batchFound += 1;
           else if (r.httpStatus === 200 || r.httpStatus === 404) batchNotFound += 1;
+          batchResultItems.push({
+            transaction_uid: `VN ${r.vn}${meta?.an ? ` (AN ${meta.an})` : ''}`,
+            request_payload: { vn: r.vn, vstdate: meta?.vstdate || '' },
+            response_payload: { found: isFound, httpStatus: r.httpStatus },
+            response_status: r.httpStatus,
+            response_message: [meta?.vstdate, meta?.hipdataCode].filter(Boolean).join(' · ') || 'track_trans',
+            response_message_th: r.message || '-',
+          });
           return {
             vn: r.vn,
             vstdate: meta?.vstdate || '',
@@ -351,6 +364,7 @@ export const FDHImportStatusPage: React.FC = () => {
         });
 
         processed += chunk.length;
+        if (processed > 0) hadAnyProcessed = true;
         found += batchFound;
         notFound += batchNotFound;
         skipped += Number(s.skipped || 0);
@@ -360,6 +374,8 @@ export const FDHImportStatusPage: React.FC = () => {
             if (allErrorMessages.length < 10) allErrorMessages.push(String(em));
           }
         }
+        latestResults = [...batchResultItems.reverse(), ...latestResults].slice(0, 200);
+        setResults(latestResults);
         recentFeed = [...newFeedItems.reverse(), ...recentFeed].slice(0, 15);
 
         const elapsedSec = (Date.now() - startedAt) / 1000;
@@ -408,6 +424,9 @@ export const FDHImportStatusPage: React.FC = () => {
     } finally {
       abortDateImportRef.current = null;
       setDateRangeImporting(false);
+      if (hadAnyProcessed) {
+        void fetchSettingsAndLogs();
+      }
     }
   };
 
@@ -431,205 +450,12 @@ export const FDHImportStatusPage: React.FC = () => {
       <div className="page-header">
         <h1 className="page-title">📥 นำเข้าสถานะจาก FDH</h1>
         <p className="page-subtitle">
-          ดึงสถานะการจอง/การรับข้อมูลจาก FDH ผ่าน API <code>/api/v2/reservation/get</code> โดยใช้ <code>transaction_uid</code> และ <code>HCODE</code>
+          ดึงสถานะการเบิกจาก FDH ตามช่วงวันที่ (<code>track_trans</code>) หรือดึงรายรายการด้วย <code>transaction_uid</code> ผ่าน <code>/api/v2/reservation/get</code>
         </p>
       </div>
 
+      {/* Date-range import section (primary) */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-body">
-          <div className="alert alert-info" style={{ marginBottom: 16 }}>
-            <span>ℹ️</span>
-            <span>
-              หน้านี้ออกแบบให้เข้ากับ flow ของโปรแกรม FDH เดิมของโรงพยาบาล โดยแยกส่วน Token, HCODE และรายการ <code>transaction_uid</code> สำหรับนำเข้าสถานะแบบรอบเดียวหลายรายการ
-            </span>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginBottom: 16 }}>
-            <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontWeight: 700, marginBottom: 10 }}>ค่าที่จะใช้เชื่อมต่อ FDH</div>
-              <div style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.8 }}>
-                <div>Hospital Code: <strong>{settingsSummary.hcode}</strong></div>
-                <div>User: <strong>{settingsSummary.user}</strong></div>
-                <div>Environment: <strong>{environment.toUpperCase()}</strong></div>
-                <div>Token ปัจจุบัน: <strong>{maskedToken}</strong></div>
-              </div>
-            </div>
-            <div className="card" style={{ padding: 16 }}>
-              <div style={{ fontWeight: 700, marginBottom: 10 }}>ปลายทาง API</div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.8, wordBreak: 'break-word' }}>
-                <div>URL Token: <strong>{settingsSummary.tokenUrl}</strong></div>
-                <div>URL ส่ง 16 แฟ้ม: <strong>{settingsSummary.upload16Url}</strong></div>
-                <div>URL PreScreen: <strong>{settingsSummary.preScreenUrl}</strong></div>
-                <div>URL สำรองแจ้ง: <strong>{settingsSummary.apiBaseUrl}</strong></div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Environment</label>
-              <select className="form-control" value={environment} onChange={(e) => setEnvironment(e.target.value as 'prd' | 'uat')}>
-                <option value="prd">Production</option>
-                <option value="uat">UAT</option>
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">HCODE</label>
-              <input className="form-control" value={effectiveHcode} readOnly placeholder="ดึงจากฐานข้อมูลอัตโนมัติ" />
-            </div>
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="form-label">JWT Token</label>
-            <textarea
-              className="form-control"
-              rows={4}
-              value={jwtToken}
-              onChange={(e) => setJwtToken(e.target.value)}
-              placeholder="วาง Bearer JWT token จาก FDH ที่นี่"
-              style={{ fontFamily: 'monospace' }}
-            />
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
-              <button className="btn btn-secondary" onClick={handleTestConnection} disabled={requestingToken || testingConnection}>
-                {testingConnection ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อ'}
-              </button>
-              <button className="btn btn-secondary" onClick={handleRequestToken} disabled={requestingToken}>
-                {requestingToken ? 'กำลังขอ token...' : 'ขอ token อัตโนมัติ'}
-              </button>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>
-                ปุ่มทั้งสองจะใช้ username/password จากหน้า Settings เพื่อทดลองเชื่อมต่อและขอ token ให้ก่อน
-              </span>
-            </div>
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label className="form-label">Transaction UID</label>
-            <textarea
-              className="form-control"
-              rows={6}
-              value={transactionUidText}
-              onChange={(e) => setTransactionUidText(e.target.value)}
-              placeholder="ใส่ transaction_uid ทีละบรรทัด"
-              style={{ fontFamily: 'monospace' }}
-            />
-            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
-              พบ {transactionUids.length.toLocaleString()} รายการที่จะนำเข้าสถานะ
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button className="btn btn-primary" onClick={handleImportStatus} disabled={loading}>
-              {loading ? 'กำลังนำเข้าสถานะ...' : 'ดึงสถานะจาก FDH'}
-            </button>
-            <button className="btn btn-secondary" onClick={() => setResults([])} disabled={loading}>
-              ล้างผลลัพธ์
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {error && (
-        <div className="alert alert-danger" style={{ marginBottom: 16 }}>
-          <span>⚠️</span>
-          <span>{error}</span>
-        </div>
-      )}
-
-      {connectionMessage && (
-        <div className="alert alert-success" style={{ marginBottom: 16 }}>
-          <span>✅</span>
-          <span>{connectionMessage}</span>
-        </div>
-      )}
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header">
-          <div className="card-title">ผลการนำเข้าสถานะล่าสุด</div>
-          <span className="badge badge-primary">{results.length} รายการ</span>
-        </div>
-        <div className="card-body" style={{ padding: 0 }}>
-          {results.length > 0 ? (
-            <div className="modal-table-wrap">
-              <table className="data-table long-id-table long-id-table--fdh-import-result">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Transaction UID</th>
-                    <th>HTTP/Status</th>
-                    <th>Message</th>
-                    <th>Message TH</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((item, index) => (
-                    <tr key={`${item.transaction_uid}-${index}`}>
-                      <td className="table-index-cell">{index + 1}</td>
-                      <td className="table-cell-nowrap workflow-id-cell">{item.transaction_uid}</td>
-                      <td>
-                        <span className={`badge ${item.response_status === 200 ? 'badge-success' : item.response_status ? 'badge-warning' : 'badge-danger'}`}>
-                          {item.response_status || '-'}
-                        </span>
-                      </td>
-                      <td className="long-message-cell">{item.response_message || '-'}</td>
-                      <td className="long-message-cell">{item.response_message_th || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>
-              ยังไม่มีผลลัพธ์จากการนำเข้าในรอบนี้
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-header">
-          <div className="card-title">ประวัติการนำเข้าสถานะ</div>
-          <span className="badge badge-info">{logsLoading ? 'กำลังโหลด...' : `${logs.length} รายการ`}</span>
-        </div>
-        <div className="card-body" style={{ padding: 0 }}>
-          {logs.length > 0 ? (
-            <div className="modal-table-wrap">
-              <table className="data-table long-id-table long-id-table--fdh-import-history">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Transaction UID</th>
-                    <th>HCODE</th>
-                    <th>ENV</th>
-                    <th>Status</th>
-                    <th>Message TH</th>
-                    <th>Imported At</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((item, index) => (
-                    <tr key={item.id}>
-                      <td className="table-index-cell">{index + 1}</td>
-                      <td className="table-cell-nowrap workflow-id-cell">{item.transaction_uid}</td>
-                      <td className="table-cell-nowrap workflow-code-cell">{item.hcode}</td>
-                      <td><span className="badge badge-primary">{item.environment.toUpperCase()}</span></td>
-                      <td><span className={`badge ${item.response_status === 200 ? 'badge-success' : 'badge-warning'}`}>{item.response_status || '-'}</span></td>
-                      <td className="long-message-cell">{item.response_message_th || item.response_message || '-'}</td>
-                      <td className="table-cell-nowrap workflow-code-cell">{item.imported_at}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>
-              ยังไม่มีประวัติการนำเข้าสถานะ
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Date-range import section */}
-      <div className="card" style={{ marginTop: 16 }}>
         <div className="card-header">
           <div className="card-title">🔽 นำเข้าสถานะ FDH ตามช่วงวันที่ (track_trans)</div>
         </div>
@@ -825,6 +651,220 @@ export const FDHImportStatusPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-header">
+          <div className="card-title">ผลการนำเข้าสถานะล่าสุด</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="badge badge-primary">{results.length} รายการ</span>
+            {results.length > 0 && (
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setResults([])}>
+                ล้างผลลัพธ์
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="card-body" style={{ padding: 0 }}>
+          {results.length > 0 ? (
+            <div className="modal-table-wrap">
+              <table className="data-table long-id-table long-id-table--fdh-import-result">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>VN / Transaction UID</th>
+                    <th>HTTP/Status</th>
+                    <th>Message</th>
+                    <th>Message TH</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((item, index) => (
+                    <tr key={`${item.transaction_uid}-${index}`}>
+                      <td className="table-index-cell">{index + 1}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.transaction_uid}</td>
+                      <td>
+                        <span className={`badge ${item.response_status === 200 ? 'badge-success' : item.response_status ? 'badge-warning' : 'badge-danger'}`}>
+                          {item.response_status || '-'}
+                        </span>
+                      </td>
+                      <td className="long-message-cell">{item.response_message || '-'}</td>
+                      <td className="long-message-cell">{item.response_message_th || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>
+              ยังไม่มีผลลัพธ์จากการนำเข้าในรอบนี้ (กด "นำเข้าสถานะ FDH" ด้านบนหรือดึงรายรายการด้านล่างเพื่อดูผลล่าสุด)
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-header">
+          <div className="card-title">ประวัติการนำเข้าสถานะ</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="badge badge-info">{logsLoading ? 'กำลังโหลด...' : `${logs.length} รายการ`}</span>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => void fetchSettingsAndLogs()} disabled={logsLoading}>
+              🔄 รีเฟรช
+            </button>
+          </div>
+        </div>
+        <div className="card-body" style={{ padding: 0 }}>
+          {logs.length > 0 ? (
+            <div className="modal-table-wrap">
+              <table className="data-table long-id-table long-id-table--fdh-import-history">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>VN / Transaction UID</th>
+                    <th>ช่องทาง</th>
+                    <th>HCODE</th>
+                    <th>ENV</th>
+                    <th>Status</th>
+                    <th>Message TH</th>
+                    <th>Imported At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map((item, index) => (
+                    <tr key={item.id}>
+                      <td className="table-index-cell">{index + 1}</td>
+                      <td className="table-cell-nowrap workflow-id-cell">{item.transaction_uid}</td>
+                      <td>
+                        <span className={`badge ${item.source === 'track_trans' ? 'badge-info' : 'badge-secondary'}`}>
+                          {item.source === 'track_trans' ? 'track_trans' : 'reservation'}
+                        </span>
+                      </td>
+                      <td className="table-cell-nowrap workflow-code-cell">{item.hcode || '-'}</td>
+                      <td><span className="badge badge-primary">{(item.environment || 'prd').toUpperCase()}</span></td>
+                      <td><span className={`badge ${item.response_status === 200 ? 'badge-success' : 'badge-warning'}`}>{item.response_status || '-'}</span></td>
+                      <td className="long-message-cell">{item.response_message_th || item.response_message || '-'}</td>
+                      <td className="table-cell-nowrap workflow-code-cell">{item.imported_at}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>
+              ยังไม่มีประวัติการนำเข้าสถานะ
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-header">
+          <div className="card-title">นำเข้าสถานะรายรายการด้วย Transaction UID (/api/v2/reservation/get)</div>
+        </div>
+        <div className="card-body">
+          <div className="alert alert-info" style={{ marginBottom: 16 }}>
+            <span>ℹ️</span>
+            <span>
+              หน้านี้ออกแบบให้เข้ากับ flow ของโปรแกรม FDH เดิมของโรงพยาบาล โดยแยกส่วน Token, HCODE และรายการ <code>transaction_uid</code> สำหรับนำเข้าสถานะแบบรอบเดียวหลายรายการ
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>ค่าที่จะใช้เชื่อมต่อ FDH</div>
+              <div style={{ fontSize: 14, color: 'var(--text-muted)', lineHeight: 1.8 }}>
+                <div>Hospital Code: <strong>{settingsSummary.hcode}</strong></div>
+                <div>User: <strong>{settingsSummary.user}</strong></div>
+                <div>Environment: <strong>{environment.toUpperCase()}</strong></div>
+                <div>Token ปัจจุบัน: <strong>{maskedToken}</strong></div>
+              </div>
+            </div>
+            <div className="card" style={{ padding: 16 }}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>ปลายทาง API</div>
+              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.8, wordBreak: 'break-word' }}>
+                <div>URL Token: <strong>{settingsSummary.tokenUrl}</strong></div>
+                <div>URL ส่ง 16 แฟ้ม: <strong>{settingsSummary.upload16Url}</strong></div>
+                <div>URL PreScreen: <strong>{settingsSummary.preScreenUrl}</strong></div>
+                <div>URL สำรองแจ้ง: <strong>{settingsSummary.apiBaseUrl}</strong></div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
+            <div className="form-group">
+              <label className="form-label">Environment</label>
+              <select className="form-control" value={environment} onChange={(e) => setEnvironment(e.target.value as 'prd' | 'uat')}>
+                <option value="prd">Production</option>
+                <option value="uat">UAT</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">HCODE</label>
+              <input className="form-control" value={effectiveHcode} readOnly placeholder="ดึงจากฐานข้อมูลอัตโนมัติ" />
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label className="form-label">JWT Token</label>
+            <textarea
+              className="form-control"
+              rows={4}
+              value={jwtToken}
+              onChange={(e) => setJwtToken(e.target.value)}
+              placeholder="วาง Bearer JWT token จาก FDH ที่นี่"
+              style={{ fontFamily: 'monospace' }}
+            />
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+              <button className="btn btn-secondary" onClick={handleTestConnection} disabled={requestingToken || testingConnection}>
+                {testingConnection ? 'กำลังทดสอบ...' : 'ทดสอบการเชื่อมต่อ'}
+              </button>
+              <button className="btn btn-secondary" onClick={handleRequestToken} disabled={requestingToken}>
+                {requestingToken ? 'กำลังขอ token...' : 'ขอ token อัตโนมัติ'}
+              </button>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', alignSelf: 'center' }}>
+                ปุ่มทั้งสองจะใช้ username/password จากหน้า Settings เพื่อทดลองเชื่อมต่อและขอ token ให้ก่อน
+              </span>
+            </div>
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 16 }}>
+            <label className="form-label">Transaction UID</label>
+            <textarea
+              className="form-control"
+              rows={6}
+              value={transactionUidText}
+              onChange={(e) => setTransactionUidText(e.target.value)}
+              placeholder="ใส่ transaction_uid ทีละบรรทัด"
+              style={{ fontFamily: 'monospace' }}
+            />
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+              พบ {transactionUids.length.toLocaleString()} รายการที่จะนำเข้าสถานะ
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={handleImportStatus} disabled={loading}>
+              {loading ? 'กำลังนำเข้าสถานะ...' : 'ดึงสถานะจาก FDH'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => setResults([])} disabled={loading}>
+              ล้างผลลัพธ์
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="alert alert-danger" style={{ marginBottom: 16 }}>
+          <span>⚠️</span>
+          <span>{error}</span>
+        </div>
+      )}
+
+      {connectionMessage && (
+        <div className="alert alert-success" style={{ marginBottom: 16 }}>
+          <span>✅</span>
+          <span>{connectionMessage}</span>
+        </div>
+      )}
     </div>
   );
 };

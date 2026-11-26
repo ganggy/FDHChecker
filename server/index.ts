@@ -7041,10 +7041,10 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
 const inferFundFromFilenameOrRow = (filename: string, cells: string[], defaultFund = ''): string => {
   const combined = `${filename} ${cells.join(' ')}`.toUpperCase();
   if (/OPLGO|IPLGO|_LGO|LGO[_.\s-]/.test(combined)) return 'LGO';
-  if (/OPCS|IPCS|_OFC|OFC[_.\s-]|CSMBS/.test(combined)) return 'OFC';
+  if (/OPCS|IPCS|_OFC|OFC[_.\s-]|CSMBS|COCD|FOCD/.test(combined)) return 'OFC';
   if (/OPBKK|IPBKK|_BKK|BKK[_.\s-]/.test(combined)) return 'BKK';
   if (/OPUCS|IPUCS|ORF|_UCS|UCS[_.\s-]|WEL/.test(combined)) return 'UCS';
-  if (/SSS|SSOP/.test(combined)) return 'SSS';
+  if (/SSS|SSOP|SOCD/.test(combined)) return 'SSS';
   return defaultFund;
 };
 
@@ -7538,54 +7538,85 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         } catch { /* continue to legacy strategies */ }
       }
 
-      // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ---
-      if (fileType === 'INV') {
-        const financeUrls = [
-          `https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do`,
-        ];
+      const isLegacyErrorPage = async (titleStr: string) => (
+        titleStr.toLowerCase().includes('error')
+        || await page.evaluate(() => (document.body?.textContent || '').includes('has no explicit mapping for /error')).catch(() => false)
+      );
 
-        for (const url of financeUrls) {
+      // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ครบทุกกองทุน ---
+      if (fileType === 'INV') {
+        const allFinanceFunds = ['ucs', 'ofc', 'lgo', 'bkk', 'sss'];
+        const targetFinanceFunds = requestedFunds
+          ? allFinanceFunds.filter((f) => requestedFunds.has(f.toUpperCase()))
+          : allFinanceFunds;
+
+        for (const fundCode of targetFinanceFunds) {
+          const url = `https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=${fundCode}`;
           try {
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
             await page.waitForTimeout(450);
             pageTitle = await page.title().catch(() => '');
+            if (await isLegacyErrorPage(pageTitle)) continue;
             await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
 
-            scraped = await scrapeFilesAcrossPages(period);
+            const found = await scrapeFilesAcrossPages(period);
+            periodFiles.push(...found.map((file) => {
+              const fname = String(file.filename || '');
+              const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+              return {
+                ...file,
+                period: inferPeriodFromFilenameOrCells(fname, cells, period),
+                detectedType: 'INV',
+                fund: inferFundFromFilenameOrRow(fname, cells, fundCode.toUpperCase()),
+              };
+            }));
             usedUrl = url;
-            if (scraped.length > 0) break;
-          } catch { /* try next */ }
+          } catch { /* try next fund */ }
         }
-        periodFiles.push(...scraped.map((file) => {
-          const fname = String(file.filename || '');
-          const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
-          return {
-            ...file,
-            period: inferPeriodFromFilenameOrCells(fname, cells, period),
-            detectedType: 'INV',
-            fund: inferFundFromFilenameOrRow(fname, cells, 'INV'),
-          };
-        }));
-        scraped = [];
       }
 
-      // --- Strategy 2: All Statement pages (UCS + OFC/LGO/BKK/NCH) ---
+      // --- Strategy 2: All Statement pages ครบทุกกองทุน (UCS + OFC + LGO + BKK + SSS) ---
       if (fileType === 'ALL' || fileType === 'STM') {
-        const statementSources = [
+        const allStatementSources = [
           {
             defaultFund: 'UCS',
             url: 'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do?dynamicMenuFunctionUnitId=1578',
           },
           {
-            defaultFund: 'OFC/LGO',
+            defaultFund: 'UCS',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=ucs',
+          },
+          {
+            defaultFund: 'OFC',
             url: 'https://eclaim.nhso.go.th/webComponent/nch/StatementReportWebAction.do?dynamicMenuFunctionUnitId=995',
           },
+          {
+            defaultFund: 'OFC',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=ofc',
+          },
+          {
+            defaultFund: 'LGO',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=lgo',
+          },
+          {
+            defaultFund: 'BKK',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=bkk',
+          },
+          {
+            defaultFund: 'SSS',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=sss',
+          },
         ];
+        const statementSources = requestedFunds
+          ? allStatementSources.filter((s) => requestedFunds.has(s.defaultFund))
+          : allStatementSources;
+
         for (const stmSource of statementSources) {
           try {
             await page.goto(stmSource.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
             await page.waitForTimeout(450);
             pageTitle = await page.title().catch(() => '');
+            if (await isLegacyErrorPage(pageTitle)) continue;
             await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
             const statementFiles = await scrapeFilesAcrossPages(period);
             periodFiles.push(...statementFiles.map((file) => {

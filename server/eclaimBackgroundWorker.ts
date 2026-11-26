@@ -12,6 +12,7 @@ import * as xlsx from 'xlsx';
 import { getEclaimBrowserSession } from './index.js';
 import { getRepstmConnection } from './db/connection.js';
 import { importRepstmRows } from './repositories/receivables.repository.js';
+import { analyzeRepstmArchive } from './repstmArchive.js';
 
 export interface EclaimWorkerProgress {
   jobId: string | null;
@@ -835,35 +836,199 @@ export const startEclaimBackgroundSync = async (options: {
       }
 
       // ─────────────────────────────────────────────────────────────
-      // PART 3: OFC / LGO Statement จากเว็บระบบเดิม (StatementReportWebAction.do)
+      // PART 3: OFC / LGO Statement จากเว็บระบบเดิม (StatementReportWebAction.do & FinanceReportMainWebAction.do?maininscl=lgo)
       // ─────────────────────────────────────────────────────────────
       if (!stopRequested) {
-        addLog('info', 'กำลังตรวจสอบ STM สิทธิ OFC / LGO จากเว็บระบบเดิม...');
-        try {
-          const ofcStmUrl = 'https://eclaim.nhso.go.th/webComponent/nch/StatementReportWebAction.do?dynamicMenuFunctionUnitId=995';
-          await page.goto(ofcStmUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          await page.waitForTimeout(1500);
+        const legacyStmSources = [
+          {
+            label: 'UCS (statementUCSAction)',
+            url: 'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do?dynamicMenuFunctionUnitId=1578',
+          },
+          {
+            label: 'OFC/NCH (StatementReportWebAction)',
+            url: 'https://eclaim.nhso.go.th/webComponent/nch/StatementReportWebAction.do?dynamicMenuFunctionUnitId=995',
+          },
+          {
+            label: 'UCS (FinanceReport)',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=ucs',
+          },
+          {
+            label: 'OFC (FinanceReport)',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=ofc',
+          },
+          {
+            label: 'LGO (FinanceReport)',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=lgo',
+          },
+          {
+            label: 'BKK (FinanceReport)',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=bkk',
+          },
+          {
+            label: 'SSS (FinanceReport)',
+            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=sss',
+          },
+        ];
 
-          const ofcRows = await page.evaluate(() => {
-            const trs = Array.from(document.querySelectorAll('table tbody tr'));
-            return trs.map((tr, idx) => {
-              const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
-              const text = cells.join(' ');
-              const excelBtn = tr.querySelector('a:not([href="#"]), button');
-              return {
-                idx,
-                text,
-                hasExcel: Boolean(excelBtn),
-                onclick: excelBtn?.getAttribute('onclick') || '',
-              };
-            });
-          }).catch(() => []);
+        for (const legacySource of legacyStmSources) {
+          if (stopRequested) break;
+          addLog('info', `กำลังตรวจสอบ STM สิทธิ ${legacySource.label}...`);
+          try {
+            await page.goto(legacySource.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForTimeout(1200);
 
-          const ofcReady = ofcRows.filter((r) => r.hasExcel && r.text.includes('11101'));
-          if (ofcReady.length > 0) {
-            addLog('info', `พบ Statement OFC/LGO ในระบบเดิม ${ofcReady.length} รายการ`);
+            const legacyTitle = await page.title().catch(() => '');
+            const isLegacyErr = legacyTitle.toLowerCase().includes('error')
+              || await page.evaluate(() => (document.body?.textContent || '').includes('has no explicit mapping for /error')).catch(() => false);
+            if (isLegacyErr) {
+              addLog('info', `⏭️ ข้าม ${legacySource.label} (หน้าไม่พร้อมใช้งานบน e-Claim)`);
+              continue;
+            }
+
+            const hasInitialRows = await page.evaluate(() => document.querySelectorAll('table tbody tr').length > 0).catch(() => false);
+            if (!hasInitialRows) {
+              const submitBtn = await page.$('input[type="submit"], button[type="submit"], button:text-matches("แสดง|ค้นหา|Search", "i")').catch(() => null);
+              if (submitBtn) {
+                await submitBtn.click().catch(() => null);
+                await page.waitForTimeout(1500);
+              }
+            }
+
+            const legacyRows = await page.evaluate(() => {
+              const trs = Array.from(document.querySelectorAll('table tbody tr'));
+              return trs.map((tr, idx) => {
+                const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+                const text = cells.join(' ');
+                const rawFileName = cells.find((c) => /\.(xlsx?|zip|csv|ecd)/i.test(c)) || '';
+                const allClickables = Array.from(tr.querySelectorAll<HTMLElement>('a, button, [role="button"]'));
+                const excelBtn = allClickables.find((el) => {
+                  const href = el.getAttribute('href') || '';
+                  const onclick = el.getAttribute('onclick') || '';
+                  const t = (el.textContent || '').toLowerCase().trim();
+                  const title = (el.getAttribute('title') || '').toLowerCase();
+                  return (href && href !== '#') || onclick.length > 0 || t.includes('download') || t.includes('excel') || t.includes('ดาวน์โหลด') || title.includes('excel');
+                }) || tr.querySelector('a:not([href="#"]), button');
+                return {
+                  idx,
+                  text,
+                  rawFileName,
+                  hasExcel: Boolean(excelBtn),
+                  onclick: excelBtn?.getAttribute('onclick') || '',
+                };
+              });
+            }).catch(() => []);
+
+            const readyRows = legacyRows.filter((r) => r.hasExcel && (r.text.includes('11101') || r.rawFileName !== '' || /\.(xlsx?|zip|ecd)/i.test(r.onclick)));
+            if (readyRows.length === 0) {
+              addLog('info', `ไม่พบรายการ STM ที่พร้อมดาวน์โหลดใน ${legacySource.label}`);
+              continue;
+            }
+
+            addLog('info', `พบ Statement ${legacySource.label} ${readyRows.length} รายการ — กำลังตรวจไฟล์ใหม่...`);
+
+            let importedHere = 0;
+            for (const rowMeta of readyRows) {
+              if (stopRequested) break;
+              const baseName = rowMeta.rawFileName || `STM_LEGACY_${legacySource.label.startsWith('LGO') ? 'LGO' : 'OFC'}_${rowMeta.idx}.xls`;
+              const expectedName = baseName.replace(/\.ecd$/i, '.xls');
+
+              if (rowMeta.rawFileName && await isFileAlreadyImported(expectedName)) {
+                workerState.skippedCount += 1;
+                continue;
+              }
+
+              try {
+                const [download] = await Promise.all([
+                  page.waitForEvent('download', { timeout: 30000 }),
+                  page.evaluate((idx) => {
+                    const tr = document.querySelectorAll('table tbody tr')[idx];
+                    if (!tr) return;
+                    const allClickables = Array.from(tr.querySelectorAll<HTMLElement>('a, button, [role="button"]'));
+                    const dlBtn = allClickables.find((el) => {
+                      const href = el.getAttribute('href') || '';
+                      const onclick = el.getAttribute('onclick') || '';
+                      const t = (el.textContent || '').toLowerCase().trim();
+                      const title = (el.getAttribute('title') || '').toLowerCase();
+                      return (href && href !== '#') || onclick.length > 0 || t.includes('download') || t.includes('excel') || t.includes('ดาวน์โหลด') || title.includes('excel');
+                    }) || tr.querySelector('a:not([href="#"]), button') as HTMLElement | null;
+                    dlBtn?.click();
+                  }, rowMeta.idx),
+                ]);
+
+                const dlPath = await download.path();
+                if (dlPath && fs.existsSync(dlPath)) {
+                  const fBuffer = fs.readFileSync(dlPath);
+                  const actualName = (download.suggestedFilename() || expectedName).replace(/\.ecd$/i, '.xls');
+
+                  if (await isFileAlreadyImported(actualName)) {
+                    workerState.skippedCount += 1;
+                    continue;
+                  }
+
+                  const savePath = path.join(downloadArchiveDir, actualName);
+                  fs.copyFileSync(dlPath, savePath);
+                  workerState.downloadedCount += 1;
+                  addLog('success', `📥 ดาวน์โหลด ${legacySource.label}: ${actualName}`);
+
+                  if (/\.zip$/i.test(actualName)) {
+                    const analysis = analyzeRepstmArchive(fBuffer, actualName);
+                    for (const ds of analysis.datasets) {
+                      const importRes = await importRepstmRows({
+                        dataType: ds.detectedType || 'STM',
+                        sourceFilename: ds.sheetName || actualName,
+                        fileSize: fBuffer.length,
+                        sheetName: ds.sheetName,
+                        isSubfile: analysis.datasets.length > 1,
+                        importedBy: options.importedBy || 'eclaim_background_sync',
+                        notes: `Auto-Sync ${legacySource.label}`,
+                        rows: ds.rows,
+                        forceReimport: false,
+                      });
+                      if (importRes.success) {
+                        workerState.importedCount += 1;
+                        importedHere += 1;
+                        registerImportedFileInCache(ds.sheetName || actualName);
+                      }
+                    }
+                    registerImportedFileInCache(actualName);
+                    addLog('success', `✅ นำเข้า ZIP STM สำเร็จ: ${actualName}`);
+                  } else {
+                    const wb = xlsx.read(fBuffer, { type: 'buffer' });
+                    const sName = wb.SheetNames[0];
+                    const parsed = sName ? xlsx.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sName]) : [];
+                    if (parsed.length > 0) {
+                      const importRes = await importRepstmRows({
+                        dataType: 'STM',
+                        sourceFilename: actualName,
+                        fileSize: fBuffer.length,
+                        sheetName: sName,
+                        isSubfile: false,
+                        importedBy: options.importedBy || 'eclaim_background_sync',
+                        notes: `Auto-Sync ${legacySource.label}`,
+                        rows: parsed,
+                        forceReimport: false,
+                      });
+                      if (importRes.success) {
+                        workerState.importedCount += 1;
+                        importedHere += 1;
+                        registerImportedFileInCache(actualName);
+                        registerImportedFileInCache(expectedName);
+                        addLog('success', `✅ นำเข้า STM สำเร็จ: ${actualName} (+${parsed.length} รายการ)`);
+                      }
+                    }
+                  }
+                }
+              } catch (dlErr: any) {
+                addLog('warning', `⚠️ ดาวน์โหลด ${legacySource.label} แถวที่ ${rowMeta.idx + 1} ไม่สำเร็จ: ${dlErr.message}`);
+              }
+            }
+            if (importedHere === 0) {
+              addLog('info', `ℹ️ ${legacySource.label}: ไม่พบไฟล์ใหม่เพิ่มเติม`);
+            }
+          } catch (err: any) {
+            addLog('warning', `⚠️ ตรวจสอบ ${legacySource.label} ไม่สำเร็จ: ${err.message}`);
           }
-        } catch { /* ignore */ }
+        }
       }
 
       if (stopRequested) {

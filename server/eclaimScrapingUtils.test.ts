@@ -4,6 +4,7 @@ import {
   getFilenameStemAliases,
   inferDetectedTypeFromFilename,
   inferFundFromBenefitLabel,
+  inferFundFromFilenameOrRow,
   scoreEclaimDownloadLink,
 } from './eclaimScrapingUtils.js';
 
@@ -68,4 +69,31 @@ test('scoreEclaimDownloadLink ranks Download Statement column above PDF 7119_2 /
   assert.equal(form7106Col.isPdf, true);
   assert.ok(statementCol.score > form7119Col.score);
   assert.ok(statementCol.score > form7106Col.score);
+});
+
+test('scoreEclaimDownloadLink allows FinanceReport download excel links with .ecd filename params', () => {
+  const lgoExcelLink = scoreEclaimDownloadLink({
+    href: "javascript:downloadExcel('eclaim_11101_OPLGO_25691124_134446900.ecd')",
+    onclick: '',
+    label: 'download excel',
+    colHeader: 'Excel File',
+    linkIndex: 0,
+    isStatementReportPage: false,
+  });
+
+  assert.equal(lgoExcelLink.isExcelExplicit, true);
+  assert.equal(lgoExcelLink.isEcd, false);
+  assert.equal(lgoExcelLink.isPdf, false);
+  assert.ok(lgoExcelLink.score >= 250);
+});
+
+test('inferFundFromFilenameOrRow maps IPLGO, IPCS/OPCS, SIGNSTM, and Thai scheme labels accurately', () => {
+  assert.equal(inferFundFromFilenameOrRow('eclaim_11101_IPLGO_25691101_0001.xls', [], 'UCS'), 'LGO');
+  assert.equal(inferFundFromFilenameOrRow('eclaim_11101_IPCS_25691101_0001.xls', [], 'UCS'), 'OFC');
+  assert.equal(inferFundFromFilenameOrRow('eclaim_11101_OPCS_25691101_0001.xls', [], 'UCS'), 'OFC');
+  assert.equal(inferFundFromFilenameOrRow('11101_SIGNSTM_6909.ZIP', [], 'UCS'), 'SSS');
+  assert.equal(
+    inferFundFromFilenameOrRow('file.xls', ['สิทธิกองทุนบุคลากรองค์กรปกครองส่วนท้องถิ่น (อปท.)'], 'UCS'),
+    'LGO'
+  );
 });

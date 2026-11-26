@@ -16,6 +16,7 @@ import {
   getFilenameStemAliases,
   inferDetectedTypeFromFilename,
   inferFundFromBenefitLabel,
+  inferFundFromFilenameOrRow,
   scoreEclaimDownloadLink,
 } from './eclaimScrapingUtils.js';
 import {
@@ -7060,16 +7061,6 @@ app.post('/api/nhso-eclaim/browser-login', async (req, res) => {
   }
 });
 
-const inferFundFromFilenameOrRow = (filename: string, cells: string[], defaultFund = ''): string => {
-  const combined = `${filename} ${cells.join(' ')}`.toUpperCase();
-  if (/OPLGO|IPLGO|_LGO|LGO[_.\s-]/.test(combined)) return 'LGO';
-  if (/OPCS|IPCS|_OFC|OFC[_.\s-]|CSMBS|COCD|FOCD/.test(combined)) return 'OFC';
-  if (/OPBKK|IPBKK|_BKK|BKK[_.\s-]/.test(combined)) return 'BKK';
-  if (/OPUCS|IPUCS|ORF|_UCS|UCS[_.\s-]|WEL/.test(combined)) return 'UCS';
-  if (/SSS|SSOP|SOCD/.test(combined)) return 'SSS';
-  return defaultFund;
-};
-
 const inferPeriodFromFilenameOrCells = (filename: string, cells: string[], fallbackPeriod: string): string => {
   const text = `${filename} ${cells.join(' ')}`;
   // 1. YYYYMMDD in CE (e.g. _20261015_ or 20251203)
@@ -7215,12 +7206,12 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
               const tdIdx = td ? tds.indexOf(td) : -1;
               const colHeader = tdIdx >= 0 ? (tableHeaders[tdIdx] || '') : '';
               const combined = `${href} ${onclick} ${label} ${title} ${aria} ${colHeader}`;
-              const isEcd = /\.ecd(?:$|[?#'"\s])/i.test(combined);
+              const isStatementHeader = /download\s*statement|ดาวน์โหลด\s*statement|^statement$/i.test(colHeader);
+              const isExcelExplicit = /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(`${label} ${title} ${aria} ${colHeader}`) || isStatementHeader;
+              const isEcd = !isExcelExplicit && /\.ecd(?:$|[?#'"\s])/i.test(`${href} ${onclick} ${label} ${title}`);
               const isPdf = /7119|7106|หนังสือแจ้งการโอน|คำขอเบิก|ใบสรุป|ใบสำคัญรับเงิน|รายงานสรุป|printpdf|reportpdf|\.pdf(?:$|[?#'"\s])|\bpdf\b/i.test(
                 `${colHeader} ${href} ${onclick} ${label} ${title}`
               );
-              const isStatementHeader = /download\s*statement|ดาวน์โหลด\s*statement|^statement$/i.test(colHeader);
-              const isExcelExplicit = /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(combined) || isStatementHeader;
               const isExcelOrZip = /excel|\.xlsx?|\.zip|\.csv|export|detail|รายละเอียด|rep_|stm_|statement/i.test(combined);
               const score = (isEcd ? -500 : 0)
                 + (isPdf ? -350 : 0)
@@ -7273,8 +7264,24 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
     }, periodStr);
   };
 
-  // Multi-page pagination scraper — automatically traverses DisplayTag / numbered pagination links
+  // Multi-page pagination scraper — automatically expands "แสดงทั้งหมด" if present, else traverses DisplayTag pagination links
   const scrapeFilesAcrossPages = async (periodStr: string): Promise<Record<string, unknown>[]> => {
+    const expandedAll = await page.evaluate(() => {
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>('a, button, input[type="button"], input[type="submit"]'));
+      const showAllEl = candidates.find((el) => {
+        const txt = (el.textContent || el.getAttribute('value') || '').replace(/\s+/g, ' ').trim();
+        return txt === 'แสดงทั้งหมด' || txt === 'Show All';
+      });
+      if (showAllEl) {
+        showAllEl.click();
+        return true;
+      }
+      return false;
+    }).catch(() => false);
+    if (expandedAll) {
+      await page.waitForTimeout(850);
+    }
+
     const collected: Record<string, unknown>[] = [];
     const firstPageRows = await scrapeFilesFromPage(periodStr);
     collected.push(...firstPageRows);
@@ -7432,7 +7439,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             continue;
           }
         }
-        if (!monthChanged) {
+        if (!monthChanged && options.some((o) => (o.textContent || '').includes('มกราคม'))) {
           const monthOpt = options.find((o) => {
             const val = o.value.trim();
             const txt = (o.textContent || '').trim();
@@ -7462,6 +7469,8 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
   };
 
   let repHasPeriodFilter = false;
+  let scrapedClientStatement = false;
+  const cachedClientStatementFiles: Record<string, unknown>[] = [];
 
   try {
     await withEclaimPageLock(async () => {
@@ -7520,14 +7529,15 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             const processed = clientRows.filter((r) => r.isProcessed && (r.hasExcel || r.rawFileName));
             for (const item of processed) {
               const base = (item.rawFileName || `REP_${item.repNo}.xls`).replace(/\.ecd$/i, '.xls');
+              const cells = [item.repNo, item.sender, item.sendDate, item.rawFileName, 'ประมวลผลแล้ว'];
               periodFiles.push({
                 filename: base,
                 downloadHref: item.excelHref,
                 downloadOnclick: item.excelOnclick,
                 detectedType: 'REP',
-                period,
-                fund: item.rawFileName.includes('OPCS') ? 'OPCS' : item.rawFileName.includes('OPLGO') ? 'LGO' : item.rawFileName.includes('OPBKK') ? 'BKK' : 'UCS',
-                cells: [item.repNo, item.sender, item.sendDate, item.rawFileName, 'ประมวลผลแล้ว'],
+                period: inferPeriodFromFilenameOrCells(base, cells, period),
+                fund: inferFundFromFilenameOrRow(base, cells, 'UCS'),
+                cells,
                 sourcePage: newRepUrl,
               });
             }
@@ -7574,14 +7584,18 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         || await page.evaluate(() => (document.body?.textContent || '').includes('has no explicit mapping for /error')).catch(() => false)
       );
 
-      // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ครบทุกกองทุน ---
-      if (fileType === 'INV') {
-        const allFinanceFunds = ['ucs', 'ofc', 'lgo', 'bkk', 'sss'];
+      // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ครบทุกกองทุน (LGO, SSS, BKK, OFC, UCS) ---
+      const visitedFinanceFunds = new Set<string>();
+      const scrapeFinanceReportForFunds = async () => {
+        const allFinanceFunds = ['lgo', 'sss', 'bkk', 'ofc', 'ucs'];
         const targetFinanceFunds = requestedFunds
           ? allFinanceFunds.filter((f) => requestedFunds.has(f.toUpperCase()))
           : allFinanceFunds;
 
         for (const fundCode of targetFinanceFunds) {
+          const upperFund = fundCode.toUpperCase();
+          if (visitedFinanceFunds.has(upperFund)) continue;
+          visitedFinanceFunds.add(upperFund);
           const url = `https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=${fundCode}`;
           try {
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -7591,23 +7605,127 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
 
             const found = await scrapeFilesAcrossPages(period);
-            periodFiles.push(...found.map((file) => {
+            let keptCount = 0;
+            for (const file of found) {
               const fname = String(file.filename || '');
               const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
-              return {
+              const inferredType = fileType === 'INV'
+                ? 'INV'
+                : inferDetectedTypeFromFilename(fname, fileType === 'REP' ? 'REP' : 'STM');
+              // On UCS/OFC FinanceReport, skip eclaim_* REP rows when strictly fetching STM (they belong to REP)
+              if (fileType === 'STM' && (upperFund === 'UCS' || upperFund === 'OFC') && inferredType === 'REP') {
+                continue;
+              }
+              if (fileType === 'REP' && inferredType !== 'REP') {
+                continue;
+              }
+              periodFiles.push({
                 ...file,
                 period: inferPeriodFromFilenameOrCells(fname, cells, period),
-                detectedType: 'INV',
-                fund: inferFundFromFilenameOrRow(fname, cells, fundCode.toUpperCase()),
-              };
-            }));
+                detectedType: inferredType,
+                fund: inferFundFromFilenameOrRow(fname, cells, upperFund),
+              });
+              keptCount += 1;
+            }
+            const snippet = keptCount === 0
+              ? await page.evaluate(() => document.body?.innerHTML?.slice(0, 1500) || '').catch(() => '')
+              : '';
+            debugLog.push({ period, url, title: pageTitle, rowCount: keptCount, htmlSnippet: snippet });
             usedUrl = url;
           } catch { /* try next fund */ }
         }
+      };
+
+      if (fileType === 'INV') {
+        await scrapeFinanceReportForFunds();
       }
 
-      // --- Strategy 2: All Statement pages ครบทุกกองทุน (UCS + StatementReportWebAction [ทุกสิทธิประโยชน์ x OP/IP] + FinanceReport) ---
+      // --- Strategy 2: All Statement pages ครบทุกกองทุน (New Client Statement + StatementReportWebAction + statementUCSAction + FinanceReport) ---
       if (fileType === 'ALL' || fileType === 'STM') {
+        // 2A. New e-Claim Client portal Statement (/Client/service/download-statement)
+        if (!scrapedClientStatement) {
+          scrapedClientStatement = true;
+          const clientStmUrl = 'https://eclaim.nhso.go.th/Client/service/download-statement';
+          try {
+            await page.goto(clientStmUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => undefined);
+            await page.waitForTimeout(1800);
+            await page.evaluate(() => {
+              const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, input[type="button"], input[type="submit"], .btn, a'));
+              const searchBtn = buttons.find((b) => {
+                const txt = (b.textContent || '').trim();
+                const val = (b.getAttribute('value') || '').trim();
+                return txt === 'ค้นหา' || val === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง'));
+              });
+              if (searchBtn) searchBtn.click();
+            }).catch(() => undefined);
+            await page.waitForTimeout(2200);
+
+            const clientStmPages = Math.min(maxPages, 10);
+            for (let cp = 1; cp <= clientStmPages; cp += 1) {
+              const clientRows = await page.evaluate(() => {
+                const tableRows = Array.from(document.querySelectorAll('table tbody tr'));
+                return tableRows.map((tr) => {
+                  const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+                  const text = cells.join(' ');
+                  if (cells.length <= 1 || text.includes('ไม่มีข้อมูล')) return null;
+                  const rawFileName = cells.find((c) => /\.(xlsx?|zip|csv|ecd)/i.test(c))
+                    || cells.find((c) => /(?:STM|SIGNSTM|COCD|SOCD|FOCD|\d{5}_)/i.test(c))
+                    || cells[0]
+                    || '';
+                  const dlAnchor = Array.from(tr.querySelectorAll<HTMLElement>('a, button')).find((el) => {
+                    const t = (el.textContent || '').toLowerCase();
+                    const title = (el.getAttribute('title') || '').toLowerCase();
+                    return t.includes('download') || t.includes('ดาวน์โหลด') || t.includes('excel') || title.includes('download') || title.includes('excel');
+                  }) || tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button');
+                  return {
+                    rawFileName,
+                    cells,
+                    href: (dlAnchor as HTMLAnchorElement)?.href || '',
+                    onclick: dlAnchor?.getAttribute('onclick') || '',
+                  };
+                }).filter(Boolean);
+              }).catch(() => []);
+
+              for (const item of clientRows as Array<{ rawFileName: string; cells: string[]; href: string; onclick: string }>) {
+                const base = (item.rawFileName || 'STM_CLIENT.xls').replace(/\.ecd$/i, '.xls');
+                const inferredFund = inferFundFromFilenameOrRow(base, item.cells, 'UCS');
+                cachedClientStatementFiles.push({
+                  filename: base,
+                  downloadHref: item.href,
+                  downloadOnclick: item.onclick,
+                  detectedType: 'STM',
+                  period: inferPeriodFromFilenameOrCells(base, item.cells, period),
+                  fund: inferredFund,
+                  cells: item.cells,
+                  sourcePage: clientStmUrl,
+                });
+              }
+
+              if (cp < clientStmPages) {
+                const movedNext = await page.evaluate(() => {
+                  const antNext = document.querySelector<HTMLElement>('.ant-pagination-next:not(.ant-pagination-disabled)');
+                  if (antNext) {
+                    ((antNext.querySelector('button, a') as HTMLElement) || antNext).click();
+                    return true;
+                  }
+                  return false;
+                }).catch(() => false);
+                if (movedNext) {
+                  await page.waitForTimeout(1600);
+                } else {
+                  break;
+                }
+              }
+            }
+          } catch { /* fallback to legacy sources */ }
+        }
+        for (const cachedFile of cachedClientStatementFiles) {
+          const cfFund = String(cachedFile.fund || '').toUpperCase();
+          if (requestedFunds && cfFund && !requestedFunds.has(cfFund)) continue;
+          periodFiles.push(cachedFile);
+        }
+
+        // 2B. StatementReportWebAction.do (OFC / ทุกสิทธิประโยชน์ x OP/IP)
         const statementReportUrl = 'https://eclaim.nhso.go.th/webComponent/nch/StatementReportWebAction.do?dynamicMenuFunctionUnitId=995';
         try {
           await page.goto(statementReportUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -7768,64 +7886,39 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
           }
         } catch { /* fallback to other statement sources */ }
 
-        const allStatementSources = [
-          {
-            defaultFund: 'UCS',
-            url: 'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do?dynamicMenuFunctionUnitId=1578',
-          },
-          {
-            defaultFund: 'UCS',
-            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=ucs',
-          },
-          {
-            defaultFund: 'OFC',
-            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=ofc',
-          },
-          {
-            defaultFund: 'LGO',
-            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=lgo',
-          },
-          {
-            defaultFund: 'BKK',
-            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=bkk',
-          },
-          {
-            defaultFund: 'SSS',
-            url: 'https://eclaim.nhso.go.th/webComponent/finance_report/FinanceReportMainWebAction.do?maininscl=sss',
-          },
-        ];
-        const statementSources = requestedFunds
-          ? allStatementSources.filter((s) => requestedFunds.has(s.defaultFund))
-          : allStatementSources;
-
-        for (const stmSource of statementSources) {
+        // 2C. UCS legacy statementUCSAction
+        if (!requestedFunds || requestedFunds.has('UCS')) {
+          const ucsUrl = 'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do?dynamicMenuFunctionUnitId=1578';
           try {
-            await page.goto(stmSource.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.goto(ucsUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
             await page.waitForTimeout(450);
             pageTitle = await page.title().catch(() => '');
-            if (await isLegacyErrorPage(pageTitle)) continue;
-            await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
-            const statementFiles = await scrapeFilesAcrossPages(period);
-            for (const file of statementFiles) {
-              const fname = String(file.filename || '');
-              const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
-              const actualType = inferDetectedTypeFromFilename(fname, 'STM');
-              // FinanceReportMainWebAction also lists REP files (eclaim_*); skip them when searching strictly for STM
-              if (fileType === 'STM' && actualType === 'REP') continue;
-              periodFiles.push({
-                ...file,
-                period: inferPeriodFromFilenameOrCells(fname, cells, period),
-                detectedType: actualType,
-                fund: inferFundFromFilenameOrRow(fname, cells, stmSource.defaultFund),
-              });
+            if (!(await isLegacyErrorPage(pageTitle))) {
+              await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
+              const statementFiles = await scrapeFilesAcrossPages(period);
+              for (const file of statementFiles) {
+                const fname = String(file.filename || '');
+                const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+                periodFiles.push({
+                  ...file,
+                  period: inferPeriodFromFilenameOrCells(fname, cells, period),
+                  detectedType: inferDetectedTypeFromFilename(fname, 'STM'),
+                  fund: inferFundFromFilenameOrRow(fname, cells, 'UCS'),
+                });
+              }
+              debugLog.push({ period, url: ucsUrl, title: pageTitle, rowCount: statementFiles.length, htmlSnippet: '' });
+              usedUrl = ucsUrl;
             }
-            usedUrl = stmSource.url;
-          } catch { /* try the next statement page */ }
+          } catch { /* ignore */ }
         }
+
+        // 2D. FinanceReportMainWebAction across all requested funds (LGO, SSS, BKK, OFC, UCS)
+        await scrapeFinanceReportForFunds();
       }
 
-      // --- Strategy 3: REP ทุกสิทธิที่พบในหน้า validation/REP ของ eClaim ---
+      // --- Strategy 3: REP ทุกสิทธิ (FinanceReportMainWebAction + ValidationMainAction) ---
       if (!skipRep && (fileType === 'ALL' || fileType === 'REP')) {
+        await scrapeFinanceReportForFunds();
         const allInsuranceCodes = ['ucs', 'ofc', 'lgo', 'bkk', 'sss'];
         const insuranceCodes = requestedFunds
           ? allInsuranceCodes.filter((c) => requestedFunds.has(c.toUpperCase()))
@@ -8271,9 +8364,10 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
       await page.waitForTimeout(600);
     }
 
-    const checkHasTargetOnPage = async () => page.evaluate(({ hints, fname, onclicks }) => {
+    const fnameStem = String(filename || '').replace(/\.(ecd|xlsx?|zip|csv)$/i, '');
+    const checkHasTargetOnPage = async () => page.evaluate(({ hints, fname, fStem, onclicks }) => {
       const bodyText = document.body?.textContent || '';
-      if (fname && !/^(?:download|ดาวน์โหลด|file)$/i.test(fname) && bodyText.includes(fname)) return true;
+      if (fname && !/^(?:download|ดาวน์โหลด|file)$/i.test(fname) && (bodyText.includes(fname) || (fStem.length >= 6 && bodyText.includes(fStem)))) return true;
       if (hints.length > 0 && hints.every((h) => bodyText.includes(h))) return true;
       if (onclicks.some((oc) => oc && Array.from(document.querySelectorAll('a')).some((a) => a.getAttribute('onclick') === oc))) {
         return true;
@@ -8282,6 +8376,7 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
     }, {
       hints: rowHints.slice(0, 2),
       fname: String(filename || ''),
+      fStem: fnameStem,
       onclicks: candidates.map((c) => c.onclick).filter(Boolean),
     }).catch(() => false);
 
@@ -8390,6 +8485,18 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
             await submitBtn.evaluate((el) => (el as HTMLElement).click()).catch(() => submitBtn.click().catch(() => {/* ignore */}));
             await page.waitForTimeout(900);
           }
+          const expanded = await page.evaluate(() => {
+            const els = Array.from(document.querySelectorAll<HTMLElement>('a, button, input[type="button"], input[type="submit"]'));
+            const showAll = els.find((el) => /^(?:แสดงทั้งหมด|Show All)$/i.test((el.textContent || el.getAttribute('value') || '').trim()));
+            if (showAll) {
+              showAll.click();
+              return true;
+            }
+            return false;
+          }).catch(() => false);
+          if (expanded) {
+            await page.waitForTimeout(800);
+          }
         }
       };
 
@@ -8463,7 +8570,9 @@ app.post('/api/nhso-eclaim/browser-download', async (req, res) => {
         const sameOnclick = Boolean(cand.onclick) && info.onclick === cand.onclick;
         const isGenericText = /^(?:download|ดาวน์โหลด|คลิก|click)$/i.test(cand.label || '');
         const sameLabel = Boolean(cand.label) && !isGenericText && info.text.toLowerCase() === cand.label.toLowerCase();
-        const sameFilename = Boolean(filename) && !/^(?:download|ดาวน์โหลด|file)$/i.test(String(filename)) && info.rowText.includes(String(filename));
+        const sameFilename = Boolean(filename)
+          && !/^(?:download|ดาวน์โหลด|file)$/i.test(String(filename))
+          && (info.rowText.includes(String(filename)) || (fnameStem.length >= 6 && info.rowText.includes(fnameStem)));
         const matchedRowHints = rowHints.filter((h) => info.rowText.includes(h)).length;
         const genericHref = /(?:#|javascript:\s*(?:void\(0\))?)$/i.test(info.href);
 

@@ -915,8 +915,12 @@ export const startEclaimBackgroundSync = async (options: {
                   const td = el.closest('td');
                   const colIdx = td ? tds.indexOf(td) : -1;
                   const colHeader = colIdx >= 0 ? (headers[colIdx] || '') : '';
+                  const linkText = `${el.textContent || ''} ${el.getAttribute('title') || ''} ${colHeader}`;
+                  const isExplicitExcel = /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(linkText);
                   const combined = `${colHeader} ${el.getAttribute('href') || ''} ${el.getAttribute('onclick') || ''} ${el.textContent || ''} ${el.getAttribute('title') || ''}`;
-                  return !/7119|7106|หนังสือแจ้งการโอน|คำขอเบิก|ใบสรุป|ใบสำคัญรับเงิน|printpdf|reportpdf|\.pdf|\bpdf\b|\.ecd/i.test(combined);
+                  const isPdf = /7119|7106|หนังสือแจ้งการโอน|คำขอเบิก|ใบสรุป|ใบสำคัญรับเงิน|printpdf|reportpdf|\.pdf|\bpdf\b/i.test(combined);
+                  const isRawEcd = !isExplicitExcel && /\.ecd(?:$|[?#'"\s])/i.test(combined);
+                  return !isPdf && !isRawEcd;
                 });
                 const pool = nonPdfClickables.length > 0 ? nonPdfClickables : allClickables;
                 const excelBtn = pool.find((el) => {
@@ -972,8 +976,12 @@ export const startEclaimBackgroundSync = async (options: {
                       const td = el.closest('td');
                       const colIdx = td ? tds.indexOf(td) : -1;
                       const colHeader = colIdx >= 0 ? (headers[colIdx] || '') : '';
+                      const linkText = `${el.textContent || ''} ${el.getAttribute('title') || ''} ${colHeader}`;
+                      const isExplicitExcel = /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(linkText);
                       const combined = `${colHeader} ${el.getAttribute('href') || ''} ${el.getAttribute('onclick') || ''} ${el.textContent || ''} ${el.getAttribute('title') || ''}`;
-                      return !/7119|7106|หนังสือแจ้งการโอน|คำขอเบิก|ใบสรุป|ใบสำคัญรับเงิน|printpdf|reportpdf|\.pdf|\bpdf\b|\.ecd/i.test(combined);
+                      const isPdf = /7119|7106|หนังสือแจ้งการโอน|คำขอเบิก|ใบสรุป|ใบสำคัญรับเงิน|printpdf|reportpdf|\.pdf|\bpdf\b/i.test(combined);
+                      const isRawEcd = !isExplicitExcel && /\.ecd(?:$|[?#'"\s])/i.test(combined);
+                      return !isPdf && !isRawEcd;
                     });
                     const pool = nonPdfClickables.length > 0 ? nonPdfClickables : allClickables;
                     const dlBtn = pool.find((el) => {

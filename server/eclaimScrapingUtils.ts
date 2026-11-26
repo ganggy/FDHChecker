@@ -82,6 +82,19 @@ export function inferFundFromBenefitLabel(label: string, fallback = ''): string 
   return fallback || upper;
 }
 
+/**
+ * Infers canonical fund code from e-Claim filename or table row text (both EN and Thai).
+ */
+export function inferFundFromFilenameOrRow(filename: string, cells: string[], defaultFund = ''): string {
+  const combined = `${filename} ${cells.join(' ')}`.toUpperCase();
+  if (/OPLGO|IPLGO|_LGO|LGO[_.\s-]|อปท|ท้องถิ่น/.test(combined)) return 'LGO';
+  if (/OPCS|IPCS|_OFC|OFC[_.\s-]|CSMBS|COCD|FOCD|ข้าราชการ|กรมบัญชีกลาง/.test(combined)) return 'OFC';
+  if (/OPBKK|IPBKK|_BKK|BKK[_.\s-]|กทม|กรุงเทพ/.test(combined)) return 'BKK';
+  if (/OPUCS|IPUCS|ORF|_UCS|UCS[_.\s-]|WEL|บัตรทอง|หลักประกันสุขภาพ/.test(combined)) return 'UCS';
+  if (/SSS|SSOP|SOCD|SIGNSTM|ประกันสังคม/.test(combined)) return 'SSS';
+  return defaultFund;
+}
+
 export interface ScoreDownloadLinkInput {
   href: string;
   onclick: string;
@@ -103,7 +116,8 @@ export interface ScoreDownloadLinkResult {
 
 /**
  * Scores candidate download links in an e-Claim table row so detail Excel/ZIP
- * columns (`Download Statement`) beat summary PDF form columns (`แบบ 7119_2`, `แบบ 7106`).
+ * columns (`Download Statement`, `download excel`) beat summary PDF form columns (`แบบ 7119_2`, `แบบ 7106`),
+ * while never false-flagging `download excel` links that pass an `.ecd` filename argument.
  */
 export function scoreEclaimDownloadLink(input: ScoreDownloadLinkInput): ScoreDownloadLinkResult {
   const href = String(input.href || '');
@@ -114,13 +128,13 @@ export function scoreEclaimDownloadLink(input: ScoreDownloadLinkInput): ScoreDow
   const colHeader = String(input.colHeader || '');
   const combined = `${href} ${onclick} ${label} ${title} ${ariaLabel} ${colHeader}`;
 
-  const isEcd = /\.ecd(?:$|[?#'"\s])/i.test(combined);
+  const isStatementHeader = /download\s*statement|ดาวน์โหลด\s*statement|^statement$/i.test(colHeader);
+  const isExcelExplicit = /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(`${label} ${title} ${ariaLabel} ${colHeader}`) || isStatementHeader;
+  const isEcd = !isExcelExplicit && /\.ecd(?:$|[?#'"\s])/i.test(`${href} ${onclick} ${label} ${title}`);
   const isSummaryFormColumn = /7119|7106|หนังสือแจ้งการโอน|คำขอเบิก|ใบสรุป|ใบสำคัญรับเงิน|รายงานสรุป|printpdf|reportpdf|\.pdf(?:$|[?#'"\s])|\bpdf\b/i.test(
     `${colHeader} ${href} ${onclick} ${label} ${title}`
   );
   const isPdf = isSummaryFormColumn;
-  const isStatementHeader = /download\s*statement|ดาวน์โหลด\s*statement|^statement$/i.test(colHeader);
-  const isExcelExplicit = /download\s*excel|excel\s*file|ดาวน์โหลด\s*excel/i.test(combined) || isStatementHeader;
   const isExcelOrZip = /excel|\.xlsx?|\.zip|\.csv|export|detail|รายละเอียด|rep_|stm_|statement/i.test(combined);
 
   let score = 0;

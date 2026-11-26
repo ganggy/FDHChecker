@@ -616,7 +616,7 @@ export const RepStmImportPage: React.FC = () => {
       alreadyCount: liveDashboardStats.duplicateCount,
       errorCount: liveDashboardStats.errorCount,
       isModalOpen: importModalOpen,
-      completed: !liveDashboardStats.isWorking && liveDashboardStats.totalFiles > 0,
+      completed: !liveDashboardStats.isWorking && liveDashboardStats.totalFiles > 0 && liveDashboardStats.errorCount === 0,
     });
   }, [liveDashboardStats, importModalOpen, currentActiveStepLabel, eclaimSearchProgress]);
 
@@ -1234,6 +1234,7 @@ export const RepStmImportPage: React.FC = () => {
             sourcePage: String(fileObj.sourcePage || ''),
             period: String(fileObj.period || fileObj._period || ''),
             detectedType: String(fileObj.detectedType || ''),
+            filterState: fileObj.filterState && typeof fileObj.filterState === 'object' ? fileObj.filterState : undefined,
             filename,
           }),
         });
@@ -1332,6 +1333,19 @@ export const RepStmImportPage: React.FC = () => {
 
   const handleEclaimDownload = async () => {
     await handleEclaimDownloadFiles(eclaimFiles, eclaimSelected);
+  };
+
+  const handleRetryFailedEclaimDownloads = async () => {
+    const failedKeys = new Set<string>();
+    eclaimFiles.forEach((file, index) => {
+      const key = getEclaimFileKey(file, index);
+      if (eclaimPipeline[key]?.status === 'error') {
+        failedKeys.add(key);
+      }
+    });
+    if (failedKeys.size > 0) {
+      await handleEclaimDownloadFiles(eclaimFiles, failedKeys);
+    }
   };
 
   // Optional periodic auto-sync timer while session is ready
@@ -1704,7 +1718,16 @@ export const RepStmImportPage: React.FC = () => {
         }
       }
 
-      setSuccessMessage(`${forceReimport ? 'นำเข้าซ้ำ' : 'นำเข้า'}สำเร็จ ${importedCount.toLocaleString()} ไฟล์ รวม ${importedRows.toLocaleString()} แถว${replacedCount > 0 ? `, แทนชุดเดิม ${replacedCount.toLocaleString()} ไฟล์` : ''}${duplicateCount > 0 ? `, ข้าม/เข้าแล้ว ${duplicateCount.toLocaleString()} ไฟล์` : ''}${failedCount > 0 ? `, ผิดพลาด ${failedCount.toLocaleString()} ไฟล์` : ''}`);
+      if (failedCount > 0) {
+        setSuccessMessage(null);
+        setError(
+          `นำเข้าไม่สมบูรณ์ (ยังไม่ถือว่าสำเร็จ): สำเร็จ ${importedCount.toLocaleString()} ไฟล์ รวม ${importedRows.toLocaleString()} แถว, ผิดพลาด ${failedCount.toLocaleString()} ไฟล์`
+        );
+      } else {
+        setSuccessMessage(
+          `${forceReimport ? 'นำเข้าซ้ำ' : 'นำเข้า'}สำเร็จ ${importedCount.toLocaleString()} ไฟล์ รวม ${importedRows.toLocaleString()} แถว${replacedCount > 0 ? `, แทนชุดเดิม ${replacedCount.toLocaleString()} ไฟล์` : ''}${duplicateCount > 0 ? `, ข้าม/เข้าแล้ว ${duplicateCount.toLocaleString()} ไฟล์` : ''}`
+        );
+      }
       await loadData(dataType);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'นำเข้า REP/STM/INV ไม่สำเร็จ');
@@ -3295,7 +3318,9 @@ export const RepStmImportPage: React.FC = () => {
             border: 'none',
             background: liveDashboardStats.isWorking
               ? 'linear-gradient(135deg, #1d4ed8, #0891b2)'
-              : 'linear-gradient(135deg, #0f172a, #1e293b)',
+              : liveDashboardStats.errorCount > 0
+                ? 'linear-gradient(135deg, #7f1d1d, #b91c1c)'
+                : 'linear-gradient(135deg, #0f172a, #1e293b)',
             color: '#fff',
             boxShadow: '0 12px 28px rgba(15, 23, 42, 0.35)',
             cursor: 'pointer',
@@ -3303,11 +3328,13 @@ export const RepStmImportPage: React.FC = () => {
             fontSize: 13,
           }}
         >
-          <span>{liveDashboardStats.isWorking ? '⟳' : '📊'}</span>
+          <span>{liveDashboardStats.isWorking ? '⟳' : liveDashboardStats.errorCount > 0 ? '⚠️' : '📊'}</span>
           <span>
             {liveDashboardStats.isWorking
               ? `กำลังนำเข้า ${liveDashboardStats.progressPercent}% (สำเร็จ ${liveDashboardStats.successCount})`
-              : `สรุปนำเข้า: สำเร็จ ${liveDashboardStats.successCount} · REP ${liveDashboardStats.byType.REP.total} · STM ${liveDashboardStats.byType.STM.total}`}
+              : liveDashboardStats.errorCount > 0
+                ? `ไม่สมบูรณ์: ผิดพลาด ${liveDashboardStats.errorCount} ไฟล์ · สำเร็จ ${liveDashboardStats.successCount}`
+                : `สรุปนำเข้า: สำเร็จ ${liveDashboardStats.successCount} · REP ${liveDashboardStats.byType.REP.total} · STM ${liveDashboardStats.byType.STM.total}`}
           </span>
         </button>
       )}
@@ -3351,7 +3378,9 @@ export const RepStmImportPage: React.FC = () => {
                 padding: '18px 24px',
                 background: liveDashboardStats.isWorking
                   ? 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #0e7490 100%)'
-                  : 'linear-gradient(135deg, #0f172a 0%, #065f46 100%)',
+                  : liveDashboardStats.errorCount > 0
+                    ? 'linear-gradient(135deg, #7f1d1d 0%, #b91c1c 100%)'
+                    : 'linear-gradient(135deg, #0f172a 0%, #065f46 100%)',
                 color: '#fff',
                 display: 'flex',
                 alignItems: 'center',
@@ -3373,24 +3402,46 @@ export const RepStmImportPage: React.FC = () => {
                     fontSize: 22,
                   }}
                 >
-                  {liveDashboardStats.isWorking ? '🚀' : '✅'}
+                  {liveDashboardStats.isWorking ? '🚀' : liveDashboardStats.errorCount > 0 ? '⚠️' : '✅'}
                 </div>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: '-0.01em' }}>
                     {liveDashboardStats.isWorking
                       ? 'กำลังดึงและนำเข้าข้อมูล REP / STM อัตโนมัติ'
-                      : 'สรุปผลการดึงและนำเข้าข้อมูล REP / STM'}
+                      : liveDashboardStats.errorCount > 0
+                        ? `การดึงและนำเข้าไม่สมบูรณ์ (ผิดพลาด ${liveDashboardStats.errorCount.toLocaleString()} ไฟล์)`
+                        : 'ดึงและนำเข้าข้อมูล REP / STM สำเร็จครบถ้วน'}
                   </div>
                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 2 }}>
                     {currentActiveStepLabel
                       || eclaimSearchProgress
                       || (liveDashboardStats.isWorking
                         ? 'กำลังประมวลผลไฟล์และบันทึกเข้าฐานข้อมูล...'
-                        : `ประมวลผลเสร็จสิ้น · พบทั้งหมด ${liveDashboardStats.totalFiles.toLocaleString()} ไฟล์ (ไฟล์ใหม่ ${liveDashboardStats.newFilesCount.toLocaleString()} ไฟล์)`)}
+                        : liveDashboardStats.errorCount > 0
+                          ? `พบรายการดาวน์โหลด/นำเข้าไม่สำเร็จ ${liveDashboardStats.errorCount.toLocaleString()} ไฟล์ (ยังไม่ถือว่าสำเร็จ — กดลองใหม่หรือดูแท็บ ❌ ผิดพลาด)`
+                          : `ประมวลผลเสร็จสิ้น · พบทั้งหมด ${liveDashboardStats.totalFiles.toLocaleString()} ไฟล์ (ไฟล์ใหม่ ${liveDashboardStats.newFilesCount.toLocaleString()} ไฟล์)`)}
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {!liveDashboardStats.isWorking && liveDashboardStats.errorCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void handleRetryFailedEclaimDownloads()}
+                    style={{
+                      background: '#f59e0b',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 8,
+                      padding: '6px 12px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🔄 ลองใหม่ ({liveDashboardStats.errorCount.toLocaleString()} ไฟล์ที่ผิดพลาด)
+                  </button>
+                )}
                 {eclaimLoading && (
                   <button
                     type="button"

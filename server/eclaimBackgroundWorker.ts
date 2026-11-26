@@ -13,6 +13,7 @@ import { getEclaimBrowserSession } from './index.js';
 import { getRepstmConnection } from './db/connection.js';
 import { importRepstmRows } from './repositories/receivables.repository.js';
 import { analyzeRepstmArchive } from './repstmArchive.js';
+import { getFilenameStemAliases } from './eclaimScrapingUtils.js';
 
 export interface EclaimWorkerProgress {
   jobId: string | null;
@@ -92,7 +93,9 @@ const loadImportedFilesCache = async (): Promise<Set<string>> => {
           const fn = String(r.source_filename || '').trim().toLowerCase();
           if (!fn) continue;
           set.add(fn);
-          set.add(fn.replace(/\.(xlsx?|zip|csv|ecd)$/i, ''));
+          for (const alias of getFilenameStemAliases(fn)) {
+            set.add(alias);
+          }
         }
       }
     } finally {
@@ -108,15 +111,17 @@ const isFileAlreadyImported = async (filename: string): Promise<boolean> => {
     await loadImportedFilesCache();
   }
   const lower = filename.trim().toLowerCase();
-  const stem = lower.replace(/\.(xlsx?|zip|csv|ecd)$/i, '');
-  return Boolean(importedCache?.has(lower) || importedCache?.has(stem));
+  if (importedCache?.has(lower)) return true;
+  return getFilenameStemAliases(lower).some((alias) => importedCache?.has(alias));
 };
 
 const registerImportedFileInCache = (filename: string) => {
   if (!importedCache) importedCache = new Set<string>();
   const lower = filename.trim().toLowerCase();
   importedCache.add(lower);
-  importedCache.add(lower.replace(/\.(xlsx?|zip|csv|ecd)$/i, ''));
+  for (const alias of getFilenameStemAliases(lower)) {
+    importedCache.add(alias);
+  }
 };
 
 /**
@@ -895,19 +900,32 @@ export const startEclaimBackgroundSync = async (options: {
             }
 
             const legacyRows = await page.evaluate(() => {
+              const headerRow = document.querySelector('table thead tr:last-child, table tr');
+              const headers = headerRow
+                ? Array.from(headerRow.querySelectorAll('th, td')).map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
+                : [];
               const trs = Array.from(document.querySelectorAll('table tbody tr'));
               return trs.map((tr, idx) => {
-                const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+                const tds = Array.from(tr.querySelectorAll('td'));
+                const cells = tds.map((td) => (td.textContent || '').trim());
                 const text = cells.join(' ');
-                const rawFileName = cells.find((c) => /\.(xlsx?|zip|csv|ecd)/i.test(c)) || '';
+                const rawFileName = cells.find((c) => /\.(xlsx?|zip|csv|ecd)/i.test(c) || /^\d{5}_(?:OP|IP)\d{6}_\d+/i.test(c)) || '';
                 const allClickables = Array.from(tr.querySelectorAll<HTMLElement>('a, button, [role="button"]'));
-                const excelBtn = allClickables.find((el) => {
+                const nonPdfClickables = allClickables.filter((el) => {
+                  const td = el.closest('td');
+                  const colIdx = td ? tds.indexOf(td) : -1;
+                  const colHeader = colIdx >= 0 ? (headers[colIdx] || '') : '';
+                  const combined = `${colHeader} ${el.getAttribute('href') || ''} ${el.getAttribute('onclick') || ''} ${el.textContent || ''} ${el.getAttribute('title') || ''}`;
+                  return !/7119|7106|หนังสือแจ้งการโอน|คำขอเบิก|ใบสรุป|ใบสำคัญรับเงิน|printpdf|reportpdf|\.pdf|\bpdf\b|\.ecd/i.test(combined);
+                });
+                const pool = nonPdfClickables.length > 0 ? nonPdfClickables : allClickables;
+                const excelBtn = pool.find((el) => {
                   const href = el.getAttribute('href') || '';
                   const onclick = el.getAttribute('onclick') || '';
                   const t = (el.textContent || '').toLowerCase().trim();
                   const title = (el.getAttribute('title') || '').toLowerCase();
                   return (href && href !== '#') || onclick.length > 0 || t.includes('download') || t.includes('excel') || t.includes('ดาวน์โหลด') || title.includes('excel');
-                }) || tr.querySelector('a:not([href="#"]), button');
+                }) || pool[0] || tr.querySelector('a:not([href="#"]), button');
                 return {
                   idx,
                   text,
@@ -943,14 +961,28 @@ export const startEclaimBackgroundSync = async (options: {
                   page.evaluate((idx) => {
                     const tr = document.querySelectorAll('table tbody tr')[idx];
                     if (!tr) return;
+                    const tds = Array.from(tr.querySelectorAll('td'));
+                    const table = tr.closest('table');
+                    const headerRow = table?.querySelector('thead tr:last-child, tr');
+                    const headers = headerRow
+                      ? Array.from(headerRow.querySelectorAll('th, td')).map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim())
+                      : [];
                     const allClickables = Array.from(tr.querySelectorAll<HTMLElement>('a, button, [role="button"]'));
-                    const dlBtn = allClickables.find((el) => {
+                    const nonPdfClickables = allClickables.filter((el) => {
+                      const td = el.closest('td');
+                      const colIdx = td ? tds.indexOf(td) : -1;
+                      const colHeader = colIdx >= 0 ? (headers[colIdx] || '') : '';
+                      const combined = `${colHeader} ${el.getAttribute('href') || ''} ${el.getAttribute('onclick') || ''} ${el.textContent || ''} ${el.getAttribute('title') || ''}`;
+                      return !/7119|7106|หนังสือแจ้งการโอน|คำขอเบิก|ใบสรุป|ใบสำคัญรับเงิน|printpdf|reportpdf|\.pdf|\bpdf\b|\.ecd/i.test(combined);
+                    });
+                    const pool = nonPdfClickables.length > 0 ? nonPdfClickables : allClickables;
+                    const dlBtn = pool.find((el) => {
                       const href = el.getAttribute('href') || '';
                       const onclick = el.getAttribute('onclick') || '';
                       const t = (el.textContent || '').toLowerCase().trim();
                       const title = (el.getAttribute('title') || '').toLowerCase();
                       return (href && href !== '#') || onclick.length > 0 || t.includes('download') || t.includes('excel') || t.includes('ดาวน์โหลด') || title.includes('excel');
-                    }) || tr.querySelector('a:not([href="#"]), button') as HTMLElement | null;
+                    }) || pool[0] as HTMLElement | undefined;
                     dlBtn?.click();
                   }, rowMeta.idx),
                 ]);

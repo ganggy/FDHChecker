@@ -986,6 +986,87 @@ export const getSpecificFundData = async (
       return await finalizeRows(rows as Record<string, unknown>[]);
     }
 
+    if (fundType === 'change_right') {
+      const [rows] = await connection.query(`
+        SELECT
+          o.vn, o.hn,
+          DATE_FORMAT(o.vstdate, '%Y-%m-%d') as serviceDate,
+          DATE_FORMAT(o.vsttime, '%H:%i:%s') as vsttime,
+          pt.cid, CONCAT(COALESCE(pt.pname,''), COALESCE(pt.fname,''), ' ', COALESCE(pt.lname,'')) as patientName,
+          o.pttype,
+          ptt.name as pttypename, ptt.hipdata_code,
+          v.pdx,
+          COALESCE(o.hospmain, '') as hospmain,
+          COALESCE(o.hospsub, '') as hospsub,
+          COALESCE(hc.hospitalcode, '') as hospital_code,
+          DATE_FORMAT(vp.begin_date, '%Y-%m-%d') as begin_date,
+          CASE WHEN vp.begin_date IS NOT NULL THEN DATEDIFF(o.vstdate, vp.begin_date) ELSE NULL END as days_since_begin,
+          UPPER(TRIM(COALESCE(vp.nhso_ucae_type_code, ''))) as nhso_ucae_type_code,
+          COALESCE(
+            NULLIF(TRIM(COALESCE(vp.auth_code, '')), ''),
+            NULLIF(TRIM(COALESCE(ncp.nhso_authen_code, '')), ''),
+            NULLIF(TRIM(COALESCE(vp.claim_code, '')), ''),
+            ''
+          ) as auth_code,
+          ROUND(COALESCE(v.income, (SELECT SUM(oi.sum_price) FROM opitemrece oi WHERE oi.vn = o.vn), 0), 2) as total_price,
+          CASE WHEN EXISTS (
+            SELECT 1 FROM opitemrece oi
+            LEFT JOIN s_drugitems sd ON sd.icode = oi.icode
+            LEFT JOIN nondrugitems nd ON nd.icode = oi.icode
+            WHERE oi.vn = o.vn
+              AND (UPPER(COALESCE(sd.nhso_adp_code, '')) = 'WALKIN' OR UPPER(COALESCE(nd.nhso_adp_code, '')) = 'WALKIN')
+          ) THEN 1 ELSE 0 END as has_walkin_item,
+          (
+            SELECT COUNT(*)
+            FROM opitemrece oi
+            LEFT JOIN s_drugitems sd ON sd.icode = oi.icode
+            LEFT JOIN nondrugitems nd ON nd.icode = oi.icode
+            WHERE oi.vn = o.vn
+              AND COALESCE(oi.sum_price, 0) = 0
+              AND (UPPER(COALESCE(sd.nhso_adp_code, '')) = 'WALKIN' OR UPPER(COALESCE(nd.nhso_adp_code, '')) = 'WALKIN')
+          ) as zero_price_walkin_count,
+          (
+            SELECT prev.hospmain
+            FROM ovst prev
+            WHERE prev.hn = o.hn
+              AND prev.vstdate < o.vstdate
+              AND COALESCE(prev.hospmain, '') <> ''
+              AND prev.hospmain <> hc.hospitalcode
+            ORDER BY prev.vstdate DESC, prev.vsttime DESC
+            LIMIT 1
+          ) as prev_hospmain
+        FROM ovst o
+        CROSS JOIN (SELECT hospitalcode FROM opdconfig LIMIT 1) hc
+        JOIN patient pt ON o.hn = pt.hn
+        JOIN pttype ptt ON ptt.pttype = o.pttype
+        LEFT JOIN vn_stat v ON v.vn = o.vn
+        LEFT JOIN visit_pttype vp ON vp.vn = o.vn AND vp.pttype = o.pttype
+        LEFT JOIN (
+          SELECT vn, MAX(NULLIF(nhso_authen_code, '')) AS nhso_authen_code
+          FROM nhso_confirm_privilege
+          GROUP BY vn
+        ) ncp ON ncp.vn = o.vn
+        WHERE o.vstdate BETWEEN ? AND ?
+          AND COALESCE(o.an, '') = ''
+          AND UPPER(COALESCE(ptt.hipdata_code, '')) IN ('UCS', 'WEL')
+          AND (
+            UPPER(TRIM(COALESCE(vp.nhso_ucae_type_code, ''))) = 'C'
+            OR (
+              o.hospmain = hc.hospitalcode
+              AND vp.begin_date IS NOT NULL
+              AND DATEDIFF(o.vstdate, vp.begin_date) BETWEEN 0 AND 15
+            )
+          )
+        GROUP BY o.vn
+        ORDER BY o.vstdate DESC, o.vsttime DESC
+      `, [startDate, endDate]);
+      const normalized = (rows as Array<Record<string, unknown>>).map((row) => ({
+        ...row,
+        had_prev_other_hmain: Boolean(String(row.prev_hospmain || '').trim()) ? 1 : 0,
+      }));
+      return await finalizeRows(normalized);
+    }
+
     if (fundType === 'telemedicine') {
       const [rows] = await connection.query(`
         SELECT 

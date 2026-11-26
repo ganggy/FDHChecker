@@ -221,6 +221,7 @@ import {
 } from './ancDentalCompletion.js';
 import { completeHerbalDiagnoses, previewHerbalDiagnosisCompletion } from './herbalDiagnosisCompletion.js';
 import { completeFpgScreeningVisit, completeFpgScreeningVisitsBulk } from './fpgScreeningCompletion.js';
+import { completeChangeRightVisit, completeChangeRightVisitsBulk } from './changeRightCompletion.js';
 import { annualHealthCheckupRouter } from './annualHealthCheckup.js';
 import {
   getEclaimWorkerStatus,
@@ -2645,6 +2646,56 @@ app.post('/api/hosxp/fpg-screening-completion/:vn', async (req: AuthenticatedReq
     return res.status(422).json({
       success: false,
       error: error instanceof Error ? error.message : 'เติมข้อมูลคัดกรองเบาหวานอัตโนมัติไม่สำเร็จ',
+    });
+  }
+});
+
+app.post('/api/hosxp/change-right-completion/bulk', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vns = Array.isArray(req.body?.vns) ? req.body.vns.map((v: unknown) => String(v || '').trim()).filter((v: string) => /^\d{1,13}$/.test(v)) : [];
+    if (vns.length === 0) return res.status(400).json({ success: false, error: 'ไม่พบรายการ VN ที่ถูกต้องสำหรับแก้ไขข้อมูลเปลี่ยนสิทธิทันที' });
+    const user = req.authUser;
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions) && !user.fund_permissions.includes('change_right')) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนเปลี่ยนสิทธิทันที' });
+    }
+    const result = await completeChangeRightVisitsBulk(
+      vns,
+      { id: user?.id, name: user?.display_name || user?.username },
+      { confirmFirstVisit: Boolean(req.body?.confirmFirstVisit) },
+    );
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to bulk complete CHANGE_RIGHT visits:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'แก้ไขข้อมูลเปลี่ยนสิทธิทันทีอัตโนมัติไม่สำเร็จ',
+    });
+  }
+});
+
+app.post('/api/hosxp/change-right-completion/:vn', async (req: AuthenticatedRequest, res) => {
+  try {
+    const vn = String(req.params.vn || '').trim();
+    if (!/^\d{1,13}$/.test(vn)) return res.status(400).json({ success: false, error: 'รูปแบบ VN ไม่ถูกต้อง' });
+    const user = req.authUser;
+    if (user && !(user.is_admin || user.group_is_admin)
+      && Array.isArray(user.fund_permissions) && !user.fund_permissions.includes('change_right')) {
+      return res.status(403).json({ success: false, error: 'บัญชีนี้ไม่มีสิทธิ์เข้าถึงกองทุนเปลี่ยนสิทธิทันที' });
+    }
+    const result = await completeChangeRightVisit(
+      vn,
+      { id: user?.id, name: user?.display_name || user?.username },
+      { confirmFirstVisit: Boolean(req.body?.confirmFirstVisit) },
+    );
+    clearCache();
+    return res.json({ success: true, result });
+  } catch (error) {
+    console.error('Unable to complete CHANGE_RIGHT visit:', error);
+    return res.status(422).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'แก้ไขข้อมูลเปลี่ยนสิทธิทันทีอัตโนมัติไม่สำเร็จ',
     });
   }
 });

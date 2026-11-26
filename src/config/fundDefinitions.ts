@@ -36,6 +36,20 @@ export const FUND_DEFINITIONS: FundDefinition[] = [
         conditions: ['สิทธิ UCS', 'ADP TELMED หรือ export code 5']
     },
     {
+        id: 'change_right',
+        name: 'เปลี่ยนสิทธิทันที (HC16)',
+        description: 'นโยบายย้ายหน่วยบริการเกิดสิทธิทันที (UCAE = C)',
+        claimChannel: 'FDH/e-Claim',
+        recordingSystem: 'FDH/e-Claim (16 แฟ้ม — AER.UCAE = C, OPD.OPTYPE = 5, UUC = 1)',
+        conditions: [
+            'ผู้ป่วยนอก (OPD) สิทธิ UCS / WEL ที่ย้ายหน่วยบริการประจำเข้ามาที่โรงพยาบาล (HMAIN = รพ.ตนเอง) และมารับบริการภายใน 0-15 วันหลังวันเริ่มสิทธิ',
+            'บันทึก visit_pttype.nhso_ucae_type_code = C (ย้ายหน่วยบริการเกิดสิทธิทันที) เพื่อให้ 16 แฟ้มส่ง AER.UCAE = C และ OPD.OPTYPE = 5',
+            'ส่งเบิกเป็น UUC = 1 และต้องไม่ส่งรหัส WALKIN ซ้ำซ้อน (หากมี WALKIN จะถูกตีเป็น WALKIN_ONE-ID = 0 บาท)',
+            'มีรหัสยืนยันตัวตน/ปิดสิทธิ (Authen / EP) และรายการค่าบริการ/ยาตามเกณฑ์ FS',
+        ],
+        caution: 'เคสที่ไม่มีประวัติ hospmain รพ.อื่นใน HOSxP แต่เริ่มสิทธิ 0-15 วัน กรุณาตรวจสิทธิกับ สปสช. ก่อนกด Auto Complete รายกรณี'
+    },
+    {
         id: 'drugp',
         name: 'ส่งยาไปรษณีย์',
         description: 'ยา EMS / ส่งยาถึงบ้าน',

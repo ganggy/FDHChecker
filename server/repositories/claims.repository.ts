@@ -2827,6 +2827,8 @@ export const getEligibleVisits = async (
           ELSE 0
         END as has_walkin,
         ${walkinPttypes.length > 0 ? `CASE WHEN ovst.pttype IN (${walkinPttypes.map(p => `'${p}'`).join(',')}) THEN 1 ELSE 0 END` : '0'} as is_walkin_pttype,
+        COALESCE((SELECT MAX(UPPER(TRIM(vp_cr.nhso_ucae_type_code))) FROM visit_pttype vp_cr WHERE vp_cr.vn = ovst.vn), '') as nhso_ucae_type_code,
+        CASE WHEN EXISTS (SELECT 1 FROM visit_pttype vp_cr WHERE vp_cr.vn = ovst.vn AND UPPER(TRIM(COALESCE(vp_cr.nhso_ucae_type_code, ''))) = 'C') THEN 1 ELSE 0 END as is_change_right,
         CASE WHEN ${buildTelemedExistsSql('ovst', 'ovstist')} THEN 1 ELSE 0 END as has_telmed,
         (SELECT 1 FROM opitemrece oo JOIN s_drugitems d ON d.icode = oo.icode WHERE oo.vn = ovst.vn AND d.nhso_adp_code = '${businessRules.adp_codes.drugp}' LIMIT 1) as has_drugp,
         (SELECT COUNT(DISTINCT oo.icode)
@@ -3372,6 +3374,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         o.vn AS SEQ,
         CASE
           WHEN o.pttype = '93' THEN '2'
+          WHEN vp_cr.ucae_code = 'C' THEN '1'
           WHEN ro.vn IS NOT NULL AND (
             o.hospmain = (SELECT hospitalcode FROM opdconfig LIMIT 1)
             OR o.hospmain IS NULL
@@ -3398,6 +3401,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
           WHEN ro.vn IS NOT NULL THEN '1'
           WHEN UPPER(COALESCE(ept.ucae, '')) = 'A' THEN '2'
           WHEN UPPER(COALESCE(ept.ucae, '')) = 'E' THEN '3'
+          WHEN vp_cr.ucae_code = 'C' THEN '5'
           ELSE ''
         END AS OPTYPE,
         COALESCE(oi.export_code, '1') AS TYPEIN,
@@ -3411,8 +3415,14 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       LEFT JOIN (SELECT DISTINCT vn FROM referout) ro ON ro.vn = o.vn
       LEFT JOIN (SELECT vn, MAX(er_pt_type) AS er_pt_type FROM er_regist GROUP BY vn) er ON er.vn = o.vn
       LEFT JOIN er_pt_type ept ON ept.er_pt_type = er.er_pt_type
+      LEFT JOIN (
+        SELECT vn, MAX(CASE WHEN UPPER(TRIM(COALESCE(nhso_ucae_type_code, ''))) = 'C' THEN 'C' ELSE '' END) AS ucae_code
+        FROM visit_pttype
+        WHERE vn IN (?)
+        GROUP BY vn
+      ) vp_cr ON vp_cr.vn = o.vn
       WHERE o.vn IN (?)
-    `, [vns]);
+    `, [vns, vns]);
 
     // 4. ORF (Refer Out)
     const orf = await runQuery('ORF', `
@@ -3675,7 +3685,12 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         CASE WHEN ri.vn IS NOT NULL THEN '1100' ELSE '' END AS IREFTYPE,
         COALESCE(ro.refer_hospcode, '') AS REFMAINO,
         CASE WHEN ro.vn IS NOT NULL THEN '1100' ELSE '' END AS OREFTYPE,
-        CASE WHEN ri.vn IS NOT NULL OR ro.vn IS NOT NULL THEN '' ELSE COALESCE(ept.ucae, '') END AS UCAE,
+        CASE
+          WHEN ri.vn IS NOT NULL OR ro.vn IS NOT NULL THEN ''
+          WHEN UPPER(COALESCE(ept.ucae, '')) IN ('A', 'E') THEN UPPER(ept.ucae)
+          WHEN vp_cr.ucae_code = 'C' THEN 'C'
+          ELSE ''
+        END AS UCAE,
         '' AS EMTYPE,
         o.vn AS SEQ,
         '' AS AESTATUS,
@@ -3686,13 +3701,20 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       LEFT JOIN referout ro ON ro.vn = o.vn
       LEFT JOIN er_regist er ON er.vn = o.vn
       LEFT JOIN er_pt_type ept ON ept.er_pt_type = er.er_pt_type
+      LEFT JOIN (
+        SELECT vn, MAX(CASE WHEN UPPER(TRIM(COALESCE(nhso_ucae_type_code, ''))) = 'C' THEN 'C' ELSE '' END) AS ucae_code
+        FROM visit_pttype
+        WHERE vn IN (?)
+        GROUP BY vn
+      ) vp_cr ON vp_cr.vn = o.vn
       WHERE o.vn IN (?)
         AND (
           ri.vn IS NOT NULL
           OR ro.vn IS NOT NULL
           OR UPPER(COALESCE(ept.ucae, '')) IN ('A', 'E')
+          OR vp_cr.ucae_code = 'C'
         )
-    `, [vns]);
+    `, [vns, vns]);
 
     // 14. ADP (Additionals)
     // อิงแนว export เดิมของ HOSxP: ดึงรายการจาก opitemrece + s_drugitems
@@ -3992,6 +4014,13 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       };
     });
 
+    const changeRightSeqs = new Set(
+      (aer as Array<Record<string, unknown>>)
+        .filter((row) => !String(row.AN || '').trim() && String(row.UCAE || '').trim().toUpperCase() === 'C')
+        .map((row) => String(row.SEQ || '').trim())
+        .filter(Boolean),
+    );
+
     // 🚑 Auto-inject WALKIN in ADP for eligible UC Walk-in OPD visits lacking walk-in
     if (!isIpdExport && walkinPttypes.length > 0) {
       const adpWalkinSeqs = new Set<string>();
@@ -4011,7 +4040,7 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
         const seq = String(insRow.SEQ || '');
         const an = String(insRow.AN || '').trim();
         const pttype = String(insRow.SUBTYPE || '').trim();
-        if (!an && walkinPttypes.includes(pttype) && !adpWalkinSeqs.has(seq)) {
+        if (!an && !changeRightSeqs.has(seq) && walkinPttypes.includes(pttype) && !adpWalkinSeqs.has(seq)) {
           const hn = String(insRow.HN || '');
           const dateOpd = dateBySeq.get(seq) || String(insRow.DATEIN || '');
           const clinic = clinicBySeq.get(seq) || '';
@@ -4099,6 +4128,10 @@ export const getExportData = async (vns: string[], options: FdhExportOptions = {
       const uuc = opdUucMap.get(seq);
       // 🚑 ในส่งออกผู้ป่วยใน (IPD): ต้องไม่ส่งค่าบริการ walkin ออกไปเด็ดขาด
       if ((isIpdExport || Boolean(an)) && isWalkinAdpItem(code, rawIcode, walkinIcode)) {
+        return false;
+      }
+      // 🚑 เคสเปลี่ยนสิทธิทันที (UCAE = 'C'): ตัด WALKIN ออกจาก ADP เพื่อไม่ให้ สปสช. จับเข้า WALKIN_ONE-ID = 0 บาท
+      if (!isIpdExport && changeRightSeqs.has(seq) && isWalkinAdpItem(code, rawIcode, walkinIcode)) {
         return false;
       }
       const isReferAmbulance = code === 'S1801' || String(row.TYPE || '') === '17';

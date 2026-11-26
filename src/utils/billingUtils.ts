@@ -266,7 +266,11 @@ export const evaluateBillingLogic = (item: any) => {
 
         const hasWalkinItem = toBool(item?.has_walkin);
         const isWalkinPttype = toBool(item?.is_walkin_pttype);
-        if (hasWalkinItem) {
+        const isChangeRight = toBool(item?.is_change_right)
+            || String(item?.nhso_ucae_type_code ?? '').trim().toUpperCase() === 'C';
+        if (isChangeRight) {
+            fundNotes.push({ label: '🔄 เปลี่ยนสิทธิทันที (HC16 / UCAE=C)', kind: 'matched', group: 'other' });
+        } else if (hasWalkinItem) {
             fundNotes.push({ label: '🚶 WALKIN (ผู้ป่วยนอกเหตุสมควร)', kind: 'matched', group: 'other' });
         } else if (isWalkinPttype) {
             addWarningFundNote(fundNotes, 'WALKIN (ผู้ป่วยนอกเหตุสมควร)', [' รายการค่าบริการ WALKIN'], 'other');

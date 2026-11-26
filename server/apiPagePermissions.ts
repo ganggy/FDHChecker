@@ -53,7 +53,7 @@ const apiPageRules: ApiPageRule[] = [
   { pattern: /^\/insurance(\/|$)/, pages: ['insuranceOverview', 'receivable'] },
   { pattern: /^\/fdh\/claim-detail(\/|$)/, pages: ['fdhClaimDetail', 'reconciliation', 'ucOutsideCup'] },
   { pattern: /^\/fdh\/import-status(\/|$)/, pages: ['fdhImport', 'fdh', 'reconciliation', 'ucOutsideCup'] },
-  { pattern: /^\/fdh(\/|$)/, pages: ['fdh', 'fundFdh', 'fdhImport', 'staff', 'ipd'] },
+  { pattern: /^\/fdh(\/|$)/, pages: ['fdh', 'fundFdh', 'specific', 'fdhImport', 'staff', 'ipd'] },
   { pattern: /^\/hsub(\/|$)/, pages: ['hsubPayment', 'pcuPayout', 'pcuCaseCost'] },
   { pattern: /^\/pcu-herbal(\/|$)/, pages: ['pcuHerbal', 'pcuPayout', 'pcuCaseCost'] },
   { pattern: /^\/hosxp\/audit(\/|$)/, pages: ['ipd'] },

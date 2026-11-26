@@ -166,14 +166,27 @@ export const scopeFdhData = (input: Partial<FdhExportData>, patientType: FdhPati
   }
   if (patientType === 'OPD') {
     const clearAn = (rows: FdhRow[]) => rows.map((r) => ('AN' in r ? { ...r, AN: '' } : r));
+    const aerRows = clearAn(data.AER);
+    const changeRightSeqs = new Set(
+      aerRows
+        .filter((r) => String(r.UCAE || '').trim().toUpperCase() === 'C')
+        .map((r) => String(r.SEQ || '').trim())
+        .filter(Boolean),
+    );
+    const adpRows = clearAn(data.ADP).filter((r) => {
+      const seq = String(r.SEQ || '').trim();
+      if (!changeRightSeqs.has(seq)) return true;
+      const code = String(r.CODE || '').trim().toUpperCase();
+      return code !== 'WALKIN' && !code.includes('WALKIN');
+    });
     return {
       ...data,
       IPD: [], IRF: [], IDX: [], IOP: [], LVD: [],
       INS: clearAn(data.INS),
       CHT: clearAn(data.CHT),
       CHA: clearAn(data.CHA),
-      AER: clearAn(data.AER),
-      ADP: clearAn(data.ADP),
+      AER: aerRows,
+      ADP: adpRows,
       DRU: clearAn(data.DRU),
     };
   }
@@ -375,7 +388,19 @@ export const validateFdhData = (
   data.AER.forEach((row, index) => {
     if (value(row, 'AN')) return;
     const optype = value(opdByKey.get(keyOf(row, ['HN', 'SEQ'])) || {}, 'OPTYPE');
-    const ucae = value(row, 'UCAE');
+    const ucae = value(row, 'UCAE').toUpperCase();
+    if (ucae === 'C') {
+      if (!['', '5'].includes(optype)) {
+        add({
+          code: 'AER_OPTYPE_INVALID',
+          file: 'AER',
+          row: index + 1,
+          field: 'UCAE',
+          message: `AER แถว ${index + 1}: UCAE=C (เปลี่ยนสิทธิทันที) ควรมี OPD.OPTYPE เป็น 5 หรือว่าง`,
+        });
+      }
+      return;
+    }
     if (!['0', '1', '2', '3'].includes(optype)) {
       add({
         code: 'AER_OPTYPE_INVALID',

@@ -26,6 +26,7 @@ import {
 const FALLBACK_FUND_DEFINITIONS: FundDefinition[] = [
     { id: 'palliative', name: 'Palliative Care', description: 'ผู้ป่วยระยะประคับประคอง' },
     { id: 'telemedicine', name: 'Telemedicine', description: 'บริการแพทย์ทางไกล / Telemed' },
+    { id: 'change_right', name: 'เปลี่ยนสิทธิทันที (HC16)', description: 'นโยบายย้ายหน่วยบริการเกิดสิทธิทันที (UCAE = C)' },
     { id: 'drugp', name: 'ส่งยาไปรษณีย์', description: 'ยา EMS / ส่งยาถึงบ้าน' },
     { id: 'herb', name: 'สมุนไพร / ยาไทย', description: 'รายการสมุนไพรและยาไทย' },
     { id: 'knee', name: 'ยาพอกเข่า', description: 'บริการพอกเข่าในชุดข้อมูล 43 แฟ้ม' },
@@ -175,6 +176,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const [fpgCompletingVn, setFpgCompletingVn] = useState<string | null>(null);
     const [fpgBulkCompleting, setFpgBulkCompleting] = useState(false);
     const [fpgCompletionMessage, setFpgCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+    const [changeRightCompletingVn, setChangeRightCompletingVn] = useState<string | null>(null);
+    const [changeRightBulkCompleting, setChangeRightBulkCompleting] = useState(false);
+    const [changeRightCompletionMessage, setChangeRightCompletionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+    const [selectedVns, setSelectedVns] = useState<string[]>([]);
+    const [submittingFdh, setSubmittingFdh] = useState(false);
+    const [fdhSubmitResult, setFdhSubmitResult] = useState<{ kind: 'success' | 'error'; title: string; details?: string[] } | null>(null);
     const [deletingPalliativeVn, setDeletingPalliativeVn] = useState<string | null>(null);
     const [markingPalliativeHomeVn, setMarkingPalliativeHomeVn] = useState<string | null>(null);
     const [palliativeActionMessage, setPalliativeActionMessage] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
@@ -678,6 +685,12 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     }, []);
 
     useEffect(() => {
+        setSelectedVns([]);
+        setFdhSubmitResult(null);
+        setChangeRightCompletionMessage(null);
+    }, [activeFund]);
+
+    useEffect(() => {
         if (visibleFunds.length === 0) return;
         if (!visibleFunds.some((fund) => fund.id === activeFund)) {
             setActiveFund(visibleFunds[0].id);
@@ -689,6 +702,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         const colors: Record<string, { bg: string; shadow: string }> = {
             'palliative': { bg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', shadow: 'rgba(102, 126, 234, 0.2)' },
             'telemedicine': { bg: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', shadow: 'rgba(245, 87, 108, 0.2)' },
+            'change_right': { bg: 'linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)', shadow: 'rgba(14, 165, 233, 0.25)' },
             'drugp': { bg: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', shadow: 'rgba(79, 172, 254, 0.2)' },
             'herb': { bg: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)', shadow: 'rgba(67, 233, 123, 0.2)' },
             'knee': { bg: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', shadow: 'rgba(250, 112, 154, 0.2)' },
@@ -1008,6 +1022,31 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                 String(item?.ovstist_export_code ?? '').trim() === telmedExportCode;
             if (hasTelmed) subfunds.push(`📱 ${telmedCode}`);
             return buildStatusResult(subfunds, [hasTelmed ? '' : ` ADP/Export ${telmedCode}`].filter(Boolean));
+        }
+
+        if (fundId === 'change_right') {
+            if (!(isUcsLike || hipdataText.includes('WEL'))) return buildStatusResult([], [], undefined, false);
+            const hasUcaeC = String(item?.nhso_ucae_type_code ?? '').trim().toUpperCase() === 'C';
+            const hospitalCode = String(item?.hospital_code || '').trim();
+            const hospmain = String(item?.hospmain || '').trim();
+            const ownHmain = !hospitalCode || hospmain === hospitalCode;
+            const zeroWalkin = Number(item?.zero_price_walkin_count ?? 0);
+            const hasAuthen = Boolean(String(item?.auth_code || '').trim());
+            const hasPrice = Number(item?.total_price ?? 0) > 0;
+            if (hasUcaeC) {
+                subfunds.push('🔄 เปลี่ยนสิทธิทันที (UCAE=C)');
+            } else {
+                subfunds.push('🕒 เริ่มสิทธิ 0-15 วัน');
+            }
+            const missingChangeRight = [
+                hasUcaeC ? '' : ' UCAE = C (ย้ายหน่วยบริการ)',
+                ownHmain ? '' : ' HMAIN ยังไม่ใช่ รพ.ตนเอง',
+                zeroWalkin > 0 ? ` ลบ WALKIN ชน (${zeroWalkin} รายการ)` : '',
+                hasAuthen ? '' : ' Authen/EP',
+                hasPrice ? '' : ' รายการค่ารักษา > 0 บาท',
+            ].filter(Boolean);
+            const isMatched = hasUcaeC && ownHmain && zeroWalkin === 0 && hasAuthen && hasPrice;
+            return buildStatusResult(subfunds, missingChangeRight, undefined, isMatched);
         }
 
         if (fundId === 'drugp') {
@@ -1908,19 +1947,17 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
     const getStatusForFundRef = useRef(getStatusForFund);
     getStatusForFundRef.current = getStatusForFund;
 
-    const trackFdhStatus = async () => {
-        if (filteredData.length === 0) return;
-        const vns = filteredData.map((item: any) => String(item.vn || '')).filter(Boolean);
-        if (vns.length === 0) return;
+    const trackFdhStatusForVns = async (targetVns: string[], silent = false) => {
+        if (targetVns.length === 0) return { updated: 0, errors: 0 };
         setTrackingFdh(true);
-        setTrackResult(null);
-        setTrackProgress({ done: 0, total: vns.length, updated: 0, errors: 0 });
+        if (!silent) setTrackResult(null);
+        setTrackProgress({ done: 0, total: targetVns.length, updated: 0, errors: 0 });
         try {
             const chunkSize = 15;
             let totalUpdated = 0;
             let totalErrors = 0;
-            for (let i = 0; i < vns.length; i += chunkSize) {
-                const chunk = vns.slice(i, i + chunkSize);
+            for (let i = 0; i < targetVns.length; i += chunkSize) {
+                const chunk = targetVns.slice(i, i + chunkSize);
                 const res = await fetch('/api/fdh/track-vns', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1931,22 +1968,32 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                     totalUpdated += json.summary?.updated ?? 0;
                     totalErrors += json.summary?.errors ?? 0;
                 } else {
-                    setTrackResult({ success: false, message: json.error || 'เกิดข้อผิดพลาด' });
-                    setTrackingFdh(false);
-                    setTrackProgress(null);
-                    return;
+                    if (!silent) setTrackResult({ success: false, message: json.error || 'เกิดข้อผิดพลาด' });
+                    return { updated: totalUpdated, errors: totalErrors + chunk.length };
                 }
-                setTrackProgress({ done: Math.min(i + chunkSize, vns.length), total: vns.length, updated: totalUpdated, errors: totalErrors });
+                setTrackProgress({ done: Math.min(i + chunkSize, targetVns.length), total: targetVns.length, updated: totalUpdated, errors: totalErrors });
             }
-            setTrackResult({ success: true, message: `ตรวจสอบสำเร็จ ${totalUpdated} รายการ${totalErrors > 0 ? ` (ผิดพลาด ${totalErrors} รายการ)` : ''}` });
-            // Refresh data to show new FDH status
+            if (!silent) {
+                setTrackResult({ success: true, message: `ตรวจสอบสำเร็จ ${totalUpdated} รายการ${totalErrors > 0 ? ` (ผิดพลาด ${totalErrors} รายการ)` : ''}` });
+            }
             void fetchFundData();
+            return { updated: totalUpdated, errors: totalErrors };
         } catch (e) {
-            setTrackResult({ success: false, message: e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+            if (!silent) setTrackResult({ success: false, message: e instanceof Error ? e.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+            return { updated: 0, errors: targetVns.length };
         } finally {
             setTrackingFdh(false);
             setTrackProgress(null);
         }
+    };
+
+    const trackFdhStatus = async () => {
+        if (filteredData.length === 0) return;
+        const visibleSelected = selectedVns.filter((vn) => filteredData.some((row: any) => String(row.vn || '') === vn));
+        const vns = visibleSelected.length > 0
+            ? visibleSelected
+            : filteredData.map((item: any) => String(item.vn || '')).filter(Boolean);
+        await trackFdhStatusForVns(vns);
     };
 
     const handleRowClick = (item: any) => {
@@ -1989,6 +2036,201 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
         : showIncompleteOnly
             ? actionableData.filter((item) => getStatus(item).status !== 'สมบูรณ์')
             : actionableData;
+
+    const visibleSelectedVns = useMemo(
+        () => selectedVns.filter((vn) => filteredData.some((item: any) => String(item.vn || '') === vn)),
+        [filteredData, selectedVns]
+    );
+
+    const toggleSelectVn = (vn: string) => {
+        setSelectedVns((prev) => (prev.includes(vn) ? prev.filter((item) => item !== vn) : [...prev, vn]));
+    };
+
+    const toggleSelectAllVisible = () => {
+        const allVisibleVns = filteredData.map((item: any) => String(item.vn || '')).filter(Boolean);
+        if (allVisibleVns.length === 0) return;
+        if (visibleSelectedVns.length === allVisibleVns.length) {
+            setSelectedVns((prev) => prev.filter((vn) => !allVisibleVns.includes(vn)));
+        } else {
+            setSelectedVns((prev) => Array.from(new Set([...prev, ...allVisibleVns])));
+        }
+    };
+
+    const selectUnsubmittedOrFixableVns = () => {
+        const target = filteredData
+            .filter((item: any) => !hasFdhSubmissionData(item) || isFdhProcessingFailed(item) || hasRepCError(item))
+            .map((item: any) => String(item.vn || ''))
+            .filter(Boolean);
+        setSelectedVns(target);
+    };
+
+    const handleSubmitSelectedFdhApi = async () => {
+        if (visibleSelectedVns.length === 0 || submittingFdh) return;
+        const confirmed = window.confirm(
+            `ยืนยันส่งออกข้อมูล ${visibleSelectedVns.length} Visit ไปยัง FDH ผ่าน API เพื่อส่งเบิก/แก้ไขข้อมูล?\n\nหลังส่งสำเร็จระบบจะอัปเดตสถานะ FDH ของ Visit ที่เลือกให้อัตโนมัติ`
+        );
+        if (!confirmed) return;
+
+        setSubmittingFdh(true);
+        setFdhSubmitResult(null);
+        const batchSize = 50;
+        let totalSubmitted = 0;
+        let totalFiles = 0;
+        const submittedVns: string[] = [];
+        try {
+            for (let i = 0; i < visibleSelectedVns.length; i += batchSize) {
+                const chunkVns = visibleSelectedVns.slice(i, i + batchSize);
+                const uucByVn = Object.fromEntries(chunkVns.map((vn) => [vn, '1']));
+                const res = await fetch('/api/fdh/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        vns: chunkVns,
+                        patientType: 'OPD',
+                        profile: 'standard',
+                        uucByVn,
+                        confirm: true,
+                    }),
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!res.ok || !json.success) {
+                    const issues: string[] = Array.isArray(json.validation?.errors)
+                        ? json.validation.errors.slice(0, 8).map((e: any) => String(e.message || e))
+                        : [];
+                    setFdhSubmitResult({
+                        kind: 'error',
+                        title: json.error || json.message || 'ส่งข้อมูลไป FDH API ไม่สำเร็จ',
+                        details: issues,
+                    });
+                    return;
+                }
+                totalSubmitted += Number(json.submittedVisits || chunkVns.length);
+                totalFiles += Number(json.submittedFiles?.length || 0);
+                submittedVns.push(...chunkVns);
+            }
+
+            const trackSummary = await trackFdhStatusForVns(submittedVns, true);
+            setFdhSubmitResult({
+                kind: 'success',
+                title: `ส่งข้อมูลไป FDH API สำเร็จ ${totalSubmitted} Visit (${totalFiles} แฟ้ม) และอัปเดตสถานะ FDH แล้ว ${trackSummary.updated} รายการ`,
+            });
+            await fetchFundData();
+        } catch (err) {
+            setFdhSubmitResult({
+                kind: 'error',
+                title: err instanceof Error ? err.message : 'เชื่อมต่อเซิร์ฟเวอร์เพื่อส่ง FDH API ไม่สำเร็จ',
+            });
+        } finally {
+            setSubmittingFdh(false);
+        }
+    };
+
+    const isChangeRightAutoCompletable = useCallback((item: any) => {
+        const hospitalCode = String(item?.hospital_code || '').trim();
+        const hospmain = String(item?.hospmain || '').trim();
+        const ownHmain = !hospitalCode || hospmain === hospitalCode;
+        if (!ownHmain) return false;
+        const hasUcaeC = String(item?.nhso_ucae_type_code || '').trim().toUpperCase() === 'C';
+        const zeroWalkin = Number(item?.zero_price_walkin_count || 0);
+        const days = item?.days_since_begin == null ? null : Number(item.days_since_begin);
+        const within15 = days !== null && Number.isFinite(days) && days >= 0 && days <= 15;
+        const hadPrevOther = toFlag(item?.had_prev_other_hmain);
+        if (hasUcaeC) return zeroWalkin > 0;
+        return within15 && hadPrevOther;
+    }, []);
+
+    const changeRightAutoCompletableVisits = useMemo(() => {
+        if (activeFund !== 'change_right') return [];
+        return filteredData.filter(isChangeRightAutoCompletable);
+    }, [activeFund, filteredData, isChangeRightAutoCompletable]);
+
+    const handleChangeRightAutoCompleteOne = async (item: any) => {
+        const vn = String(item?.vn || '').trim();
+        if (!vn) return;
+        const hasUcaeC = String(item?.nhso_ucae_type_code || '').trim().toUpperCase() === 'C';
+        const zeroWalkin = Number(item?.zero_price_walkin_count || 0);
+        const hadPrevOther = toFlag(item?.had_prev_other_hmain);
+        const actions = [
+            !hasUcaeC ? 'ตั้งค่า visit_pttype.nhso_ucae_type_code = C' : '',
+            zeroWalkin > 0 ? `ลบรายการ WALKIN ราคา 0 บาท (${zeroWalkin} รายการ)` : '',
+        ].filter(Boolean).join(' + ');
+        const warnFirst = !hasUcaeC && !hadPrevOther
+            ? '\n\n⚠️ หมายเหตุ: ไม่พบประวัติ HMAIN โรงพยาบาลอื่นมาก่อนใน HOSxP — กรุณาตรวจสอบว่าผู้ป่วยย้ายสิทธิทันทีจาก สปสช. จริงก่อนกดยืนยัน'
+            : '';
+        if (!window.confirm(`ยืนยันแก้ไขข้อมูล เปลี่ยนสิทธิทันที สำหรับ VN ${vn} (${item.patientName || ''})?\nระบบจะดำเนินการ: ${actions || 'ตรวจสอบสถานะ'}${warnFirst}`)) return;
+
+        setChangeRightCompletingVn(vn);
+        setChangeRightCompletionMessage(null);
+        try {
+            const res = await fetch(`/api/hosxp/change-right-completion/${encodeURIComponent(vn)}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confirmFirstVisit: !hadPrevOther }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok || payload?.success === false) {
+                throw new Error(payload?.error || 'แก้ไขข้อมูลเปลี่ยนสิทธิทันทีไม่สำเร็จ');
+            }
+            const r = payload?.result || {};
+            const doneParts = [
+                r.ucaeUpdated ? 'ตั้งค่า UCAE = C' : '',
+                r.walkinRemovedCount > 0 ? `ลบ WALKIN ${r.walkinRemovedCount} รายการ` : '',
+            ].filter(Boolean);
+            setChangeRightCompletionMessage({
+                kind: 'success',
+                text: `✅ แก้ไข VN ${vn} สำเร็จ: ${doneParts.length > 0 ? doneParts.join(' + ') : 'ข้อมูลครบแล้ว'} (พร้อมส่ง FDH API)`,
+            });
+            await fetchFundData();
+        } catch (err) {
+            setChangeRightCompletionMessage({
+                kind: 'warning',
+                text: `⚠️ VN ${vn}: ${err instanceof Error ? err.message : 'แก้ไขข้อมูลไม่สำเร็จ'}`,
+            });
+        } finally {
+            setChangeRightCompletingVn(null);
+        }
+    };
+
+    const handleChangeRightAutoCompleteBulk = async () => {
+        if (changeRightAutoCompletableVisits.length === 0) return;
+        const needC = changeRightAutoCompletableVisits.filter((it) => String(it?.nhso_ucae_type_code || '').trim().toUpperCase() !== 'C').length;
+        const needWalkin = changeRightAutoCompletableVisits.filter((it) => Number(it?.zero_price_walkin_count || 0) > 0).length;
+        if (!window.confirm(
+            `ยืนยัน Auto Complete เคสเปลี่ยนสิทธิทันทีทั้งหมด ${changeRightAutoCompletableVisits.length} รายการ?\n` +
+            `- ตั้งค่า UCAE = C (ยืนยันมีประวัติย้ายจาก รพ.อื่น + เริ่มสิทธิ 0-15 วัน): ${needC} รายการ\n` +
+            `- ลบ WALKIN ที่ชนกับ UCAE=C (ราคา 0 บาท): ${needWalkin} รายการ\n\n` +
+            `(ระบบบันทึก audit ใน z_fdh_change_right_audit ทุกรายการ)`
+        )) return;
+
+        setChangeRightBulkCompleting(true);
+        setChangeRightCompletionMessage(null);
+        try {
+            const vns = changeRightAutoCompletableVisits.map((it) => String(it.vn || '').trim()).filter(Boolean);
+            const res = await fetch('/api/hosxp/change-right-completion/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ vns, confirmFirstVisit: false }),
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok || payload?.success === false) {
+                throw new Error(payload?.error || 'Auto Complete เปลี่ยนสิทธิทันทีไม่สำเร็จ');
+            }
+            const r = payload.result || {};
+            const failedNote = r.failedCount > 0 ? ` | ไม่สำเร็จ ${r.failedCount} รายการ (${r.failed?.[0]?.error || ''})` : '';
+            setChangeRightCompletionMessage({
+                kind: r.failedCount > 0 && r.updatedCount === 0 ? 'warning' : 'success',
+                text: `✅ Auto Complete สำเร็จ ${r.updatedCount || 0} รายการ (ตั้ง UCAE=C: ${r.ucaeUpdatedCount || 0}, ลบ WALKIN ชน: ${r.walkinRemovedCount || 0}, ข้าม: ${r.skippedCount || 0})${failedNote}`,
+            });
+            await fetchFundData();
+        } catch (err) {
+            setChangeRightCompletionMessage({
+                kind: 'warning',
+                text: `⚠️ ${err instanceof Error ? err.message : 'Auto Complete ไม่สำเร็จ'}`,
+            });
+        } finally {
+            setChangeRightBulkCompleting(false);
+        }
+    };
 
     const isFpgAutoCompletable = useCallback((item: any) => {
         if (item?.eligibility_blocked) return false;
@@ -2129,6 +2371,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
             } else if (fundId === 'telemedicine') {
                 fundSpecificCols['การมา (Ovstist)'] = item.ovstist_export_code || '';
                 fundSpecificCols['ADP Code'] = item.has_telmed ? 'TELMED' : '';
+            } else if (fundId === 'change_right') {
+                fundSpecificCols['HMAIN / รพ.เดิม'] = `${item.hospmain || '-'} / ${item.prev_hospmain || '-'}`;
+                fundSpecificCols['วันเริ่มสิทธิ'] = item.begin_date || '';
+                fundSpecificCols['ห่างวันเริ่มสิทธิ (วัน)'] = item.days_since_begin ?? '';
+                fundSpecificCols['UCAE'] = item.nhso_ucae_type_code || '-';
+                fundSpecificCols['Authen/EP'] = item.auth_code || '-';
+                fundSpecificCols['มี WALKIN ค้าง'] = Number(item.zero_price_walkin_count || 0) > 0 ? `ใช่ (${item.zero_price_walkin_count})` : 'ไม่มี';
+                fundSpecificCols['ค่ารักษา (฿)'] = item.total_price != null ? Number(item.total_price) : 0;
             } else if (fundId === 'drugp') {
                 fundSpecificCols['ADP Code'] = item.drugp_adp_codes || '';
                 fundSpecificCols['รายการยา'] = item.drugp_item_names || '';
@@ -2388,6 +2638,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                         const fundColors: Record<string, { gradient: string; accent: string; light: string }> = {
                             palliative: { gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', accent: '#667eea', light: '#f0f4ff' },
                             telemedicine: { gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', accent: '#f5576c', light: '#ffe5ec' },
+                            change_right: { gradient: 'linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)', accent: '#0ea5e9', light: '#e0f2fe' },
                             drugp: { gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', accent: '#00f2fe', light: '#e0f7ff' },
                             herb: { gradient: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)', accent: '#38f9d7', light: '#e0f7f4' },
                             knee: { gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', accent: '#fee140', light: '#fff5e6' },
@@ -2486,6 +2737,7 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         const iconMap: Record<string, string> = {
                                             'palliative': '🕊️',
                                             'telemedicine': '📱',
+                                            'change_right': '🔄',
                                             'drugp': '📦',
                                             'herb': '🌿',
                                             'knee': '🦵',
@@ -3064,13 +3316,56 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                 >
                                     {showRepCOnly ? '✓ เฉพาะติด C' : '○ เฉพาะติด C'}
                                 </button>
+                                {filteredData.length > 0 && (
+                                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            style={{ padding: '6px 10px', fontSize: '11px' }}
+                                            onClick={selectUnsubmittedOrFixableVns}
+                                            title="เลือกเฉพาะ Visit ที่ยังไม่ส่ง FDH หรือประมวลผลไม่ผ่าน/ติด C"
+                                        >
+                                            ☑️ เลือกยังไม่ส่ง/ติด C
+                                        </button>
+                                        {visibleSelectedVns.length > 0 && (
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary"
+                                                style={{ padding: '6px 10px', fontSize: '11px' }}
+                                                onClick={() => setSelectedVns([])}
+                                            >
+                                                ล้างเลือก ({visibleSelectedVns.length})
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                                 <button 
                                     className="btn btn-success" 
-                                    style={{ padding: '6px 12px', fontSize: '12px', marginLeft: 'auto' }}
+                                    style={{ padding: '6px 12px', fontSize: '12px', marginLeft: filteredData.length > 0 ? 0 : 'auto' }}
                                     onClick={exportToExcel}
                                     disabled={filteredData.length === 0}
                                 >
                                     📥 ส่งออก Excel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn"
+                                    style={{
+                                        padding: '6px 14px',
+                                        fontSize: '12px',
+                                        background: submittingFdh ? '#64748b' : 'linear-gradient(135deg, #059669, #10b981)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '6px',
+                                        cursor: submittingFdh || visibleSelectedVns.length === 0 ? 'not-allowed' : 'pointer',
+                                        opacity: visibleSelectedVns.length === 0 ? 0.5 : 1,
+                                        fontWeight: 700,
+                                    }}
+                                    onClick={() => void handleSubmitSelectedFdhApi()}
+                                    disabled={submittingFdh || trackingFdh || visibleSelectedVns.length === 0}
+                                    title="ส่งออก 16 แฟ้มของ Visit ที่เลือกไปยัง FDH ผ่าน API ทันที พร้อมอัปเดตสถานะ FDH"
+                                >
+                                    {submittingFdh ? '⏳ กำลังส่ง FDH API...' : `🚀 ส่ง FDH API (${visibleSelectedVns.length})`}
                                 </button>
                                 <button
                                     className="btn"
@@ -3086,10 +3381,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         fontWeight: 600,
                                     }}
                                     onClick={trackFdhStatus}
-                                    disabled={trackingFdh || filteredData.length === 0}
-                                    title="ตรวจสอบสถานะ FDH จาก NHSO API สำหรับรายการทั้งหมดในตาราง"
+                                    disabled={trackingFdh || submittingFdh || filteredData.length === 0}
+                                    title="อัปเดตสถานะ FDH จาก NHSO API (หากเลือก Visit จะอัปเดตเฉพาะที่เลือก)"
                                 >
-                                    {trackingFdh ? '⏳ กำลังตรวจสอบ...' : '🔍 ตรวจสอบสถานะ FDH'}
+                                    {trackingFdh
+                                        ? '⏳ กำลังตรวจสอบ...'
+                                        : visibleSelectedVns.length > 0
+                                            ? `🔍 อัปเดตสถานะ FDH (${visibleSelectedVns.length})`
+                                            : '🔍 ตรวจสอบสถานะ FDH'}
                                 </button>
                             </div>
                         </div>
@@ -3105,6 +3404,64 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                             <div style={{ margin: '0 0 8px 0', padding: '10px 14px', background: trackResult.success ? '#e8f5e9' : '#ffebee', borderRadius: 8, fontSize: 12, color: trackResult.success ? '#2e7d32' : '#c62828', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: `1px solid ${trackResult.success ? '#a5d6a7' : '#ef9a9a'}` }}>
                                 <span>{trackResult.success ? '✅' : '❌'} {trackResult.message}</span>
                                 <button onClick={() => setTrackResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit' }}>✕</button>
+                            </div>
+                        )}
+                        {fdhSubmitResult && (
+                            <div className={`alert ${fdhSubmitResult.kind === 'success' ? 'alert-success' : 'alert-danger'}`} style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                                <div>
+                                    <div style={{ fontWeight: 700 }}>{fdhSubmitResult.kind === 'success' ? '✅' : '⚠️'} {fdhSubmitResult.title}</div>
+                                    {fdhSubmitResult.details && fdhSubmitResult.details.length > 0 && (
+                                        <ul style={{ margin: '6px 0 0 18px', fontSize: 12, padding: 0 }}>
+                                            {fdhSubmitResult.details.map((d, idx) => <li key={idx}>{d}</li>)}
+                                        </ul>
+                                    )}
+                                </div>
+                                <button type="button" onClick={() => setFdhSubmitResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit' }}>✕</button>
+                            </div>
+                        )}
+                        {activeFund === 'change_right' && changeRightCompletionMessage && (
+                            <div className={`alert ${changeRightCompletionMessage.kind === 'success' ? 'alert-success' : 'alert-warning'}`}>
+                                {changeRightCompletionMessage.text}
+                            </div>
+                        )}
+                        {activeFund === 'change_right' && !loading && (
+                            <div className="alert" style={{
+                                background: changeRightAutoCompletableVisits.length > 0 ? '#eff6ff' : '#f8fafc',
+                                borderColor: changeRightAutoCompletableVisits.length > 0 ? '#93c5fd' : '#cbd5e1',
+                                color: changeRightAutoCompletableVisits.length > 0 ? '#1e3a8a' : '#334155',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                flexWrap: 'wrap',
+                                gap: '12px',
+                                padding: '12px 16px',
+                                borderRadius: '8px',
+                                marginBottom: '12px',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{ fontSize: '20px' }}>{changeRightAutoCompletableVisits.length > 0 ? '🔄' : '✅'}</span>
+                                    <div>
+                                        <strong>
+                                            {changeRightAutoCompletableVisits.length > 0
+                                                ? `พบเคสเปลี่ยนสิทธิทันทีที่สามารถ Auto Complete ได้ทันที ${changeRightAutoCompletableVisits.length.toLocaleString()} รายการ`
+                                                : 'เคสเปลี่ยนสิทธิทันที (HC16) — กดเลือกรายการด้วยช่อง Checkbox แล้วส่ง FDH API ได้ทันที'}
+                                        </strong>
+                                        {changeRightAutoCompletableVisits.length > 0 && (
+                                            <div style={{ fontSize: '12px', color: '#1d4ed8', marginTop: '2px' }}>
+                                                เติม UCAE=C (มีประวัติย้ายจาก รพ.อื่น + เริ่มสิทธิ 0-15 วัน): {changeRightAutoCompletableVisits.filter((it) => String(it?.nhso_ucae_type_code || '').trim().toUpperCase() !== 'C').length} รายการ · ลบ WALKIN ชน: {changeRightAutoCompletableVisits.filter((it) => Number(it?.zero_price_walkin_count || 0) > 0).length} รายการ
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '13px', padding: '8px 14px', fontWeight: 700 }}
+                                    disabled={changeRightBulkCompleting || Boolean(changeRightCompletingVn) || changeRightAutoCompletableVisits.length === 0}
+                                    onClick={() => void handleChangeRightAutoCompleteBulk()}
+                                >
+                                    {changeRightBulkCompleting ? '⏳ กำลัง Auto Complete...' : `✨ Auto Complete ทั้งหมด (${changeRightAutoCompletableVisits.length})`}
+                                </button>
                             </div>
                         )}
                         {!loading && activeFund === 'anc' && excludedAncServiceRows.length > 0 && (
@@ -3298,6 +3655,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                         >
                             <thead>
                                 <tr>
+                                    <th style={{ width: 36, textAlign: 'center', padding: '8px 4px' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={filteredData.length > 0 && visibleSelectedVns.length === filteredData.length}
+                                            onChange={toggleSelectAllVisible}
+                                            title="เลือก/ยกเลิกเลือกทั้งหมดในหน้านี้"
+                                        />
+                                    </th>
                                     <th style={{ width: 36, textAlign: 'center', padding: '8px 4px' }}>#</th>
                                     <th style={{ width: 120 }}>VN / HN</th>
                                     <th style={{ width: 150 }}>ชื่อผู้ป่วย / CID</th>
@@ -3316,6 +3681,14 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                         <>
                                             <th style={{ width: 100, textAlign: 'center' }}>การมา (Ovstist)</th>
                                             <th style={{ width: 100, textAlign: 'center' }}>ADP Code</th>
+                                        </>
+                                    )}
+                                    {activeFund === 'change_right' && (
+                                        <>
+                                            <th style={{ width: 145, textAlign: 'center' }}>วันเริ่มสิทธิ / รพ.เดิม</th>
+                                            <th style={{ width: 120, textAlign: 'center' }}>UCAE / HMAIN</th>
+                                            <th style={{ width: 130, textAlign: 'center' }}>Authen / ค่ารักษา</th>
+                                            <th style={{ width: 135, textAlign: 'center' }}>AUTO COMPLETE</th>
                                         </>
                                     )}
                                     {activeFund === 'drugp' && (
@@ -3545,6 +3918,16 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                     boxShadow: palliativeReview ? `inset 4px 0 0 ${palliativeReview.qualifiesForService ? '#16a34a' : '#dc2626'}` : undefined,
                                                 }}
                                             >
+                                                <td
+                                                    style={{ textAlign: 'center', padding: '6px 4px' }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedVns.includes(String(item.vn || ''))}
+                                                        onChange={() => toggleSelectVn(String(item.vn || ''))}
+                                                    />
+                                                </td>
                                                 <td style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-muted)', padding: '6px 4px' }}>{index + 1}</td>
                                                 <td style={{ padding: '6px 8px' }}>
                                                     <div style={{ fontWeight: 600, color: 'var(--primary)', fontSize: 11 }}>{item.vn}</div>
@@ -3689,6 +4072,74 @@ export const SpecificFundPage: React.FC<SpecificFundPageProps> = ({ channelView 
                                                             {(toFlag(item?.has_telmed) || String(item.ovstist_export_code ?? '').trim() === telmedExportCode)
                                                                 ? <span className="badge badge-primary">TELMED</span>
                                                                 : <span className="badge badge-danger">✗ ขาด TELMED</span>}
+                                                        </td>
+                                                    </>
+                                                )}
+                                                {activeFund === 'change_right' && (
+                                                    <>
+                                                        <td style={{ textAlign: 'center', padding: '6px 6px' }}>
+                                                            <div style={{ fontSize: 11, fontWeight: 600 }}>{item.begin_date || '-'}</div>
+                                                            <div style={{ fontSize: 10, color: Number(item.days_since_begin) <= 15 ? '#047857' : 'var(--text-muted)' }}>
+                                                                {item.days_since_begin != null ? `ห่าง ${item.days_since_begin} วัน` : '-'}
+                                                            </div>
+                                                            <div style={{ fontSize: 10, color: item.prev_hospmain ? '#1d4ed8' : 'var(--text-muted)' }}>
+                                                                {item.prev_hospmain ? `รพ.เดิม: ${item.prev_hospmain}` : 'ไม่พบประวัติ รพ.เดิม'}
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                            <div>
+                                                                {String(item.nhso_ucae_type_code || '').trim().toUpperCase() === 'C'
+                                                                    ? <span className="badge badge-success">UCAE = C</span>
+                                                                    : <span className="badge badge-danger">✗ ขาด C</span>}
+                                                            </div>
+                                                            <div style={{ fontSize: 10, marginTop: 4, color: String(item.hospmain || '') === String(item.hospital_code || '') ? '#047857' : '#b45309' }}>
+                                                                HMAIN: {item.hospmain || '-'}
+                                                            </div>
+                                                            {Number(item.zero_price_walkin_count || 0) > 0 && (
+                                                                <div style={{ marginTop: 3 }}>
+                                                                    <span className="badge badge-warning" style={{ fontSize: 10 }}>⚠️ WALKIN ชน ({item.zero_price_walkin_count})</span>
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ textAlign: 'center', padding: '6px 4px' }}>
+                                                            <div style={{ fontSize: 11 }}>
+                                                                {item.auth_code
+                                                                    ? <span className="badge badge-info" style={{ fontSize: 10 }}>{item.auth_code}</span>
+                                                                    : <span className="badge badge-warning" style={{ fontSize: 10 }}>✗ ขาด EP</span>}
+                                                            </div>
+                                                            <div style={{ fontSize: 11, fontWeight: 700, marginTop: 4 }}>
+                                                                {Number(item.total_price || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} ฿
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center', padding: '6px 4px' }} onClick={(e) => e.stopPropagation()}>
+                                                            {(() => {
+                                                                const hasUcaeC = String(item.nhso_ucae_type_code || '').trim().toUpperCase() === 'C';
+                                                                const zeroWalkin = Number(item.zero_price_walkin_count || 0);
+                                                                const ownHmain = !item.hospital_code || String(item.hospmain || '') === String(item.hospital_code || '');
+                                                                const days = item.days_since_begin == null ? null : Number(item.days_since_begin);
+                                                                const canEdit = ownHmain && (zeroWalkin > 0 || (!hasUcaeC && days !== null && days >= 0 && days <= 15));
+                                                                if (hasUcaeC && zeroWalkin === 0) {
+                                                                    return <span className="badge badge-success" style={{ fontSize: 10 }}>✓ พร้อมส่ง API</span>;
+                                                                }
+                                                                if (!canEdit) {
+                                                                    return <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>-</span>;
+                                                                }
+                                                                return (
+                                                                    <button
+                                                                        type="button"
+                                                                        className="btn btn-primary"
+                                                                        style={{ padding: '4px 9px', fontSize: 11, fontWeight: 700 }}
+                                                                        disabled={changeRightCompletingVn === String(item.vn) || changeRightBulkCompleting}
+                                                                        onClick={() => void handleChangeRightAutoCompleteOne(item)}
+                                                                    >
+                                                                        {changeRightCompletingVn === String(item.vn)
+                                                                            ? '⏳...'
+                                                                            : zeroWalkin > 0 && hasUcaeC
+                                                                                ? '🧹 ลบ WALKIN'
+                                                                                : '✨ Auto Complete'}
+                                                                    </button>
+                                                                );
+                                                            })()}
                                                         </td>
                                                     </>
                                                 )}

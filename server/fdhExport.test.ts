@@ -362,3 +362,31 @@ test('parseFdhTrackResponse extracts 200 approved status, maps 404 to waiting st
   assert.equal(badReqRes.isError, true);
   assert.equal(badReqRes.errorMessage, 'กรุณากรอก hn');
 });
+
+test('validateFdhData accepts AER.UCAE = C with OPD.OPTYPE = 5 or blank, and scopeFdhData strips WALKIN from CHANGE_RIGHT OPD visits', () => {
+  const scoped = scopeFdhData({
+    INS: [{ HN: '00001', INSCL: 'UCS', SUBTYPE: '89', CID: '1100100100101', HCODE: '11101', DATEIN: '20261109', DATEEXP: '20261126', HOSPMAIN: '11101', HOSPSUB: '11101', PERMITNO: 'EP123', AN: '', SEQ: '691109000223' }],
+    PAT: [{ HCODE: '11101', HN: '00001', CHANGWAT: '47', AMPHUR: '18', DOB: '19900101', SEX: '1', MARRIAGE: '1', OCCUPA: '000', NATION: '099', PERSON_ID: '1100100100101', NAMEPAT: 'TEST USER,นาย', TITLE: 'นาย', FNAME: 'TEST', LNAME: 'USER', IDTYPE: '1' }],
+    OPD: [{ HN: '00001', CLINIC: '01', DATEOPD: '20261109', TIMEOPD: '0830', SEQ: '691109000223', UUC: '1', OPTYPE: '5', TYPEIN: '1' }],
+    ODX: [{ HN: '00001', DATEDX: '20261109', CLINIC: '01', DIAG: 'J069', DXTYPE: '1', DRDX: '12345', PERSON_ID: '1100100100101', SEQ: '691109000223' }],
+    OOP: [{ HN: '00001', DATEOPD: '20261109', CLINIC: '01', OPER: '9001', DROPID: '12345', PERSON_ID: '1100100100101', SEQ: '691109000223' }],
+    AER: [{ HN: '00001', AN: '', DATEOPD: '20261109', UCAE: 'C', SEQ: '691109000223' }],
+    ADP: [
+      { HN: '00001', AN: '', DATEOPD: '20261109', TYPE: '4', CODE: '55020', QTY: 1, RATE: 100, SEQ: '691109000223', TOTAL: 100 },
+      { HN: '00001', AN: '', DATEOPD: '20261109', TYPE: '4', CODE: 'WALKIN', QTY: 1, RATE: 0, SEQ: '691109000223', TOTAL: 0 },
+      { HN: '00002', AN: '', DATEOPD: '20261109', TYPE: '4', CODE: 'WALKIN', QTY: 1, RATE: 0, SEQ: '691109000999', TOTAL: 0 },
+    ],
+    CHT: [{ HN: '00001', AN: '', DATE: '20261109', TOTAL: 100, PAID: 0, PTTYPE: '89', PERSON_ID: '1100100100101', SEQ: '691109000223', INVOICE_NO: 'INV001' }],
+    CHA: [{ HN: '00001', AN: '', DATE: '20261109', CHRGITEM: '21', AMOUNT: 100, PERSON_ID: '1100100100101', SEQ: '691109000223' }],
+  }, 'OPD');
+
+  assert.deepEqual(
+    scoped.ADP.map((row) => `${row.SEQ}:${row.CODE}`),
+    ['691109000223:55020', '691109000999:WALKIN']
+  );
+
+  const singleScoped = { ...scoped, ADP: scoped.ADP.filter((row) => row.SEQ === '691109000223') };
+  const validation = validateFdhData(singleScoped, 'standard', '11101');
+  assert.equal(validation.valid, true, JSON.stringify(validation.errors));
+  assert.equal(validation.errors.some((e) => e.code === 'AER_OPTYPE_INVALID'), false);
+});

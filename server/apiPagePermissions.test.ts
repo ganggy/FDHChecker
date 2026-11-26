@@ -31,6 +31,8 @@ test('HTTP permissions separate reading from imports and match settlement menu',
       ['/hsub/summary', 'GET', 'ipd', 403],
       ['/pcu-herbal/summary', 'GET', 'pcuHerbal', 200],
       ['/hosxp/visit-items/670101000001', 'GET', 'repSheetZeroAudit', 200],
+      ['/fdh/submit', 'POST', 'specific', 200],
+      ['/fdh/track-vns', 'POST', 'specific', 200],
       ['/new-unregistered-route', 'GET', 'staff', 403],
       ['/hosxp/audit', 'POST', '', 401],
     ] as const;

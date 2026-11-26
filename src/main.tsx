@@ -126,6 +126,12 @@ const installApiFallbackFetch = () => {
 
 installApiFallbackFetch();
 
+if (window.isSecureContext && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

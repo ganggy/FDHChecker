@@ -1,5 +1,3 @@
-import { Capacitor } from '@capacitor/core';
-
 export const API_BASE_URL_KEY = 'fdh-api-base-url';
 
 const bundledApiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || '';
@@ -16,10 +14,7 @@ const normalizeApiBaseUrl = (value: string) => {
   }
 
   if (!['https:', 'http:'].includes(parsed.protocol)) {
-    throw new Error('รองรับเฉพาะ URL แบบ HTTPS');
-  }
-  if (Capacitor.isNativePlatform() && parsed.protocol !== 'https:') {
-    throw new Error('แอปมือถือต้องเชื่อมต่อเซิร์ฟเวอร์ผ่าน HTTPS เท่านั้น');
+    throw new Error('รองรับเฉพาะ URL แบบ HTTP หรือ HTTPS');
   }
   if (parsed.username || parsed.password || parsed.search || parsed.hash) {
     throw new Error('URL ต้องไม่มี username, password, query หรือ hash');
@@ -42,4 +37,4 @@ export const saveApiBaseUrl = (value: string) => {
 
 export const clearSavedApiBaseUrl = () => localStorage.removeItem(API_BASE_URL_KEY);
 
-export const isNativeApp = () => Capacitor.isNativePlatform();
+export const isNativeApp = () => false;

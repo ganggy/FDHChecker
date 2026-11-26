@@ -1,4 +1,4 @@
-/* Adaptive shell shared by the browser build and the Capacitor containers. */
+/* Adaptive shell for responsive Web and PWA. */
 :root {
   --mobile-nav-height: 72px;
   --safe-top: env(safe-area-inset-top, 0px);

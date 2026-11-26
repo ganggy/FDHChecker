@@ -4,7 +4,6 @@ import {
   clearSavedApiBaseUrl,
   getEffectiveApiBaseUrl,
   getSavedApiBaseUrl,
-  isNativeApp,
   saveApiBaseUrl,
 } from '../services/apiEndpointService';
 
@@ -21,7 +20,7 @@ export const LoginPage = ({ onAuthenticated }: Props) => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [serverPanelOpen, setServerPanelOpen] = useState(() => isNativeApp() && !getEffectiveApiBaseUrl());
+  const [serverPanelOpen, setServerPanelOpen] = useState(false);
   const [apiBaseUrl, setApiBaseUrl] = useState(() => getEffectiveApiBaseUrl());
   const [serverTesting, setServerTesting] = useState(false);
   const [serverMessage, setServerMessage] = useState('');
@@ -30,9 +29,7 @@ export const LoginPage = ({ onAuthenticated }: Props) => {
   const effectiveApiBaseUrl = getEffectiveApiBaseUrl();
   const serverLabel = effectiveApiBaseUrl
     ? effectiveApiBaseUrl.replace(/^https?:\/\//, '')
-    : isNativeApp()
-      ? 'ยังไม่ได้ตั้งค่า'
-      : 'เซิร์ฟเวอร์เดียวกับหน้าเว็บ';
+    : 'เซิร์ฟเวอร์เดียวกับหน้าเว็บ';
 
   const handleServerTest = async () => {
     setServerError('');
@@ -40,9 +37,6 @@ export const LoginPage = ({ onAuthenticated }: Props) => {
     setServerTesting(true);
     try {
       const normalized = saveApiBaseUrl(apiBaseUrl);
-      if (isNativeApp() && !normalized) {
-        throw new Error('กรุณากรอก HTTPS URL ของ FDH Checker API');
-      }
       setApiBaseUrl(normalized);
       const response = await fetch('/api/health', { cache: 'no-store' });
       if (!response.ok) throw new Error(`เซิร์ฟเวอร์ตอบกลับ ${response.status}`);
@@ -100,7 +94,7 @@ export const LoginPage = ({ onAuthenticated }: Props) => {
           </div>
         </div>
 
-        <div className={`auth-server-status ${effectiveApiBaseUrl || !isNativeApp() ? 'is-ready' : 'is-missing'}`}>
+        <div className="auth-server-status is-ready">
           <span className="auth-server-dot" aria-hidden="true" />
           <div>
             <small>เซิร์ฟเวอร์ FDH</small>

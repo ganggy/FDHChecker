@@ -15,7 +15,6 @@ import {
 import {
   buildTypedFilenameCacheKey,
   getFilenameStemAliases,
-  inferDetectedTypeFromFilename,
   inferFundFromBenefitLabel,
   inferFundFromFilenameOrRow,
   resolveFinanceReportImportType,
@@ -7866,7 +7865,8 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
                     return {
                       ...file,
                       period: inferredPeriod,
-                      detectedType: inferDetectedTypeFromFilename(fname, 'STM'),
+                      detectedType: 'STM',
+                      forceImportType: 'STM',
                       fund: inferFundFromFilenameOrRow(fname, cells, mappedFund),
                       filterState: {
                         benefitValue: ben.value,
@@ -7899,7 +7899,8 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
                 periodFiles.push({
                   ...file,
                   period: inferPeriodFromFilenameOrCells(fname, cells, period),
-                  detectedType: inferDetectedTypeFromFilename(fname, 'STM'),
+                  detectedType: 'STM',
+                  forceImportType: 'STM',
                   fund: inferFundFromFilenameOrRow(fname, cells, 'UCS'),
                 });
               }

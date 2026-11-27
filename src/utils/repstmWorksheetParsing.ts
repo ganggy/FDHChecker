@@ -62,6 +62,20 @@ const isLikelyDataRecord = (row: Record<string, unknown>, hintType?: ImportType 
   ) as Record<string, string>;
 
   if (hintType === 'STM') {
+    const isEclaimVisitSheet = ('tran_id' in normalized)
+      && ('ชื่อ - สกุล' in normalized || 'ประเภทผู้ป่วย' in normalized)
+      && ('hn' in normalized || 'pid' in normalized);
+    if (isEclaimVisitSheet) {
+      const signalCount = [
+        normalized['tran_id'],
+        normalized['hn'],
+        normalized['pid'],
+        normalized['ชื่อ - สกุล'],
+        normalized['ประเภทผู้ป่วย'],
+        normalized['วันเข้ารักษา'],
+      ].filter(Boolean).length;
+      return signalCount >= 3;
+    }
     // STM rows: must have a 6-digit period (YYYYMM) or numeric income/money values
     const hasPeriod = Object.values(normalized).some((v) => /^\d{6}$/.test(v));
     const hasNumericField = Object.values(normalized).some((v) => /^\d+(\.\d+)?$/.test(v) && Number(v) > 0);

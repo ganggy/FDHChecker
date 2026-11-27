@@ -142,3 +142,48 @@ test('dialysis STM import maps claimed and paid amounts and keeps separate sessi
   assert.equal(inserted[0][19], 1500);
   assert.equal(inserted[0][20], 1500);
 });
+
+test('Finance Report OPLGO Detail sheet parses 2-row headers, keeps 0-baht visits, drops footer, and imports as STM', async () => {
+  const oplgoDetailSheet = XLSX.utils.aoa_to_sheet([
+    ['รายงานสรุปการเบิกจ่ายค่ารักษาพยาบาล (อปท.)'],
+    ['หน่วยบริการ 11101'],
+    ['REP', 'ลำดับที่', 'TRAN_ID', 'HN', 'PID', 'ชื่อ - สกุล', 'ประเภทผู้ป่วย', 'วันเข้ารักษา', 'สิทธิหลัก', 'เรียกเก็บ', 'ชดเชยสุทธิ', 'Error Code'],
+    ['', '', '', '', '', '', '', '', '', 'ค่ารักษา', 'ค่ารักษา', ''],
+    ['691100217', '1', '840001001', '000011101', '0000000000011', 'ผู้ป่วยทดสอบ หนึ่ง', 'ผู้ป่วยนอก', '01/11/2569 09:00', 'LGO', '1,250.50', '1,000.00', ''],
+    ['691100217', '2', '840001002', '000011102', '0000000000012', 'ผู้ป่วยทดสอบ สอง', 'ผู้ป่วยนอก', '02/11/2569 10:15', 'LGO', '500.00', '0.00', 'C01'],
+    ['รวม', '', '', '', '', '', '', '', '', '1,750.50', '1,000.00', ''],
+  ]);
+
+  const parsed = parseWorksheetRows(oplgoDetailSheet, 'STM');
+  assert.equal(parsed.rows.length, 2);
+  assert.equal(parsed.rows[0].TRAN_ID, '840001001');
+  assert.equal(parsed.rows[1].TRAN_ID, '840001002');
+
+  const inserted: unknown[][] = [];
+  const repConnection = {
+    query: async (sql: string, values?: unknown[]) => {
+      if (sql.includes('INSERT INTO repstm_statement_data')) inserted.push(values || []);
+      return [[]];
+    },
+  } as unknown as HospitalConnection;
+  const hosConnection = { query: async () => [[]] } as unknown as HospitalConnection;
+
+  await importStatementDataRows(repConnection, hosConnection, 99, {
+    dataType: 'STM',
+    sourceFilename: 'eclaim_11101_OPLGO_25691124_134446900.xls',
+    rows: parsed.rows,
+  });
+
+  assert.equal(inserted.length, 2);
+  assert.equal(inserted[0][1], 'STM');
+  assert.equal(inserted[0][3], '691100217');
+  assert.equal(inserted[0][15], 'LGO');
+  assert.equal(inserted[0][19], 1000);
+  assert.equal(inserted[0][20], 1000);
+  assert.equal(inserted[0][21], 1250.5);
+  assert.equal(inserted[1][3], '691100217');
+  assert.equal(inserted[1][15], 'LGO');
+  assert.equal(inserted[1][19], 0);
+  assert.equal(inserted[1][20], 0);
+  assert.equal(inserted[1][21], 500);
+});

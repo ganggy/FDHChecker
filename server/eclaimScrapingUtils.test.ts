@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildTypedFilenameCacheKey,
   getFilenameStemAliases,
   inferDetectedTypeFromFilename,
   inferFundFromBenefitLabel,
   inferFundFromFilenameOrRow,
+  resolveFinanceReportImportType,
   scoreEclaimDownloadLink,
 } from './eclaimScrapingUtils.js';
 
@@ -96,4 +98,19 @@ test('inferFundFromFilenameOrRow maps IPLGO, IPCS/OPCS, SIGNSTM, and Thai scheme
     inferFundFromFilenameOrRow('file.xls', ['สิทธิกองทุนบุคลากรองค์กรปกครองส่วนท้องถิ่น (อปท.)'], 'UCS'),
     'LGO'
   );
+});
+
+test('buildTypedFilenameCacheKey isolates REP and STM duplicate cache entries by data_type', () => {
+  const filename = 'eclaim_11101_OPLGO_25691124_134446900.xls';
+  assert.notEqual(
+    buildTypedFilenameCacheKey('REP', filename),
+    buildTypedFilenameCacheKey('STM', filename)
+  );
+  assert.equal(buildTypedFilenameCacheKey('stm', `  ${filename.toUpperCase()}  `), `STM|${filename.toLowerCase()}`);
+});
+
+test('resolveFinanceReportImportType forces STM for STM/ALL requests and keeps INV for INV', () => {
+  assert.equal(resolveFinanceReportImportType('STM'), 'STM');
+  assert.equal(resolveFinanceReportImportType('ALL'), 'STM');
+  assert.equal(resolveFinanceReportImportType('INV'), 'INV');
 });

@@ -13,10 +13,12 @@ import {
   runNhsoAutoCloseCycle,
 } from './nhsoAutoCloseService.js';
 import {
+  buildTypedFilenameCacheKey,
   getFilenameStemAliases,
   inferDetectedTypeFromFilename,
   inferFundFromBenefitLabel,
   inferFundFromFilenameOrRow,
+  resolveFinanceReportImportType,
   scoreEclaimDownloadLink,
 } from './eclaimScrapingUtils.js';
 import {
@@ -75,6 +77,7 @@ import {
   getFdhSubmissionLogs,
   getFdhStatusImportLogs,
   ensureRepstmTables,
+  getRepstmConnection,
   repairMisclassifiedEclaimRepImports,
   importRepstmRows,
   importFdhClaimDetailRows,
@@ -7586,7 +7589,9 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
 
       // --- Strategy 1: Finance Report page (FinanceReportMainWebAction.do) ครบทุกกองทุน (LGO, SSS, BKK, OFC, UCS) ---
       const visitedFinanceFunds = new Set<string>();
-      const scrapeFinanceReportForFunds = async () => {
+      const scrapeFinanceReportForFunds = async (
+        targetType: 'STM' | 'INV' = resolveFinanceReportImportType(fileType) === 'INV' ? 'INV' : 'STM'
+      ) => {
         const allFinanceFunds = ['lgo', 'sss', 'bkk', 'ofc', 'ucs'];
         const targetFinanceFunds = requestedFunds
           ? allFinanceFunds.filter((f) => requestedFunds.has(f.toUpperCase()))
@@ -7609,20 +7614,12 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             for (const file of found) {
               const fname = String(file.filename || '');
               const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
-              const inferredType = fileType === 'INV'
-                ? 'INV'
-                : inferDetectedTypeFromFilename(fname, fileType === 'REP' ? 'REP' : 'STM');
-              // On UCS/OFC FinanceReport, skip eclaim_* REP rows when strictly fetching STM (they belong to REP)
-              if (fileType === 'STM' && (upperFund === 'UCS' || upperFund === 'OFC') && inferredType === 'REP') {
-                continue;
-              }
-              if (fileType === 'REP' && inferredType !== 'REP') {
-                continue;
-              }
               periodFiles.push({
                 ...file,
                 period: inferPeriodFromFilenameOrCells(fname, cells, period),
-                detectedType: inferredType,
+                detectedType: targetType,
+                forceImportType: targetType,
+                sourceOrigin: 'finance_report',
                 fund: inferFundFromFilenameOrRow(fname, cells, upperFund),
               });
               keptCount += 1;
@@ -7637,7 +7634,7 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       };
 
       if (fileType === 'INV') {
-        await scrapeFinanceReportForFunds();
+        await scrapeFinanceReportForFunds('INV');
       }
 
       // --- Strategy 2: All Statement pages ครบทุกกองทุน (New Client Statement + StatementReportWebAction + statementUCSAction + FinanceReport) ---
@@ -7913,12 +7910,11 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         }
 
         // 2D. FinanceReportMainWebAction across all requested funds (LGO, SSS, BKK, OFC, UCS)
-        await scrapeFinanceReportForFunds();
+        await scrapeFinanceReportForFunds('STM');
       }
 
-      // --- Strategy 3: REP ทุกสิทธิ (FinanceReportMainWebAction + ValidationMainAction) ---
+      // --- Strategy 3: REP ทุกสิทธิ (ValidationMainAction / RepAction) ---
       if (!skipRep && (fileType === 'ALL' || fileType === 'REP')) {
-        await scrapeFinanceReportForFunds();
         const allInsuranceCodes = ['ucs', 'ofc', 'lgo', 'bkk', 'sss'];
         const insuranceCodes = requestedFunds
           ? allInsuranceCodes.filter((c) => requestedFunds.has(c.toUpperCase()))
@@ -8047,29 +8043,44 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       return [key, file] as const;
     })).values());
 
-    // Cross-reference against repstm_import_batch to flag files already imported
+    // Cross-reference against repstm_import_batch to flag files already imported (scoped by data_type)
+    const importedByTypedExactName = new Map<string, { id: number; created_at: string }>();
+    const importedByTypedStem = new Map<string, { id: number; created_at: string; source_filename: string }>();
     const importedByExactName = new Map<string, { id: number; created_at: string }>();
     const importedByStem = new Map<string, { id: number; created_at: string; source_filename: string }>();
     try {
       await ensureRepstmTables();
-      const repConn = await getUTFConnection();
+      const repConn = await getRepstmConnection();
       try {
         const [batchRows] = await repConn.query(
-          `SELECT id, source_filename, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') AS created_str
+          `SELECT id, data_type, source_filename, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i') AS created_str
            FROM repstm_import_batch b
            WHERE NOT EXISTS (
              SELECT 1 FROM repstm_import_batch r2 WHERE r2.replaces_batch_id = b.id
            )
            ORDER BY id DESC`
         );
-        for (const row of (batchRows as Array<{ id: number; source_filename: string; created_str: string }>)) {
+        for (const row of (batchRows as Array<{ id: number; data_type?: string; source_filename: string; created_str: string }>)) {
           const rawName = String(row.source_filename || '').trim();
           if (!rawName) continue;
           const lower = rawName.toLowerCase();
+          const rowType = String(row.data_type || '').trim().toUpperCase();
+          if (rowType) {
+            const typedExactKey = buildTypedFilenameCacheKey(rowType, lower);
+            if (!importedByTypedExactName.has(typedExactKey)) {
+              importedByTypedExactName.set(typedExactKey, { id: row.id, created_at: row.created_str });
+            }
+          }
           if (!importedByExactName.has(lower)) {
             importedByExactName.set(lower, { id: row.id, created_at: row.created_str });
           }
           for (const alias of getFilenameStemAliases(rawName)) {
+            if (rowType) {
+              const typedStemKey = buildTypedFilenameCacheKey(rowType, alias);
+              if (!importedByTypedStem.has(typedStemKey)) {
+                importedByTypedStem.set(typedStemKey, { id: row.id, created_at: row.created_str, source_filename: rawName });
+              }
+            }
             if (!importedByStem.has(alias)) {
               importedByStem.set(alias, { id: row.id, created_at: row.created_str, source_filename: rawName });
             }
@@ -8087,11 +8098,21 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
     const enrichedFiles = uniqueFiles.map((file) => {
       const fname = String(file.filename || '').trim();
       const lower = fname.toLowerCase();
-      const exactMatch = importedByExactName.get(lower);
-      const stemMatch = getFilenameStemAliases(fname)
-        .map((alias) => importedByStem.get(alias))
-        .find(Boolean);
-      const match = exactMatch || stemMatch;
+      const fileTypeKey = String(file.detectedType || '').trim().toUpperCase();
+      const aliases = getFilenameStemAliases(fname);
+      const match = fileTypeKey
+        ? (
+            importedByTypedExactName.get(buildTypedFilenameCacheKey(fileTypeKey, lower))
+            || aliases
+              .map((alias) => importedByTypedStem.get(buildTypedFilenameCacheKey(fileTypeKey, alias)))
+              .find(Boolean)
+          )
+        : (
+            importedByExactName.get(lower)
+            || aliases
+              .map((alias) => importedByStem.get(alias))
+              .find(Boolean)
+          );
       if (match) {
         existingCount += 1;
       } else {

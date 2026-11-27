@@ -73,6 +73,7 @@ interface ImportQueueItem {
   fileHash?: string;
   fileSize?: number;
   relativePath?: string;
+  forcedType?: ImportType;
   detectedType?: ImportType;
   sheetName: string;
   isSubfile?: boolean;
@@ -110,6 +111,7 @@ interface EclaimPipelineState {
 
 const getEclaimFileKey = (file: Record<string, unknown>, index = 0) => [
   String(file.period || file._period || ''),
+  String(file.detectedType || ''),
   String(file.filename || file.fileName || file.name || ''),
   String(file.downloadHref || ''),
   String(file.downloadOnclick || ''),
@@ -170,12 +172,13 @@ const readWorkbook = async (
   includeSubfiles = false,
   sourceBuffer?: ArrayBuffer,
   onProgress?: (progress: number, message: string) => void,
+  forcedType?: ImportType,
 ): Promise<ParsedSheet[]> => {
   const buffer = sourceBuffer ?? await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
   onProgress?.(44, `เปิดไฟล์แล้ว พบ ${workbook.SheetNames.length.toLocaleString()} Sheet`);
   await yieldToBrowser();
-  const fileHint = detectTypeFromFileName(file.name);
+  const fileHint = forcedType || detectTypeFromFileName(file.name);
 
   const priorityNames = ['statement', 'eclaim', 'invoice', 'individual', 'detail', 'repdata', 'repeclaim'];
   const ordered = [
@@ -212,7 +215,12 @@ const readWorkbook = async (
     if (isSubfile) return false;
     const compact = sheetName.toLowerCase().replace(/\s+/g, ' ').trim();
     if (hintType === 'REP') return /^(detail|individual|eclaim|repdata|repeclaim)$/.test(compact) || compact.includes('รายละเอียด');
-    if (hintType === 'STM') return compact.includes('รายละเอียด') || compact === 'พึงรับ' || compact === 'statement';
+    if (hintType === 'STM') {
+      return compact.includes('รายละเอียด')
+        || compact === 'พึงรับ'
+        || compact === 'statement'
+        || /^(detail|individual|eclaim|repdata|repeclaim)$/.test(compact);
+    }
     if (hintType === 'INV') return /^(detail|individual|eclaim|inv|invoice)$/.test(compact) || compact.includes('รายละเอียด');
     return false;
   });
@@ -237,8 +245,9 @@ const readImportSource = async (
   includeSubfiles = false,
   sourceBuffer?: ArrayBuffer,
   onProgress?: (progress: number, message: string) => void,
+  forcedType?: ImportType,
 ): Promise<ParsedSheet[]> => {
-  if (!/\.zip$/i.test(file.name)) return readWorkbook(file, includeSubfiles, sourceBuffer, onProgress);
+  if (!/\.zip$/i.test(file.name)) return readWorkbook(file, includeSubfiles, sourceBuffer, onProgress, forcedType);
   onProgress?.(42, 'กำลังส่ง ZIP ไปวิเคราะห์โครงสร้างและข้อมูล');
   await yieldToBrowser();
   const archive = await analyzeRepstmArchiveFile(file);
@@ -1124,7 +1133,7 @@ export const RepStmImportPage: React.FC = () => {
           if (orderedPeriods.length > 1 && fPeriod && /^\d{6}$/.test(fPeriod) && !allowedPeriodsSet.has(fPeriod)) {
             continue;
           }
-          const dedupKey = `${String(f.filename || '')}__${String(f.downloadHref || '')}__${String(f.downloadOnclick || '')}`;
+          const dedupKey = `${String(f.detectedType || '')}__${String(f.filename || '')}__${String(f.downloadHref || '')}__${String(f.downloadOnclick || '')}`;
           if (seenDownloads.has(dedupKey)) continue;
           seenDownloads.add(dedupKey);
           accumulatedFiles.push(f);
@@ -1212,6 +1221,7 @@ export const RepStmImportPage: React.FC = () => {
 
     const dataTransfer = new DataTransfer();
     const downloadedKeysByName = new Map<string, string[]>();
+    const forcedTypesByFilename = new Map<string, ImportType>();
     const usedFilenames = new Set<string>();
     const downloadErrors: string[] = [];
     for (let rowIdx = 0; rowIdx < filesToDownload.length; rowIdx += 1) {
@@ -1262,6 +1272,10 @@ export const RepStmImportPage: React.FC = () => {
           downloadedFilename = `${stem}_${rowIdx + 1}${ext}`;
         }
         usedFilenames.add(downloadedFilename.toLowerCase());
+        const rawForced = String(fileObj.forceImportType || (fileObj.sourceOrigin === 'finance_report' ? fileObj.detectedType : '') || '').toUpperCase();
+        if (rawForced === 'STM' || rawForced === 'REP' || rawForced === 'INV') {
+          forcedTypesByFilename.set(downloadedFilename.toLowerCase(), rawForced as ImportType);
+        }
         const dlFile = new File([blob], downloadedFilename, { type: dlJson.contentType || 'application/octet-stream' });
         dataTransfer.items.add(dlFile);
         downloadedKeysByName.set(downloadedFilename, [...(downloadedKeysByName.get(downloadedFilename) || []), key]);
@@ -1282,7 +1296,7 @@ export const RepStmImportPage: React.FC = () => {
     }
     if (dataTransfer.files.length > 0) {
       setCurrentActiveStepLabel(`กำลังตรวจสอบและอ่านโครงสร้างไฟล์ (${dataTransfer.files.length} ไฟล์)...`);
-      const parsedItems = await handleFileChange(dataTransfer.files, true);
+      const parsedItems = await handleFileChange(dataTransfer.files, true, false, forcedTypesByFilename);
       const readyForImport = parsedItems.filter((item) => item.status === 'ready' && item.detectedType);
       const parseFailures = parsedItems.filter((item) => item.status === 'error');
       const preflightDuplicates = parsedItems.filter((item) => item.status === 'duplicate');
@@ -1360,7 +1374,12 @@ export const RepStmImportPage: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [eclaimBrowserReady, eclaimAutoSyncInterval, eclaimLoading, eclaimDownloading, eclaimStartDate, eclaimEndDate, eclaimFileType, eclaimFunds]);
 
-  const handleFileChange = async (files: FileList | null, append = false, bypassPreflight = false): Promise<ImportQueueItem[]> => {
+  const handleFileChange = async (
+    files: FileList | null,
+    append = false,
+    bypassPreflight = false,
+    forcedTypesByName?: Map<string, ImportType>,
+  ): Promise<ImportQueueItem[]> => {
     if (!append) {
       resetQueue();
     } else {
@@ -1382,6 +1401,7 @@ export const RepStmImportPage: React.FC = () => {
       fileName: file.name,
       fileSize: file.size,
       relativePath: 'webkitRelativePath' in file ? (file as File & { webkitRelativePath?: string }).webkitRelativePath : '',
+      forcedType: forcedTypesByName?.get(file.name.toLowerCase()),
       sheetName: '',
       headers: [],
       rows: [],
@@ -1449,7 +1469,7 @@ export const RepStmImportPage: React.FC = () => {
     const parseQueue: ImportQueueItem[] = [];
     for (const queueItem of initialQueue) {
       const preflight = preflightByName.get(queueItem.file.name.toLowerCase());
-      const expectedType = detectTypeFromFileName(queueItem.file.name);
+      const expectedType = queueItem.forcedType || detectTypeFromFileName(queueItem.file.name);
       const preflightTypeMatches = !expectedType || !preflight?.dataType || preflight.dataType === expectedType;
       // Read REP workbooks even when the primary sheet exists: an older import may lack Data Sheet 0.
       if (expectedType !== 'REP' && preflight && preflightTypeMatches && ['exact', 'name_match', 'content_match'].includes(preflight.status)) {
@@ -1503,6 +1523,7 @@ export const RepStmImportPage: React.FC = () => {
             progress,
             message,
           })),
+          queueItem.forcedType,
         );
 
         if (parsedSheets.length === 0) {
@@ -1525,11 +1546,12 @@ export const RepStmImportPage: React.FC = () => {
           // Server-side archive importers know the source schema exactly. Keep their
           // declared type authoritative; generic column detection sees invoice fields
           // inside STM and would otherwise misclassify CHI STM ZIPs as INV.
-          const detectedType = importerId && hintType
-            ? hintType
-            : isSubfile
-              ? hintType || detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows)
-              : detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows) || hintType;
+          const detectedType = queueItem.forcedType
+            || (importerId && hintType
+              ? hintType
+              : isSubfile
+                ? hintType || detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows)
+                : detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows) || hintType);
           const parsedItem: ImportQueueItem = {
             ...queueItem,
             sheetName,
@@ -1560,11 +1582,12 @@ export const RepStmImportPage: React.FC = () => {
         } else {
           // Multiple relevant sheets – expand one file into multiple queue items
           const expandedItems: ImportQueueItem[] = parsedSheets.map(({ sheetName, rows, headers, hintType, isSubfile, importerId, importerLabel, summary, archiveSummaries, archiveEntries, sourceEntryName }, i) => {
-            const detectedType = importerId && hintType
-              ? hintType
-              : isSubfile
-                ? hintType || detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows)
-                : detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows) || hintType;
+            const detectedType = queueItem.forcedType
+              || (importerId && hintType
+                ? hintType
+                : isSubfile
+                  ? hintType || detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows)
+                  : detectImportType(queueItem.relativePath || queueItem.fileName, headers, rows) || hintType);
             return {
               id: `${queueItem.id}-sh${i}`,
               file: queueItem.file,

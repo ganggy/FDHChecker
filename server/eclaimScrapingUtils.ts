@@ -6,6 +6,25 @@
 export type EclaimFileType = 'REP' | 'STM' | 'INV';
 
 /**
+ * Builds a type-scoped filename/stem lookup key so REP and STM duplicate
+ * caches do not collide for the same filename or stem alias.
+ */
+export function buildTypedFilenameCacheKey(dataType: string, nameOrAlias: string): string {
+  const normalizedType = String(dataType || '').trim().toUpperCase();
+  const normalizedName = String(nameOrAlias || '').trim().toLowerCase();
+  return `${normalizedType}|${normalizedName}`;
+}
+
+/**
+ * Resolves the import data type for NHSO Finance Report rows across all funds
+ * (lgo, sss, ucs, ofc, bkk). Keeps explicit INV requests as INV and treats
+ * STM/ALL/default as STM.
+ */
+export function resolveFinanceReportImportType(requestedFileType: string): EclaimFileType {
+  return String(requestedFileType || '').trim().toUpperCase() === 'INV' ? 'INV' : 'STM';
+}
+
+/**
  * Generates normalized filename stem aliases so legacy Statement IDs
  * (e.g. `11101_OP202605_01`), prefixed names (`STM_11101_OP202605_01.xls`),
  * and browser duplicate suffixes (` (1)`) match consistently.

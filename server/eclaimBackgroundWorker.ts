@@ -13,7 +13,8 @@ import { getEclaimBrowserSession } from './index.js';
 import { getRepstmConnection } from './db/connection.js';
 import { importRepstmRows } from './repositories/receivables.repository.js';
 import { analyzeRepstmArchive } from './repstmArchive.js';
-import { getFilenameStemAliases } from './eclaimScrapingUtils.js';
+import { buildTypedFilenameCacheKey, getFilenameStemAliases } from './eclaimScrapingUtils.js';
+import { parseWorksheetRows } from '../src/utils/repstmWorksheetParsing.js';
 
 export interface EclaimWorkerProgress {
   jobId: string | null;
@@ -87,14 +88,21 @@ const loadImportedFilesCache = async (): Promise<Set<string>> => {
   try {
     const conn = await getRepstmConnection();
     try {
-      const [rows] = await conn.query('SELECT source_filename FROM repstm_import_batch');
+      const [rows] = await conn.query(
+        `SELECT data_type, source_filename
+         FROM repstm_import_batch b
+         WHERE NOT EXISTS (
+           SELECT 1 FROM repstm_import_batch r2 WHERE r2.replaces_batch_id = b.id
+         )`
+      );
       if (Array.isArray(rows)) {
         for (const r of rows as any[]) {
           const fn = String(r.source_filename || '').trim().toLowerCase();
-          if (!fn) continue;
-          set.add(fn);
+          const dt = String(r.data_type || '').trim().toUpperCase();
+          if (!fn || !dt) continue;
+          set.add(buildTypedFilenameCacheKey(dt, fn));
           for (const alias of getFilenameStemAliases(fn)) {
-            set.add(alias);
+            set.add(buildTypedFilenameCacheKey(dt, alias));
           }
         }
       }
@@ -106,22 +114,57 @@ const loadImportedFilesCache = async (): Promise<Set<string>> => {
   return set;
 };
 
-const isFileAlreadyImported = async (filename: string): Promise<boolean> => {
+const isFileAlreadyImported = async (filename: string, dataType: 'REP' | 'STM' | 'INV'): Promise<boolean> => {
   if (!importedCache) {
     await loadImportedFilesCache();
   }
   const lower = filename.trim().toLowerCase();
-  if (importedCache?.has(lower)) return true;
-  return getFilenameStemAliases(lower).some((alias) => importedCache?.has(alias));
+  if (importedCache?.has(buildTypedFilenameCacheKey(dataType, lower))) return true;
+  return getFilenameStemAliases(lower).some((alias) => importedCache?.has(buildTypedFilenameCacheKey(dataType, alias)));
 };
 
-const registerImportedFileInCache = (filename: string) => {
+const registerImportedFileInCache = (filename: string, dataType: 'REP' | 'STM' | 'INV') => {
   if (!importedCache) importedCache = new Set<string>();
   const lower = filename.trim().toLowerCase();
-  importedCache.add(lower);
+  importedCache.add(buildTypedFilenameCacheKey(dataType, lower));
   for (const alias of getFilenameStemAliases(lower)) {
-    importedCache.add(alias);
+    importedCache.add(buildTypedFilenameCacheKey(dataType, alias));
   }
+};
+
+const parseWorkerExcelSheet = (buffer: Buffer, dataType: 'REP' | 'STM' | 'INV'): {
+  sheetName: string;
+  rows: Record<string, unknown>[];
+} => {
+  const wb = xlsx.read(buffer, { type: 'buffer' });
+  const sheetNames = wb.SheetNames || [];
+  const isSupplementary = (name: string) => {
+    const compact = name.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+    return /^data\b/.test(compact) || compact.includes('sheet 0') || compact === 'sheet0' || compact === '0';
+  };
+  const primaryMatch = sheetNames.find((name) => {
+    if (isSupplementary(name)) return false;
+    const compact = name.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (dataType === 'STM') {
+      return compact.includes('รายละเอียด')
+        || compact === 'พึงรับ'
+        || compact === 'statement'
+        || /^(detail|individual|eclaim|repdata|repeclaim)$/.test(compact);
+    }
+    return /^(detail|individual|eclaim|repdata|repeclaim|invoice|inv)$/.test(compact) || compact.includes('รายละเอียด');
+  });
+  const sheetName = primaryMatch || sheetNames.find((name) => !isSupplementary(name)) || sheetNames[0] || '';
+  if (!sheetName || !wb.Sheets[sheetName]) {
+    return { sheetName, rows: [] };
+  }
+  const parsed = parseWorksheetRows(wb.Sheets[sheetName], dataType);
+  if (parsed.rows.length > 0) {
+    return { sheetName, rows: parsed.rows };
+  }
+  return {
+    sheetName,
+    rows: xlsx.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName]),
+  };
 };
 
 /**
@@ -421,7 +464,7 @@ export const startEclaimBackgroundSync = async (options: {
         for (const rowMeta of readyRows) {
           const baseFilename = rowMeta.rawFileName || `REP_${rowMeta.repNo}.xls`;
           const expectedExcelName = baseFilename.replace(/\.ecd$/i, '.xls');
-          if (await isFileAlreadyImported(expectedExcelName)) {
+          if (await isFileAlreadyImported(expectedExcelName, 'REP')) {
             workerState.skippedCount += 1;
           } else {
             unimportedRows.push(rowMeta);
@@ -485,10 +528,7 @@ export const startEclaimBackgroundSync = async (options: {
             workerState.phase = 'importing';
             workerState.message = `กำลังนำเข้า ${actualName} ลงฐานข้อมูล...`;
 
-            const wb = xlsx.read(fileBuffer, { type: 'buffer' });
-            const sheetName = wb.SheetNames[0];
-            const ws = wb.Sheets[sheetName];
-            const parsedRows = xlsx.utils.sheet_to_json<Record<string, unknown>>(ws);
+            const { sheetName, rows: parsedRows } = parseWorkerExcelSheet(fileBuffer, 'REP');
 
             if (parsedRows.length > 0) {
               const importRes = await importRepstmRows({
@@ -505,8 +545,8 @@ export const startEclaimBackgroundSync = async (options: {
 
               if (importRes.success) {
                 workerState.importedCount += 1;
-                registerImportedFileInCache(actualName);
-                registerImportedFileInCache(expectedExcelName);
+                registerImportedFileInCache(actualName, 'REP');
+                registerImportedFileInCache(expectedExcelName, 'REP');
                 addLog('success', `✅ นำเข้าสำเร็จ: ${actualName} (+${parsedRows.length} รายการ)`);
               } else {
                 addLog('warning', `⚠️ นำเข้า ${actualName}: ${importRes.message || 'ข้าม'}`);
@@ -698,7 +738,7 @@ export const startEclaimBackgroundSync = async (options: {
           for (const sRow of downloadableStm) {
             const baseName = sRow.rawFileName || `STM_${sRow.stmNo || sp}_${sRow.idx}.xls`;
             const expectedName = baseName.replace(/\.ecd$/i, '.xls');
-            if (await isFileAlreadyImported(expectedName)) {
+            if (await isFileAlreadyImported(expectedName, 'STM')) {
               workerState.skippedCount += 1;
             } else {
               unimportedStm.push(sRow);
@@ -747,10 +787,7 @@ export const startEclaimBackgroundSync = async (options: {
                 addLog('success', `📥 ดาวน์โหลด Statement สำเร็จ: ${actualName}`);
 
                 // Import
-                const wb = xlsx.read(fBuffer, { type: 'buffer' });
-                const sName = wb.SheetNames[0];
-                const ws = wb.Sheets[sName];
-                const parsed = xlsx.utils.sheet_to_json<Record<string, unknown>>(ws);
+                const { sheetName: sName, rows: parsed } = parseWorkerExcelSheet(fBuffer, 'STM');
 
                 if (parsed.length > 0) {
                   const importRes = await importRepstmRows({
@@ -767,8 +804,8 @@ export const startEclaimBackgroundSync = async (options: {
 
                   if (importRes.success) {
                     workerState.importedCount += 1;
-                    registerImportedFileInCache(actualName);
-                    registerImportedFileInCache(expectedName);
+                    registerImportedFileInCache(actualName, 'STM');
+                    registerImportedFileInCache(expectedName, 'STM');
                     addLog('success', `✅ นำเข้า STM สำเร็จ: ${actualName} (+${parsed.length} รายการ)`);
                   } else {
                     addLog('warning', `⚠️ นำเข้า STM ${actualName}: ${importRes.message || 'ข้าม'}`);
@@ -899,6 +936,24 @@ export const startEclaimBackgroundSync = async (options: {
               }
             }
 
+            if (legacySource.url.includes('FinanceReportMainWebAction')) {
+              const showAllClicked = await page.evaluate(() => {
+                const candidates = Array.from(document.querySelectorAll<HTMLElement>('a, button, input[type="button"], span[onclick]'));
+                const btn = candidates.find((el) => {
+                  const text = (el.textContent || el.getAttribute('value') || '').replace(/\s+/g, ' ').trim();
+                  return text.includes('แสดงทั้งหมด');
+                });
+                if (btn) {
+                  btn.click();
+                  return true;
+                }
+                return false;
+              }).catch(() => false);
+              if (showAllClicked) {
+                await page.waitForTimeout(1200);
+              }
+            }
+
             const legacyRows = await page.evaluate(() => {
               const headerRow = document.querySelector('table thead tr:last-child, table tr');
               const headers = headerRow
@@ -948,13 +1003,14 @@ export const startEclaimBackgroundSync = async (options: {
 
             addLog('info', `พบ Statement ${legacySource.label} ${readyRows.length} รายการ — กำลังตรวจไฟล์ใหม่...`);
 
+            const isFinanceReportSource = legacySource.url.includes('FinanceReportMainWebAction');
             let importedHere = 0;
             for (const rowMeta of readyRows) {
               if (stopRequested) break;
               const baseName = rowMeta.rawFileName || `STM_LEGACY_${legacySource.label.startsWith('LGO') ? 'LGO' : 'OFC'}_${rowMeta.idx}.xls`;
               const expectedName = baseName.replace(/\.ecd$/i, '.xls');
 
-              if (rowMeta.rawFileName && await isFileAlreadyImported(expectedName)) {
+              if (rowMeta.rawFileName && await isFileAlreadyImported(expectedName, 'STM')) {
                 workerState.skippedCount += 1;
                 continue;
               }
@@ -1000,7 +1056,7 @@ export const startEclaimBackgroundSync = async (options: {
                   const fBuffer = fs.readFileSync(dlPath);
                   const actualName = (download.suggestedFilename() || expectedName).replace(/\.ecd$/i, '.xls');
 
-                  if (await isFileAlreadyImported(actualName)) {
+                  if (await isFileAlreadyImported(actualName, 'STM')) {
                     workerState.skippedCount += 1;
                     continue;
                   }
@@ -1014,7 +1070,7 @@ export const startEclaimBackgroundSync = async (options: {
                     const analysis = analyzeRepstmArchive(fBuffer, actualName);
                     for (const ds of analysis.datasets) {
                       const importRes = await importRepstmRows({
-                        dataType: ds.detectedType || 'STM',
+                        dataType: isFinanceReportSource ? 'STM' : (ds.detectedType || 'STM'),
                         sourceFilename: ds.sheetName || actualName,
                         fileSize: fBuffer.length,
                         sheetName: ds.sheetName,
@@ -1027,15 +1083,13 @@ export const startEclaimBackgroundSync = async (options: {
                       if (importRes.success) {
                         workerState.importedCount += 1;
                         importedHere += 1;
-                        registerImportedFileInCache(ds.sheetName || actualName);
+                        registerImportedFileInCache(ds.sheetName || actualName, 'STM');
                       }
                     }
-                    registerImportedFileInCache(actualName);
+                    registerImportedFileInCache(actualName, 'STM');
                     addLog('success', `✅ นำเข้า ZIP STM สำเร็จ: ${actualName}`);
                   } else {
-                    const wb = xlsx.read(fBuffer, { type: 'buffer' });
-                    const sName = wb.SheetNames[0];
-                    const parsed = sName ? xlsx.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sName]) : [];
+                    const { sheetName: sName, rows: parsed } = parseWorkerExcelSheet(fBuffer, 'STM');
                     if (parsed.length > 0) {
                       const importRes = await importRepstmRows({
                         dataType: 'STM',
@@ -1051,8 +1105,8 @@ export const startEclaimBackgroundSync = async (options: {
                       if (importRes.success) {
                         workerState.importedCount += 1;
                         importedHere += 1;
-                        registerImportedFileInCache(actualName);
-                        registerImportedFileInCache(expectedName);
+                        registerImportedFileInCache(actualName, 'STM');
+                        registerImportedFileInCache(expectedName, 'STM');
                         addLog('success', `✅ นำเข้า STM สำเร็จ: ${actualName} (+${parsed.length} รายการ)`);
                       }
                     }

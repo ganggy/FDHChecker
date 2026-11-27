@@ -455,6 +455,7 @@ let eclaimBrowserSession: EclaimBrowserSession | null = null;
 export const getEclaimBrowserSession = () => eclaimBrowserSession;
 
 let eclaimPageMutex: Promise<void> = Promise.resolve();
+let eclaimPageBusy = false;
 const withEclaimPageLock = async <T>(fn: () => Promise<T>): Promise<T> => {
   let release!: () => void;
   const next = new Promise<void>((resolve) => {
@@ -463,9 +464,11 @@ const withEclaimPageLock = async <T>(fn: () => Promise<T>): Promise<T> => {
   const prev = eclaimPageMutex;
   eclaimPageMutex = prev.then(() => next).catch(() => next);
   await prev;
+  eclaimPageBusy = true;
   try {
     return await fn();
   } finally {
+    eclaimPageBusy = false;
     release();
   }
 };
@@ -6637,9 +6640,10 @@ app.get('/api/nhso-eclaim/browser-status', async (_req, res) => {
   }
   try {
     const alive = eclaimBrowserSession.browser.isConnected();
-    const url = eclaimBrowserSession.page.url();
-    const title = await eclaimBrowserSession.page.title().catch(() => '');
-    const visual = alive && !eclaimBrowserSession.ready
+    const shouldInspectPage = alive && !eclaimBrowserSession.ready && !eclaimPageBusy;
+    const url = eclaimPageBusy ? '' : eclaimBrowserSession.page.url();
+    const title = shouldInspectPage ? await eclaimBrowserSession.page.title().catch(() => '') : '';
+    const visual = shouldInspectPage
       ? await captureEclaimVisualState(eclaimBrowserSession)
       : { screenshotDataUrl: null, qrCodeDataUrl: null, qrTimerText: null, qrRefCode: null };
     return res.json({
@@ -7123,9 +7127,23 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
     return { yearCE: y, yearBE: y + 543, monthNum: m, monthTh: thaiMonths[m - 1] };
   };
 
-  // Generic table scraper — called after page is already loaded
+  const clickAndWaitForLegacyReload = async (
+    clickAction: () => Promise<boolean>,
+    settleMs = 700,
+    navTimeoutMs = 15000,
+  ): Promise<boolean> => {
+    const navPromise = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: navTimeoutMs }).catch(() => null);
+    const didClick = await clickAction().catch(() => false);
+    if (!didClick) return false;
+    await Promise.race([navPromise, page.waitForTimeout(5000)]);
+    await page.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(() => undefined);
+    await page.waitForTimeout(settleMs);
+    return true;
+  };
+
+  // Generic table scraper — called after page is already loaded (retries once if context reloads mid-scrape)
   const scrapeFilesFromPage = async (periodStr: string): Promise<Record<string, unknown>[]> => {
-    return page.evaluate((pStr) => {
+    const runEvaluate = () => page.evaluate((pStr) => {
       const rows: Record<string, unknown>[] = [];
       const currentCanonicalUrl = window.location.href.split('#')[0];
       const isStatementReportPage = currentCanonicalUrl.includes('StatementReportWebAction');
@@ -7264,25 +7282,39 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
       }
       return rows;
     }, periodStr);
+    try {
+      return await runEvaluate();
+    } catch (evalErr) {
+      const msg = (evalErr as Error)?.message || '';
+      if (/Execution context was destroyed|Cannot find context/i.test(msg)) {
+        await page.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(() => undefined);
+        await page.waitForTimeout(700);
+        return await runEvaluate();
+      }
+      throw evalErr;
+    }
   };
 
   // Multi-page pagination scraper — automatically expands "แสดงทั้งหมด" if present, else traverses DisplayTag pagination links
   const scrapeFilesAcrossPages = async (periodStr: string): Promise<Record<string, unknown>[]> => {
-    const expandedAll = await page.evaluate(() => {
-      const candidates = Array.from(document.querySelectorAll<HTMLElement>('a, button, input[type="button"], input[type="submit"]'));
-      const showAllEl = candidates.find((el) => {
-        const txt = (el.textContent || el.getAttribute('value') || '').replace(/\s+/g, ' ').trim();
-        return txt === 'แสดงทั้งหมด' || txt === 'Show All';
-      });
-      if (showAllEl) {
-        showAllEl.click();
-        return true;
-      }
-      return false;
-    }).catch(() => false);
-    if (expandedAll) {
-      await page.waitForTimeout(850);
-    }
+    await clickAndWaitForLegacyReload(
+      () => page.evaluate(() => {
+        const candidates = Array.from(document.querySelectorAll<HTMLElement>(
+          'a, button, input[type="button"], input[type="submit"], span[onclick]'
+        ));
+        const showAllEl = candidates.find((el) => {
+          const txt = (el.textContent || el.getAttribute('value') || '').replace(/\s+/g, ' ').trim();
+          return txt === 'แสดงทั้งหมด' || txt === 'Show All' || txt.includes('แสดงทั้งหมด');
+        });
+        if (showAllEl) {
+          showAllEl.click();
+          return true;
+        }
+        return false;
+      }),
+      850,
+      15000,
+    );
 
     const collected: Record<string, unknown>[] = [];
     const firstPageRows = await scrapeFilesFromPage(periodStr);
@@ -7459,13 +7491,18 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
 
     if (matched) {
       await page.waitForTimeout(200);
-      const submitBtn = await page.$(
-        'input[type="submit"], button[type="submit"], input[type="button"][value*="ค้นหา"], input[type="button"][value*="แสดง"], button:text-matches("แสดง|ค้นหา|Search", "i")'
-      ).catch(() => null);
-      if (submitBtn) {
-        await submitBtn.evaluate((el) => (el as HTMLElement).click()).catch(() => submitBtn.click().catch(() => {/* ignore */}));
-        await page.waitForTimeout(850);
-      }
+      await clickAndWaitForLegacyReload(
+        async () => {
+          const submitBtn = await page.$(
+            'input[type="submit"], button[type="submit"], input[type="button"][value*="ค้นหา"], input[type="button"][value*="แสดง"], button:text-matches("แสดง|ค้นหา|Search", "i")'
+          ).catch(() => null);
+          if (!submitBtn) return false;
+          await submitBtn.evaluate((el) => (el as HTMLElement).click()).catch(() => submitBtn.click());
+          return true;
+        },
+        850,
+        15000,
+      );
     }
     return matched;
   };
@@ -7626,9 +7663,12 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
             const snippet = keptCount === 0
               ? await page.evaluate(() => document.body?.innerHTML?.slice(0, 1500) || '').catch(() => '')
               : '';
+            console.log(`[eclaim-search] FinanceReport(${upperFund}) period=${period}: found=${keptCount} title="${pageTitle}"`);
             debugLog.push({ period, url, title: pageTitle, rowCount: keptCount, htmlSnippet: snippet });
             usedUrl = url;
-          } catch { /* try next fund */ }
+          } catch (err) {
+            console.warn('[eclaim-search] FinanceReport error:', upperFund, period, (err as Error)?.message || err);
+          }
         }
       };
 
@@ -7636,92 +7676,39 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         await scrapeFinanceReportForFunds('INV');
       }
 
-      // --- Strategy 2: All Statement pages ครบทุกกองทุน (New Client Statement + StatementReportWebAction + statementUCSAction + FinanceReport) ---
+      // --- Strategy 2: All Statement pages ครบทุกกองทุน (FinanceReport FIRST + statementUCSAction + StatementReportWebAction + New Client Statement LAST) ---
       if (fileType === 'ALL' || fileType === 'STM') {
-        // 2A. New e-Claim Client portal Statement (/Client/service/download-statement)
-        if (!scrapedClientStatement) {
-          scrapedClientStatement = true;
-          const clientStmUrl = 'https://eclaim.nhso.go.th/Client/service/download-statement';
+        // 2A. FinanceReportMainWebAction across all requested funds (LGO, SSS, BKK, OFC, UCS) — run FIRST while legacy session is fresh
+        await scrapeFinanceReportForFunds('STM');
+
+        // 2B. UCS legacy statementUCSAction
+        if (!requestedFunds || requestedFunds.has('UCS')) {
+          const ucsUrl = 'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do?dynamicMenuFunctionUnitId=1578';
           try {
-            await page.goto(clientStmUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => undefined);
-            await page.waitForTimeout(1800);
-            await page.evaluate(() => {
-              const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, input[type="button"], input[type="submit"], .btn, a'));
-              const searchBtn = buttons.find((b) => {
-                const txt = (b.textContent || '').trim();
-                const val = (b.getAttribute('value') || '').trim();
-                return txt === 'ค้นหา' || val === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง'));
-              });
-              if (searchBtn) searchBtn.click();
-            }).catch(() => undefined);
-            await page.waitForTimeout(2200);
-
-            const clientStmPages = Math.min(maxPages, 10);
-            for (let cp = 1; cp <= clientStmPages; cp += 1) {
-              const clientRows = await page.evaluate(() => {
-                const tableRows = Array.from(document.querySelectorAll('table tbody tr'));
-                return tableRows.map((tr) => {
-                  const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
-                  const text = cells.join(' ');
-                  if (cells.length <= 1 || text.includes('ไม่มีข้อมูล')) return null;
-                  const rawFileName = cells.find((c) => /\.(xlsx?|zip|csv|ecd)/i.test(c))
-                    || cells.find((c) => /(?:STM|SIGNSTM|COCD|SOCD|FOCD|\d{5}_)/i.test(c))
-                    || cells[0]
-                    || '';
-                  const dlAnchor = Array.from(tr.querySelectorAll<HTMLElement>('a, button')).find((el) => {
-                    const t = (el.textContent || '').toLowerCase();
-                    const title = (el.getAttribute('title') || '').toLowerCase();
-                    return t.includes('download') || t.includes('ดาวน์โหลด') || t.includes('excel') || title.includes('download') || title.includes('excel');
-                  }) || tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button');
-                  return {
-                    rawFileName,
-                    cells,
-                    href: (dlAnchor as HTMLAnchorElement)?.href || '',
-                    onclick: dlAnchor?.getAttribute('onclick') || '',
-                  };
-                }).filter(Boolean);
-              }).catch(() => []);
-
-              for (const item of clientRows as Array<{ rawFileName: string; cells: string[]; href: string; onclick: string }>) {
-                const base = (item.rawFileName || 'STM_CLIENT.xls').replace(/\.ecd$/i, '.xls');
-                const inferredFund = inferFundFromFilenameOrRow(base, item.cells, 'UCS');
-                cachedClientStatementFiles.push({
-                  filename: base,
-                  downloadHref: item.href,
-                  downloadOnclick: item.onclick,
+            await page.goto(ucsUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            await page.waitForTimeout(450);
+            pageTitle = await page.title().catch(() => '');
+            if (!(await isLegacyErrorPage(pageTitle))) {
+              await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
+              const statementFiles = await scrapeFilesAcrossPages(period);
+              for (const file of statementFiles) {
+                const fname = String(file.filename || '');
+                const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
+                periodFiles.push({
+                  ...file,
+                  period: inferPeriodFromFilenameOrCells(fname, cells, period),
                   detectedType: 'STM',
-                  period: inferPeriodFromFilenameOrCells(base, item.cells, period),
-                  fund: inferredFund,
-                  cells: item.cells,
-                  sourcePage: clientStmUrl,
+                  forceImportType: 'STM',
+                  fund: inferFundFromFilenameOrRow(fname, cells, 'UCS'),
                 });
               }
-
-              if (cp < clientStmPages) {
-                const movedNext = await page.evaluate(() => {
-                  const antNext = document.querySelector<HTMLElement>('.ant-pagination-next:not(.ant-pagination-disabled)');
-                  if (antNext) {
-                    ((antNext.querySelector('button, a') as HTMLElement) || antNext).click();
-                    return true;
-                  }
-                  return false;
-                }).catch(() => false);
-                if (movedNext) {
-                  await page.waitForTimeout(1600);
-                } else {
-                  break;
-                }
-              }
+              debugLog.push({ period, url: ucsUrl, title: pageTitle, rowCount: statementFiles.length, htmlSnippet: '' });
+              usedUrl = ucsUrl;
             }
-          } catch { /* fallback to legacy sources */ }
-        }
-        for (const cachedFile of cachedClientStatementFiles) {
-          const cfFund = String(cachedFile.fund || '').toUpperCase();
-          if (requestedFunds && cfFund && !requestedFunds.has(cfFund)) continue;
-          periodFiles.push(cachedFile);
+          } catch { /* ignore */ }
         }
 
-        // 2B. StatementReportWebAction.do (OFC / ทุกสิทธิประโยชน์ x OP/IP)
+        // 2C. StatementReportWebAction.do (OFC / ทุกสิทธิประโยชน์ x OP/IP)
         const statementReportUrl = 'https://eclaim.nhso.go.th/webComponent/nch/StatementReportWebAction.do?dynamicMenuFunctionUnitId=995';
         try {
           await page.goto(statementReportUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
@@ -7841,18 +7828,23 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
                       applyMonth: useMonthFilter,
                     });
                     await page.waitForTimeout(200);
-                    const submitBtn = await page.$(
-                      'input[type="submit"], button[type="submit"], input[type="button"][value*="แสดง"], input[type="button"][value*="ค้นหา"], button:text-matches("แสดง|ค้นหา|Search", "i")'
-                    ).catch(() => null);
-                    if (submitBtn) {
-                      await submitBtn.evaluate((el) => (el as HTMLElement).click()).catch(() => submitBtn.click().catch(() => {/* ignore */}));
-                      await page.waitForTimeout(800);
-                    }
+                    await clickAndWaitForLegacyReload(
+                      async () => {
+                        const submitBtn = await page.$(
+                          'input[type="submit"], button[type="submit"], input[type="button"][value*="แสดง"], input[type="button"][value*="ค้นหา"], button:text-matches("แสดง|ค้นหา|Search", "i")'
+                        ).catch(() => null);
+                        if (!submitBtn) return false;
+                        await submitBtn.evaluate((el) => (el as HTMLElement).click()).catch(() => submitBtn.click());
+                        return true;
+                      },
+                      800,
+                      15000,
+                    );
                   };
 
                   await applyFiltersAndSubmit(true);
                   let stmRows = await scrapeFilesAcrossPages(period);
-                  if (stmRows.length === 0) {
+                  if (stmRows.length === 0 && monthNum >= 10) {
                     // On StatementReportWebAction, Oct-Dec rows may sit under next fiscal year when filtered strictly by month; retry with "เลือกเดือน"
                     await applyFiltersAndSubmit(false);
                     stmRows = await scrapeFilesAcrossPages(period);
@@ -7883,35 +7875,102 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
           }
         } catch { /* fallback to other statement sources */ }
 
-        // 2C. UCS legacy statementUCSAction
-        if (!requestedFunds || requestedFunds.has('UCS')) {
-          const ucsUrl = 'https://eclaim.nhso.go.th/webComponent/ucs/statementUCSAction.do?dynamicMenuFunctionUnitId=1578';
+        // 2D. New e-Claim Client portal Statement (/Client/service/download-statement) — run LAST with tighter timeouts
+        if (!scrapedClientStatement) {
+          scrapedClientStatement = true;
+          const clientStmUrl = 'https://eclaim.nhso.go.th/Client/service/download-statement';
           try {
-            await page.goto(ucsUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-            await page.waitForTimeout(450);
-            pageTitle = await page.title().catch(() => '');
-            if (!(await isLegacyErrorPage(pageTitle))) {
-              await selectYearAndMonthOnPage(yearBE, yearCE, monthNum, monthTh);
-              const statementFiles = await scrapeFilesAcrossPages(period);
-              for (const file of statementFiles) {
-                const fname = String(file.filename || '');
-                const cells = Array.isArray(file.cells) ? (file.cells as string[]) : [];
-                periodFiles.push({
-                  ...file,
-                  period: inferPeriodFromFilenameOrCells(fname, cells, period),
-                  detectedType: 'STM',
-                  forceImportType: 'STM',
-                  fund: inferFundFromFilenameOrRow(fname, cells, 'UCS'),
+            await page.goto(clientStmUrl, { waitUntil: 'domcontentloaded', timeout: 12000 }).catch(() => undefined);
+            await page.waitForTimeout(1000);
+            const currentClientUrl = page.url().toLowerCase();
+            if (!/login|sso|auth/.test(currentClientUrl)) {
+              const hasSearchBtn = await page.waitForFunction(() => {
+                const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, input[type="button"], input[type="submit"], .btn, a'));
+                return buttons.some((b) => {
+                  const txt = (b.textContent || '').trim();
+                  const val = (b.getAttribute('value') || '').trim();
+                  return txt === 'ค้นหา' || val === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง'));
                 });
-              }
-              debugLog.push({ period, url: ucsUrl, title: pageTitle, rowCount: statementFiles.length, htmlSnippet: '' });
-              usedUrl = ucsUrl;
-            }
-          } catch { /* ignore */ }
-        }
+              }, { timeout: 3000 }).then(() => true).catch(() => false);
 
-        // 2D. FinanceReportMainWebAction across all requested funds (LGO, SSS, BKK, OFC, UCS)
-        await scrapeFinanceReportForFunds('STM');
+              if (hasSearchBtn) {
+                await page.evaluate(() => {
+                  const buttons = Array.from(document.querySelectorAll<HTMLElement>('button, input[type="button"], input[type="submit"], .btn, a'));
+                  const searchBtn = buttons.find((b) => {
+                    const txt = (b.textContent || '').trim();
+                    const val = (b.getAttribute('value') || '').trim();
+                    return txt === 'ค้นหา' || val === 'ค้นหา' || (txt.includes('ค้นหา') && !txt.includes('ล้าง'));
+                  });
+                  if (searchBtn) searchBtn.click();
+                }).catch(() => undefined);
+                await page.waitForTimeout(1800);
+
+                const clientStmPages = Math.min(maxPages, 5);
+                for (let cp = 1; cp <= clientStmPages; cp += 1) {
+                  const clientRows = await page.evaluate(() => {
+                    const tableRows = Array.from(document.querySelectorAll('table tbody tr'));
+                    return tableRows.map((tr) => {
+                      const cells = Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent || '').trim());
+                      const text = cells.join(' ');
+                      if (cells.length <= 1 || text.includes('ไม่มีข้อมูล')) return null;
+                      const rawFileName = cells.find((c) => /\.(xlsx?|zip|csv|ecd)/i.test(c))
+                        || cells.find((c) => /(?:STM|SIGNSTM|COCD|SOCD|FOCD|\d{5}_)/i.test(c))
+                        || cells[0]
+                        || '';
+                      const dlAnchor = Array.from(tr.querySelectorAll<HTMLElement>('a, button')).find((el) => {
+                        const t = (el.textContent || '').toLowerCase();
+                        const title = (el.getAttribute('title') || '').toLowerCase();
+                        return t.includes('download') || t.includes('ดาวน์โหลด') || t.includes('excel') || title.includes('download') || title.includes('excel');
+                      }) || tr.querySelector('td:nth-last-child(1) a, td:nth-last-child(1) button');
+                      return {
+                        rawFileName,
+                        cells,
+                        href: (dlAnchor as HTMLAnchorElement)?.href || '',
+                        onclick: dlAnchor?.getAttribute('onclick') || '',
+                      };
+                    }).filter(Boolean);
+                  }).catch(() => []);
+
+                  for (const item of clientRows as Array<{ rawFileName: string; cells: string[]; href: string; onclick: string }>) {
+                    const base = (item.rawFileName || 'STM_CLIENT.xls').replace(/\.ecd$/i, '.xls');
+                    const inferredFund = inferFundFromFilenameOrRow(base, item.cells, 'UCS');
+                    cachedClientStatementFiles.push({
+                      filename: base,
+                      downloadHref: item.href,
+                      downloadOnclick: item.onclick,
+                      detectedType: 'STM',
+                      period: inferPeriodFromFilenameOrCells(base, item.cells, period),
+                      fund: inferredFund,
+                      cells: item.cells,
+                      sourcePage: clientStmUrl,
+                    });
+                  }
+
+                  if (cp < clientStmPages) {
+                    const movedNext = await page.evaluate(() => {
+                      const antNext = document.querySelector<HTMLElement>('.ant-pagination-next:not(.ant-pagination-disabled)');
+                      if (antNext) {
+                        ((antNext.querySelector('button, a') as HTMLElement) || antNext).click();
+                        return true;
+                      }
+                      return false;
+                    }).catch(() => false);
+                    if (movedNext) {
+                      await page.waitForTimeout(1400);
+                    } else {
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          } catch { /* fallback / ignore client statement timeout */ }
+        }
+        for (const cachedFile of cachedClientStatementFiles) {
+          const cfFund = String(cachedFile.fund || '').toUpperCase();
+          if (requestedFunds && cfFund && !requestedFunds.has(cfFund)) continue;
+          periodFiles.push(cachedFile);
+        }
       }
 
       // --- Strategy 3: REP ทุกสิทธิ (ValidationMainAction / RepAction) ---
@@ -8126,6 +8185,15 @@ app.post('/api/nhso-eclaim/browser-search', async (req, res) => {
         importedAt: match?.created_at || null,
       };
     });
+
+    const fundCounts = enrichedFiles.reduce<Record<string, number>>((acc, item) => {
+      const f = String((item as Record<string, unknown>).fund || 'UNKNOWN').toUpperCase();
+      acc[f] = (acc[f] || 0) + 1;
+      return acc;
+    }, {});
+    console.log(
+      `[eclaim-search] summary periods=${periods.join(',')} fileType=${fileType} total=${enrichedFiles.length} new=${newCount} existing=${existingCount} funds=${JSON.stringify(fundCounts)}`
+    );
 
     return res.json({
       success: true,
